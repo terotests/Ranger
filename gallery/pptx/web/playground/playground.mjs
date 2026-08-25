@@ -14,7 +14,7 @@
  * a page that generated with one copy of the code and drew with another could
  * show a slide no reader would ever get.
  */
-import { attachPointer, attachKeys, createMediaCache } from "./host/pptx-host.mjs";
+import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback }
   from "./gl/evg-webgl.js";
 
@@ -69,7 +69,28 @@ async function registerBrowserFaces(bytes) {
   }));
 }
 
-const PRESETS = {
+/**
+ * The examples, in two sets.
+ *
+ * `BLANK` builds a deck out of nothing, which is what this page has always
+ * shown. `OPENED` is the other half of the API and the harder half to believe:
+ * it takes a .pptx the reader chose off their own disk, opens it, changes it,
+ * and saves it back. Nothing about that is simulated — `Source` below is the
+ * bytes of their file, `Pptx.open` is the published call, and the editor on
+ * the right opens the SAVED bytes, so anything you see there survived the
+ * round trip through the package writer.
+ *
+ * Which set is offered depends on whether a file is loaded, because an example
+ * that says `Pptx.open(Source)` is a confusing thing to hand somebody who has
+ * not opened anything.
+ *
+ * WHY `save()` AND NOT `saveNew()`. A deck that was opened writes back OVER
+ * its original package — see `PptxApi.save`. Parts this model has never heard
+ * of travel through untouched, which is what makes editing somebody's real
+ * deck a safe thing to do rather than a re-creation of the parts we happen to
+ * understand.
+ */
+const BLANK = {
   "A title slide": `// The deck is yours to build. \`Pptx\` and \`Renderer\` are in scope.
 const deck = Pptx.create();
 const slide = deck.addSlide().background("FFFFFF");
@@ -379,8 +400,144 @@ slide.addTextBox(80, 230, 800, 60, "Arabic is shaped and reordered before it is 
 return deck;`,
 };
 
+/**
+ * Examples that work on the file the reader opened.
+ *
+ * Each one ends by returning the deck, the same as every other example, so the
+ * page saves it and the editor opens the result. `log()` prints into the pane
+ * under the code as well as to the browser console.
+ */
+const OPENED = {
+  "What is in this deck?": `// Nothing is changed here — this only READS the file you opened, and
+// prints what it found. \`Source\` is the bytes of that file.
+const deck = Pptx.open(Source);
+
+log(\`\${deck.slideCount} slide(s), \${deck.width} x \${deck.height} pt\`);
+
+for (let i = 0; i < deck.slideCount; i++) {
+  const slide = deck.slide(i);
+  log(\`  slide \${i + 1}: \${slide.shapeCount} shape(s)\`);
+}
+
+// The deck is returned unchanged, so the editor on the right shows the file
+// exactly as it arrived — saved back through the writer on the way.
+return deck;`,
+
+  "List every element": `// Every shape on every slide: what it is called, what it is, where it sits
+// and what it says. This is the whole read side of the API in one loop.
+const deck = Pptx.open(Source);
+
+for (let i = 0; i < deck.slideCount; i++) {
+  const slide = deck.slide(i);
+  log(\`slide \${i + 1} — \${slide.shapeCount} shape(s)\`);
+  for (let k = 0; k < slide.shapeCount; k++) {
+    const s = slide.shape(k);
+    const box = \`\${Math.round(s.x)},\${Math.round(s.y)} \${Math.round(s.width)}x\${Math.round(s.height)}\`;
+    const said = s.text ? JSON.stringify(s.text.slice(0, 48)) : "(no text)";
+    log(\`  [\${k}] \${s.name || "(unnamed)"}  \${s.preset || "custom"}  \${box}  \${said}\`);
+  }
+}
+
+return deck;`,
+
+  "Retitle the first slide": `// The title is the biggest text box near the top — a deck does not have to
+// name it "Title", so this finds it rather than trusting a name. Change the
+// text below and press Run again.
+const NEW_TITLE = "Edited in the browser";
+
+const deck = Pptx.open(Source);
+if (deck.slideCount === 0) throw new Error("that deck has no slides");
+const slide = deck.slide(0);
+
+let best = null, bestArea = 0;
+for (let k = 0; k < slide.shapeCount; k++) {
+  const s = slide.shape(k);
+  if (!s.text) continue;
+  if (s.y > slide.height * 0.5) continue;      // not in the top half: not a title
+  const area = s.width * s.height;
+  if (area > bestArea) { best = s; bestArea = area; }
+}
+
+if (!best) {
+  log("no text in the top half of slide 1 — adding a title instead");
+  best = slide.addTextBox(60, 50, slide.width - 120, 70, NEW_TITLE);
+} else {
+  log(\`was: \${JSON.stringify(best.text)}\`);
+  best.setText(NEW_TITLE);
+  log(\`now: \${JSON.stringify(best.text)}\`);
+}
+
+return deck;`,
+
+  "Stamp every slide": `// Add the same line to the foot of every slide — the sort of thing you do to
+// a deck somebody else made. Everything already on the slides is left alone.
+const STAMP = "Reviewed — opened, edited and saved by @ranger/pptx";
+
+const deck = Pptx.open(Source);
+for (let i = 0; i < deck.slideCount; i++) {
+  const slide = deck.slide(i);
+  slide.addTextBox(40, slide.height - 34, slide.width - 80, 22, STAMP)
+       .setName("stamp")
+       .run(0, 0).font("Calibri", 9).color("#8A94A6");
+}
+log(\`stamped \${deck.slideCount} slide(s)\`);
+
+return deck;`,
+
+  "Add a slide at the end": `// A new slide appended to a deck that already exists — the two halves of the
+// API in one example.
+const deck = Pptx.open(Source);
+const before = deck.slideCount;
+
+const slide = deck.addSlide().background("FFFFFF");
+slide.addTextBox(60, 90, deck.width - 120, 80, "Added to your deck")
+     .run(0, 0).font("Calibri", 34).bold().color("#1F3864");
+slide.addTextBox(60, 190, deck.width - 120, 60,
+       \`This deck had \${before} slide(s) when it was opened.\`)
+     .run(0, 0).font("Calibri", 14).color("#5A6B82");
+
+log(\`\${before} slide(s) in, \${deck.slideCount} out\`);
+
+return deck;`,
+
+  "Save it back untouched": `// The plainest proof there is: open the file and save it, changing nothing.
+// What the editor draws on the right came out of the writer, not out of the
+// bytes you picked — and it is still your deck, because a deck that was
+// OPENED is written back over its own package rather than rebuilt from the
+// parts this model happens to understand.
+const deck = Pptx.open(Source);
+log(\`\${deck.slideCount} slide(s) in, \${deck.slideCount} slide(s) out\`);
+return deck;`,
+};
+
 let web = null, renderer = null, deckBytes = null;
 let lastScene = "", slideIndex = 0, slideCount = 0;
+
+/**
+ * The .pptx the reader opened, if they opened one.
+ *
+ * Held as bytes rather than as an open deck on purpose: every Run starts from
+ * the ORIGINAL file. An example that stamped every slide would otherwise stamp
+ * them again on the second press, and the reader would be looking at the
+ * output of their last run without being told.
+ */
+let sourceBytes = null, sourceName = "";
+
+/** What the code printed. Cleared at the start of every run. */
+const logEl = () => $("log");
+function clearLog() { logEl().textContent = ""; }
+function say(text, bad) {
+  const line = document.createElement(bad ? "span" : "span");
+  if (bad) line.className = "err";
+  line.textContent = text + "\n";
+  logEl().appendChild(line);
+  logEl().scrollTop = logEl().scrollHeight;
+}
+/** `console.log` in an example, in the words the example used. */
+const printable = (v) =>
+  typeof v === "string" ? v
+  : v instanceof Error ? v.message
+  : (() => { try { return JSON.stringify(v); } catch { return String(v); } })();
 
 function fail(message) {
   statusEl.className = "bad";
@@ -400,10 +557,13 @@ const sceneSize = () => ({ width: sceneW, height: sceneH });
 
 async function draw() {
   if (!web) return;
-  const text = web.scene();
-  if (text === lastScene) return;
-  lastScene = text;
-  const doc = JSON.parse(text);
+  // Typed arrays rather than JSON — see `decodeScene` in the host module. The
+  // frame is told from the one before it by `sceneStamp`, because there is no
+  // string left to compare.
+  const doc = decodeScene(web.sceneBinary());
+  const stamp = sceneStamp(doc);
+  if (stamp === lastScene) return;
+  lastScene = stamp;
   sceneW = doc.width;
   sceneH = doc.height;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -423,7 +583,10 @@ async function draw() {
 
 async function showDeck(bytes) {
   deckBytes = bytes;
-  if (!web.openDeck(toRanger(bytes), "playground.pptx")) {
+  // Under the name the reader knows it by, when there is one. The editor puts
+  // that name in its own status bar, and "playground.pptx" beside a deck they
+  // opened off their disk reads as a different file.
+  if (!web.openDeck(toRanger(bytes), sourceName || "playground.pptx")) {
     return fail("the editor could not open the bytes the API produced: " + web.note);
   }
   // The deck's own pictures, straight off the model — nothing is fetched.
@@ -492,17 +655,47 @@ function attachEditor() {
   });
 }
 
-/** Run the reader's code. It returns a Deck; anything else is a mistake worth naming. */
+/**
+ * Run the reader's code. It returns a Deck; anything else is a mistake worth
+ * naming.
+ *
+ * Nothing runs on its own any more — not on load, not when the example is
+ * changed. An example that opens the reader's file and edits it is not a thing
+ * to do behind their back, and once one example needs a button the rest may as
+ * well need the same one.
+ *
+ * `Source` is the bytes of the file the reader opened, and it is the ORIGINAL
+ * bytes every time — the output of a run is never written back over them. An
+ * example that stamps every slide therefore stamps them once however often it
+ * is pressed, instead of the reader silently editing the result of their last
+ * press. The smoke test presses Run twice and counts the stamps.
+ */
 function run() {
+  clearLog();
   let deck;
+  // `console.log` from inside the example reaches the pane under the code as
+  // well as the browser's console. A page that answers "how many slides?" only
+  // in devtools has not answered it.
+  const real = { log: console.log, warn: console.warn, error: console.error };
+  const tee = (fn, bad) => (...args) => {
+    say(args.map(printable).join(" "), bad);
+    fn.apply(console, args);
+  };
+  console.log = tee(real.log, false);
+  console.warn = tee(real.warn, false);
+  console.error = tee(real.error, true);
   try {
-    const fn = new Function("Pptx", "Renderer", "Chart", '"use strict";\n' + $("code").value);
-    deck = fn(JsApi, renderer, Chart);
+    const fn = new Function("Pptx", "Renderer", "Chart", "Source", "log",
+                            '"use strict";\n' + $("code").value);
+    const source = sourceBytes;
+    deck = fn(JsApi, renderer, Chart, source, (...a) => say(a.map(printable).join(" "), false));
   } catch (err) {
     return fail("the code threw: " + (err && err.message ? err.message : String(err)));
+  } finally {
+    Object.assign(console, real);
   }
   if (!deck || typeof deck.save !== "function") {
-    return fail("the code has to `return` a deck — the last line of every preset does.");
+    return fail("the code has to `return` a deck — the last line of every example does.");
   }
   let bytes;
   try {
@@ -512,9 +705,12 @@ function run() {
   }
   showDeck(bytes).then(() => {
     statusEl.className = "good";
+    const from = sourceBytes
+      ? `${sourceName} (${sourceBytes.length.toLocaleString()} bytes) → `
+      : "";
     statusEl.textContent =
-      `${slideCount} slide(s), ${bytes.length.toLocaleString()} bytes — opened from the file, `
-      + `not from the model in memory.`;
+      `${from}${slideCount} slide(s), ${bytes.length.toLocaleString()} bytes — opened from the `
+      + `file the code produced, not from the model in memory.`;
   });
 }
 
@@ -635,6 +831,32 @@ const JsApi = {
   },
 };
 
+/**
+ * The deck as it stands, which is not the same as the deck the code produced.
+ *
+ * The editor on the right is LIVE: drag a shape, type in one, insert one, and
+ * the deck has changed — in the editor. `deckBytes` is the output of the last
+ * Run and knows nothing about any of it, so exporting from it silently threw
+ * away everything the reader had done by hand. Download, PNG and PDF all ask
+ * the editor instead, and the editor is the thing they were looking at.
+ *
+ * `saveBytes` answers an ArrayBuffer; the callers want bytes.
+ */
+function currentBytes() {
+  if (web) {
+    try {
+      const raw = web.saveBytes();
+      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw || []);
+      if (bytes.length > 0) return bytes;
+    } catch (err) {
+      // An editor with nothing open cannot save, which is not a failure worth
+      // a message — fall through to whatever the last Run produced.
+      console.warn("the editor could not save; exporting the last run instead:", err);
+    }
+  }
+  return deckBytes;
+}
+
 function saveFile(name, bytes, mime) {
   const blob = new Blob([bytes], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -672,14 +894,85 @@ async function boot() {
     }
   } catch (e) { console.warn("preset shapes unavailable:", e); }
 
+  // ---- the examples, and which set is on offer -------------------------
+  // Changing the example loads its code and stops. It does not run: see the
+  // banner on `run`.
   const select = $("preset");
-  for (const name of Object.keys(PRESETS)) {
-    const opt = document.createElement("option");
-    opt.value = name; opt.textContent = name;
-    select.appendChild(opt);
+  function offer(table) {
+    select.textContent = "";
+    for (const name of Object.keys(table)) {
+      const opt = document.createElement("option");
+      opt.value = name; opt.textContent = name;
+      select.appendChild(opt);
+    }
+    const first = Object.keys(table)[0];
+    select.value = first;
+    $("code").value = table[first];
   }
-  select.addEventListener("change", () => { $("code").value = PRESETS[select.value]; run(); });
-  $("code").value = PRESETS[Object.keys(PRESETS)[0]];
+  const table = () => (sourceBytes ? OPENED : BLANK);
+  select.addEventListener("change", () => { $("code").value = table()[select.value]; });
+  offer(BLANK);
+
+  // ---- the file the examples work on -----------------------------------
+  // Read here and nowhere else: there is no server behind this page and the
+  // bytes never leave the tab. Opening a file switches the example list and
+  // shows the deck as it arrived, so the reader can see what they picked
+  // BEFORE any example has touched it.
+  const sourceEl = $("source");
+  function saySource() {
+    if (sourceBytes) {
+      sourceEl.className = "loaded";
+      sourceEl.textContent =
+        `${sourceName} · ${sourceBytes.length.toLocaleString()} bytes — the examples open and edit this`;
+    } else {
+      sourceEl.className = "";
+      sourceEl.textContent = "no file — the examples build a deck from nothing";
+    }
+  }
+  $("file").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    let bytes;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+    } catch (err) {
+      return fail("could not read " + file.name + ": " + err.message);
+    }
+    // Openable at all? Say so now rather than inside somebody's first Run.
+    try {
+      const probe = JsApi.open(bytes.slice());
+      sourceBytes = bytes;
+      sourceName = file.name;
+      saySource();
+      offer(OPENED);
+      clearLog();
+      say(`${file.name}: ${probe.slideCount} slide(s), ${probe.width} x ${probe.height} pt`);
+      say("the examples now open THIS file — press Run");
+      await showDeck(bytes.slice());
+      statusEl.className = "";
+      statusEl.textContent = `${file.name} — ${slideCount} slide(s), as it arrived. Press Run to change it.`;
+    } catch (err) {
+      fail("that is not a .pptx this build can open: " + (err && err.message ? err.message : String(err)));
+    }
+  });
+
+  // ---- and back to a blank page ----------------------------------------
+  $("clear").addEventListener("click", async () => {
+    sourceBytes = null;
+    sourceName = "";
+    $("file").value = "";           // or picking the same file again is a no-op
+    saySource();
+    offer(BLANK);
+    clearLog();
+    // An empty deck in the editor, so nothing of the old file is left on
+    // screen to be mistaken for something still loaded.
+    const empty = JsApi.create();
+    empty.addSlide().background("FFFFFF");
+    await showDeck(empty.save());
+    statusEl.className = "";
+    statusEl.textContent = "cleared — the examples build a deck from nothing again. Press Run.";
+  });
+  saySource();
 
   $("run").addEventListener("click", run);
   $("prev").addEventListener("click", () => step(-1));
@@ -688,25 +981,40 @@ async function boot() {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); run(); }
   });
   $("download").addEventListener("click", () => {
-    if (deckBytes) saveFile("playground.pptx", deckBytes,
+    // An edited deck comes back as `<name>-edited.pptx` rather than as
+    // "playground.pptx", so it does not land in the reader's downloads looking
+    // like something this page invented — and does not overwrite the original.
+    const name = sourceName
+      ? sourceName.replace(/\.pptx$/i, "") + "-edited.pptx"
+      : "playground.pptx";
+    const bytes = currentBytes();
+    if (bytes) saveFile(name, bytes,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation");
   });
   $("png").addEventListener("click", () => {
-    if (!deckBytes) return;
-    const d = PptxApi.open(toRanger(deckBytes));
+    const bytes = currentBytes();
+    if (!bytes) return;
+    const d = PptxApi.open(toRanger(bytes));
     const png = fromRanger(renderer.toPng(d, slideIndex, 2.0));
     if (png.length) saveFile(`slide-${slideIndex + 1}.png`, png, "image/png");
     else fail(renderer.error || "the slide could not be drawn");
   });
   $("pdf").addEventListener("click", () => {
-    if (!deckBytes) return;
-    const d = PptxApi.open(toRanger(deckBytes));
+    const bytes = currentBytes();
+    if (!bytes) return;
+    const d = PptxApi.open(toRanger(bytes));
     const pdf = fromRanger(renderer.toPdfDeck(d));
     if (pdf.length) saveFile("playground.pdf", pdf, "application/pdf");
     else fail(renderer.error || "the deck could not be printed");
   });
 
-  run();
+  // Nothing runs on load. The editor is given an empty deck so the pane is a
+  // slide rather than a blank canvas, and the first Run is the reader's.
+  const empty = JsApi.create();
+  empty.addSlide().background("FFFFFF");
+  await showDeck(empty.save());
+  statusEl.className = "";
+  statusEl.textContent = "ready — press Run, or open a .pptx to edit one you already have.";
   window.__playgroundReady = true;
 }
 
@@ -716,3 +1024,22 @@ window.__runPlayground = run;
 // rather than inferring what happened from pixels.
 window.__jsApi = JsApi;
 window.__chart = Chart;
+// The example tables and the opened file, so a test can ask the page what it
+// is offering and what it is holding instead of scraping the DOM for it.
+window.__examples = { BLANK, OPENED };
+window.__source = () => (sourceBytes ? { name: sourceName, length: sourceBytes.length } : null);
+window.__log = () => document.getElementById("log").textContent;
+// The bytes the RUN produced — the API's own output, before the editor has
+// opened and re-saved them. A test that asks the editor for them is measuring
+// the editor's writer instead.
+window.__deckBytes = () => (deckBytes ? Array.from(deckBytes) : null);
+// Hand the page a file without a real file dialog, which nothing can drive.
+// This is the same path the picker takes, minus the picker.
+window.__openSource = async (bytes, name) => {
+  const dt = new DataTransfer();
+  dt.items.add(new File([bytes], name || "test.pptx",
+    { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
+  const input = document.getElementById("file");
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change"));
+};

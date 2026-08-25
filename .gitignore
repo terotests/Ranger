@@ -138,6 +138,11 @@ gallery/office/docs/dist/
 gallery/pptx/web/playground/dist/
 gallery/pptx/web/playground/.stage/
 
+# The WebAssembly build: the generated C++, the Emscripten output and the
+# assembled page. All three come out of gallery/pptx/web/wasm/build.sh.
+gallery/pptx/web/wasm/build/
+gallery/pptx/web/wasm/dist/
+
 # Compiled CSS core tests.
 gallery/css/bin/
 

@@ -360,21 +360,30 @@ object through `shared_from_this()`, and inside a constructor there is no
 shared pointer yet, so the SDL book editor died on `std::bad_weak_ptr` after
 printing its banner and before drawing anything.
 
-This is the same defect as §14, in a different file, found the same way — by
-running the native binary. Nothing else can find it: the browser build, the
-Node tests and the twelve other targets are all fine.
+This is the same defect as §14, in a different file. It is worse than §14
+because it is not only C++: **every backend that owns objects by reference
+count rejects it.** The WebAssembly build threw the same `bad_weak_ptr` the
+moment anything opened, and the Rust backend refuses to emit the call at all.
+JavaScript happens to work, which is why it shipped.
 
-The table is built as a plain list now and assigned:
+Two people found it independently and in different ways — one by running the
+native book editor, one by building the deck editor to WebAssembly — and the
+fix that landed is the lazy one, because it is the smaller change: the
+constructor does nothing and an `ensure()` guarded by a flag fills the table on
+first use. `count`, `find` and the four other methods that read `entries`
+directly call it; the rest reach them through `find`.
 
-```
-Constructor () {
-    entries = (OfficeShapeCatalog.build())
-}
-```
+That has two consequences worth naming, both caught by assertions rather than
+by reading. `OfficeShapePicker.refresh` read `cat.entries` past the methods and
+so saw an empty list — it asks `cat.all()` now. And `OfficeEmojiShapes.fill`
+APPENDS, so built lazily an append before first use lands *ahead* of the 187,
+and `arc` stops being the first thing a picker shows; it calls `ensure()`
+first, and so does the generator that writes it.
 
 **And there is a test for it this time.** `npm run office:shapes:native` builds
 the catalogue and uses it on JavaScript *and* on C++, because the whole point
-is that the two disagree. The main suite cannot do this — it imports both
+is that the two disagree. It asserts behaviour rather than shape, so it holds
+whichever way the constructor is fixed. The main suite cannot do this — it imports both
 editors, and compiling the whole book and the whole deck to C++ is more than a
 constructor check is worth — so the native half is a separate, small file. It
 does not merely construct the catalogue: a `build` that quietly returned

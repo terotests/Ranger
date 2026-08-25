@@ -447,6 +447,10 @@ class EmojiShapes {
         out = (out + "        return e\n")
         out = (out + "    }\n\n")
         out = (out + "    sfn fill:void (c:OfficeShapeCatalog) {\n")
+        ; The base catalogue FIRST — see the same comment in the generated
+        ; file. `OfficeShapeCatalog` builds its entries on first use, so an
+        ; append before that would come out ahead of them.
+        out = (out + "        c.ensure()\n")
         return out
     }
 

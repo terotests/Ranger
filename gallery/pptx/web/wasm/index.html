@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- A phone otherwise pretends to be 980px wide and scales the result
+         down, which makes an editor whose buttons are already 30px into one
+         whose buttons are 12. `viewport-fit=cover` puts the page under the
+         notch; the safe-area insets below keep the chrome out from under it. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#14171c" />
+    <title>Ranger PPTX (WebAssembly) — the same editor, compiled through C++</title>
+    <meta name="description" content="The Ranger PPTX editor compiled Ranger → C++ → WebAssembly. Same page, same sources, a different backend — published beside the JavaScript build so the two can be compared." />
+    <style>
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+      :root { --ink: #1a1f2b; --muted: #5c6b80; --accent: #b4451f; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%;
+        background: linear-gradient(180deg, #23272f 0%, #14171c 100%);
+        color: #e8ecf2;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body { display: grid; place-items: start center; padding: 24px; }
+      .stage { width: min(1120px, 100%); }
+      h1 { margin: 0 0 6px; font-size: 1.3rem; font-weight: 650; }
+      p.hint { margin: 0 0 14px; color: #9fb0c4; font-size: 0.9rem; }
+      .frame { background: #0d1014; border: 1px solid #333a44; padding: 10px; box-shadow: 0 18px 46px rgba(0,0,0,0.5); }
+      canvas { display: block; width: 100%; height: auto; background: #fff; outline: none;
+               /* A drag on a canvas is a drag of a SHAPE. Without this the
+                  browser claims it first and scrolls the page instead, which
+                  makes the editor unusable with a finger — the one input it
+                  was most obviously missing. */
+               touch-action: none; }
+      /* Small screens: the page is the app. The prose folds into a summary,
+         the frame loses its margins, and the canvas takes the height that is
+         left rather than a ratio of its width. These are the SAME
+         breakpoints the app's own chrome uses (see PptxApp.defaultChromeCss)
+         — two definitions of "phone" that disagree is a chrome that folds
+         while the page around it does not. */
+      @media (max-width: 900px) {
+        body { padding: 0; }
+        .stage { width: 100%; display: flex; flex-direction: column;
+                 height: 100dvh; height: 100svh; }
+        h1 { display: none; }
+        .frame { border: 0; padding: 0; box-shadow: none; flex: 1 1 auto; min-height: 0;
+                 padding-top: env(safe-area-inset-top); }
+        canvas { height: 100%; }
+        .bar { padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+               gap: 8px; font-size: 0.78rem; }
+        details.about { padding: 8px 12px; }
+      }
+      @media (pointer: coarse) {
+        button { padding: 9px 14px; min-height: 44px; }
+        input[type="file"] { min-height: 44px; }
+      }
+      .siteline { margin: 0 0 10px; font-size: 0.82rem; color: #6f7f93; }
+      .siteline a { color: #9fb0c4; }
+      @media (max-width: 900px) { .siteline { display: none; } }
+      details.about { color: #9fb0c4; font-size: 0.9rem; margin: 0 0 14px; }
+      details.about summary { cursor: pointer; color: #ffb27a; }
+      /* Where a phone's own keyboard types.
+         Inside the viewport, not off screen: iOS will not raise a keyboard
+         for a field it considers outside the page, so `left: -9999px` looked
+         right and did nothing. Invisible instead — no size to speak of, no
+         paint, and behind everything.
+         `font-size: 16px` is not a style choice: iOS zooms the whole page in
+         when a field smaller than that takes focus, and the reader is then
+         looking at a slide four times too big with no obvious way back. */
+      #softkeys { position: fixed; left: 0; top: 0; width: 1px; height: 1px;
+                  opacity: 0; z-index: -1; border: 0; padding: 0; margin: 0;
+                  font-size: 16px; background: transparent; color: transparent;
+                  caret-color: transparent; }
+      /* Print: the slides, one to a page, and nothing else. `hidden` keeps
+         the container out of the way on screen; the print sheet takes it
+         back and hides everything around it instead. */
+      #printout { display: none; }
+      @media print {
+        html, body { background: #fff; color: #000; padding: 0; margin: 0; height: auto; }
+        .stage, .bar, details.about, .siteline, h1 { display: none !important; }
+        #printout { display: block !important; }
+        #printout img { display: block; width: 100%; height: auto; break-after: page;
+                        page-break-after: always; }
+        #printout img:last-child { break-after: auto; page-break-after: auto; }
+        /* A 16:9 slide wastes most of a portrait page. */
+        @page { size: landscape; margin: 10mm; }
+      }
+      .bar { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: #9fb0c4; font-size: 0.82rem; align-items: center; }
+      .bar strong { color: #ffb27a; font-weight: 600; }
+      button { font: inherit; font-size: 0.82rem; padding: 3px 10px; background: #2a3039; color: #e8ecf2; border: 1px solid #3d4550; cursor: pointer; }
+      input[type="file"] { font-size: 0.78rem; color: #9fb0c4; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>Ranger PPTX · WebAssembly</h1>
+      <p class="siteline"><a href="../">Ranger</a> · <a href="../pptx/">the same editor in JavaScript</a> · <a href="../office/">API playground</a> · <a href="../docs/">Docs</a></p>
+      <details class="about">
+        <summary>What this is</summary>
+        <p class="hint">
+        The same editor as <a href="../pptx/">the JavaScript page</a>, from the
+        same source file, compiled the other way: Ranger →
+        <strong>C++ → WebAssembly</strong> (Emscripten) instead of Ranger →
+        JavaScript. Not a port — <code>gallery/pptx/web/pptx_web.rgr</code> is
+        one file and both pages are built from it, and even the page you are
+        reading is the standalone editor's own <code>standalone.mjs</code>,
+        unchanged. The only hand-written part of this build is the ~200 lines
+        that carry values across the WebAssembly boundary.
+        </p>
+        <p class="hint">
+        Which means the two pages differ in exactly one thing — the engine —
+        and can be compared. The frame crosses without a copy: the display
+        list is read as typed-array views straight onto the WebAssembly heap,
+        the same shape the JavaScript build hands over.
+        </p>
+        <p class="hint">
+        Everything else is the standalone editor: click a shape to pick it up,
+        drag a handle to resize, the handle above it to turn it, F2 to type,
+        Ctrl+Z to take it back. The deck is read in this page and never
+        uploaded.
+        </p>
+      </details>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="1000" height="600"></canvas>
+        <input id="softkeys" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-hidden="true" tabindex="-1" />
+      </div>
+      <div class="bar">
+        <button type="button" id="prev">◀ Prev</button>
+        <span>slide <strong id="slide">—</strong></span>
+        <button type="button" id="next">Next ▶</button>
+        <span>status: <strong id="status">starting…</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
+        <!-- Which build this is: the hash build.sh put on every file the
+             page loads. A page that looks unfixed is usually a page the
+             browser kept from last time. -->
+        <span>build: <strong id="build">__BUILD__</strong></span>
+        <button type="button" id="png">Export PNG</button>
+        <button type="button" id="print">Print / PDF</button>
+        <label>open a .pptx <input id="file" type="file" accept=".pptx" /></label>
+        <input id="image" type="file" accept="image/png,image/jpeg" hidden />
+      </div>
+    </div>
+    <!-- The engine, as WebAssembly. `standalone.mjs` asks for a global class
+         called `PptxWeb` the moment it runs, and a WASM module is not ready
+         synchronously — so it is installed first and the page module is
+         imported only after. A failure here is loud on purpose: a page whose
+         engine did not load looks exactly like one whose engine did not
+         compile, and both look fine until someone opens them. -->
+    <script type="module">
+      import { installPptxWeb } from "./wasm-host.mjs?v=__BUILD__";
+      try {
+        await installPptxWeb();
+        await import("./standalone.mjs?v=__BUILD__");
+      } catch (err) {
+        const box = document.createElement("pre");
+        box.style.cssText =
+          "margin:14px 0;padding:14px;background:#2b1d1d;color:#ffd9d9;border:1px solid #a33;" +
+          "white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace";
+        box.textContent =
+          "the WebAssembly engine did not start:\n\n" + (err && err.stack ? err.stack : String(err)) +
+          "\n\nThis page needs its built form:\n\n    npm run pptx:wasm\n\n" +
+          "Then serve the dist/ directory it writes.";
+        document.body.prepend(box);
+        const s = document.getElementById("status");
+        if (s) s.textContent = "no engine \u2014 see below";
+      }
+    </script>
+    <!-- Where the slides go when the reader prints. Empty and hidden until
+         then; one image per page. Drawn rather than printed from the screen,
+         because what is on screen is the EDITOR — panel, handles, dark
+         chrome — and none of that belongs on paper. -->
+    <div id="printout" aria-hidden="true"></div>
+  </body>
+</html>

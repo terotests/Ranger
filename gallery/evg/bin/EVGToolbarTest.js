@@ -474,6 +474,30 @@ EVGColor.parseNamed = function(name) {
   if ( lower == "brown" ) {
     return EVGColor.rgb(165, 42, 42);
   }
+  if ( lower == "navy" ) {
+    return EVGColor.rgb(0, 0, 128);
+  }
+  if ( lower == "teal" ) {
+    return EVGColor.rgb(0, 128, 128);
+  }
+  if ( lower == "olive" ) {
+    return EVGColor.rgb(128, 128, 0);
+  }
+  if ( lower == "maroon" ) {
+    return EVGColor.rgb(128, 0, 0);
+  }
+  if ( lower == "silver" ) {
+    return EVGColor.rgb(192, 192, 192);
+  }
+  if ( lower == "lime" ) {
+    return EVGColor.rgb(0, 255, 0);
+  }
+  if ( lower == "aqua" ) {
+    return EVGColor.rgb(0, 255, 255);
+  }
+  if ( lower == "fuchsia" ) {
+    return EVGColor.rgb(255, 0, 255);
+  }
   if ( lower == "transparent" ) {
     return EVGColor.transparent();
   }
@@ -2011,6 +2035,215 @@ EVGElement.splitSpaces = function(s) {
   }
   return out;
 };
+class EVGCodepoint  {
+  constructor() {
+  }
+}
+EVGCodepoint.breaksAfter = function(c) {
+  if ( (c == 45) || (c == 8208) ) {
+    return true;
+  }
+  if ( (c == 8211) || (c == 8212) ) {
+    return true;
+  }
+  if ( c == 47 ) {
+    return true;
+  }
+  return false;
+};
+EVGCodepoint.isSpace = function(c) {
+  if ( c == 32 ) {
+    return true;
+  }
+  if ( c == 9 ) {
+    return true;
+  }
+  return false;
+};
+EVGCodepoint.stringIsBytes = function() {
+  return ("ä".length) > 1;
+};
+EVGCodepoint.isHighSurrogate = function(u) {
+  return (u >= 55296) && (u <= 56319);
+};
+EVGCodepoint.isLowSurrogate = function(u) {
+  return (u >= 56320) && (u <= 57343);
+};
+EVGCodepoint.codeAt = function(s, i) {
+  const u = s.charCodeAt(i );
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return EVGCodepoint.utf8CodeAt(s, i, u);
+  }
+  if ( EVGCodepoint.isHighSurrogate(u) ) {
+    if ( (i + 1) < (s.length) ) {
+      const lo = s.charCodeAt((i + 1) );
+      if ( EVGCodepoint.isLowSurrogate(lo) ) {
+        return (((u - 55296) * 1024) + (lo - 56320)) + 65536;
+      }
+    }
+  }
+  return u;
+};
+EVGCodepoint.utf8CodeAt = function(s, i, u) {
+  const n = s.length;
+  if ( u < 128 ) {
+    return u;
+  }
+  if ( (u >= 192) && (u < 224) ) {
+    if ( (i + 1) < n ) {
+      const b1 = s.charCodeAt((i + 1) );
+      if ( EVGCodepoint.isUtf8Cont(b1) ) {
+        return ((u - 192) * 64) + (b1 - 128);
+      }
+    }
+    return u;
+  }
+  if ( (u >= 224) && (u < 240) ) {
+    if ( (i + 2) < n ) {
+      const c1 = s.charCodeAt((i + 1) );
+      const c2 = s.charCodeAt((i + 2) );
+      if ( EVGCodepoint.isUtf8Cont(c1) && EVGCodepoint.isUtf8Cont(c2) ) {
+        return (((u - 224) * 4096) + ((c1 - 128) * 64)) + (c2 - 128);
+      }
+    }
+    return u;
+  }
+  if ( (u >= 240) && (u < 248) ) {
+    if ( (i + 3) < n ) {
+      const d1 = s.charCodeAt((i + 1) );
+      const d2 = s.charCodeAt((i + 2) );
+      const d3 = s.charCodeAt((i + 3) );
+      if ( (EVGCodepoint.isUtf8Cont(d1) && EVGCodepoint.isUtf8Cont(d2)) && EVGCodepoint.isUtf8Cont(d3) ) {
+        return ((((u - 240) * 262144) + ((d1 - 128) * 4096)) + ((d2 - 128) * 64)) + (d3 - 128);
+      }
+    }
+    return u;
+  }
+  return u;
+};
+EVGCodepoint.isUtf8Cont = function(b) {
+  return (b >= 128) && (b < 192);
+};
+EVGCodepoint.utf8UnitsAt = function(s, i) {
+  const u = s.charCodeAt(i );
+  const n = s.length;
+  if ( u < 128 ) {
+    return 1;
+  }
+  if ( (u >= 192) && (u < 224) ) {
+    if ( (i + 1) < n ) {
+      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) ) {
+        return 2;
+      }
+    }
+    return 1;
+  }
+  if ( (u >= 224) && (u < 240) ) {
+    if ( (i + 2) < n ) {
+      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) && EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) ))) ) {
+        return 3;
+      }
+    }
+    return 1;
+  }
+  if ( (u >= 240) && (u < 248) ) {
+    if ( (i + 3) < n ) {
+      const e1 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) )));
+      const e2 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) )));
+      const e3 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 3) )));
+      if ( (e1 && e2) && e3 ) {
+        return 4;
+      }
+    }
+    return 1;
+  }
+  return 1;
+};
+EVGCodepoint.unitsAt = function(s, i) {
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return EVGCodepoint.utf8UnitsAt(s, i);
+  }
+  const u = s.charCodeAt(i );
+  if ( EVGCodepoint.isHighSurrogate(u) ) {
+    if ( (i + 1) < (s.length) ) {
+      if ( EVGCodepoint.isLowSurrogate((s.charCodeAt((i + 1) ))) ) {
+        return 2;
+      }
+    }
+  }
+  return 1;
+};
+EVGCodepoint.charCount = function(s) {
+  let n = 0;
+  let i = 0;
+  while (i < (s.length)) {
+    i = i + EVGCodepoint.unitsAt(s, i);
+    n = n + 1;
+  };
+  return n;
+};
+EVGCodepoint.count = function(s) {
+  let n = 0;
+  let i = 0;
+  while (i < (s.length)) {
+    i = i + EVGCodepoint.unitsAt(s, i);
+    n = n + 1;
+  };
+  return n;
+};
+EVGCodepoint.toArray = function(s) {
+  let out = [];
+  let i = 0;
+  while (i < (s.length)) {
+    out.push(EVGCodepoint.codeAt(s, i));
+    i = i + EVGCodepoint.unitsAt(s, i);
+  };
+  return out;
+};
+EVGCodepoint.toStr = function(cp) {
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return String.fromCharCode(cp);
+  }
+  if ( cp < 65536 ) {
+    return String.fromCharCode(cp);
+  }
+  const rel = cp - 65536;
+  const hi = 55296 + (Math.floor( (rel / 1024)));
+  const lo = 56320 + (rel % 1024);
+  return (String.fromCharCode(hi)) + (String.fromCharCode(lo));
+};
+EVGCodepoint.encodeUtf8 = function(s) {
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return s;
+  }
+  let out = "";
+  let i = 0;
+  while (i < (s.length)) {
+    const cp = EVGCodepoint.codeAt(s, i);
+    i = i + EVGCodepoint.unitsAt(s, i);
+    if ( cp < 128 ) {
+      out = out + (String.fromCharCode(cp));
+    } else {
+      if ( cp < 2048 ) {
+        out = out + (String.fromCharCode((192 + (Math.floor( (cp / 64))))));
+        out = out + (String.fromCharCode((128 + (cp % 64))));
+      } else {
+        if ( cp < 65536 ) {
+          out = out + (String.fromCharCode((224 + (Math.floor( (cp / 4096))))));
+          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
+          out = out + (String.fromCharCode((128 + (cp % 64))));
+        } else {
+          out = out + (String.fromCharCode((240 + (Math.floor( (cp / 262144))))));
+          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 4096))) % 64))));
+          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
+          out = out + (String.fromCharCode((128 + (cp % 64))));
+        }
+      }
+    }
+    continue;
+  };
+  return out;
+};
 class EVGTextMetrics  {
   constructor() {
     this.width = 0.0;
@@ -2083,6 +2316,7 @@ class EVGTextMeasurer  {
     let currentLine = "";
     let currentWidth = 0.0;
     let wordStart = 0;
+    let joiner = " ";
     const textLen = text.length;
     let i = 0;
     while (i <= textLen) {
@@ -2101,19 +2335,34 @@ class EVGTextMeasurer  {
       if ( ch == 10 ) {
         isWordEnd = true;
       }
+      let hyphen = false;
+      if ( isEnd == false ) {
+        if ( EVGCodepoint.breaksAfter(ch) ) {
+          if ( i > wordStart ) {
+            isWordEnd = true;
+            hyphen = true;
+          }
+        }
+      }
       if ( isWordEnd ) {
+        let wordEnd = i;
+        if ( hyphen ) {
+          wordEnd = i + 1;
+        }
         let word = "";
-        if ( i > wordStart ) {
-          word = text.substring(wordStart, i );
+        if ( wordEnd > wordStart ) {
+          word = text.substring(wordStart, wordEnd );
         }
         const wordWidth = this.measureTextWidth(word, fontFamily, fontSize);
         let spaceWidth = 0.0;
         if ( (currentLine.length) > 0 ) {
-          spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize);
+          if ( (joiner.length) > 0 ) {
+            spaceWidth = this.measureTextWidth(joiner, fontFamily, fontSize);
+          }
         }
         if ( ((currentWidth + spaceWidth) + wordWidth) <= maxWidth ) {
           if ( (currentLine.length) > 0 ) {
-            currentLine = currentLine + " ";
+            currentLine = currentLine + joiner;
             currentWidth = currentWidth + spaceWidth;
           }
           currentLine = currentLine + word;
@@ -2129,6 +2378,10 @@ class EVGTextMeasurer  {
           lines.push(currentLine);
           currentLine = "";
           currentWidth = 0.0;
+        }
+        joiner = " ";
+        if ( hyphen ) {
+          joiner = "";
         }
         wordStart = i + 1;
       }
@@ -3709,20 +3962,19 @@ VectorShapes.num = function(v) {
   }
   const scaled = Math.floor( ((a * 10000.0) + 0.5));
   const whole = ((scaled / 10000) | 0);
-  const fracPart = scaled - (whole * 10000);
+  let fracPart = scaled - (whole * 10000);
   let out = (whole.toString());
   if ( fracPart > 0 ) {
-    let frac = (fracPart.toString());
-    while ((frac.length) < 4) {
-      frac = "0" + frac;
+    let digits = 4;
+    while ((fracPart - ((((fracPart / 10) | 0)) * 10)) == 0) {
+      fracPart = ((fracPart / 10) | 0);
+      digits = digits - 1;
     };
-    while ((frac.length) > 1) {
-      const lastCh = frac.charCodeAt(((frac.length) - 1) );
-      if ( lastCh == 48 ) {
-        frac = frac.substring(0, ((frac.length) - 1) );
-      } else {
-        break;
-      }
+    let frac = (fracPart.toString());
+    let pad = digits - (frac.length);
+    while (pad > 0) {
+      frac = "0" + frac;
+      pad = pad - 1;
     };
     out = (out + ".") + frac;
   }
@@ -5203,6 +5455,19 @@ class EVGDrawCmd  {
     return "STROKE";
   };
 }
+class EVGSceneBinary  {
+  constructor() {
+    this.cmds = new Int32Array(0);
+    this.pts = new Int32Array(0);
+    this.ends = new Int32Array(0);
+    this.strings = [];
+    this.count = 0;
+    this.width = 0.0;     /** note: unused */
+    this.height = 0.0;     /** note: unused */
+    let s_1 = [];
+    this.strings = s_1;
+  }
+}
 class EVGDisplayList  {
   constructor() {
     this.cmds = [];
@@ -5663,6 +5928,122 @@ class EVGDisplayList  {
       this.cmds.push(pp);
     }
   };
+  toBinary () {
+    const out = new EVGSceneBinary();
+    const n = this.cmds.length;
+    out.count = n;
+    const stride = EVGDisplayList.stride();
+    let totalPts = 0;
+    let totalEnds = 0;
+    let i = 0;
+    while (i < n) {
+      const c = this.cmds[i];
+      const pc = c.pts.length;
+      totalPts = totalPts + pc;
+      if ( pc > 0 ) {
+        const ec = c.ringEnds.length;
+        if ( ec == 0 ) {
+          totalEnds = totalEnds + 1;
+        } else {
+          totalEnds = totalEnds + ec;
+        }
+      }
+      i = i + 1;
+    };
+    let recs = new Int32Array((n * stride));
+    let pbuf = new Int32Array(totalPts);
+    let ebuf = new Int32Array(totalEnds);
+    let pool = [];
+    let poolIndex = {};
+    let pAt = 0;
+    let eAt = 0;
+    let k = 0;
+    while (k < n) {
+      const c2 = this.cmds[k];
+      const base = k * stride;
+      recs[base] = c2.kind;
+      recs[base + 1] = EVGDisplayList.fixed(c2.x);
+      recs[base + 2] = EVGDisplayList.fixed(c2.y);
+      recs[base + 3] = EVGDisplayList.fixed(c2.w);
+      recs[base + 4] = EVGDisplayList.fixed(c2.h);
+      recs[base + 5] = EVGDisplayList.fixed(c2.radius);
+      recs[base + 6] = EVGDisplayList.fixed(c2.thickness);
+      recs[base + 7] = EVGDisplayList.packRgb(c2.r, c2.g, c2.b);
+      recs[base + 8] = EVGDisplayList.fixed(c2.a);
+      let flags = 0;
+      if ( c2.hasGrad ) {
+        flags = flags + 1;
+      }
+      if ( c2.textAlign == "italic" ) {
+        flags = flags + 2;
+      }
+      if ( c2.flipH ) {
+        flags = flags + 4;
+      }
+      if ( c2.flipV ) {
+        flags = flags + 8;
+      }
+      if ( c2.evenOdd ) {
+        flags = flags + 16;
+      }
+      recs[base + 9] = flags;
+      recs[base + 10] = c2.gradDir;
+      recs[base + 11] = EVGDisplayList.packRgb(c2.r2, c2.g2, c2.b2);
+      recs[base + 12] = EVGDisplayList.fixed(c2.a2);
+      recs[base + 13] = EVGDisplayList.fixed(c2.fontSize);
+      recs[base + 14] = EVGDisplayList.fixed(c2.rotate);
+      let textIdx = 0 - 1;
+      let fontIdx = 0 - 1;
+      let weightIdx = 0 - 1;
+      if ( (c2.text.length) > 0 ) {
+        textIdx = EVGDisplayList.intern(pool, poolIndex, c2.text);
+        fontIdx = EVGDisplayList.intern(pool, poolIndex, c2.fontFamily);
+        if ( (c2.fontWeight.length) > 0 ) {
+          weightIdx = EVGDisplayList.intern(pool, poolIndex, c2.fontWeight);
+        }
+      }
+      recs[base + 15] = textIdx;
+      recs[base + 16] = fontIdx;
+      recs[base + 17] = weightIdx;
+      let srcIdx = 0 - 1;
+      if ( (c2.src.length) > 0 ) {
+        srcIdx = EVGDisplayList.intern(pool, poolIndex, c2.src);
+      }
+      recs[base + 18] = srcIdx;
+      const pc2 = c2.pts.length;
+      recs[base + 19] = pAt;
+      recs[base + 20] = pc2;
+      const eStart = eAt;
+      if ( pc2 > 0 ) {
+        let pi = 0;
+        while (pi < pc2) {
+          pbuf[pAt + pi] = EVGDisplayList.fixed((c2.pts[pi]));
+          pi = pi + 1;
+        };
+        pAt = pAt + pc2;
+        const ec2 = c2.ringEnds.length;
+        if ( ec2 == 0 ) {
+          ebuf[eAt] = pc2;
+          eAt = eAt + 1;
+        } else {
+          let ei = 0;
+          while (ei < ec2) {
+            ebuf[eAt + ei] = c2.ringEnds[ei];
+            ei = ei + 1;
+          };
+          eAt = eAt + ec2;
+        }
+      }
+      recs[base + 21] = eStart;
+      recs[base + 22] = eAt - eStart;
+      k = k + 1;
+    };
+    out.cmds = recs;
+    out.pts = pbuf;
+    out.ends = ebuf;
+    out.strings = pool;
+    return out;
+  };
   toJson () {
     let out = "{\"cmds\":[";
     let i = 0;
@@ -5808,6 +6189,27 @@ class EVGDisplayList  {
     return s;
   };
 }
+EVGDisplayList.stride = function() {
+  return 24;
+};
+EVGDisplayList.fixed = function(v) {
+  if ( v < 0.0 ) {
+    return 0 - (Math.floor( (((0.0 - v) * 100.0) + 0.5)));
+  }
+  return Math.floor( ((v * 100.0) + 0.5));
+};
+EVGDisplayList.packRgb = function(r, g, b) {
+  return ((r * 65536) + (g * 256)) + b;
+};
+EVGDisplayList.intern = function(pool, index, value) {
+  if ( ( typeof(index[value] ) != "undefined" && Object.prototype.hasOwnProperty.call(index, value) ) ) {
+    return (( Object.prototype.hasOwnProperty.call(index, value) ? index[value] : undefined ));
+  }
+  const at = pool.length;
+  pool.push(value);
+  index[value] = at;
+  return at;
+};
 EVGDisplayList.num = function(v) {
   const neg = v < 0.0;
   let av = v;
@@ -11081,194 +11483,6 @@ VectorRasterizer.nonZero = function() {
 VectorRasterizer.evenOdd = function() {
   return 1;
 };
-class EVGCodepoint  {
-  constructor() {
-  }
-}
-EVGCodepoint.stringIsBytes = function() {
-  return ("ä".length) > 1;
-};
-EVGCodepoint.isHighSurrogate = function(u) {
-  return (u >= 55296) && (u <= 56319);
-};
-EVGCodepoint.isLowSurrogate = function(u) {
-  return (u >= 56320) && (u <= 57343);
-};
-EVGCodepoint.codeAt = function(s, i) {
-  const u = s.charCodeAt(i );
-  if ( EVGCodepoint.stringIsBytes() ) {
-    return EVGCodepoint.utf8CodeAt(s, i, u);
-  }
-  if ( EVGCodepoint.isHighSurrogate(u) ) {
-    if ( (i + 1) < (s.length) ) {
-      const lo = s.charCodeAt((i + 1) );
-      if ( EVGCodepoint.isLowSurrogate(lo) ) {
-        return (((u - 55296) * 1024) + (lo - 56320)) + 65536;
-      }
-    }
-  }
-  return u;
-};
-EVGCodepoint.utf8CodeAt = function(s, i, u) {
-  const n = s.length;
-  if ( u < 128 ) {
-    return u;
-  }
-  if ( (u >= 192) && (u < 224) ) {
-    if ( (i + 1) < n ) {
-      const b1 = s.charCodeAt((i + 1) );
-      if ( EVGCodepoint.isUtf8Cont(b1) ) {
-        return ((u - 192) * 64) + (b1 - 128);
-      }
-    }
-    return u;
-  }
-  if ( (u >= 224) && (u < 240) ) {
-    if ( (i + 2) < n ) {
-      const c1 = s.charCodeAt((i + 1) );
-      const c2 = s.charCodeAt((i + 2) );
-      if ( EVGCodepoint.isUtf8Cont(c1) && EVGCodepoint.isUtf8Cont(c2) ) {
-        return (((u - 224) * 4096) + ((c1 - 128) * 64)) + (c2 - 128);
-      }
-    }
-    return u;
-  }
-  if ( (u >= 240) && (u < 248) ) {
-    if ( (i + 3) < n ) {
-      const d1 = s.charCodeAt((i + 1) );
-      const d2 = s.charCodeAt((i + 2) );
-      const d3 = s.charCodeAt((i + 3) );
-      if ( (EVGCodepoint.isUtf8Cont(d1) && EVGCodepoint.isUtf8Cont(d2)) && EVGCodepoint.isUtf8Cont(d3) ) {
-        return ((((u - 240) * 262144) + ((d1 - 128) * 4096)) + ((d2 - 128) * 64)) + (d3 - 128);
-      }
-    }
-    return u;
-  }
-  return u;
-};
-EVGCodepoint.isUtf8Cont = function(b) {
-  return (b >= 128) && (b < 192);
-};
-EVGCodepoint.utf8UnitsAt = function(s, i) {
-  const u = s.charCodeAt(i );
-  const n = s.length;
-  if ( u < 128 ) {
-    return 1;
-  }
-  if ( (u >= 192) && (u < 224) ) {
-    if ( (i + 1) < n ) {
-      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) ) {
-        return 2;
-      }
-    }
-    return 1;
-  }
-  if ( (u >= 224) && (u < 240) ) {
-    if ( (i + 2) < n ) {
-      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) && EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) ))) ) {
-        return 3;
-      }
-    }
-    return 1;
-  }
-  if ( (u >= 240) && (u < 248) ) {
-    if ( (i + 3) < n ) {
-      const e1 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) )));
-      const e2 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) )));
-      const e3 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 3) )));
-      if ( (e1 && e2) && e3 ) {
-        return 4;
-      }
-    }
-    return 1;
-  }
-  return 1;
-};
-EVGCodepoint.unitsAt = function(s, i) {
-  if ( EVGCodepoint.stringIsBytes() ) {
-    return EVGCodepoint.utf8UnitsAt(s, i);
-  }
-  const u = s.charCodeAt(i );
-  if ( EVGCodepoint.isHighSurrogate(u) ) {
-    if ( (i + 1) < (s.length) ) {
-      if ( EVGCodepoint.isLowSurrogate((s.charCodeAt((i + 1) ))) ) {
-        return 2;
-      }
-    }
-  }
-  return 1;
-};
-EVGCodepoint.charCount = function(s) {
-  let n = 0;
-  let i = 0;
-  while (i < (s.length)) {
-    i = i + EVGCodepoint.unitsAt(s, i);
-    n = n + 1;
-  };
-  return n;
-};
-EVGCodepoint.count = function(s) {
-  let n = 0;
-  let i = 0;
-  while (i < (s.length)) {
-    i = i + EVGCodepoint.unitsAt(s, i);
-    n = n + 1;
-  };
-  return n;
-};
-EVGCodepoint.toArray = function(s) {
-  let out = [];
-  let i = 0;
-  while (i < (s.length)) {
-    out.push(EVGCodepoint.codeAt(s, i));
-    i = i + EVGCodepoint.unitsAt(s, i);
-  };
-  return out;
-};
-EVGCodepoint.toStr = function(cp) {
-  if ( EVGCodepoint.stringIsBytes() ) {
-    return String.fromCharCode(cp);
-  }
-  if ( cp < 65536 ) {
-    return String.fromCharCode(cp);
-  }
-  const rel = cp - 65536;
-  const hi = 55296 + (Math.floor( (rel / 1024)));
-  const lo = 56320 + (rel % 1024);
-  return (String.fromCharCode(hi)) + (String.fromCharCode(lo));
-};
-EVGCodepoint.encodeUtf8 = function(s) {
-  if ( EVGCodepoint.stringIsBytes() ) {
-    return s;
-  }
-  let out = "";
-  let i = 0;
-  while (i < (s.length)) {
-    const cp = EVGCodepoint.codeAt(s, i);
-    i = i + EVGCodepoint.unitsAt(s, i);
-    if ( cp < 128 ) {
-      out = out + (String.fromCharCode(cp));
-    } else {
-      if ( cp < 2048 ) {
-        out = out + (String.fromCharCode((192 + (Math.floor( (cp / 64))))));
-        out = out + (String.fromCharCode((128 + (cp % 64))));
-      } else {
-        if ( cp < 65536 ) {
-          out = out + (String.fromCharCode((224 + (Math.floor( (cp / 4096))))));
-          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
-          out = out + (String.fromCharCode((128 + (cp % 64))));
-        } else {
-          out = out + (String.fromCharCode((240 + (Math.floor( (cp / 262144))))));
-          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 4096))) % 64))));
-          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
-          out = out + (String.fromCharCode((128 + (cp % 64))));
-        }
-      }
-    }
-    continue;
-  };
-  return out;
-};
 class EVGGrapheme  {
   constructor() {
   }
@@ -12115,6 +12329,281 @@ class TrueTypeFont  {
   getFontData () {
     return this.fontData;
   };
+  keepSet () {
+    let keep = [];
+    let i = 0;
+    while (i < this.numGlyphs) {
+      keep.push(false);
+      i = i + 1;
+    };
+    if ( this.numGlyphs > 0 ) {
+      keep[0] = true;
+    }
+    let c = 32;
+    while (c < 256) {
+      const cp = TrueTypeFont.winAnsiToUnicode(c);
+      const g = this.getGlyphIndex(cp);
+      if ( (g > 0) && (g < this.numGlyphs) ) {
+        keep[g] = true;
+      }
+      c = c + 1;
+    };
+    let again = true;
+    while (again) {
+      again = false;
+      let gi = 0;
+      while (gi < this.numGlyphs) {
+        if ( keep[gi] ) {
+          const added = this.addComponents(gi, keep);
+          if ( added ) {
+            again = true;
+          }
+        }
+        gi = gi + 1;
+      };
+    };
+    return keep;
+  };
+  addComponents (gid, keep) {
+    const glyf = this.findTable("glyf");
+    const start = this.glyphStart(gid);
+    const end = this.glyphEnd(gid);
+    if ( (end - start) < 10 ) {
+      return false;
+    }
+    const at = glyf.offset + start;
+    const contours = this.readInt16(at);
+    if ( contours >= 0 ) {
+      return false;
+    }
+    let added = false;
+    let p = at + 10;
+    let more = true;
+    while (more) {
+      const flags = this.readUInt16(p);
+      const comp = this.readUInt16((p + 2));
+      if ( (comp >= 0) && (comp < this.numGlyphs) ) {
+        if ( (keep[comp]) == false ) {
+          keep[comp] = true;
+          added = true;
+        }
+      }
+      p = p + 4;
+      if ( ((flags & 1)) != 0 ) {
+        p = p + 4;
+      } else {
+        p = p + 2;
+      }
+      if ( ((flags & 8)) != 0 ) {
+        p = p + 2;
+      }
+      if ( ((flags & 64)) != 0 ) {
+        p = p + 4;
+      }
+      if ( ((flags & 128)) != 0 ) {
+        p = p + 8;
+      }
+      more = ((flags & 32)) != 0;
+      if ( p >= (glyf.offset + end) ) {
+        more = false;
+      }
+    };
+    return added;
+  };
+  glyphStart (gid) {
+    return this.locaAt(gid);
+  };
+  glyphEnd (gid) {
+    return this.locaAt((gid + 1));
+  };
+  locaAt (i) {
+    const loca = this.findTable("loca");
+    if ( this.indexToLocFormat == 0 ) {
+      return this.readUInt16((loca.offset + (i * 2))) * 2;
+    }
+    return this.readUInt32((loca.offset + (i * 4)));
+  };
+  buildGlyf () {
+    const keep = this.keepSet();
+    let total = 0;
+    let g = 0;
+    while (g < this.numGlyphs) {
+      if ( keep[g] ) {
+        const __len = this.glyphEnd(g) - this.glyphStart(g);
+        if ( __len > 0 ) {
+          total = total + __len;
+          while ((total % 2) != 0) {
+            total = total + 1;
+          };
+        }
+      }
+      g = g + 1;
+    };
+    let out = [];
+    out.push(total);
+    let gi = 0;
+    while (gi < this.numGlyphs) {
+      let k = 0;
+      if ( keep[gi] ) {
+        k = 1;
+      }
+      out.push(k);
+      gi = gi + 1;
+    };
+    return out;
+  };
+  pdfFontData () {
+    let kept = [];
+    let i = 0;
+    while (i < (this.tables.length)) {
+      const t = this.tables[i];
+      if ( TrueTypeFont.keepsInPdf(t.tag) ) {
+        kept.push(t);
+      }
+      i = i + 1;
+    };
+    if ( (kept.length) == 0 ) {
+      return this.fontData;
+    }
+    const n = kept.length;
+    let a = 0;
+    while (a < n) {
+      let b = a + 1;
+      while (b < n) {
+        const x = kept[a];
+        const y = kept[b];
+        if ( TrueTypeFont.tagLess(y.tag, x.tag) ) {
+          kept[a] = y;
+          kept[b] = x;
+        }
+        b = b + 1;
+      };
+      a = a + 1;
+    };
+    const plan = this.buildGlyf();
+    const newGlyfLen = plan[0];
+    let lengths = [];
+    let li = 0;
+    while (li < n) {
+      const rl = kept[li];
+      if ( rl.tag == "glyf" ) {
+        lengths.push(newGlyfLen);
+      } else {
+        lengths.push(rl.length);
+      }
+      li = li + 1;
+    };
+    const headerLen = 12 + (16 * n);
+    let offsets = [];
+    let at = headerLen;
+    let k = 0;
+    while (k < n) {
+      offsets.push(at);
+      at = at + (lengths[k]);
+      while ((at % 4) != 0) {
+        at = at + 1;
+      };
+      k = k + 1;
+    };
+    const total = at;
+    let out = (function(){ var b = new ArrayBuffer(total); b._view = new DataView(b); return b; })();
+    TrueTypeFont.put32(out, 0, 65536);
+    TrueTypeFont.put16(out, 4, n);
+    let pow2 = 1;
+    let log2 = 0;
+    while ((pow2 * 2) <= n) {
+      pow2 = pow2 * 2;
+      log2 = log2 + 1;
+    };
+    TrueTypeFont.put16(out, 6, pow2 * 16);
+    TrueTypeFont.put16(out, 8, log2);
+    TrueTypeFont.put16(out, 10, (n * 16) - (pow2 * 16));
+    let d = 0;
+    while (d < n) {
+      const rec = kept[d];
+      const dst = offsets[d];
+      const __len = lengths[d];
+      if ( rec.tag == "glyf" ) {
+        this.writeGlyf(out, dst, plan);
+      } else {
+        if ( rec.tag == "loca" ) {
+          this.writeLoca(out, dst, plan);
+        } else {
+          const src = rec.offset;
+          let c = 0;
+          while (c < rec.length) {
+            out._view.setUint8(dst + c, this.fontData._view.getUint8((src + c)));
+            c = c + 1;
+          };
+        }
+      }
+      d = d + 1;
+    };
+    let e = 0;
+    while (e < n) {
+      const r2 = kept[e];
+      const base = 12 + (16 * e);
+      let ti = 0;
+      while (ti < 4) {
+        let ch = 32;
+        if ( ti < (r2.tag.length) ) {
+          ch = r2.tag.charCodeAt(ti );
+        }
+        out._view.setUint8(base + ti, ch);
+        ti = ti + 1;
+      };
+      const off2 = offsets[e];
+      const len2 = lengths[e];
+      TrueTypeFont.put32(out, base + 4, TrueTypeFont.tableSum(out, off2, len2));
+      TrueTypeFont.put32(out, base + 8, off2);
+      TrueTypeFont.put32(out, base + 12, len2);
+      e = e + 1;
+    };
+    return out;
+  };
+  writeGlyf (out, dst, plan) {
+    let w = dst;
+    let g = 0;
+    while (g < this.numGlyphs) {
+      if ( (plan[(g + 1)]) == 1 ) {
+        const from = this.glyphStart(g);
+        const to = this.glyphEnd(g);
+        const __len = to - from;
+        if ( __len > 0 ) {
+          const glyf = this.findTable("glyf");
+          let c = 0;
+          while (c < __len) {
+            out._view.setUint8(w + c, this.fontData._view.getUint8(((glyf.offset + from) + c)));
+            c = c + 1;
+          };
+          w = w + __len;
+          while (((w - dst) % 2) != 0) {
+            out._view.setUint8(w, 0);
+            w = w + 1;
+          };
+        }
+      }
+      g = g + 1;
+    };
+  };
+  writeLoca (out, dst, plan) {
+    let at = 0;
+    let g = 0;
+    while (g < this.numGlyphs) {
+      TrueTypeFont.putLoca(out, dst, g, at, this.indexToLocFormat);
+      if ( (plan[(g + 1)]) == 1 ) {
+        const __len = this.glyphEnd(g) - this.glyphStart(g);
+        if ( __len > 0 ) {
+          at = at + __len;
+          while ((at % 2) != 0) {
+            at = at + 1;
+          };
+        }
+      }
+      g = g + 1;
+    };
+    TrueTypeFont.putLoca(out, dst, this.numGlyphs, at, this.indexToLocFormat);
+  };
   getPostScriptName () {
     const name = this.fontFamily;
     let result = "";
@@ -12707,6 +13196,109 @@ class TrueTypeFont  {
     console.log("  Tables: " + (((this.tables.length).toString())));
   };
 }
+TrueTypeFont.keepsInPdf = function(tag) {
+  if ( tag == "glyf" ) {
+    return true;
+  }
+  if ( tag == "head" ) {
+    return true;
+  }
+  if ( tag == "hhea" ) {
+    return true;
+  }
+  if ( tag == "hmtx" ) {
+    return true;
+  }
+  if ( tag == "loca" ) {
+    return true;
+  }
+  if ( tag == "maxp" ) {
+    return true;
+  }
+  if ( tag == "cvt " ) {
+    return true;
+  }
+  if ( tag == "fpgm" ) {
+    return true;
+  }
+  if ( tag == "prep" ) {
+    return true;
+  }
+  if ( tag == "cmap" ) {
+    return true;
+  }
+  if ( tag == "name" ) {
+    return true;
+  }
+  if ( tag == "OS/2" ) {
+    return true;
+  }
+  if ( tag == "post" ) {
+    return true;
+  }
+  return false;
+};
+TrueTypeFont.winAnsiToUnicode = function(b) {
+  if ( (b < 128) || (b > 159) ) {
+    return b;
+  }
+  const _map = [8364, 129, 8218, 402, 8222, 8230, 8224, 8225, 710, 8240, 352, 8249, 338, 141, 381, 143, 144, 8216, 8217, 8220, 8221, 8226, 8211, 8212, 732, 8482, 353, 8250, 339, 157, 382, 376];
+  return _map[(b - 128)];
+};
+TrueTypeFont.tableSum = function(b, at, __len) {
+  let sum = 0;
+  let i = 0;
+  while (i < __len) {
+    let w = 0;
+    let j = 0;
+    while (j < 4) {
+      let byte = 0;
+      if ( (i + j) < __len ) {
+        byte = b._view.getUint8(((at + i) + j));
+      }
+      w = (w * 256) + byte;
+      j = j + 1;
+    };
+    sum = ((sum + w) & 4294967295);
+    i = i + 4;
+  };
+  return sum;
+};
+TrueTypeFont.putLoca = function(out, dst, i, value, format) {
+  if ( format == 0 ) {
+    TrueTypeFont.put16(out, dst + (i * 2), Math.floor( (value / 2)));
+  } else {
+    TrueTypeFont.put32(out, dst + (i * 4), value);
+  }
+};
+TrueTypeFont.tagLess = function(a, b) {
+  let i = 0;
+  while (i < 4) {
+    let ca = 32;
+    let cb = 32;
+    if ( i < (a.length) ) {
+      ca = a.charCodeAt(i );
+    }
+    if ( i < (b.length) ) {
+      cb = b.charCodeAt(i );
+    }
+    if ( ca != cb ) {
+      return ca < cb;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+TrueTypeFont.put16 = function(b, at, v) {
+  b._view.setUint8(at, (((v >> 8)) & 255));
+  b._view.setUint8(at + 1, (v & 255));
+};
+TrueTypeFont.put32 = function(b, at, v) {
+  b._view.setUint8(at, (((v >> 24)) & 255));
+  b._view.setUint8(at + 1, (((v >> 16)) & 255));
+  b._view.setUint8(at + 2, (((v >> 8)) & 255));
+  b._view.setUint8(at + 3, (v & 255));
+};
 TrueTypeFont.isVariationSelector = function(cp) {
   if ( cp == 65038 ) {
     return true;

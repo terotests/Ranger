@@ -201,8 +201,9 @@ class VlSceneWriter {
         def out:VlJson (VlJson.objectValue())
         ; Known channels first, in the fixed order …
         for channelOrder key:string ki {
-            if (item.props.has(key)) {
-                out.setMember(key (item.props.get(key)))
+            def itemProps (item.props)
+            if (itemProps.has(key)) {
+                out.setMember(key (itemProps.get(key)))
             }
         }
         ; … then anything else the encoder set, in the order it was set, so a
@@ -210,7 +211,8 @@ class VlSceneWriter {
         ; silently dropped.
         for item.props.keys key:string ki {
             if (! (out.has(key))) {
-                out.setMember(key (item.props.get(key)))
+                def itemProps (item.props)
+                out.setMember(key (itemProps.get(key)))
             }
         }
         def markCount:int (array_length item.marks)

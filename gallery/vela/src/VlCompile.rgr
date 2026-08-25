@@ -1549,7 +1549,8 @@ class VlCompile {
         ; penguin masses between three and six kilograms drawn from zero is
         ; three boxes squeezed into the top half of the plot.
         def boxZero:boolean true
-        def boxScale:VlJson (y.def0.get("scale"))
+        def yDef0 (y.def0)
+        def boxScale:VlJson (yDef0.get("scale"))
         if (boxScale.isObject()) {
             def boxZeroDef:VlJson (boxScale.get("zero"))
             if (boxZeroDef.isBool()) {
@@ -4808,7 +4809,8 @@ class VlCompile {
     ; outright; otherwise the side it sits on decides, because a key above or
     ; below a chart has the width to run across and not the height to run down.
     fn legendRunsAcross:boolean (ch:VlChannel) {
-        def stated:VlJson (ch.def0.get("legend"))
+        def chDef0 (ch.def0)
+        def stated:VlJson (chDef0.get("legend"))
         def direction:string ""
         def orient:string ""
         if (stated.isObject()) {
@@ -5051,10 +5053,11 @@ class VlCompile {
         if (! ch.defined) {
             return false
         }
-        if (! (ch.def0.has("stack"))) {
+        def chDef0 (ch.def0)
+        if (! (chDef0.has("stack"))) {
             return false
         }
-        def given:VlJson (ch.def0.get("stack"))
+        def given:VlJson (chDef0.get("stack"))
         if (given.isNull()) {
             return false
         }
@@ -5099,10 +5102,11 @@ class VlCompile {
                 }
             }
             if (! polarColumn) {
-                if (! (measure.def0.has("stack"))) {
+                def measureDef0 (measure.def0)
+                if (! (measureDef0.has("stack"))) {
                     return
                 }
-                if ((measure.def0.get("stack")).isNull()) {
+                if ((measureDef0.get("stack")).isNull()) {
                     return
                 }
             }
@@ -5143,11 +5147,12 @@ class VlCompile {
         }
         ; `stack: null` and `stack: false` both mean "do not", and a string
         ; names the offset — "zero", "center", "normalize".
-        def declared:VlJson (measure.def0.get("stack"))
+        def measureDef0 (measure.def0)
+        def declared:VlJson (measureDef0.get("stack"))
         if (declared.isString()) {
             stackOffset = declared.str
         }
-        if (measure.def0.has("stack")) {
+        if (measureDef0.has("stack")) {
             if (declared.isNull()) {
                 return
             }
@@ -5301,7 +5306,8 @@ class VlCompile {
         if ((strlen (this.unitEndFieldPlain(ch))) == 0) {
             return false
         }
-        return (ch.def0.has("bandPosition"))
+        def chDef0 (ch.def0)
+        return (chDef0.has("bandPosition"))
     }
 
     fn unitOffsetStart:string (ch:VlChannel) {
@@ -6611,7 +6617,8 @@ class VlCompile {
             if isFacet {
                 def cut:string (ch.outField())
                 if ((strlen cut) > 0) {
-                    def sort:VlJson (ch.def0.get("sort"))
+                    def chDef0 (ch.def0)
+                    def sort:VlJson (chDef0.get("sort"))
                     if (sort.isObject()) {
                         def by:string (sort.stringOr("field" ""))
                         if ((strlen by) > 0) {
@@ -6654,7 +6661,8 @@ class VlCompile {
         for channels ch:VlChannel ci {
             def isFacet:boolean (((ch.name == "row") || (ch.name == "column")) || (ch.name == "facet"))
             if isFacet {
-                def sort:VlJson (ch.def0.get("sort"))
+                def chDef0 (ch.def0)
+                def sort:VlJson (chDef0.get("sort"))
                 if (sort.isObject()) {
                     def by:string (sort.stringOr("field" ""))
                     if ((strlen by) > 0) {
@@ -7133,7 +7141,8 @@ class VlCompile {
     ; A condition on a PARAMETER is a different thing — it answers to a
     ; selection rather than to the row — and is left alone here.
     fn withCondition:VlJson (ch:VlChannel base:VlJson) {
-        def given:VlJson (ch.def0.get("condition"))
+        def chDef0 (ch.def0)
+        def given:VlJson (chDef0.get("condition"))
         ; A channel may carry SEVERAL conditions, tried in order — a bar that
         ; is outlined thickly when clicked, thinly when hovered, and not at all
         ; otherwise. Read as one object, a list of them was not a condition at
@@ -7208,7 +7217,8 @@ class VlCompile {
     ; answer the mark is — read from the fallback alone, the key to a chart
     ; that fades on selection was faded when nothing was selected.
     fn resolvedConstant:VlJson (ch:VlChannel) {
-        def given:VlJson (ch.def0.get("condition"))
+        def chDef0 (ch.def0)
+        def given:VlJson (chDef0.get("condition"))
         def list (VlJson.arrayValue())
         if (given.isArray()) {
             def gi:int 0
@@ -8020,7 +8030,8 @@ class VlCompile {
         sc.setMember("type" (VlJson.stringValue((this.scaleTypeFor(ch)))))
         sc.setMember("domain" (this.domainFor(ch)))
         def range (VlJson.arrayValue())
-        def declared:VlJson (ch.def0.get("scale"))
+        def chDef0 (ch.def0)
+        def declared:VlJson (chDef0.get("scale"))
         def from:double (declared.doubleOr("rangeMin" 0.0))
         push range.arr (VlJson.numberValue(from))
         def outer (VlJson.objectValue())
@@ -8249,7 +8260,8 @@ class VlCompile {
     ; The name of the field holding a value's place in its scale's declared
     ; domain, or "" when the scale declared no domain to place it in.
     fn domainOrderField:string (ch:VlChannel) {
-        def declared:VlJson (ch.def0.get("scale"))
+        def chDef0 (ch.def0)
+        def declared:VlJson (chDef0.get("scale"))
         if (! (declared.isObject())) {
             return ""
         }
@@ -8285,7 +8297,8 @@ class VlCompile {
         for channels ch:VlChannel ci {
             def name:string (this.domainOrderField(ch))
             if ((strlen name) > 0) {
-                def declared:VlJson (ch.def0.get("scale"))
+                def chDef0 (ch.def0)
+                def declared:VlJson (chDef0.get("scale"))
                 def domain:VlJson (declared.get("domain"))
                 def w (new VlJsonWriter())
                 def t (VlJson.objectValue())
@@ -8313,10 +8326,11 @@ class VlCompile {
     ; channel alone, a chart that named its own five weather colours was drawn
     ; in the default palette.
     sfn statedOn:VlJson (ch:VlChannel key:string) {
-        if (ch.def0.has(key)) {
-            return (ch.def0.get(key))
+        def chDef0 (ch.def0)
+        if (chDef0.has(key)) {
+            return (chDef0.get(key))
         }
-        def cond:VlJson (ch.def0.get("condition"))
+        def cond:VlJson (chDef0.get("condition"))
         if (cond.isArray()) {
             if ((cond.count()) > 0) {
                 cond = (cond.at(0))
@@ -8544,7 +8558,8 @@ class VlCompile {
     }
 
     fn zeroFor:boolean (ch:VlChannel) {
-        def declared:VlJson (ch.def0.get("scale"))
+        def chDef0 (ch.def0)
+        def declared:VlJson (chDef0.get("scale"))
         if (declared.isObject()) {
             def z:VlJson (declared.get("zero"))
             if (z.isBool()) {
@@ -8811,13 +8826,14 @@ class VlCompile {
     ; the categories in order of what the X CHANNEL measures, biggest first,
     ; which is how a bar chart is told to rank itself.
     fn domainSortFor:VlJson (ch:VlChannel) {
-        def given:VlJson (ch.def0.get("sort"))
+        def chDef0 (ch.def0)
+        def given:VlJson (chDef0.get("sort"))
         if (given.isNull()) {
             ; `"sort": null` is a chart saying its categories are ALREADY in
             ; the order it wants — a waterfall runs Begin, Jan, Feb — and it is
             ; a different statement from saying nothing, which asks for them in
             ; their own order. Read the same, the months came out alphabetical.
-            if (ch.def0.has("sort")) {
+            if (chDef0.has("sort")) {
                 return (VlJson.boolValue(false))
             }
             return (VlJson.boolValue(true))
@@ -8880,7 +8896,8 @@ class VlCompile {
     ; The column holding a value's place in the list its channel named, or ""
     ; when it named none.
     fn statedOrderField:string (ch:VlChannel) {
-        if (! ((ch.def0.get("sort")).isArray())) {
+        def chDef0 (ch.def0)
+        if (! ((chDef0.get("sort")).isArray())) {
             return ""
         }
         if ((strlen (ch.outField())) == 0) {
@@ -8909,7 +8926,8 @@ class VlCompile {
             def name:string (this.statedOrderField(ch))
             if ((strlen name) > 0) {
                 def w (new VlJsonWriter())
-                def stated:VlJson (ch.def0.get("sort"))
+                def chDef0 (ch.def0)
+                def stated:VlJson (chDef0.get("sort"))
                 def list:string (w.write(stated))
                 def read:string (VlCompile.datumRef((ch.outField())))
                 def expr:string (((("indexof(" + list) + ", ") + read) + ")")
@@ -9034,7 +9052,8 @@ class VlCompile {
             ; A scale with a stated middle is a scale read in two directions,
             ; so it is painted in two — one colour above the middle and another
             ; below it, rather than one ramp through it.
-            def declared0:VlJson (ch.def0.get("scale"))
+            def chDef0 (ch.def0)
+            def declared0:VlJson (chDef0.get("scale"))
             if (declared0.isObject()) {
                 if (declared0.has("domainMid")) {
                     scheme = "diverging"
@@ -9525,7 +9544,8 @@ class VlCompile {
     ; chart rules its categories off from each other and how a chart asking to
     ; be read by its marks alone gets no lines at all.
     fn wantsGrid:boolean (ch:VlChannel) {
-        def stated:VlJson (ch.def0.get("axis"))
+        def chDef0 (ch.def0)
+        def stated:VlJson (chDef0.get("axis"))
         if (stated.isObject()) {
             def said:VlJson (stated.get("grid"))
             if (said.isBool()) {
@@ -9564,13 +9584,14 @@ class VlCompile {
         if (! ch.defined) {
             return false
         }
-        if (! (ch.def0.has(key))) {
+        def chDef0 (ch.def0)
+        if (! (chDef0.has(key))) {
             ; A conditional channel says what it reads in the CONDITION — the
             ; field, its type, and whether it wants a key drawn for it. Read
             ; only from the channel, a `"legend": null` written where the field
             ; is written was never seen, and a hover chart grew a key for a
             ; colour nothing is meant to look up.
-            def cond:VlJson (ch.def0.get("condition"))
+            def cond:VlJson (chDef0.get("condition"))
             if (cond.isArray()) {
                 if ((cond.count()) > 0) {
                     cond = (cond.at(0))
@@ -9583,12 +9604,13 @@ class VlCompile {
             }
             return false
         }
-        def given:VlJson (ch.def0.get(key))
+        def given:VlJson (chDef0.get(key))
         return (given.isNull())
     }
 
     sfn refusesGrid:boolean (ch:VlChannel) {
-        def given:VlJson (ch.def0.get("axis"))
+        def chDef0 (ch.def0)
+        def given:VlJson (chDef0.get("axis"))
         if (! (given.isObject())) {
             return false
         }
@@ -9620,7 +9642,8 @@ class VlCompile {
         ; width, the grid crossed a chart of three stated values in four
         ; places.
         def gridded:VlChannel (this.channel(scale))
-        def stated:VlJson (gridded.def0.get("axis"))
+        def griddedDef0 (gridded.def0)
+        def stated:VlJson (griddedDef0.get("axis"))
         if (stated.isObject()) {
             if (stated.has("values")) {
                 a.setMember("values" (stated.get("values")))
@@ -9710,7 +9733,8 @@ class VlCompile {
     ; is how a year is marked on an axis of days. Written only for the grid,
     ; every tick came out the default grey.
     fn labelCondition:void (a:VlJson ch:VlChannel) {
-        def given:VlJson (ch.def0.get("axis"))
+        def chDef0 (ch.def0)
+        def given:VlJson (chDef0.get("axis"))
         if (! (given.isObject())) {
             return
         }
@@ -9744,7 +9768,8 @@ class VlCompile {
         if (! ch.defined) {
             return
         }
-        def given:VlJson (ch.def0.get("axis"))
+        def chDef0 (ch.def0)
+        def given:VlJson (chDef0.get("axis"))
         if (! (given.isObject())) {
             return
         }
@@ -9808,7 +9833,8 @@ class VlCompile {
         ; chart asking for no name at all — which is not the same as saying
         ; nothing. Read as silence it was given the column's name back, and
         ; the axis reserved a line of page for it.
-        def ownTitle:VlJson (ch.def0.get("title"))
+        def chDef0 (ch.def0)
+        def ownTitle:VlJson (chDef0.get("title"))
         if (ownTitle.isString()) {
             axisTitle = ownTitle.str
         }
@@ -9864,7 +9890,7 @@ class VlCompile {
         ; The chart's own configuration first, so that the channel's own `axis`
         ; overrides it rather than the other way round.
         this.applyAxisConfig(a orient)
-        def given:VlJson (ch.def0.get("axis"))
+        def given:VlJson (chDef0.get("axis"))
         if (given.isObject()) {
             for given.keys key:string ki {
                 ; A stated `grid` belongs to the grid axis and not to this one.
@@ -10373,7 +10399,8 @@ class VlCompile {
             ; A conditional colour's other branch is a plain colour, and it is
             ; the colour the marks are drawn in whenever nothing is selected —
             ; which is what a key drawn beside them stands for.
-            def fallback:VlJson (colour.def0.get("value"))
+            def colourDef0 (colour.def0)
+            def fallback:VlJson (colourDef0.get("value"))
             if (fallback.isString()) {
                 def named:string (fallback.asString())
                 if ((strlen named) > 0) {
