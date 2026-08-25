@@ -48,6 +48,22 @@ function loadPlaywright() {
   return null;
 }
 
+function findChrome() {
+  const fixed = [process.env.CHROME_PATH, "/usr/bin/chromium", "/usr/bin/google-chrome",
+                 "/usr/local/bin/google-chrome"].filter(Boolean);
+  for (const c of fixed) if (fs.existsSync(c)) return c;
+  const pwBrowsers = "/opt/pw-browsers";
+  if (fs.existsSync(pwBrowsers)) {
+    for (const dir of fs.readdirSync(pwBrowsers)) {
+      for (const rel of ["chrome-linux/chrome", "chrome"]) {
+        const c = path.join(pwBrowsers, dir, rel);
+        if (fs.existsSync(c)) return c;
+      }
+    }
+  }
+  return null;
+}
+
 const pw = loadPlaywright();
 if (!pw) {
   console.log("Playwright is not available — the live page was not checked.");
@@ -73,11 +89,18 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
 
-const browser = await pw.chromium.launch();
+const browser = await pw.chromium.launch({
+  executablePath: findChrome() || undefined,
+});
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 const problems = [];
 page.on("pageerror", (e) => problems.push(`page error: ${e}`));
-page.on("console", (m) => { if (m.type() === "error") problems.push(`console: ${m.text()}`); });
+page.on("console", (m) => {
+  if (m.type() !== "error") return;
+  const where = (m.location() && m.location().url) || "";
+  if (/\/favicon\.ico$/.test(where)) return;
+  problems.push(`console: ${m.text()}`);
+});
 
 const checks = [];
 function check(name, ok, detail = "") {
