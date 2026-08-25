@@ -17,7 +17,7 @@
 ; ==============================================================================
 
 Import "../src/PptxGeom.rgr"
-Import "../src/PptxXml.rgr"
+Import "../../xml/XmlCore.rgr"
 Import "../src/PptxToEvg.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxModel.rgr"
@@ -1141,8 +1141,8 @@ class PptxGeomTest {
 
     fn parseGeom:PptxShape (inner:string) {
         def xml:string (("<p:spPr><a:custGeom><a:pathLst><a:path w=\"100\" h=\"100\">" + inner) + "</a:path></a:pathLst></a:custGeom></p:spPr>")
-        def p (new PptxXmlParser())
-        def root@(optional):PptxXmlNode (p.parse(xml))
+        def p (new XmlParser())
+        def root@(optional):XmlNode (p.parse(xml))
         def shape (new PptxShape())
         if (null? root) {
             return shape
