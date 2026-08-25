@@ -1,0 +1,164 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdpUnits.rgr — a length in ODF is a string, and that is the whole file
+; ==============================================================================
+;
+; This is the single largest difference between reading OOXML and reading ODF,
+; and it is easy to underestimate because it looks like formatting:
+;
+;     OOXML   <a:off x="2286000" y="1143000"/>     EMU. An integer. 914400
+;                                                  to the inch, always.
+;     ODF     svg:x="2.54cm" svg:y="1.27cm"        a number and a UNIT, and
+;                                                  the unit is per attribute.
+;
+; A reader that assumed a unit would be right for every file LibreOffice
+; writes — it writes `cm` — and wrong for a file written in `in` or `pt` by
+; something else. So the unit is read, every time, and there is no default
+; beyond "no unit means the number is already in this model's unit".
+;
+; THE MODEL'S UNIT IS THE TYPOGRAPHIC POINT, because that is what the deck
+; model beside it uses: `PptxUnits.emuToPt` happens in the parser, so
+; everything above the reader in the PowerPoint stack is already in points and
+; the painter's pt → CSS px step is shared. Landing ODF in centimetres would
+; have put a conversion in the painter, which is the one place two formats
+; must not differ.
+;
+; `1px` is 0.75pt, which is the CSS pixel at 96dpi and not this repository's
+; screen pixel. ODF says a `px` is a device pixel and every producer writes it
+; meaning the CSS one; taking it literally would make anything laid out in
+; pixels the wrong size on a HiDPI display and right on nothing.
+; ==============================================================================
+
+class OdpUnits {
+
+    sfn trimText:string (s:string) {
+        def a:int 0
+        def b:int (strlen s)
+        while (a < b) {
+            def c:int (charAt s a)
+            if ((c == 32) || (c == 9) || (c == 10) || (c == 13)) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        while (b > a) {
+            def c2:int (charAt s (b - 1))
+            if ((c2 == 32) || (c2 == 9) || (c2 == 10) || (c2 == 13)) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        return (substring s a b)
+    }
+
+    ; A length string → points. "" and an unparsable value are 0, which is the
+    ; honest answer for an attribute that was not stated: a shape with no
+    ; stated width is not a shape one pixel wide.
+    sfn toPt:double (s:string) {
+        def len:int (strlen s)
+        if (len == 0) {
+            return 0.0
+        }
+        ; Split the number from the unit at the first character that cannot be
+        ; part of a number. Signs matter: `svg:y="-1.2cm"` is a shape that
+        ; starts above the page, which decks really do.
+        def i:int 0
+        def numEnd:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isDigit:boolean ((c >= 48) && (c <= 57))
+            def isSign:boolean ((c == 43) || (c == 45))
+            def isDot:boolean (c == 46)
+            def isExp:boolean ((c == 101) || (c == 69))
+            if (isDigit || isDot) {
+                numEnd = (i + 1)
+            } {
+                if (isSign && (i == 0)) {
+                    numEnd = (i + 1)
+                } {
+                    if (isExp && (i > 0)) {
+                        numEnd = (i + 1)
+                    } {
+                        if (isSign && (i > 0)) {
+                            def prev:int (charAt s (i - 1))
+                            if ((prev == 101) || (prev == 69)) {
+                                numEnd = (i + 1)
+                            } {
+                                break
+                            }
+                        } {
+                            break
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (numEnd == 0) {
+            return 0.0
+        }
+        def numText:string (substring s 0 numEnd)
+        def parsed@(optional):double (str2double numText)
+        def value:double (?? parsed 0.0)
+        def unit:string (to_lowercase (OdpUnits.trimText((substring s numEnd len))))
+        return (value * (OdpUnits.factorFor(unit)))
+    }
+
+    ; How many points one of this unit is.
+    sfn factorFor:double (unit:string) {
+        if (unit == "cm") {
+            return 28.346456692913385
+        }
+        if (unit == "mm") {
+            return 2.8346456692913385
+        }
+        if (unit == "in") {
+            return 72.0
+        }
+        if (unit == "pt") {
+            return 1.0
+        }
+        if (unit == "pc") {
+            return 12.0
+        }
+        if (unit == "px") {
+            return 0.75
+        }
+        ; No unit: already in the model's unit. ODF requires one on a length,
+        ; so this is the tolerant reading of a file that broke the rule rather
+        ; than a supported case.
+        return 1.0
+    }
+
+    ; A percentage attribute — `fo:line-height="120%"` — as a fraction.
+    ; `fallback` is what "not stated" means, which is never the same as 0.
+    sfn percent:double (s:string fallback:double) {
+        def len:int (strlen s)
+        if (len == 0) {
+            return fallback
+        }
+        def cut:int len
+        if ((charAt s (len - 1)) == 37) {
+            cut = (len - 1)
+        }
+        def parsed@(optional):double (str2double (substring s 0 cut))
+        def value:double (?? parsed fallback)
+        if (cut == len) {
+            return value
+        }
+        return (value / 100.0)
+    }
+
+    ; The angle in `draw:transform="rotate (0.5235987)"`, in DEGREES, which is
+    ; what every painter here takes. ODF states it in radians and states it
+    ; ANTICLOCKWISE, where a screen's y axis goes down — so the sign flips.
+    ; Getting that wrong mirrors every rotated shape on the slide and looks
+    ; enough like a rounding error to survive a review.
+    sfn radiansToDegrees:double (rad:double) {
+        return ((0.0 - rad) * (180.0 / 3.141592653589793))
+    }
+
+}

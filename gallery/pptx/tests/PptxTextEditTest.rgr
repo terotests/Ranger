@@ -385,7 +385,7 @@ class PptxTextEditTest {
 
     fn testWrap:void () {
         print "--- one layout, for the painter and the caret ---"
-        def m (new PptxTextMeasure())
+        def m (new OfficeTextMeasure())
         def body:PptxTextBody (this.wrapBody("one two three four five six seven eight" 10.0))
         ; 10pt at the estimate is ~5.2px per character; 100px of box is about
         ; nineteen characters, so this has to break several times.
@@ -459,7 +459,7 @@ class PptxTextEditTest {
     ; a slide against Google Slides.
     fn testWrapBreaks:void () {
         print "--- a line breaks after a hyphen, not inside a word ---"
-        def m (new PptxTextMeasure())
+        def m (new OfficeTextMeasure())
         ; ~5.2px per character at the estimate. 80px is about fifteen
         ; characters: too narrow for the compound, wide enough for either half.
         def body:PptxTextBody (this.wrapBody("Liiketoiminta-logiikka" 10.0))
@@ -509,7 +509,7 @@ class PptxTextEditTest {
 
     fn testWrapCaret:void () {
         print "--- a caret on the second line ---"
-        def m (new PptxTextMeasure())
+        def m (new OfficeTextMeasure())
         def body:PptxTextBody (this.wrapBody("alpha beta gamma delta epsilon" 10.0))
         def lines:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
         this.check("it wrapped" ((array_length lines) > 1))
@@ -538,7 +538,7 @@ class PptxTextEditTest {
 
     fn testWrapAnchorAndAlign:void () {
         print "--- anchor and alignment over real line counts ---"
-        def m (new PptxTextMeasure())
+        def m (new OfficeTextMeasure())
         def body:PptxTextBody (this.wrapBody("one two three four five six" 10.0))
         def top:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
         body.anchor = "ctr"
@@ -710,7 +710,7 @@ class PptxTextEditTest {
 
     fn testWrapBullet:void () {
         print "--- a bullet is part of the layout ---"
-        def m (new PptxTextMeasure())
+        def m (new OfficeTextMeasure())
         def body:PptxTextBody (this.wrapBody("alpha beta gamma delta epsilon zeta" 10.0))
         def para:PptxParagraph (itemAt body.paragraphs 0)
         def plain:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))

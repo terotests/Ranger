@@ -239,6 +239,29 @@ class EVGDisplayList {
     ; The measured width and height come from the caller, because the list has
     ; no text renderer of its own and the measurement must be the one the
     ; caller laid out with.
+    ; A textured quad. `src` names the picture rather than carrying it: every
+    ; backend here already resolves a name to a texture — the browser host
+    ; keys a blob URL by it, the PDF renderer opens the file — and two format
+    ; readers now emit one, which is why this moved out of `PptxToEvg` and
+    ; into the layer both of them draw through.
+    fn addImage:void (src:string x:double y:double w:double h:double flipH:boolean flipV:boolean rotate:double) {
+        if ((strlen src) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 2
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.src = src
+        c.a = 1.0
+        c.flipH = flipH
+        c.flipV = flipV
+        c.rotate = rotate
+        push cmds c
+    }
+
     fn addText:void (text:string x:double y:double size:double col:EVGColor family:string bold:boolean italic:boolean width:double height:double) {
         if ((strlen text) == 0) {
             return

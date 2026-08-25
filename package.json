@@ -644,6 +644,7 @@
     "ooxml:package:test": "bash gallery/ooxml/tools/run_package_test.sh",
     "ooxml:opc:test": "bash gallery/ooxml/tools/run_opc_test.sh",
     "odf:package:test": "bash gallery/odf/tools/run_package_test.sh",
+    "odp:test": "bash gallery/odp/tools/run_test.sh",
     "office:font:test": "bash gallery/office/text/tools/run_font_test.sh",
     "office:metrics:test": "bash gallery/office/text/tools/run_metrics_test.sh",
     "office:style:test": "bash gallery/office/text/tools/run_style_test.sh",

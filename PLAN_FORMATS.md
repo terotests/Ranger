@@ -254,6 +254,14 @@ is scheduled separately, after the architecture question has an answer.
 The concrete goal. Everything here is either ODP, or something ODP needs whose
 second caller is the deck reader that already exists.
 
+> **Status: the reader is in and the viewer opens both.** `gallery/odf` and
+> `gallery/odp` exist, `npm run odp:test` is 65 assertions on two targets
+> including a parity section against the `.pptx` twin, and the browser build
+> opens a `.odp` in the deck viewer — 15 of `pptx:web:test`'s 113 assertions
+> are that. Steps 1.1, 1.2, 1.3, 1.4 and 1.8 are done; 1.5 to 1.7 moved to
+> **Phase 1b** below, with the measurement that moved them. See
+> [`gallery/odp/README.md`](gallery/odp/README.md).
+
 ## 1.0 The two formats, side by side
 
 This table is the argument. It is what the work has to survive, and it is why
@@ -392,64 +400,61 @@ writing down.
 a parent style that is bold, comes back not bold — in the model, through the
 resolver, and in what is drawn.
 
-## 1.5 `OfficeScene` — the resolved slide, built here
+## 1.5 – 1.7 → Phase 1b: `OfficeScene`, one painter, one tree
 
-Built now, because now it has two callers that are not each other's refactor.
+**Planned for this phase and deliberately moved out of it, on evidence.** The
+plan said `OfficeScene` should be built here so that it takes two producers at
+once. Writing the reader is what showed why it cannot be:
+
+`PptxToEvg` is **1600 lines and every one of them reads a `PptxShape`** —
+preset adjustment handles, gradient stops, connector routing, table tracks,
+shadow offsets, the text-fit substitution loop. Splitting it into
+`PptxToScene` + `SceneToEvg` is a bigger and riskier change than the entire
+ODF reader, and bundling the two would have meant landing a refactor of the
+deck painter inside a change whose gate is "the deck painter's output did not
+move".
+
+So the two painters meet one layer lower for now, at **`EVGDisplayList`** —
+whose own header says it exists precisely so that a sixth backend is not a
+sixth copy of the walk. Both formats emit `addRect`, `addFrame`,
+`addPolyRings`, `addPolyline`, `addText` and `addImage`; everything below that
+line is already shared, and `addImage` moved into it in this change with the
+deck painter delegating.
+
+That is a real convergence point and it is not the one the plan wants. What is
+still three walks is everything ABOVE the command list: hit testing,
+thumbnails, print, selection overlays and the accessibility tree.
+
+**Phase 1b, then, with its own gate:**
 
 ```text
-SceneNode      bounds · transform · style · entityId · semanticRole
-  SceneText
-  SceneImage
-  ScenePath
-  SceneTable
-  SceneGroup
+1b.1  OfficeScene            SceneText / SceneImage / ScenePath / SceneTable /
+                             SceneGroup, each with bounds, transform, style,
+                             entityId, semanticRole
+1b.2  PptxToScene            split out of PptxToEvg — the risky half, gated on
+                             pptx_oracle_dump being byte-identical and the
+                             visual shots unchanged
+1b.3  OdpToScene             OdpToEvg's walk, re-aimed
+1b.4  SceneToEvg             one painter, and PptxToEvg's emission half retires
+                             into it
+1b.5  SceneA11y              PptxA11y generalised; .odp gets a tree, which it
+                             does not have yet — and a screen reader cannot
+                             read a canvas
 ```
 
-`OdpResolver` produces it. `PptxResolver` — which already produces a resolved
-`PptxPresentation` for exactly this purpose — is **migrated** to produce it.
-That migration is the risky half of Phase 1 and it has the best safety net in
-the repository: the deck reader's oracle dump, its visual shots and its writer
-verifier all have to come back unchanged.
-
-**The hard rule, restated because this is the step that will be tempted to
-break it:** `OfficeScene` is resolved, paintable, hit-testable output and
-nothing else. If ODP or PPTX needs something in it that a PDF page could not
-also produce, it belongs in that format's model.
-
-**Gate.** `pptx_oracle_dump` byte-identical after the migration. Not "close" —
-identical. Anything else means the scene lost something, and finding out which
-thing three phases later is how a rewrite happens.
-
-## 1.6 `SceneToEvg` — one painter
-
-`PptxToEvg` walks the resolved deck and emits EVG. After 1.5 it walks a scene
-instead, and ODP gets a painter without one being written for it.
-
-**Gate.** The `pptx` visual shots, unchanged. Then the same for `.odp`: a
-fixture deck rendered and looked at by a person, the way
-`npm run office:shapes:sheet` exists to be looked at — because no assertion
-answers *does this slide look like the slide.*
-
-## 1.7 `SceneA11y` — one accessibility tree
-
-`PptxA11y.build` currently walks `PptxPresentation` and produces an
-`EVGA11yTree`: the deck as a **list** of slides, reading order from shape
-order, titles from `p:ph type="title"`, alt text from `p:cNvPr/@descr`.
-
-Every one of those is a scene-level fact once `semanticRole` carries it, which
-is why `SceneNode` has that field in 1.5 and not later. ODP's
-`presentation:class="title"` and its own alt text land in the same slots, and
-the deck's tree keeps working.
-
-**Gate.** An `.odp` publishes "Slide 7 of 30" through `posInSet`/`setSize`, and
-the existing assertion that a tree built twice is identical passes for it. A
-screen reader cannot read a canvas; a viewer without this is not a degraded
-experience, it is a blank window.
+The reason to do it is unchanged and now has a third producer waiting: PDF
+(Phase 3) has no document model at all, only a scene, and it is the producer
+that proves the layer was not fitted to two presentation formats that happened
+to look alike.
 
 ## 1.8 `DocumentFormatAdapter` — the registry
 
 Ooxml roadmap item 12, landed here because Phase 1's definition of done needs
-it: *one viewer opens both.*
+it: *one viewer opens both.* **Partly done.** The sniff is content-first and
+lives in one place, and `canEdit()` is the first capability — `.odp` is
+read-only, the edit toggle refuses and Save produces nothing. The registry
+object itself is still to come; what exists is one flag set at the door
+instead of an extension compared in twenty places.
 
 ```text
 DocumentFormatAdapter
@@ -468,19 +473,65 @@ naming the format exactly, which is a better answer than any file extension.
 **Gate.** Grep: zero occurrences of `".pptx"` or `".odp"` compared against a
 filename above the adapter layer.
 
+## What Phase 1 found
+
+Three things worth keeping, all of which were guesses in this document before
+the code was written.
+
+**The geometry evaluator generalises; the vocabulary does not.** Step 1.3 was
+told to measure whether `OfficeGeomFormula` reaches ODF rather than to assume
+it. The answer is better than expected for converted files and unchanged for
+authored ones: LibreOffice writes `draw:type="ooxml-roundRect"`, carrying the
+DrawingML preset name straight through a conversion, so stripping one prefix
+lets the shared 187 geometries draw it. A deck authored in Impress says
+`round-rectangle` — an older vocabulary for the same shapes — and needs a
+mapping table. `draw:enhanced-path` with its own `draw:equation` list is a
+second language for the same idea and is not read: those shapes are drawn as
+their box.
+
+**`OfficeColor` does not reach ODP at all, and that prediction was right.** Its
+value is the theme palette and the `tint`/`shade` chain; classic ODF has
+neither. `OdpToEvg` does not import it, and the header says why — a shared
+module that does not fit is worse than no shared module, because the next
+reader inherits the bad fit.
+
+**A parity fixture catches what a golden file cannot.** Every `.odp` fixture is
+LibreOffice's conversion of a `.pptx` fixture already in the tree, so the suite
+can end by opening the same document with both readers and requiring them to
+agree: same page count, same sentence, same box to a tenth of a point. A golden
+file pins what changed; it cannot say that what was drawn was never right.
+
+And one the assertions missed. The slide panel built thumbnails with
+`itemAt presentation.slides i`; with a `.odp` open that array is empty. It did
+not crash, because the fixture has exactly as many pages as its twin, so every
+index was in range and the panel drew the PREVIOUS document's thumbnails
+beside the new one's slide. 113 passing browser assertions did not see it. A
+screenshot did.
+
 ## Phase 1 — the definition of done, as tests
 
-1. One sentence, read identically out of a `.pptx` and an `.odp`
-   (`OoxmlPackageTest`, extended).
-2. One viewer opens both, with no format check above the adapter.
-3. `gallery/odp` imports nothing from `gallery/pptx`, and the reverse. Grep.
-4. `pptx_oracle_dump` byte-identical from 1.1 through 1.8.
-5. `pptx` visual shots unchanged; `pptx:writer:verify` still green.
-6. An `.odp` publishes an accessibility tree, identical when built twice.
-7. All of it compiles and passes on **JavaScript and C++**.
-8. An ODP corpus: files from LibreOffice Impress, from Google Slides' export,
-   and from PowerPoint's own "save as ODP" — three producers, because a reader
-   tested against one writer's habits is tested against nothing.
+1. **Done, and stronger than asked.** Not one sentence but the same
+   document — page count, title, sentence and box to a tenth of a point —
+   read by both readers, in `OdpTest.testParity`.
+2. **Done.** `npm run pptx:web:serve`, press *Open the .odp sample*; the page
+   never compares a file name, because `OdfPackage.sniffKind` reads the format
+   out of the bytes.
+3. **Done.** `gallery/odp` imports `gallery/odf`, `gallery/xml`,
+   `gallery/office` and `gallery/evg`, and nothing from `gallery/pptx`. The
+   only place both models meet is `PptxApp`, which is the application.
+4. **Done** for the suites: `pptx:test`, `pptx:geom:test`, `pptx:a11y:test`,
+   `pptx:writer:test`, `pptx:text:test` and `pptx:api:render:test` are
+   unchanged. The full `pptx:oracles` run against a reference renderer is
+   still to be done on this branch.
+5. `pptx:web:test` 113/113 in a real browser, the deck path unchanged.
+6. **Not done.** `.odp` publishes no accessibility tree — it is Phase 1b's
+   1b.5, and `presentation:class` already carries what `PptxA11y` reads from
+   `p:ph`.
+7. **Done.** `odp:test` and `odf:package:test` compile and pass to JavaScript
+   **and C++**.
+8. **Partly.** The corpus is eight LibreOffice conversions. Google Slides'
+   export and PowerPoint's own "save as ODP" are not in it, and a reader
+   tested against one writer's habits is tested against less than it looks.
 
 **And the honest failure condition.** If `OfficeScene` cannot hold both without
 growing a format-shaped field, this document is wrong and the finding is worth

@@ -23,6 +23,7 @@ const backendEl = document.getElementById("backend");
 const cmdsEl = document.getElementById("cmds");
 const slideEl = document.getElementById("slide");
 const fileEl = document.getElementById("file");
+const odpEl = document.getElementById("odp");
 const imageEl = document.getElementById("image");
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
@@ -501,7 +502,7 @@ async function downloadDeck() {
     name,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   );
-  if (how === "empty") statusEl.textContent = "nothing to save";
+  if (how === "empty") statusEl.textContent = web.readOnly && web.readOnly() ? "this format is read-only here" : "nothing to save";
   else if (how === "cancelled") statusEl.textContent = "not saved";
   else statusEl.textContent = "saved " + name;
 }
@@ -594,11 +595,39 @@ imageEl?.addEventListener("change", async (ev) => {
 fileEl?.addEventListener("change", async (ev) => {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
-  const ok = web.openDeck(asRangerBuffer(await file.arrayBuffer()), file.name);
-  statusEl.textContent = ok ? "opened " + file.name : "could not open: " + web.note;
+  await openBytes(asRangerBuffer(await file.arrayBuffer()), file.name);
+});
+
+// One path for every document the page opens, whichever format it is: the
+// engine decides what it was handed by looking at the bytes, so the page has
+// no reason to branch on the name and never learns which reader ran.
+async function openBytes(bytes, name) {
+  const ok = web.openDeck(bytes, name);
+  const ro = ok && web.readOnly && web.readOnly();
+  statusEl.textContent = ok
+    ? "opened " + name + (ro ? " · read-only" : "") + " · " + web.status()
+    : "could not open: " + web.note;
+  // A format this cannot write must not offer to write it. The button stays
+  // where it is — moving it would be a second layout — and says what it is.
+  const save = document.getElementById("save");
+  if (save) save.disabled = !!ro;
   refreshMedia();
   lastScene = "";
   await draw();
+  return ok;
+}
+
+// The .odp beside the deck. It is here to be pressed rather than described:
+// the claim PLAN_FORMATS.md Phase 1 makes is that one viewer opens both, and
+// a button that opens the other one in the same window is the shortest
+// possible statement of it.
+odpEl?.addEventListener("click", async () => {
+  statusEl.textContent = "loading sample.odp…";
+  try {
+    await openBytes(await bytesOf("./sample.odp"), "sample.odp");
+  } catch (e) {
+    statusEl.textContent = "could not fetch sample.odp: " + (e && e.message ? e.message : e);
+  }
 });
 
 async function selftest() {
@@ -1111,6 +1140,64 @@ async function selftest() {
     ok("every family the slide asks for is one the page loaded", cmds.length > 0 && strangers.length === 0);
   }
 
+  // --- the other format, in this window --------------------------------------
+  //
+  // PLAN_FORMATS.md Phase 1 makes one claim and this is it, stated as
+  // assertions rather than as a diagram: the same viewer opens a .odp, draws
+  // it through the same display list and the same GL backend, and comes back
+  // to the .pptx afterwards. The two files are the SAME deck — LibreOffice's
+  // own conversion of the one that is already open — so a difference here is
+  // a difference between the two readers and not between two documents.
+  {
+    const deckSlides = web.slideCount() | 0;
+    const odp = await bytesOf("./sample.odp");
+    ok("the .odp opens in the deck viewer", web.openDeck(odp, "sample.odp"));
+    ok("and it is read-only", !!(web.readOnly && web.readOnly()));
+    ok("it has the pages the .pptx has", (web.slideCount() | 0) === deckSlides);
+    refreshMedia();
+    lastScene = "";
+    await draw();
+    const odpCmds = JSON.parse(web.scene()).list.cmds;
+    ok("the page became draw commands", odpCmds.length > 3);
+    const odpText = odpCmds.filter((c) => c.k === 3 && c.text);
+    ok("with text on it", odpText.length > 0);
+    ok("and the title is the one in the file",
+      odpText.some((c) => String(c.text).indexOf("Northwind") >= 0));
+    // The families question again, and it is not a formality: an .odp names
+    // Calibri exactly as the .pptx does, and the alias map that answers for
+    // one has to answer for the other or the browser draws a font the layout
+    // never measured.
+    const loaded = new Set(dedupe(FONTS.map(([, , css]) => css && css.family)));
+    const odpStrangers = dedupe(odpText.map((c) => c.font)).filter((f) => !loaded.has(f));
+    ok("drawn with faces the page loaded", odpStrangers.length === 0);
+    ok("the GL backend drew it", (window.__evgStats || {}).drawn > 2);
+    web.next();
+    await draw();
+    ok("paging works the same way", (web.slideIndex() | 0) === 1);
+    // The picture: an .odp names it `Pictures/…` where a .pptx names it
+    // `ppt/media/…`, and the host keys its texture cache by whatever the
+    // display list says. One mechanism, two vocabularies.
+    web.gotoSlide(2);
+    await draw();
+    ok("its pictures came with it", JSON.parse(web.imageParts() || "[]").length > 0);
+    ok("and at least one was drawn", ((window.__evgStats || {}).images | 0) > 0);
+    // Read the buffer the same way the .pptx save is read above — a Ranger
+    // buffer is an ArrayBuffer here, and asking it for `.length` gets
+    // `undefined`, which compares equal to nothing and would have made this
+    // pass for the wrong reason had the guard not worked.
+    const roRaw = web.saveBytes();
+    const roView = roRaw instanceof ArrayBuffer ? new Uint8Array(roRaw) : new Uint8Array(roRaw || []);
+    ok("saving a read-only document produces nothing", roView.length === 0);
+    // Back to the deck, in the same window, with no reload — which is the
+    // half of the claim that a one-way test would miss.
+    ok("the .pptx opens again afterwards", web.openDeck(await bytesOf(DECK), "deck.pptx"));
+    ok("and it is editable again", !(web.readOnly && web.readOnly()));
+    refreshMedia();
+    lastScene = "";
+    await draw();
+    ok("and draws", (JSON.parse(web.scene()).list.cmds || []).length > 3);
+  }
+
   web.gotoSlide(0);
   lastScene = "";
   await draw();
@@ -1156,10 +1243,17 @@ async function boot() {
     console.warn("preset shapes unavailable:", e);
   }
 
-  statusEl.textContent = "loading deck";
-  const deck = await bytesOf(DECK);
-  if (web.openDeck(deck, "deck.pptx")) {
-    statusEl.textContent = web.deckName() + " · " + web.status();
+  // `?open=sample.odp` opens something else beside the deck. It exists so a
+  // screenshot of the OTHER format can be taken without a driver library —
+  // the same reason `?selftest=1` exists — and it is restricted to a plain
+  // file name so a query string cannot make the page fetch somewhere else.
+  const wanted = new URLSearchParams(location.search).get("open");
+  const openName = wanted && /^[\w.-]+$/.test(wanted) ? wanted : null;
+  statusEl.textContent = "loading " + (openName || "deck");
+  const deck = await bytesOf(openName ? "./" + openName : DECK);
+  if (web.openDeck(deck, openName || "deck.pptx")) {
+    statusEl.textContent = web.deckName() + " · " + web.status()
+      + (web.readOnly && web.readOnly() ? " · read-only" : "");
   } else {
     statusEl.textContent = "could not open the deck: " + web.note;
   }

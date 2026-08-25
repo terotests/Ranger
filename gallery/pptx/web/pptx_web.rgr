@@ -77,6 +77,14 @@ class PptxWeb {
         return (app.addFaceBytes(data))
     }
 
+    ; Whether the open document can be edited and saved. A `.odp` cannot:
+    ; this repository reads one and does not write one, and a Save button that
+    ; produced a .pptx from an .odp would be a data-loss bug wearing a helpful
+    ; label.
+    fn readOnly:boolean () {
+        return ((app.canEdit()) == false)
+    }
+
     fn openDeck:boolean (data:buffer name:string) {
         def ok:boolean (app.loadBytes(data name))
         if (ok == false) {
@@ -183,6 +191,11 @@ class PptxWeb {
     ; The deck as a package, for the page to hand to the browser. A tab has
     ; no file system, so "save" here is bytes and a download.
     fn saveBytes:buffer () {
+        ; Nothing to save from a format this cannot write. Answering with an
+        ; empty buffer is what the host already treats as "no file".
+        if (this.readOnly()) {
+            return (buffer_alloc 0)
+        }
         return (app.deckBytes())
     }
 

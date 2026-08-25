@@ -162,6 +162,17 @@ npm run pptx:web:serve   # …and serve it on :8001
 npm run pptx:web:test    # open it in headless Chrome and page through a deck
 ```
 
+**The same viewer opens a `.odp`.** There is a button on the page for it, and
+the sample it opens is LibreOffice's conversion of the deck already loaded —
+so a difference on screen is a difference between the two readers rather than
+between two documents. The reader is [`gallery/odp`](../odp/README.md); it
+shares the XML layer, the style carrier, the font resolution and the display
+list with this one, and no model. `.odp` is read-only here: `canEdit()` says
+so and Save produces nothing.
+
+```bash
+```
+
 The viewer always built a display list and the host always drew it with WebGL;
 HTTP was the only thing in between, and Ranger compiles to JavaScript, so the
 viewer can be in the page instead. What is left of the host is a static file

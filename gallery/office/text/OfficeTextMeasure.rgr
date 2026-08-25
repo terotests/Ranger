@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; PptxTextMeasure - how wide a string is, asked once and answered consistently
+; OfficeTextMeasure - how wide a string is, asked once and answered consistently
 ; ==============================================================================
 ;
 ; The painter and the caret have to agree about the width of a piece of text or
@@ -15,9 +15,9 @@
 ; ==============================================================================
 
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../office/text/OfficeFont.rgr"
+Import "OfficeFont.rgr"
 
-class PptxTextMeasure {
+class OfficeTextMeasure {
     def hasCtx:boolean false
     def ctx:UIContext (new UIContext)
     def family:string "Open Sans"

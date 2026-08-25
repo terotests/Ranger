@@ -1,0 +1,315 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdpModel.rgr — what a slide is, when the slide is an OpenDocument one
+; ==============================================================================
+;
+; This is NOT `PptxModel` with different field names, and the temptation to
+; make it one is the single decision this directory exists to get right.
+; PLAN_FORMATS.md has the side-by-side table; the short version is that the two
+; formats disagree about every mechanism a shared model would have to pick one
+; of:
+;
+;   * a slide is a PART in .pptx and an ELEMENT of one document in .odp
+;   * geometry is EMU integers there and unit-bearing strings here
+;   * a preset shape is a NAME there and a name PLUS a path plus an equation
+;     list here
+;   * a colour is a theme index and a modifier chain there, and a literal
+;     `#rrggbb` here
+;   * a placeholder is `p:ph type="title"` there and
+;     `presentation:class="title"` here
+;
+; A model that held both would carry two of everything and force every reader
+; of it to ask which half is populated. So there are two models, and they meet
+; where they genuinely agree: a positioned, filled, stroked, text-bearing box
+; on a page. Today that meeting happens at `EVGDisplayList`; PLAN_FORMATS.md
+; Phase 1b is about moving it up to a resolved scene.
+;
+; WHAT IS SHARED IS THE STYLE CARRIER. `OfficeTextStyle` holds this model's run
+; formatting, and that is not tidiness: ODF has the same unset / inherited /
+; explicitly-false problem OOXML has —
+;
+;     <style:style style:name="T1" style:family="text">
+;       <style:text-properties fo:font-weight="normal"/>   ← says NOT bold
+;     …a run with no text style at all                     ← says nothing
+;
+; — and a plain boolean cannot tell those apart, which is the bug that cost
+; this repository three readers. `applyOver` is the inheritance rule, and this
+; is its fourth caller and its first outside OOXML.
+;
+; MEASUREMENTS ARE IN POINTS, like the resolved PowerPoint model, so the
+; painter's pt → px step is shared rather than duplicated. See `OdpUnits`.
+; ==============================================================================
+
+Import "OdpUnits.rgr"
+Import "../office/text/OfficeStyle.rgr"
+
+; What a shape is, named rather than numbered. `DocEditOp.kind` cost this
+; repository four bugs as a bare int and every other kind table in the gallery
+; has been named since; a new one should not arrive un-named.
+class OdpShapeKind {
+    sfn geometry:int () {
+        return 0
+    }
+    sfn textBox:int () {
+        return 1
+    }
+    sfn image:int () {
+        return 2
+    }
+    sfn group:int () {
+        return 3
+    }
+    sfn line:int () {
+        return 4
+    }
+}
+
+; `draw:fill` and what it needs. Solid and none are what ODF states for the
+; overwhelming majority of shapes; a gradient or a bitmap fill is READ as its
+; name and drawn as nothing, which is visible and honest — the alternative,
+; picking a plausible colour, produces a slide that looks finished and is wrong.
+class OdpFill {
+    def kind:string "none"     ; "none" | "solid" | "gradient" | "bitmap" | "hatch"
+    def color:string ""        ; "#rrggbb" when kind is "solid"
+    def opacity:double 1.0
+
+    Constructor () {
+    }
+
+    fn isVisible:boolean () {
+        if (kind != "solid") {
+            return false
+        }
+        return ((strlen color) > 0)
+    }
+
+    fn copy:OdpFill () {
+        def out (new OdpFill())
+        out.kind = kind
+        out.color = color
+        out.opacity = opacity
+        return out
+    }
+}
+
+class OdpStroke {
+    def kind:string "none"     ; "none" | "solid" | "dash"
+    def color:string ""
+    def widthPt:double 0.0
+
+    Constructor () {
+    }
+
+    fn isVisible:boolean () {
+        if (kind == "none") {
+            return false
+        }
+        return ((strlen color) > 0)
+    }
+
+    fn copy:OdpStroke () {
+        def out (new OdpStroke())
+        out.kind = kind
+        out.color = color
+        out.widthPt = widthPt
+        return out
+    }
+}
+
+; One stretch of text in one format. `style` states only what the file states;
+; what it does not state is inherited by `applyOver` at resolve time, never by
+; a default written in here.
+class OdpRun {
+    def text:string ""
+    def style:OfficeTextStyle (new OfficeTextStyle())
+
+    Constructor () {
+    }
+}
+
+class OdpParagraph {
+    def runs:[OdpRun]
+    ; "start" | "center" | "end" | "justify" — ODF's own words, kept rather
+    ; than translated at read time, because a reader that normalises loses the
+    ; difference between "start" and "left" in a right-to-left paragraph.
+    def align:string ""
+    ; The paragraph's own text style, which a run inherits from. A deck that
+    ; sets the size on the paragraph and nothing on the run is the common case.
+    def style:OfficeTextStyle (new OfficeTextStyle())
+    def bulletChar:string ""
+    def indentLevel:int 0
+
+    Constructor () {
+        def r:[OdpRun]
+        runs = r
+    }
+
+    fn plainText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length runs)) {
+            def r:OdpRun (itemAt runs i)
+            out = (out + r.text)
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class OdpShape {
+    def kind:int 0
+    ; `draw:name`. Impress names every shape and PowerPoint does too, so this
+    ; is what an accessibility tree and a debug dump both say out loud.
+    def name:string ""
+    ; `presentation:class` — "title", "subtitle", "outline", "notes", "page".
+    ; ODF's placeholder concept, and the reason a title can be found without
+    ; guessing which box is the topmost one.
+    def presentationClass:string ""
+    ; `draw:type` from `draw:enhanced-geometry`, with LibreOffice's `ooxml-`
+    ; prefix stripped: "rect", "ellipse", "roundRect". A file converted from
+    ; .pptx keeps the DrawingML preset name, which is why the shared preset
+    ; catalogue can draw it. A file authored in Impress says "rectangle" and
+    ; "ellipse" instead, and `OdpPresets` maps those.
+    def presetName:string ""
+
+    def x:double 0.0
+    def y:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+    ; Degrees clockwise, already converted from ODF's anticlockwise radians.
+    def rotation:double 0.0
+
+    def fill:OdpFill (new OdpFill())
+    def stroke:OdpStroke (new OdpStroke())
+
+    def paragraphs:[OdpParagraph]
+    ; "top" | "middle" | "bottom", from `draw:textarea-vertical-align`.
+    def verticalAlign:string "top"
+    def padLeft:double 0.0
+    def padRight:double 0.0
+    def padTop:double 0.0
+    def padBottom:double 0.0
+
+    ; The picture, if this shape is one. `imagePart` is the package path — the
+    ; href verbatim, resolved — and it is what the display list names, so a
+    ; host that already serves the deck reader's images serves these with no
+    ; second mechanism.
+    def imagePart:string ""
+    def imageBytes:buffer (buffer_alloc 0)
+
+    def children:[OdpShape]
+    ; Whether this shape came off the master page rather than the slide. The
+    ; painter draws it; the accessibility tree must not, for the same reason
+    ; the deck's tree leaves master chrome out — it is on every slide, and met
+    ; in the reading flow it would be read between every two of them.
+    def fromMaster:boolean false
+
+    Constructor () {
+        def p:[OdpParagraph]
+        paragraphs = p
+        def c:[OdpShape]
+        children = c
+    }
+
+    fn hasText:boolean () {
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            def p:OdpParagraph (itemAt paragraphs i)
+            if ((strlen (p.plainText())) > 0) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn plainText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            def p:OdpParagraph (itemAt paragraphs i)
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            out = (out + (p.plainText()))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class OdpPage {
+    def name:string ""
+    def masterName:string ""
+    def shapes:[OdpShape]
+    def background:OdpFill (new OdpFill())
+    def notes:string ""
+
+    Constructor () {
+        def s:[OdpShape]
+        shapes = s
+    }
+
+    ; The slide's title, by `presentation:class` and nothing else. A slide with
+    ; no title frame has none — announcing its first text box as a title sends
+    ; a reader looking for a section that does not exist, which is the rule
+    ; `PptxA11y` already follows for `p:ph type="title"`.
+    fn title:string () {
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def s:OdpShape (itemAt shapes i)
+            if (s.presentationClass == "title") {
+                return (s.plainText())
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+}
+
+class OdpPresentation {
+    def pages:[OdpPage]
+    ; The master pages, by name, so a slide can draw its background objects.
+    def masters:[string:OdpPage]
+    ; The page box in points. ODF states it per master page through a page
+    ; layout; a deck whose masters disagree is legal and rare, and this is the
+    ; first master's answer.
+    def widthPt:double 720.0
+    def heightPt:double 540.0
+    def name:string ""
+
+    Constructor () {
+        def p:[OdpPage]
+        pages = p
+        def m:[string:OdpPage]
+        masters = m
+    }
+
+    fn pageCount:int () {
+        return (array_length pages)
+    }
+
+    fn pageAt@(optional):OdpPage (i:int) {
+        def missing@(optional):OdpPage
+        if (i < 0) {
+            return missing
+        }
+        if (i >= (array_length pages)) {
+            return missing
+        }
+        def hit@(optional):OdpPage (itemAt pages i)
+        return hit
+    }
+
+    fn masterFor@(optional):OdpPage (name:string) {
+        def missing@(optional):OdpPage
+        if ((strlen name) == 0) {
+            return missing
+        }
+        if (has masters name) {
+            return (get masters name)
+        }
+        return missing
+    }
+}
