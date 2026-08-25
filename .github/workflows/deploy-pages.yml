@@ -276,6 +276,11 @@ jobs:
         run: |
           # shellcheck disable=SC1091
           source ~/emsdk/emsdk_env.sh
+          # The chart deck the comparison is really about is built from the
+          # playground's preset through the published JavaScript API, and that
+          # package is generated rather than checked in. Nothing earlier in
+          # this job builds it.
+          bash gallery/pptx/api/js/build.sh
           node gallery/pptx/web/wasm/parity.mjs
 
       # And that what the artifact will actually carry is there. A page whose

@@ -24,16 +24,26 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeScene } from "../host/pptx-host.mjs";
-import { chartDeck } from "../../tools/chart_deck.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../../..");
 const JS_BUNDLE = path.join(ROOT, "gallery/pptx/web/standalone/dist/pptx_web.js");
 const WASM_GLUE = path.join(HERE, "dist/pptx_wasm.mjs");
 
-for (const [f, how] of [[JS_BUNDLE, "npm run pptx:web"], [WASM_GLUE, "npm run pptx:wasm"]]) {
+// The published JavaScript API, which the chart deck is built with. It is
+// generated rather than checked in, so this is a build that can be missing —
+// and it is reached through a static import chain, which throws before any
+// check in this file could run. Hence the explicit test and the dynamic
+// import below: a build step nobody ran should say so, not arrive as
+// MODULE_NOT_FOUND out of a file the reader has never heard of.
+const API_BUNDLE = path.join(ROOT, "gallery/pptx/api/js/dist/pptx_api.cjs");
+
+for (const [f, how] of [[JS_BUNDLE, "npm run pptx:web"],
+                        [WASM_GLUE, "npm run pptx:wasm"],
+                        [API_BUNDLE, "npm run pptx:api:build"]]) {
   if (!fs.existsSync(f)) { console.error(`no build at ${f} — run: ${how}`); process.exit(1); }
 }
+const { chartDeck } = await import("../../tools/chart_deck.mjs");
 
 const FONTS = ROOT + "/gallery/pdf_writer/assets/fonts";
 const PRESETS = fs.readFileSync(ROOT + "/gallery/office/geom/assets/presets.txt", "utf8");
