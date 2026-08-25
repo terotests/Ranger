@@ -4,11 +4,11 @@
 ; three_evg_snapshot_test — Three scene → EVG vector print (paths + SVG).
 ; ==============================================================================
 ;
-; Builds the canonical textured cube, projects it through ThreeEvgVectorBackend,
+; Builds the canonical textured cube with ambient + directional lights,
+; projects it through ThreeEvgVectorBackend (Lambert + linearGradient fills),
 ; asserts PATH/SVG wiring, and writes:
-;   gallery/game_engine/three/artifacts/three_evg_cube.svg   — true vector
-;   gallery/game_engine/three/artifacts/three_evg_print.png  — AA vector fill
-;                                                             at page resolution
+;   gallery/game_engine/three/artifacts/three_evg_cube.svg   — lit vector
+;   gallery/game_engine/three/artifacts/three_evg_print.png  — gradient preview
 ; ==============================================================================
 
 Import "three_evg_snapshot.rgr"
@@ -19,6 +19,7 @@ Import "three_box_geometry.rgr"
 Import "three_mesh_basic_material.rgr"
 Import "three_mesh.rgr"
 Import "three_texture.rgr"
+Import "three_light.rgr"
 Import "../../../evg/EVGDisplayList.rgr"
 
 class ThreeEvgSnapshotTest {
@@ -68,6 +69,15 @@ class ThreeEvgSnapshotTest {
         mesh.setMaterial(material)
         mesh.rotation.set(0.5 0.7 0.0)
         def scene:ThreeScene (new ThreeScene)
+        def amb:ThreeAmbientLight (new ThreeAmbientLight)
+        amb.setColorHex(11184810)
+        amb.setIntensity(0.7)
+        scene.add(amb)
+        def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
+        sun.setColorHex(16777215)
+        sun.setIntensity(1.1)
+        sun.setDirection(2.0 3.5 1.5)
+        scene.add(sun)
         scene.add(mesh)
         return scene
     }
@@ -132,6 +142,8 @@ class ThreeEvgSnapshotTest {
         t.ok("svg path" (svgPath == (outDir + "/" + svgName)))
         def svg:string (buffer_to_string (buffer_read_file outDir svgName))
         t.ok("svg has path elements" ((indexOf svg "<path d=") >= 0))
+        t.ok("svg has linearGradient lighting" ((indexOf svg "<linearGradient") >= 0))
+        t.ok("svg gradients use userSpaceOnUse" ((indexOf svg "gradientUnits=\"userSpaceOnUse\"") >= 0))
         t.ok("svg has no embedded raster" ((indexOf svg "data:image") < 0))
 
         ; --- page PNG preview via AA polygon fill (page resolution) ---

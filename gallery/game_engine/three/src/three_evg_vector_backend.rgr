@@ -4,15 +4,13 @@
 ; three_evg_vector_backend — project Three meshes to EVG vector polygons.
 ; ==============================================================================
 ;
-; Drop-in ThreeRenderBackend: instead of writing a pixel framebuffer, each
-; drawMesh call projects triangles to 2D and stores them. After render(), emit:
-;   • EVGDisplayList PATH commands (painter's algorithm, back→front)
-;   • SVG <path> document (true vector for print / paste)
-;   • RasterBuffer via VectorRasterizer.fillAA (AA preview at page resolution)
+; Drop-in ThreeRenderBackend: projects triangles to 2D and stores them as
+; gradient-filled polygons (painter's algorithm). Lighting is Lambert
+; (ambient + directional) from setLights(); each polygon gets a two-stop
+; linearGradient along the face toward the light — SVG-native for print.
 ;
-; Textured triangles are subdivided in UV space into one filled polygon per
-; texel (Sutherland–Hodgman clip), so a checker map stays sharp vectors rather
-; than a single muddy centroid colour.
+; Textured triangles are UV-subdivided into per-texel polygons; each texel
+; inherits the parent face's lit gradient axis.
 ; ==============================================================================
 
 Import "three_render_backend.rgr"
@@ -34,6 +32,14 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
     def clearB:double 0.133
     def ox:double 0.0
     def oy:double 0.0
+    ; Lights from setLights (same contract as the GL backend).
+    def ambR:double 0.35
+    def ambG:double 0.35
+    def ambB:double 0.35
+    def dirCount:int 0
+    def dirs:[double]
+    def cols:[double]
+    ; Triangle list: geometry + two-stop linear gradient (user-space).
     def tx0:[double]
     def ty0:[double]
     def tx1:[double]
@@ -41,14 +47,38 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
     def tx2:[double]
     def ty2:[double]
     def tDepth:[double]
-    def tR:[int]
-    def tG:[int]
-    def tB:[int]
+    def gx1:[double]
+    def gy1:[double]
+    def gx2:[double]
+    def gy2:[double]
+    def tR1:[int]
+    def tG1:[int]
+    def tB1:[int]
+    def tR2:[int]
+    def tG2:[int]
+    def tB2:[int]
     def triCount:int 0
 
     fn setOffset:void (x:double y:double) {
         ox = x
         oy = y
+    }
+
+    fn setLights:void (aR:double aG:double aB:double count:int d:[double] c:[double]) {
+        ambR = aR
+        ambG = aG
+        ambB = aB
+        ; Soft default ambient when the scene has no lights yet.
+        if (((aR + aG) + aB) < 0.0001) {
+            if (count == 0) {
+                ambR = 0.45
+                ambG = 0.45
+                ambB = 0.48
+            }
+        }
+        dirCount = count
+        dirs = d
+        cols = c
     }
 
     fn beginFrame:void (width:int height:int r:double g:double b:double) {
@@ -64,9 +94,16 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         def e4:[double]
         def e5:[double]
         def ed:[double]
-        def er:[int]
-        def eg:[int]
-        def eb:[int]
+        def egx1:[double]
+        def egy1:[double]
+        def egx2:[double]
+        def egy2:[double]
+        def er1:[int]
+        def eg1:[int]
+        def eb1:[int]
+        def er2:[int]
+        def eg2:[int]
+        def eb2:[int]
         tx0 = e0
         ty0 = e1
         tx1 = e2
@@ -74,36 +111,268 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         tx2 = e4
         ty2 = e5
         tDepth = ed
-        tR = er
-        tG = eg
-        tB = eb
+        gx1 = egx1
+        gy1 = egy1
+        gx2 = egx2
+        gy2 = egy2
+        tR1 = er1
+        tG1 = eg1
+        tB1 = eb1
+        tR2 = er2
+        tG2 = eg2
+        tB2 = eb2
         triCount = 0
     }
 
-    fn pushPoly:void (pts:[double] depth:double r:int g:int b:int) {
+    fn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    fn toByte:int (v:double) {
+        return (to_int ((this.clamp01(v)) * 255.0))
+    }
+
+    ; Transform a normal by the model's upper 3×3 and normalise.
+    fn transformNormal:void (model:ThreeMatrix4 nx:double ny:double nz:double out:[double]) {
+        def e0:double (model.eGet(0))
+        def e1:double (model.eGet(1))
+        def e2:double (model.eGet(2))
+        def e4:double (model.eGet(4))
+        def e5:double (model.eGet(5))
+        def e6:double (model.eGet(6))
+        def e8:double (model.eGet(8))
+        def e9:double (model.eGet(9))
+        def e10:double (model.eGet(10))
+        def wx:double (((e0 * nx) + (e4 * ny)) + (e8 * nz))
+        def wy:double (((e1 * nx) + (e5 * ny)) + (e9 * nz))
+        def wz:double (((e2 * nx) + (e6 * ny)) + (e10 * nz))
+        def len:double (sqrt(((wx * wx) + (wy * wy)) + (wz * wz)))
+        if (len < 0.000001) {
+            len = 1.0
+        }
+        clear out
+        push out (wx / len)
+        push out (wy / len)
+        push out (wz / len)
+    }
+
+    ; Lambert shade factor per channel (ambient + N·L lights), times base 0..1.
+    fn shadeR:double (nx:double ny:double nz:double base:double) {
+        def s:double (ambR * base)
+        def i:int 0
+        while (i < dirCount) {
+            def dx:double (itemAt dirs (i * 3))
+            def dy:double (itemAt dirs ((i * 3) + 1))
+            def dz:double (itemAt dirs ((i * 3) + 2))
+            def nd:double (((nx * dx) + (ny * dy)) + (nz * dz))
+            if (nd > 0.0) {
+                s = (s + ((itemAt cols (i * 3)) * nd * base))
+            }
+            i = (i + 1)
+        }
+        return (this.clamp01(s))
+    }
+
+    fn shadeG:double (nx:double ny:double nz:double base:double) {
+        def s:double (ambG * base)
+        def i:int 0
+        while (i < dirCount) {
+            def dx:double (itemAt dirs (i * 3))
+            def dy:double (itemAt dirs ((i * 3) + 1))
+            def dz:double (itemAt dirs ((i * 3) + 2))
+            def nd:double (((nx * dx) + (ny * dy)) + (nz * dz))
+            if (nd > 0.0) {
+                s = (s + ((itemAt cols ((i * 3) + 1)) * nd * base))
+            }
+            i = (i + 1)
+        }
+        return (this.clamp01(s))
+    }
+
+    fn shadeB:double (nx:double ny:double nz:double base:double) {
+        def s:double (ambB * base)
+        def i:int 0
+        while (i < dirCount) {
+            def dx:double (itemAt dirs (i * 3))
+            def dy:double (itemAt dirs ((i * 3) + 1))
+            def dz:double (itemAt dirs ((i * 3) + 2))
+            def nd:double (((nx * dx) + (ny * dy)) + (nz * dz))
+            if (nd > 0.0) {
+                s = (s + ((itemAt cols ((i * 3) + 2)) * nd * base))
+            }
+            i = (i + 1)
+        }
+        return (this.clamp01(s))
+    }
+
+    ; Shadow-side stop: ambient + a fraction of the directional term.
+    fn shadeRWeak:double (nx:double ny:double nz:double base:double nd:double) {
+        def s:double (ambR * base)
+        def i:int 0
+        while (i < dirCount) {
+            s = (s + ((itemAt cols (i * 3)) * nd * 0.35 * base))
+            i = (i + 1)
+        }
+        return (this.clamp01(s))
+    }
+
+    fn shadeGWeak:double (nx:double ny:double nz:double base:double nd:double) {
+        def s:double (ambG * base)
+        def i:int 0
+        while (i < dirCount) {
+            s = (s + ((itemAt cols ((i * 3) + 1)) * nd * 0.35 * base))
+            i = (i + 1)
+        }
+        return (this.clamp01(s))
+    }
+
+    fn shadeBWeak:double (nx:double ny:double nz:double base:double nd:double) {
+        def s:double (ambB * base)
+        def i:int 0
+        while (i < dirCount) {
+            s = (s + ((itemAt cols ((i * 3) + 2)) * nd * 0.35 * base))
+            i = (i + 1)
+        }
+        return (this.clamp01(s))
+    }
+
+    ; Primary light direction (toward the light); default (0.4, 0.8, 0.5).
+    fn lightDirX:double () {
+        if (dirCount > 0) {
+            return (itemAt dirs 0)
+        }
+        return 0.4
+    }
+
+    fn lightDirY:double () {
+        if (dirCount > 0) {
+            return (itemAt dirs 1)
+        }
+        return 0.8
+    }
+
+    fn lightDirZ:double () {
+        if (dirCount > 0) {
+            return (itemAt dirs 2)
+        }
+        return 0.5
+    }
+
+    fn pushGradTri:void (x0:double y0:double x1:double y1:double x2:double y2:double depth:double ax:double ay:double bx:double by:double r1:int g1:int b1:int r2:int g2:int b2:int) {
+        push tx0 x0
+        push ty0 y0
+        push tx1 x1
+        push ty1 y1
+        push tx2 x2
+        push ty2 y2
+        push tDepth depth
+        push gx1 ax
+        push gy1 ay
+        push gx2 bx
+        push gy2 by
+        push tR1 r1
+        push tG1 g1
+        push tB1 b1
+        push tR2 r2
+        push tG2 g2
+        push tB2 b2
+        triCount = (triCount + 1)
+    }
+
+    ; Fan a convex poly into triangles; all share the same lighting gradient.
+    fn pushGradPoly:void (pts:[double] depth:double ax:double ay:double bx:double by:double r1:int g1:int b1:int r2:int g2:int b2:int) {
         def n:int (idiv (array_length pts) 2)
         if (n < 3) {
             return
         }
-        ; Fan from first vertex into triangles (convex clips from a triangle).
         def i:int 1
         while ((i + 1) < n) {
-            push tx0 (itemAt pts 0)
-            push ty0 (itemAt pts 1)
-            push tx1 (itemAt pts (i * 2))
-            push ty1 (itemAt pts ((i * 2) + 1))
-            push tx2 (itemAt pts ((i + 1) * 2))
-            push ty2 (itemAt pts (((i + 1) * 2) + 1))
-            push tDepth depth
-            push tR r
-            push tG g
-            push tB b
-            triCount = (triCount + 1)
+            this.pushGradTri((itemAt pts 0) (itemAt pts 1) (itemAt pts (i * 2)) (itemAt pts ((i * 2) + 1)) (itemAt pts ((i + 1) * 2)) (itemAt pts (((i + 1) * 2) + 1)) depth ax ay bx by r1 g1 b1 r2 g2 b2)
             i = (i + 1)
         }
     }
 
-    ; Map a UV point back to screen via the source triangle's UV→screen map.
+    ; Build a face lighting gradient: darker stop opposite the light, lit stop
+    ; toward it. Uses N·L for overall brightness and world-position along L for
+    ; the gradient axis (so flat-normal faces still get a soft ramp).
+    fn emitLitPoly:void (pts:[double] depth:double nx:double ny:double nz:double wx0:double wy0:double wz0:double wx1:double wy1:double wz1:double wx2:double wy2:double wz2:double sx0:double sy0:double sx1:double sy1:double sx2:double sy2:double br:double bg:double bb:double) {
+        def ldx:double (this.lightDirX())
+        def ldy:double (this.lightDirY())
+        def ldz:double (this.lightDirZ())
+        def s0:double (((wx0 * ldx) + (wy0 * ldy)) + (wz0 * ldz))
+        def s1:double (((wx1 * ldx) + (wy1 * ldy)) + (wz1 * ldz))
+        def s2:double (((wx2 * ldx) + (wy2 * ldy)) + (wz2 * ldz))
+        def sMin:double s0
+        def sMax:double s0
+        def ax:double sx0
+        def ay:double sy0
+        def bx:double sx0
+        def by:double sy0
+        if (s1 < sMin) {
+            sMin = s1
+            ax = sx1
+            ay = sy1
+        }
+        if (s2 < sMin) {
+            sMin = s2
+            ax = sx2
+            ay = sy2
+        }
+        if (s1 > sMax) {
+            sMax = s1
+            bx = sx1
+            by = sy1
+        }
+        if (s2 > sMax) {
+            sMax = s2
+            bx = sx2
+            by = sy2
+        }
+        ; Lit amount at the dark / bright ends of the face (soft ramp).
+        def nd:double (((nx * ldx) + (ny * ldy)) + (nz * ldz))
+        if (nd < 0.0) {
+            nd = 0.0
+        }
+        ; Two-stop Lambert: shadowed side uses a weaker directional term.
+        def sR1:double (this.shadeRWeak(nx ny nz br nd))
+        def sG1:double (this.shadeGWeak(nx ny nz bg nd))
+        def sB1:double (this.shadeBWeak(nx ny nz bb nd))
+        def sR2:double (this.shadeR(nx ny nz br))
+        def sG2:double (this.shadeG(nx ny nz bg))
+        def sB2:double (this.shadeB(nx ny nz bb))
+        def r1:int (this.toByte(sR1))
+        def g1:int (this.toByte(sG1))
+        def b1:int (this.toByte(sB1))
+        def r2:int (this.toByte(sR2))
+        def g2:int (this.toByte(sG2))
+        def b2:int (this.toByte(sB2))
+        ; Degenerate axis → flat average colour.
+        def gdx:double (bx - ax)
+        def gdy:double (by - ay)
+        if (((gdx * gdx) + (gdy * gdy)) < 0.25) {
+            ax = sx0
+            ay = sy0
+            bx = sx1
+            by = sy1
+            def ar:int (idiv (r1 + r2) 2)
+            def ag:int (idiv (g1 + g2) 2)
+            def ab:int (idiv (b1 + b2) 2)
+            r1 = ar
+            g1 = ag
+            b1 = ab
+            r2 = ar
+            g2 = ag
+            b2 = ab
+        }
+        this.pushGradPoly(pts depth ax ay bx by r1 g1 b1 r2 g2 b2)
+    }
+
     fn uvToScreenX:double (u:double v:double u0:double v0:double u1:double v1:double u2:double v2:double x0:double x1:double x2:double) {
         def den:double (((u1 - u0) * (v2 - v0)) - ((u2 - u0) * (v1 - v0)))
         if ((den < 0.0000001) && (den > (0.0 - 0.0000001))) {
@@ -126,8 +395,6 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         return (((w0 * y0) + (w1 * y1)) + (w2 * y2))
     }
 
-    ; Sutherland–Hodgman: clip polygon (flat UV list) against one half-plane.
-    ; axis 0 = U, 1 = V; keepLess=true keeps coord <= limit, else >= limit.
     fn clipUv:void (src:[double] dst:[double] axis:int keepLess:boolean limit:double) {
         clear dst
         def n:int (idiv (array_length src) 2)
@@ -173,12 +440,9 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
                     push dst by
                 } {
                     def t:double 0.0
-                    if ((bVal - aVal) > 0.0000001) {
-                        t = ((limit - aVal) / (bVal - aVal))
-                    } {
-                        if ((bVal - aVal) < (0.0 - 0.0000001)) {
-                            t = ((limit - aVal) / (bVal - aVal))
-                        }
+                    def den:double (bVal - aVal)
+                    if ((den > 0.0000001) || (den < (0.0 - 0.0000001))) {
+                        t = ((limit - aVal) / den)
                     }
                     push dst (ax + (t * (bx - ax)))
                     push dst (ay + (t * (by - ay)))
@@ -186,12 +450,9 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             } {
                 if bIn {
                     def t2:double 0.0
-                    if ((bVal - aVal) > 0.0000001) {
-                        t2 = ((limit - aVal) / (bVal - aVal))
-                    } {
-                        if ((bVal - aVal) < (0.0 - 0.0000001)) {
-                            t2 = ((limit - aVal) / (bVal - aVal))
-                        }
+                    def den2:double (bVal - aVal)
+                    if ((den2 > 0.0000001) || (den2 < (0.0 - 0.0000001))) {
+                        t2 = ((limit - aVal) / den2)
                     }
                     push dst (ax + (t2 * (bx - ax)))
                     push dst (ay + (t2 * (by - ay)))
@@ -203,7 +464,7 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         }
     }
 
-    fn emitTexelPoly:void (u0:double v0:double u1:double v1:double u2:double v2:double x0:double y0:double x1:double y1:double x2:double y2:double depth:double uMin:double uMax:double vMin:double vMax:double r:int g:int b:int) {
+    fn emitTexelPoly:void (u0:double v0:double u1:double v1:double u2:double v2:double x0:double y0:double x1:double y1:double x2:double y2:double depth:double nx:double ny:double nz:double wx0:double wy0:double wz0:double wx1:double wy1:double wz1:double wx2:double wy2:double wz2:double uMin:double uMax:double vMin:double vMax:double br:double bg:double bb:double) {
         def poly:[double]
         push poly u0
         push poly v0
@@ -229,10 +490,10 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             push screen (this.uvToScreenY(uu vv u0 v0 u1 v1 u2 v2 y0 y1 y2))
             i = (i + 1)
         }
-        this.pushPoly(screen depth r g b)
+        this.emitLitPoly(screen depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 x0 y0 x1 y1 x2 y2 br bg bb)
     }
 
-    fn emitTexturedTri:void (tex:ThreeTexture u0:double v0:double u1:double v1:double u2:double v2:double x0:double y0:double x1:double y1:double x2:double y2:double depth:double colorR:double colorG:double colorB:double) {
+    fn emitTexturedTri:void (tex:ThreeTexture model:ThreeMatrix4 u0:double v0:double u1:double v1:double u2:double v2:double x0:double y0:double x1:double y1:double x2:double y2:double depth:double nx:double ny:double nz:double wx0:double wy0:double wz0:double wx1:double wy1:double wz1:double wx2:double wy2:double wz2:double colorR:double colorG:double colorB:double) {
         def tw:int tex.width
         def th:int tex.height
         if ((tw <= 0) || (th <= 0)) {
@@ -243,66 +504,33 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             push pts y1
             push pts x2
             push pts y2
-            this.pushPoly(pts depth (to_int (colorR * 255.0)) (to_int (colorG * 255.0)) (to_int (colorB * 255.0)))
+            this.emitLitPoly(pts depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 x0 y0 x1 y1 x2 y2 colorR colorG colorB)
             return
         }
         def minU:double u0
-        if (u1 < minU) {
-            minU = u1
-        }
-        if (u2 < minU) {
-            minU = u2
-        }
+        if (u1 < minU) { minU = u1 }
+        if (u2 < minU) { minU = u2 }
         def maxU:double u0
-        if (u1 > maxU) {
-            maxU = u1
-        }
-        if (u2 > maxU) {
-            maxU = u2
-        }
+        if (u1 > maxU) { maxU = u1 }
+        if (u2 > maxU) { maxU = u2 }
         def minV:double v0
-        if (v1 < minV) {
-            minV = v1
-        }
-        if (v2 < minV) {
-            minV = v2
-        }
+        if (v1 < minV) { minV = v1 }
+        if (v2 < minV) { minV = v2 }
         def maxV:double v0
-        if (v1 > maxV) {
-            maxV = v1
-        }
-        if (v2 > maxV) {
-            maxV = v2
-        }
-        ; Wrap into 0..1 for the common 0..1 face UVs (matches software wrap).
-        if (minU < 0.0) {
-            minU = 0.0
-        }
-        if (minV < 0.0) {
-            minV = 0.0
-        }
-        if (maxU > 1.0) {
-            maxU = 1.0
-        }
-        if (maxV > 1.0) {
-            maxV = 1.0
-        }
+        if (v1 > maxV) { maxV = v1 }
+        if (v2 > maxV) { maxV = v2 }
+        if (minU < 0.0) { minU = 0.0 }
+        if (minV < 0.0) { minV = 0.0 }
+        if (maxU > 1.0) { maxU = 1.0 }
+        if (maxV > 1.0) { maxV = 1.0 }
         def ix0:int (to_int (minU * (to_double tw)))
         def ix1:int (to_int (maxU * (to_double tw)))
         def iy0:int (to_int (minV * (to_double th)))
         def iy1:int (to_int (maxV * (to_double th)))
-        if (ix0 < 0) {
-            ix0 = 0
-        }
-        if (iy0 < 0) {
-            iy0 = 0
-        }
-        if (ix1 >= tw) {
-            ix1 = (tw - 1)
-        }
-        if (iy1 >= th) {
-            iy1 = (th - 1)
-        }
+        if (ix0 < 0) { ix0 = 0 }
+        if (iy0 < 0) { iy0 = 0 }
+        if (ix1 >= tw) { ix1 = (tw - 1) }
+        if (iy1 >= th) { iy1 = (th - 1) }
         def iy:int iy0
         while (iy <= iy1) {
             def ix:int ix0
@@ -315,10 +543,7 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
                 def tr:double ((to_double (buffer_get tex.rgba off)) / 255.0)
                 def tg:double ((to_double (buffer_get tex.rgba (off + 1))) / 255.0)
                 def tb:double ((to_double (buffer_get tex.rgba (off + 2))) / 255.0)
-                def rr:int (to_int ((colorR * tr) * 255.0))
-                def gg:int (to_int ((colorG * tg) * 255.0))
-                def bb:int (to_int ((colorB * tb) * 255.0))
-                this.emitTexelPoly(u0 v0 u1 v1 u2 v2 x0 y0 x1 y1 x2 y2 depth uMin uMax vMin vMax rr gg bb)
+                this.emitTexelPoly(u0 v0 u1 v1 u2 v2 x0 y0 x1 y1 x2 y2 depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 uMin uMax vMin vMax (colorR * tr) (colorG * tg) (colorB * tb))
                 ix = (ix + 1)
             }
             iy = (iy + 1)
@@ -338,6 +563,9 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         def sx:[double]
         def sy:[double]
         def sz:[double]
+        def wx:[double]
+        def wy:[double]
+        def wz:[double]
         def bad:[int]
         def vi:int 0
         while (vi < vc) {
@@ -346,11 +574,15 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             def lz:double (geometry.getPosition(vi 2))
             def cw:double (mvp.clipW(lx ly lz))
             def ndc:ThreeVector3 (mvp.transformPoint((ThreeVector3.of(lx ly lz))))
+            def world:ThreeVector3 (model.transformPoint((ThreeVector3.of(lx ly lz))))
             def screenX:double ((((ndc.x * 0.5) + 0.5) * (to_double w)) + ox)
             def screenY:double (((1.0 - ((ndc.y * 0.5) + 0.5)) * (to_double h)) + oy)
             push sx screenX
             push sy screenY
             push sz ndc.z
+            push wx world.x
+            push wy world.y
+            push wz world.z
             if (cw <= 0.0) {
                 push bad 1
             } {
@@ -377,14 +609,23 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
                 def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
                 if ((area > 0.0001) || (area < (0.0 - 0.0001))) {
                     def depth:double (((z0 + z1) + z2) / 3.0)
+                    def nout:[double]
+                    ; Face normal from first vertex (box faces share one normal).
+                    this.transformNormal(model (geometry.getNormal(i0 0)) (geometry.getNormal(i0 1)) (geometry.getNormal(i0 2)) nout)
+                    def nx:double (itemAt nout 0)
+                    def ny:double (itemAt nout 1)
+                    def nz:double (itemAt nout 2)
+                    def wx0:double (itemAt wx i0)
+                    def wy0:double (itemAt wy i0)
+                    def wz0:double (itemAt wz i0)
+                    def wx1:double (itemAt wx i1)
+                    def wy1:double (itemAt wy i1)
+                    def wz1:double (itemAt wz i1)
+                    def wx2:double (itemAt wx i2)
+                    def wy2:double (itemAt wy i2)
+                    def wz2:double (itemAt wz i2)
                     if hasTexture {
-                        def u0:double (geometry.getUv(i0 0))
-                        def v0:double (geometry.getUv(i0 1))
-                        def u1:double (geometry.getUv(i1 0))
-                        def v1:double (geometry.getUv(i1 1))
-                        def u2:double (geometry.getUv(i2 0))
-                        def v2:double (geometry.getUv(i2 1))
-                        this.emitTexturedTri(tex u0 v0 u1 v1 u2 v2 x0 y0 x1 y1 x2 y2 depth colorR colorG colorB)
+                        this.emitTexturedTri(tex model (geometry.getUv(i0 0)) (geometry.getUv(i0 1)) (geometry.getUv(i1 0)) (geometry.getUv(i1 1)) (geometry.getUv(i2 0)) (geometry.getUv(i2 1)) x0 y0 x1 y1 x2 y2 depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 colorR colorG colorB)
                     } {
                         def pts:[double]
                         push pts x0
@@ -393,7 +634,7 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
                         push pts y1
                         push pts x2
                         push pts y2
-                        this.pushPoly(pts depth (to_int (colorR * 255.0)) (to_int (colorG * 255.0)) (to_int (colorB * 255.0)))
+                        this.emitLitPoly(pts depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 x0 y0 x1 y1 x2 y2 colorR colorG colorB)
                     }
                 }
             }
@@ -427,9 +668,16 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         def ax2:double (itemAt tx2 a)
         def ay2:double (itemAt ty2 a)
         def ad:double (itemAt tDepth a)
-        def ar:int (itemAt tR a)
-        def ag:int (itemAt tG a)
-        def ab:int (itemAt tB a)
+        def agx1:double (itemAt gx1 a)
+        def agy1:double (itemAt gy1 a)
+        def agx2:double (itemAt gx2 a)
+        def agy2:double (itemAt gy2 a)
+        def ar1:int (itemAt tR1 a)
+        def ag1:int (itemAt tG1 a)
+        def ab1:int (itemAt tB1 a)
+        def ar2:int (itemAt tR2 a)
+        def ag2:int (itemAt tG2 a)
+        def ab2:int (itemAt tB2 a)
         set tx0 a (itemAt tx0 b)
         set ty0 a (itemAt ty0 b)
         set tx1 a (itemAt tx1 b)
@@ -437,9 +685,16 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         set tx2 a (itemAt tx2 b)
         set ty2 a (itemAt ty2 b)
         set tDepth a (itemAt tDepth b)
-        set tR a (itemAt tR b)
-        set tG a (itemAt tG b)
-        set tB a (itemAt tB b)
+        set gx1 a (itemAt gx1 b)
+        set gy1 a (itemAt gy1 b)
+        set gx2 a (itemAt gx2 b)
+        set gy2 a (itemAt gy2 b)
+        set tR1 a (itemAt tR1 b)
+        set tG1 a (itemAt tG1 b)
+        set tB1 a (itemAt tB1 b)
+        set tR2 a (itemAt tR2 b)
+        set tG2 a (itemAt tG2 b)
+        set tB2 a (itemAt tB2 b)
         set tx0 b ax0
         set ty0 b ay0
         set tx1 b ax1
@@ -447,9 +702,16 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         set tx2 b ax2
         set ty2 b ay2
         set tDepth b ad
-        set tR b ar
-        set tG b ag
-        set tB b ab
+        set gx1 b agx1
+        set gy1 b agy1
+        set gx2 b agx2
+        set gy2 b agy2
+        set tR1 b ar1
+        set tG1 b ag1
+        set tB1 b ab1
+        set tR2 b ar2
+        set tG2 b ag2
+        set tB2 b ab2
     }
 
     fn clearColor:EVGColor () {
@@ -472,7 +734,11 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             push pts (itemAt ty1 i)
             push pts (itemAt tx2 i)
             push pts (itemAt ty2 i)
-            def col:EVGColor (EVGColor.rgb((itemAt tR i) (itemAt tG i) (itemAt tB i)))
+            ; Display-list PATH has no gradient yet — emit mid colour.
+            def mr:int (idiv ((itemAt tR1 i) + (itemAt tR2 i)) 2)
+            def mg:int (idiv ((itemAt tG1 i) + (itemAt tG2 i)) 2)
+            def mb:int (idiv ((itemAt tB1 i) + (itemAt tB2 i)) 2)
+            def col:EVGColor (EVGColor.rgb(mr mg mb))
             dl.addPolygon(pts col)
             i = (i + 1)
         }
@@ -482,52 +748,106 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
     fn toSvg:string (pageW:double pageH:double) {
         this.sortBackToFront()
         def out:string ("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + (EVGDisplayList.num(pageW)) + "\" height=\"" + (EVGDisplayList.num(pageH)) + "\" viewBox=\"0 0 " + (EVGDisplayList.num(pageW)) + " " + (EVGDisplayList.num(pageH)) + "\">\n")
+        out = (out + "<defs>\n")
+        def i:int 0
+        while (i < triCount) {
+            def id:string ("lg" + (to_string i))
+            out = (out + "<linearGradient id=\"" + id + "\" gradientUnits=\"userSpaceOnUse\"")
+            out = (out + " x1=\"" + (EVGDisplayList.num((itemAt gx1 i))) + "\" y1=\"" + (EVGDisplayList.num((itemAt gy1 i))) + "\"")
+            out = (out + " x2=\"" + (EVGDisplayList.num((itemAt gx2 i))) + "\" y2=\"" + (EVGDisplayList.num((itemAt gy2 i))) + "\">")
+            out = (out + "<stop offset=\"0\" stop-color=\"rgb(" + (to_string (itemAt tR1 i)) + "," + (to_string (itemAt tG1 i)) + "," + (to_string (itemAt tB1 i)) + ")\"/>")
+            out = (out + "<stop offset=\"1\" stop-color=\"rgb(" + (to_string (itemAt tR2 i)) + "," + (to_string (itemAt tG2 i)) + "," + (to_string (itemAt tB2 i)) + ")\"/>")
+            out = (out + "</linearGradient>\n")
+            i = (i + 1)
+        }
+        out = (out + "</defs>\n")
         out = (out + "<rect x=\"0\" y=\"0\" width=\"" + (EVGDisplayList.num(pageW)) + "\" height=\"" + (EVGDisplayList.num(pageH)) + "\" fill=\"#ffffff\"/>\n")
         def br:int (to_int (clearR * 255.0))
         def bg:int (to_int (clearG * 255.0))
         def bb:int (to_int (clearB * 255.0))
         out = (out + "<rect x=\"" + (EVGDisplayList.num(ox)) + "\" y=\"" + (EVGDisplayList.num(oy)) + "\" width=\"" + (EVGDisplayList.num((to_double w))) + "\" height=\"" + (EVGDisplayList.num((to_double h))) + "\" fill=\"rgb(" + (to_string br) + "," + (to_string bg) + "," + (to_string bb) + ")\"/>\n")
-        def i:int 0
+        i = 0
         while (i < triCount) {
             def d:string ("M " + (EVGDisplayList.num((itemAt tx0 i))) + " " + (EVGDisplayList.num((itemAt ty0 i))))
             d = (d + " L " + (EVGDisplayList.num((itemAt tx1 i))) + " " + (EVGDisplayList.num((itemAt ty1 i))))
             d = (d + " L " + (EVGDisplayList.num((itemAt tx2 i))) + " " + (EVGDisplayList.num((itemAt ty2 i))) + " Z")
-            def fill:string ("rgb(" + (to_string (itemAt tR i)) + "," + (to_string (itemAt tG i)) + "," + (to_string (itemAt tB i)) + ")")
-            out = (out + "<path d=\"" + d + "\" fill=\"" + fill + "\" stroke=\"none\"/>\n")
+            out = (out + "<path d=\"" + d + "\" fill=\"url(#lg" + (to_string i) + ")\" stroke=\"none\"/>\n")
             i = (i + 1)
         }
         return (out + "</svg>\n")
     }
 
-    ; AA vector fill into a page-sized RasterBuffer (preview / SoftCanvas path).
+    ; Preview: AA silhouette + linear colour ramp along each triangle's gradient.
     fn paintRaster:void (buf:RasterBuffer) {
         this.sortBackToFront()
         def sceneBg:EVGColor (this.clearColor())
-        def x0:int (to_int ox)
-        def y0:int (to_int oy)
-        def xx:int x0
-        while (xx < (x0 + w)) {
-            def yy:int y0
-            while (yy < (y0 + h)) {
+        def x0b:int (to_int ox)
+        def y0b:int (to_int oy)
+        def xx:int x0b
+        while (xx < (x0b + w)) {
+            def yy:int y0b
+            while (yy < (y0b + h)) {
                 buf.setPixel(xx yy (sceneBg.red()) (sceneBg.green()) (sceneBg.blue()) 255)
                 yy = (yy + 1)
             }
             xx = (xx + 1)
         }
-        def vr:VectorRasterizer (new VectorRasterizer)
         def i:int 0
         while (i < triCount) {
-            def pts:[double]
-            push pts (itemAt tx0 i)
-            push pts (itemAt ty0 i)
-            push pts (itemAt tx1 i)
-            push pts (itemAt ty1 i)
-            push pts (itemAt tx2 i)
-            push pts (itemAt ty2 i)
-            vr.reset()
-            vr.addRing(pts)
-            vr.fillAA(buf (itemAt tR i) (itemAt tG i) (itemAt tB i) 255 (VectorRasterizer.nonZero()))
+            this.fillTriGrad(buf (itemAt tx0 i) (itemAt ty0 i) (itemAt tx1 i) (itemAt ty1 i) (itemAt tx2 i) (itemAt ty2 i) (itemAt gx1 i) (itemAt gy1 i) (itemAt gx2 i) (itemAt gy2 i) (itemAt tR1 i) (itemAt tG1 i) (itemAt tB1 i) (itemAt tR2 i) (itemAt tG2 i) (itemAt tB2 i))
             i = (i + 1)
+        }
+    }
+
+    fn fillTriGrad:void (buf:RasterBuffer x0:double y0:double x1:double y1:double x2:double y2:double ax:double ay:double bx:double by:double r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def minx:int (to_int x0)
+        def maxx:int (to_int x0)
+        def miny:int (to_int y0)
+        def maxy:int (to_int y0)
+        if ((to_int x1) < minx) { minx = (to_int x1) }
+        if ((to_int x2) < minx) { minx = (to_int x2) }
+        if ((to_int x1) > maxx) { maxx = (to_int x1) }
+        if ((to_int x2) > maxx) { maxx = (to_int x2) }
+        if ((to_int y1) < miny) { miny = (to_int y1) }
+        if ((to_int y2) < miny) { miny = (to_int y2) }
+        if ((to_int y1) > maxy) { maxy = (to_int y1) }
+        if ((to_int y2) > maxy) { maxy = (to_int y2) }
+        if (minx < 0) { minx = 0 }
+        if (miny < 0) { miny = 0 }
+        if (maxx >= buf.width) { maxx = (buf.width - 1) }
+        if (maxy >= buf.height) { maxy = (buf.height - 1) }
+        def gdx:double (bx - ax)
+        def gdy:double (by - ay)
+        def glen2:double ((gdx * gdx) + (gdy * gdy))
+        if (glen2 < 0.0001) {
+            glen2 = 0.0001
+        }
+        def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
+        if ((area < 0.0001) && (area > (0.0 - 0.0001))) {
+            return
+        }
+        def invArea:double (1.0 / area)
+        def py:int miny
+        while (py <= maxy) {
+            def px:int minx
+            while (px <= maxx) {
+                def fx:double ((to_double px) + 0.5)
+                def fy:double ((to_double py) + 0.5)
+                def w0:double ((((x1 - fx) * (y2 - fy)) - ((x2 - fx) * (y1 - fy))) * invArea)
+                def w1:double ((((x2 - fx) * (y0 - fy)) - ((x0 - fx) * (y2 - fy))) * invArea)
+                def w2:double ((1.0 - w0) - w1)
+                if (((w0 >= 0.0) && (w1 >= 0.0)) && (w2 >= 0.0)) {
+                    def t:double ((((fx - ax) * gdx) + ((fy - ay) * gdy)) / glen2)
+                    t = (this.clamp01(t))
+                    def inv:double (1.0 - t)
+                    def rr:int (to_int (((to_double r1) * inv) + ((to_double r2) * t)))
+                    def gg:int (to_int (((to_double g1) * inv) + ((to_double g2) * t)))
+                    def bb:int (to_int (((to_double b1) * inv) + ((to_double b2) * t)))
+                    buf.setPixel(px py rr gg bb 255)
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
         }
     }
 
