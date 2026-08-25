@@ -298,48 +298,43 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         }
     }
 
-    ; Build a face lighting gradient: darker stop opposite the light, lit stop
-    ; toward it. Uses N·L for overall brightness and world-position along L for
-    ; the gradient axis (so flat-normal faces still get a soft ramp).
-    fn emitLitPoly:void (pts:[double] depth:double nx:double ny:double nz:double wx0:double wy0:double wz0:double wx1:double wy1:double wz1:double wx2:double wy2:double wz2:double sx0:double sy0:double sx1:double sy1:double sx2:double sy2:double br:double bg:double bb:double) {
+    ; Build a face lighting gradient over all face corners (3 or 4). Darker stop
+    ; opposite the light, lit stop toward it. Passing the whole face — not one
+    ; triangle — keeps coplanar tri pairs continuous (no diagonal seam).
+    fn emitLitCorners:void (pts:[double] depth:double nx:double ny:double nz:double wxs:[double] wys:[double] wzs:[double] sxs:[double] sys:[double] br:double bg:double bb:double) {
+        def n:int (array_length wxs)
+        if (n < 3) {
+            return
+        }
         def ldx:double (this.lightDirX())
         def ldy:double (this.lightDirY())
         def ldz:double (this.lightDirZ())
-        def s0:double (((wx0 * ldx) + (wy0 * ldy)) + (wz0 * ldz))
-        def s1:double (((wx1 * ldx) + (wy1 * ldy)) + (wz1 * ldz))
-        def s2:double (((wx2 * ldx) + (wy2 * ldy)) + (wz2 * ldz))
+        def s0:double ((((itemAt wxs 0) * ldx) + ((itemAt wys 0) * ldy)) + ((itemAt wzs 0) * ldz))
         def sMin:double s0
         def sMax:double s0
-        def ax:double sx0
-        def ay:double sy0
-        def bx:double sx0
-        def by:double sy0
-        if (s1 < sMin) {
-            sMin = s1
-            ax = sx1
-            ay = sy1
+        def ax:double (itemAt sxs 0)
+        def ay:double (itemAt sys 0)
+        def bx:double (itemAt sxs 0)
+        def by:double (itemAt sys 0)
+        def k:int 1
+        while (k < n) {
+            def sk:double ((((itemAt wxs k) * ldx) + ((itemAt wys k) * ldy)) + ((itemAt wzs k) * ldz))
+            if (sk < sMin) {
+                sMin = sk
+                ax = (itemAt sxs k)
+                ay = (itemAt sys k)
+            }
+            if (sk > sMax) {
+                sMax = sk
+                bx = (itemAt sxs k)
+                by = (itemAt sys k)
+            }
+            k = (k + 1)
         }
-        if (s2 < sMin) {
-            sMin = s2
-            ax = sx2
-            ay = sy2
-        }
-        if (s1 > sMax) {
-            sMax = s1
-            bx = sx1
-            by = sy1
-        }
-        if (s2 > sMax) {
-            sMax = s2
-            bx = sx2
-            by = sy2
-        }
-        ; Lit amount at the dark / bright ends of the face (soft ramp).
         def nd:double (((nx * ldx) + (ny * ldy)) + (nz * ldz))
         if (nd < 0.0) {
             nd = 0.0
         }
-        ; Two-stop Lambert: shadowed side uses a weaker directional term.
         def sR1:double (this.shadeRWeak(nx ny nz br nd))
         def sG1:double (this.shadeGWeak(nx ny nz bg nd))
         def sB1:double (this.shadeBWeak(nx ny nz bb nd))
@@ -352,14 +347,13 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
         def r2:int (this.toByte(sR2))
         def g2:int (this.toByte(sG2))
         def b2:int (this.toByte(sB2))
-        ; Degenerate axis → flat average colour.
         def gdx:double (bx - ax)
         def gdy:double (by - ay)
         if (((gdx * gdx) + (gdy * gdy)) < 0.25) {
-            ax = sx0
-            ay = sy0
-            bx = sx1
-            by = sy1
+            ax = (itemAt sxs 0)
+            ay = (itemAt sys 0)
+            bx = (itemAt sxs 1)
+            by = (itemAt sys 1)
             def ar:int (idiv (r1 + r2) 2)
             def ag:int (idiv (g1 + g2) 2)
             def ab:int (idiv (b1 + b2) 2)
@@ -371,6 +365,31 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             b2 = ab
         }
         this.pushGradPoly(pts depth ax ay bx by r1 g1 b1 r2 g2 b2)
+    }
+
+    ; Triangle helper — three corners only (textured path / unpaired faces).
+    fn emitLitPoly:void (pts:[double] depth:double nx:double ny:double nz:double wx0:double wy0:double wz0:double wx1:double wy1:double wz1:double wx2:double wy2:double wz2:double sx0:double sy0:double sx1:double sy1:double sx2:double sy2:double br:double bg:double bb:double) {
+        def wxs:[double]
+        def wys:[double]
+        def wzs:[double]
+        def sxs:[double]
+        def sys:[double]
+        push wxs wx0
+        push wys wy0
+        push wzs wz0
+        push wxs wx1
+        push wys wy1
+        push wzs wz1
+        push wxs wx2
+        push wys wy2
+        push wzs wz2
+        push sxs sx0
+        push sys sy0
+        push sxs sx1
+        push sys sy1
+        push sxs sx2
+        push sys sy2
+        this.emitLitCorners(pts depth nx ny nz wxs wys wzs sxs sys br bg bb)
     }
 
     fn uvToScreenX:double (u:double v:double u0:double v0:double u1:double v1:double u2:double v2:double x0:double x1:double x2:double) {
@@ -596,49 +615,126 @@ class ThreeEvgVectorBackend extends ThreeRenderBackend {
             def i0:int (geometry.getIndex(t))
             def i1:int (geometry.getIndex(t + 1))
             def i2:int (geometry.getIndex(t + 2))
-            if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
-                def x0:double (itemAt sx i0)
-                def y0:double (itemAt sy i0)
-                def z0:double (itemAt sz i0)
-                def x1:double (itemAt sx i1)
-                def y1:double (itemAt sy i1)
-                def z1:double (itemAt sz i1)
-                def x2:double (itemAt sx i2)
-                def y2:double (itemAt sy i2)
-                def z2:double (itemAt sz i2)
-                def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
-                if ((area > 0.0001) || (area < (0.0 - 0.0001))) {
-                    def depth:double (((z0 + z1) + z2) / 3.0)
-                    def nout:[double]
-                    ; Face normal from first vertex (box faces share one normal).
-                    this.transformNormal(model (geometry.getNormal(i0 0)) (geometry.getNormal(i0 1)) (geometry.getNormal(i0 2)) nout)
-                    def nx:double (itemAt nout 0)
-                    def ny:double (itemAt nout 1)
-                    def nz:double (itemAt nout 2)
-                    def wx0:double (itemAt wx i0)
-                    def wy0:double (itemAt wy i0)
-                    def wz0:double (itemAt wz i0)
-                    def wx1:double (itemAt wx i1)
-                    def wy1:double (itemAt wy i1)
-                    def wz1:double (itemAt wz i1)
-                    def wx2:double (itemAt wx i2)
-                    def wy2:double (itemAt wy i2)
-                    def wz2:double (itemAt wz i2)
-                    if hasTexture {
-                        this.emitTexturedTri(tex model (geometry.getUv(i0 0)) (geometry.getUv(i0 1)) (geometry.getUv(i1 0)) (geometry.getUv(i1 1)) (geometry.getUv(i2 0)) (geometry.getUv(i2 1)) x0 y0 x1 y1 x2 y2 depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 colorR colorG colorB)
-                    } {
-                        def pts:[double]
-                        push pts x0
-                        push pts y0
-                        push pts x1
-                        push pts y1
-                        push pts x2
-                        push pts y2
-                        this.emitLitPoly(pts depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 x0 y0 x1 y1 x2 y2 colorR colorG colorB)
+            ; Box faces are two tris (a,b,c)+(a,c,d). Merge them into one quad so
+            ; both halves share the same lighting gradient (no diagonal seam).
+            def merged:boolean false
+            if ((hasTexture == false) && ((t + 5) < ic)) {
+                def j0:int (geometry.getIndex(t + 3))
+                def j1:int (geometry.getIndex(t + 4))
+                def j2:int (geometry.getIndex(t + 5))
+                if (((i0 == j0) && (i2 == j1)) && (((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) + ((itemAt bad j2))) == 0)) {
+                    def nA0:double (geometry.getNormal(i0 0))
+                    def nA1:double (geometry.getNormal(i0 1))
+                    def nA2:double (geometry.getNormal(i0 2))
+                    def nB0:double (geometry.getNormal(j2 0))
+                    def nB1:double (geometry.getNormal(j2 1))
+                    def nB2:double (geometry.getNormal(j2 2))
+                    def ndx:double (nA0 - nB0)
+                    def ndy:double (nA1 - nB1)
+                    def ndz:double (nA2 - nB2)
+                    if ((((ndx * ndx) + (ndy * ndy)) + (ndz * ndz)) < 0.0001) {
+                        def xa:double (itemAt sx i0)
+                        def ya:double (itemAt sy i0)
+                        def xb:double (itemAt sx i1)
+                        def yb:double (itemAt sy i1)
+                        def xc:double (itemAt sx i2)
+                        def yc:double (itemAt sy i2)
+                        def xd:double (itemAt sx j2)
+                        def yd:double (itemAt sy j2)
+                        def area1:double (((xb - xa) * (yc - ya)) - ((xc - xa) * (yb - ya)))
+                        def area2:double (((xc - xa) * (yd - ya)) - ((xd - xa) * (yc - ya)))
+                        if (((area1 > 0.0001) || (area1 < (0.0 - 0.0001))) && ((area2 > 0.0001) || (area2 < (0.0 - 0.0001)))) {
+                            def noutQ:[double]
+                            this.transformNormal(model nA0 nA1 nA2 noutQ)
+                            def qnx:double (itemAt noutQ 0)
+                            def qny:double (itemAt noutQ 1)
+                            def qnz:double (itemAt noutQ 2)
+                            def ptsQ:[double]
+                            push ptsQ xa
+                            push ptsQ ya
+                            push ptsQ xb
+                            push ptsQ yb
+                            push ptsQ xc
+                            push ptsQ yc
+                            push ptsQ xd
+                            push ptsQ yd
+                            def wxs:[double]
+                            def wys:[double]
+                            def wzs:[double]
+                            def sxs:[double]
+                            def sys:[double]
+                            push wxs (itemAt wx i0)
+                            push wys (itemAt wy i0)
+                            push wzs (itemAt wz i0)
+                            push wxs (itemAt wx i1)
+                            push wys (itemAt wy i1)
+                            push wzs (itemAt wz i1)
+                            push wxs (itemAt wx i2)
+                            push wys (itemAt wy i2)
+                            push wzs (itemAt wz i2)
+                            push wxs (itemAt wx j2)
+                            push wys (itemAt wy j2)
+                            push wzs (itemAt wz j2)
+                            push sxs xa
+                            push sys ya
+                            push sxs xb
+                            push sys yb
+                            push sxs xc
+                            push sys yc
+                            push sxs xd
+                            push sys yd
+                            def depthQ:double (((((itemAt sz i0) + (itemAt sz i1)) + (itemAt sz i2)) + (itemAt sz j2)) / 4.0)
+                            this.emitLitCorners(ptsQ depthQ qnx qny qnz wxs wys wzs sxs sys colorR colorG colorB)
+                            merged = true
+                            t = (t + 6)
+                        }
                     }
                 }
             }
-            t = (t + 3)
+            if (merged == false) {
+                if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
+                    def x0:double (itemAt sx i0)
+                    def y0:double (itemAt sy i0)
+                    def z0:double (itemAt sz i0)
+                    def x1:double (itemAt sx i1)
+                    def y1:double (itemAt sy i1)
+                    def z1:double (itemAt sz i1)
+                    def x2:double (itemAt sx i2)
+                    def y2:double (itemAt sy i2)
+                    def z2:double (itemAt sz i2)
+                    def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
+                    if ((area > 0.0001) || (area < (0.0 - 0.0001))) {
+                        def depth:double (((z0 + z1) + z2) / 3.0)
+                        def nout:[double]
+                        this.transformNormal(model (geometry.getNormal(i0 0)) (geometry.getNormal(i0 1)) (geometry.getNormal(i0 2)) nout)
+                        def nx:double (itemAt nout 0)
+                        def ny:double (itemAt nout 1)
+                        def nz:double (itemAt nout 2)
+                        def wx0:double (itemAt wx i0)
+                        def wy0:double (itemAt wy i0)
+                        def wz0:double (itemAt wz i0)
+                        def wx1:double (itemAt wx i1)
+                        def wy1:double (itemAt wy i1)
+                        def wz1:double (itemAt wz i1)
+                        def wx2:double (itemAt wx i2)
+                        def wy2:double (itemAt wy i2)
+                        def wz2:double (itemAt wz i2)
+                        if hasTexture {
+                            this.emitTexturedTri(tex model (geometry.getUv(i0 0)) (geometry.getUv(i0 1)) (geometry.getUv(i1 0)) (geometry.getUv(i1 1)) (geometry.getUv(i2 0)) (geometry.getUv(i2 1)) x0 y0 x1 y1 x2 y2 depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 colorR colorG colorB)
+                        } {
+                            def pts:[double]
+                            push pts x0
+                            push pts y0
+                            push pts x1
+                            push pts y1
+                            push pts x2
+                            push pts y2
+                            this.emitLitPoly(pts depth nx ny nz wx0 wy0 wz0 wx1 wy1 wz1 wx2 wy2 wz2 x0 y0 x1 y1 x2 y2 colorR colorG colorB)
+                        }
+                    }
+                }
+                t = (t + 3)
+            }
         }
     }
 
