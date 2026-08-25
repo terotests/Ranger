@@ -8,10 +8,13 @@
 #
 #   * Ranger -> LLVM -> WASM is freestanding: primitives and exported
 #     functions, no strings, no maps, no objects. Not this program.
-#   * Ranger -> Rust -> WASM gets through the Ranger frontend now (see
-#     RUST_ISSUES.md) but the emitted Rust does not compile: 396 rustc errors,
-#     275 of them one emitter bug. Not yet.
-#   * Ranger -> C++ -> Emscripten -> WASM compiles clean, first try. This.
+#   * Ranger -> Rust -> WASM compiles now too: `-l=rust` emits the whole
+#     viewer and rustc accepts it with no errors, for wasm32 as well (see
+#     RUST_ISSUES.md). What it still lacks is the other half of this file —
+#     `bind.cpp` has no Rust counterpart, so nothing is exported and the page
+#     cannot drive the module. A second route, not yet a second build.
+#   * Ranger -> C++ -> Emscripten -> WASM compiles clean and has its bindings.
+#     This.
 #
 # WHAT IS GENERATED AND WHAT IS WRITTEN. `pptx_web.cpp` comes out of the same
 # `pptx_web.rgr` the JavaScript page is built from — one source, two backends.

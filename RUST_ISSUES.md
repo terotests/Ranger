@@ -2,7 +2,13 @@
 
 This document describes the current status and remaining issues with Rust code generation in Ranger, specifically for the `evg_component_tool` project.
 
-## Current Status (December 2025)
+## Current Status (August 2026)
+
+`evg_component_tool` and the PPTX viewer (`gallery/pptx/web/pptx_web.rgr`,
+79 160 lines of generated Rust) both compile with **zero rustc errors**. The
+sections below the historical table are kept for the reasoning; the counts in
+them are the counts of the day they were written. For the last and largest
+run, see [The PPTX viewer compiles](#the-pptx-viewer-compiles).
 
 ### Error Count Progression
 
@@ -12,7 +18,7 @@ This document describes the current status and remaining issues with Rust code g
 | After trait fixes      | 50+    | Trait-based polymorphism working |
 | After static analysis  | 19     | Mutation detection, borrow types |
 | After immutable borrow | 11     | Proper `&` vs `&mut` handling    |
-| **Current**            | **11** | See remaining issues below       |
+| August 2026            | **0**  | See the PPTX section at the end  |
 
 ### What's Working ✅
 
@@ -627,21 +633,80 @@ in the two sections above.
 
 ---
 
-## The PPTX viewer: where the Rust backend stands on a large program
+## The PPTX viewer compiles
 
 _August 2026._ The question that prompted this was whether the browser PPTX
 viewer at `gallery/pptx/web/` could be compiled Ranger → Rust → WASM as a
-second, faster path beside the JavaScript one. The spike got as far as it can
-without compiler work, and this records exactly where it stopped so the next
-attempt does not start from zero.
+second path beside the JavaScript one. It can. `pptx_web.rgr` emits 79 160
+lines of Rust that rustc accepts with no errors, at `-O` as well, and
+`--target wasm32-unknown-unknown` produces a module.
+
+`evg_component_tool`, the program the table at the top of this file tracks,
+is at zero too.
 
 ### What the program is
 
 `gallery/pptx/web/pptx_web.rgr` pulls in the whole stack: the OOXML reader and
 writer, the shape geometry, the text layout, the EVG display list, the CSS
-core, and the Vela chart compiler. It is 2.87 MB / 78 042 lines of generated
-Rust — for scale, `evg_component_tool` (the program the table above tracks) is
-a fraction of that.
+core, and the Vela chart compiler. It is 2.9 MB / 79 160 lines of generated
+Rust — for scale, `evg_component_tool` is a fraction of that.
+
+### The road from 398 errors
+
+Every fix is in the compiler. Nothing in this program's `.rgr` sources
+changed; the front end had already been made to emit it (see the entry
+below this one).
+
+| Errors | What was wrong |
+| ---: | --- |
+| 398 | starting point |
+| 130 | **a call through a field is a mutation of the object that holds it.** 277 of the 398 were one bug in 267 functions: the receiver-mutability analysis looked for `obj.method()` in the `(call obj method args)` node the front end builds for a call on an *expression*, and an ordinary `reader.seek(x)` is a `hasFnCall` node whose receiver lives inside the dotted name. The verdict now runs to a fixpoint, because the answer for the field's class is not settled when the class holding the field is read. |
+| 93 | **the borrow a path head takes.** A receiver path rooted at `this` borrows mutably when the field it reaches is held inline; `isMutatingOpName` in the template walker was missing four of the names Lang.rgr gives the in-place array operators; a call receiver counts as reaching a field through a path, so an optional field used that way is not put in a cell. |
+| 77 | **a `&mut` argument reaches through its handle mutably** — the Rc segments on its path take `borrow_mut()`, the way a call receiver and an assignment target already did. |
+| 55 | **a buffer is a Vec**, in the three places that had written their tests for `[int]` and so never saw one. |
+| 38 | a string written in place is not a static string; `get` on a map of int/double/boolean had no Rust template; the clone rule for call arguments exists in five copies and one listed only Array and Hash. |
+| 28 | **a field read on an expression.** `(itemAt runs ri).color` yields an `Rc<RefCell<…>>`, which has no fields of its own. CreatePropertyGet is overridden for Rust and settles the question for the field-tail rule in WriteVRef, which had been guessing from the field *name* alone. |
+| 21 | **a call on a name is a call on that name's class** — `huffman.getDCTable(…)` was answering "unknown", which means the mutable borrow, everywhere. |
+| 14 | **a statement-level operator can put a `let` in front of itself.** `push this.items (this.make())` holds `&mut self.items` and `&mut self` at once; the call path already hoisted conflicting arguments, and operator statements gained the same moment (`beforeOperatorStatement`). |
+| 4 | a subclass handle stored in a trait field takes the unsizing coercion; a cell for a raw argument; an inherited method's body walks with the return declaration its inherent copy walks with; `set_at` stores a value, so it takes the by-value slot rule; a tail expression that borrows a local becomes an explicit `return`. |
+| **0** | Clone is derived only when what a class holds INLINE can derive it; a plain `@(optional)` local is an `Option<T>` too; a hoisted argument still takes the borrow its parameter declares; `(call this m args)` is a call on THIS object, not on a field of it; and a method named after a Rust keyword needs `r#` — `fn type(…)` is a parse error, which carries no error code and had been hiding under a count of `error[E…]` lines. |
+
+### What is left
+
+21 warnings, no errors. They are the ordinary ones: `while true`, unused
+imports, one `unconditional_recursion`.
+
+A WASM *build* still needs the bindings — `gallery/pptx/web/wasm/bind.cpp`
+has no Rust counterpart yet, so nothing is exported and the host cannot call
+in. `rustc --target wasm32-unknown-unknown --crate-type=cdylib` produces a
+module today; what it does not yet produce is a module the page can drive.
+
+### The performance question this was asked for
+
+Worth restating, because it has not changed. On the six-slide chart deck,
+one slide, 10 084 commands — `npm run pptx:scene:bench`, all three from the
+same run:
+
+    buildFrame   10 ms    the layout, in Ranger
+    toJson       62 ms    handing the frame to the page as text
+    toBinary      7 ms    handing the same frame over as Int32Arrays
+
+The cost was never the layout, so a WASM port would not have touched it.
+Replacing that bridge (see `gallery/pptx/web/bridge.mjs`) took the hand-over
+from ~70 ms to ~7 ms with no port at all. What is left for a WASM build to
+win is the 10 ms of layout, and the C++ → WASM measurement puts the engine
+at 1.03–1.25× faster and 2.8× larger as a download. Rust would take the same
+route — same LLVM, same `wasm32`, same reference counting — so the
+expectation is the same column. The value of this work is a second backend
+that compiles a program this size, not speed.
+
+---
+
+## The PPTX viewer: how the front end got there (August 2026)
+
+The Ranger side of the same program, recorded before the compiler work above
+began. Kept because the diagnostic it explains is one every large program
+will meet.
 
 ### Stage one: the Ranger frontend — DONE
 
@@ -663,41 +728,7 @@ knowing — a macro-expanded location is not a missing error.
 
 `-l=rust` now emits the viewer with no failures. **The Ranger side is done.**
 
-### Stage two: rustc — 396 errors, three families
+### Stage two: rustc
 
-The emitted Rust does not compile. 396 errors over 415 distinct lines, and they
-are not spread thin — three families are 85% of them:
-
-| Errors | Code | What the emitter did |
-| --- | --- | --- |
-| 275 | E0596 | emitted `&self` for a method that calls a mutating method on a field: `self.reader.seek(x)` where `reader` is another object |
-| 51 | E0599 | treated an optional object field as an `Option` when it was emitted as a bare `RefCell<T>`: `self.fontManager.clone().unwrap()` |
-| 15 | E0308 | mismatched types, mostly borrowed-vs-owned at an assignment |
-| 1 | — | `fn type(&self, …)` — a Ranger method named after a Rust keyword, needing `r#type` |
-
-The rest (E0594, E0507, E0382, E0499 …) are the borrow-checker tail this
-document's table has walked down before.
-
-This is the same class of work that took `evg_component_tool` from 365 errors
-to 11, one program larger. Nothing here is a source-level fix: these are all
-decisions the Rust emitter makes.
-
-### The performance question this was asked for
-
-Worth stating plainly, because it changes what a WASM port would be worth. On
-the six-slide chart deck, one slide, 10 084 commands — `npm run
-pptx:scene:bench`, all three from the same run:
-
-    buildFrame   10 ms    the layout, in Ranger
-    toJson       62 ms    handing the frame to the page as text
-    toBinary      7 ms    handing the same frame over as Int32Arrays
-
-The cost was never the layout, so a WASM port would not have touched it — the
-same `toJson` would have run, and across a WASM boundary a megabyte of text
-costs MORE to hand over, not less. Replacing that bridge (see
-`gallery/pptx/web/bridge.mjs`) took the hand-over from ~70 ms to ~7 ms with no
-port at all.
-
-What is left for a WASM build to win is the 10 ms of layout. That is the
-honest size of the prize, and it should be weighed against the three families
-above before anyone starts.
+396 errors then, 0 now — see the section above this one for what each
+family was and which emitter decision it came from.

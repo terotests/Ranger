@@ -6561,6 +6561,10 @@ r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
 
                 )
                 python ( (e 1) ".get(" (e 2) ")" )
+                ; without this the `*` fallback below wrote `m[key]` — a map
+                ; is not indexable in Rust, and the operator is typed to give
+                ; an optional, so the generic overload's form is the right one
+                rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (int?)" (e 1) "[" (e 2) "] : null)" )
             }
         }
@@ -6610,6 +6614,7 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 python ( (e 1) ".get(" (e 2) ")" )
+                rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (double?)" (e 1) "[" (e 2) "] : null)" )
                 * ( (e 1) "[" (e 2) "]" )
             }
@@ -6622,6 +6627,7 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
         ; overload below.
         get             cmdGet@(optional weak):boolean          ( map:[K:boolean] key:K ) {
             templates {
+                rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (bool?)" (e 1) "[" (e 2) "] : null)" )
             }
         }
@@ -7103,7 +7109,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  scala ( (e 1) "(" (e 2) ") = " (e 3) )
-                 rust ( (e 1) "[" (idx 2) "] = " (e 3) ";" )
+                 ; the stored value is a by-value slot: a bare non-Copy name
+                 ; would MOVE into the array. `mvarg` is what every other
+                 ; stored-value operator uses.
+                 rust ( (e 1) "[" (idx 2) "] = " (mvarg 3) ";" )
                  * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }
         }

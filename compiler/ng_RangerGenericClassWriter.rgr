@@ -187,6 +187,12 @@ class RangerGenericClassWriter {
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
 
+  ; Called just before a STATEMENT-level operator is written — the one place
+  ; a target can still put a `let` in front of it. Targets that need nothing
+  ; here inherit the empty body.
+  fn beforeOperatorStatement:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  }
+
   fn WriteSetterVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {  
   }
 

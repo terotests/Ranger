@@ -34,6 +34,7 @@ class StaticAnalyzer {
   ; fixpoint demotes dst whenever src loses its static-string status.
   def rss_edge_src:[RangerAppParamDesc]
   def rss_edge_dst:[RangerAppParamDesc]
+  def rss_in_place:[RangerAppParamDesc]
   
   Constructor () {
     ; Initialize empty - will be set up when analyzeAll is called
@@ -64,6 +65,18 @@ class StaticAnalyzer {
     set mutatingOps "removeIndex" true
     set mutatingOps "removeLast" true
     set mutatingOps "removeFirst" true
+    ; …and the names Lang.rgr actually gives the in-place array operators.
+    ; `set_at levels i v` on a parameter left the parameter `&[T]`, and the
+    ; write to it is "cannot assign to `levels`, which is behind a `&`
+    ; reference".
+    set mutatingOps "set_at" true
+    set mutatingOps "remove_index" true
+    set mutatingOps "array_extract" true
+    set mutatingOps "pushString" true
+    set mutatingOps "map_clear" true
+    set mutatingOps "insert" true
+    set mutatingOps "nullify" true
+    set mutatingOps "str_append" true
     
     ; Dictionary mutation operators
     set mutatingOps "put" true
@@ -3192,6 +3205,16 @@ class StaticAnalyzer {
             this.rssRecordAssign(target (itemAt node.children 2))
           }
         }
+        ; a string written IN PLACE is not a static string. `str_append out x`
+        ; leaves no `=` for the rule above to see, so the local stayed
+        ; promoted and came out `&'static str` with `push_str` called on it.
+        if ((first.vref == "str_append") && ((array_length node.children) >= 2)) {
+          def mtarget:RangerAppParamDesc (this.rssResolveDesc((node.getSecond())))
+          if ((strlen mtarget.name) > 0) {
+            mtarget.rust_static_str = false
+            push rss_in_place mtarget
+          }
+        }
       }
     }
     for node.children child:CodeNode i {
@@ -3264,6 +3287,10 @@ class StaticAnalyzer {
           }
         }
       }
+    }
+    ; …and a target written in place stays demoted whatever a `def` said
+    for rss_in_place ip:RangerAppParamDesc ipi {
+      ip.rust_static_str = false
     }
   }
 
