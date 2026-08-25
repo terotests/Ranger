@@ -58,6 +58,10 @@ class RangerRustClassWriter {
   def rust_emit_class_name:string ""
   ; set while a call receiver is written and the callee is known to take &self
   def rust_receiver_shared_known:boolean false
+  ; set while a plain-path ARGUMENT is written that the callee takes by
+  ; `&mut`. An Rc handle on that path has to borrow mutably: `&mut
+  ; sc.borrow().zone` is a `&mut` into a shared borrow.
+  def rust_writing_mut_arg:boolean false
   ; set while a call receiver PATH is written whose head is `this` and whose
   ; target is a field held inline: the callee borrows the field, and the
   ; field is part of this struct, so the head takes the mutable borrow
@@ -1331,6 +1335,11 @@ class RangerRustClassWriter {
       if ctx.in_lhs_of_assignment {
         return "__self_rc.borrow_mut()"
       }
+      ; `&mut __self_rc.borrow().zone` hands out a `&mut` into a shared
+      ; borrow — the argument is a place the callee writes
+      if rust_writing_mut_arg {
+        return "__self_rc.borrow_mut()"
+      }
       ; …unless the path ends in a call on a field held INLINE. Then the
       ; callee borrows the field mutably, the field is part of this struct,
       ; and a shared head is "cannot borrow data in dereference of
@@ -1570,14 +1579,20 @@ class RangerRustClassWriter {
             }
           }
           if (rcw_skip == false) {
-            if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
-              if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
-                wr.out(".borrow()" false)
-              } {
-                wr.out(".borrow_mut()" false)
-              }
+            ; …and an argument the callee takes by `&mut` reaches through
+            ; this handle to a place it will write
+            if rust_writing_mut_arg {
+              wr.out(".borrow_mut()" false)
             } {
-              wr.out(".borrow()" false)
+              if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+                if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
+                  wr.out(".borrow()" false)
+                } {
+                  wr.out(".borrow_mut()" false)
+                }
+              } {
+                wr.out(".borrow()" false)
+              }
             }
           }
         }
@@ -1787,14 +1802,18 @@ class RangerRustClassWriter {
                   }
                 }
                 if optSegShared {
-                  if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
-                    if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
-                      wr.out(".borrow()" false)
-                    } {
-                      wr.out(".borrow_mut()" false)
-                    }
+                  if rust_writing_mut_arg {
+                    wr.out(".borrow_mut()" false)
                   } {
-                    wr.out(".borrow()" false)
+                    if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+                      if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
+                        wr.out(".borrow()" false)
+                      } {
+                        wr.out(".borrow_mut()" false)
+                      }
+                    } {
+                      wr.out(".borrow()" false)
+                    }
                   }
                 }
               }
@@ -6007,7 +6026,7 @@ class RangerRustClassWriter {
 
                 def borrowedLitDone2:boolean false
                 if needsMutRef {
-                  wr.out("&mut " false)
+                  this.rustWriteMutArgPrefix(nVal wr)
                 } {
                   if needsImmutableRef {
                     ; a string literal passes bare (the parameter is &str)
@@ -6035,7 +6054,11 @@ class RangerRustClassWriter {
                   }
                   ctx.setInExpr()
                   wr.suppress_expr_parens = true
+                  if needsMutRef {
+                    rust_writing_mut_arg = (this.rustArgIsPlainMutPath(nVal))
+                  }
                   this.WalkNode(nVal ctx wr)
+                  rust_writing_mut_arg = false
                   wr.suppress_expr_parens = false
                   ctx.unsetInExpr()
                   if borrowRcWrap3 {
@@ -6222,7 +6245,9 @@ class RangerRustClassWriter {
               this.rustWriteMutArgPrefix(nVal wr)
               ctx.setInExpr()
               wr.suppress_expr_parens = true
+              rust_writing_mut_arg = (this.rustArgIsPlainMutPath(nVal))
               this.WalkNode(nVal ctx wr)
+              rust_writing_mut_arg = false
               wr.suppress_expr_parens = false
               ctx.unsetInExpr()
             } {
@@ -6385,7 +6410,9 @@ class RangerRustClassWriter {
               this.rustWriteMutArgPrefix(nVal wr)
               ctx.setInExpr()
               wr.suppress_expr_parens = true
+              rust_writing_mut_arg = (this.rustArgIsPlainMutPath(nVal))
               this.WalkNode(nVal ctx wr)
+              rust_writing_mut_arg = false
               wr.suppress_expr_parens = false
               ctx.unsetInExpr()
             } {
@@ -6552,7 +6579,9 @@ class RangerRustClassWriter {
               this.rustWriteMutArgPrefix(nVal wr)
               ctx.setInExpr()
               wr.suppress_expr_parens = true
+              rust_writing_mut_arg = (this.rustArgIsPlainMutPath(nVal))
               this.WalkNode(nVal ctx wr)
+              rust_writing_mut_arg = false
               wr.suppress_expr_parens = false
               ctx.unsetInExpr()
             } {
@@ -6777,7 +6806,9 @@ class RangerRustClassWriter {
           this.rustWriteMutArgPrefix(nVal wr)
           ctx.setInExpr()
           wr.suppress_expr_parens = true
+          rust_writing_mut_arg = (this.rustArgIsPlainMutPath(nVal))
           this.WalkNode(nVal ctx wr)
+          rust_writing_mut_arg = false
           wr.suppress_expr_parens = false
           ctx.unsetInExpr()
         } {
@@ -8533,6 +8564,25 @@ class RangerRustClassWriter {
       }
     }
     return false
+  }
+
+  ; A `&mut` argument that is a plain dotted path — `sc.zone`, `pres.theme`.
+  ; Nothing is called inside it, so marking the walk cannot reach a nested
+  ; call's own receiver.
+  fn rustArgIsPlainMutPath:boolean (nValIn:CodeNode) {
+    def pmp:CodeNode (this.rustUnwrapParens(nValIn))
+    if pmp.hasFnCall {
+      return false
+    }
+    if pmp.has_call {
+      return false
+    }
+    if ((array_length pmp.children) > 0) {
+      return false
+    }
+    ; a BARE member name is a path too — `zone` is written
+    ; `__self_rc.borrow().zone`
+    return ((array_length pmp.ns) > 0)
   }
 
   ; The borrow an argument takes for a `&mut T` parameter.

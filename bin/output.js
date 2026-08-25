@@ -24269,6 +24269,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_receiver_mut_known = false;     /** note: unused */
               this.rust_emit_class_name = "";
               this.rust_receiver_shared_known = false;
+              this.rust_writing_mut_arg = false;
               this.rust_path_head_mut = false;
               this.rust_field_call_mut_ready = false;
               this.rust_writing_field_type = false;
@@ -25313,6 +25314,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( ctx.in_lhs_of_assignment ) {
                   return "__self_rc.borrow_mut()";
                 }
+                if ( this.rust_writing_mut_arg ) {
+                  return "__self_rc.borrow_mut()";
+                }
                 if ( this.rust_writing_call_receiver ) {
                   if ( this.rust_path_head_mut ) {
                     return "__self_rc.borrow_mut()";
@@ -25503,14 +25507,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       }
                       if ( rcw_skip == false ) {
-                        if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
-                          if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
-                            wr.out(".borrow()", false);
-                          } else {
-                            wr.out(".borrow_mut()", false);
-                          }
+                        if ( this.rust_writing_mut_arg ) {
+                          wr.out(".borrow_mut()", false);
                         } else {
-                          wr.out(".borrow()", false);
+                          if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
+                            if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
+                              wr.out(".borrow()", false);
+                            } else {
+                              wr.out(".borrow_mut()", false);
+                            }
+                          } else {
+                            wr.out(".borrow()", false);
+                          }
                         }
                       }
                     }
@@ -25664,14 +25672,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( optSegShared ) {
-                                if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
-                                  if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
-                                    wr.out(".borrow()", false);
-                                  } else {
-                                    wr.out(".borrow_mut()", false);
-                                  }
+                                if ( this.rust_writing_mut_arg ) {
+                                  wr.out(".borrow_mut()", false);
                                 } else {
-                                  wr.out(".borrow()", false);
+                                  if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
+                                    if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
+                                      wr.out(".borrow()", false);
+                                    } else {
+                                      wr.out(".borrow_mut()", false);
+                                    }
+                                  } else {
+                                    wr.out(".borrow()", false);
+                                  }
                                 }
                               }
                             }
@@ -29073,7 +29085,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               let borrowedLitDone2 = false;
                               if ( needsMutRef ) {
-                                wr.out("&mut ", false);
+                                this.rustWriteMutArgPrefix(nVal, wr);
                               } else {
                                 if ( needsImmutableRef ) {
                                   borrowedLitDone2 = this.rustTryBareStrLitArg(nVal, ctx, wr);
@@ -29098,7 +29110,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                                 ctx.setInExpr();
                                 wr.suppress_expr_parens = true;
+                                if ( needsMutRef ) {
+                                  this.rust_writing_mut_arg = this.rustArgIsPlainMutPath(nVal);
+                                }
                                 await this.WalkNode(nVal, ctx, wr);
+                                this.rust_writing_mut_arg = false;
                                 wr.suppress_expr_parens = false;
                                 ctx.unsetInExpr();
                                 if ( borrowRcWrap3 ) {
@@ -29266,7 +29282,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.rustWriteMutArgPrefix(nVal_1, wr);
                             ctx.setInExpr();
                             wr.suppress_expr_parens = true;
+                            this.rust_writing_mut_arg = this.rustArgIsPlainMutPath(nVal_1);
                             await this.WalkNode(nVal_1, ctx, wr);
+                            this.rust_writing_mut_arg = false;
                             wr.suppress_expr_parens = false;
                             ctx.unsetInExpr();
                           } else {
@@ -29407,7 +29425,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.rustWriteMutArgPrefix(nVal_2, wr);
                             ctx.setInExpr();
                             wr.suppress_expr_parens = true;
+                            this.rust_writing_mut_arg = this.rustArgIsPlainMutPath(nVal_2);
                             await this.WalkNode(nVal_2, ctx, wr);
+                            this.rust_writing_mut_arg = false;
                             wr.suppress_expr_parens = false;
                             ctx.unsetInExpr();
                           } else {
@@ -29557,7 +29577,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.rustWriteMutArgPrefix(nVal_3, wr);
                             ctx.setInExpr();
                             wr.suppress_expr_parens = true;
+                            this.rust_writing_mut_arg = this.rustArgIsPlainMutPath(nVal_3);
                             await this.WalkNode(nVal_3, ctx, wr);
+                            this.rust_writing_mut_arg = false;
                             wr.suppress_expr_parens = false;
                             ctx.unsetInExpr();
                           } else {
@@ -29751,7 +29773,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         this.rustWriteMutArgPrefix(nVal_4, wr);
                         ctx.setInExpr();
                         wr.suppress_expr_parens = true;
+                        this.rust_writing_mut_arg = this.rustArgIsPlainMutPath(nVal_4);
                         await this.WalkNode(nVal_4, ctx, wr);
+                        this.rust_writing_mut_arg = false;
                         wr.suppress_expr_parens = false;
                         ctx.unsetInExpr();
                       } else {
@@ -31222,6 +31246,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             return false;
+                          };
+                          rustArgIsPlainMutPath (nValIn) {
+                            const pmp = this.rustUnwrapParens(nValIn);
+                            if ( pmp.hasFnCall ) {
+                              return false;
+                            }
+                            if ( pmp.has_call ) {
+                              return false;
+                            }
+                            if ( (pmp.children.length) > 0 ) {
+                              return false;
+                            }
+                            return (pmp.ns.length) > 0;
                           };
                           rustWriteMutArgPrefix (nVal, wr) {
                             if ( this.rustArgIsAlreadyMutRef(nVal) ) {
