@@ -31800,6 +31800,36 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(";", true);
                             return true;
                           };
+                          rustTraitCoerceRoot (right, fieldTypeName, ctx) {
+                            if ( (fieldTypeName.length) == 0 ) {
+                              return "";
+                            }
+                            const tcInner = this.rustUnwrapParens(right);
+                            const tcT = this.rustDeclaredClassOf(tcInner);
+                            if ( (tcT.length) == 0 ) {
+                              return "";
+                            }
+                            if ( tcT == fieldTypeName ) {
+                              return "";
+                            }
+                            if ( this.rustClassIsShared(tcT, ctx) == false ) {
+                              return "";
+                            }
+                            if ( this.rustInitRcState(right, ctx) == 0 ) {
+                              return "";
+                            }
+                            if ( ctx.isDefinedClass(tcT) == false ) {
+                              return "";
+                            }
+                            const tcCls = ctx.findClass(tcT);
+                            for ( let tcPi = 0; tcPi < tcCls.extends_classes.length; tcPi++) {
+                              var tcP = tcCls.extends_classes[tcPi];
+                              if ( tcP == fieldTypeName ) {
+                                return fieldTypeName;
+                              }
+                            };
+                            return "";
+                          };
                           async rustWalkOperand (n, ctx, wr) {
                             if ( (n.rust_use_tmpvar.length) > 0 ) {
                               wr.out(n.rust_use_tmpvar, false);
@@ -32772,12 +32802,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           wr.out(".clone());", true);
                                         }
                                       } else {
-                                        wr.out(" = Some(Rc::new(RefCell::new(", false);
-                                        await this.WalkNode(right, ctx, wr);
-                                        if ( should_clone_rhs ) {
-                                          wr.out(".clone()", false);
+                                        const traitCoerceOpt = this.rustTraitCoerceRoot(right, field_type_name, ctx);
+                                        if ( (traitCoerceOpt.length) > 0 ) {
+                                          wr.out(" = Some(", false);
+                                          await this.WalkNode(right, ctx, wr);
+                                          wr.out((".clone() as Rc<RefCell<dyn " + traitCoerceOpt) + "Trait>>);", true);
+                                        } else {
+                                          wr.out(" = Some(Rc::new(RefCell::new(", false);
+                                          await this.WalkNode(right, ctx, wr);
+                                          if ( should_clone_rhs ) {
+                                            wr.out(".clone()", false);
+                                          }
+                                          wr.out(")));", true);
                                         }
-                                        wr.out(")));", true);
                                       }
                                     } else {
                                       let needs_refcell_wrap_assign = false;
@@ -32858,16 +32895,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                                 if ( left_is_trait_type ) {
-                                  if ( rhs_is_already_boxed_trait ) {
+                                  let traitCoerce = "";
+                                  if ( rhs_is_already_boxed_trait == false ) {
+                                    traitCoerce = this.rustTraitCoerceRoot(right, field_type_name, ctx);
+                                  }
+                                  if ( (traitCoerce.length) > 0 ) {
+                                    wr.out("(", false);
                                     await this.WalkNode(right, ctx, wr);
-                                    wr.out(".clone()", false);
+                                    wr.out((".clone() as Rc<RefCell<dyn " + traitCoerce) + "Trait>>)", false);
                                   } else {
-                                    wr.out("Rc::new(RefCell::new(", false);
-                                    await this.WalkNode(right, ctx, wr);
-                                    if ( should_clone_rhs ) {
+                                    if ( rhs_is_already_boxed_trait ) {
+                                      await this.WalkNode(right, ctx, wr);
                                       wr.out(".clone()", false);
+                                    } else {
+                                      wr.out("Rc::new(RefCell::new(", false);
+                                      await this.WalkNode(right, ctx, wr);
+                                      if ( should_clone_rhs ) {
+                                        wr.out(".clone()", false);
+                                      }
+                                      wr.out("))", false);
                                     }
-                                    wr.out("))", false);
                                   }
                                 } else {
                                   if ( preeval_rhs ) {

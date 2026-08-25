@@ -9248,6 +9248,43 @@ class RangerRustClassWriter {
     return true
   }
 
+  ; The value being stored into a `Rc<RefCell<dyn XTrait>>` field already
+  ; holds `Rc<RefCell<Sub>>`, where Sub is a member of X's family. Rust
+  ; needs the unsizing coercion, not a second cell — `Rc::new(RefCell::new(
+  ; tm.clone()))` is an Rc holding an Rc, which is not the trait object the
+  ; field declares. Returns the family root's name, or "".
+  fn rustTraitCoerceRoot:string (right:CodeNode fieldTypeName:string ctx:RangerAppWriterContext) {
+    if ((strlen fieldTypeName) == 0) {
+      return ""
+    }
+    def tcInner:CodeNode (this.rustUnwrapParens(right))
+    def tcT:string (this.rustDeclaredClassOf(tcInner))
+    if ((strlen tcT) == 0) {
+      return ""
+    }
+    if (tcT == fieldTypeName) {
+      return ""
+    }
+    if ((this.rustClassIsShared(tcT ctx)) == false) {
+      return ""
+    }
+    ; the value has to BE a handle already; a freshly built object still
+    ; needs its cell
+    if ((this.rustInitRcState(right ctx)) == 0) {
+      return ""
+    }
+    if ((ctx.isDefinedClass(tcT)) == false) {
+      return ""
+    }
+    def tcCls:RangerAppClassDesc (ctx.findClass(tcT))
+    for tcCls.extends_classes tcP:string tcPi {
+      if (tcP == fieldTypeName) {
+        return fieldTypeName
+      }
+    }
+    return ""
+  }
+
   ; Walk an operand, or the temporary a hoist put its value in. The
   ; hand-written collection operators do not go through the call path, so
   ; they consume the mark themselves.
@@ -10458,13 +10495,20 @@ class RangerRustClassWriter {
                   wr.out(".clone());" true)
                 }
               } {
-                ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
-                wr.out(" = Some(Rc::new(RefCell::new(" false)
-                this.WalkNode(right ctx wr)
-                if should_clone_rhs {
-                  wr.out(".clone()" false)
+                def traitCoerceOpt:string (this.rustTraitCoerceRoot(right field_type_name ctx))
+                if ((strlen traitCoerceOpt) > 0) {
+                  wr.out(" = Some(" false)
+                  this.WalkNode(right ctx wr)
+                  wr.out(((".clone() as Rc<RefCell<dyn " + traitCoerceOpt) + "Trait>>);") true)
+                } {
+                  ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
+                  wr.out(" = Some(Rc::new(RefCell::new(" false)
+                  this.WalkNode(right ctx wr)
+                  if should_clone_rhs {
+                    wr.out(".clone()" false)
+                  }
+                  wr.out(")));" true)
                 }
-                wr.out(")));" true)
               }
             } {
               ; Check if this is a non-trait optional object field in a trait-related class
@@ -10567,6 +10611,15 @@ class RangerRustClassWriter {
           }
         }
         if left_is_trait_type {
+          def traitCoerce:string ""
+          if (rhs_is_already_boxed_trait == false) {
+            traitCoerce = (this.rustTraitCoerceRoot(right field_type_name ctx))
+          }
+          if ((strlen traitCoerce) > 0) {
+            wr.out("(" false)
+            this.WalkNode(right ctx wr)
+            wr.out(((".clone() as Rc<RefCell<dyn " + traitCoerce) + "Trait>>)") false)
+          } {
           if rhs_is_already_boxed_trait {
             ; RHS is already Rc<RefCell<dyn Trait>>, clone for shared ownership
             this.WalkNode(right ctx wr)
@@ -10578,6 +10631,7 @@ class RangerRustClassWriter {
               wr.out(".clone()" false)
             }
             wr.out("))" false)
+          }
           }
         } {
           if preeval_rhs {
