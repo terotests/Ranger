@@ -102,8 +102,9 @@ def png (ThreeEvgSnapshot.toVectorPng(scene camera 400 400 480 560 40 40 "assets
 - `toSvg` emits `<linearGradient gradientUnits="userSpaceOnUse">` — true vector print
 - `toVectorPng` previews the same ramps in a RasterBuffer
 
-`three_evg_snapshot_test.rgr` (in `run.sh`) asserts PATH/SVG gradient wiring and
-writes `three/artifacts/three_evg_cube.svg` plus `three/artifacts/three_evg_print.png`.
+`three_evg_snapshot_test.rgr` (in `run.sh`) builds a solid-colour **bar chart**
+(one fill per box + lighting gradients) and writes
+`three/artifacts/three_evg_cube.svg` plus `three/artifacts/three_evg_print.png`.
 
 ## The 1:1 Three.js cube runs in the TSX interpreter (façade PoC)
 

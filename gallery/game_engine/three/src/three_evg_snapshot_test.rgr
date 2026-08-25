@@ -1,13 +1,13 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; three_evg_snapshot_test — Three scene → EVG vector print (paths + SVG).
+; three_evg_snapshot_test — Three bar chart → EVG vector print (paths + SVG).
 ; ==============================================================================
 ;
-; Builds the canonical textured cube with ambient + directional lights,
-; projects it through ThreeEvgVectorBackend (Lambert + linearGradient fills),
-; asserts PATH/SVG wiring, and writes:
-;   gallery/game_engine/three/artifacts/three_evg_cube.svg   — lit vector
+; Builds a small 3D bar chart: solid-colour boxes of different heights (one fill
+; colour each), ambient + directional lights, projected through
+; ThreeEvgVectorBackend (Lambert + linearGradient fills). Writes:
+;   gallery/game_engine/three/artifacts/three_evg_cube.svg   — lit vector bars
 ;   gallery/game_engine/three/artifacts/three_evg_print.png  — gradient preview
 ; ==============================================================================
 
@@ -18,7 +18,6 @@ Import "three_perspective_camera.rgr"
 Import "three_box_geometry.rgr"
 Import "three_mesh_basic_material.rgr"
 Import "three_mesh.rgr"
-Import "three_texture.rgr"
 Import "three_light.rgr"
 Import "../../../evg/EVGDisplayList.rgr"
 
@@ -36,49 +35,39 @@ class ThreeEvgSnapshotTest {
         }
     }
 
-    sfn checkerTexture:ThreeTexture () {
-        def px:buffer (buffer_alloc 16)
-        buffer_set px 0 220
-        buffer_set px 1 60
-        buffer_set px 2 60
-        buffer_set px 3 255
-        buffer_set px 4 60
-        buffer_set px 5 200
-        buffer_set px 6 90
-        buffer_set px 7 255
-        buffer_set px 8 70
-        buffer_set px 9 120
-        buffer_set px 10 230
-        buffer_set px 11 255
-        buffer_set px 12 230
-        buffer_set px 13 220
-        buffer_set px 14 180
-        buffer_set px 15 255
-        def tex:ThreeTexture (new ThreeTexture)
-        tex.setImage(px 2 2)
-        return tex
-    }
-
-    sfn buildCubeScene:ThreeScene () {
+    ; One solid-colour bar sitting on y=0 (box is centred, so lift by height/2).
+    sfn addBar:void (scene:ThreeScene x:double height:double hex:int) {
         def geometry:ThreeBoxGeometry (new ThreeBoxGeometry)
-        geometry.setSize(1.0 1.0 1.0)
+        geometry.setSize(0.55 height 0.45)
         def material:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
-        material.setMap((ThreeEvgSnapshotTest.checkerTexture()))
+        material.setColorHex(hex)
         def mesh:ThreeMesh (new ThreeMesh)
         mesh.setGeometry(geometry)
         mesh.setMaterial(material)
-        mesh.rotation.set(0.5 0.7 0.0)
+        mesh.position.set(x (height * 0.5) 0.0)
+        scene.add(mesh)
+    }
+
+    ; Chart-style scene: six bars, one fill colour each, shared lighting.
+    sfn buildChartScene:ThreeScene () {
         def scene:ThreeScene (new ThreeScene)
+        scene.setBackground(0.94 0.95 0.97)
         def amb:ThreeAmbientLight (new ThreeAmbientLight)
-        amb.setColorHex(11184810)
-        amb.setIntensity(0.7)
+        amb.setColorHex(13421772)
+        amb.setIntensity(0.65)
         scene.add(amb)
         def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
         sun.setColorHex(16777215)
-        sun.setIntensity(1.1)
-        sun.setDirection(2.0 3.5 1.5)
+        sun.setIntensity(1.05)
+        sun.setDirection(2.2 4.0 1.8)
         scene.add(sun)
-        scene.add(mesh)
+        ; heights + colours (teal, coral, amber, indigo, mint, rose)
+        ThreeEvgSnapshotTest.addBar(scene (0.0 - 2.0) 0.7 4309845)
+        ThreeEvgSnapshotTest.addBar(scene (0.0 - 1.2) 1.35 15239498)
+        ThreeEvgSnapshotTest.addBar(scene (0.0 - 0.4) 1.05 16169255)
+        ThreeEvgSnapshotTest.addBar(scene 0.4 1.7 4940715)
+        ThreeEvgSnapshotTest.addBar(scene 1.2 0.9 5025616)
+        ThreeEvgSnapshotTest.addBar(scene 2.0 1.5 14037560)
         return scene
     }
 
@@ -97,33 +86,33 @@ class ThreeEvgSnapshotTest {
 
     sfn m@(main):void () {
         def t:ThreeEvgSnapshotTest (new ThreeEvgSnapshotTest)
-        print "== ThreeEvgSnapshot — cube → EVG vector print =="
+        print "== ThreeEvgSnapshot — bar chart → EVG vector print =="
 
-        def imgW:int 400
-        def imgH:int 400
+        def imgW:int 480
+        def imgH:int 360
         def aspect:double ((to_double imgW) / (to_double imgH))
         def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
-        camera.setPerspective(70.0 aspect 0.1 100.0)
-        camera.position.z = 2.0
-        def scene:ThreeScene (ThreeEvgSnapshotTest.buildCubeScene())
+        camera.setPerspective(42.0 aspect 0.1 100.0)
+        camera.position.set(3.6 2.8 5.2)
+        camera.lookAt(0.0 0.7 0.0)
+        def scene:ThreeScene (ThreeEvgSnapshotTest.buildChartScene())
 
         def outDir:string "gallery/game_engine/three/artifacts"
         def svgName:string "three_evg_cube.svg"
         def printName:string "three_evg_print.png"
 
-        def pageW:double 480.0
-        def pageH:double 560.0
-        def margin:double 40.0
+        def pageW:double 560.0
+        def pageH:double 480.0
+        def marginX:double 40.0
+        def marginY:double 50.0
 
-        ; --- vector backend collects projected triangles ---
-        def backend:ThreeEvgVectorBackend (ThreeEvgSnapshot.renderVector(scene camera imgW imgH margin margin))
-        t.ok(("collected triangles (" + (to_string (backend.triangleCount())) + ")") ((backend.triangleCount()) >= 12))
+        ; 6 bars × 12 tris (no UV subdiv) = 72; backfaces may drop some.
+        def backend:ThreeEvgVectorBackend (ThreeEvgSnapshot.renderVector(scene camera imgW imgH marginX marginY))
+        t.ok(("collected triangles (" + (to_string (backend.triangleCount())) + ")") ((backend.triangleCount()) >= 36))
 
-        ; --- EVGDisplayList is PATH polygons, not IMAGE ---
         def dl:EVGDisplayList (backend.toDisplayList(pageW pageH))
         def paths:int (ThreeEvgSnapshotTest.countPathCmds(dl))
-        t.ok(("display list has PATH cmds (" + (to_string paths) + ")") (paths >= 12))
-        t.ok("no IMAGE cmd in vector list" true)
+        t.ok(("display list has PATH cmds (" + (to_string paths) + ")") (paths >= 36))
         def i:int 0
         def sawImage:boolean false
         while (i < (dl.count())) {
@@ -137,17 +126,17 @@ class ThreeEvgSnapshotTest {
         def firstPath:EVGDrawCmd (dl.at(2))
         t.ok("path has 3 vertices" ((array_length firstPath.pts) == 6))
 
-        ; --- SVG is true vector ---
-        def svgPath:string (ThreeEvgSnapshot.toSvgFile(scene camera imgW imgH pageW pageH margin margin outDir svgName))
+        def svgPath:string (ThreeEvgSnapshot.toSvgFile(scene camera imgW imgH pageW pageH marginX marginY outDir svgName))
         t.ok("svg path" (svgPath == (outDir + "/" + svgName)))
         def svg:string (buffer_to_string (buffer_read_file outDir svgName))
         t.ok("svg has path elements" ((indexOf svg "<path d=") >= 0))
         t.ok("svg has linearGradient lighting" ((indexOf svg "<linearGradient") >= 0))
         t.ok("svg gradients use userSpaceOnUse" ((indexOf svg "gradientUnits=\"userSpaceOnUse\"") >= 0))
         t.ok("svg has no embedded raster" ((indexOf svg "data:image") < 0))
+        ; Solid bars: no texture → far fewer polys than the UV-subdivided cube.
+        t.ok("solid bars stay compact" ((backend.triangleCount()) < 120))
 
-        ; --- page PNG preview via AA polygon fill (page resolution) ---
-        def pngPath:string (ThreeEvgSnapshot.toVectorPng(scene camera imgW imgH (to_int pageW) (to_int pageH) (to_int margin) (to_int margin) outDir printName))
+        def pngPath:string (ThreeEvgSnapshot.toVectorPng(scene camera imgW imgH (to_int pageW) (to_int pageH) (to_int marginX) (to_int marginY) outDir printName))
         t.ok("vector png path" (pngPath == (outDir + "/" + printName)))
 
         print "== summary =="
