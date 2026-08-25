@@ -1,0 +1,496 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdfPackage.rgr — the OpenDocument container, which is not OPC
+; ==============================================================================
+;
+; A `.odt`, a `.ods` and a `.odp` are one container, the same way a `.docx`, a
+; `.xlsx` and a `.pptx` are one container. They are not the SAME container, and
+; the most useful thing this file can do is refuse to pretend otherwise.
+;
+;                      OPC (.docx/.xlsx/.pptx)      OCF (.odt/.ods/.odp)
+;   what a part is     a ZIP member                 a ZIP member
+;   what it is called  a package path               a package path
+;   what declares it   [Content_Types].xml          META-INF/manifest.xml
+;   how it is reached  an r:id, through a _rels     an xlink:href — the path
+;                      part, resolved against the   itself, and nothing in
+;                      part that named it           between
+;   what it says it is a stored `mimetype` member   nothing; the extension
+;                      first in the archive
+;
+; The third row is the one that matters. OPC's relationship graph is an
+; indirection: a slide says `r:embed="rId3"`, a part beside it says what rId3
+; is, and `OpcPackage` exists largely to walk that. ODF has no such layer. A
+; frame says `xlink:href="Pictures/x.png"` and that IS the member name.
+;
+; So this reader is deliberately SMALLER than `OpcPackage`, and the temptation
+; worth naming is the opposite of the usual one: somebody who has just read
+; `OpcPackage` will want to give this a relationship cache it has no use for.
+;
+; THE `mimetype` MEMBER is the one piece of ceremony ODF has that OPC does not,
+; and it is worth more than it looks. It must be the first entry in the
+; archive, stored uncompressed, with no extra field — which means the format of
+; a file can be read from its first hundred bytes, by anything, without a ZIP
+; library. That is a better answer than a file extension, and it is what
+; `sniffKind` below hands the shell so that opening a document does not depend
+; on what the file happens to be called.
+;
+; Writing is not here, for the same reason it is not in `OpcPackage`: reading
+; and writing an ODF package are not symmetric yet, and `ZipWriter` cannot
+; state a stored-first entry or deflate anything, so an API that implied a
+; round trip would be describing something that does not exist. See
+; PLAN_FORMATS.md, "Housekeeping".
+; ==============================================================================
+
+Import "../zip/ZipReader.rgr"
+Import "../zip/ZipEntry.rgr"
+Import "../pdf_writer/src/core/Utf8.rgr"
+
+class OdfPackage {
+    def reader:ZipReader (new ZipReader())
+    def isOpen:boolean false
+    def dir:string "."
+    def filename:string ""
+    ; What the `mimetype` member said, verbatim. Empty when the package has
+    ; none — legal, rare, and the manifest's root entry answers instead.
+    def mediaType:string ""
+    ; manifest: package path → media type. Only what the manifest states; a
+    ; member the manifest forgot is still readable, because the ZIP is the
+    ; truth about what is in the file and the manifest is a claim about it.
+    def mediaTypes:[string:string]
+    def manifestLoaded:boolean false
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------
+    ; Opening
+    ; ------------------------------------------------------------------
+
+    sfn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
+        def dir:string "."
+        def name:string fullPath
+        def lastSlash:int -1
+        def len:int (strlen fullPath)
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt fullPath i)
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        if (lastSlash >= 0) {
+            if (lastSlash == 0) {
+                dir = "/"
+            } {
+                dir = (substring fullPath 0 lastSlash)
+            }
+            name = (substring fullPath (lastSlash + 1) len)
+        }
+        push dirOut dir
+        push nameOut name
+    }
+
+    fn open:boolean (fullPath:string) {
+        def dirs:[string]
+        def names:[string]
+        OdfPackage.splitPath(fullPath dirs names)
+        return (this.openParts((itemAt dirs 0) (itemAt names 0)))
+    }
+
+    fn openParts:boolean (path:string name:string) {
+        this.resetState()
+        dir = path
+        filename = name
+        def ok:boolean (reader.open(path name))
+        if (ok == false) {
+            isOpen = false
+            return false
+        }
+        isOpen = true
+        return (this.readIdentity())
+    }
+
+    ; From bytes, which is what a browser has after a fetch and what a dropped
+    ; file is.
+    fn openBytes:boolean (bytes:buffer name:string) {
+        this.resetState()
+        dir = ""
+        filename = name
+        def ok:boolean (reader.openBytes(bytes))
+        if (ok == false) {
+            isOpen = false
+            return false
+        }
+        isOpen = true
+        return (this.readIdentity())
+    }
+
+    ; An open ZIP is not yet an ODF package. This is where that is decided, so
+    ; that `openBytes` answering true means "this is one" rather than "this
+    ; unzipped" — the distinction the shell needs to pick a reader.
+    fn readIdentity:boolean () {
+        mediaType = ""
+        def raw:buffer (this.readBinary("mimetype"))
+        if ((buffer_length raw) > 0) {
+            mediaType = (Utf8.decode((buffer_to_string raw)))
+            mediaType = (OdfPackage.trimText(mediaType))
+        }
+        if ((strlen mediaType) == 0) {
+            ; No mimetype member. The manifest's own root entry carries the
+            ; same string, and a package with neither is not one of ours.
+            this.loadManifest()
+            if (has mediaTypes "/") {
+                mediaType = (unwrap (get mediaTypes "/"))
+            }
+        }
+        if ((strlen (OdfPackage.kindOfMediaType(mediaType))) == 0) {
+            isOpen = false
+            return false
+        }
+        return true
+    }
+
+    fn resetState:void () {
+        def empty:[string:string]
+        mediaTypes = empty
+        manifestLoaded = false
+        mediaType = ""
+    }
+
+    fn close:void () {
+        reader.close()
+        isOpen = false
+    }
+
+    ; ------------------------------------------------------------------
+    ; What kind of document this is
+    ; ------------------------------------------------------------------
+
+    ; "presentation" | "text" | "spreadsheet" | "graphics" | "" for not ODF.
+    ; The word rather than the media type, because every caller wants to know
+    ; which reader to use and none of them wants to compare a URN.
+    sfn kindOfMediaType:string (mt:string) {
+        def base:string "application/vnd.oasis.opendocument."
+        if ((indexOf mt base) != 0) {
+            return ""
+        }
+        def tail:string (substring mt (strlen base) (strlen mt))
+        ; A template is the same markup with a different name, and a reader
+        ; that refused one would refuse the file every deck starts from.
+        if ((tail == "presentation") || (tail == "presentation-template")) {
+            return "presentation"
+        }
+        if ((tail == "text") || (tail == "text-template")) {
+            return "text"
+        }
+        if ((tail == "spreadsheet") || (tail == "spreadsheet-template")) {
+            return "spreadsheet"
+        }
+        if ((tail == "graphics") || (tail == "graphics-template")) {
+            return "graphics"
+        }
+        return ""
+    }
+
+    fn kind:string () {
+        return (OdfPackage.kindOfMediaType(mediaType))
+    }
+
+    ; The format of a file, from its first bytes and without a ZIP library.
+    ;
+    ; `mimetype` is required to be the first member, STORED, with no extra
+    ; field, so a conforming package puts the media type at a fixed offset:
+    ; 30 bytes of local header, then the 8-byte name, then the value. Checking
+    ; the local-header signature and the name first means a file that merely
+    ; happens to contain that text somewhere is not mistaken for one.
+    ;
+    ; Answers "" for anything else, including a `.docx` — which is also a ZIP,
+    ; and whose first member is not called `mimetype`.
+    sfn sniffKind:string (bytes:buffer) {
+        if ((buffer_length bytes) < 80) {
+            return ""
+        }
+        ; "PK\3\4"
+        if ((buffer_get bytes 0) != 80) {
+            return ""
+        }
+        if ((buffer_get bytes 1) != 75) {
+            return ""
+        }
+        if ((buffer_get bytes 2) != 3) {
+            return ""
+        }
+        if ((buffer_get bytes 3) != 4) {
+            return ""
+        }
+        def name:string "mimetype"
+        def i:int 0
+        while (i < 8) {
+            if ((buffer_get bytes (30 + i)) != (charAt name i)) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        ; The stored size is the length of the media type, little-endian at
+        ; offset 22. Reading it rather than scanning to the next member keeps
+        ; this honest about a package whose mimetype is not one of ours.
+        def n:int (buffer_get bytes 22)
+        n = (n + ((buffer_get bytes 23) * 256))
+        if ((n <= 0) || (n > 128)) {
+            return ""
+        }
+        if ((buffer_length bytes) < (38 + n)) {
+            return ""
+        }
+        def mt:string ""
+        def k:int 0
+        while (k < n) {
+            mt = (mt + (strfromcode (buffer_get bytes (38 + k))))
+            k = (k + 1)
+        }
+        return (OdfPackage.kindOfMediaType(mt))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Parts
+    ; ------------------------------------------------------------------
+
+    fn listParts:[string] () {
+        if (isOpen == false) {
+            def empty:[string]
+            return empty
+        }
+        return (reader.listFiles())
+    }
+
+    fn hasPart:boolean (name:string) {
+        if (isOpen == false) {
+            return false
+        }
+        def e@(optional):ZipEntry (reader.getEntry(name))
+        if (!null? e) {
+            return true
+        }
+        return false
+    }
+
+    ; The bytes of a part. A PNG does not survive being decoded as UTF-8.
+    fn readBinary:buffer (name:string) {
+        if (isOpen == false) {
+            return (buffer_alloc 0)
+        }
+        def e@(optional):ZipEntry (reader.getEntry(name))
+        if (null? e) {
+            return (buffer_alloc 0)
+        }
+        def entry:ZipEntry (unwrap e)
+        return (reader.extract(entry))
+    }
+
+    ; An ODF part is UTF-8 on disk, and `buffer_to_string` is not a decode: it
+    ; hands back one unit per BYTE. Where a string is bytes that is already the
+    ; answer and `Utf8.decode` returns it untouched; where a string is UTF-16
+    ; code units — the browser build — the two bytes of "ä" arrive as two
+    ; characters and the slide draws "HÃ¤meenlinna".
+    fn readXml:string (name:string) {
+        def data:buffer (this.readBinary(name))
+        if ((buffer_length data) == 0) {
+            return ""
+        }
+        return (Utf8.decode((buffer_to_string data)))
+    }
+
+    ; ------------------------------------------------------------------
+    ; The manifest
+    ; ------------------------------------------------------------------
+
+    fn loadManifest:void () {
+        if manifestLoaded {
+            return
+        }
+        manifestLoaded = true
+        def xml:string (this.readXml("META-INF/manifest.xml"))
+        if ((strlen xml) == 0) {
+            return
+        }
+        def pos:int 0
+        def len:int (strlen xml)
+        while (pos < len) {
+            def lt:int (indexOfFrom xml "<" pos)
+            if (lt < 0) {
+                break
+            }
+            def gt:int (indexOfFrom xml ">" lt)
+            if (gt < 0) {
+                break
+            }
+            def tag:string (substring xml lt (gt + 1))
+            if ((indexOf tag "file-entry") > 0) {
+                def path:string (OdfPackage.attrBySuffix(tag "full-path"))
+                def mt:string (OdfPackage.attrBySuffix(tag "media-type"))
+                if ((strlen path) > 0) {
+                    set mediaTypes path mt
+                }
+            }
+            pos = (gt + 1)
+        }
+    }
+
+    ; What the manifest says this part is, or "" if it does not mention it.
+    fn mediaTypeFor:string (path:string) {
+        this.loadManifest()
+        if (has mediaTypes path) {
+            return (unwrap (get mediaTypes path))
+        }
+        return ""
+    }
+
+    ; Every path the manifest declares, in the order it declares them.
+    fn manifestPaths:[string] () {
+        this.loadManifest()
+        def out:[string]
+        def keys:[string] (keys mediaTypes)
+        def i:int 0
+        while (i < (array_length keys)) {
+            push out (itemAt keys i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; An attribute matched by its LOCAL name, whatever prefix it is written
+    ; with. The manifest namespace prefix is `manifest:` in every file anyone
+    ; has ever produced and is not required to be, and a reader that hard-coded
+    ; it would fail on a legal package for no reason a user could act on.
+    sfn attrBySuffix:string (tag:string localName:string) {
+        def key:string (localName + "=\"")
+        def i:int (indexOf tag key)
+        if (i < 0) {
+            return ""
+        }
+        def a:int (i + (strlen key))
+        def b:int (indexOfFrom tag "\"" a)
+        if (b < 0) {
+            return ""
+        }
+        return (substring tag a b)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Paths
+    ; ------------------------------------------------------------------
+
+    ; An `xlink:href` that names something outside the package. Left to the
+    ; caller to decide about: a linked picture is a picture this reader cannot
+    ; produce, and pretending it is a member would produce an empty one.
+    sfn isExternalHref:boolean (href:string) {
+        if ((indexOf href "://") > 0) {
+            return true
+        }
+        if ((indexOf href "mailto:") == 0) {
+            return true
+        }
+        return false
+    }
+
+    ; Resolve an `xlink:href` against the part that stated it.
+    ;
+    ; In practice every href in an ODF document is relative to the package
+    ; root, because `content.xml` and `styles.xml` are AT the root — so the
+    ; base is empty and this is nearly the identity. It is written as a real
+    ; resolution anyway because the sub-document case (`Object 1/content.xml`)
+    ; exists, and because a `../` left unresolved becomes a member name no ZIP
+    ; contains, which is the exact bug `OpcPackage` was written to end.
+    sfn joinHref:string (base:string href:string) {
+        if ((strlen href) == 0) {
+            return base
+        }
+        def h0:int (charAt href 0)
+        if (h0 == 47) {
+            return (substring href 1 (strlen href))
+        }
+        def segs:[string]
+        def baseDir:string (OdfPackage.dirOf(base))
+        if ((strlen baseDir) > 0) {
+            OdfPackage.splitSegments(baseDir segs)
+        }
+        def hrefSegs:[string]
+        OdfPackage.splitSegments(href hrefSegs)
+        def i:int 0
+        while (i < (array_length hrefSegs)) {
+            def seg:string (itemAt hrefSegs i)
+            if (seg == "..") {
+                if ((array_length segs) > 0) {
+                    removeLast segs
+                }
+            } {
+                if (seg != ".") {
+                    push segs seg
+                }
+            }
+            i = (i + 1)
+        }
+        return (join segs "/")
+    }
+
+    sfn dirOf:string (path:string) {
+        def last:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                last = i
+            }
+            i = (i + 1)
+        }
+        if (last < 0) {
+            return ""
+        }
+        return (substring path 0 last)
+    }
+
+    sfn splitSegments:void (s:string out:[string]) {
+        def start:int 0
+        def i:int 0
+        def len:int (strlen s)
+        while (i <= len) {
+            def atEnd:boolean (i == len)
+            def isSep:boolean false
+            if (atEnd == false) {
+                if ((charAt s i) == 47) {
+                    isSep = true
+                }
+            }
+            if (atEnd || isSep) {
+                if (i > start) {
+                    push out (substring s start i)
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn trimText:string (s:string) {
+        def a:int 0
+        def b:int (strlen s)
+        while (a < b) {
+            def c:int (charAt s a)
+            if ((c == 32) || (c == 9) || (c == 10) || (c == 13)) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        while (b > a) {
+            def c2:int (charAt s (b - 1))
+            if ((c2 == 32) || (c2 == 9) || (c2 == 10) || (c2 == 13)) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        return (substring s a b)
+    }
+}
