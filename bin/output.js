@@ -31772,11 +31772,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 };
                               }
                             }
+                            if ( node.hasFnCall ) {
+                              if ( (node.children.length) > 0 ) {
+                                const tbFc = node.getFirst();
+                                const tbLen = tbFc.ns.length;
+                                if ( tbLen >= 2 ) {
+                                  let tbIdx = 0;
+                                  if ( (tbFc.ns[0]) == "this" ) {
+                                    tbIdx = 1;
+                                  }
+                                  if ( tbIdx <= (tbLen - 2) ) {
+                                    if ( (tbFc.nsp.length) > tbIdx ) {
+                                      const tbSeg = tbFc.nsp[tbIdx];
+                                      if ( tbSeg.rust_needs_rc_wrap ) {
+                                        return true;
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
                             if ( node.has_call ) {
                               const hcObj = node.getSecond();
                               if ( hcObj.hasParamDesc ) {
                                 const hcP = hcObj.paramDesc;
-                                if ( hcP.rust_needs_rc_wrap && (hcP.is_class_variable == false) ) {
+                                if ( hcP.rust_needs_rc_wrap ) {
                                   return true;
                                 }
                               }
@@ -31933,6 +31953,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             await this.WalkNode(n, ctx, wr);
                           };
+                          rustIsIndexedWriteOp (n) {
+                            if ( n == "set_at" ) {
+                              return true;
+                            }
+                            if ( n == "buffer_set" ) {
+                              return true;
+                            }
+                            if ( n == "int_buffer_set" ) {
+                              return true;
+                            }
+                            if ( n == "double_buffer_set" ) {
+                              return true;
+                            }
+                            return false;
+                          };
+                          rustExprMentionsName (node, name) {
+                            if ( node.vref == name ) {
+                              return true;
+                            }
+                            if ( (node.ns.length) > 0 ) {
+                              if ( (node.ns[0]) == name ) {
+                                return true;
+                              }
+                            }
+                            for ( let i = 0; i < node.children.length; i++) {
+                              var ch = node.children[i];
+                              if ( this.rustExprMentionsName(ch, name) ) {
+                                return true;
+                              }
+                            };
+                            return false;
+                          };
                           rustIsSelfCallNode (n) {
                             if ( this.isSelfMethodCall(n) ) {
                               return true;
@@ -31955,14 +32007,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( this.rustIsMutatingOpName(bosFc.vref) == false ) {
                               return;
                             }
-                            if ( this.rustNodeIsOwnPath(node.getSecond(), ctx) == false ) {
+                            const bosTarget = node.getSecond();
+                            if ( this.rustNodeIsOwnPath(bosTarget, ctx) == false ) {
                               return;
+                            }
+                            let bosRoot = bosTarget.vref;
+                            if ( (bosTarget.ns.length) > 0 ) {
+                              bosRoot = bosTarget.ns[((bosTarget.ns.length) - 1)];
                             }
                             for ( let bosI = 0; bosI < node.children.length; bosI++) {
                               var bosArg = node.children[bosI];
                               if ( bosI > 1 ) {
                                 const bosReal = this.rustUnwrapParens(bosArg);
-                                if ( this.rustIsSelfCallNode(bosReal) ) {
+                                let bosHoist = this.rustIsSelfCallNode(bosReal);
+                                if ( bosHoist == false ) {
+                                  if ( bosI == 2 ) {
+                                    if ( this.rustIsIndexedWriteOp(bosFc.vref) ) {
+                                      if ( (bosRoot.length) > 0 ) {
+                                        if ( this.rustExprMentionsName(bosArg, bosRoot) ) {
+                                          bosHoist = true;
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                if ( bosHoist ) {
                                   await this.rustExtractSelfCallConflicts(bosReal, ctx, wr);
                                   const bosTmp = ctx.rustGetTempVar();
                                   wr.out(("let " + bosTmp) + " = ", false);
@@ -57297,6 +57366,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const idx_9 = cmdArg.int_value;
                                   if ( (node.children.length) > idx_9 ) {
                                     let arg_9 = node.children[idx_9];
+                                    if ( (arg_9.rust_use_tmpvar.length) > 0 ) {
+                                      wr.out(("(" + arg_9.rust_use_tmpvar) + ") as usize", false);
+                                      arg_9.rust_use_tmpvar = "";
+                                      return;
+                                    }
                                     while (arg_9.expression && ((arg_9.children.length) == 1)) {
                                       arg_9 = arg_9.getFirst();
                                     };

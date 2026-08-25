@@ -9241,13 +9241,38 @@ class RangerRustClassWriter {
         }
       }
     }
+    ; …and the dotted form of the same call, `measurer.measureText(…)`,
+    ; whose receiver lives inside the name rather than in a node of its own
+    if node.hasFnCall {
+      if ((array_length node.children) > 0) {
+        def tbFc:CodeNode (node.getFirst())
+        def tbLen:int (array_length tbFc.ns)
+        if (tbLen >= 2) {
+          def tbIdx:int 0
+          if ((itemAt tbFc.ns 0) == "this") {
+            tbIdx = 1
+          }
+          if (tbIdx <= (tbLen - 2)) {
+            if ((array_length tbFc.nsp) > tbIdx) {
+              def tbSeg:RangerAppParamDesc (itemAt tbFc.nsp tbIdx)
+              if tbSeg.rust_needs_rc_wrap {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
     ; a method call on a local Rc receiver: the borrow_mut() temporary of
     ; the tail expression outlives the local it borrows (E0597)
     if node.has_call {
       def hcObj:CodeNode (node.getSecond())
       if hcObj.hasParamDesc {
         def hcP:RangerAppParamDesc hcObj.paramDesc
-        if (hcP.rust_needs_rc_wrap && (hcP.is_class_variable == false)) {
+        ; …a FIELD too, when it holds an Rc: the receiver is hoisted into a
+        ; local of this frame first, and the tail expression's borrow of it
+        ; outlives that local
+        if hcP.rust_needs_rc_wrap {
           return true
         }
       }
@@ -9419,6 +9444,35 @@ class RangerRustClassWriter {
     this.WalkNode(n ctx wr)
   }
 
+  ; The operators that write one ELEMENT at an index.
+  fn rustIsIndexedWriteOp:boolean (n:string) {
+    if (n == "set_at") { return true }
+    if (n == "buffer_set") { return true }
+    if (n == "int_buffer_set") { return true }
+    if (n == "double_buffer_set") { return true }
+    return false
+  }
+
+  ; Does this expression mention `name` at all — as a bare name or as the
+  ; head of a path? `self.ends[self.ends.len() - 1] = i` reads the field it
+  ; is writing, and both borrows are live at once.
+  fn rustExprMentionsName:boolean (node:CodeNode name:string) {
+    if (node.vref == name) {
+      return true
+    }
+    if ((array_length node.ns) > 0) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustExprMentionsName(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
   ; A call on THIS object in either of the two shapes the front end builds:
   ; the dotted `this.make()` and the `(call this make args)` an operator
   ; operand carries.
@@ -9449,13 +9503,37 @@ class RangerRustClassWriter {
     if ((this.rustIsMutatingOpName(bosFc.vref)) == false) {
       return
     }
-    if ((this.rustNodeIsOwnPath((node.getSecond()) ctx)) == false) {
+    def bosTarget:CodeNode (node.getSecond())
+    if ((this.rustNodeIsOwnPath(bosTarget ctx)) == false) {
       return
+    }
+    ; the name the operator writes through, so an operand that READS it can
+    ; be pulled out of the statement too
+    def bosRoot:string bosTarget.vref
+    if ((array_length bosTarget.ns) > 0) {
+      bosRoot = (itemAt bosTarget.ns ((array_length bosTarget.ns) - 1))
     }
     for node.children bosArg:CodeNode bosI {
       if (bosI > 1) {
         def bosReal:CodeNode (this.rustUnwrapParens(bosArg))
-        if (this.rustIsSelfCallNode(bosReal)) {
+        def bosHoist:boolean (this.rustIsSelfCallNode(bosReal))
+        ; …and the INDEX of an indexed write that reads the very collection
+        ; it writes: `self.ends[self.ends.len() - 1] = i` holds a shared and
+        ; a mutable borrow of one field at once. Only the index — a VALUE
+        ; operand may be a slice of the same buffer, which the operator
+        ; means to read in place.
+        if (bosHoist == false) {
+          if (bosI == 2) {
+            if (this.rustIsIndexedWriteOp(bosFc.vref)) {
+              if ((strlen bosRoot) > 0) {
+                if (this.rustExprMentionsName(bosArg bosRoot)) {
+                  bosHoist = true
+                }
+              }
+            }
+          }
+        }
+        if bosHoist {
           this.rustExtractSelfCallConflicts(bosReal ctx wr)
           def bosTmp:string (ctx.rustGetTempVar())
           wr.out((("let " + bosTmp) + " = ") false)
