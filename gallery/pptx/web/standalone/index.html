@@ -9,7 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#14171c" />
     <title>Ranger PPTX — a PowerPoint editor with no server behind it</title>
-    <meta name="description" content="Open, edit and save a .pptx in the browser. The package is parsed and drawn in the page; nothing is uploaded." />
+    <meta name="description" content="Open, edit and save a .pptx in the browser, and open a .odp beside it. The package is parsed and drawn in the page; nothing is uploaded." />
     <style>
       @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
       @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
@@ -127,7 +127,8 @@
         <span>build: <strong id="build">__BUILD__</strong></span>
         <button type="button" id="png">Export PNG</button>
         <button type="button" id="print">Print / PDF</button>
-        <label>open a .pptx <input id="file" type="file" accept=".pptx" /></label>
+        <button type="button" id="odp">Open the .odp sample</button>
+        <label>open a .pptx or .odp <input id="file" type="file" accept=".pptx,.odp" /></label>
         <input id="image" type="file" accept="image/png,image/jpeg" hidden />
       </div>
     </div>

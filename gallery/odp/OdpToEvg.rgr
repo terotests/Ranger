@@ -1,0 +1,543 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdpToEvg.rgr — an OpenDocument slide, as draw commands
+; ==============================================================================
+;
+; A slide is an absolute scene: no flex, no grid, no flow. Each shape is a box
+; with a fill, an outline, some text and sometimes a picture, and this turns
+; one page of `OdpModel` into the flat command list every backend in this
+; repository already draws — WebGL in a browser, the software canvas on a
+; desktop, PDF through the EVG renderer.
+;
+;     OdpPage ──► OdpToEvg ──► EVGDisplayList ──┬──► WebGL
+;                                               ├──► SoftCanvas
+;                                               └──► PDF / PNG / HTML
+;
+; WHY THIS IS NOT `PptxToEvg` WITH A SEARCH AND REPLACE, and why that matters
+; more than it looks. `PptxToEvg` is 1600 lines and every one of them reads a
+; `PptxShape`: preset adjustment handles, gradient stops, connector routing,
+; table tracks, shadow offsets, the text-fit substitution loop. None of those
+; is reachable from an `OdpShape`, because the ODF reader does not produce
+; them — and writing an ODP painter that COULD produce them by copying that
+; file would have created the second copy this gallery keeps deleting.
+;
+; So the two painters meet where the repository already has a shared layer:
+; `EVGDisplayList`, whose own header says it exists so that a sixth backend is
+; not a sixth copy of the walk. Both formats emit `addRect`, `addPolyRings`,
+; `addText`, `addFrame` and `addImage`, and everything below that line is
+; shared already.
+;
+; PLAN_FORMATS.md Phase 1b is about raising that meeting point from the
+; command list to a resolved scene, so that hit testing, thumbnails, print and
+; the accessibility tree are shared too. That is a refactor of the deck
+; painter, with the deck's oracle dump as its gate, and it is deliberately not
+; bundled with the reader that gives it its second producer.
+;
+; WHAT IS DRAWN, and what is honestly not:
+;
+;   drawn        solid fills, outlines, the 187 preset geometries, pictures,
+;                text with per-run family/size/weight/slant/colour, word
+;                wrapping, paragraph alignment, vertical alignment, bullets,
+;                the master page's background objects
+;   not drawn    gradients, bitmap and hatch fills, shadows, dash patterns,
+;                `draw:enhanced-path` geometry that is not a named preset,
+;                text rotation inside a rotated shape
+;
+; A shape whose geometry this cannot draw comes out as its BOX — visibly a
+; rectangle where a rectangle is wrong — rather than as nothing. A slide with
+; a missing shape looks finished and is not, and that is the failure mode
+; worth avoiding: `PptxToEvg.drawnAsBox` makes the same choice.
+; ==============================================================================
+
+Import "OdpModel.rgr"
+Import "../office/text/OfficeTextMeasure.rgr"
+Import "../office/geom/OfficePresetShapes.rgr"
+Import "../evg/EVGDisplayList.rgr"
+Import "../evg/EVGColor.rgr"
+
+; One stretch of text on one line: what it says, how wide it is, and how it is
+; drawn. A view built for one paragraph and thrown away.
+class OdpTextPiece {
+    def text:string ""
+    def width:double 0.0
+    def sizePx:double 0.0
+    def family:string ""
+    def bold:boolean false
+    def italic:boolean false
+    def color:string ""
+
+    Constructor () {
+    }
+}
+
+class OdpTextLine {
+    def pieces:[OdpTextPiece]
+    def width:double 0.0
+    def height:double 0.0
+
+    Constructor () {
+        def p:[OdpTextPiece]
+        pieces = p
+    }
+}
+
+class OdpToEvg {
+    ; Extra zoom on top of pt → px, the way `PptxToEvg.scale` works, so a host
+    ; that fits a slide to a window sets one number in one place.
+    def scale:double 1.0
+    def measure:OfficeTextMeasure (new OfficeTextMeasure())
+    def presets:OfficePresetShapes (new OfficePresetShapes())
+    def presetsLoaded:boolean false
+
+    Constructor () {
+    }
+
+    fn setScale:void (s:double) {
+        scale = s
+    }
+
+    ; The preset catalogue as text, handed in rather than read: a browser has
+    ; no file system, and the deck viewer already fetches this file and hands
+    ; it over the same way.
+    fn loadPresets:void (text:string) {
+        presets.load(text)
+        presetsLoaded = true
+    }
+
+    fn presetsReady:boolean () {
+        return presetsLoaded
+    }
+
+    ; 1 typographic point → CSS px at 96dpi, times the zoom. The model is in
+    ; points because the resolved deck model is, so this step is the same
+    ; arithmetic in both painters rather than two different ones.
+    fn ptToPx:double (pt:double) {
+        return ((pt * (96.0 / 72.0)) * scale)
+    }
+
+    ; ------------------------------------------------------------------
+    ; A page
+    ; ------------------------------------------------------------------
+
+    fn pageToDisplayList:EVGDisplayList (pres:OdpPresentation index:int) {
+        def dl (new EVGDisplayList())
+        def pw:double (this.ptToPx(pres.widthPt))
+        def ph:double (this.ptToPx(pres.heightPt))
+        def page@(optional):OdpPage (pres.pageAt(index))
+        if (null? page) {
+            dl.addRect(0.0 0.0 pw ph (EVGColor.parse("#FFFFFF")))
+            return dl
+        }
+        def p:OdpPage (unwrap page)
+        def bg:EVGColor (EVGColor.parse("#FFFFFF"))
+        if (p.background.isVisible()) {
+            bg = (OdpToEvg.colorOf(p.background.color))
+        }
+        dl.addRect(0.0 0.0 pw ph bg)
+        ; The master's background objects go UNDER the slide's own, which is
+        ; what "master" means. A slide's shapes are drawn after and therefore
+        ; over them, in the document order the file states — which is the
+        ; z-order, and not the order they appear on screen.
+        def master@(optional):OdpPage (pres.masterFor(p.masterName))
+        if (!null? master) {
+            def m:OdpPage (unwrap master)
+            def mi:int 0
+            while (mi < (array_length m.shapes)) {
+                this.emitShape(dl (itemAt m.shapes mi))
+                mi = (mi + 1)
+            }
+        }
+        def i:int 0
+        while (i < (array_length p.shapes)) {
+            this.emitShape(dl (itemAt p.shapes i))
+            i = (i + 1)
+        }
+        return dl
+    }
+
+    ; ------------------------------------------------------------------
+    ; A shape
+    ; ------------------------------------------------------------------
+
+    fn emitShape:void (dl:EVGDisplayList shape:OdpShape) {
+        def x:double (this.ptToPx(shape.x))
+        def y:double (this.ptToPx(shape.y))
+        def w:double (this.ptToPx(shape.width))
+        def h:double (this.ptToPx(shape.height))
+
+        if (shape.kind == (OdpShapeKind.group())) {
+            def i:int 0
+            while (i < (array_length shape.children)) {
+                this.emitShape(dl (itemAt shape.children i))
+                i = (i + 1)
+            }
+            return
+        }
+
+        if (shape.kind == (OdpShapeKind.image())) {
+            ; The picture is named by its package path, which is what the host
+            ; already keys its texture cache by for the deck reader. One
+            ; mechanism, two formats.
+            this.emitImage(dl shape.imagePart x y w h shape.rotation)
+            return
+        }
+
+        if ((w <= 0.0) || (h <= 0.0)) {
+            ; A line states two points, so a horizontal one has no height and
+            ; would be skipped by a box test. Draw it as its stroke and stop.
+            this.emitLine(dl shape x y w h)
+            return
+        }
+
+        def drewGeometry:boolean (this.emitPreset(dl shape x y w h))
+        if (drewGeometry == false) {
+            if (shape.fill.isVisible()) {
+                dl.addRect(x y w h (OdpToEvg.colorOf(shape.fill.color)))
+            }
+            if (shape.stroke.isVisible()) {
+                def lw:double (this.ptToPx(shape.stroke.widthPt))
+                if (lw < 1.0) {
+                    lw = 1.0
+                }
+                dl.addFrame(x y w h lw (OdpToEvg.colorOf(shape.stroke.color)))
+            }
+        }
+        this.emitText(dl shape x y w h)
+    }
+
+    ; The named preset, drawn from the shared catalogue. Answers false when
+    ; there is no geometry for the name — no catalogue loaded, an ODF-only
+    ; shape nobody has mapped, a `draw:enhanced-path` this reader does not
+    ; evaluate — and the caller then draws the box.
+    fn emitPreset:boolean (dl:EVGDisplayList shape:OdpShape x:double y:double w:double h:double) {
+        if (presetsLoaded == false) {
+            return false
+        }
+        if ((strlen shape.presetName) == 0) {
+            return false
+        }
+        ; A plain rectangle IS its box, and going round the geometry evaluator
+        ; for one costs a polygon where a rect command would do — on a deck
+        ; where nearly every shape is `ooxml-rect`, that is most of the list.
+        if (shape.presetName == "rect") {
+            return false
+        }
+        if ((presets.has(shape.presetName)) == false) {
+            return false
+        }
+        def adjNames:[string]
+        def adjValues:[double]
+        def paths:[GeomPath] (presets.pathsFor(shape.presetName shape.width shape.height adjNames adjValues))
+        if ((array_length paths) == 0) {
+            return false
+        }
+        def fillCol:EVGColor (OdpToEvg.colorOf(shape.fill.color))
+        def hasFill:boolean (shape.fill.isVisible())
+        def lineCol:EVGColor (OdpToEvg.colorOf(shape.stroke.color))
+        def hasLine:boolean (shape.stroke.isVisible())
+        def lw:double (this.ptToPx(shape.stroke.widthPt))
+        if (lw < 1.0) {
+            lw = 1.0
+        }
+        def i:int 0
+        while (i < (array_length paths)) {
+            def gp:GeomPath (itemAt paths i)
+            def rings:[PathRing]
+            def ri:int 0
+            while (ri < (array_length gp.rings)) {
+                def src:PathRing (itemAt gp.rings ri)
+                def out (new PathRing())
+                out.pts = (OdpToEvg.scaleToBox(src.pts x y w h))
+                push rings out
+                ri = (ri + 1)
+            }
+            if ((array_length rings) > 0) {
+                def wantFill:boolean (gp.fill != "none")
+                if (gp.closed == false) {
+                    wantFill = false
+                }
+                if (hasFill == false) {
+                    wantFill = false
+                }
+                if wantFill {
+                    ; Even-odd, which is what makes an inner contour a HOLE
+                    ; rather than a second disc.
+                    dl.addPolyRings(rings fillCol true)
+                }
+                if gp.stroke {
+                    if hasLine {
+                        def si:int 0
+                        while (si < (array_length rings)) {
+                            def sr:PathRing (itemAt rings si)
+                            OdpToEvg.strokeRing(dl sr.pts lw lineCol gp.closed)
+                            si = (si + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Unit points (0..1 in both axes) into a box on the page.
+    sfn scaleToBox:[double] (unit:[double] x:double y:double w:double h:double) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length unit)) {
+            if (((i % 2) == 0)) {
+                push out (x + ((itemAt unit i) * w))
+            } {
+                push out (y + ((itemAt unit i) * h))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn strokeRing:void (dl:EVGDisplayList pts:[double] width:double col:EVGColor closed:boolean) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return
+        }
+        def line:[double]
+        def i:int 0
+        while (i < (array_length pts)) {
+            push line (itemAt pts i)
+            i = (i + 1)
+        }
+        if closed {
+            push line (itemAt pts 0)
+            push line (itemAt pts 1)
+        }
+        dl.addPolyline(line width col)
+    }
+
+    fn emitLine:void (dl:EVGDisplayList shape:OdpShape x:double y:double w:double h:double) {
+        if ((shape.stroke.isVisible()) == false) {
+            return
+        }
+        def lw:double (this.ptToPx(shape.stroke.widthPt))
+        if (lw < 1.0) {
+            lw = 1.0
+        }
+        def pts:[double]
+        push pts x
+        push pts y
+        push pts (x + w)
+        push pts (y + h)
+        dl.addPolyline(pts lw (OdpToEvg.colorOf(shape.stroke.color)))
+    }
+
+    fn emitImage:void (dl:EVGDisplayList src:string x:double y:double w:double h:double rotate:double) {
+        if ((strlen src) == 0) {
+            return
+        }
+        dl.addImage(src x y w h false false rotate)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Text
+    ; ------------------------------------------------------------------
+
+    fn emitText:void (dl:EVGDisplayList shape:OdpShape x:double y:double w:double h:double) {
+        if ((shape.hasText()) == false) {
+            return
+        }
+        def padL:double (this.ptToPx(shape.padLeft))
+        def padR:double (this.ptToPx(shape.padRight))
+        def padT:double (this.ptToPx(shape.padTop))
+        def padB:double (this.ptToPx(shape.padBottom))
+        def contentX:double (x + padL)
+        def contentW:double (w - (padL + padR))
+        if (contentW <= 1.0) {
+            contentW = w
+            contentX = x
+        }
+        def lines:[OdpTextLine]
+        def pi:int 0
+        while (pi < (array_length shape.paragraphs)) {
+            def para:OdpParagraph (itemAt shape.paragraphs pi)
+            this.layoutParagraph(para contentW lines)
+            pi = (pi + 1)
+        }
+        if ((array_length lines) == 0) {
+            return
+        }
+        def total:double 0.0
+        def li:int 0
+        while (li < (array_length lines)) {
+            def ln:OdpTextLine (itemAt lines li)
+            total = (total + ln.height)
+            li = (li + 1)
+        }
+        ; Vertical alignment of the BLOCK, not of each line. `draw:textarea-
+        ; vertical-align` is what a placeholder uses to keep a one-line title
+        ; centred in a box sized for two.
+        def top:double (y + padT)
+        def contentH:double (h - (padT + padB))
+        if (shape.verticalAlign == "middle") {
+            top = (y + ((h - total) * 0.5))
+        }
+        if (shape.verticalAlign == "bottom") {
+            top = ((y + h) - (padB + total))
+        }
+        def cursorY:double top
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:OdpTextLine (itemAt lines i)
+            def penX:double contentX
+            def align:string (this.alignOf(shape i))
+            if (align == "center") {
+                penX = (contentX + ((contentW - line.width) * 0.5))
+            }
+            if (align == "end") {
+                penX = ((contentX + contentW) - line.width)
+            }
+            def k:int 0
+            while (k < (array_length line.pieces)) {
+                def piece:OdpTextPiece (itemAt line.pieces k)
+                def col:EVGColor (EVGColor.rgb(0 0 0))
+                if ((strlen piece.color) > 0) {
+                    col = (OdpToEvg.colorOf(piece.color))
+                }
+                ; The family the run is DRAWN in, not the one the file named.
+                ; A browser hands `ctx.font` whatever it is given: a name with
+                ; no face registered draws the system sans at the same size,
+                ; so the text comes out a different width from the one every
+                ; measurement above used. `drawnFamily` is the deck reader's
+                ; answer to exactly this and it is shared, not copied.
+                def family:string (measure.drawnFamily(piece.family piece.bold piece.italic))
+                dl.addText(piece.text penX cursorY piece.sizePx col family piece.bold piece.italic piece.width line.height)
+                penX = (penX + piece.width)
+                k = (k + 1)
+            }
+            cursorY = (cursorY + line.height)
+            i = (i + 1)
+        }
+    }
+
+    ; ODF states alignment in writing-direction words. "start" is left in a
+    ; left-to-right paragraph and right in a right-to-left one; translating it
+    ; to "left" at read time would throw that away, so the translation happens
+    ; here, at the point of drawing, where left really does mean left.
+    fn alignOf:string (shape:OdpShape lineIndex:int) {
+        def i:int 0
+        while (i < (array_length shape.paragraphs)) {
+            def para:OdpParagraph (itemAt shape.paragraphs i)
+            if ((para.align == "center") || (para.align == "end")) {
+                return para.align
+            }
+            i = (i + 1)
+        }
+        return "start"
+    }
+
+    ; One paragraph, wrapped to `width`, appended to `lines`. Word wrapping
+    ; and nothing cleverer: no hyphenation, no East Asian line breaking, no
+    ; kerning across a run boundary. Those belong to the shared typography
+    ; pipeline `gallery/office/README.md` describes, not to a format reader.
+    fn layoutParagraph:void (para:OdpParagraph width:double lines:[OdpTextLine]) {
+        def current (new OdpTextLine())
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:OdpRun (itemAt para.runs i)
+            def sizePt:double (run.style.sizePt.or((para.style.sizePt.or(18.0))))
+            def sizePx:double (this.ptToPx(sizePt))
+            def family:string (run.style.family.or((para.style.family.or("Open Sans"))))
+            def bold:boolean (run.style.bold.or((para.style.bold.or(false))))
+            def italic:boolean (run.style.italic.or((para.style.italic.or(false))))
+            def color:string (run.style.foreground.or((para.style.foreground.or("#000000"))))
+            def words:[string]
+            OdpToEvg.splitWords(run.text words)
+            def wi:int 0
+            while (wi < (array_length words)) {
+                def word:string (itemAt words wi)
+                if (word == "\n") {
+                    push lines current
+                    current = (new OdpTextLine())
+                } {
+                    def wpx:double (measure.widthOfIn(word sizePx bold italic family))
+                    ; A word that does not fit starts a new line — unless the
+                    ; line is empty, in which case nothing would ever fit and
+                    ; the loop would not terminate.
+                    if (((current.width + wpx) > width) && ((array_length current.pieces) > 0)) {
+                        push lines current
+                        current = (new OdpTextLine())
+                    }
+                    def piece (new OdpTextPiece())
+                    piece.text = word
+                    piece.width = wpx
+                    piece.sizePx = sizePx
+                    piece.family = family
+                    piece.bold = bold
+                    piece.italic = italic
+                    piece.color = color
+                    push current.pieces piece
+                    current.width = (current.width + wpx)
+                    def lh:double (sizePx * 1.2)
+                    if (lh > current.height) {
+                        current.height = lh
+                    }
+                }
+                wi = (wi + 1)
+            }
+            i = (i + 1)
+        }
+        if ((array_length current.pieces) > 0) {
+            push lines current
+        } {
+            ; An empty paragraph is a blank line, and a deck uses them for
+            ; spacing. Dropping it moves everything below it up.
+            if ((array_length para.runs) == 0) {
+                def blank (new OdpTextLine())
+                blank.height = (this.ptToPx(18.0))
+                push lines blank
+            }
+        }
+    }
+
+    ; Words, with their trailing space attached, plus "\n" as its own token.
+    ; Keeping the space ON the word is what makes a wrapped line end without a
+    ; dangling space and the next one start without a leading one.
+    sfn splitWords:void (text:string out:[string]) {
+        def len:int (strlen text)
+        def start:int 0
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                if (i > start) {
+                    push out (substring text start i)
+                }
+                push out "\n"
+                start = (i + 1)
+            } {
+                if (c == 32) {
+                    push out (substring text start (i + 1))
+                    start = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (len > start) {
+            push out (substring text start len)
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; Colour
+    ; ------------------------------------------------------------------
+
+    ; ODF colours are literal `#rrggbb`, with no theme scheme and no modifier
+    ; chain — which is why `OfficeColor`, whose whole value is the DrawingML
+    ; palette and its tint/shade maths, is not imported here. Saying so is the
+    ; point: a shared module that does not fit is worse than none.
+    sfn colorOf:EVGColor (hex:string) {
+        if ((strlen hex) == 0) {
+            return (EVGColor.rgb(0 0 0))
+        }
+        return (EVGColor.parse(hex))
+    }
+}

@@ -165,10 +165,17 @@ class PptxView {
     }
 
     fn fitScale:double (slide:PptxSlide) {
+        return (this.fitScaleFor(slide.width slide.height))
+    }
+
+    ; Fitting a page into a window is a question about the page's SIZE, not
+    ; about its format. The .odp viewer asks the same question of the same
+    ; window, so the arithmetic is here once rather than in each reader.
+    fn fitScaleFor:double (widthPt:double heightPt:double) {
         def availW:double (to_double (pageW - chromeW))
         def availH:double (to_double (pageH - chromeH))
-        def slideWpx:double (slide.width * (96.0 / 72.0))
-        def slideHpx:double (slide.height * (96.0 / 72.0))
+        def slideWpx:double (widthPt * (96.0 / 72.0))
+        def slideHpx:double (heightPt * (96.0 / 72.0))
         if (slideWpx <= 0.0) {
             return 1.0
         }

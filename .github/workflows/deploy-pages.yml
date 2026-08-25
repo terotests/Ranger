@@ -73,6 +73,12 @@ on:
       # the docs without docs/ (the MIT language site) being touched.
       - "gallery/pptx/**"
       - "gallery/office/**"
+      # The deck viewer opens a .odp too, and the reader under it lives in
+      # three directories of its own. Without these a change to the ODF side
+      # would leave /pptx/ on the site describing a viewer it no longer is.
+      - "gallery/odp/**"
+      - "gallery/odf/**"
+      - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -254,6 +260,10 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/pptx/standalone.mjs"
           test -s "$GITHUB_WORKSPACE/_site/pptx/gl/evg-webgl.js"
           test -s "$GITHUB_WORKSPACE/_site/pptx/deck.pptx"
+          # The .odp the page's own button fetches. A missing file here is a
+          # button that does nothing, and the page looks fine until it is
+          # pressed — which is the failure mode this whole step exists for.
+          test -s "$GITHUB_WORKSPACE/_site/pptx/sample.odp"
           grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
 
       # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------

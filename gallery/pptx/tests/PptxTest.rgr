@@ -5,7 +5,7 @@
 ; ==============================================================================
 
 Import "../../ooxml/OpcPackage.rgr"
-Import "../src/PptxXml.rgr"
+Import "../../xml/XmlCore.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxToEvg.rgr"
@@ -74,16 +74,16 @@ class PptxTest {
 
     fn testXml:void () {
         print "--- xml ---"
-        def p (new PptxXmlParser())
-        def root@(optional):PptxXmlNode (p.parse("<a><b x=\"1\">hi</b><c/></a>"))
+        def p (new XmlParser())
+        def root@(optional):XmlNode (p.parse("<a><b x=\"1\">hi</b><c/></a>"))
         this.check("parse root" (!null? root))
         if (!null? root) {
-            def r:PptxXmlNode (unwrap root)
+            def r:XmlNode (unwrap root)
             this.check("root name a" (r.name == "a"))
-            def b@(optional):PptxXmlNode (r.firstChild("b"))
+            def b@(optional):XmlNode (r.firstChild("b"))
             this.check("child b" (!null? b))
             if (!null? b) {
-                def bn:PptxXmlNode (unwrap b)
+                def bn:XmlNode (unwrap b)
                 this.check("attr x=1" ((bn.attr("x")) == "1"))
                 this.check("text hi" ((bn.textContent()) == "hi"))
             }
@@ -91,16 +91,16 @@ class PptxTest {
             ; PowerPoint both write one occasionally — and the reader has to
             ; pass it through rather than stop. The fixtures are well-formed;
             ; this is where the tolerance is checked.
-            def loose@(optional):PptxXmlNode (p.parse("<a:t>R&D Hämeenlinna</a:t>"))
+            def loose@(optional):XmlNode (p.parse("<a:t>R&D Hämeenlinna</a:t>"))
             this.check("a bare ampersand parses" (!null? loose))
             if (!null? loose) {
                 this.check("and the text survives it whole" ((((unwrap loose).textContent())) == "R&D Hämeenlinna"))
             }
-            def esc@(optional):PptxXmlNode (p.parse("<a:t>Ærø &amp; Ω</a:t>"))
+            def esc@(optional):XmlNode (p.parse("<a:t>Ærø &amp; Ω</a:t>"))
             if (!null? esc) {
                 this.check("an escaped ampersand decodes" ((((unwrap esc).textContent())) == "Ærø & Ω"))
             }
-            def ns@(optional):PptxXmlNode (p.parse("<p:sp><p:spPr/></p:sp>"))
+            def ns@(optional):XmlNode (p.parse("<p:sp><p:spPr/></p:sp>"))
             this.check("ns local name" (!null? ns))
             if (!null? ns) {
                 this.check("sp name" (((unwrap ns).name) == "sp"))
@@ -372,8 +372,8 @@ class PptxTest {
     ; of a letter past the end of the word. Reported exactly that way.
     fn testDrawnFontFamily:void () {
         print "--- the display list names the family it measured ---"
-        def bp (new PptxXmlParser())
-        def doc@(optional):PptxXmlNode (bp.parse("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en\" sz=\"4000\" b=\"1\"><a:latin typeface=\"Calibri\"/></a:rPr><a:t>RealTrainer</a:t></a:r></a:p></p:txBody>"))
+        def bp (new XmlParser())
+        def doc@(optional):XmlNode (bp.parse("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en\" sz=\"4000\" b=\"1\"><a:latin typeface=\"Calibri\"/></a:rPr><a:t>RealTrainer</a:t></a:r></a:p></p:txBody>"))
         this.check("the title body parses" (!null? doc))
         if (null? doc) {
             return
@@ -534,8 +534,8 @@ class PptxTest {
         ; Through the PARSER, from the shape of XML a real file contains —
         ; the earlier test of this built the body by hand, which is exactly
         ; the step that was broken.
-        def bp (new PptxXmlParser())
-        def brDoc@(optional):PptxXmlNode (bp.parse("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"ctr\"/><a:r><a:rPr lang=\"en\" sz=\"1800\"/><a:t>Stone age</a:t></a:r><a:br><a:rPr lang=\"en\"/></a:br><a:r><a:rPr lang=\"en\" sz=\"1200\"/><a:t>aka</a:t></a:r><a:br/><a:r><a:rPr lang=\"en\" sz=\"1200\"/><a:t>JQuery era</a:t></a:r></a:p></p:txBody>"))
+        def bp (new XmlParser())
+        def brDoc@(optional):XmlNode (bp.parse("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"ctr\"/><a:r><a:rPr lang=\"en\" sz=\"1800\"/><a:t>Stone age</a:t></a:r><a:br><a:rPr lang=\"en\"/></a:br><a:r><a:rPr lang=\"en\" sz=\"1200\"/><a:t>aka</a:t></a:r><a:br/><a:r><a:rPr lang=\"en\" sz=\"1200\"/><a:t>JQuery era</a:t></a:r></a:p></p:txBody>"))
         this.check("the text body parses" (!null? brDoc))
         if (!null? brDoc) {
             def bparser (new PptxParser())

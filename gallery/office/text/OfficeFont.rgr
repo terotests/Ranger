@@ -8,7 +8,7 @@
 ; loaded. Everything between those two sentences is this file, and it had been
 ; written three times, differently, and only one of them was right:
 ;
-;   * `PptxTextMeasure.faceFor` built "Family-Bold Italic" from what the run
+;   * `OfficeTextMeasure.faceFor` built "Family-Bold Italic" from what the run
 ;     said. Right, but it did not check the face was there, so a deck naming a
 ;     font nobody loaded measured against a fallback it never named.
 ;   * `DocxTextMetrics.applyFace` took ONE argument, `bold`, and chose between

@@ -1,0 +1,247 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdfPackageTest — one container reader, three formats. Again.
+; ==============================================================================
+;
+; `OpcPackageTest` next door holds one invariant over `.docx`, `.xlsx` and
+; `.pptx`: every internal relationship in a package names a part the ZIP
+; actually contains. This is the same invariant for ODF, and it is a different
+; walk because ODF has no relationships:
+;
+;   OPC   part → _rels part → r:id → target → resolve → member
+;   OCF   part → xlink:href → resolve → member
+;
+; So the check is over every `xlink:href` in `content.xml` and `styles.xml`.
+; The failure it exists to catch is the one that took three tries to get right
+; in OPC: a relative path left unresolved becomes a member name no ZIP has, and
+; the picture silently does not appear.
+;
+; The fixtures are LibreOffice's own conversions of this repository's `.pptx`,
+; `.docx` and `.xlsx` fixtures, which is deliberate: every one of them has a
+; twin in OOXML, so a difference between the two readers is a difference about
+; the same document rather than about two unrelated files.
+;
+;   npm run odf:package:test
+; ==============================================================================
+
+Import "../OdfPackage.rgr"
+
+class OdfCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OdfPackageTest {
+
+    ; ------------------------------------------------------------------
+    ; Paths, with no file involved
+    ; ------------------------------------------------------------------
+
+    sfn testPaths:void (c:OdfCheck) {
+        print "--- href resolution ---"
+        ; The ordinary case, and the reason it looks like the identity: an ODF
+        ; document's parts are at the package root, so the base contributes
+        ; nothing and the href IS the member name.
+        c.eqStr("a picture from content.xml" (OdfPackage.joinHref("content.xml" "Pictures/x.png")) "Pictures/x.png")
+        ; A sub-document names its siblings relative to itself.
+        c.eqStr("a sibling of a sub-document" (OdfPackage.joinHref("Object 1/content.xml" "styles.xml")) "Object 1/styles.xml")
+        ; And reaches back out with `..`, which is where OPC's three readers
+        ; each went wrong in their own way.
+        c.eqStr("out of a sub-document" (OdfPackage.joinHref("Object 1/content.xml" "../Pictures/x.png")) "Pictures/x.png")
+        c.eqStr("two levels out" (OdfPackage.joinHref("a/b/content.xml" "../../Pictures/x.png")) "Pictures/x.png")
+        c.eqStr("a leading slash is the package root" (OdfPackage.joinHref("Object 1/content.xml" "/styles.xml")) "styles.xml")
+        c.eqStr("`.` is a no-op" (OdfPackage.joinHref("content.xml" "./Pictures/x.png")) "Pictures/x.png")
+        c.ok("http is external" (OdfPackage.isExternalHref("https://example.org/x.png")))
+        c.ok("a member is not" ((OdfPackage.isExternalHref("Pictures/x.png")) == false))
+
+        print "--- what a media type means ---"
+        c.eqStr("presentation" (OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.presentation")) "presentation")
+        c.eqStr("text" (OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.text")) "text")
+        c.eqStr("spreadsheet" (OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.spreadsheet")) "spreadsheet")
+        ; A template is the same markup under a different name. A reader that
+        ; refused one would refuse the file every deck starts from.
+        c.eqStr("a template is a presentation" (OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.presentation-template")) "presentation")
+        c.eqStr("OOXML is not ODF" (OdfPackage.kindOfMediaType("application/vnd.openxmlformats-officedocument.presentationml.presentation")) "")
+        c.eqStr("nothing is not ODF" (OdfPackage.kindOfMediaType("")) "")
+    }
+
+    ; ------------------------------------------------------------------
+    ; The format of a file, from its first bytes
+    ; ------------------------------------------------------------------
+
+    sfn testSniff:void (c:OdfCheck) {
+        print "--- sniffKind, without a ZIP library ---"
+        c.eqStr("an .odp is a presentation" (OdfPackageTest.sniffFile("gallery/odf/fixtures" "01-text.odp")) "presentation")
+        c.eqStr("an .odt is text" (OdfPackageTest.sniffFile("gallery/odf/fixtures" "13-images-mixed.odt")) "text")
+        c.eqStr("an .ods is a spreadsheet" (OdfPackageTest.sniffFile("gallery/odf/fixtures" "images.ods")) "spreadsheet")
+        ; The one that matters for the shell: a .pptx is a ZIP too, and its
+        ; first member is not called `mimetype`. Answering anything but "" here
+        ; would send every deck to the wrong reader.
+        c.eqStr("a .pptx is not ODF" (OdfPackageTest.sniffFile("gallery/pptx/fixtures" "01-text.pptx")) "")
+    }
+
+    sfn sniffFile:string (dir:string name:string) {
+        def bytes:buffer (buffer_read_file dir name)
+        return (OdfPackage.sniffKind(bytes))
+    }
+
+    ; ------------------------------------------------------------------
+    ; One reader, three formats
+    ; ------------------------------------------------------------------
+
+    sfn testThreeFormats:void (c:OdfCheck) {
+        print "--- one reader, three formats ---"
+        OdfPackageTest.checkPackage(c "01-text.odp" "presentation")
+        OdfPackageTest.checkPackage(c "13-images-mixed.odt" "text")
+        OdfPackageTest.checkPackage(c "images.ods" "spreadsheet")
+    }
+
+    sfn checkPackage:void (c:OdfCheck name:string wantKind:string) {
+        def pkg:OdfPackage (new OdfPackage())
+        def ok:boolean (pkg.openParts("gallery/odf/fixtures" name))
+        c.ok((name + " opens") ok)
+        if (ok == false) {
+            return
+        }
+        c.eqStr((name + " kind") (pkg.kind()) wantKind)
+        c.ok((name + " has content.xml") (pkg.hasPart("content.xml")))
+        c.ok((name + " has styles.xml") (pkg.hasPart("styles.xml")))
+        c.ok((name + " has a manifest") (pkg.hasPart("META-INF/manifest.xml")))
+        ; The manifest is a claim about the package; the ZIP is the truth. Both
+        ; have to be there and they have to agree about content.xml.
+        c.eqStr((name + " manifest calls content.xml XML") (pkg.mediaTypeFor("content.xml")) "text/xml")
+        def xml:string (pkg.readXml("content.xml"))
+        c.ok((name + " content.xml decodes") ((strlen xml) > 100))
+        c.ok((name + " and is a document") ((indexOf xml "office:document-content") > 0))
+        pkg.close()
+    }
+
+    ; ------------------------------------------------------------------
+    ; The invariant: every href names a member
+    ; ------------------------------------------------------------------
+
+    sfn testEveryHrefResolves:void (c:OdfCheck) {
+        print "--- every xlink:href names a member that exists ---"
+        OdfPackageTest.checkHrefs(c "gallery/odf/fixtures" "03-image.odp")
+        OdfPackageTest.checkHrefs(c "gallery/odf/fixtures" "13-images-mixed.odt")
+        OdfPackageTest.checkHrefs(c "gallery/odf/fixtures" "images.ods")
+    }
+
+    sfn checkHrefs:void (c:OdfCheck dir:string name:string) {
+        def pkg:OdfPackage (new OdfPackage())
+        def ok:boolean (pkg.openParts(dir name))
+        c.ok((name + " opens for the href walk") ok)
+        if (ok == false) {
+            return
+        }
+        def parts:[string]
+        push parts "content.xml"
+        push parts "styles.xml"
+        def checked:int 0
+        def missing:int 0
+        def firstMissing:string ""
+        def pi:int 0
+        while (pi < (array_length parts)) {
+            def part:string (itemAt parts pi)
+            def xml:string (pkg.readXml(part))
+            def hrefs:[string]
+            OdfPackageTest.collectHrefs(xml hrefs)
+            def i:int 0
+            while (i < (array_length hrefs)) {
+                def href:string (itemAt hrefs i)
+                if ((OdfPackage.isExternalHref(href)) == false) {
+                    def target:string (OdfPackage.joinHref(part href))
+                    if ((strlen target) > 0) {
+                        checked = (checked + 1)
+                        if ((pkg.hasPart(target)) == false) {
+                            missing = (missing + 1)
+                            if ((strlen firstMissing) == 0) {
+                                firstMissing = (href + " -> " + target)
+                            }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            pi = (pi + 1)
+        }
+        c.ok((name + " has internal hrefs to check (" + (to_string checked) + ")") (checked > 0))
+        c.ok((name + " every one resolves to a member [" + firstMissing + "]") (missing == 0))
+        pkg.close()
+    }
+
+    ; Every `xlink:href="…"` in a part, in document order. A scan rather than a
+    ; parse on purpose: this test must be able to fail when the parser is what
+    ; is wrong.
+    sfn collectHrefs:void (xml:string out:[string]) {
+        def key:string "xlink:href=\""
+        def pos:int 0
+        while (pos < (strlen xml)) {
+            def i:int (indexOfFrom xml key pos)
+            if (i < 0) {
+                break
+            }
+            def a:int (i + (strlen key))
+            def b:int (indexOfFrom xml "\"" a)
+            if (b < 0) {
+                break
+            }
+            def href:string (substring xml a b)
+            if ((strlen href) > 0) {
+                push out href
+            }
+            pos = (b + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; What a ZIP that is not ODF answers
+    ; ------------------------------------------------------------------
+
+    sfn testNotOdf:void (c:OdfCheck) {
+        print "--- a package that is not ODF ---"
+        def pkg:OdfPackage (new OdfPackage())
+        ; The ZIP opens fine. `openParts` still has to answer false, because
+        ; the shell asks it "is this yours?" and a true here sends a deck into
+        ; the wrong reader.
+        def ok:boolean (pkg.openParts("gallery/pptx/fixtures" "01-text.pptx"))
+        c.ok("a .pptx does not open as ODF" (ok == false))
+        pkg.close()
+    }
+
+    sfn main:void () {
+        print "== OdfPackageTest =="
+        def c:OdfCheck (new OdfCheck())
+        OdfPackageTest.testPaths(c)
+        OdfPackageTest.testSniff(c)
+        OdfPackageTest.testThreeFormats(c)
+        OdfPackageTest.testEveryHrefResolves(c)
+        OdfPackageTest.testNotOdf(c)
+        print ""
+        print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

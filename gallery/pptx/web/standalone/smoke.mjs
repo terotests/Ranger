@@ -38,6 +38,7 @@ const MIME = {
   ".js": "text/javascript; charset=utf-8",
   ".ttf": "font/ttf",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".odp": "application/vnd.oasis.opendocument.presentation",
   ".png": "image/png",
   // Without this the browser refuses `instantiateStreaming` and the WASM page
   // fails with a MIME error rather than a missing file — which reads as a

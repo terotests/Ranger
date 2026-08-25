@@ -20,7 +20,7 @@
 ; ==============================================================================
 
 Import "../../ooxml/OpcPackage.rgr"
-Import "../src/PptxXml.rgr"
+Import "../../xml/XmlCore.rgr"
 
 class PptxAudit {
     def counts:[string:int]
@@ -170,7 +170,7 @@ class PptxAudit {
         }
     }
 
-    fn walk:void (node:PptxXmlNode) {
+    fn walk:void (node:XmlNode) {
         if node.isText {
             return
         }
@@ -213,7 +213,7 @@ class PptxAudit {
             print ("  could not open " + name)
             return false
         }
-        def xml (new PptxXmlParser())
+        def xml (new XmlParser())
         def all:[string] (pkg.listParts())
         def i:int 0
         while (i < (array_length all)) {
@@ -221,7 +221,7 @@ class PptxAudit {
             if (PptxAudit.interesting(part)) {
                 def text:string (pkg.readXml(part))
                 if ((strlen text) > 0) {
-                    def root@(optional):PptxXmlNode (xml.parse(text))
+                    def root@(optional):XmlNode (xml.parse(text))
                     if (!null? root) {
                         parts = (parts + 1)
                         this.walk((unwrap root))

@@ -114,6 +114,12 @@ cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
 # A deck to open on load. The page reads it with fetch and hands the bytes to
 # the viewer, exactly as it does with a file the user picks.
 cp gallery/pptx/fixtures/20-business-deck.pptx "$OUT/deck.pptx"
+# …and the SAME deck as an OpenDocument presentation, which is the point of
+# shipping it: pressing the button swaps the format and not the document, so
+# a difference on screen is a difference between the two readers rather than
+# between two unrelated files. It is LibreOffice's own conversion of the
+# .pptx beside it.
+cp gallery/odp/fixtures/20-business-deck.odp "$OUT/sample.odp"
 
 # --- the build stamp ---------------------------------------------------------
 # A rebuilt page that a browser will not fetch is indistinguishable from a page

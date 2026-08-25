@@ -43,6 +43,9 @@ compiler — the long-form writeups live here.
 | [`rangersql`](rangersql/README.md) | SQL parser, generator and dialect transpiler, checked against SQLGlot's own identity corpus — and RangerDB's SQL front end |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
+| [`odp`](odp/README.md) | The OpenDocument presentation reader: OCF ZIP → `OdpModel` → styles resolved through `OfficeStyle` → EVG display list. A `.odp` opens **in the `.pptx` viewer**, drawn by the same backend in the same window — two models that never meet, one painter |
+| [`odf`](odf/README.md) | What the ODF readers share: one container for `.odt`, `.ods` and `.odp`. It is not OPC, and the file says why |
+| [`xml`](xml/XmlCore.rgr) | One XML reader for the document formats — spans, so a writer can copy through what it does not understand, and two namespace policies, because ODF cannot afford OOXML's |
 | [`ooxml`](ooxml/README.md) | What the three OOXML editors share: one OPC package reader (parts, content types, relationships) and the XML text rules — plus the roadmap for what moves there next |
 | [`office`](office/README.md) | The rest of what they share: which font face draws a run, offset↔x measurement, a style property that knows it was not stated, and the DrawingML theme palette |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
