@@ -1072,6 +1072,14 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
+            ; an operand a target hoisted into a `let` of its own before the
+            ; statement: the temporary IS the value, and it already owns what
+            ; it holds
+            if ((strlen arg.rust_use_tmpvar) > 0) {
+              wr.out(arg.rust_use_tmpvar false)
+              arg.rust_use_tmpvar = ""
+              return
+            }
             ; a container of a SHARED class holds the Rc, so a freshly
             ; constructed value takes its cell on the way in — `set events n
             ; (new EventList)` stored the bare struct
