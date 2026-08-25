@@ -32,6 +32,24 @@
   canvas:focus { box-shadow: inset 0 0 0 2px #3d6ea8; }
   #status { padding: 8px 12px; font-size: 0.8rem; color: #9fb0c4; border-top: 1px solid #232a33;
             white-space: pre-wrap; }
+  /* The file the examples work ON, when there is one. It is deliberately in
+     its own row rather than crowded into the toolbar: which deck is loaded
+     changes what every example below means. */
+  .source { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+            padding: 8px 12px; border-bottom: 1px solid #232a33;
+            font-size: 0.8rem; color: #9fb0c4; }
+  .source input[type="file"] { font: inherit; font-size: 0.76rem; color: #9fb0c4; max-width: 240px; }
+  #source { color: #cbd6e4; }
+  #source.loaded { color: #9ee6a5; }
+  /* What the code printed. `console.log` in an example goes here as well as to
+     the browser's console — a page that asks you to open devtools to see the
+     answer has not shown you the answer. */
+  #log { margin: 0; padding: 10px 12px; max-height: 168px; overflow: auto;
+         border-top: 1px solid #232a33; background: #0b0e13; color: #b9c6d6;
+         font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+         white-space: pre-wrap; word-break: break-word; }
+  #log:empty { display: none; }
+  #log .err { color: #ff9d9d; }
   #status.bad { color: #ff9d9d; }
   #status.good { color: #9ee6a5; }
   .slides { display: flex; gap: 6px; align-items: center; }
@@ -41,9 +59,13 @@
 <header>
   <h1>@ranger/pptx — write a deck, see it in the editor</h1>
   <p class="hint">
-    The code on the left runs against the published API. The bytes it produces are opened
-    in the slide editor on the right — the same build, so what you see is what a
-    <code>.pptx</code> reader gets. Build <code>__BUILD__</code>.
+    The code on the left runs against the published API when you press <strong>Run</strong>.
+    The bytes it produces are opened in the slide editor on the right — the same build, so
+    what you see is what a <code>.pptx</code> reader gets.
+    <strong>Open a .pptx</strong> and the examples change: they take the file you chose as
+    <code>Source</code>, open it, change it, and save it back — so the round trip is the
+    thing on screen rather than a claim. <strong>Clear</strong> forgets the file and puts the
+    build-from-nothing examples back. Build <code>__BUILD__</code>.
     <a href="reference/">API reference</a>.
     The editor on the right is live — click a shape to select it, click again to type.
   </p>
@@ -52,12 +74,18 @@
   <section class="pane">
     <div class="bar">
       <select id="preset"></select>
-      <button id="run">Run</button>
+      <button id="run" title="Run the code (Ctrl+Enter)">Run ▶</button>
+      <button id="clear" title="Forget the opened file and go back to the blank-deck examples">Clear</button>
       <button id="download">Download .pptx</button>
       <button id="png">PNG</button>
       <button id="pdf">PDF</button>
     </div>
+    <div class="source">
+      <label>open a .pptx <input id="file" type="file" accept=".pptx" /></label>
+      <span id="source">no file — the examples build a deck from nothing</span>
+    </div>
     <textarea id="code" spellcheck="false"></textarea>
+    <pre id="log"></pre>
   </section>
   <section class="pane">
     <div class="bar">

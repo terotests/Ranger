@@ -109,6 +109,9 @@ for (const name of presets) {
     const sel = document.getElementById("preset");
     sel.value = which;
     sel.dispatchEvent(new Event("change"));
+    // Nothing runs on its own any more — choosing an example only loads it.
+    // The page is driven the way a reader drives it: press Run.
+    document.getElementById("run").click();
     await new Promise((r) => setTimeout(r, 400));
     const status = document.getElementById("status");
     // Run the code again directly so the deck's own bytes can be measured.
@@ -142,6 +145,7 @@ await page.evaluate(() => {
   const sel = document.getElementById("preset");
   sel.value = "Several slides";
   sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
 });
 await page.waitForTimeout(500);
 const first = await page.locator("#screen").screenshot();
@@ -160,6 +164,7 @@ await page.evaluate(() => {
   const sel = document.getElementById("preset");
   sel.value = "A title slide";
   sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
 });
 await page.waitForTimeout(600);
 
@@ -204,6 +209,207 @@ const guarded = await page.evaluate(async () => {
   return { same: web.scene() === before };
 });
 ok("typing in the code pane does not reach the deck", guarded.same);
+
+// --- opening a .pptx the reader already has --------------------------------
+//
+// The half of the API this page could not previously show. Everything above
+// builds a deck from nothing; a reader has no way to tell from that whether
+// `Pptx.open` works at all, or whether "editing" is really re-creation of the
+// parts this model happens to understand. So: hand the page a real file, run
+// an example that changes it, and ask the DECK what happened — not the pixels.
+//
+// The file is a deck this very page wrote a moment ago, which makes the test
+// independent of any fixture and proves the round trip in both directions.
+const madeBytes = await page.evaluate(() => {
+  const deck = window.__jsApi.create();
+  const s1 = deck.addSlide().background("FFFFFF");
+  s1.addTextBox(60, 60, 600, 80, "Original title").setName("Title");
+  s1.addTextBox(60, 200, 600, 40, "A line that was already here");
+  const s2 = deck.addSlide().background("FFFFFF");
+  s2.addTextBox(60, 60, 600, 80, "Second slide");
+  return Array.from(deck.save());
+});
+ok("the page can write a deck to open later", madeBytes.length > 2000);
+
+const opened = await page.evaluate(async (bytes) => {
+  await window.__openSource(new Uint8Array(bytes), "reader.pptx");
+  await new Promise((r) => setTimeout(r, 600));
+  const options = [...document.querySelectorAll("#preset option")].map((o) => o.value);
+  return {
+    source: window.__source(),
+    options,
+    log: window.__log(),
+    where: document.getElementById("where").textContent,
+    code: document.getElementById("code").value,
+  };
+}, madeBytes);
+ok("opening a file is remembered", opened.source && opened.source.name === "reader.pptx");
+ok("and the examples become the ones that edit it",
+  opened.options.includes("What is in this deck?") && !opened.options.includes("A title slide"));
+ok("the loaded example opens the file rather than creating one",
+  /Pptx\.open\(Source\)/.test(opened.code));
+ok("the editor shows the file as it arrived", /\d+ \/ 2/.test(opened.where));
+ok("and the page says what it found", /2 slide\(s\)/.test(opened.log));
+
+// Reading it: the count the example prints has to be the deck's real count.
+const counted = await page.evaluate(async () => {
+  const sel = document.getElementById("preset");
+  sel.value = "What is in this deck?";
+  sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
+  await new Promise((r) => setTimeout(r, 700));
+  return { log: window.__log(), status: document.getElementById("status").textContent,
+           bad: document.getElementById("status").className === "bad" };
+});
+ok("an example can read the opened deck", !counted.bad);
+ok("and prints what it read into the page", /2 slide\(s\)/.test(counted.log));
+ok("the status names the file it came from", /reader\.pptx/.test(counted.status));
+
+// Changing it: ask the EDITOR what the first slide says now. The editor opened
+// the bytes the example saved, so an answer here means the edit survived being
+// written into a .pptx and read back out of one.
+const retitled = await page.evaluate(async () => {
+  const sel = document.getElementById("preset");
+  sel.value = "Retitle the first slide";
+  sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
+  await new Promise((r) => setTimeout(r, 900));
+  const web = window.__pptxWeb;
+  web.gotoSlide(0);
+  const d = window.__jsApi.open(new Uint8Array(await (async () => web.saveBytes())()));
+  return { log: window.__log(), text: d.slide(0).text, slides: d.slideCount };
+});
+ok("an example can change the opened deck", /Original title/.test(retitled.log));
+ok("and the change is in the saved .pptx", /Edited in the browser/.test(retitled.text));
+ok("what was already there is still there",
+  /A line that was already here/.test(retitled.text));
+ok("and the deck did not lose a slide", retitled.slides === 2);
+
+// Adding to it, which is the other direction.
+const stamped = await page.evaluate(async () => {
+  const sel = document.getElementById("preset");
+  sel.value = "Stamp every slide";
+  sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
+  await new Promise((r) => setTimeout(r, 900));
+  const d = window.__jsApi.open(window.__pptxWeb.saveBytes());
+  let stamps = 0;
+  for (let i = 0; i < d.slideCount; i++) {
+    const slide = d.slide(i);
+    for (let k = 0; k < slide.shapeCount; k++) if (slide.shape(k).name === "stamp") stamps++;
+  }
+  return { stamps, slides: d.slideCount, log: window.__log() };
+});
+ok("every slide of the opened deck was stamped",
+  stamped.stamps === 2 && stamped.slides === 2);
+
+// Each Run starts from the ORIGINAL file, not from the last run's output —
+// otherwise stamping twice would put two stamps on every slide and the reader
+// would be editing something they were never shown.
+const again = await page.evaluate(async () => {
+  document.getElementById("run").click();
+  await new Promise((r) => setTimeout(r, 900));
+  const d = window.__jsApi.open(window.__pptxWeb.saveBytes());
+  let stamps = 0;
+  for (let i = 0; i < d.slideCount; i++) {
+    const slide = d.slide(i);
+    for (let k = 0; k < slide.shapeCount; k++) if (slide.shape(k).name === "stamp") stamps++;
+  }
+  return stamps;
+});
+ok("running twice does not stamp twice", again === 2);
+
+// The claim that matters, and the one a deck this page wrote cannot test:
+// editing somebody's real file must not QUIETLY DROP the parts this model has
+// never heard of. `32-unmodelled-content.pptx` carries SmartArt (ppt/diagrams)
+// and digital ink (ppt/ink) — neither is in the object model — so if the
+// writer rebuilt the package from what it understands, they would vanish.
+//
+// `PptxApi.save` writes back over the original package for exactly this
+// reason. That is checked here by listing the ZIP's parts before and after.
+const unmodelled = fs.readFileSync(
+  path.join(HERE, "../../fixtures/32-unmodelled-content.pptx"));
+
+/** The names in a ZIP's central directory. Enough of a reader for this. */
+function zipParts(bytes) {
+  const u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
+  let end = -1;
+  for (let i = u.length - 22; i >= 0 && i > u.length - 65558; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { end = i; break; }
+  }
+  if (end < 0) return [];
+  const count = dv.getUint16(end + 10, true);
+  let at = dv.getUint32(end + 16, true);
+  const names = [];
+  const dec = new TextDecoder();
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(at, true) !== 0x02014b50) break;
+    const nameLen = dv.getUint16(at + 28, true);
+    const extraLen = dv.getUint16(at + 30, true);
+    const commentLen = dv.getUint16(at + 32, true);
+    names.push(dec.decode(u.subarray(at + 46, at + 46 + nameLen)));
+    at += 46 + nameLen + extraLen + commentLen;
+  }
+  return names;
+}
+
+const partsIn = zipParts(unmodelled);
+ok("the fixture carries parts the model does not understand",
+  partsIn.some((n) => n.startsWith("ppt/diagrams/")) && partsIn.some((n) => n.startsWith("ppt/ink/")));
+
+const survived = await page.evaluate(async (bytes) => {
+  await window.__openSource(new Uint8Array(bytes), "unmodelled.pptx");
+  await new Promise((r) => setTimeout(r, 700));
+  const sel = document.getElementById("preset");
+  sel.value = "Stamp every slide";
+  sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
+  await new Promise((r) => setTimeout(r, 900));
+  // The bytes the EXAMPLE saved, not the editor's re-save of them: this is a
+  // question about `PptxApi.save`, and the editor has a writer of its own.
+  return window.__deckBytes();
+}, Array.from(unmodelled));
+
+const partsOut = zipParts(Uint8Array.from(survived));
+const lost = partsIn.filter((n) => !partsOut.includes(n));
+ok("editing a real deck keeps the SmartArt and the ink", lost.length === 0);
+if (lost.length) console.log("  lost: " + lost.join(", "));
+ok("and the edit is in it",
+  await page.evaluate(() => {
+    const d = window.__jsApi.open(window.__pptxWeb.saveBytes());
+    return /Reviewed/.test(d.slide(0).text);
+  }));
+
+// And once more through the EDITOR's writer, which is a different one: the
+// pane on the right opened those bytes, so what it saves is the deck after a
+// second full round trip. Note the conversion — `saveBytes` answers an
+// ArrayBuffer, and `Array.from` of one is an EMPTY array, which reads as
+// "every part was dropped" when nothing was.
+const viaEditor = zipParts(Uint8Array.from(await page.evaluate(() =>
+  Array.from(new Uint8Array(window.__pptxWeb.saveBytes())))));
+const lostByEditor = partsIn.filter((n) => !viaEditor.includes(n));
+ok("and the editor keeps them too", lostByEditor.length === 0);
+if (lostByEditor.length) console.log("  editor lost: " + lostByEditor.join(", "));
+
+// Back to the deck this page made, so the checks after this one start clean.
+await page.evaluate(async (bytes) => {
+  await window.__openSource(new Uint8Array(bytes), "reader.pptx");
+  await new Promise((r) => setTimeout(r, 600));
+}, madeBytes);
+
+// And Clear puts the page back.
+const cleared = await page.evaluate(async () => {
+  document.getElementById("clear").click();
+  await new Promise((r) => setTimeout(r, 700));
+  const options = [...document.querySelectorAll("#preset option")].map((o) => o.value);
+  return { source: window.__source(), options, log: window.__log(),
+           where: document.getElementById("where").textContent };
+});
+ok("Clear forgets the file", cleared.source === null);
+ok("and the blank-deck examples come back",
+  cleared.options.includes("A title slide") && !cleared.options.includes("What is in this deck?"));
+ok("and nothing of the file is left on screen", /\d+ \/ 1/.test(cleared.where));
 
 // A 404 for the page's own favicon is the browser asking, not the page
 // failing; anything else the page requested and did not get is a real hole.
