@@ -2712,7 +2712,13 @@ class RangerRustClassWriter {
             if vardef_src_ref_str {
               wr.out(".to_string()" false)
             } {
-              wr.out(".clone()" false)
+              ; a borrowed collection or buffer parameter is a SLICE, and
+              ; cloning one gives another slice — the owned slot wants a Vec
+              if (this.rustSliceRefRead(value)) {
+                wr.out(".to_vec()" false)
+              } {
+                wr.out(".clone()" false)
+              }
             }
           }
         }
@@ -6622,7 +6628,10 @@ class RangerRustClassWriter {
                 def needs_clone:boolean false
                 if (argNameN.type_name == "string") { needs_clone = true }
                 if (arg_type == RangerNodeType.Object) { needs_clone = true }
-                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash)) {
+                ; …and a buffer, which the four sibling copies of this rule
+                ; already listed. Left out here, a borrowed `&[u8]` went to a
+                ; `Vec<u8>` parameter with no `.to_vec()` at all.
+                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
                   needs_clone = true
                 }
                 if needs_clone {

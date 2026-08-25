@@ -26380,7 +26380,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( vardef_src_ref_str ) {
                           wr.out(".to_string()", false);
                         } else {
-                          wr.out(".clone()", false);
+                          if ( this.rustSliceRefRead(value_1) ) {
+                            wr.out(".to_vec()", false);
+                          } else {
+                            wr.out(".clone()", false);
+                          }
                         }
                       }
                     }
@@ -29617,7 +29621,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( arg_type_2 == 10 ) {
                                 needs_clone_2 = true;
                               }
-                              if ( (arg_type_2 == 6) || (arg_type_2 == 7) ) {
+                              if ( (((((arg_type_2 == 6) || (arg_type_2 == 7)) || (arg_type_2 == 17)) || (arg_type_2 == 18)) || (arg_type_2 == 15)) || (arg_type_2 == 16) ) {
                                 needs_clone_2 = true;
                               }
                               if ( needs_clone_2 ) {
@@ -58303,6 +58307,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.own_call_indexes = [];
                             this.rss_edge_src = [];
                             this.rss_edge_dst = [];
+                            this.rss_in_place = [];
                           }
                           initMutatingOps () {
                             this.mutatingOps["buffer_set"] = true;
@@ -60838,6 +60843,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                   this.rssRecordAssign(target, node.children[2]);
                                                 }
                                               }
+                                              if ( (first.vref == "str_append") && ((node.children.length) >= 2) ) {
+                                                const mtarget = this.rssResolveDesc(node.getSecond());
+                                                if ( (mtarget.name.length) > 0 ) {
+                                                  mtarget.rust_static_str = false;
+                                                  this.rss_in_place.push(mtarget);
+                                                }
+                                              }
                                             }
                                           }
                                           for ( let i = 0; i < node.children.length; i++) {
@@ -60910,6 +60922,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                     }
                                                   }
                                                 };
+                                              };
+                                              for ( let ipi = 0; ipi < this.rss_in_place.length; ipi++) {
+                                                var ip = this.rss_in_place[ipi];
+                                                ip.rust_static_str = false;
                                               };
                                             };
                                             applyOwnershipToRustBorrowsFn (cl, fn) {
