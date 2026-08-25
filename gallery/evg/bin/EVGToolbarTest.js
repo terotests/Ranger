@@ -8412,12 +8412,12 @@ class EVGToolbar  {
       const a = this.items[i];
       if ( a.isSeparator == false ) {
         if ( a.icon > 0 ) {
-          if ( a.textW == 0 ) {
+          if ( (a.textW == 0) && (a.showLabel == false) ) {
             let j = i + 1;
             while (j < (this.items.length)) {
               const b = this.items[j];
               if ( b.isSeparator == false ) {
-                if ( b.textW == 0 ) {
+                if ( (b.textW == 0) && (b.showLabel == false) ) {
                   if ( b.icon == a.icon ) {
                     if ( b.command != a.command ) {
                       return a.icon;

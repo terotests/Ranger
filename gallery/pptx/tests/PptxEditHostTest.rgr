@@ -36,6 +36,20 @@ class PptxEditHostTest {
         return (PptxEditHostTest.buildDeck("02-shapes.pptx"))
     }
 
+    ; Press, move, release — a drag across the slide, in window pixels.
+    sfn dragOut:void (app:PptxApp x0:int y0:int x1:int y1:int) {
+        app.pointer(x0 y0 true true false)
+        def steps:int 4
+        def i:int 1
+        while (i <= steps) {
+            def x:int (x0 + (idiv ((x1 - x0) * i) steps))
+            def y:int (y0 + (idiv ((y1 - y0) * i) steps))
+            app.pointer(x y true false false)
+            i = (i + 1)
+        }
+        app.pointer(x1 y1 false false true)
+    }
+
     sfn buildDeck:PptxApp (name:string) {
         def app:PptxApp (new PptxApp)
         app.init("gallery/pdf_writer/assets/fonts")
@@ -769,10 +783,22 @@ class PptxEditHostTest {
         print "-- inserting, deleting, and the slide list --"
         def app4:PptxApp (PptxEditHostTest.build())
         def n0:int (array_length (app4.editor.editableShapes()))
-        c.ok("insert a box" (app4.runCommand("shape.rect" "")))
+        ; A shape command ARMS the tool; the drag that follows says where the
+        ; shape goes and how big it is. It used to drop a fixed box in the
+        ; middle of the slide the moment the picker was touched, which put the
+        ; new shape on top of whatever the reader was looking at and gave them
+        ; no say in its size — reported as "the picker hides the slide".
+        c.ok("the box command is a command" (app4.runCommand("shape.rect" "")))
         c.ok("inserting turns editing on" app4.editMode)
-        c.ok("there is one more shape" ((array_length (app4.editor.editableShapes())) == (n0 + 1)))
+        c.ok("it arms the tool rather than inserting" (app4.pendingTool == "rect"))
+        c.ok("so nothing is on the slide yet" ((array_length (app4.editor.editableShapes())) == n0))
+        ; And now the drag. Big enough to read as a drawn rectangle rather
+        ; than a click — `placePendingTool` treats anything under 4% of the
+        ; slide as a click and falls back to a default size.
+        PptxEditHostTest.dragOut(app4 320 260 620 460)
+        c.ok("the drag puts one there" ((array_length (app4.editor.editableShapes())) == (n0 + 1)))
         c.ok("and it is selected" ((app4.editor.selectionCount()) == 1))
+        c.ok("the tool is spent" ((strlen app4.pendingTool) == 0))
         c.ok("delete takes it away" (app4.runCommand("edit.delete" "")))
         c.ok("back to where we started" ((array_length (app4.editor.editableShapes())) == n0))
         def slides0:int (app4.slideCount())
@@ -927,7 +953,9 @@ class PptxEditHostTest {
         ; The fixture's own shapes, plus one inserted, so the build is about
         ; the build and not about how many shapes the deck happened to have.
         maker.runCommand("shape.rect" "")
+        PptxEditHostTest.dragOut(maker 320 260 560 400)
         maker.runCommand("shape.ellipse" "")
+        PptxEditHostTest.dragOut(maker 340 440 580 580)
         def shapes2:[PptxShape] (maker.editor.editableShapes())
         c.ok("there are shapes to animate" ((array_length shapes2) >= 2))
         if ((array_length shapes2) >= 2) {

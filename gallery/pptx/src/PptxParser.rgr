@@ -207,6 +207,7 @@ class PptxParser {
         def col@(optional):PptxColor (this.parseColor(rp))
         if (!null? col) {
             run.color = (unwrap col)
+            run.colorStated = true
         }
         def hl@(optional):PptxXmlNode (rp.firstChild("highlight"))
         if (!null? hl) {

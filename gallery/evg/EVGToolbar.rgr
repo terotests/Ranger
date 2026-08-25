@@ -1082,12 +1082,22 @@ class EVGToolbar {
             def a:ToolItem (itemAt items i)
             if (a.isSeparator == false) {
                 if (a.icon > 0) {
-                    if (a.textW == 0) {
+                    ; Only ICON-ONLY buttons can be confused for one another:
+                    ; a button that draws its name beside the picture is read
+                    ; by the word. `textW` says the caption has been measured,
+                    ; which only happens once a view with a measurer has laid
+                    ; the strip out — headless it stays 0 for everything, so a
+                    ; dropdown and its own entries looked like two unlabelled
+                    ; buttons sharing a picture and this answered yes for a
+                    ; strip that reads perfectly well. `showLabel` is the same
+                    ; fact stated when the button is BUILT, so the check now
+                    ; gives one answer on screen and off it.
+                    if ((a.textW == 0) && (a.showLabel == false)) {
                         def j:int (i + 1)
                         while (j < (array_length items)) {
                             def b:ToolItem (itemAt items j)
                             if (b.isSeparator == false) {
-                                if (b.textW == 0) {
+                                if ((b.textW == 0) && (b.showLabel == false)) {
                                     if (b.icon == a.icon) {
                                         if (b.command != a.command) {
                                             return a.icon

@@ -184,7 +184,11 @@ class PptxFrameTest {
         def unknown:int 0
         while (i < (app.toolbar.count())) {
             def t:ToolItem (app.toolbar.at(i))
-            if (t.isSeparator == false) {
+            ; A dropdown runs nothing itself: pressing it opens its list,
+            ; and the ENTRIES under it are what carry commands. Those entries
+            ; live in this same array, so they are still swept here — only
+            ; the button that opens them is exempt.
+            if ((t.isSeparator == false) && (t.isMenu == false)) {
                 if ((app.commands.has(t.command)) == false) {
                     unknown = (unknown + 1)
                     print ("    no command for " + t.command)
