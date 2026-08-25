@@ -7109,7 +7109,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  scala ( (e 1) "(" (e 2) ") = " (e 3) )
-                 rust ( (e 1) "[" (idx 2) "] = " (e 3) ";" )
+                 ; the stored value is a by-value slot: a bare non-Copy name
+                 ; would MOVE into the array. `mvarg` is what every other
+                 ; stored-value operator uses.
+                 rust ( (e 1) "[" (idx 2) "] = " (mvarg 3) ";" )
                  * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }
         }
