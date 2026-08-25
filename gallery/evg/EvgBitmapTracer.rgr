@@ -1,0 +1,898 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgBitmapTracer.rgr — bitmap → EVG path, potrace-style
+; ==============================================================================
+;
+; Turns a binary (or thresholded) bitmap into cubic SVG path commands that EVG
+; already understands (`PathBuilder` / `EVGElement.svgPath`). The pipeline is
+; the same shape as Potrace (http://potrace.sourceforge.net/):
+;
+;   1. decompose the bitmap into closed edge paths (turn policy + XOR invert)
+;   2. drop speckles below `turdsize`
+;   3. simplify each ring to a polygon
+;   4. fit corner / curve segments with an `alphamax` threshold
+;   5. emit path data (evenodd fill — holes come from opposite winding)
+;
+; This is a clean-room implementation for benchmarking and embedding inside
+; EVG; it is not a port of the GPL Potrace sources. Parameters are named to
+; match the public Potrace CLI / API so a harness can run both side by side.
+;
+;   bash gallery/evg/tools/run_trace_bench.sh
+; ==============================================================================
+
+Import "PathBuilder.rgr"
+Import "EVGElement.rgr"
+Import "EVGColor.rgr"
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class EvgTracePoint {
+    def x:double 0.0
+    def y:double 0.0
+
+    Constructor () {
+    }
+
+    sfn of:EvgTracePoint (x:double y:double) {
+        def p (new EvgTracePoint())
+        p.x = x
+        p.y = y
+        return p
+    }
+
+    sfn ofInt:EvgTracePoint (x:int y:int) {
+        def p (new EvgTracePoint())
+        p.x = (to_double x)
+        p.y = (to_double y)
+        return p
+    }
+}
+
+; One closed edge walk before curve fitting.
+class EvgTraceRing {
+    def pts:[EvgTracePoint]
+    def area:int 0
+    ; "+" = black exterior walk, "-" = white (hole) walk — mirrors Potrace.
+    def sign:string "+"
+    def minX:int 0
+    def minY:int 0
+    def maxX:int 0
+    def maxY:int 0
+
+    Constructor () {
+        def p:[EvgTracePoint]
+        pts = p
+    }
+
+    fn len:int () {
+        return (array_length pts)
+    }
+}
+
+class EvgTraceOptions {
+    ; Speckle filter: drop rings whose |area| is at most this (Potrace default 2).
+    def turdsize:int 2
+    ; Corner threshold. Higher → smoother (fewer corners). Potrace default 1.0.
+    def alphamax:double 1.0
+    ; "minority" | "majority" | "black" | "white" | "left" | "right"
+    def turnpolicy:string "minority"
+    ; When true, fit cubics; when false, emit a polygon.
+    def optcurve:boolean true
+    ; Douglas–Peucker tolerance in pixels for the polygon stage.
+    def opttolerance:double 0.2
+    ; Luminance threshold 0..255. Negative → Otsu on the source image.
+    def threshold:int 128
+    ; Trace dark pixels as foreground (Potrace blackOnWhite).
+    def blackOnWhite:boolean true
+
+    Constructor () {
+    }
+
+    sfn defaults:EvgTraceOptions () {
+        return (new EvgTraceOptions())
+    }
+}
+
+; Packed 0/1 bitmap. Index = y * w + x.
+class EvgBinaryBitmap {
+    def w:int 0
+    def h:int 0
+    def data:[int]
+
+    Constructor () {
+        def d:[int]
+        data = d
+    }
+
+    sfn create:EvgBinaryBitmap (w:int h:int) {
+        def bm (new EvgBinaryBitmap())
+        bm.w = w
+        bm.h = h
+        def d:[int]
+        def n:int (w * h)
+        def i:int 0
+        while (i < n) {
+            push d 0
+            i = (i + 1)
+        }
+        bm.data = d
+        return bm
+    }
+
+    fn size:int () {
+        return (array_length data)
+    }
+
+    fn at:boolean (x:int y:int) {
+        if (x < 0) {
+            return false
+        }
+        if (y < 0) {
+            return false
+        }
+        if (x >= w) {
+            return false
+        }
+        if (y >= h) {
+            return false
+        }
+        def v:int (itemAt data ((y * w) + x))
+        return (v == 1)
+    }
+
+    fn setBit:void (x:int y:int on:boolean) {
+        if (x < 0) {
+            return
+        }
+        if (y < 0) {
+            return
+        }
+        if (x >= w) {
+            return
+        }
+        if (y >= h) {
+            return
+        }
+        if on {
+            set data ((y * w) + x) 1
+        } {
+            set data ((y * w) + x) 0
+        }
+    }
+
+    fn flip:void (x:int y:int) {
+        if (this.at(x y)) {
+            this.setBit(x y false)
+        } {
+            this.setBit(x y true)
+        }
+    }
+
+    fn copy:EvgBinaryBitmap () {
+        def bm (new EvgBinaryBitmap())
+        bm.w = w
+        bm.h = h
+        def d:[int]
+        def n:int (array_length data)
+        def i:int 0
+        while (i < n) {
+            push d (itemAt data i)
+            i = (i + 1)
+        }
+        bm.data = d
+        return bm
+    }
+
+    ; Find the next set pixel at or after linear index `start`.
+    fn findNext:int (start:int) {
+        def n:int (array_length data)
+        def i:int start
+        while (i < n) {
+            if ((itemAt data i) == 1) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+}
+
+class EvgBitmapTracer {
+    def options:EvgTraceOptions
+    def bitmap:EvgBinaryBitmap
+    def rings:[EvgTraceRing]
+    def commands:[PathCommand]
+    def pathData:string ""
+    def width:int 0
+    def height:int 0
+
+    Constructor () {
+        options = (EvgTraceOptions.defaults())
+        bitmap = (EvgBinaryBitmap.create(0 0))
+        def r:[EvgTraceRing]
+        rings = r
+        def c:[PathCommand]
+        commands = c
+    }
+
+    sfn absD:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn absI:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; Truncating division toward zero for the half-cell neighbour lookups.
+    sfn idivTowardZero:int (a:int b:int) {
+        if (b == 0) {
+            return 0
+        }
+        if (a < 0) {
+            if (b > 0) {
+                return (0 - (idiv (0 - a) b))
+            }
+            return (idiv (0 - a) (0 - b))
+        }
+        if (b < 0) {
+            return (0 - (idiv a (0 - b)))
+        }
+        return (idiv a b)
+    }
+
+    sfn fromBinary:EvgBitmapTracer (bm:EvgBinaryBitmap opts:EvgTraceOptions) {
+        def t (new EvgBitmapTracer())
+        t.options = opts
+        t.bitmap = bm
+        t.width = bm.w
+        t.height = bm.h
+        return t
+    }
+
+    ; Threshold an RGBA ImageBuffer into a binary bitmap, then wrap a tracer.
+    sfn fromImageBuffer:EvgBitmapTracer (img:ImageBuffer opts:EvgTraceOptions) {
+        def thr:int opts.threshold
+        if (thr < 0) {
+            thr = (EvgBitmapTracer.otsuThreshold(img))
+        }
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(img.width img.height))
+        def y:int 0
+        while (y < img.height) {
+            def x:int 0
+            while (x < img.width) {
+                def c:Color (img.getPixel(x y))
+                def g:int (c.grayscale())
+                def on:boolean false
+                if opts.blackOnWhite {
+                    if (g < thr) {
+                        on = true
+                    }
+                } {
+                    if (g >= thr) {
+                        on = true
+                    }
+                }
+                ; Transparent pixels never count as foreground.
+                if (c.a < 16) {
+                    on = false
+                }
+                bm.setBit(x y on)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return (EvgBitmapTracer.fromBinary(bm opts))
+    }
+
+    ; Otsu threshold on luminance — used when options.threshold < 0.
+    sfn otsuThreshold:int (img:ImageBuffer) {
+        def hist:[int]
+        def i:int 0
+        while (i < 256) {
+            push hist 0
+            i = (i + 1)
+        }
+        def total:int (img.width * img.height)
+        if (total <= 0) {
+            return 128
+        }
+        def y:int 0
+        while (y < img.height) {
+            def x:int 0
+            while (x < img.width) {
+                def c:Color (img.getPixel(x y))
+                def g:int (c.grayscale())
+                def prev:int (itemAt hist g)
+                set hist g (prev + 1)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def sum:double 0.0
+        i = 0
+        while (i < 256) {
+            def cnt:int (itemAt hist i)
+            sum = (sum + ((to_double i) * (to_double cnt)))
+            i = (i + 1)
+        }
+        def sumB:double 0.0
+        def wB:int 0
+        def best:double (0.0 - 1.0)
+        def thr:int 128
+        i = 0
+        while (i < 256) {
+            def c2:int (itemAt hist i)
+            wB = (wB + c2)
+            if (wB > 0) {
+                def wF:int (total - wB)
+                if (wF > 0) {
+                    sumB = (sumB + ((to_double i) * (to_double c2)))
+                    def mB:double (sumB / (to_double wB))
+                    def mF:double ((sum - sumB) / (to_double wF))
+                    def diff:double (mB - mF)
+                    def between:double ((diff * diff) * (to_double wB) * (to_double wF))
+                    if (between > best) {
+                        best = between
+                        thr = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return thr
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Public entry
+    ; ----------------------------------------------------------------------
+
+    fn trace:void () {
+        def emptyR:[EvgTraceRing]
+        rings = emptyR
+        def emptyC:[PathCommand]
+        commands = emptyC
+        pathData = ""
+        this.decompose()
+        this.emitCommands()
+        pathData = (VectorShapes.asPathData(commands))
+    }
+
+    fn getCommands:[PathCommand] () {
+        return commands
+    }
+
+    fn getPathData:string () {
+        return pathData
+    }
+
+    fn ringCount:int () {
+        return (array_length rings)
+    }
+
+    fn commandCount:int () {
+        return (array_length commands)
+    }
+
+    fn toPathBuilder:PathBuilder () {
+        def b (new PathBuilder())
+        b.addCommands(commands)
+        return b
+    }
+
+    fn toEVGElement:EVGElement () {
+        def el:EVGElement (EVGElement.createPath())
+        el.svgPath = pathData
+        el.fillRule = "evenodd"
+        el.viewBox = ("0 0 " + (to_string width) + " " + (to_string height))
+        el.fillColor = (EVGColor.black())
+        el.width = (EVGUnit.px((to_double width)))
+        el.height = (EVGUnit.px((to_double height)))
+        return el
+    }
+
+    fn toSVG:string () {
+        def d:string pathData
+        def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+        svg = (svg + "width=\"" + (to_string width) + "\" ")
+        svg = (svg + "height=\"" + (to_string height) + "\" ")
+        svg = (svg + "viewBox=\"0 0 " + (to_string width) + " " + (to_string height) + "\">")
+        svg = (svg + "<path fill=\"#000\" fill-rule=\"evenodd\" d=\"" + d + "\"/>")
+        svg = (svg + "</svg>")
+        return svg
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 1. Path decomposition (Potrace-style edge walk)
+    ; ----------------------------------------------------------------------
+
+    fn decompose:void () {
+        def work:EvgBinaryBitmap (bitmap.copy())
+        def start:int 0
+        while (start >= 0) {
+            def idx:int (work.findNext(start))
+            if (idx < 0) {
+                start = (0 - 1)
+            } {
+                def y0:int (idiv idx work.w)
+                def x0:int (idx - (y0 * work.w))
+                def ring:EvgTraceRing (this.findPath(work x0 y0))
+                this.xorPath(work ring)
+                def a:int (EvgBitmapTracer.absI(ring.area))
+                if (a > options.turdsize) {
+                    push rings ring
+                }
+                start = idx
+            }
+        }
+    }
+
+    fn majorityAt:boolean (bm:EvgBinaryBitmap x:int y:int) {
+        def i:int 2
+        while (i < 5) {
+            def ct:int 0
+            def a:int (0 - i + 1)
+            while (a <= (i - 1)) {
+                if (bm.at((x + a) (y + i - 1))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                if (bm.at((x + i - 1) (y + a - 1))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                if (bm.at((x + a - 1) (y - i))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                if (bm.at((x - i) (y + a))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                a = (a + 1)
+            }
+            if (ct > 0) {
+                return true
+            }
+            if (ct < 0) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn shouldTurnRight:boolean (bm:EvgBinaryBitmap path:EvgTraceRing x:int y:int) {
+        def pol:string options.turnpolicy
+        if (pol == "right") {
+            return true
+        }
+        if (pol == "left") {
+            return false
+        }
+        if (pol == "black") {
+            return (path.sign == "+")
+        }
+        if (pol == "white") {
+            return (path.sign == "-")
+        }
+        if (pol == "majority") {
+            return (this.majorityAt(bm x y))
+        }
+        ; minority (default): turn right when majority is false
+        def maj:boolean (this.majorityAt(bm x y))
+        return (maj == false)
+    }
+
+    fn findPath:EvgTraceRing (bm:EvgBinaryBitmap x0:int y0:int) {
+        def path (new EvgTraceRing())
+        path.minX = x0
+        path.maxX = x0
+        path.minY = y0
+        path.maxY = y0
+        if (bitmap.at(x0 y0)) {
+            path.sign = "+"
+        } {
+            path.sign = "-"
+        }
+        def x:int x0
+        def y:int y0
+        def dirx:int 0
+        def diry:int 1
+        def done:boolean false
+        def guard:int 0
+        def limit:int ((bm.w * bm.h) * 8)
+        if (limit < 64) {
+            limit = 64
+        }
+        while (done == false) {
+            if (guard >= limit) {
+                done = true
+            } {
+                push path.pts (EvgTracePoint.ofInt(x y))
+                if (x > path.maxX) {
+                    path.maxX = x
+                }
+                if (x < path.minX) {
+                    path.minX = x
+                }
+                if (y > path.maxY) {
+                    path.maxY = y
+                }
+                if (y < path.minY) {
+                    path.minY = y
+                }
+                x = (x + dirx)
+                y = (y + diry)
+                path.area = (path.area - (x * diry))
+                if ((x == x0) && (y == y0)) {
+                    done = true
+                } {
+                    ; Left / right samples in the half-cell neighbours of the step.
+                    def lx:int (EvgBitmapTracer.idivTowardZero(((dirx + diry) - 1) 2))
+                    def ly:int (EvgBitmapTracer.idivTowardZero(((diry - dirx) - 1) 2))
+                    def rx:int (EvgBitmapTracer.idivTowardZero(((dirx - diry) - 1) 2))
+                    def ry:int (EvgBitmapTracer.idivTowardZero(((diry + dirx) - 1) 2))
+                    def l:boolean (bm.at((x + lx) (y + ly)))
+                    def r:boolean (bm.at((x + rx) (y + ry)))
+                    if r {
+                        if (l == false) {
+                            if (this.shouldTurnRight(bm path x y)) {
+                                def tmp:int dirx
+                                dirx = (0 - diry)
+                                diry = tmp
+                            } {
+                                def tmp2:int dirx
+                                dirx = diry
+                                diry = (0 - tmp2)
+                            }
+                        } {
+                            def tmp3:int dirx
+                            dirx = (0 - diry)
+                            diry = tmp3
+                        }
+                    } {
+                        if (l == false) {
+                            def tmp4:int dirx
+                            dirx = diry
+                            diry = (0 - tmp4)
+                        }
+                    }
+                }
+                guard = (guard + 1)
+            }
+        }
+        return path
+    }
+
+    fn xorPath:void (bm:EvgBinaryBitmap path:EvgTraceRing) {
+        def n:int (path.len())
+        if (n < 2) {
+            return
+        }
+        def p0:EvgTracePoint (itemAt path.pts 0)
+        def y1:int (to_int p0.y)
+        def i:int 1
+        while (i < n) {
+            def p:EvgTracePoint (itemAt path.pts i)
+            def x:int (to_int p.x)
+            def y:int (to_int p.y)
+            if (y != y1) {
+                def minY:int y1
+                if (y < y1) {
+                    minY = y
+                }
+                def j:int x
+                while (j < path.maxX) {
+                    bm.flip(j minY)
+                    j = (j + 1)
+                }
+                y1 = y
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 2–4. Polygon simplify + alphamax smooth → path commands
+    ; ----------------------------------------------------------------------
+
+    fn emitCommands:void () {
+        def out:[PathCommand]
+        def ri:int 0
+        while (ri < (array_length rings)) {
+            def ring:EvgTraceRing (itemAt rings ri)
+            def poly:[EvgTracePoint] (this.simplifyRing(ring))
+            def n:int (array_length poly)
+            if (n >= 3) {
+                if options.optcurve {
+                    this.appendSmooth(out poly)
+                } {
+                    this.appendPolygon(out poly)
+                }
+            }
+            ri = (ri + 1)
+        }
+        commands = out
+    }
+
+    fn appendPolygon:void (out:[PathCommand] poly:[EvgTracePoint]) {
+        def n:int (array_length poly)
+        def p0:EvgTracePoint (itemAt poly 0)
+        push out (VectorShapes.moveTo(p0.x p0.y))
+        def i:int 1
+        while (i < n) {
+            def p:EvgTracePoint (itemAt poly i)
+            push out (VectorShapes.lineTo(p.x p.y))
+            i = (i + 1)
+        }
+        push out (VectorShapes.closePath())
+    }
+
+    ; Douglas–Peucker on a closed ring. Tolerance comes from opttolerance.
+    fn simplifyRing:[EvgTracePoint] (ring:EvgTraceRing) {
+        def src:[EvgTracePoint] ring.pts
+        def n:int (array_length src)
+        if (n < 3) {
+            return src
+        }
+        ; Drop consecutive duplicates first.
+        def cleaned:[EvgTracePoint]
+        def i:int 0
+        while (i < n) {
+            def p:EvgTracePoint (itemAt src i)
+            if ((array_length cleaned) == 0) {
+                push cleaned p
+            } {
+                def prev:EvgTracePoint (itemAt cleaned ((array_length cleaned) - 1))
+                if ((prev.x == p.x) && (prev.y == p.y)) {
+                } {
+                    push cleaned p
+                }
+            }
+            i = (i + 1)
+        }
+        def cn:int (array_length cleaned)
+        if (cn >= 2) {
+            def first:EvgTracePoint (itemAt cleaned 0)
+            def last:EvgTracePoint (itemAt cleaned (cn - 1))
+            if ((first.x == last.x) && (first.y == last.y)) {
+                ; closed walk already ends at start — drop the duplicate end
+                def trimmed:[EvgTracePoint]
+                def k:int 0
+                while (k < (cn - 1)) {
+                    push trimmed (itemAt cleaned k)
+                    k = (k + 1)
+                }
+                cleaned = trimmed
+                cn = (array_length cleaned)
+            }
+        }
+        if (cn < 3) {
+            return cleaned
+        }
+        def eps:double options.opttolerance
+        if (eps < 0.0) {
+            eps = 0.0
+        }
+        ; Keep index mask, then gather.
+        def keep:[int]
+        i = 0
+        while (i < cn) {
+            push keep 0
+            i = (i + 1)
+        }
+        set keep 0 1
+        set keep (cn - 1) 1
+        this.rdpMark(cleaned keep 0 (cn - 1) eps)
+        ; For a closed shape also consider the wrap-around segment.
+        this.rdpMarkClosed(cleaned keep eps)
+        def out:[EvgTracePoint]
+        i = 0
+        while (i < cn) {
+            if ((itemAt keep i) == 1) {
+                push out (itemAt cleaned i)
+            }
+            i = (i + 1)
+        }
+        if ((array_length out) < 3) {
+            return cleaned
+        }
+        return out
+    }
+
+    fn rdpMark:void (pts:[EvgTracePoint] keep:[int] i0:int i1:int eps:double) {
+        if ((i1 - i0) < 2) {
+            return
+        }
+        def a:EvgTracePoint (itemAt pts i0)
+        def b:EvgTracePoint (itemAt pts i1)
+        def bestD:double (0.0 - 1.0)
+        def bestI:int i0
+        def i:int (i0 + 1)
+        while (i < i1) {
+            def p:EvgTracePoint (itemAt pts i)
+            def d:double (this.perpDist(p a b))
+            if (d > bestD) {
+                bestD = d
+                bestI = i
+            }
+            i = (i + 1)
+        }
+        if (bestD > eps) {
+            set keep bestI 1
+            this.rdpMark(pts keep i0 bestI eps)
+            this.rdpMark(pts keep bestI i1 eps)
+        }
+    }
+
+    ; Also mark the farthest point from the closing edge (last → first).
+    fn rdpMarkClosed:void (pts:[EvgTracePoint] keep:[int] eps:double) {
+        def n:int (array_length pts)
+        if (n < 3) {
+            return
+        }
+        def a:EvgTracePoint (itemAt pts (n - 1))
+        def b:EvgTracePoint (itemAt pts 0)
+        def bestD:double (0.0 - 1.0)
+        def bestI:int 0
+        def i:int 1
+        while (i < (n - 1)) {
+            def p:EvgTracePoint (itemAt pts i)
+            def d:double (this.perpDist(p a b))
+            if (d > bestD) {
+                bestD = d
+                bestI = i
+            }
+            i = (i + 1)
+        }
+        if (bestD > eps) {
+            set keep bestI 1
+            this.rdpMark(pts keep 0 bestI eps)
+            this.rdpMark(pts keep bestI (n - 1) eps)
+        }
+    }
+
+    fn perpDist:double (p:EvgTracePoint a:EvgTracePoint b:EvgTracePoint) {
+        def vx:double (b.x - a.x)
+        def vy:double (b.y - a.y)
+        def len2:double ((vx * vx) + (vy * vy))
+        if (len2 <= 0.0000000001) {
+            def dx:double (p.x - a.x)
+            def dy:double (p.y - a.y)
+            return (sqrt ((dx * dx) + (dy * dy)))
+        }
+        def t:double ((((p.x - a.x) * vx) + ((p.y - a.y) * vy)) / len2)
+        def qx:double (a.x + (vx * t))
+        def qy:double (a.y + (vy * t))
+        def dx2:double (p.x - qx)
+        def dy2:double (p.y - qy)
+        return (sqrt ((dx2 * dx2) + (dy2 * dy2)))
+    }
+
+    fn modI:int (a:int n:int) {
+        def r:int (a - ((idiv a n) * n))
+        if (r < 0) {
+            r = (r + n)
+        }
+        return r
+    }
+
+    fn interval:EvgTracePoint (lambda:double a:EvgTracePoint b:EvgTracePoint) {
+        def x:double ((a.x * (1.0 - lambda)) + (b.x * lambda))
+        def y:double ((a.y * (1.0 - lambda)) + (b.y * lambda))
+        return (EvgTracePoint.of(x y))
+    }
+
+    ; 2D cross of (p1-p0) × (p2-p0)
+    fn dpara:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint) {
+        def x1:double (p1.x - p0.x)
+        def y1:double (p1.y - p0.y)
+        def x2:double (p2.x - p0.x)
+        def y2:double (p2.y - p0.y)
+        return ((x1 * y2) - (y1 * x2))
+    }
+
+    fn ddenom:double (p0:EvgTracePoint p2:EvgTracePoint) {
+        def ax:double (p0.x - p2.x)
+        def ay:double (p0.y - p2.y)
+        ; infinity-norm style denominator used by Potrace's corner measure
+        def r:double (EvgBitmapTracer.absD(ax))
+        def s:double (EvgBitmapTracer.absD(ay))
+        if (s > r) {
+            return (r + s)
+        }
+        return (r + s)
+    }
+
+    ; Alphamax corner detection + cubic emission (Potrace smooth stage).
+    fn appendSmooth:void (out:[PathCommand] poly:[EvgTracePoint]) {
+        def m:int (array_length poly)
+        if (m < 3) {
+            return
+        }
+        def tags:[string]
+        def c0:[EvgTracePoint]
+        def c1:[EvgTracePoint]
+        def c2:[EvgTracePoint]
+        def i:int 0
+        while (i < m) {
+            push tags "CURVE"
+            push c0 (EvgTracePoint.of(0.0 0.0))
+            push c1 (EvgTracePoint.of(0.0 0.0))
+            push c2 (EvgTracePoint.of(0.0 0.0))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < m) {
+            def j:int (this.modI((i + 1) m))
+            def k:int (this.modI((i + 2) m))
+            def vi:EvgTracePoint (itemAt poly i)
+            def vj:EvgTracePoint (itemAt poly j)
+            def vk:EvgTracePoint (itemAt poly k)
+            def p4:EvgTracePoint (this.interval(0.5 vk vj))
+            def denom:double (this.ddenom(vi vk))
+            def alpha:double (4.0 / 3.0)
+            if (denom != 0.0) {
+                def para:double (this.dpara(vi vj vk))
+                def ratio:double (para / denom)
+                def dd:double (EvgBitmapTracer.absD(ratio))
+                if (dd > 1.0) {
+                    alpha = (1.0 - (1.0 / dd))
+                } {
+                    alpha = 0.0
+                }
+                alpha = (alpha / 0.75)
+            }
+            if (alpha >= options.alphamax) {
+                set tags j "CORNER"
+                set c1 j vj
+                set c2 j p4
+            } {
+                def a2:double alpha
+                if (a2 < 0.55) {
+                    a2 = 0.55
+                }
+                if (a2 > 1.0) {
+                    a2 = 1.0
+                }
+                def p2:EvgTracePoint (this.interval((0.5 + (0.5 * a2)) vi vj))
+                def p3:EvgTracePoint (this.interval((0.5 + (0.5 * a2)) vk vj))
+                set tags j "CURVE"
+                set c0 j p2
+                set c1 j p3
+                set c2 j p4
+            }
+            i = (i + 1)
+        }
+        ; Start at the midpoint between the last vertex and the first — the
+        ; conventional Potrace origin for a closed smooth curve.
+        def start:EvgTracePoint (itemAt c2 (m - 1))
+        push out (VectorShapes.moveTo(start.x start.y))
+        i = 0
+        while (i < m) {
+            def tag:string (itemAt tags i)
+            def endP:EvgTracePoint (itemAt c2 i)
+            if (tag == "CORNER") {
+                def corner:EvgTracePoint (itemAt c1 i)
+                push out (VectorShapes.lineTo(corner.x corner.y))
+                push out (VectorShapes.lineTo(endP.x endP.y))
+            } {
+                def a:EvgTracePoint (itemAt c0 i)
+                def b:EvgTracePoint (itemAt c1 i)
+                push out (VectorShapes.cubicTo(a.x a.y b.x b.y endP.x endP.y))
+            }
+            i = (i + 1)
+        }
+        push out (VectorShapes.closePath())
+    }
+}

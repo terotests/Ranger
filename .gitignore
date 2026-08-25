@@ -34,6 +34,8 @@ Users/
 tests/.output*/
 # three/ clone test-suite build output (run.sh OUT dir)
 .three_test_out/
+# evg bitmap tracer bench output
+.evg_trace_out/
 
 # Local scratch / compiler experiments
 tmp/

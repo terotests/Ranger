@@ -200,6 +200,7 @@ gallery/evg/
   Matrix2D.rgr
   VectorViewBox.rgr     (viewBox + preserveAspectRatio → element-box transform)
   SvgParser.rgr         (XML subset → EVGElement / vector display list)
+  EvgBitmapTracer.rgr   (bitmap → path; Potrace-style params for benchmarking)
 
 gallery/pdf_writer/src/raster/
   VectorRasterizer.rgr  (extracted from RasterText)

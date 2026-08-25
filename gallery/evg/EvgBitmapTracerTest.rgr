@@ -1,0 +1,166 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgBitmapTracerTest.rgr — bitmap → EVG path
+; ==============================================================================
+;
+;   npm run evg:trace:test
+; ==============================================================================
+
+Import "EvgBitmapTracer.rgr"
+Import "../game_engine/v2/tests/harness/RgTest.rgr"
+
+class EvgBitmapTracerTest {
+
+    sfn m@(main):void () {
+        def test (new EvgBitmapTracerTest())
+        def t:RgTest (RgTest.forSuite("evg/bitmap_tracer"))
+        test.testEmpty(t)
+        test.testFilledRect(t)
+        test.testHole(t)
+        test.testTurdsize(t)
+        test.testPolygonMode(t)
+        test.testImageBuffer(t)
+        test.testEVGElement(t)
+        t.summary()
+    }
+
+    fn filledRect:EvgBinaryBitmap (w:int h:int x0:int y0:int rw:int rh:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(w h))
+        def y:int y0
+        while (y < (y0 + rh)) {
+            def x:int x0
+            while (x < (x0 + rw)) {
+                bm.setBit(x y true)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    fn countType:int (cmds:[PathCommand] kind:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:PathCommand (itemAt cmds i)
+            if (c.type == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testEmpty:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(8 8))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        t.eqInt("empty bitmap yields no rings" (tr.ringCount()) 0)
+        t.eqInt("and no commands" (tr.commandCount()) 0)
+        t.eqStr("empty path data" (tr.getPathData()) "")
+    }
+
+    fn testFilledRect:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.filledRect(32 32 4 4 16 12))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.turdsize = 2
+        opts.opttolerance = 0.5
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        t.ok("a solid rect produces at least one ring" ((tr.ringCount()) >= 1))
+        t.ok("and some path commands" ((tr.commandCount()) >= 4))
+        t.ok("path data is non-empty" ((strlen (tr.getPathData())) > 0))
+        def cmds:[PathCommand] (tr.getCommands())
+        t.eqInt("path opens with a moveto" (this.countType(cmds "M")) 1)
+        t.ok("path closes" ((this.countType(cmds "Z")) >= 1))
+        def svg:string (tr.toSVG())
+        t.ok("SVG mentions evenodd" ((indexOf svg "evenodd") >= 0))
+        t.ok("SVG embeds the path" ((indexOf svg "d=\"") >= 0))
+    }
+
+    fn testHole:void (t:RgTest) {
+        ; Outer 20x20 block with a 6x6 hole punched in the middle.
+        def bm:EvgBinaryBitmap (this.filledRect(40 40 5 5 20 20))
+        def y:int 12
+        while (y < 18) {
+            def x:int 12
+            while (x < 18) {
+                bm.setBit(x y false)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.turdsize = 2
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        t.ok("a ring with a hole yields at least two rings" ((tr.ringCount()) >= 2))
+        def el:EVGElement (tr.toEVGElement())
+        t.eqStr("EVG path uses evenodd for holes" el.fillRule "evenodd")
+    }
+
+    fn testTurdsize:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(16 16))
+        ; One-pixel speckles — area 1, below turdsize 2.
+        bm.setBit(2 2 true)
+        bm.setBit(10 10 true)
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.turdsize = 2
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        t.eqInt("turdsize drops single-pixel speckles" (tr.ringCount()) 0)
+
+        def bm2:EvgBinaryBitmap (this.filledRect(16 16 2 2 4 4))
+        def tr2:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm2 opts))
+        tr2.trace()
+        t.ok("a 4x4 block survives turdsize 2" ((tr2.ringCount()) >= 1))
+    }
+
+    fn testPolygonMode:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.filledRect(24 24 3 3 10 10))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.optcurve = false
+        opts.opttolerance = 0.01
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        def cmds:[PathCommand] (tr.getCommands())
+        t.eqInt("polygon mode emits no cubics" (this.countType(cmds "C")) 0)
+        t.ok("but still has linetos" ((this.countType(cmds "L")) >= 3))
+    }
+
+    fn testImageBuffer:void (t:RgTest) {
+        def img (new ImageBuffer())
+        img.init(20 20)
+        def y:int 4
+        while (y < 16) {
+            def x:int 4
+            while (x < 16) {
+                img.setPixelRGB(x y 0 0 0)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.threshold = 128
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img opts))
+        tr.trace()
+        t.ok("ImageBuffer threshold traces a black square" ((tr.ringCount()) >= 1))
+        t.eqInt("width preserved" tr.width 20)
+        t.eqInt("height preserved" tr.height 20)
+    }
+
+    fn testEVGElement:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.filledRect(16 16 2 2 8 8))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        def el:EVGElement (tr.toEVGElement())
+        t.eqStr("tag is path" el.tagName "path")
+        t.ok("svgPath filled" ((strlen el.svgPath) > 0))
+        t.ok("viewBox set" ((strlen el.viewBox) > 0))
+        def b:PathBuilder (tr.toPathBuilder())
+        t.ok("PathBuilder is not empty" ((b.isEmpty()) == false))
+    }
+}

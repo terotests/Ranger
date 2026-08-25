@@ -583,6 +583,8 @@
     "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
     "evg:run": "node ./gallery/evg/bin/evg_test.js",
     "evg:json:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGJsonTest.rgr -d=./gallery/evg/bin -o=EVGJsonTest.js -nodecli && node ./gallery/evg/bin/EVGJsonTest.js",
+    "evg:trace:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EvgBitmapTracerTest.rgr -d=./gallery/evg/bin -o=EvgBitmapTracerTest.js -nodecli && node ./gallery/evg/bin/EvgBitmapTracerTest.js",
+    "evg:trace:bench": "bash gallery/evg/tools/run_trace_bench.sh",
     "evg": "npm run evg:compile && npm run evg:run",
     "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli",
     "evgpdf:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.go -nodecli",

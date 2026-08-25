@@ -1,0 +1,5103 @@
+#!/usr/bin/env node
+class PathCommand  {
+  constructor() {
+    this.type = "";
+    this.x = 0.0;
+    this.y = 0.0;
+    this.x1 = 0.0;
+    this.y1 = 0.0;
+    this.x2 = 0.0;
+    this.y2 = 0.0;
+    this.rx = 0.0;     /** note: unused */
+    this.ry = 0.0;     /** note: unused */
+    this.rotation = 0.0;
+    this.largeArc = false;     /** note: unused */
+    this.sweep = false;     /** note: unused */
+  }
+}
+class PathRing  {
+  constructor() {
+    this.pts = [];
+    let p = [];
+    this.pts = p;
+  }
+  pointCount () {
+    return (((this.pts.length) / 2) | 0);
+  };
+}
+class PathBounds  {
+  constructor() {
+    this.minX = 0.0;
+    this.minY = 0.0;
+    this.maxX = 0.0;
+    this.maxY = 0.0;
+    this.width = 0.0;
+    this.height = 0.0;
+  }
+}
+class SVGPathParser  {
+  constructor() {
+    this.pathData = "";
+    this.i = 0;
+    this.__len = 0;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    this.commands = [];
+    this.lastCtrlX = 0.0;
+    this.lastCtrlY = 0.0;
+    this.lastCtrlKind = "";
+    this.errors = [];
+    this.truncated = false;
+    this.numFail = false;
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    let emptyErrors = [];
+    this.errors = emptyErrors;
+    this.bounds = new PathBounds();
+  }
+  getErrors () {
+    return this.errors;
+  };
+  hasErrors () {
+    return (this.errors.length) > 0;
+  };
+  errorSummary () {
+    const n = this.errors.length;
+    if ( n == 0 ) {
+      return "";
+    }
+    let out = this.errors[0];
+    let k = 1;
+    while (k < n) {
+      out = (out + "; ") + (this.errors[k]);
+      k = k + 1;
+    };
+    return out;
+  };
+  addError (msg) {
+    this.errors.push((msg + " at offset ") + ((this.i.toString())));
+  };
+  parse (data) {
+    this.pathData = data;
+    this.i = 0;
+    this.__len = data.length;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    let emptyErrors = [];
+    this.errors = emptyErrors;
+    this.truncated = false;
+    this.lastCtrlKind = "";
+    let pending = 0;
+    while (this.i < this.__len) {
+      this.skipWhitespace();
+      if ( this.i >= this.__len ) {
+        break;
+      }
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      let isLetter = false;
+      if ( (chInt >= 65) && (chInt <= 90) ) {
+        isLetter = true;
+      }
+      if ( (chInt >= 97) && (chInt <= 122) ) {
+        isLetter = true;
+      }
+      if ( isLetter ) {
+        pending = chInt;
+        this.i = this.i + 1;
+      } else {
+        if ( pending == 0 ) {
+          this.addError("path data must begin with a command letter");
+          this.truncated = true;
+          break;
+        }
+        if ( pending == 77 ) {
+          pending = 76;
+        }
+        if ( pending == 109 ) {
+          pending = 108;
+        }
+        if ( pending == 90 ) {
+          this.addError("unexpected number after closepath");
+          this.truncated = true;
+          break;
+        }
+        if ( pending == 122 ) {
+          this.addError("unexpected number after closepath");
+          this.truncated = true;
+          break;
+        }
+      }
+      const ok = this.parseCommand(pending);
+      if ( ok == false ) {
+        this.truncated = true;
+        break;
+      }
+    };
+    this.calculateBounds();
+  };
+  hasNumberAhead () {
+    this.skipWhitespace();
+    if ( this.i >= this.__len ) {
+      return false;
+    }
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( (chInt >= 48) && (chInt <= 57) ) {
+      return true;
+    }
+    if ( chInt == 46 ) {
+      return true;
+    }
+    if ( chInt == 45 ) {
+      return true;
+    }
+    if ( chInt == 43 ) {
+      return true;
+    }
+    return false;
+  };
+  parseFlag () {
+    this.skipWhitespace();
+    if ( this.i >= this.__len ) {
+      this.numFail = true;
+      this.addError("arc flag expected");
+      return false;
+    }
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( chInt == 48 ) {
+      this.i = this.i + 1;
+      return false;
+    }
+    if ( chInt == 49 ) {
+      this.i = this.i + 1;
+      return true;
+    }
+    this.numFail = true;
+    this.addError("arc flag must be 0 or 1");
+    return false;
+  };
+  skipWhitespace () {
+    while (this.i < this.__len) {
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      if ( ((((chInt == 32) || (chInt == 9)) || (chInt == 10)) || (chInt == 13)) || (chInt == 44) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+  };
+  parseNumber () {
+    this.skipWhitespace();
+    const start = this.i;
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( (chInt == 45) || (chInt == 43) ) {
+      this.i = this.i + 1;
+    }
+    while (this.i < this.__len) {
+      const ch2 = this.pathData.charCodeAt(this.i );
+      const chInt2 = ch2;
+      if ( (chInt2 >= 48) && (chInt2 <= 57) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+    if ( this.i < this.__len ) {
+      const ch3 = this.pathData.charCodeAt(this.i );
+      const chInt3 = ch3;
+      if ( chInt3 == 46 ) {
+        this.i = this.i + 1;
+        while (this.i < this.__len) {
+          const ch4 = this.pathData.charCodeAt(this.i );
+          const chInt4 = ch4;
+          if ( (chInt4 >= 48) && (chInt4 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    if ( this.i < this.__len ) {
+      const ch5 = this.pathData.charCodeAt(this.i );
+      const chInt5 = ch5;
+      if ( (chInt5 == 101) || (chInt5 == 69) ) {
+        this.i = this.i + 1;
+        if ( this.i < this.__len ) {
+          const ch6 = this.pathData.charCodeAt(this.i );
+          const chInt6 = ch6;
+          if ( (chInt6 == 45) || (chInt6 == 43) ) {
+            this.i = this.i + 1;
+          }
+        }
+        while (this.i < this.__len) {
+          const ch7 = this.pathData.charCodeAt(this.i );
+          const chInt7 = ch7;
+          if ( (chInt7 >= 48) && (chInt7 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    const numStr = this.pathData.substring(start, this.i );
+    const parsed = isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr);
+    if ( typeof(parsed) != "undefined" ) {
+      return parsed;
+    }
+    this.numFail = true;
+    this.addError("expected a number");
+    return 0.0;
+  };
+  parseCommand (cmdInt) {
+    this.numFail = false;
+    if ( (cmdInt == 77) || (cmdInt == 109) ) {
+      let x = this.parseNumber();
+      let y = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 109 ) {
+        x = this.currentX + x;
+        y = this.currentY + y;
+      }
+      const pathCmd = new PathCommand();
+      pathCmd.type = "M";
+      pathCmd.x = x;
+      pathCmd.y = y;
+      this.commands.push(pathCmd);
+      this.currentX = x;
+      this.currentY = y;
+      this.startX = x;
+      this.startY = y;
+      this.lastCtrlKind = "";
+      return true;
+    }
+    if ( (cmdInt == 76) || (cmdInt == 108) ) {
+      let x_1 = this.parseNumber();
+      let y_1 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 108 ) {
+        x_1 = this.currentX + x_1;
+        y_1 = this.currentY + y_1;
+      }
+      this.emitLine(x_1, y_1);
+      return true;
+    }
+    if ( (cmdInt == 72) || (cmdInt == 104) ) {
+      let x_2 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 104 ) {
+        x_2 = this.currentX + x_2;
+      }
+      this.emitLine(x_2, this.currentY);
+      return true;
+    }
+    if ( (cmdInt == 86) || (cmdInt == 118) ) {
+      let y_2 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 118 ) {
+        y_2 = this.currentY + y_2;
+      }
+      this.emitLine(this.currentX, y_2);
+      return true;
+    }
+    if ( (cmdInt == 67) || (cmdInt == 99) ) {
+      let x1 = this.parseNumber();
+      let y1 = this.parseNumber();
+      let x2 = this.parseNumber();
+      let y2 = this.parseNumber();
+      let x_3 = this.parseNumber();
+      let y_3 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 99 ) {
+        x1 = this.currentX + x1;
+        y1 = this.currentY + y1;
+        x2 = this.currentX + x2;
+        y2 = this.currentY + y2;
+        x_3 = this.currentX + x_3;
+        y_3 = this.currentY + y_3;
+      }
+      this.emitCubic(x1, y1, x2, y2, x_3, y_3);
+      return true;
+    }
+    if ( (cmdInt == 83) || (cmdInt == 115) ) {
+      let x2_1 = this.parseNumber();
+      let y2_1 = this.parseNumber();
+      let x_4 = this.parseNumber();
+      let y_4 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 115 ) {
+        x2_1 = this.currentX + x2_1;
+        y2_1 = this.currentY + y2_1;
+        x_4 = this.currentX + x_4;
+        y_4 = this.currentY + y_4;
+      }
+      let x1_1 = this.currentX;
+      let y1_1 = this.currentY;
+      if ( this.lastCtrlKind == "C" ) {
+        x1_1 = (2.0 * this.currentX) - this.lastCtrlX;
+        y1_1 = (2.0 * this.currentY) - this.lastCtrlY;
+      }
+      this.emitCubic(x1_1, y1_1, x2_1, y2_1, x_4, y_4);
+      return true;
+    }
+    if ( (cmdInt == 81) || (cmdInt == 113) ) {
+      let x1_2 = this.parseNumber();
+      let y1_2 = this.parseNumber();
+      let x_5 = this.parseNumber();
+      let y_5 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 113 ) {
+        x1_2 = this.currentX + x1_2;
+        y1_2 = this.currentY + y1_2;
+        x_5 = this.currentX + x_5;
+        y_5 = this.currentY + y_5;
+      }
+      this.emitQuad(x1_2, y1_2, x_5, y_5);
+      return true;
+    }
+    if ( (cmdInt == 84) || (cmdInt == 116) ) {
+      let x_6 = this.parseNumber();
+      let y_6 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 116 ) {
+        x_6 = this.currentX + x_6;
+        y_6 = this.currentY + y_6;
+      }
+      let x1_3 = this.currentX;
+      let y1_3 = this.currentY;
+      if ( this.lastCtrlKind == "Q" ) {
+        x1_3 = (2.0 * this.currentX) - this.lastCtrlX;
+        y1_3 = (2.0 * this.currentY) - this.lastCtrlY;
+      }
+      this.emitQuad(x1_3, y1_3, x_6, y_6);
+      return true;
+    }
+    if ( (cmdInt == 65) || (cmdInt == 97) ) {
+      const rx = this.parseNumber();
+      const ry = this.parseNumber();
+      const rot = this.parseNumber();
+      const largeArc = this.parseFlag();
+      const sweep = this.parseFlag();
+      let x_7 = this.parseNumber();
+      let y_7 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 97 ) {
+        x_7 = this.currentX + x_7;
+        y_7 = this.currentY + y_7;
+      }
+      this.emitArc(rx, ry, rot, largeArc, sweep, x_7, y_7);
+      return true;
+    }
+    if ( (cmdInt == 90) || (cmdInt == 122) ) {
+      const pathCmd_1 = new PathCommand();
+      pathCmd_1.type = "Z";
+      this.commands.push(pathCmd_1);
+      this.currentX = this.startX;
+      this.currentY = this.startY;
+      this.lastCtrlKind = "";
+      return true;
+    }
+    this.addError(("unsupported path command '" + (String.fromCharCode(cmdInt))) + "'");
+    return false;
+  };
+  emitLine (x, y) {
+    const pathCmd = new PathCommand();
+    pathCmd.type = "L";
+    pathCmd.x = x;
+    pathCmd.y = y;
+    this.commands.push(pathCmd);
+    this.currentX = x;
+    this.currentY = y;
+    this.lastCtrlKind = "";
+  };
+  emitCubic (x1, y1, x2, y2, x, y) {
+    const pathCmd = new PathCommand();
+    pathCmd.type = "C";
+    pathCmd.x1 = x1;
+    pathCmd.y1 = y1;
+    pathCmd.x2 = x2;
+    pathCmd.y2 = y2;
+    pathCmd.x = x;
+    pathCmd.y = y;
+    this.commands.push(pathCmd);
+    this.currentX = x;
+    this.currentY = y;
+    this.lastCtrlX = x2;
+    this.lastCtrlY = y2;
+    this.lastCtrlKind = "C";
+  };
+  emitQuad (x1, y1, x, y) {
+    const pathCmd = new PathCommand();
+    pathCmd.type = "Q";
+    pathCmd.x1 = x1;
+    pathCmd.y1 = y1;
+    pathCmd.x = x;
+    pathCmd.y = y;
+    this.commands.push(pathCmd);
+    this.currentX = x;
+    this.currentY = y;
+    this.lastCtrlX = x1;
+    this.lastCtrlY = y1;
+    this.lastCtrlKind = "Q";
+  };
+  emitArc (rxIn, ryIn, rotDeg, largeArc, sweep, x, y) {
+    const x1 = this.currentX;
+    const y1 = this.currentY;
+    const x2 = x;
+    const y2 = y;
+    let rx = Math.abs(rxIn);
+    let ry = Math.abs(ryIn);
+    const dx = x1 - x2;
+    const dy = y1 - y2;
+    const d = Math.sqrt(((dx * dx) + (dy * dy)));
+    if ( d < 0.00001 ) {
+      this.emitLine(x2, y2);
+      return;
+    }
+    if ( rx < 0.00001 ) {
+      this.emitLine(x2, y2);
+      return;
+    }
+    if ( ry < 0.00001 ) {
+      this.emitLine(x2, y2);
+      return;
+    }
+    const PI = Math.PI;
+    const rot = (rotDeg / 180.0) * PI;
+    const sinrot = Math.sin(rot);
+    const cosrot = Math.cos(rot);
+    const x1p = ((cosrot * dx) / 2.0) + ((sinrot * dy) / 2.0);
+    const y1p = (((0.0 - sinrot) * dx) / 2.0) + ((cosrot * dy) / 2.0);
+    const lambda = ((x1p * x1p) / (rx * rx)) + ((y1p * y1p) / (ry * ry));
+    if ( lambda > 1.0 ) {
+      const k = Math.sqrt(lambda);
+      rx = rx * k;
+      ry = ry * k;
+    }
+    let sa = (((rx * rx) * (ry * ry)) - ((rx * rx) * (y1p * y1p))) - ((ry * ry) * (x1p * x1p));
+    const sb = ((rx * rx) * (y1p * y1p)) + ((ry * ry) * (x1p * x1p));
+    if ( sa < 0.0 ) {
+      sa = 0.0;
+    }
+    let s = 0.0;
+    if ( sb > 0.0 ) {
+      s = Math.sqrt((sa / sb));
+    }
+    if ( largeArc == sweep ) {
+      s = 0.0 - s;
+    }
+    const cxp = ((s * rx) * y1p) / ry;
+    const cyp = (((0.0 - s) * ry) * x1p) / rx;
+    const cx = ((x1 + x2) / 2.0) + ((cosrot * cxp) - (sinrot * cyp));
+    const cy = ((y1 + y2) / 2.0) + ((sinrot * cxp) + (cosrot * cyp));
+    const ux = (x1p - cxp) / rx;
+    const uy = (y1p - cyp) / ry;
+    const vx = ((0.0 - x1p) - cxp) / rx;
+    const vy = ((0.0 - y1p) - cyp) / ry;
+    const a1 = this.vecAngle(1.0, 0.0, ux, uy);
+    let da = this.vecAngle(ux, uy, vx, vy);
+    if ( sweep == false ) {
+      if ( da > 0.0 ) {
+        da = da - (2.0 * PI);
+      }
+    } else {
+      if ( da < 0.0 ) {
+        da = (2.0 * PI) + da;
+      }
+    }
+    const ndivs = Math.floor( (((Math.abs(da)) / (PI * 0.5)) + 1.0));
+    const hda = (da / (ndivs)) / 2.0;
+    let kappa = Math.abs((((4.0 / 3.0) * (1.0 - (Math.cos(hda)))) / (Math.sin(hda))));
+    if ( da < 0.0 ) {
+      kappa = 0.0 - kappa;
+    }
+    let px = 0.0;
+    let py = 0.0;
+    let ptanx = 0.0;
+    let ptany = 0.0;
+    let k_1 = 0;
+    while (k_1 <= ndivs) {
+      const a = a1 + ((da * (k_1)) / (ndivs));
+      const cosa = Math.cos(a);
+      const sina = Math.sin(a);
+      const ex = ((cosrot * (cosa * rx)) - (sinrot * (sina * ry))) + cx;
+      const ey = ((sinrot * (cosa * rx)) + (cosrot * (sina * ry))) + cy;
+      const tvx = (0.0 - sina) * (rx * kappa);
+      const tvy = cosa * (ry * kappa);
+      const tanx = (cosrot * tvx) - (sinrot * tvy);
+      const tany = (sinrot * tvx) + (cosrot * tvy);
+      if ( k_1 > 0 ) {
+        this.emitCubic(px + ptanx, py + ptany, ex - tanx, ey - tany, ex, ey);
+      }
+      px = ex;
+      py = ey;
+      ptanx = tanx;
+      ptany = tany;
+      k_1 = k_1 + 1;
+    };
+    this.currentX = x2;
+    this.currentY = y2;
+    this.lastCtrlKind = "";
+  };
+  vecAngle (ux, uy, vx, vy) {
+    const magU = Math.sqrt(((ux * ux) + (uy * uy)));
+    const magV = Math.sqrt(((vx * vx) + (vy * vy)));
+    const denom = magU * magV;
+    if ( denom < 1e-10 ) {
+      return 0.0;
+    }
+    let r = ((ux * vx) + (uy * vy)) / denom;
+    if ( r < (0.0 - 1.0) ) {
+      r = 0.0 - 1.0;
+    }
+    if ( r > 1.0 ) {
+      r = 1.0;
+    }
+    let sign = 1.0;
+    if ( (ux * vy) < (uy * vx) ) {
+      sign = 0.0 - 1.0;
+    }
+    return sign * (Math.acos(r));
+  };
+  calculateBounds () {
+    if ( (this.commands.length) == 0 ) {
+      return;
+    }
+    let minX = 999999.0;
+    let minY = 999999.0;
+    let maxX = -999999.0;
+    let maxY = -999999.0;
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "C" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x2 < minX ) {
+          minX = cmd.x2;
+        }
+        if ( cmd.x2 > maxX ) {
+          maxX = cmd.x2;
+        }
+        if ( cmd.y2 < minY ) {
+          minY = cmd.y2;
+        }
+        if ( cmd.y2 > maxY ) {
+          maxY = cmd.y2;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "Q" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      i_1 = i_1 + 1;
+    };
+    this.bounds.minX = minX;
+    this.bounds.minY = minY;
+    this.bounds.maxX = maxX;
+    this.bounds.maxY = maxY;
+    this.bounds.width = maxX - minX;
+    this.bounds.height = maxY - minY;
+  };
+  getBounds () {
+    const result = this.bounds;
+    return result;
+  };
+  getCommands () {
+    return this.commands;
+  };
+  getScaledCommands (targetWidth, targetHeight) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    if ( this.bounds.width > 0.0 ) {
+      scaleX = targetWidth / this.bounds.width;
+    }
+    if ( this.bounds.height > 0.0 ) {
+      scaleY = targetHeight / this.bounds.height;
+    }
+    let scaled = [];
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      const newCmd = new PathCommand();
+      newCmd.type = cmd.type;
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "C" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x2 = (cmd.x2 - this.bounds.minX) * scaleX;
+        newCmd.y2 = (cmd.y2 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "Q" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      scaled.push(newCmd);
+      i_1 = i_1 + 1;
+    };
+    return scaled;
+  };
+  flattenRings (steps, ma, mb, mc, md, me, mf) {
+    let rings = [];
+    let current = new PathRing();
+    let started = false;
+    let cx = 0.0;
+    let cy = 0.0;
+    let sx = 0.0;
+    let sy = 0.0;
+    const n = this.commands.length;
+    let k = 0;
+    while (k < n) {
+      const cmd = this.commands[k];
+      if ( cmd.type == "M" ) {
+        if ( started ) {
+          if ( current.pointCount() >= 2 ) {
+            rings.push(current);
+          }
+        }
+        current = new PathRing();
+        started = true;
+        cx = cmd.x;
+        cy = cmd.y;
+        sx = cmd.x;
+        sy = cmd.y;
+        current.pts.push((ma * cx) + ((mc * cy) + me));
+        current.pts.push((mb * cx) + ((md * cy) + mf));
+      }
+      if ( cmd.type == "L" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        current.pts.push((ma * cx) + ((mc * cy) + me));
+        current.pts.push((mb * cx) + ((md * cy) + mf));
+      }
+      if ( cmd.type == "C" ) {
+        let s = 1;
+        while (s <= steps) {
+          const tt = (s) / (steps);
+          const u = 1.0 - tt;
+          const b0 = (u * u) * u;
+          const b1 = ((3.0 * u) * u) * tt;
+          const b2 = ((3.0 * u) * tt) * tt;
+          const b3 = (tt * tt) * tt;
+          const px = (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x);
+          const py = (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y);
+          current.pts.push((ma * px) + ((mc * py) + me));
+          current.pts.push((mb * px) + ((md * py) + mf));
+          s = s + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "Q" ) {
+        let s_1 = 1;
+        while (s_1 <= steps) {
+          const tt_1 = (s_1) / (steps);
+          const u_1 = 1.0 - tt_1;
+          const b0_1 = u_1 * u_1;
+          const b1_1 = (2.0 * u_1) * tt_1;
+          const b2_1 = tt_1 * tt_1;
+          const px_1 = ((b0_1 * cx) + (b1_1 * cmd.x1)) + (b2_1 * cmd.x);
+          const py_1 = ((b0_1 * cy) + (b1_1 * cmd.y1)) + (b2_1 * cmd.y);
+          current.pts.push((ma * px_1) + ((mc * py_1) + me));
+          current.pts.push((mb * px_1) + ((md * py_1) + mf));
+          s_1 = s_1 + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "Z" ) {
+        if ( started ) {
+          if ( current.pointCount() >= 2 ) {
+            rings.push(current);
+          }
+        }
+        current = new PathRing();
+        started = false;
+        cx = sx;
+        cy = sy;
+      }
+      k = k + 1;
+    };
+    if ( started ) {
+      if ( current.pointCount() >= 2 ) {
+        rings.push(current);
+      }
+    }
+    return rings;
+  };
+  flattenRingsPlain (steps) {
+    return this.flattenRings(steps, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+  };
+  flatten (steps) {
+    let pts = [];
+    let cx = 0.0;
+    let cy = 0.0;
+    const n = this.commands.length;
+    let i_1 = 0;
+    while (i_1 < n) {
+      const cmd = this.commands[i_1];
+      if ( cmd.type == "M" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        pts.push(cx);
+        pts.push(cy);
+      }
+      if ( cmd.type == "L" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        pts.push(cx);
+        pts.push(cy);
+      }
+      if ( cmd.type == "C" ) {
+        let s = 1;
+        while (s <= steps) {
+          const tt = (s) / (steps);
+          const u = 1.0 - tt;
+          const b0 = (u * u) * u;
+          const b1 = ((3.0 * u) * u) * tt;
+          const b2 = ((3.0 * u) * tt) * tt;
+          const b3 = (tt * tt) * tt;
+          const px = (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x);
+          const py = (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y);
+          pts.push(px);
+          pts.push(py);
+          s = s + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "Q" ) {
+        let s_1 = 1;
+        while (s_1 <= steps) {
+          const tt_1 = (s_1) / (steps);
+          const u_1 = 1.0 - tt_1;
+          const b0_1 = u_1 * u_1;
+          const b1_1 = (2.0 * u_1) * tt_1;
+          const b2_1 = tt_1 * tt_1;
+          const px_1 = ((b0_1 * cx) + (b1_1 * cmd.x1)) + (b2_1 * cmd.x);
+          const py_1 = ((b0_1 * cy) + (b1_1 * cmd.y1)) + (b2_1 * cmd.y);
+          pts.push(px_1);
+          pts.push(py_1);
+          s_1 = s_1 + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "A" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        pts.push(cx);
+        pts.push(cy);
+      }
+      i_1 = i_1 + 1;
+    };
+    return pts;
+  };
+}
+SVGPathParser.fromCommands = function(cmds) {
+  const p = new SVGPathParser();
+  p.commands = cmds;
+  p.calculateBounds();
+  return p;
+};
+class VectorShapes  {
+  constructor() {
+  }
+}
+VectorShapes.kappa = function() {
+  return 0.5522847498307936;
+};
+VectorShapes.moveTo = function(x, y) {
+  const c = new PathCommand();
+  c.type = "M";
+  c.x = x;
+  c.y = y;
+  return c;
+};
+VectorShapes.lineTo = function(x, y) {
+  const c = new PathCommand();
+  c.type = "L";
+  c.x = x;
+  c.y = y;
+  return c;
+};
+VectorShapes.cubicTo = function(x1, y1, x2, y2, x, y) {
+  const c = new PathCommand();
+  c.type = "C";
+  c.x1 = x1;
+  c.y1 = y1;
+  c.x2 = x2;
+  c.y2 = y2;
+  c.x = x;
+  c.y = y;
+  return c;
+};
+VectorShapes.closePath = function() {
+  const c = new PathCommand();
+  c.type = "Z";
+  return c;
+};
+VectorShapes.line = function(x1, y1, x2, y2) {
+  let out = [];
+  out.push(VectorShapes.moveTo(x1, y1));
+  out.push(VectorShapes.lineTo(x2, y2));
+  return out;
+};
+VectorShapes.polyline = function(pts) {
+  return VectorShapes.pointsToPath(pts, false);
+};
+VectorShapes.polygon = function(pts) {
+  return VectorShapes.pointsToPath(pts, true);
+};
+VectorShapes.pointsToPath = function(pts, closed) {
+  let out = [];
+  const n = (((pts.length) / 2) | 0);
+  if ( n < 2 ) {
+    return out;
+  }
+  out.push(VectorShapes.moveTo((pts[0]), (pts[1])));
+  let k = 1;
+  while (k < n) {
+    out.push(VectorShapes.lineTo((pts[(k * 2)]), (pts[((k * 2) + 1)])));
+    k = k + 1;
+  };
+  if ( closed ) {
+    out.push(VectorShapes.closePath());
+  }
+  return out;
+};
+VectorShapes.ellipse = function(cx, cy, rx, ry) {
+  let out = [];
+  if ( rx <= 0.0 ) {
+    return out;
+  }
+  if ( ry <= 0.0 ) {
+    return out;
+  }
+  const k = VectorShapes.kappa();
+  const ox = rx * k;
+  const oy = ry * k;
+  out.push(VectorShapes.moveTo((cx + rx), cy));
+  out.push(VectorShapes.cubicTo((cx + rx), (cy + oy), (cx + ox), (cy + ry), cx, (cy + ry)));
+  out.push(VectorShapes.cubicTo((cx - ox), (cy + ry), (cx - rx), (cy + oy), (cx - rx), cy));
+  out.push(VectorShapes.cubicTo((cx - rx), (cy - oy), (cx - ox), (cy - ry), cx, (cy - ry)));
+  out.push(VectorShapes.cubicTo((cx + ox), (cy - ry), (cx + rx), (cy - oy), (cx + rx), cy));
+  out.push(VectorShapes.closePath());
+  return out;
+};
+VectorShapes.circle = function(cx, cy, r) {
+  return VectorShapes.ellipse(cx, cy, r, r);
+};
+VectorShapes.rect = function(x, y, w, h, rxIn, ryIn) {
+  let out = [];
+  if ( w <= 0.0 ) {
+    return out;
+  }
+  if ( h <= 0.0 ) {
+    return out;
+  }
+  let rx = rxIn;
+  let ry = ryIn;
+  if ( rx < 0.0 ) {
+    rx = ry;
+  }
+  if ( ry < 0.0 ) {
+    ry = rx;
+  }
+  if ( rx < 0.0 ) {
+    rx = 0.0;
+  }
+  if ( ry < 0.0 ) {
+    ry = 0.0;
+  }
+  if ( rx > (w / 2.0) ) {
+    rx = w / 2.0;
+  }
+  if ( ry > (h / 2.0) ) {
+    ry = h / 2.0;
+  }
+  let rounded = true;
+  if ( rx <= 0.0 ) {
+    rounded = false;
+  }
+  if ( ry <= 0.0 ) {
+    rounded = false;
+  }
+  if ( rounded == false ) {
+    out.push(VectorShapes.moveTo(x, y));
+    out.push(VectorShapes.lineTo((x + w), y));
+    out.push(VectorShapes.lineTo((x + w), (y + h)));
+    out.push(VectorShapes.lineTo(x, (y + h)));
+    out.push(VectorShapes.closePath());
+    return out;
+  }
+  const k = VectorShapes.kappa();
+  const ox = rx * k;
+  const oy = ry * k;
+  const x1 = x + w;
+  const y1 = y + h;
+  out.push(VectorShapes.moveTo((x + rx), y));
+  out.push(VectorShapes.lineTo((x1 - rx), y));
+  out.push(VectorShapes.cubicTo(((x1 - rx) + ox), y, x1, ((y + ry) - oy), x1, (y + ry)));
+  out.push(VectorShapes.lineTo(x1, (y1 - ry)));
+  out.push(VectorShapes.cubicTo(x1, ((y1 - ry) + oy), ((x1 - rx) + ox), y1, (x1 - rx), y1));
+  out.push(VectorShapes.lineTo((x + rx), y1));
+  out.push(VectorShapes.cubicTo(((x + rx) - ox), y1, x, ((y1 - ry) + oy), x, (y1 - ry)));
+  out.push(VectorShapes.lineTo(x, (y + ry)));
+  out.push(VectorShapes.cubicTo(x, ((y + ry) - oy), ((x + rx) - ox), y, (x + rx), y));
+  out.push(VectorShapes.closePath());
+  return out;
+};
+VectorShapes.asPathData = function(cmds) {
+  let out = "";
+  const n = cmds.length;
+  let k = 0;
+  while (k < n) {
+    const c = cmds[k];
+    if ( k > 0 ) {
+      out = out + " ";
+    }
+    if ( c.type == "M" ) {
+      out = (((out + "M") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "L" ) {
+      out = (((out + "L") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "C" ) {
+      out = (((out + "C") + VectorShapes.num(c.x1)) + ",") + VectorShapes.num(c.y1);
+      out = (((out + " ") + VectorShapes.num(c.x2)) + ",") + VectorShapes.num(c.y2);
+      out = (((out + " ") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "Q" ) {
+      out = (((out + "Q") + VectorShapes.num(c.x1)) + ",") + VectorShapes.num(c.y1);
+      out = (((out + " ") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "Z" ) {
+      out = out + "Z";
+    }
+    k = k + 1;
+  };
+  return out;
+};
+VectorShapes.num = function(v) {
+  let neg = false;
+  let a = v;
+  if ( a < 0.0 ) {
+    neg = true;
+    a = 0.0 - a;
+  }
+  const scaled = Math.floor( ((a * 10000.0) + 0.5));
+  const whole = ((scaled / 10000) | 0);
+  let fracPart = scaled - (whole * 10000);
+  let out = (whole.toString());
+  if ( fracPart > 0 ) {
+    let digits = 4;
+    while ((fracPart - ((((fracPart / 10) | 0)) * 10)) == 0) {
+      fracPart = ((fracPart / 10) | 0);
+      digits = digits - 1;
+    };
+    let frac = (fracPart.toString());
+    let pad = digits - (frac.length);
+    while (pad > 0) {
+      frac = "0" + frac;
+      pad = pad - 1;
+    };
+    out = (out + ".") + frac;
+  }
+  if ( neg ) {
+    if ( scaled > 0 ) {
+      out = "-" + out;
+    }
+  }
+  return out;
+};
+class PathBuilder  {
+  constructor() {
+    this.commands = [];
+    this.curX = 0.0;
+    this.curY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    this.started = false;
+    let c = [];
+    this.commands = c;
+  }
+  reset () {
+    let c = [];
+    this.commands = c;
+    this.curX = 0.0;
+    this.curY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    this.started = false;
+  };
+  isEmpty () {
+    return (this.commands.length) == 0;
+  };
+  commandCount () {
+    return this.commands.length;
+  };
+  getCommands () {
+    return this.commands;
+  };
+  moveTo (x, y) {
+    this.commands.push(VectorShapes.moveTo(x, y));
+    this.curX = x;
+    this.curY = y;
+    this.startX = x;
+    this.startY = y;
+    this.started = true;
+  };
+  lineTo (x, y) {
+    if ( this.started == false ) {
+      this.moveTo(x, y);
+      return;
+    }
+    this.commands.push(VectorShapes.lineTo(x, y));
+    this.curX = x;
+    this.curY = y;
+  };
+  cubicTo (x1, y1, x2, y2, x, y) {
+    if ( this.started == false ) {
+      this.moveTo(x1, y1);
+    }
+    this.commands.push(VectorShapes.cubicTo(x1, y1, x2, y2, x, y));
+    this.curX = x;
+    this.curY = y;
+  };
+  quadTo (x1, y1, x, y) {
+    if ( this.started == false ) {
+      this.moveTo(x1, y1);
+    }
+    const c = new PathCommand();
+    c.type = "Q";
+    c.x1 = x1;
+    c.y1 = y1;
+    c.x = x;
+    c.y = y;
+    this.commands.push(c);
+    this.curX = x;
+    this.curY = y;
+  };
+  close () {
+    if ( this.started == false ) {
+      return;
+    }
+    this.commands.push(VectorShapes.closePath());
+    this.curX = this.startX;
+    this.curY = this.startY;
+  };
+  moveBy (dx, dy) {
+    if ( this.started == false ) {
+      this.moveTo(dx, dy);
+      return;
+    }
+    this.moveTo(this.curX + dx, this.curY + dy);
+  };
+  lineBy (dx, dy) {
+    if ( this.started == false ) {
+      this.moveTo(dx, dy);
+      return;
+    }
+    this.lineTo(this.curX + dx, this.curY + dy);
+  };
+  rotateAbout (cx, cy, degrees) {
+    if ( degrees == 0.0 ) {
+      return;
+    }
+    const rad = degrees * 0.017453292519943295;
+    const c = Math.cos(rad);
+    const s = Math.sin(rad);
+    const n = this.commands.length;
+    let k = 0;
+    while (k < n) {
+      const one = this.commands[k];
+      k = k + 1;
+      const px = one.x - cx;
+      const py = one.y - cy;
+      one.x = cx + ((px * c) - (py * s));
+      one.y = cy + ((px * s) + (py * c));
+      const p1x = one.x1 - cx;
+      const p1y = one.y1 - cy;
+      one.x1 = cx + ((p1x * c) - (p1y * s));
+      one.y1 = cy + ((p1x * s) + (p1y * c));
+      const p2x = one.x2 - cx;
+      const p2y = one.y2 - cy;
+      one.x2 = cx + ((p2x * c) - (p2y * s));
+      one.y2 = cy + ((p2x * s) + (p2y * c));
+      if ( one.type == "A" ) {
+        one.rotation = one.rotation + degrees;
+      }
+    };
+  };
+  addCommands (cmds) {
+    const n = cmds.length;
+    let k = 0;
+    while (k < n) {
+      const c = cmds[k];
+      this.commands.push(c);
+      if ( c.type == "M" ) {
+        this.startX = c.x;
+        this.startY = c.y;
+        this.started = true;
+      }
+      if ( (c.type == "Z") == false ) {
+        this.curX = c.x;
+        this.curY = c.y;
+      } else {
+        this.curX = this.startX;
+        this.curY = this.startY;
+      }
+      k = k + 1;
+    };
+    if ( n > 0 ) {
+      this.started = true;
+    }
+  };
+  addRect (x, y, w, h) {
+    const negOne = 0.0 - 1.0;
+    const cmds = VectorShapes.rect(x, y, w, h, negOne, negOne);
+    this.addCommands(cmds);
+  };
+  addRoundedRect (x, y, w, h, rx, ry) {
+    const cmds = VectorShapes.rect(x, y, w, h, rx, ry);
+    this.addCommands(cmds);
+  };
+  addCircle (cx, cy, r) {
+    const cmds = VectorShapes.circle(cx, cy, r);
+    this.addCommands(cmds);
+  };
+  addEllipse (cx, cy, rx, ry) {
+    const cmds = VectorShapes.ellipse(cx, cy, rx, ry);
+    this.addCommands(cmds);
+  };
+  addLine (x1, y1, x2, y2) {
+    const cmds = VectorShapes.line(x1, y1, x2, y2);
+    this.addCommands(cmds);
+  };
+  addPolyline (pts) {
+    const cmds = VectorShapes.polyline(pts);
+    this.addCommands(cmds);
+  };
+  addPolygon (pts) {
+    const cmds = VectorShapes.polygon(pts);
+    this.addCommands(cmds);
+  };
+  addPathData (d) {
+    const p = new SVGPathParser();
+    p.parse(d);
+    const cmds = p.getCommands();
+    this.addCommands(cmds);
+  };
+  asPathData () {
+    return VectorShapes.asPathData(this.commands);
+  };
+  bounds () {
+    const b = new PathBounds();
+    const n = this.commands.length;
+    let seen = false;
+    let k = 0;
+    while (k < n) {
+      const c = this.commands[k];
+      if ( (c.type == "Z") == false ) {
+        let xs = [];
+        let ys = [];
+        xs.push(c.x);
+        ys.push(c.y);
+        if ( c.type == "C" ) {
+          xs.push(c.x1);
+          ys.push(c.y1);
+          xs.push(c.x2);
+          ys.push(c.y2);
+        }
+        if ( c.type == "Q" ) {
+          xs.push(c.x1);
+          ys.push(c.y1);
+        }
+        let j = 0;
+        while (j < (xs.length)) {
+          const vx = xs[j];
+          const vy = ys[j];
+          if ( seen == false ) {
+            b.minX = vx;
+            b.maxX = vx;
+            b.minY = vy;
+            b.maxY = vy;
+            seen = true;
+          } else {
+            if ( vx < b.minX ) {
+              b.minX = vx;
+            }
+            if ( vx > b.maxX ) {
+              b.maxX = vx;
+            }
+            if ( vy < b.minY ) {
+              b.minY = vy;
+            }
+            if ( vy > b.maxY ) {
+              b.maxY = vy;
+            }
+          }
+          j = j + 1;
+        };
+      }
+      k = k + 1;
+    };
+    b.width = b.maxX - b.minX;
+    b.height = b.maxY - b.minY;
+    return b;
+  };
+}
+class EVGUnit  {
+  constructor() {
+    this.value = 0.0;
+    this.unitType = 0;
+    this.isSet = false;
+    this.pixels = 0.0;
+    this.rootFontSize = 14.0;
+    this.value = 0.0;
+    this.unitType = 0;
+    this.isSet = false;
+    this.pixels = 0.0;
+  }
+  resolve (parentSize, fontSize) {
+    if ( this.isSet == false ) {
+      this.pixels = 0.0;
+      return;
+    }
+    if ( this.unitType == 0 ) {
+      this.pixels = this.value;
+      return;
+    }
+    if ( this.unitType == 1 ) {
+      this.pixels = (parentSize * this.value) / 100.0;
+      return;
+    }
+    if ( this.unitType == 2 ) {
+      this.pixels = fontSize * this.value;
+      return;
+    }
+    if ( this.unitType == 5 ) {
+      this.pixels = this.rootFontSize * this.value;
+      return;
+    }
+    if ( this.unitType == 3 ) {
+      this.pixels = (parentSize * this.value) / 100.0;
+      return;
+    }
+    if ( this.unitType == 4 ) {
+      this.pixels = parentSize;
+      return;
+    }
+    this.pixels = this.value;
+  };
+  resolveForHeight (parentWidth, parentHeight, fontSize) {
+    if ( this.isSet == false ) {
+      this.pixels = 0.0;
+      return;
+    }
+    if ( this.unitType == 3 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    if ( this.unitType == 1 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    this.resolve(parentWidth, fontSize);
+  };
+  resolveWithHeight (parentWidth, parentHeight, fontSize) {
+    if ( this.isSet == false ) {
+      this.pixels = 0.0;
+      return;
+    }
+    if ( this.unitType == 3 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    this.resolve(parentWidth, fontSize);
+  };
+  isPixels () {
+    return this.unitType == 0;
+  };
+  isPercent () {
+    return this.unitType == 1;
+  };
+  isEm () {
+    return this.unitType == 2;
+  };
+  isRem () {
+    return this.unitType == 5;
+  };
+  isHeightPercent () {
+    return this.unitType == 3;
+  };
+  isFill () {
+    return this.unitType == 4;
+  };
+  toString () {
+    if ( this.isSet == false ) {
+      return "unset";
+    }
+    if ( this.unitType == 0 ) {
+      return ((this.value.toString())) + "px";
+    }
+    if ( this.unitType == 1 ) {
+      return ((this.value.toString())) + "%";
+    }
+    if ( this.unitType == 2 ) {
+      return ((this.value.toString())) + "em";
+    }
+    if ( this.unitType == 3 ) {
+      return ((this.value.toString())) + "hp";
+    }
+    if ( this.unitType == 4 ) {
+      return "fill";
+    }
+    if ( this.unitType == 5 ) {
+      return ((this.value.toString())) + "rem";
+    }
+    return (this.value.toString());
+  };
+}
+EVGUnit.isAlpha = function(c) {
+  if ( (c >= 65) && (c <= 90) ) {
+    return true;
+  }
+  return (c >= 97) && (c <= 122);
+};
+EVGUnit.pxPerUnit = function(suffix) {
+  if ( suffix == "pt" ) {
+    return 96.0 / 72.0;
+  }
+  if ( suffix == "pc" ) {
+    return 16.0;
+  }
+  if ( suffix == "in" ) {
+    return 96.0;
+  }
+  if ( suffix == "mm" ) {
+    return 96.0 / 25.4;
+  }
+  if ( suffix == "cm" ) {
+    return 96.0 / 2.54;
+  }
+  return 0.0;
+};
+EVGUnit.create = function(val, uType) {
+  const unit = new EVGUnit();
+  unit.value = val;
+  unit.unitType = uType;
+  unit.isSet = true;
+  return unit;
+};
+EVGUnit.px = function(val) {
+  const unit = EVGUnit.create(val, 0);
+  unit.pixels = val;
+  return unit;
+};
+EVGUnit.percent = function(val) {
+  return EVGUnit.create(val, 1);
+};
+EVGUnit.em = function(val) {
+  return EVGUnit.create(val, 2);
+};
+EVGUnit.rem = function(val) {
+  return EVGUnit.create(val, 5);
+};
+EVGUnit.heightPercent = function(val) {
+  return EVGUnit.create(val, 3);
+};
+EVGUnit.fill = function() {
+  return EVGUnit.create(100.0, 4);
+};
+EVGUnit.unset = function() {
+  const unit = new EVGUnit();
+  unit.isSet = false;
+  return unit;
+};
+EVGUnit.parse = function(str) {
+  const unit = new EVGUnit();
+  const trimmed = str.trim();
+  const __len = trimmed.length;
+  if ( __len == 0 ) {
+    return unit;
+  }
+  if ( trimmed == "fill" ) {
+    unit.value = 100.0;
+    unit.unitType = 4;
+    unit.isSet = true;
+    return unit;
+  }
+  if ( trimmed == "auto" ) {
+    return unit;
+  }
+  const lastChar = trimmed.charCodeAt((__len - 1) );
+  if ( lastChar == 37 ) {
+    const numStr = trimmed.substring(0, (__len - 1) );
+    const numVal = isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr);
+    if ( typeof(numVal) != "undefined" ) {
+      unit.value = numVal;
+      unit.unitType = 1;
+      unit.isSet = true;
+    }
+    return unit;
+  }
+  if ( __len >= 3 ) {
+    const suffix3 = trimmed.substring((__len - 3), __len );
+    if ( suffix3 == "rem" ) {
+      const numStr3 = trimmed.substring(0, (__len - 3) );
+      const numVal3 = isNaN( parseFloat(numStr3) ) ? undefined : parseFloat(numStr3);
+      if ( typeof(numVal3) != "undefined" ) {
+        unit.value = numVal3;
+        unit.unitType = 5;
+        unit.isSet = true;
+      }
+      return unit;
+    }
+  }
+  if ( __len >= 2 ) {
+    const suffix = trimmed.substring((__len - 2), __len );
+    const perUnit = EVGUnit.pxPerUnit(suffix);
+    if ( perUnit > 0.0 ) {
+      const numStrA = trimmed.substring(0, (__len - 2) );
+      const numValA = isNaN( parseFloat(numStrA) ) ? undefined : parseFloat(numStrA);
+      if ( typeof(numValA) != "undefined" ) {
+        unit.value = (numValA) * perUnit;
+        unit.pixels = unit.value;
+        unit.unitType = 0;
+        unit.isSet = true;
+      }
+      return unit;
+    }
+    if ( suffix == "em" ) {
+      const numStr_1 = trimmed.substring(0, (__len - 2) );
+      const numVal_1 = isNaN( parseFloat(numStr_1) ) ? undefined : parseFloat(numStr_1);
+      if ( typeof(numVal_1) != "undefined" ) {
+        unit.value = numVal_1;
+        unit.unitType = 2;
+        unit.isSet = true;
+      }
+      return unit;
+    }
+    if ( suffix == "px" ) {
+      const numStr_2 = trimmed.substring(0, (__len - 2) );
+      const numVal_2 = isNaN( parseFloat(numStr_2) ) ? undefined : parseFloat(numStr_2);
+      if ( typeof(numVal_2) != "undefined" ) {
+        unit.value = numVal_2;
+        unit.pixels = unit.value;
+        unit.unitType = 0;
+        unit.isSet = true;
+      }
+      return unit;
+    }
+    if ( suffix == "hp" ) {
+      const numStr_3 = trimmed.substring(0, (__len - 2) );
+      const numVal_3 = isNaN( parseFloat(numStr_3) ) ? undefined : parseFloat(numStr_3);
+      if ( typeof(numVal_3) != "undefined" ) {
+        unit.value = numVal_3;
+        unit.unitType = 3;
+        unit.isSet = true;
+      }
+      return unit;
+    }
+  }
+  if ( EVGUnit.isAlpha(lastChar) || (lastChar == 41) ) {
+    return unit;
+  }
+  const numVal_4 = isNaN( parseFloat(trimmed) ) ? undefined : parseFloat(trimmed);
+  if ( typeof(numVal_4) != "undefined" ) {
+    unit.value = numVal_4;
+    unit.pixels = unit.value;
+    unit.unitType = 0;
+    unit.isSet = true;
+  }
+  return unit;
+};
+class EVGColor  {
+  constructor() {
+    this.r = 0.0;
+    this.g = 0.0;
+    this.b = 0.0;
+    this.a = 1.0;
+    this.isSet = true;
+    this.r = 0.0;
+    this.g = 0.0;
+    this.b = 0.0;
+    this.a = 1.0;
+    this.isSet = true;
+  }
+  red () {
+    if ( this.r > 255.0 ) {
+      return 255;
+    }
+    if ( this.r < 0.0 ) {
+      return 0;
+    }
+    return Math.floor( this.r);
+  };
+  green () {
+    if ( this.g > 255.0 ) {
+      return 255;
+    }
+    if ( this.g < 0.0 ) {
+      return 0;
+    }
+    return Math.floor( this.g);
+  };
+  blue () {
+    if ( this.b > 255.0 ) {
+      return 255;
+    }
+    if ( this.b < 0.0 ) {
+      return 0;
+    }
+    return Math.floor( this.b);
+  };
+  alpha () {
+    if ( this.a < 0.0 ) {
+      return 0.0;
+    }
+    if ( this.a > 1.0 ) {
+      return 1.0;
+    }
+    return this.a;
+  };
+  toCSSString () {
+    if ( this.isSet == false ) {
+      return "none";
+    }
+    if ( this.a < 1.0 ) {
+      return ((((((("rgba(" + ((this.red().toString()))) + ",") + ((this.green().toString()))) + ",") + ((this.blue().toString()))) + ",") + ((this.alpha().toString()))) + ")";
+    }
+    return ((((("rgb(" + ((this.red().toString()))) + ",") + ((this.green().toString()))) + ",") + ((this.blue().toString()))) + ")";
+  };
+  toHexString () {
+    if ( this.isSet == false ) {
+      return "none";
+    }
+    const hexChars = "0123456789ABCDEF";
+    const rH = this.red();
+    const gH = this.green();
+    const bH = this.blue();
+    const r1D = (rH) / 16.0;
+    const r1 = Math.floor( r1D);
+    const r2 = rH % 16;
+    const g1D = (gH) / 16.0;
+    const g1 = Math.floor( g1D);
+    const g2 = gH % 16;
+    const b1D = (bH) / 16.0;
+    const b1 = Math.floor( b1D);
+    const b2 = bH % 16;
+    return ((((("#" + (String.fromCharCode((hexChars.charCodeAt(r1 ))))) + (String.fromCharCode((hexChars.charCodeAt(r2 ))))) + (String.fromCharCode((hexChars.charCodeAt(g1 ))))) + (String.fromCharCode((hexChars.charCodeAt(g2 ))))) + (String.fromCharCode((hexChars.charCodeAt(b1 ))))) + (String.fromCharCode((hexChars.charCodeAt(b2 ))));
+  };
+  toPDFColorString () {
+    if ( this.isSet == false ) {
+      return "";
+    }
+    const rN = this.r / 255.0;
+    const gN = this.g / 255.0;
+    const bN = this.b / 255.0;
+    return (((((rN.toString())) + " ") + ((gN.toString()))) + " ") + ((bN.toString()));
+  };
+  withAlpha (newAlpha) {
+    return EVGColor.create(this.r, this.g, this.b, newAlpha);
+  };
+  lighten (amount) {
+    const newR = this.r + ((255.0 - this.r) * amount);
+    const newG = this.g + ((255.0 - this.g) * amount);
+    const newB = this.b + ((255.0 - this.b) * amount);
+    return EVGColor.create(newR, newG, newB, this.a);
+  };
+  darken (amount) {
+    const newR = this.r * (1.0 - amount);
+    const newG = this.g * (1.0 - amount);
+    const newB = this.b * (1.0 - amount);
+    return EVGColor.create(newR, newG, newB, this.a);
+  };
+}
+EVGColor.create = function(red, green, blue, alpha) {
+  const c = new EVGColor();
+  c.r = red;
+  c.g = green;
+  c.b = blue;
+  c.a = alpha;
+  c.isSet = true;
+  return c;
+};
+EVGColor.rgb = function(red, green, blue) {
+  return EVGColor.create((red), (green), (blue), 1.0);
+};
+EVGColor.rgba = function(red, green, blue, alpha) {
+  return EVGColor.create((red), (green), (blue), alpha);
+};
+EVGColor.noColor = function() {
+  const c = new EVGColor();
+  c.isSet = false;
+  return c;
+};
+EVGColor.black = function() {
+  return EVGColor.rgb(0, 0, 0);
+};
+EVGColor.white = function() {
+  return EVGColor.rgb(255, 255, 255);
+};
+EVGColor.transparent = function() {
+  return EVGColor.rgba(0, 0, 0, 0.0);
+};
+EVGColor.hexDigit = function(ch) {
+  if ( (ch >= 48) && (ch <= 57) ) {
+    return ch - 48;
+  }
+  if ( (ch >= 65) && (ch <= 70) ) {
+    return (ch - 65) + 10;
+  }
+  if ( (ch >= 97) && (ch <= 102) ) {
+    return (ch - 97) + 10;
+  }
+  return 0;
+};
+EVGColor.parseHex = function(hex) {
+  const c = new EVGColor();
+  let __len = hex.length;
+  let start = 0;
+  if ( __len > 0 ) {
+    const firstChar = hex.charCodeAt(0 );
+    if ( firstChar == 35 ) {
+      start = 1;
+      __len = __len - 1;
+    }
+  }
+  if ( __len == 3 ) {
+    const r1 = EVGColor.hexDigit((hex.charCodeAt(start )));
+    const g1 = EVGColor.hexDigit((hex.charCodeAt((start + 1) )));
+    const b1 = EVGColor.hexDigit((hex.charCodeAt((start + 2) )));
+    c.r = ((r1 * 16) + r1);
+    c.g = ((g1 * 16) + g1);
+    c.b = ((b1 * 16) + b1);
+    c.a = 1.0;
+    c.isSet = true;
+    return c;
+  }
+  if ( __len == 6 ) {
+    const r1_1 = EVGColor.hexDigit((hex.charCodeAt(start )));
+    const r2 = EVGColor.hexDigit((hex.charCodeAt((start + 1) )));
+    const g1_1 = EVGColor.hexDigit((hex.charCodeAt((start + 2) )));
+    const g2 = EVGColor.hexDigit((hex.charCodeAt((start + 3) )));
+    const b1_1 = EVGColor.hexDigit((hex.charCodeAt((start + 4) )));
+    const b2 = EVGColor.hexDigit((hex.charCodeAt((start + 5) )));
+    c.r = ((r1_1 * 16) + r2);
+    c.g = ((g1_1 * 16) + g2);
+    c.b = ((b1_1 * 16) + b2);
+    c.a = 1.0;
+    c.isSet = true;
+    return c;
+  }
+  if ( __len == 8 ) {
+    const r1_2 = EVGColor.hexDigit((hex.charCodeAt(start )));
+    const r2_1 = EVGColor.hexDigit((hex.charCodeAt((start + 1) )));
+    const g1_2 = EVGColor.hexDigit((hex.charCodeAt((start + 2) )));
+    const g2_1 = EVGColor.hexDigit((hex.charCodeAt((start + 3) )));
+    const b1_2 = EVGColor.hexDigit((hex.charCodeAt((start + 4) )));
+    const b2_1 = EVGColor.hexDigit((hex.charCodeAt((start + 5) )));
+    const a1 = EVGColor.hexDigit((hex.charCodeAt((start + 6) )));
+    const a2 = EVGColor.hexDigit((hex.charCodeAt((start + 7) )));
+    c.r = ((r1_2 * 16) + r2_1);
+    c.g = ((g1_2 * 16) + g2_1);
+    c.b = ((b1_2 * 16) + b2_1);
+    c.a = (((a1 * 16) + a2)) / 255.0;
+    c.isSet = true;
+    return c;
+  }
+  c.isSet = false;
+  return c;
+};
+EVGColor.hue2rgb = function(p, q, tt) {
+  let t = tt;
+  if ( t < 0.0 ) {
+    t = t + 1.0;
+  }
+  if ( t > 1.0 ) {
+    t = t - 1.0;
+  }
+  if ( t < (1.0 / 6.0) ) {
+    return p + (((q - p) * 6.0) * t);
+  }
+  if ( t < (1.0 / 2.0) ) {
+    return q;
+  }
+  if ( t < (2.0 / 3.0) ) {
+    return p + (((q - p) * ((2.0 / 3.0) - t)) * 6.0);
+  }
+  return p;
+};
+EVGColor.hslToRgb = function(h, s, l) {
+  const c = new EVGColor();
+  const hNorm = h / 360.0;
+  const sNorm = s / 100.0;
+  const lNorm = l / 100.0;
+  if ( sNorm == 0.0 ) {
+    const gray = lNorm * 255.0;
+    c.r = gray;
+    c.g = gray;
+    c.b = gray;
+  } else {
+    let q = 0.0;
+    if ( lNorm < 0.5 ) {
+      q = lNorm * (1.0 + sNorm);
+    } else {
+      q = (lNorm + sNorm) - (lNorm * sNorm);
+    }
+    const p = (2.0 * lNorm) - q;
+    c.r = EVGColor.hue2rgb(p, q, (hNorm + (1.0 / 3.0))) * 255.0;
+    c.g = EVGColor.hue2rgb(p, q, hNorm) * 255.0;
+    c.b = EVGColor.hue2rgb(p, q, (hNorm - (1.0 / 3.0))) * 255.0;
+  }
+  c.a = 1.0;
+  c.isSet = true;
+  return c;
+};
+EVGColor.parseNumber = function(str) {
+  const val = isNaN( parseFloat((str.trim())) ) ? undefined : parseFloat((str.trim()));
+  return val;
+};
+EVGColor.parse = function(str) {
+  const trimmed = str.trim();
+  const __len = trimmed.length;
+  if ( __len == 0 ) {
+    return EVGColor.noColor();
+  }
+  const firstChar = trimmed.charCodeAt(0 );
+  if ( firstChar == 35 ) {
+    return EVGColor.parseHex(trimmed);
+  }
+  if ( __len >= 4 ) {
+    const prefix = trimmed.substring(0, 4 );
+    if ( prefix == "rgba" ) {
+      return EVGColor.parseRgba(trimmed);
+    }
+    const prefix3 = trimmed.substring(0, 3 );
+    if ( prefix3 == "rgb" ) {
+      return EVGColor.parseRgb(trimmed);
+    }
+    if ( prefix3 == "hsl" ) {
+      return EVGColor.parseHsl(trimmed);
+    }
+  }
+  return EVGColor.parseNamed(trimmed);
+};
+EVGColor.parseRgb = function(str) {
+  const c = new EVGColor();
+  const __len = str.length;
+  let start = 0;
+  let i = 0;
+  while (i < __len) {
+    const ch = str.charCodeAt(i );
+    if ( ch == 40 ) {
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  let end = __len - 1;
+  i = __len - 1;
+  while (i >= 0) {
+    const ch_1 = str.charCodeAt(i );
+    if ( ch_1 == 41 ) {
+      end = i;
+    }
+    i = i - 1;
+  };
+  const content = str.substring(start, end );
+  let parts = [];
+  let current = "";
+  i = 0;
+  const contentLen = content.length;
+  while (i < contentLen) {
+    const ch_2 = content.charCodeAt(i );
+    if ( (ch_2 == 44) || (ch_2 == 32) ) {
+      const trimPart = current.trim();
+      if ( (trimPart.length) > 0 ) {
+        parts.push(trimPart);
+      }
+      current = "";
+    } else {
+      current = current + (String.fromCharCode(ch_2));
+    }
+    i = i + 1;
+  };
+  const trimPart_1 = current.trim();
+  if ( (trimPart_1.length) > 0 ) {
+    parts.push(trimPart_1);
+  }
+  if ( (parts.length) >= 3 ) {
+    c.r = EVGColor.parseNumber((parts[0]));
+    c.g = EVGColor.parseNumber((parts[1]));
+    c.b = EVGColor.parseNumber((parts[2]));
+    c.a = 1.0;
+    c.isSet = true;
+  }
+  return c;
+};
+EVGColor.parseRgba = function(str) {
+  const c = EVGColor.parseRgb(str);
+  const __len = str.length;
+  let start = 0;
+  let end = __len - 1;
+  let i = 0;
+  while (i < __len) {
+    const ch = str.charCodeAt(i );
+    if ( ch == 40 ) {
+      start = i + 1;
+    }
+    if ( ch == 41 ) {
+      end = i;
+    }
+    i = i + 1;
+  };
+  const content = str.substring(start, end );
+  let parts = [];
+  let current = "";
+  i = 0;
+  const contentLen = content.length;
+  while (i < contentLen) {
+    const ch_1 = content.charCodeAt(i );
+    if ( (ch_1 == 44) || (ch_1 == 32) ) {
+      const trimPart = current.trim();
+      if ( (trimPart.length) > 0 ) {
+        parts.push(trimPart);
+      }
+      current = "";
+    } else {
+      current = current + (String.fromCharCode(ch_1));
+    }
+    i = i + 1;
+  };
+  const trimPart_1 = current.trim();
+  if ( (trimPart_1.length) > 0 ) {
+    parts.push(trimPart_1);
+  }
+  if ( (parts.length) >= 4 ) {
+    c.r = EVGColor.parseNumber((parts[0]));
+    c.g = EVGColor.parseNumber((parts[1]));
+    c.b = EVGColor.parseNumber((parts[2]));
+    c.a = EVGColor.parseNumber((parts[3]));
+    c.isSet = true;
+  }
+  return c;
+};
+EVGColor.parseHsl = function(str) {
+  const __len = str.length;
+  let start = 0;
+  let end = __len - 1;
+  let i = 0;
+  while (i < __len) {
+    const ch = str.charCodeAt(i );
+    if ( ch == 40 ) {
+      start = i + 1;
+    }
+    if ( ch == 41 ) {
+      end = i;
+    }
+    i = i + 1;
+  };
+  const content = str.substring(start, end );
+  let parts = [];
+  let current = "";
+  i = 0;
+  const contentLen = content.length;
+  while (i < contentLen) {
+    const ch_1 = content.charCodeAt(i );
+    if ( (ch_1 == 44) || (ch_1 == 32) ) {
+      const trimPart = current.trim();
+      if ( (trimPart.length) > 0 ) {
+        parts.push(trimPart);
+      }
+      current = "";
+    } else {
+      current = current + (String.fromCharCode(ch_1));
+    }
+    i = i + 1;
+  };
+  const trimPart_1 = current.trim();
+  if ( (trimPart_1.length) > 0 ) {
+    parts.push(trimPart_1);
+  }
+  if ( (parts.length) >= 3 ) {
+    const h = EVGColor.parseNumber((parts[0]));
+    const s = EVGColor.parseNumber((parts[1]));
+    const l = EVGColor.parseNumber((parts[2]));
+    const c = EVGColor.hslToRgb(h, s, l);
+    if ( (parts.length) >= 4 ) {
+      c.a = EVGColor.parseNumber((parts[3]));
+    }
+    return c;
+  }
+  return EVGColor.noColor();
+};
+EVGColor.parseNamed = function(name) {
+  let lower = "";
+  const __len = name.length;
+  let i = 0;
+  while (i < __len) {
+    const ch = name.charCodeAt(i );
+    if ( (ch >= 65) && (ch <= 90) ) {
+      lower = lower + (String.fromCharCode((ch + 32)));
+    } else {
+      lower = lower + (String.fromCharCode(ch));
+    }
+    i = i + 1;
+  };
+  if ( lower == "black" ) {
+    return EVGColor.rgb(0, 0, 0);
+  }
+  if ( lower == "white" ) {
+    return EVGColor.rgb(255, 255, 255);
+  }
+  if ( lower == "red" ) {
+    return EVGColor.rgb(255, 0, 0);
+  }
+  if ( lower == "green" ) {
+    return EVGColor.rgb(0, 128, 0);
+  }
+  if ( lower == "blue" ) {
+    return EVGColor.rgb(0, 0, 255);
+  }
+  if ( lower == "yellow" ) {
+    return EVGColor.rgb(255, 255, 0);
+  }
+  if ( lower == "cyan" ) {
+    return EVGColor.rgb(0, 255, 255);
+  }
+  if ( lower == "magenta" ) {
+    return EVGColor.rgb(255, 0, 255);
+  }
+  if ( lower == "gray" ) {
+    return EVGColor.rgb(128, 128, 128);
+  }
+  if ( lower == "grey" ) {
+    return EVGColor.rgb(128, 128, 128);
+  }
+  if ( lower == "orange" ) {
+    return EVGColor.rgb(255, 165, 0);
+  }
+  if ( lower == "purple" ) {
+    return EVGColor.rgb(128, 0, 128);
+  }
+  if ( lower == "pink" ) {
+    return EVGColor.rgb(255, 192, 203);
+  }
+  if ( lower == "brown" ) {
+    return EVGColor.rgb(165, 42, 42);
+  }
+  if ( lower == "navy" ) {
+    return EVGColor.rgb(0, 0, 128);
+  }
+  if ( lower == "teal" ) {
+    return EVGColor.rgb(0, 128, 128);
+  }
+  if ( lower == "olive" ) {
+    return EVGColor.rgb(128, 128, 0);
+  }
+  if ( lower == "maroon" ) {
+    return EVGColor.rgb(128, 0, 0);
+  }
+  if ( lower == "silver" ) {
+    return EVGColor.rgb(192, 192, 192);
+  }
+  if ( lower == "lime" ) {
+    return EVGColor.rgb(0, 255, 0);
+  }
+  if ( lower == "aqua" ) {
+    return EVGColor.rgb(0, 255, 255);
+  }
+  if ( lower == "fuchsia" ) {
+    return EVGColor.rgb(255, 0, 255);
+  }
+  if ( lower == "transparent" ) {
+    return EVGColor.transparent();
+  }
+  if ( lower == "none" ) {
+    return EVGColor.noColor();
+  }
+  return EVGColor.noColor();
+};
+class EVGBox  {
+  constructor() {
+    this.marginTopPx = 0.0;
+    this.marginRightPx = 0.0;
+    this.marginBottomPx = 0.0;
+    this.marginLeftPx = 0.0;
+    this.paddingTopPx = 0.0;
+    this.paddingRightPx = 0.0;
+    this.paddingBottomPx = 0.0;
+    this.paddingLeftPx = 0.0;
+    this.borderWidthPx = 0.0;
+    this.borderRadiusPx = 0.0;
+    this.marginTop = EVGUnit.unset();
+    this.marginRight = EVGUnit.unset();
+    this.marginBottom = EVGUnit.unset();
+    this.marginLeft = EVGUnit.unset();
+    this.paddingTop = EVGUnit.unset();
+    this.paddingRight = EVGUnit.unset();
+    this.paddingBottom = EVGUnit.unset();
+    this.paddingLeft = EVGUnit.unset();
+    this.borderWidth = EVGUnit.unset();
+    this.borderColor = EVGColor.noColor();
+    this.borderRadius = EVGUnit.unset();
+  }
+  setMargin (all) {
+    this.marginTop = all;
+    this.marginRight = all;
+    this.marginBottom = all;
+    this.marginLeft = all;
+  };
+  setMarginValues (top, right, bottom, left) {
+    this.marginTop = top;
+    this.marginRight = right;
+    this.marginBottom = bottom;
+    this.marginLeft = left;
+  };
+  setPadding (all) {
+    this.paddingTop = all;
+    this.paddingRight = all;
+    this.paddingBottom = all;
+    this.paddingLeft = all;
+  };
+  setPaddingValues (top, right, bottom, left) {
+    this.paddingTop = top;
+    this.paddingRight = right;
+    this.paddingBottom = bottom;
+    this.paddingLeft = left;
+  };
+  resolveUnits (parentWidth, parentHeight, fontSize, rootFontSize) {
+    this.marginTop.rootFontSize = rootFontSize;
+    this.marginRight.rootFontSize = rootFontSize;
+    this.marginBottom.rootFontSize = rootFontSize;
+    this.marginLeft.rootFontSize = rootFontSize;
+    this.paddingTop.rootFontSize = rootFontSize;
+    this.paddingRight.rootFontSize = rootFontSize;
+    this.paddingBottom.rootFontSize = rootFontSize;
+    this.paddingLeft.rootFontSize = rootFontSize;
+    this.borderWidth.rootFontSize = rootFontSize;
+    this.borderRadius.rootFontSize = rootFontSize;
+    this.marginTop.resolve(parentWidth, fontSize);
+    this.marginTopPx = this.marginTop.pixels;
+    this.marginRight.resolve(parentWidth, fontSize);
+    this.marginRightPx = this.marginRight.pixels;
+    this.marginBottom.resolve(parentWidth, fontSize);
+    this.marginBottomPx = this.marginBottom.pixels;
+    this.marginLeft.resolve(parentWidth, fontSize);
+    this.marginLeftPx = this.marginLeft.pixels;
+    this.paddingTop.resolve(parentWidth, fontSize);
+    this.paddingTopPx = this.paddingTop.pixels;
+    this.paddingRight.resolve(parentWidth, fontSize);
+    this.paddingRightPx = this.paddingRight.pixels;
+    this.paddingBottom.resolve(parentWidth, fontSize);
+    this.paddingBottomPx = this.paddingBottom.pixels;
+    this.paddingLeft.resolve(parentWidth, fontSize);
+    this.paddingLeftPx = this.paddingLeft.pixels;
+    this.borderWidth.resolve(parentWidth, fontSize);
+    this.borderWidthPx = this.borderWidth.pixels;
+    let smallerDim = parentWidth;
+    if ( parentHeight < parentWidth ) {
+      smallerDim = parentHeight;
+    }
+    this.borderRadius.resolve(smallerDim, fontSize);
+    this.borderRadiusPx = this.borderRadius.pixels;
+  };
+  getHorizontalChrome () {
+    return (this.paddingLeftPx + this.paddingRightPx) + (this.borderWidthPx * 2.0);
+  };
+  getVerticalChrome () {
+    return (this.paddingTopPx + this.paddingBottomPx) + (this.borderWidthPx * 2.0);
+  };
+  getInnerWidth (outerWidth) {
+    const inner = outerWidth - this.getHorizontalChrome();
+    if ( inner < 0.0 ) {
+      return 0.0;
+    }
+    return inner;
+  };
+  getInnerHeight (outerHeight) {
+    const inner = outerHeight - this.getVerticalChrome();
+    if ( inner < 0.0 ) {
+      return 0.0;
+    }
+    return inner;
+  };
+  getTotalWidth (contentWidth) {
+    return ((((contentWidth + this.marginLeftPx) + this.marginRightPx) + this.paddingLeftPx) + this.paddingRightPx) + (this.borderWidthPx * 2.0);
+  };
+  getTotalHeight (contentHeight) {
+    return ((((contentHeight + this.marginTopPx) + this.marginBottomPx) + this.paddingTopPx) + this.paddingBottomPx) + (this.borderWidthPx * 2.0);
+  };
+  getContentX (elementX) {
+    return ((elementX + this.marginLeftPx) + this.borderWidthPx) + this.paddingLeftPx;
+  };
+  getContentY (elementY) {
+    return ((elementY + this.marginTopPx) + this.borderWidthPx) + this.paddingTopPx;
+  };
+  getHorizontalSpace () {
+    return (((this.marginLeftPx + this.marginRightPx) + this.paddingLeftPx) + this.paddingRightPx) + (this.borderWidthPx * 2.0);
+  };
+  getVerticalSpace () {
+    return (((this.marginTopPx + this.marginBottomPx) + this.paddingTopPx) + this.paddingBottomPx) + (this.borderWidthPx * 2.0);
+  };
+  getMarginHorizontal () {
+    return this.marginLeftPx + this.marginRightPx;
+  };
+  getMarginVertical () {
+    return this.marginTopPx + this.marginBottomPx;
+  };
+  getPaddingHorizontal () {
+    return this.paddingLeftPx + this.paddingRightPx;
+  };
+  getPaddingVertical () {
+    return this.paddingTopPx + this.paddingBottomPx;
+  };
+  toString () {
+    return ((((((((((((((((("Box[margin:" + ((this.marginTopPx.toString()))) + "/") + ((this.marginRightPx.toString()))) + "/") + ((this.marginBottomPx.toString()))) + "/") + ((this.marginLeftPx.toString()))) + " padding:") + ((this.paddingTopPx.toString()))) + "/") + ((this.paddingRightPx.toString()))) + "/") + ((this.paddingBottomPx.toString()))) + "/") + ((this.paddingLeftPx.toString()))) + " border:") + ((this.borderWidthPx.toString()))) + "]";
+  };
+}
+class EVGGradientStop  {
+  constructor() {
+    this.percentage = 0.0;
+    this.color = new EVGColor();
+  }
+}
+EVGGradientStop.create = function(pct, col) {
+  const stop = new EVGGradientStop();
+  stop.percentage = pct;
+  stop.color = col;
+  return stop;
+};
+class EVGGradient  {
+  constructor() {
+    this.isSet = false;
+    this.isLinear = true;
+    this.angle = 0.0;
+    this.stops = [];
+    let s = [];
+    this.stops = s;
+  }
+  getStartColor () {
+    if ( (this.stops.length) > 0 ) {
+      const stop = this.stops[0];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getEndColor () {
+    const __len = this.stops.length;
+    if ( __len > 0 ) {
+      const stop = this.stops[(__len - 1)];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getStopCount () {
+    return this.stops.length;
+  };
+  getStop (index) {
+    return this.stops[index];
+  };
+  addStop (percentage, color) {
+    const stop = EVGGradientStop.create(percentage, color);
+    this.stops.push(stop);
+  };
+  toCSSString () {
+    if ( this.isSet == false ) {
+      return "";
+    }
+    let result = "";
+    if ( this.isLinear ) {
+      result = ("linear-gradient(" + ((this.angle.toString()))) + "deg";
+    } else {
+      result = "radial-gradient(circle";
+    }
+    const numStops = this.stops.length;
+    let i = 0;
+    while (i < numStops) {
+      const stop = this.stops[i];
+      result = (result + ", ") + stop.color.toCSSString();
+      i = i + 1;
+    };
+    result = result + ")";
+    return result;
+  };
+}
+EVGGradient.parse = function(gradStr) {
+  const grad = new EVGGradient();
+  const __len = gradStr.length;
+  if ( __len == 0 ) {
+    return grad;
+  }
+  const linearIdx = gradStr.indexOf("linear-gradient");
+  const radialIdx = gradStr.indexOf("radial-gradient");
+  if ( linearIdx >= 0 ) {
+    grad.isLinear = true;
+    grad.isSet = true;
+  }
+  if ( radialIdx >= 0 ) {
+    grad.isLinear = false;
+    grad.isSet = true;
+  }
+  if ( grad.isSet == false ) {
+    return grad;
+  }
+  if ( grad.isLinear ) {
+    const degIdx = gradStr.indexOf("deg");
+    if ( degIdx > 0 ) {
+      const startIdx = gradStr.indexOf("(");
+      if ( startIdx >= 0 ) {
+        const angleStr = gradStr.substring((startIdx + 1), degIdx );
+        const angleVal = isNaN( parseFloat((angleStr.trim())) ) ? undefined : parseFloat((angleStr.trim()));
+        if ( typeof(angleVal) != "undefined" ) {
+          grad.angle = angleVal;
+        }
+      }
+    }
+  }
+  let colors = [];
+  let i = 0;
+  while (i < __len) {
+    const ch = gradStr.charCodeAt(i );
+    if ( ch == 35 ) {
+      const colorStart = i;
+      let colorEnd = i + 1;
+      while (colorEnd < __len) {
+        const c = gradStr.charCodeAt(colorEnd );
+        let isHex = false;
+        if ( (c >= 48) && (c <= 57) ) {
+          isHex = true;
+        }
+        if ( (c >= 65) && (c <= 70) ) {
+          isHex = true;
+        }
+        if ( (c >= 97) && (c <= 102) ) {
+          isHex = true;
+        }
+        if ( isHex ) {
+          colorEnd = colorEnd + 1;
+        } else {
+          break;
+        }
+      };
+      const colorStr = gradStr.substring(colorStart, colorEnd );
+      const parsedColor = EVGColor.parseHex(colorStr);
+      if ( parsedColor.isSet ) {
+        colors.push(parsedColor);
+      }
+      i = colorEnd;
+    } else {
+      i = i + 1;
+    }
+  };
+  const numColors = colors.length;
+  if ( numColors > 0 ) {
+    let colorIdx = 0;
+    while (colorIdx < numColors) {
+      let pct = 0.0;
+      if ( numColors > 1 ) {
+        pct = (colorIdx) / ((numColors - 1));
+      }
+      const col = colors[colorIdx];
+      grad.addStop(pct, col);
+      colorIdx = colorIdx + 1;
+    };
+  }
+  return grad;
+};
+class EVGElement  {
+  constructor() {
+    this.id = "";
+    this.tagName = "div";
+    this.elementType = 0;
+    this.format = "";
+    this.orientation = "";
+    this.pageWidth = 0.0;
+    this.pageHeight = 0.0;
+    this.children = [];
+    this.opacity = 1.0;
+    this.gradientSet = false;
+    this.gradientDir = 0;
+    this.absPosSet = false;     /** note: unused */
+    this.absX = 0.0;     /** note: unused */
+    this.absY = 0.0;     /** note: unused */
+    this.glowIntensity = 0.0;
+    this.bgImageSet = false;
+    this.bgImagePath = "";
+    this.textDir = "";
+    this.resolvedRtl = false;
+    this.direction = "row";
+    this.align = "left";
+    this.verticalAlign = "top";
+    this.isInline = false;
+    this.lineBreak = false;
+    this.overflow = "visible";
+    this.fontSizeInherited = false;
+    this.fontSizeBase = 14.0;
+    this.rootFontSize = 14.0;
+    this.fontFamily = "Noto Sans";
+    this.fontWeight = "normal";
+    this.lineHeight = 1.2;
+    this.textAlign = "left";
+    this.textContent = "";     /** note: unused */
+    this.display = "block";
+    this.flex = 0.0;
+    this.flexShrink = 1.0;
+    this.flexDirection = "column";
+    this.justifyContent = "flex-start";
+    this.alignItems = "flex-start";
+    this.alignContent = "flex-start";
+    this.flexWrap = "wrap";
+    this.gridTemplateColumns = "";
+    this.gridTemplateRows = "";
+    this.subgridColumnSizes = [];     /** note: unused */
+    this.subgridRowSizes = [];     /** note: unused */
+    this.computedRowSizes = [];     /** note: unused */
+    this.subgridPending = false;     /** note: unused */
+    this.gridTemplateAreas = "";
+    this.gridAutoFlow = "row";
+    this.fullBleed = false;
+    this.gridArea = "";
+    this.gridColumn = "";
+    this.gridRow = "";
+    this.position = "relative";     /** note: unused */
+    this.src = "";     /** note: unused */
+    this.alt = "";     /** note: unused */
+    this.imageViewBox = "";     /** note: unused */
+    this.imageViewBoxX = 0.0;     /** note: unused */
+    this.imageViewBoxY = 0.0;     /** note: unused */
+    this.imageViewBoxW = 1.0;     /** note: unused */
+    this.imageViewBoxH = 1.0;     /** note: unused */
+    this.imageViewBoxSet = false;     /** note: unused */
+    this.objectFit = "cover";
+    this.sourceWidth = 0.0;     /** note: unused */
+    this.sourceHeight = 0.0;     /** note: unused */
+    this.svgPath = "";
+    this.svgSource = "";
+    this.viewBox = "";
+    this.strokeWidth = 0.0;
+    this.fillRule = "nonzero";
+    this.strokeDashArray = "";
+    this.strokeDashOffset = 0.0;
+    this.clipPath = "";
+    this.className = "";
+    this.theme = "";
+    this.inlineProps = [];
+    this.imageQuality = 0;
+    this.maxImageSize = 0;
+    this.rotate = 0.0;
+    this.scale = 1.0;
+    this.backgroundGradient = "";
+    this.gradient = new EVGGradient();
+    this.calculatedX = 0.0;
+    this.calculatedY = 0.0;
+    this.calculatedWidth = 0.0;
+    this.calculatedHeight = 0.0;
+    this.calculatedInnerWidth = 0.0;     /** note: unused */
+    this.calculatedInnerHeight = 0.0;     /** note: unused */
+    this.calculatedFlexWidth = 0.0;     /** note: unused */
+    this.calculatedFlexHeight = 0.0;     /** note: unused */
+    this.calculatedBaseline = 0.0;
+    this.calculatedDescent = 0.0;
+    this.hasBaseline = false;
+    this.hasDefiniteHeight = false;
+    this.calculatedPage = 0;     /** note: unused */
+    this.isAbsolute = false;
+    this.isLayoutComplete = false;     /** note: unused */
+    this.unitsResolved = false;
+    this.hasReturn = false;     /** note: unused */
+    this.hasBreak = false;     /** note: unused */
+    this.hasContinue = false;     /** note: unused */
+    this.inheritedFontSize = 14.0;
+    this.tagName = "div";
+    this.elementType = 0;
+    this.width = EVGUnit.unset();
+    this.height = EVGUnit.unset();
+    this.minWidth = EVGUnit.unset();
+    this.minHeight = EVGUnit.unset();
+    this.maxWidth = EVGUnit.unset();
+    this.maxHeight = EVGUnit.unset();
+    this.left = EVGUnit.unset();
+    this.top = EVGUnit.unset();
+    this.right = EVGUnit.unset();
+    this.bottom = EVGUnit.unset();
+    this.x = EVGUnit.unset();
+    this.y = EVGUnit.unset();
+    this.gap = EVGUnit.unset();
+    this.flexBasis = EVGUnit.unset();
+    this.rowGap = EVGUnit.unset();
+    this.columnGap = EVGUnit.unset();
+    const newBox = new EVGBox();
+    this.box = newBox;
+    this.backgroundColor = EVGColor.noColor();
+    this.color = EVGColor.black();
+    this.emojiColor = EVGColor.noColor();
+    this.fontSize = EVGUnit.unset();
+    this.shadowRadius = EVGUnit.unset();
+    this.shadowColor = EVGColor.noColor();
+    this.shadowOffsetX = EVGUnit.unset();
+    this.shadowOffsetY = EVGUnit.unset();
+    this.imageOffsetX = EVGUnit.unset();
+    this.imageOffsetY = EVGUnit.unset();
+    this.fillColor = EVGColor.noColor();
+    this.strokeColor = EVGColor.noColor();
+  }
+  addChild (child) {
+    this.children.push(child);
+  };
+  resetLayoutState () {
+    this.unitsResolved = false;
+    this.calculatedX = 0.0;
+    this.calculatedY = 0.0;
+    this.calculatedWidth = 0.0;
+    this.calculatedHeight = 0.0;
+    this.hasDefiniteHeight = false;
+    this.calculatedBaseline = 0.0;
+    this.calculatedDescent = 0.0;
+    this.hasBaseline = false;
+    let i = 0;
+    while (i < (this.children.length)) {
+      const child = this.children[i];
+      child.resetLayoutState();
+      i = i + 1;
+    };
+  };
+  getChildCount () {
+    return this.children.length;
+  };
+  getChild (index) {
+    return this.children[index];
+  };
+  hasParent () {
+    if ( typeof(this.parent) != "undefined" ) {
+      return true;
+    }
+    return false;
+  };
+  isContainer () {
+    return this.elementType == 0;
+  };
+  isText () {
+    return this.elementType == 1;
+  };
+  isImage () {
+    return this.elementType == 2;
+  };
+  isPath () {
+    return this.elementType == 3;
+  };
+  hasAbsolutePosition () {
+    if ( (this.tagName == "layer") || (this.tagName == "Layer") ) {
+      return true;
+    }
+    if ( this.left.isSet ) {
+      return true;
+    }
+    if ( this.top.isSet ) {
+      return true;
+    }
+    if ( this.right.isSet ) {
+      return true;
+    }
+    if ( this.bottom.isSet ) {
+      return true;
+    }
+    if ( this.x.isSet ) {
+      return true;
+    }
+    if ( this.y.isSet ) {
+      return true;
+    }
+    return false;
+  };
+  resolveBookFormat () {
+    let w = 595.0;
+    let h = 842.0;
+    if ( this.format == "a4" ) {
+      w = 595.0;
+      h = 842.0;
+    }
+    if ( this.format == "letter" ) {
+      w = 612.0;
+      h = 792.0;
+    }
+    if ( this.format == "trade-5x8" ) {
+      w = 360.0;
+      h = 576.0;
+    }
+    if ( this.format == "trade-6x9" ) {
+      w = 432.0;
+      h = 648.0;
+    }
+    if ( this.format == "trade-8x10" ) {
+      w = 576.0;
+      h = 720.0;
+    }
+    if ( this.format == "mini-square" ) {
+      w = 360.0;
+      h = 360.0;
+    }
+    if ( this.format == "small-square" ) {
+      w = 504.0;
+      h = 504.0;
+    }
+    if ( this.format == "standard-portrait" ) {
+      w = 576.0;
+      h = 720.0;
+    }
+    if ( this.format == "standard-landscape" ) {
+      w = 720.0;
+      h = 576.0;
+    }
+    if ( this.format == "large-landscape" ) {
+      w = 936.0;
+      h = 792.0;
+    }
+    if ( this.format == "large-square" ) {
+      w = 864.0;
+      h = 864.0;
+    }
+    if ( this.format == "magazine" ) {
+      w = 612.0;
+      h = 792.0;
+    }
+    if ( this.orientation == "landscape" ) {
+      if ( w < h ) {
+        const temp = w;
+        w = h;
+        h = temp;
+      }
+    }
+    if ( this.orientation == "portrait" ) {
+      if ( w > h ) {
+        const temp_1 = w;
+        w = h;
+        h = temp_1;
+      }
+    }
+    if ( this.pageWidth > 0.0 ) {
+      w = this.pageWidth;
+    }
+    if ( this.pageHeight > 0.0 ) {
+      h = this.pageHeight;
+    }
+    this.pageWidth = w;
+    this.pageHeight = h;
+  };
+  effectiveFontFamily () {
+    if ( this.fontWeight == "bold" ) {
+      return this.fontFamily + "-Bold";
+    }
+    return this.fontFamily;
+  };
+  effectiveBorderWidthPx () {
+    if ( this.box.borderWidthPx > 0.0 ) {
+      return this.box.borderWidthPx;
+    }
+    if ( typeof(this.borderWidth) != "undefined" ) {
+      if ( this.borderWidth.isSet ) {
+        return this.borderWidth.pixels;
+      }
+    }
+    return 0.0;
+  };
+  effectiveBorderColor () {
+    if ( typeof(this.box.borderColor) != "undefined" ) {
+      const bc = this.box.borderColor;
+      if ( bc.isSet ) {
+        return bc;
+      }
+    }
+    if ( typeof(this.borderColor) != "undefined" ) {
+      const ec = this.borderColor;
+      if ( ec.isSet ) {
+        return ec;
+      }
+    }
+    return EVGColor.black();
+  };
+  hasBorder () {
+    if ( this.effectiveBorderWidthPx() <= 0.0 ) {
+      return false;
+    }
+    return true;
+  };
+  effectiveEmojiColor () {
+    if ( this.emojiColor.isSet ) {
+      return this.emojiColor;
+    }
+    return this.color;
+  };
+  inheritProperties (parentEl) {
+    if ( this.fontFamily == "Noto Sans" ) {
+      this.fontFamily = parentEl.fontFamily;
+    }
+    if ( this.color.isSet == false ) {
+      this.color = parentEl.color;
+    }
+    if ( this.emojiColor.isSet == false ) {
+      this.emojiColor = parentEl.emojiColor;
+    }
+    this.fontSizeBase = parentEl.inheritedFontSize;
+    this.rootFontSize = parentEl.rootFontSize;
+    this.applyOwnFontSize();
+    this.applyOwnDirection(parentEl.resolvedRtl);
+  };
+  applyOwnDirection (inherited) {
+    this.resolvedRtl = inherited;
+    if ( this.textDir == "rtl" ) {
+      this.resolvedRtl = true;
+    }
+    if ( this.textDir == "ltr" ) {
+      this.resolvedRtl = false;
+    }
+  };
+  applyOwnFontSize () {
+    let authored = this.fontSize.isSet;
+    if ( this.fontSizeInherited ) {
+      authored = false;
+    }
+    if ( authored ) {
+      this.fontSize.rootFontSize = this.rootFontSize;
+      this.fontSize.resolve(this.fontSizeBase, this.fontSizeBase);
+      this.inheritedFontSize = this.fontSize.pixels;
+    } else {
+      this.inheritedFontSize = this.fontSizeBase;
+      this.fontSize = EVGUnit.px(this.fontSizeBase);
+      this.fontSizeInherited = true;
+    }
+  };
+  resolveUnits (parentWidth, parentHeight) {
+    if ( this.unitsResolved ) {
+      return;
+    }
+    this.unitsResolved = true;
+    const fs = this.inheritedFontSize;
+    const rfs = this.rootFontSize;
+    this.width.rootFontSize = rfs;
+    this.height.rootFontSize = rfs;
+    this.flexBasis.rootFontSize = rfs;
+    this.minWidth.rootFontSize = rfs;
+    this.minHeight.rootFontSize = rfs;
+    this.maxWidth.rootFontSize = rfs;
+    this.maxHeight.rootFontSize = rfs;
+    this.left.rootFontSize = rfs;
+    this.top.rootFontSize = rfs;
+    this.right.rootFontSize = rfs;
+    this.bottom.rootFontSize = rfs;
+    this.x.rootFontSize = rfs;
+    this.y.rootFontSize = rfs;
+    this.shadowRadius.rootFontSize = rfs;
+    this.shadowOffsetX.rootFontSize = rfs;
+    this.shadowOffsetY.rootFontSize = rfs;
+    this.width.resolveWithHeight(parentWidth, parentHeight, fs);
+    this.height.resolveForHeight(parentWidth, parentHeight, fs);
+    this.flexBasis.resolve(parentWidth, fs);
+    this.minWidth.resolve(parentWidth, fs);
+    this.minHeight.resolve(parentHeight, fs);
+    this.maxWidth.resolve(parentWidth, fs);
+    this.maxHeight.resolve(parentHeight, fs);
+    this.left.resolve(parentWidth, fs);
+    this.top.resolve(parentHeight, fs);
+    this.right.resolve(parentWidth, fs);
+    this.bottom.resolve(parentHeight, fs);
+    this.x.resolve(parentWidth, fs);
+    this.y.resolve(parentHeight, fs);
+    this.box.resolveUnits(parentWidth, parentHeight, fs, rfs);
+    this.shadowRadius.resolve(parentWidth, fs);
+    this.shadowOffsetX.resolve(parentWidth, fs);
+    this.shadowOffsetY.resolve(parentHeight, fs);
+    this.isAbsolute = this.hasAbsolutePosition();
+  };
+  markInline (name) {
+    const key = EVGElement.toKebab(name);
+    if ( this.hasInline(key) == false ) {
+      this.inlineProps.push(key);
+    }
+  };
+  hasInline (name) {
+    const key = EVGElement.toKebab(name);
+    let i = 0;
+    while (i < (this.inlineProps.length)) {
+      if ( (this.inlineProps[i]) == key ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  setFlexShorthand (value) {
+    const parts = EVGElement.splitSpaces(value);
+    const n = parts.length;
+    if ( n == 0 ) {
+      return;
+    }
+    const first = parts[0];
+    const growVal = isNaN( parseFloat(first) ) ? undefined : parseFloat(first);
+    if ( EVGElement.isPlainNumber(first) ) {
+      this.flex = growVal;
+      this.flexBasis = EVGUnit.px(0.0);
+      if ( n >= 2 ) {
+        const shrinkVal = isNaN( parseFloat((parts[1])) ) ? undefined : parseFloat((parts[1]));
+        if ( typeof(shrinkVal) != "undefined" ) {
+          this.flexShrink = shrinkVal;
+        }
+      }
+      if ( n >= 3 ) {
+        this.flexBasis = EVGUnit.parse((parts[2]));
+      }
+    } else {
+      this.flexBasis = EVGUnit.parse(first);
+      this.flex = 1.0;
+    }
+  };
+  setAttribute (name, value) {
+    if ( name == "className" ) {
+      this.className = value;
+      return;
+    }
+    if ( name == "theme" ) {
+      this.theme = value;
+      return;
+    }
+    if ( name == "id" ) {
+      this.id = value;
+      return;
+    }
+    if ( name == "format" ) {
+      this.format = value.toLowerCase();
+      return;
+    }
+    if ( name == "orientation" ) {
+      this.orientation = value.toLowerCase();
+      return;
+    }
+    if ( name == "pageWidth" ) {
+      const pw = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(pw) != "undefined" ) {
+        this.pageWidth = pw;
+      }
+      return;
+    }
+    if ( name == "pageHeight" ) {
+      const ph = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(ph) != "undefined" ) {
+        this.pageHeight = ph;
+      }
+      return;
+    }
+    if ( name == "width" ) {
+      this.width = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "height" ) {
+      this.height = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "min-width") || (name == "minWidth") ) {
+      this.minWidth = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "min-height") || (name == "minHeight") ) {
+      this.minHeight = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "max-width") || (name == "maxWidth") ) {
+      this.maxWidth = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "max-height") || (name == "maxHeight") ) {
+      this.maxHeight = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "left" ) {
+      this.left = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "top" ) {
+      this.top = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "right" ) {
+      this.right = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "bottom" ) {
+      this.bottom = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "x" ) {
+      this.x = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "y" ) {
+      this.y = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "margin" ) {
+      this.box.setMargin(EVGUnit.parse(value));
+      return;
+    }
+    if ( (name == "margin-left") || (name == "marginLeft") ) {
+      this.box.marginLeft = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "margin-right") || (name == "marginRight") ) {
+      this.box.marginRight = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "margin-top") || (name == "marginTop") ) {
+      this.box.marginTop = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "margin-bottom") || (name == "marginBottom") ) {
+      this.box.marginBottom = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "padding" ) {
+      this.box.setPadding(EVGUnit.parse(value));
+      return;
+    }
+    if ( (name == "padding-left") || (name == "paddingLeft") ) {
+      this.box.paddingLeft = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "padding-right") || (name == "paddingRight") ) {
+      this.box.paddingRight = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "padding-top") || (name == "paddingTop") ) {
+      this.box.paddingTop = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "padding-bottom") || (name == "paddingBottom") ) {
+      this.box.paddingBottom = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "border-width") || (name == "borderWidth") ) {
+      this.box.borderWidth = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "border-color") || (name == "borderColor") ) {
+      this.box.borderColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "border-radius") || (name == "borderRadius") ) {
+      this.box.borderRadius = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "glow" ) {
+      const gv = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.glowIntensity = gv;
+      return;
+    }
+    if ( (name == "background-image") || (name == "backgroundImage") ) {
+      this.bgImageSet = true;
+      this.bgImagePath = value;
+      return;
+    }
+    if ( (name == "gradient-from") || (name == "gradientFrom") ) {
+      this.gradientFrom = EVGColor.parse(value);
+      this.gradientSet = true;
+      return;
+    }
+    if ( (name == "gradient-to") || (name == "gradientTo") ) {
+      this.gradientTo = EVGColor.parse(value);
+      this.gradientSet = true;
+      return;
+    }
+    if ( (name == "gradient-dir") || (name == "gradientDir") ) {
+      const dv = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      this.gradientDir = dv;
+      return;
+    }
+    if ( (name == "background-color") || (name == "backgroundColor") ) {
+      this.backgroundColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "background-gradient") || (name == "backgroundGradient") ) {
+      this.backgroundGradient = value;
+      this.gradient = EVGGradient.parse(value);
+      return;
+    }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        this.backgroundGradient = value;
+        this.gradient = EVGGradient.parse(value);
+      } else {
+        this.backgroundColor = EVGColor.parse(value);
+      }
+      return;
+    }
+    if ( name == "color" ) {
+      this.color = EVGColor.parse(value);
+      return;
+    }
+    if ( name == "emoji-color" ) {
+      this.emojiColor = EVGColor.parse(value);
+      return;
+    }
+    if ( name == "opacity" ) {
+      const val = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.opacity = val;
+      return;
+    }
+    if ( (name == "object-fit") || (name == "objectFit") ) {
+      this.objectFit = value;
+      return;
+    }
+    if ( (name == "image-offset-x") || (name == "imageOffsetX") ) {
+      this.imageOffsetX = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "image-offset-y") || (name == "imageOffsetY") ) {
+      this.imageOffsetY = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "direction" ) {
+      if ( (value == "rtl") || (value == "ltr") ) {
+        this.textDir = value;
+        return;
+      }
+      this.direction = value;
+      return;
+    }
+    if ( name == "align" ) {
+      this.align = value;
+      return;
+    }
+    if ( (name == "vertical-align") || (name == "verticalAlign") ) {
+      this.verticalAlign = value;
+      return;
+    }
+    if ( name == "inline" ) {
+      this.isInline = value == "true";
+      return;
+    }
+    if ( (name == "line-break") || (name == "lineBreak") ) {
+      this.lineBreak = value == "true";
+      return;
+    }
+    if ( name == "overflow" ) {
+      this.overflow = value;
+      return;
+    }
+    if ( name == "display" ) {
+      this.display = value;
+      return;
+    }
+    if ( (name == "flex-direction") || (name == "flexDirection") ) {
+      this.flexDirection = value;
+      return;
+    }
+    if ( (name == "flex-wrap") || (name == "flexWrap") ) {
+      this.flexWrap = value;
+      return;
+    }
+    if ( (name == "flex-shrink") || (name == "flexShrink") ) {
+      const sv = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(sv) != "undefined" ) {
+        this.flexShrink = sv;
+      }
+      return;
+    }
+    if ( (name == "flex-basis") || (name == "flexBasis") ) {
+      this.flexBasis = EVGUnit.parse(value);
+      return;
+    }
+    if ( name == "flex" ) {
+      this.setFlexShorthand(value);
+      return;
+    }
+    if ( name == "gap" ) {
+      this.gap = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "row-gap") || (name == "rowGap") ) {
+      this.rowGap = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "column-gap") || (name == "columnGap") ) {
+      this.columnGap = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "grid-template-columns") || (name == "gridTemplateColumns") ) {
+      this.gridTemplateColumns = value;
+      return;
+    }
+    if ( (name == "grid-template-rows") || (name == "gridTemplateRows") ) {
+      this.gridTemplateRows = value;
+      return;
+    }
+    if ( (name == "grid-template-areas") || (name == "gridTemplateAreas") ) {
+      this.gridTemplateAreas = value;
+      return;
+    }
+    if ( (name == "grid-auto-flow") || (name == "gridAutoFlow") ) {
+      this.gridAutoFlow = value;
+      return;
+    }
+    if ( (name == "full-bleed") || (name == "fullBleed") ) {
+      this.fullBleed = (value == "true") || (value == "1");
+      return;
+    }
+    if ( (name == "grid-area") || (name == "gridArea") ) {
+      this.gridArea = value;
+      return;
+    }
+    if ( (name == "grid-column") || (name == "gridColumn") ) {
+      this.gridColumn = value;
+      return;
+    }
+    if ( (name == "grid-row") || (name == "gridRow") ) {
+      this.gridRow = value;
+      return;
+    }
+    if ( (name == "justify-content") || (name == "justifyContent") ) {
+      this.justifyContent = value;
+      return;
+    }
+    if ( (name == "align-content") || (name == "alignContent") ) {
+      this.alignContent = value;
+      return;
+    }
+    if ( (name == "align-items") || (name == "alignItems") ) {
+      this.alignItems = value;
+      return;
+    }
+    if ( (name == "font-size") || (name == "fontSize") ) {
+      this.fontSize = EVGUnit.parse(value);
+      this.fontSizeInherited = false;
+      return;
+    }
+    if ( (name == "font-family") || (name == "fontFamily") ) {
+      this.fontFamily = value;
+      return;
+    }
+    if ( (name == "font-weight") || (name == "fontWeight") ) {
+      this.fontWeight = value;
+      return;
+    }
+    if ( (name == "text-align") || (name == "textAlign") ) {
+      this.textAlign = value;
+      return;
+    }
+    if ( (name == "line-height") || (name == "lineHeight") ) {
+      const val_1 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_1) != "undefined" ) {
+        this.lineHeight = val_1;
+      }
+      return;
+    }
+    if ( name == "rotate" ) {
+      const val_2 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.rotate = val_2;
+      return;
+    }
+    if ( name == "scale" ) {
+      const val_3 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.scale = val_3;
+      return;
+    }
+    if ( (name == "shadow-radius") || (name == "shadowRadius") ) {
+      this.shadowRadius = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "shadow-color") || (name == "shadowColor") ) {
+      this.shadowColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "shadow-offset-x") || (name == "shadowOffsetX") ) {
+      this.shadowOffsetX = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "shadow-offset-y") || (name == "shadowOffsetY") ) {
+      this.shadowOffsetY = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "clip-path") || (name == "clipPath") ) {
+      this.clipPath = value;
+      return;
+    }
+    if ( ((name == "d") || (name == "svgPath")) || (name == "path") ) {
+      this.svgPath = value;
+      return;
+    }
+    if ( name == "imageQuality" ) {
+      const val_4 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_4) != "undefined" ) {
+        this.imageQuality = val_4;
+      }
+      return;
+    }
+    if ( name == "maxImageSize" ) {
+      const val_5 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_5) != "undefined" ) {
+        this.maxImageSize = val_5;
+      }
+      return;
+    }
+    if ( (name == "d") || (name == "svgPath") ) {
+      this.svgPath = value;
+      return;
+    }
+    if ( (name == "svg") || (name == "svgSource") ) {
+      this.svgSource = value;
+      return;
+    }
+    if ( name == "viewBox" ) {
+      this.viewBox = value;
+      return;
+    }
+    if ( name == "fill" ) {
+      this.fillColor = EVGColor.parse(value);
+      return;
+    }
+    if ( name == "stroke" ) {
+      this.strokeColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "stroke-width") || (name == "strokeWidth") ) {
+      const val_6 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_6) != "undefined" ) {
+        this.strokeWidth = val_6;
+      }
+      return;
+    }
+    if ( (name == "stroke-dasharray") || (name == "strokeDasharray") ) {
+      this.strokeDashArray = value;
+      return;
+    }
+    if ( (name == "stroke-dashoffset") || (name == "strokeDashoffset") ) {
+      const dv_1 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(dv_1) != "undefined" ) {
+        this.strokeDashOffset = dv_1;
+      }
+      return;
+    }
+    if ( (name == "fill-rule") || (name == "fillRule") ) {
+      if ( value == "evenodd" ) {
+        this.fillRule = "evenodd";
+      } else {
+        this.fillRule = "nonzero";
+      }
+      return;
+    }
+  };
+  getCalculatedBounds () {
+    return (((((("(" + ((this.calculatedX.toString()))) + ", ") + ((this.calculatedY.toString()))) + ") ") + ((this.calculatedWidth.toString()))) + "x") + ((this.calculatedHeight.toString()));
+  };
+  toString () {
+    return ((((("<" + this.tagName) + " id=\"") + this.id) + "\" ") + this.getCalculatedBounds()) + ">";
+  };
+}
+EVGElement.createDiv = function() {
+  const el = new EVGElement();
+  el.tagName = "div";
+  el.elementType = 0;
+  return el;
+};
+EVGElement.createSpan = function() {
+  const el = new EVGElement();
+  el.tagName = "span";
+  el.elementType = 1;
+  return el;
+};
+EVGElement.createImg = function() {
+  const el = new EVGElement();
+  el.tagName = "img";
+  el.elementType = 2;
+  return el;
+};
+EVGElement.createPath = function() {
+  const el = new EVGElement();
+  el.tagName = "path";
+  el.elementType = 3;
+  return el;
+};
+EVGElement.toKebab = function(name) {
+  let out = "";
+  const __len = name.length;
+  let i = 0;
+  while (i < __len) {
+    const c = name.charCodeAt(i );
+    if ( (c >= 65) && (c <= 90) ) {
+      if ( i > 0 ) {
+        out = out + "-";
+      }
+      out = out + (String.fromCharCode((c + 32)));
+    } else {
+      out = out + (String.fromCharCode(c));
+    }
+    i = i + 1;
+  };
+  return out;
+};
+EVGElement.isPlainNumber = function(s) {
+  const __len = s.length;
+  if ( __len == 0 ) {
+    return false;
+  }
+  let digits = 0;
+  let i = 0;
+  while (i < __len) {
+    const c = s.charCodeAt(i );
+    const isDigit = (c >= 48) && (c <= 57);
+    if ( isDigit ) {
+      digits = digits + 1;
+    } else {
+      if ( ((c != 46) && (c != 45)) && (c != 43) ) {
+        return false;
+      }
+    }
+    i = i + 1;
+  };
+  return digits > 0;
+};
+EVGElement.splitSpaces = function(s) {
+  let out = [];
+  const __len = s.length;
+  let start = 0;
+  let inTok = false;
+  let i = 0;
+  while (i < __len) {
+    const c = s.charCodeAt(i );
+    const isSpace = ((c == 32) || (c == 9)) || ((c == 10) || (c == 13));
+    if ( isSpace ) {
+      if ( inTok ) {
+        out.push(s.substring(start, i ));
+        inTok = false;
+      }
+    } else {
+      if ( inTok == false ) {
+        start = i;
+        inTok = true;
+      }
+    }
+    i = i + 1;
+  };
+  if ( inTok ) {
+    out.push(s.substring(start, __len ));
+  }
+  return out;
+};
+class BufferChunk  {
+  constructor(size) {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.used = 0;
+    this.capacity = 0;
+    this.data = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.capacity = size;
+    this.used = 0;
+  }
+  remaining () {
+    return this.capacity - this.used;
+  };
+  isFull () {
+    return this.used >= this.capacity;
+  };
+}
+class GrowableBuffer  {
+  constructor() {
+    this.firstChunk = new BufferChunk(4096);
+    this.currentChunk = new BufferChunk(4096);
+    this.chunkSize = 4096;
+    this.totalSize = 0;
+    const chunk = new BufferChunk(this.chunkSize);
+    this.firstChunk = chunk;
+    this.currentChunk = chunk;
+  }
+  setChunkSize (size) {
+    this.chunkSize = size;
+  };
+  allocateNewChunk () {
+    const newChunk = new BufferChunk(this.chunkSize);
+    this.currentChunk.next = newChunk;
+    this.currentChunk = newChunk;
+  };
+  writeByte (b) {
+    if ( this.currentChunk.isFull() ) {
+      this.allocateNewChunk();
+    }
+    const pos = this.currentChunk.used;
+    this.currentChunk.data._view.setUint8(pos, b);
+    this.currentChunk.used = pos + 1;
+    this.totalSize = this.totalSize + 1;
+  };
+  writeBytes (src, srcOffset, length) {
+    let i = 0;
+    while (i < length) {
+      const b = src._view.getUint8((srcOffset + i));
+      this.writeByte(b);
+      i = i + 1;
+    };
+  };
+  writeBuffer (src) {
+    const __len = src.byteLength;
+    this.writeBytes(src, 0, __len);
+  };
+  writeString (s) {
+    const __len = s.length;
+    let i = 0;
+    while (i < __len) {
+      const ch = s.charCodeAt(i );
+      this.writeByte(ch);
+      i = i + 1;
+    };
+  };
+  writeInt16BE (value) {
+    const highD = value / 256;
+    const high = Math.floor( highD);
+    const low = value - (high * 256);
+    this.writeByte(high);
+    this.writeByte(low);
+  };
+  writeInt32BE (value) {
+    const b1D = value / 16777216;
+    const b1 = Math.floor( b1D);
+    const rem1 = value - (b1 * 16777216);
+    const b2D = rem1 / 65536;
+    const b2 = Math.floor( b2D);
+    const rem2 = rem1 - (b2 * 65536);
+    const b3D = rem2 / 256;
+    const b3 = Math.floor( b3D);
+    const b4 = rem2 - (b3 * 256);
+    this.writeByte(b1);
+    this.writeByte(b2);
+    this.writeByte(b3);
+    this.writeByte(b4);
+  };
+  size () {
+    return this.totalSize;
+  };
+  toBuffer () {
+    const allocSize = this.totalSize;
+    let result = (function(){ var b = new ArrayBuffer(allocSize); b._view = new DataView(b); return b; })();
+    let pos = 0;
+    let chunk = this.firstChunk;
+    let done = false;
+    while (done == false) {
+      const chunkUsed = chunk.used;
+      let i = 0;
+      while (i < chunkUsed) {
+        const b = chunk.data._view.getUint8(i);
+        result._view.setUint8(pos, b);
+        pos = pos + 1;
+        i = i + 1;
+      };
+      if ( typeof(chunk.next) === "undefined" ) {
+        done = true;
+      } else {
+        chunk = chunk.next;
+      }
+    };
+    return result;
+  };
+  toString () {
+    let result = "";
+    let chunk = this.firstChunk;
+    let done = false;
+    while (done == false) {
+      const chunkUsed = chunk.used;
+      let i = 0;
+      while (i < chunkUsed) {
+        const b = chunk.data._view.getUint8(i);
+        result = result + (String.fromCharCode(b));
+        i = i + 1;
+      };
+      if ( typeof(chunk.next) === "undefined" ) {
+        done = true;
+      } else {
+        chunk = chunk.next;
+      }
+    };
+    return result;
+  };
+  clear () {
+    const chunk = new BufferChunk(this.chunkSize);
+    this.firstChunk = chunk;
+    this.currentChunk = chunk;
+    this.totalSize = 0;
+  };
+}
+class Color  {
+  constructor() {
+    this.r = 0;
+    this.g = 0;
+    this.b = 0;
+    this.a = 255;
+  }
+  setRGB (red, green, blue) {
+    this.r = red;
+    this.g = green;
+    this.b = blue;
+    this.a = 255;
+  };
+  setRGBA (red, green, blue, alpha) {
+    this.r = red;
+    this.g = green;
+    this.b = blue;
+    this.a = alpha;
+  };
+  clamp (val) {
+    if ( val < 0 ) {
+      return 0;
+    }
+    if ( val > 255 ) {
+      return 255;
+    }
+    return val;
+  };
+  set (red, green, blue) {
+    this.r = this.clamp(red);
+    this.g = this.clamp(green);
+    this.b = this.clamp(blue);
+  };
+  grayscale () {
+    return ((((this.r * 77) + (this.g * 150)) + (this.b * 29)) >> 8);
+  };
+  toGrayscale () {
+    const gray = this.grayscale();
+    this.r = gray;
+    this.g = gray;
+    this.b = gray;
+  };
+  invert () {
+    this.r = 255 - this.r;
+    this.g = 255 - this.g;
+    this.b = 255 - this.b;
+  };
+  adjustBrightness (amount) {
+    this.r = this.clamp((this.r + amount));
+    this.g = this.clamp((this.g + amount));
+    this.b = this.clamp((this.b + amount));
+  };
+}
+class ImageBuffer  {
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.pixels = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+  }
+  init (w, h) {
+    this.width = w;
+    this.height = h;
+    const size = (w * h) * 4;
+    this.pixels = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.fill(255, 255, 255, 255);
+  };
+  initClear (w, h) {
+    this.width = w;
+    this.height = h;
+    this.pixels = (function(){ var b = new ArrayBuffer(((w * h) * 4)); b._view = new DataView(b); return b; })();
+  };
+  fillTransparent () {
+    const size = (this.width * this.height) * 4;
+    (function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(this.pixels,0,0,size);
+  };
+  getPixelOffset (x, y) {
+    return ((y * this.width) + x) * 4;
+  };
+  isValidCoord (x, y) {
+    if ( x < 0 ) {
+      return false;
+    }
+    if ( y < 0 ) {
+      return false;
+    }
+    if ( x >= this.width ) {
+      return false;
+    }
+    if ( y >= this.height ) {
+      return false;
+    }
+    return true;
+  };
+  getPixel (x, y) {
+    const c = new Color();
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      c.r = this.pixels._view.getUint8(off);
+      c.g = this.pixels._view.getUint8((off + 1));
+      c.b = this.pixels._view.getUint8((off + 2));
+      c.a = this.pixels._view.getUint8((off + 3));
+    }
+    return c;
+  };
+  setPixel (x, y, c) {
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      this.pixels._view.setUint8(off, c.r);
+      this.pixels._view.setUint8(off + 1, c.g);
+      this.pixels._view.setUint8(off + 2, c.b);
+      this.pixels._view.setUint8(off + 3, c.a);
+    }
+  };
+  setPixelRGB (x, y, r, g, b) {
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      this.pixels._view.setUint8(off, r);
+      this.pixels._view.setUint8(off + 1, g);
+      this.pixels._view.setUint8(off + 2, b);
+      this.pixels._view.setUint8(off + 3, 255);
+    }
+  };
+  setPixelRGBA (x, y, r, g, b, a) {
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      this.pixels._view.setUint8(off, r);
+      this.pixels._view.setUint8(off + 1, g);
+      this.pixels._view.setUint8(off + 2, b);
+      this.pixels._view.setUint8(off + 3, a);
+    }
+  };
+  getRawBuffer () {
+    return this.pixels;
+  };
+  fill (r, g, b, a) {
+    const size = (this.width * this.height) * 4;
+    let i = 0;
+    while (i < size) {
+      this.pixels._view.setUint8(i, r);
+      this.pixels._view.setUint8(i + 1, g);
+      this.pixels._view.setUint8(i + 2, b);
+      this.pixels._view.setUint8(i + 3, a);
+      i = i + 4;
+    };
+  };
+  fillRect (x, y, w, h, c) {
+    const endX = x + w;
+    const endY = y + h;
+    let py = y;
+    while (py < endY) {
+      let px = x;
+      while (px < endX) {
+        this.setPixel(px, py, c);
+        px = px + 1;
+      };
+      py = py + 1;
+    };
+  };
+  invert () {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      this.pixels._view.setUint8(off, 255 - r);
+      this.pixels._view.setUint8(off + 1, 255 - g);
+      this.pixels._view.setUint8(off + 2, 255 - b);
+      i = i + 1;
+    };
+  };
+  grayscale () {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      const gray = ((((r * 77) + (g * 150)) + (b * 29)) >> 8);
+      this.pixels._view.setUint8(off, gray);
+      this.pixels._view.setUint8(off + 1, gray);
+      this.pixels._view.setUint8(off + 2, gray);
+      i = i + 1;
+    };
+  };
+  adjustBrightness (amount) {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      let r = this.pixels._view.getUint8(off);
+      let g = this.pixels._view.getUint8((off + 1));
+      let b = this.pixels._view.getUint8((off + 2));
+      r = r + amount;
+      g = g + amount;
+      b = b + amount;
+      if ( r < 0 ) {
+        r = 0;
+      }
+      if ( r > 255 ) {
+        r = 255;
+      }
+      if ( g < 0 ) {
+        g = 0;
+      }
+      if ( g > 255 ) {
+        g = 255;
+      }
+      if ( b < 0 ) {
+        b = 0;
+      }
+      if ( b > 255 ) {
+        b = 255;
+      }
+      this.pixels._view.setUint8(off, r);
+      this.pixels._view.setUint8(off + 1, g);
+      this.pixels._view.setUint8(off + 2, b);
+      i = i + 1;
+    };
+  };
+  threshold (level) {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      const gray = ((((r * 77) + (g * 150)) + (b * 29)) >> 8);
+      let val = 0;
+      if ( gray >= level ) {
+        val = 255;
+      }
+      this.pixels._view.setUint8(off, val);
+      this.pixels._view.setUint8(off + 1, val);
+      this.pixels._view.setUint8(off + 2, val);
+      i = i + 1;
+    };
+  };
+  sepia () {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      let newR = ((((r * 101) + (g * 197)) + (b * 48)) >> 8);
+      let newG = ((((r * 89) + (g * 175)) + (b * 43)) >> 8);
+      let newB = ((((r * 70) + (g * 137)) + (b * 33)) >> 8);
+      if ( newR > 255 ) {
+        newR = 255;
+      }
+      if ( newG > 255 ) {
+        newG = 255;
+      }
+      if ( newB > 255 ) {
+        newB = 255;
+      }
+      this.pixels._view.setUint8(off, newR);
+      this.pixels._view.setUint8(off + 1, newG);
+      this.pixels._view.setUint8(off + 2, newB);
+      i = i + 1;
+    };
+  };
+  flipHorizontal () {
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      const halfW = (this.width >> 1);
+      while (x < halfW) {
+        const x2 = (this.width - 1) - x;
+        const off1 = this.getPixelOffset(x, y);
+        const off2 = this.getPixelOffset(x2, y);
+        const r1 = this.pixels._view.getUint8(off1);
+        const g1 = this.pixels._view.getUint8((off1 + 1));
+        const b1 = this.pixels._view.getUint8((off1 + 2));
+        const a1 = this.pixels._view.getUint8((off1 + 3));
+        const r2 = this.pixels._view.getUint8(off2);
+        const g2 = this.pixels._view.getUint8((off2 + 1));
+        const b2 = this.pixels._view.getUint8((off2 + 2));
+        const a2 = this.pixels._view.getUint8((off2 + 3));
+        this.pixels._view.setUint8(off1, r2);
+        this.pixels._view.setUint8(off1 + 1, g2);
+        this.pixels._view.setUint8(off1 + 2, b2);
+        this.pixels._view.setUint8(off1 + 3, a2);
+        this.pixels._view.setUint8(off2, r1);
+        this.pixels._view.setUint8(off2 + 1, g1);
+        this.pixels._view.setUint8(off2 + 2, b1);
+        this.pixels._view.setUint8(off2 + 3, a1);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
+  flipVertical () {
+    let y = 0;
+    const halfH = (this.height >> 1);
+    while (y < halfH) {
+      const y2 = (this.height - 1) - y;
+      let x = 0;
+      while (x < this.width) {
+        const off1 = this.getPixelOffset(x, y);
+        const off2 = this.getPixelOffset(x, y2);
+        const r1 = this.pixels._view.getUint8(off1);
+        const g1 = this.pixels._view.getUint8((off1 + 1));
+        const b1 = this.pixels._view.getUint8((off1 + 2));
+        const a1 = this.pixels._view.getUint8((off1 + 3));
+        const r2 = this.pixels._view.getUint8(off2);
+        const g2 = this.pixels._view.getUint8((off2 + 1));
+        const b2 = this.pixels._view.getUint8((off2 + 2));
+        const a2 = this.pixels._view.getUint8((off2 + 3));
+        this.pixels._view.setUint8(off1, r2);
+        this.pixels._view.setUint8(off1 + 1, g2);
+        this.pixels._view.setUint8(off1 + 2, b2);
+        this.pixels._view.setUint8(off1 + 3, a2);
+        this.pixels._view.setUint8(off2, r1);
+        this.pixels._view.setUint8(off2 + 1, g1);
+        this.pixels._view.setUint8(off2 + 2, b1);
+        this.pixels._view.setUint8(off2 + 3, a1);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
+  drawLine (x1, y1, x2, y2, c) {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    if ( dx < 0 ) {
+      dx = 0 - dx;
+    }
+    if ( dy < 0 ) {
+      dy = 0 - dy;
+    }
+    let sx = 1;
+    if ( x1 > x2 ) {
+      sx = -1;
+    }
+    let sy = 1;
+    if ( y1 > y2 ) {
+      sy = -1;
+    }
+    let err = dx - dy;
+    let x = x1;
+    let y = y1;
+    let done = false;
+    while (done == false) {
+      this.setPixel(x, y, c);
+      if ( (x == x2) && (y == y2) ) {
+        done = true;
+      } else {
+        const e2 = err * 2;
+        if ( e2 > (0 - dy) ) {
+          err = err - dy;
+          x = x + sx;
+        }
+        if ( e2 < dx ) {
+          err = err + dx;
+          y = y + sy;
+        }
+      }
+    };
+  };
+  drawRect (x, y, w, h, c) {
+    this.drawLine(x, y, (x + w) - 1, y, c);
+    this.drawLine((x + w) - 1, y, (x + w) - 1, (y + h) - 1, c);
+    this.drawLine((x + w) - 1, (y + h) - 1, x, (y + h) - 1, c);
+    this.drawLine(x, (y + h) - 1, x, y, c);
+  };
+  scale (factor) {
+    const newW = this.width * factor;
+    const newH = this.height * factor;
+    return this.scaleToSize(newW, newH);
+  };
+  scaleToSize (newW, newH) {
+    const result = new ImageBuffer();
+    result.init(newW, newH);
+    const scaleX = (this.width) / (newW);
+    const scaleY = (this.height) / (newH);
+    let destY = 0;
+    while (destY < newH) {
+      const srcYf = (destY) * scaleY;
+      const srcY0 = Math.floor( srcYf);
+      let srcY1 = srcY0 + 1;
+      if ( srcY1 >= this.height ) {
+        srcY1 = this.height - 1;
+      }
+      const fy = srcYf - (srcY0);
+      let destX = 0;
+      while (destX < newW) {
+        const srcXf = (destX) * scaleX;
+        const srcX0 = Math.floor( srcXf);
+        let srcX1 = srcX0 + 1;
+        if ( srcX1 >= this.width ) {
+          srcX1 = this.width - 1;
+        }
+        const fx = srcXf - (srcX0);
+        const off00 = ((srcY0 * this.width) + srcX0) * 4;
+        const off01 = ((srcY0 * this.width) + srcX1) * 4;
+        const off10 = ((srcY1 * this.width) + srcX0) * 4;
+        const off11 = ((srcY1 * this.width) + srcX1) * 4;
+        const r = this.bilinear((this.pixels._view.getUint8(off00)), (this.pixels._view.getUint8(off01)), (this.pixels._view.getUint8(off10)), (this.pixels._view.getUint8(off11)), fx, fy);
+        const g = this.bilinear((this.pixels._view.getUint8((off00 + 1))), (this.pixels._view.getUint8((off01 + 1))), (this.pixels._view.getUint8((off10 + 1))), (this.pixels._view.getUint8((off11 + 1))), fx, fy);
+        const b = this.bilinear((this.pixels._view.getUint8((off00 + 2))), (this.pixels._view.getUint8((off01 + 2))), (this.pixels._view.getUint8((off10 + 2))), (this.pixels._view.getUint8((off11 + 2))), fx, fy);
+        const a = this.bilinear((this.pixels._view.getUint8((off00 + 3))), (this.pixels._view.getUint8((off01 + 3))), (this.pixels._view.getUint8((off10 + 3))), (this.pixels._view.getUint8((off11 + 3))), fx, fy);
+        const destOff = ((destY * newW) + destX) * 4;
+        result.pixels._view.setUint8(destOff, r);
+        result.pixels._view.setUint8(destOff + 1, g);
+        result.pixels._view.setUint8(destOff + 2, b);
+        result.pixels._view.setUint8(destOff + 3, a);
+        destX = destX + 1;
+      };
+      destY = destY + 1;
+    };
+    return result;
+  };
+  bilinear (v00, v01, v10, v11, fx, fy) {
+    const top = ((v00) * (1.0 - fx)) + ((v01) * fx);
+    const bottom = ((v10) * (1.0 - fx)) + ((v11) * fx);
+    const result = (top * (1.0 - fy)) + (bottom * fy);
+    return Math.floor( result);
+  };
+  rotate90CW () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = (this.height - 1) - y;
+        const newY = x;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.height) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  rotate180 () {
+    const result = new ImageBuffer();
+    result.init(this.width, this.height);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = (this.width - 1) - x;
+        const newY = (this.height - 1) - y;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.width) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  rotate270CW () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = y;
+        const newY = (this.width - 1) - x;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.height) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  transpose () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((x * this.height) + y) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  transverse () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = (this.height - 1) - y;
+        const newY = (this.width - 1) - x;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.height) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  applyExifOrientation (orientation) {
+    if ( orientation == 1 ) {
+      return this.scale(1);
+    }
+    if ( orientation == 2 ) {
+      const result = new ImageBuffer();
+      result.init(this.width, this.height);
+      let y = 0;
+      while (y < this.height) {
+        let x = 0;
+        while (x < this.width) {
+          const srcOff = ((y * this.width) + x) * 4;
+          const destOff = ((y * this.width) + ((this.width - 1) - x)) * 4;
+          result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+          result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+          result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+          result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+          x = x + 1;
+        };
+        y = y + 1;
+      };
+      return result;
+    }
+    if ( orientation == 3 ) {
+      return this.rotate180();
+    }
+    if ( orientation == 4 ) {
+      const result_1 = new ImageBuffer();
+      result_1.init(this.width, this.height);
+      let y_1 = 0;
+      while (y_1 < this.height) {
+        let x_1 = 0;
+        while (x_1 < this.width) {
+          const srcOff_1 = ((y_1 * this.width) + x_1) * 4;
+          const destOff_1 = ((((this.height - 1) - y_1) * this.width) + x_1) * 4;
+          result_1.pixels._view.setUint8(destOff_1, this.pixels._view.getUint8(srcOff_1));
+          result_1.pixels._view.setUint8(destOff_1 + 1, this.pixels._view.getUint8((srcOff_1 + 1)));
+          result_1.pixels._view.setUint8(destOff_1 + 2, this.pixels._view.getUint8((srcOff_1 + 2)));
+          result_1.pixels._view.setUint8(destOff_1 + 3, this.pixels._view.getUint8((srcOff_1 + 3)));
+          x_1 = x_1 + 1;
+        };
+        y_1 = y_1 + 1;
+      };
+      return result_1;
+    }
+    if ( orientation == 5 ) {
+      return this.transpose();
+    }
+    if ( orientation == 6 ) {
+      return this.rotate90CW();
+    }
+    if ( orientation == 7 ) {
+      return this.transverse();
+    }
+    if ( orientation == 8 ) {
+      return this.rotate270CW();
+    }
+    return this.scale(1);
+  };
+}
+class EvgTracePoint  {
+  constructor() {
+    this.x = 0.0;
+    this.y = 0.0;
+  }
+}
+EvgTracePoint.of = function(x, y) {
+  const p = new EvgTracePoint();
+  p.x = x;
+  p.y = y;
+  return p;
+};
+EvgTracePoint.ofInt = function(x, y) {
+  const p = new EvgTracePoint();
+  p.x = x;
+  p.y = y;
+  return p;
+};
+class EvgTraceRing  {
+  constructor() {
+    this.pts = [];
+    this.area = 0;
+    this.sign = "+";
+    this.minX = 0;
+    this.minY = 0;
+    this.maxX = 0;
+    this.maxY = 0;
+    let p_1 = [];
+    this.pts = p_1;
+  }
+  len () {
+    return this.pts.length;
+  };
+}
+class EvgTraceOptions  {
+  constructor() {
+    this.turdsize = 2;
+    this.alphamax = 1.0;
+    this.turnpolicy = "minority";
+    this.optcurve = true;
+    this.opttolerance = 0.2;
+    this.threshold = 128;
+    this.blackOnWhite = true;
+  }
+}
+EvgTraceOptions.defaults = function() {
+  return new EvgTraceOptions();
+};
+class EvgBinaryBitmap  {
+  constructor() {
+    this.w = 0;
+    this.h = 0;
+    this.data = [];
+    let d = [];
+    this.data = d;
+  }
+  size () {
+    return this.data.length;
+  };
+  at (x, y) {
+    if ( x < 0 ) {
+      return false;
+    }
+    if ( y < 0 ) {
+      return false;
+    }
+    if ( x >= this.w ) {
+      return false;
+    }
+    if ( y >= this.h ) {
+      return false;
+    }
+    const v = this.data[((y * this.w) + x)];
+    return v == 1;
+  };
+  setBit (x, y, on) {
+    if ( x < 0 ) {
+      return;
+    }
+    if ( y < 0 ) {
+      return;
+    }
+    if ( x >= this.w ) {
+      return;
+    }
+    if ( y >= this.h ) {
+      return;
+    }
+    if ( on ) {
+      this.data[(y * this.w) + x] = 1;
+    } else {
+      this.data[(y * this.w) + x] = 0;
+    }
+  };
+  flip (x, y) {
+    if ( (this).at(x, y) ) {
+      this.setBit(x, y, false);
+    } else {
+      this.setBit(x, y, true);
+    }
+  };
+  copy () {
+    const bm = new EvgBinaryBitmap();
+    bm.w = this.w;
+    bm.h = this.h;
+    let d = [];
+    const n = this.data.length;
+    let i = 0;
+    while (i < n) {
+      d.push(this.data[i]);
+      i = i + 1;
+    };
+    bm.data = d;
+    return bm;
+  };
+  findNext (start) {
+    const n = this.data.length;
+    let i = start;
+    while (i < n) {
+      if ( (this.data[i]) == 1 ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+}
+EvgBinaryBitmap.create = function(w, h) {
+  const bm = new EvgBinaryBitmap();
+  bm.w = w;
+  bm.h = h;
+  let d = [];
+  const n = w * h;
+  let i = 0;
+  while (i < n) {
+    d.push(0);
+    i = i + 1;
+  };
+  bm.data = d;
+  return bm;
+};
+class EvgBitmapTracer  {
+  constructor() {
+    this.rings = [];
+    this.commands = [];
+    this.pathData = "";
+    this.width = 0;
+    this.height = 0;
+    this.options = EvgTraceOptions.defaults();
+    this.bitmap = EvgBinaryBitmap.create(0, 0);
+    let r = [];
+    this.rings = r;
+    let c_1 = [];
+    this.commands = c_1;
+  }
+  trace () {
+    let emptyR = [];
+    this.rings = emptyR;
+    let emptyC = [];
+    this.commands = emptyC;
+    this.pathData = "";
+    this.decompose();
+    this.emitCommands();
+    this.pathData = VectorShapes.asPathData(this.commands);
+  };
+  getCommands () {
+    return this.commands;
+  };
+  getPathData () {
+    return this.pathData;
+  };
+  ringCount () {
+    return this.rings.length;
+  };
+  commandCount () {
+    return this.commands.length;
+  };
+  toPathBuilder () {
+    const b = new PathBuilder();
+    b.addCommands(this.commands);
+    return b;
+  };
+  toEVGElement () {
+    const el = EVGElement.createPath();
+    el.svgPath = this.pathData;
+    el.fillRule = "evenodd";
+    el.viewBox = (("0 0 " + ((this.width.toString()))) + " ") + ((this.height.toString()));
+    el.fillColor = EVGColor.black();
+    el.width = EVGUnit.px((this.width));
+    el.height = EVGUnit.px((this.height));
+    return el;
+  };
+  toSVG () {
+    const d = this.pathData;
+    let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" ";
+    svg = ((svg + "width=\"") + ((this.width.toString()))) + "\" ";
+    svg = ((svg + "height=\"") + ((this.height.toString()))) + "\" ";
+    svg = ((((svg + "viewBox=\"0 0 ") + ((this.width.toString()))) + " ") + ((this.height.toString()))) + "\">";
+    svg = ((svg + "<path fill=\"#000\" fill-rule=\"evenodd\" d=\"") + d) + "\"/>";
+    svg = svg + "</svg>";
+    return svg;
+  };
+  decompose () {
+    const work = this.bitmap.copy();
+    let start = 0;
+    while (start >= 0) {
+      const idx = work.findNext(start);
+      if ( idx < 0 ) {
+        start = 0 - 1;
+      } else {
+        const y0 = ((idx / work.w) | 0);
+        const x0 = idx - (y0 * work.w);
+        const ring = this.findPath(work, x0, y0);
+        this.xorPath(work, ring);
+        const a = EvgBitmapTracer.absI(ring.area);
+        if ( a > this.options.turdsize ) {
+          this.rings.push(ring);
+        }
+        start = idx;
+      }
+    };
+  };
+  majorityAt (bm, x, y) {
+    let i = 2;
+    while (i < 5) {
+      let ct = 0;
+      let a = (0 - i) + 1;
+      while (a <= (i - 1)) {
+        if ( (bm).at((x + a), ((y + i) - 1)) ) {
+          ct = ct + 1;
+        } else {
+          ct = ct - 1;
+        }
+        if ( (bm).at(((x + i) - 1), ((y + a) - 1)) ) {
+          ct = ct + 1;
+        } else {
+          ct = ct - 1;
+        }
+        if ( (bm).at(((x + a) - 1), (y - i)) ) {
+          ct = ct + 1;
+        } else {
+          ct = ct - 1;
+        }
+        if ( (bm).at((x - i), (y + a)) ) {
+          ct = ct + 1;
+        } else {
+          ct = ct - 1;
+        }
+        a = a + 1;
+      };
+      if ( ct > 0 ) {
+        return true;
+      }
+      if ( ct < 0 ) {
+        return false;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  shouldTurnRight (bm, path, x, y) {
+    const pol = this.options.turnpolicy;
+    if ( pol == "right" ) {
+      return true;
+    }
+    if ( pol == "left" ) {
+      return false;
+    }
+    if ( pol == "black" ) {
+      return path.sign == "+";
+    }
+    if ( pol == "white" ) {
+      return path.sign == "-";
+    }
+    if ( pol == "majority" ) {
+      return this.majorityAt(bm, x, y);
+    }
+    const maj = this.majorityAt(bm, x, y);
+    return maj == false;
+  };
+  findPath (bm, x0, y0) {
+    const path = new EvgTraceRing();
+    path.minX = x0;
+    path.maxX = x0;
+    path.minY = y0;
+    path.maxY = y0;
+    if ( (this.bitmap).at(x0, y0) ) {
+      path.sign = "+";
+    } else {
+      path.sign = "-";
+    }
+    let x = x0;
+    let y = y0;
+    let dirx = 0;
+    let diry = 1;
+    let done = false;
+    let guard = 0;
+    let limit = (bm.w * bm.h) * 8;
+    if ( limit < 64 ) {
+      limit = 64;
+    }
+    while (done == false) {
+      if ( guard >= limit ) {
+        done = true;
+      } else {
+        path.pts.push(EvgTracePoint.ofInt(x, y));
+        if ( x > path.maxX ) {
+          path.maxX = x;
+        }
+        if ( x < path.minX ) {
+          path.minX = x;
+        }
+        if ( y > path.maxY ) {
+          path.maxY = y;
+        }
+        if ( y < path.minY ) {
+          path.minY = y;
+        }
+        x = x + dirx;
+        y = y + diry;
+        path.area = path.area - (x * diry);
+        if ( (x == x0) && (y == y0) ) {
+          done = true;
+        } else {
+          const lx = EvgBitmapTracer.idivTowardZero(((dirx + diry) - 1), 2);
+          const ly = EvgBitmapTracer.idivTowardZero(((diry - dirx) - 1), 2);
+          const rx = EvgBitmapTracer.idivTowardZero(((dirx - diry) - 1), 2);
+          const ry = EvgBitmapTracer.idivTowardZero(((diry + dirx) - 1), 2);
+          const l = (bm).at((x + lx), (y + ly));
+          const r = (bm).at((x + rx), (y + ry));
+          if ( r ) {
+            if ( l == false ) {
+              if ( this.shouldTurnRight(bm, path, x, y) ) {
+                const tmp = dirx;
+                dirx = 0 - diry;
+                diry = tmp;
+              } else {
+                const tmp2 = dirx;
+                dirx = diry;
+                diry = 0 - tmp2;
+              }
+            } else {
+              const tmp3 = dirx;
+              dirx = 0 - diry;
+              diry = tmp3;
+            }
+          } else {
+            if ( l == false ) {
+              const tmp4 = dirx;
+              dirx = diry;
+              diry = 0 - tmp4;
+            }
+          }
+        }
+        guard = guard + 1;
+      }
+    };
+    return path;
+  };
+  xorPath (bm, path) {
+    const n = path.len();
+    if ( n < 2 ) {
+      return;
+    }
+    const p0 = path.pts[0];
+    let y1 = Math.floor( p0.y);
+    let i = 1;
+    while (i < n) {
+      const p = path.pts[i];
+      const x = Math.floor( p.x);
+      const y = Math.floor( p.y);
+      if ( y != y1 ) {
+        let minY = y1;
+        if ( y < y1 ) {
+          minY = y;
+        }
+        let j = x;
+        while (j < path.maxX) {
+          bm.flip(j, minY);
+          j = j + 1;
+        };
+        y1 = y;
+      }
+      i = i + 1;
+    };
+  };
+  emitCommands () {
+    let out = [];
+    let ri = 0;
+    while (ri < (this.rings.length)) {
+      const ring = this.rings[ri];
+      const poly = this.simplifyRing(ring);
+      const n = poly.length;
+      if ( n >= 3 ) {
+        if ( this.options.optcurve ) {
+          this.appendSmooth(out, poly);
+        } else {
+          this.appendPolygon(out, poly);
+        }
+      }
+      ri = ri + 1;
+    };
+    this.commands = out;
+  };
+  appendPolygon (out, poly) {
+    const n = poly.length;
+    const p0 = poly[0];
+    out.push(VectorShapes.moveTo(p0.x, p0.y));
+    let i = 1;
+    while (i < n) {
+      const p = poly[i];
+      out.push(VectorShapes.lineTo(p.x, p.y));
+      i = i + 1;
+    };
+    out.push(VectorShapes.closePath());
+  };
+  simplifyRing (ring) {
+    const src = ring.pts;
+    const n = src.length;
+    if ( n < 3 ) {
+      return src;
+    }
+    let cleaned = [];
+    let i = 0;
+    while (i < n) {
+      const p = src[i];
+      if ( (cleaned.length) == 0 ) {
+        cleaned.push(p);
+      } else {
+        const prev = cleaned[((cleaned.length) - 1)];
+        if ( (prev.x == p.x) && (prev.y == p.y) ) {
+        } else {
+          cleaned.push(p);
+        }
+      }
+      i = i + 1;
+    };
+    let cn = cleaned.length;
+    if ( cn >= 2 ) {
+      const first = cleaned[0];
+      const last = cleaned[(cn - 1)];
+      if ( (first.x == last.x) && (first.y == last.y) ) {
+        let trimmed = [];
+        let k = 0;
+        while (k < (cn - 1)) {
+          trimmed.push(cleaned[k]);
+          k = k + 1;
+        };
+        cleaned = trimmed;
+        cn = cleaned.length;
+      }
+    }
+    if ( cn < 3 ) {
+      return cleaned;
+    }
+    let eps = this.options.opttolerance;
+    if ( eps < 0.0 ) {
+      eps = 0.0;
+    }
+    let keep = [];
+    i = 0;
+    while (i < cn) {
+      keep.push(0);
+      i = i + 1;
+    };
+    keep[0] = 1;
+    keep[cn - 1] = 1;
+    this.rdpMark(cleaned, keep, 0, cn - 1, eps);
+    this.rdpMarkClosed(cleaned, keep, eps);
+    let out = [];
+    i = 0;
+    while (i < cn) {
+      if ( (keep[i]) == 1 ) {
+        out.push(cleaned[i]);
+      }
+      i = i + 1;
+    };
+    if ( (out.length) < 3 ) {
+      return cleaned;
+    }
+    return out;
+  };
+  rdpMark (pts, keep, i0, i1, eps) {
+    if ( (i1 - i0) < 2 ) {
+      return;
+    }
+    const a = pts[i0];
+    const b = pts[i1];
+    let bestD = 0.0 - 1.0;
+    let bestI = i0;
+    let i = i0 + 1;
+    while (i < i1) {
+      const p = pts[i];
+      const d = this.perpDist(p, a, b);
+      if ( d > bestD ) {
+        bestD = d;
+        bestI = i;
+      }
+      i = i + 1;
+    };
+    if ( bestD > eps ) {
+      keep[bestI] = 1;
+      this.rdpMark(pts, keep, i0, bestI, eps);
+      this.rdpMark(pts, keep, bestI, i1, eps);
+    }
+  };
+  rdpMarkClosed (pts, keep, eps) {
+    const n = pts.length;
+    if ( n < 3 ) {
+      return;
+    }
+    const a = pts[(n - 1)];
+    const b = pts[0];
+    let bestD = 0.0 - 1.0;
+    let bestI = 0;
+    let i = 1;
+    while (i < (n - 1)) {
+      const p = pts[i];
+      const d = this.perpDist(p, a, b);
+      if ( d > bestD ) {
+        bestD = d;
+        bestI = i;
+      }
+      i = i + 1;
+    };
+    if ( bestD > eps ) {
+      keep[bestI] = 1;
+      this.rdpMark(pts, keep, 0, bestI, eps);
+      this.rdpMark(pts, keep, bestI, n - 1, eps);
+    }
+  };
+  perpDist (p, a, b) {
+    const vx = b.x - a.x;
+    const vy = b.y - a.y;
+    const len2 = (vx * vx) + (vy * vy);
+    if ( len2 <= 1e-10 ) {
+      const dx = p.x - a.x;
+      const dy = p.y - a.y;
+      return Math.sqrt(((dx * dx) + (dy * dy)));
+    }
+    const t = (((p.x - a.x) * vx) + ((p.y - a.y) * vy)) / len2;
+    const qx = a.x + (vx * t);
+    const qy = a.y + (vy * t);
+    const dx2 = p.x - qx;
+    const dy2 = p.y - qy;
+    return Math.sqrt(((dx2 * dx2) + (dy2 * dy2)));
+  };
+  modI (a, n) {
+    let r = a - ((((a / n) | 0)) * n);
+    if ( r < 0 ) {
+      r = r + n;
+    }
+    return r;
+  };
+  interval (lambda, a, b) {
+    const x = (a.x * (1.0 - lambda)) + (b.x * lambda);
+    const y = (a.y * (1.0 - lambda)) + (b.y * lambda);
+    return EvgTracePoint.of(x, y);
+  };
+  dpara (p0, p1, p2) {
+    const x1 = p1.x - p0.x;
+    const y1 = p1.y - p0.y;
+    const x2 = p2.x - p0.x;
+    const y2 = p2.y - p0.y;
+    return (x1 * y2) - (y1 * x2);
+  };
+  ddenom (p0, p2) {
+    const ax = p0.x - p2.x;
+    const ay = p0.y - p2.y;
+    const r = EvgBitmapTracer.absD(ax);
+    const s = EvgBitmapTracer.absD(ay);
+    if ( s > r ) {
+      return r + s;
+    }
+    return r + s;
+  };
+  appendSmooth (out, poly) {
+    const m = poly.length;
+    if ( m < 3 ) {
+      return;
+    }
+    let tags = [];
+    let c0 = [];
+    let c1 = [];
+    let c2 = [];
+    let i = 0;
+    while (i < m) {
+      tags.push("CURVE");
+      c0.push(EvgTracePoint.of(0.0, 0.0));
+      c1.push(EvgTracePoint.of(0.0, 0.0));
+      c2.push(EvgTracePoint.of(0.0, 0.0));
+      i = i + 1;
+    };
+    i = 0;
+    while (i < m) {
+      const j = this.modI((i + 1), m);
+      const k = this.modI((i + 2), m);
+      const vi = poly[i];
+      const vj = poly[j];
+      const vk = poly[k];
+      const p4 = this.interval(0.5, vk, vj);
+      const denom = this.ddenom(vi, vk);
+      let alpha = 4.0 / 3.0;
+      if ( denom != 0.0 ) {
+        const para = this.dpara(vi, vj, vk);
+        const ratio = para / denom;
+        const dd = EvgBitmapTracer.absD(ratio);
+        if ( dd > 1.0 ) {
+          alpha = 1.0 - (1.0 / dd);
+        } else {
+          alpha = 0.0;
+        }
+        alpha = alpha / 0.75;
+      }
+      if ( alpha >= this.options.alphamax ) {
+        tags[j] = "CORNER";
+        c1[j] = vj;
+        c2[j] = p4;
+      } else {
+        let a2 = alpha;
+        if ( a2 < 0.55 ) {
+          a2 = 0.55;
+        }
+        if ( a2 > 1.0 ) {
+          a2 = 1.0;
+        }
+        const p2 = this.interval((0.5 + (0.5 * a2)), vi, vj);
+        const p3 = this.interval((0.5 + (0.5 * a2)), vk, vj);
+        tags[j] = "CURVE";
+        c0[j] = p2;
+        c1[j] = p3;
+        c2[j] = p4;
+      }
+      i = i + 1;
+    };
+    const start = c2[(m - 1)];
+    out.push(VectorShapes.moveTo(start.x, start.y));
+    i = 0;
+    while (i < m) {
+      const tag = tags[i];
+      const endP = c2[i];
+      if ( tag == "CORNER" ) {
+        const corner = c1[i];
+        out.push(VectorShapes.lineTo(corner.x, corner.y));
+        out.push(VectorShapes.lineTo(endP.x, endP.y));
+      } else {
+        const a = c0[i];
+        const b = c1[i];
+        out.push(VectorShapes.cubicTo(a.x, a.y, b.x, b.y, endP.x, endP.y));
+      }
+      i = i + 1;
+    };
+    out.push(VectorShapes.closePath());
+  };
+}
+EvgBitmapTracer.absD = function(v) {
+  if ( v < 0.0 ) {
+    return 0.0 - v;
+  }
+  return v;
+};
+EvgBitmapTracer.absI = function(v) {
+  if ( v < 0 ) {
+    return 0 - v;
+  }
+  return v;
+};
+EvgBitmapTracer.idivTowardZero = function(a, b) {
+  if ( b == 0 ) {
+    return 0;
+  }
+  if ( a < 0 ) {
+    if ( b > 0 ) {
+      return 0 - ((((0 - a) / b) | 0));
+    }
+    return (((0 - a) / (0 - b)) | 0);
+  }
+  if ( b < 0 ) {
+    return 0 - (((a / (0 - b)) | 0));
+  }
+  return ((a / b) | 0);
+};
+EvgBitmapTracer.fromBinary = function(bm, opts) {
+  const t = new EvgBitmapTracer();
+  t.options = opts;
+  t.bitmap = bm;
+  t.width = bm.w;
+  t.height = bm.h;
+  return t;
+};
+EvgBitmapTracer.fromImageBuffer = function(img, opts) {
+  let thr = opts.threshold;
+  if ( thr < 0 ) {
+    thr = EvgBitmapTracer.otsuThreshold(img);
+  }
+  const bm = EvgBinaryBitmap.create(img.width, img.height);
+  let y = 0;
+  while (y < img.height) {
+    let x = 0;
+    while (x < img.width) {
+      const c = img.getPixel(x, y);
+      const g = c.grayscale();
+      let on = false;
+      if ( opts.blackOnWhite ) {
+        if ( g < thr ) {
+          on = true;
+        }
+      } else {
+        if ( g >= thr ) {
+          on = true;
+        }
+      }
+      if ( c.a < 16 ) {
+        on = false;
+      }
+      bm.setBit(x, y, on);
+      x = x + 1;
+    };
+    y = y + 1;
+  };
+  return EvgBitmapTracer.fromBinary(bm, opts);
+};
+EvgBitmapTracer.otsuThreshold = function(img) {
+  let hist = [];
+  let i = 0;
+  while (i < 256) {
+    hist.push(0);
+    i = i + 1;
+  };
+  const total = img.width * img.height;
+  if ( total <= 0 ) {
+    return 128;
+  }
+  let y = 0;
+  while (y < img.height) {
+    let x = 0;
+    while (x < img.width) {
+      const c = img.getPixel(x, y);
+      const g = c.grayscale();
+      const prev = hist[g];
+      hist[g] = prev + 1;
+      x = x + 1;
+    };
+    y = y + 1;
+  };
+  let sum = 0.0;
+  i = 0;
+  while (i < 256) {
+    const cnt = hist[i];
+    sum = sum + ((i) * (cnt));
+    i = i + 1;
+  };
+  let sumB = 0.0;
+  let wB = 0;
+  let best = 0.0 - 1.0;
+  let thr = 128;
+  i = 0;
+  while (i < 256) {
+    const c2 = hist[i];
+    wB = wB + c2;
+    if ( wB > 0 ) {
+      const wF = total - wB;
+      if ( wF > 0 ) {
+        sumB = sumB + ((i) * (c2));
+        const mB = sumB / (wB);
+        const mF = (sum - sumB) / (wF);
+        const diff = mB - mF;
+        const between = ((diff * diff) * (wB)) * (wF);
+        if ( between > best ) {
+          best = between;
+          thr = i;
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return thr;
+};
+class RgTest  {
+  constructor() {
+    this.passed = 0;
+    this.failed = 0;
+    this.suite = "";
+  }
+  ok (name, cond) {
+    if ( cond ) {
+      this.passed = this.passed + 1;
+      console.log("  PASS " + name);
+    } else {
+      this.failed = this.failed + 1;
+      console.log("  FAIL " + name);
+    }
+  };
+  no (name, cond) {
+    this.ok(name, cond == false);
+  };
+  eqInt (name, got, want) {
+    if ( got == want ) {
+      this.passed = this.passed + 1;
+      console.log("  PASS " + name);
+    } else {
+      this.failed = this.failed + 1;
+      console.log((((("  FAIL " + name) + " got=") + ((got.toString()))) + " want=") + ((want.toString())));
+    }
+  };
+  eqStr (name, got, want) {
+    if ( got == want ) {
+      this.passed = this.passed + 1;
+      console.log("  PASS " + name);
+    } else {
+      this.failed = this.failed + 1;
+      console.log((((("  FAIL " + name) + " got=") + got) + " want=") + want);
+    }
+  };
+  eqBool (name, got, want) {
+    if ( got == want ) {
+      this.passed = this.passed + 1;
+      console.log("  PASS " + name);
+    } else {
+      this.failed = this.failed + 1;
+      console.log("  FAIL " + name);
+    }
+  };
+  near (name, got, want) {
+    let d = got - want;
+    if ( d < 0.0 ) {
+      d = 0.0 - d;
+    }
+    if ( d < 0.000001 ) {
+      this.passed = this.passed + 1;
+      console.log("  PASS " + name);
+    } else {
+      this.failed = this.failed + 1;
+      console.log((((("  FAIL " + name) + " got=") + ((got.toString()))) + " want=") + ((want.toString())));
+    }
+  };
+  summary () {
+    console.log("== summary ==");
+    console.log((("passed=" + ((this.passed.toString()))) + " failed=") + ((this.failed.toString())));
+    if ( this.failed == 0 ) {
+      console.log("ALL PASS");
+    } else {
+      console.log("SOME FAILED");
+    }
+  };
+}
+RgTest.forSuite = function(name) {
+  const t = new RgTest();
+  t.suite = name;
+  console.log("### " + name);
+  return t;
+};
+class EvgBitmapTracerTest  {
+  constructor() {
+  }
+  filledRect (w, h, x0, y0, rw, rh) {
+    const bm = EvgBinaryBitmap.create(w, h);
+    let y = y0;
+    while (y < (y0 + rh)) {
+      let x = x0;
+      while (x < (x0 + rw)) {
+        bm.setBit(x, y, true);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return bm;
+  };
+  countType (cmds, kind) {
+    let n = 0;
+    let i = 0;
+    while (i < (cmds.length)) {
+      const c = cmds[i];
+      if ( c.type == kind ) {
+        n = n + 1;
+      }
+      i = i + 1;
+    };
+    return n;
+  };
+  testEmpty (t) {
+    const bm = EvgBinaryBitmap.create(8, 8);
+    const opts = EvgTraceOptions.defaults();
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    t.eqInt("empty bitmap yields no rings", tr.ringCount(), 0);
+    t.eqInt("and no commands", tr.commandCount(), 0);
+    t.eqStr("empty path data", tr.getPathData(), "");
+  };
+  testFilledRect (t) {
+    const bm = this.filledRect(32, 32, 4, 4, 16, 12);
+    const opts = EvgTraceOptions.defaults();
+    opts.turdsize = 2;
+    opts.opttolerance = 0.5;
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    t.ok("a solid rect produces at least one ring", tr.ringCount() >= 1);
+    t.ok("and some path commands", tr.commandCount() >= 4);
+    t.ok("path data is non-empty", (tr.getPathData().length) > 0);
+    const cmds = tr.getCommands();
+    t.eqInt("path opens with a moveto", this.countType(cmds, "M"), 1);
+    t.ok("path closes", this.countType(cmds, "Z") >= 1);
+    const svg = tr.toSVG();
+    t.ok("SVG mentions evenodd", (svg.indexOf("evenodd")) >= 0);
+    t.ok("SVG embeds the path", (svg.indexOf("d=\"")) >= 0);
+  };
+  testHole (t) {
+    const bm = this.filledRect(40, 40, 5, 5, 20, 20);
+    let y = 12;
+    while (y < 18) {
+      let x = 12;
+      while (x < 18) {
+        bm.setBit(x, y, false);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    const opts = EvgTraceOptions.defaults();
+    opts.turdsize = 2;
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    t.ok("a ring with a hole yields at least two rings", tr.ringCount() >= 2);
+    const el = tr.toEVGElement();
+    t.eqStr("EVG path uses evenodd for holes", el.fillRule, "evenodd");
+  };
+  testTurdsize (t) {
+    const bm = EvgBinaryBitmap.create(16, 16);
+    bm.setBit(2, 2, true);
+    bm.setBit(10, 10, true);
+    const opts = EvgTraceOptions.defaults();
+    opts.turdsize = 2;
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    t.eqInt("turdsize drops single-pixel speckles", tr.ringCount(), 0);
+    const bm2 = this.filledRect(16, 16, 2, 2, 4, 4);
+    const tr2 = EvgBitmapTracer.fromBinary(bm2, opts);
+    tr2.trace();
+    t.ok("a 4x4 block survives turdsize 2", tr2.ringCount() >= 1);
+  };
+  testPolygonMode (t) {
+    const bm = this.filledRect(24, 24, 3, 3, 10, 10);
+    const opts = EvgTraceOptions.defaults();
+    opts.optcurve = false;
+    opts.opttolerance = 0.01;
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    const cmds = tr.getCommands();
+    t.eqInt("polygon mode emits no cubics", this.countType(cmds, "C"), 0);
+    t.ok("but still has linetos", this.countType(cmds, "L") >= 3);
+  };
+  testImageBuffer (t) {
+    const img = new ImageBuffer();
+    img.init(20, 20);
+    let y = 4;
+    while (y < 16) {
+      let x = 4;
+      while (x < 16) {
+        img.setPixelRGB(x, y, 0, 0, 0);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    const opts = EvgTraceOptions.defaults();
+    opts.threshold = 128;
+    const tr = EvgBitmapTracer.fromImageBuffer(img, opts);
+    tr.trace();
+    t.ok("ImageBuffer threshold traces a black square", tr.ringCount() >= 1);
+    t.eqInt("width preserved", tr.width, 20);
+    t.eqInt("height preserved", tr.height, 20);
+  };
+  testEVGElement (t) {
+    const bm = this.filledRect(16, 16, 2, 2, 8, 8);
+    const opts = EvgTraceOptions.defaults();
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    const el = tr.toEVGElement();
+    t.eqStr("tag is path", el.tagName, "path");
+    t.ok("svgPath filled", (el.svgPath.length) > 0);
+    t.ok("viewBox set", (el.viewBox.length) > 0);
+    const b = tr.toPathBuilder();
+    t.ok("PathBuilder is not empty", b.isEmpty() == false);
+  };
+}
+/* static JavaSript main routine at the end of the JS file */
+function __js_main() {
+  const test = new EvgBitmapTracerTest();
+  const t = RgTest.forSuite("evg/bitmap_tracer");
+  test.testEmpty(t);
+  test.testFilledRect(t);
+  test.testHole(t);
+  test.testTurdsize(t);
+  test.testPolygonMode(t);
+  test.testImageBuffer(t);
+  test.testEVGElement(t);
+  t.summary();
+}
+__js_main();
