@@ -1,0 +1,177 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgTraceTypes.rgr — shared types for bitmap tracing
+; ==============================================================================
+
+class EvgTracePoint {
+    def x:double 0.0
+    def y:double 0.0
+
+    Constructor () {
+    }
+
+    sfn of:EvgTracePoint (x:double y:double) {
+        def p (new EvgTracePoint())
+        p.x = x
+        p.y = y
+        return p
+    }
+
+    sfn ofInt:EvgTracePoint (x:int y:int) {
+        def p (new EvgTracePoint())
+        p.x = (to_double x)
+        p.y = (to_double y)
+        return p
+    }
+}
+
+; One closed edge walk before curve fitting.
+class EvgTraceRing {
+    def pts:[EvgTracePoint]
+    def area:int 0
+    ; "+" = black exterior walk, "-" = white (hole) walk — mirrors Potrace.
+    def sign:string "+"
+    def minX:int 0
+    def minY:int 0
+    def maxX:int 0
+    def maxY:int 0
+
+    Constructor () {
+        def p:[EvgTracePoint]
+        pts = p
+    }
+
+    fn len:int () {
+        return (array_length pts)
+    }
+}
+
+class EvgTraceOptions {
+    ; Speckle filter: drop rings whose |area| is at most this (Potrace default 2).
+    def turdsize:int 2
+    ; Corner threshold. Higher → smoother (fewer corners). Potrace default 1.0.
+    def alphamax:double 1.0
+    ; "minority" | "majority" | "black" | "white" | "left" | "right"
+    def turnpolicy:string "minority"
+    ; When true, fit cubics; when false, emit a polygon.
+    def optcurve:boolean true
+    ; Curve optimization tolerance (Potrace -O; used by optiCurve).
+    def opttolerance:double 0.2
+    ; Luminance threshold 0..255. Negative → Otsu on the source image.
+    def threshold:int 128
+    ; Trace dark pixels as foreground (Potrace blackOnWhite).
+    def blackOnWhite:boolean true
+
+    Constructor () {
+    }
+
+    sfn defaults:EvgTraceOptions () {
+        return (new EvgTraceOptions())
+    }
+}
+
+; Packed 0/1 bitmap. Index = y * w + x.
+class EvgBinaryBitmap {
+    def w:int 0
+    def h:int 0
+    def data:[int]
+
+    Constructor () {
+        def d:[int]
+        data = d
+    }
+
+    sfn create:EvgBinaryBitmap (w:int h:int) {
+        def bm (new EvgBinaryBitmap())
+        bm.w = w
+        bm.h = h
+        def d:[int]
+        def n:int (w * h)
+        def i:int 0
+        while (i < n) {
+            push d 0
+            i = (i + 1)
+        }
+        bm.data = d
+        return bm
+    }
+
+    fn size:int () {
+        return (array_length data)
+    }
+
+    fn at:boolean (x:int y:int) {
+        if (x < 0) {
+            return false
+        }
+        if (y < 0) {
+            return false
+        }
+        if (x >= w) {
+            return false
+        }
+        if (y >= h) {
+            return false
+        }
+        def v:int (itemAt data ((y * w) + x))
+        return (v == 1)
+    }
+
+    fn setBit:void (x:int y:int on:boolean) {
+        if (x < 0) {
+            return
+        }
+        if (y < 0) {
+            return
+        }
+        if (x >= w) {
+            return
+        }
+        if (y >= h) {
+            return
+        }
+        if on {
+            set data ((y * w) + x) 1
+        } {
+            set data ((y * w) + x) 0
+        }
+    }
+
+    fn flip:void (x:int y:int) {
+        if (this.at(x y)) {
+            this.setBit(x y false)
+        } {
+            this.setBit(x y true)
+        }
+    }
+
+    fn copy:EvgBinaryBitmap () {
+        def bm (new EvgBinaryBitmap())
+        bm.w = w
+        bm.h = h
+        def d:[int]
+        def n:int (array_length data)
+        def i:int 0
+        while (i < n) {
+            push d (itemAt data i)
+            i = (i + 1)
+        }
+        bm.data = d
+        return bm
+    }
+
+    ; Find the next set pixel at or after linear index `start`.
+    fn findNext:int (start:int) {
+        def n:int (array_length data)
+        def i:int start
+        while (i < n) {
+            if ((itemAt data i) == 1) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+}
+

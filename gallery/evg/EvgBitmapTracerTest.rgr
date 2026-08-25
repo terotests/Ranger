@@ -22,6 +22,7 @@ class EvgBitmapTracerTest {
         test.testPolygonMode(t)
         test.testImageBuffer(t)
         test.testEVGElement(t)
+        test.testOptimalRectPolygon(t)
         t.summary()
     }
 
@@ -162,5 +163,24 @@ class EvgBitmapTracerTest {
         t.ok("viewBox set" ((strlen el.viewBox) > 0))
         def b:PathBuilder (tr.toPathBuilder())
         t.ok("PathBuilder is not empty" ((b.isEmpty()) == false))
+    }
+
+    ; Quality gate for the hard polygon stage: an axis-aligned filled rect
+    ; must collapse to four corners (Potrace's optimal polygon), not a noisy
+    ; RDP polyline. Polygon mode makes the vertex count visible as L commands.
+    fn testOptimalRectPolygon:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.filledRect(40 40 8 8 20 16))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.optcurve = false
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        def cmds:[PathCommand] (tr.getCommands())
+        t.eqInt("optimal rect: one moveto" (this.countType(cmds "M")) 1)
+        ; Four vertices → moveto + three linetos + closepath (Z returns to start).
+        t.eqInt("optimal rect: four corners → three linetos" (this.countType(cmds "L")) 3)
+        t.eqInt("optimal rect: one closepath" (this.countType(cmds "Z")) 1)
+        t.eqInt("optimal rect: command budget" (array_length cmds) 5)
+        ; Path char budget should be in the same league as CLI potrace for a rect.
+        t.ok("path data stays compact" ((strlen (tr.getPathData())) < 120))
     }
 }

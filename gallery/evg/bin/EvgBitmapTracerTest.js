@@ -1,4 +1,688 @@
 #!/usr/bin/env node
+class EvgTracePoint  {
+  constructor() {
+    this.x = 0.0;
+    this.y = 0.0;
+  }
+}
+EvgTracePoint.of = function(x, y) {
+  const p = new EvgTracePoint();
+  p.x = x;
+  p.y = y;
+  return p;
+};
+EvgTracePoint.ofInt = function(x, y) {
+  const p = new EvgTracePoint();
+  p.x = x;
+  p.y = y;
+  return p;
+};
+class EvgTraceRing  {
+  constructor() {
+    this.pts = [];
+    this.area = 0;
+    this.sign = "+";
+    this.minX = 0;
+    this.minY = 0;
+    this.maxX = 0;
+    this.maxY = 0;
+    let p = [];
+    this.pts = p;
+  }
+  len () {
+    return this.pts.length;
+  };
+}
+class EvgTraceOptions  {
+  constructor() {
+    this.turdsize = 2;
+    this.alphamax = 1.0;
+    this.turnpolicy = "minority";
+    this.optcurve = true;
+    this.opttolerance = 0.2;
+    this.threshold = 128;
+    this.blackOnWhite = true;
+  }
+}
+EvgTraceOptions.defaults = function() {
+  return new EvgTraceOptions();
+};
+class EvgBinaryBitmap  {
+  constructor() {
+    this.w = 0;
+    this.h = 0;
+    this.data = [];
+    let d = [];
+    this.data = d;
+  }
+  size () {
+    return this.data.length;
+  };
+  at (x, y) {
+    if ( x < 0 ) {
+      return false;
+    }
+    if ( y < 0 ) {
+      return false;
+    }
+    if ( x >= this.w ) {
+      return false;
+    }
+    if ( y >= this.h ) {
+      return false;
+    }
+    const v = this.data[((y * this.w) + x)];
+    return v == 1;
+  };
+  setBit (x, y, on) {
+    if ( x < 0 ) {
+      return;
+    }
+    if ( y < 0 ) {
+      return;
+    }
+    if ( x >= this.w ) {
+      return;
+    }
+    if ( y >= this.h ) {
+      return;
+    }
+    if ( on ) {
+      this.data[(y * this.w) + x] = 1;
+    } else {
+      this.data[(y * this.w) + x] = 0;
+    }
+  };
+  flip (x, y) {
+    if ( (this).at(x, y) ) {
+      this.setBit(x, y, false);
+    } else {
+      this.setBit(x, y, true);
+    }
+  };
+  copy () {
+    const bm = new EvgBinaryBitmap();
+    bm.w = this.w;
+    bm.h = this.h;
+    let d = [];
+    const n = this.data.length;
+    let i = 0;
+    while (i < n) {
+      d.push(this.data[i]);
+      i = i + 1;
+    };
+    bm.data = d;
+    return bm;
+  };
+  findNext (start) {
+    const n = this.data.length;
+    let i = start;
+    while (i < n) {
+      if ( (this.data[i]) == 1 ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+}
+EvgBinaryBitmap.create = function(w, h) {
+  const bm = new EvgBinaryBitmap();
+  bm.w = w;
+  bm.h = h;
+  let d = [];
+  const n = w * h;
+  let i = 0;
+  while (i < n) {
+    d.push(0);
+    i = i + 1;
+  };
+  bm.data = d;
+  return bm;
+};
+class EvgTraceSum  {
+  constructor() {
+    this.x = 0.0;
+    this.y = 0.0;
+    this.xy = 0.0;
+    this.x2 = 0.0;
+    this.y2 = 0.0;
+  }
+}
+EvgTraceSum.of = function(x, y, xy, x2, y2) {
+  const s = new EvgTraceSum();
+  s.x = x;
+  s.y = y;
+  s.xy = xy;
+  s.x2 = x2;
+  s.y2 = y2;
+  return s;
+};
+class EvgTraceFit  {
+  constructor() {
+    this.pts = [];
+    this.n = 0;
+    this.x0 = 0.0;
+    this.y0 = 0.0;
+    this.sums = [];
+    this.lon = [];
+    this.po = [];
+    this.m = 0;
+    this.vertex = [];
+    let p_1 = [];
+    this.pts = p_1;
+    let s = [];
+    this.sums = s;
+    let l = [];
+    this.lon = l;
+    let o = [];
+    this.po = o;
+    let v = [];
+    this.vertex = v;
+  }
+  run (ring) {
+    let empty = [];
+    const src = ring.pts;
+    const rawN = src.length;
+    if ( rawN < 3 ) {
+      return empty;
+    }
+    let cleaned = [];
+    let i = 0;
+    while (i < rawN) {
+      const p = src[i];
+      if ( (cleaned.length) == 0 ) {
+        cleaned.push(p);
+      } else {
+        const prev = cleaned[((cleaned.length) - 1)];
+        if ( (prev.x == p.x) && (prev.y == p.y) ) {
+        } else {
+          cleaned.push(p);
+        }
+      }
+      i = i + 1;
+    };
+    let cn = cleaned.length;
+    if ( cn >= 2 ) {
+      const first = cleaned[0];
+      const last = cleaned[(cn - 1)];
+      if ( (first.x == last.x) && (first.y == last.y) ) {
+        let trimmed = [];
+        let k = 0;
+        while (k < (cn - 1)) {
+          trimmed.push(cleaned[k]);
+          k = k + 1;
+        };
+        cleaned = trimmed;
+        cn = cleaned.length;
+      }
+    }
+    if ( cn < 3 ) {
+      return empty;
+    }
+    this.pts = cleaned;
+    this.n = cn;
+    const p0 = this.pts[0];
+    this.x0 = p0.x;
+    this.y0 = p0.y;
+    this.calcSums();
+    this.calcLon();
+    this.bestPolygon();
+    if ( this.m < 3 ) {
+      return empty;
+    }
+    this.adjustVertices();
+    return this.vertex;
+  };
+  calcSums () {
+    let s = [];
+    s.push(EvgTraceSum.of(0.0, 0.0, 0.0, 0.0, 0.0));
+    let i = 0;
+    while (i < this.n) {
+      const p = this.pts[i];
+      const x = p.x - this.x0;
+      const y = p.y - this.y0;
+      const prev = s[i];
+      s.push(EvgTraceSum.of((prev.x + x), (prev.y + y), (prev.xy + (x * y)), (prev.x2 + (x * x)), (prev.y2 + (y * y))));
+      i = i + 1;
+    };
+    this.sums = s;
+  };
+  calcLon () {
+    let pivk = [];
+    let nc = [];
+    let i = 0;
+    while (i < this.n) {
+      pivk.push(0);
+      nc.push(0);
+      i = i + 1;
+    };
+    let k = 0;
+    i = this.n - 1;
+    while (i >= 0) {
+      const pi = this.pts[i];
+      const pk = this.pts[k];
+      if ( (pi.x != pk.x) && (pi.y != pk.y) ) {
+        k = i + 1;
+      }
+      nc[i] = k;
+      i = i - 1;
+    };
+    i = this.n - 1;
+    while (i >= 0) {
+      let ct0 = 0;
+      let ct1 = 0;
+      let ct2 = 0;
+      let ct3 = 0;
+      const pi2 = this.pts[i];
+      const piNext = this.pts[EvgTraceFit.modI((i + 1), this.n)];
+      const dx0 = Math.floor( (piNext.x - pi2.x));
+      const dy0 = Math.floor( (piNext.y - pi2.y));
+      const dirNum0 = 3 + ((3 * dx0) + dy0);
+      const dir0 = ((dirNum0 / 2) | 0);
+      if ( dir0 == 0 ) {
+        ct0 = ct0 + 1;
+      }
+      if ( dir0 == 1 ) {
+        ct1 = ct1 + 1;
+      }
+      if ( dir0 == 2 ) {
+        ct2 = ct2 + 1;
+      }
+      if ( dir0 == 3 ) {
+        ct3 = ct3 + 1;
+      }
+      let c0x = 0;
+      let c0y = 0;
+      let c1x = 0;
+      let c1y = 0;
+      let kk = nc[i];
+      let k1 = i;
+      let found = false;
+      let guard = 0;
+      while ((found == false) && (guard < (this.n + 2))) {
+        const pk1 = this.pts[kk];
+        const pk0 = this.pts[k1];
+        const sdx = EvgTraceFit.signI((Math.floor( (pk1.x - pk0.x))));
+        const sdy = EvgTraceFit.signI((Math.floor( (pk1.y - pk0.y))));
+        const dirNum = 3 + ((3 * sdx) + sdy);
+        const dir = ((dirNum / 2) | 0);
+        if ( dir == 0 ) {
+          ct0 = ct0 + 1;
+        }
+        if ( dir == 1 ) {
+          ct1 = ct1 + 1;
+        }
+        if ( dir == 2 ) {
+          ct2 = ct2 + 1;
+        }
+        if ( dir == 3 ) {
+          ct3 = ct3 + 1;
+        }
+        if ( (((ct0 > 0) && (ct1 > 0)) && (ct2 > 0)) && (ct3 > 0) ) {
+          pivk[i] = k1;
+          found = true;
+        } else {
+          const curx = Math.floor( (pk1.x - pi2.x));
+          const cury = Math.floor( (pk1.y - pi2.y));
+          if ( (EvgTraceFit.xprod(c0x, c0y, curx, cury) < 0) || (EvgTraceFit.xprod(c1x, c1y, curx, cury) > 0) ) {
+            guard = this.n + 2;
+          } else {
+            const ax = EvgTraceFit.absI(curx);
+            const ay = EvgTraceFit.absI(cury);
+            if ( (ax > 1) || (ay > 1) ) {
+              let off0x = curx;
+              let off0y = cury;
+              if ( (cury > 0) || ((cury == 0) && (curx < 0)) ) {
+                off0x = curx + 1;
+              } else {
+                off0x = curx - 1;
+              }
+              if ( (curx < 0) || ((curx == 0) && (cury < 0)) ) {
+                off0y = cury + 1;
+              } else {
+                off0y = cury - 1;
+              }
+              off0x = curx;
+              off0y = cury;
+              if ( (cury >= 0) && ((cury > 0) || (curx < 0)) ) {
+                off0x = curx + 1;
+              } else {
+                off0x = curx - 1;
+              }
+              if ( (curx <= 0) && ((curx < 0) || (cury < 0)) ) {
+                off0y = cury + 1;
+              } else {
+                off0y = cury - 1;
+              }
+              if ( EvgTraceFit.xprod(c0x, c0y, off0x, off0y) >= 0 ) {
+                c0x = off0x;
+                c0y = off0y;
+              }
+              let off1x = curx;
+              let off1y = cury;
+              if ( (cury <= 0) && ((cury < 0) || (curx < 0)) ) {
+                off1x = curx + 1;
+              } else {
+                off1x = curx - 1;
+              }
+              if ( (curx >= 0) && ((curx > 0) || (cury < 0)) ) {
+                off1y = cury + 1;
+              } else {
+                off1y = cury - 1;
+              }
+              if ( EvgTraceFit.xprod(c1x, c1y, off1x, off1y) <= 0 ) {
+                c1x = off1x;
+                c1y = off1y;
+              }
+            }
+            k1 = kk;
+            kk = nc[k1];
+            if ( EvgTraceFit.cyclic(kk, i, k1) == false ) {
+              guard = this.n + 2;
+            }
+          }
+        }
+        guard = guard + 1;
+      };
+      if ( found == false ) {
+        const pkA = this.pts[kk];
+        const pkB = this.pts[k1];
+        const dkx = EvgTraceFit.signI((Math.floor( (pkA.x - pkB.x))));
+        const dky = EvgTraceFit.signI((Math.floor( (pkA.y - pkB.y))));
+        const cur2x = Math.floor( (pkB.x - pi2.x));
+        const cur2y = Math.floor( (pkB.y - pi2.y));
+        const a = EvgTraceFit.xprod(c0x, c0y, cur2x, cur2y);
+        const b = EvgTraceFit.xprod(c0x, c0y, dkx, dky);
+        const c = EvgTraceFit.xprod(c1x, c1y, cur2x, cur2y);
+        const d = EvgTraceFit.xprod(c1x, c1y, dkx, dky);
+        let j = 10000000;
+        if ( b < 0 ) {
+          j = ((a / (0 - b)) | 0);
+        }
+        if ( d > 0 ) {
+          const j2 = (((0 - c) / d) | 0);
+          if ( j2 < j ) {
+            j = j2;
+          }
+        }
+        pivk[i] = EvgTraceFit.modI((k1 + j), this.n);
+      }
+      i = i - 1;
+    };
+    let lonOut = [];
+    i = 0;
+    while (i < this.n) {
+      lonOut.push(0);
+      i = i + 1;
+    };
+    let jLon = pivk[(this.n - 1)];
+    lonOut[this.n - 1] = jLon;
+    i = this.n - 2;
+    while (i >= 0) {
+      if ( EvgTraceFit.cyclic((i + 1), (pivk[i]), jLon) ) {
+        jLon = pivk[i];
+      }
+      lonOut[i] = jLon;
+      i = i - 1;
+    };
+    i = this.n - 1;
+    while (i >= 0) {
+      if ( EvgTraceFit.cyclic(EvgTraceFit.modI((i + 1), this.n), jLon, (lonOut[i])) ) {
+        lonOut[i] = jLon;
+        i = i - 1;
+      } else {
+        i = 0 - 1;
+      }
+    };
+    this.lon = lonOut;
+  };
+  penalty3 (i, jIn) {
+    let j = jIn;
+    let r = 0;
+    if ( j >= this.n ) {
+      j = j - this.n;
+      r = 1;
+    }
+    const si = this.sums[i];
+    const sj = this.sums[(j + 1)];
+    const sn = this.sums[this.n];
+    let x = sj.x - si.x;
+    let y = sj.y - si.y;
+    let x2 = sj.x2 - si.x2;
+    let xy = sj.xy - si.xy;
+    let y2 = sj.y2 - si.y2;
+    let k = ((j + 1) - i);
+    if ( r != 0 ) {
+      x = x + sn.x;
+      y = y + sn.y;
+      x2 = x2 + sn.x2;
+      xy = xy + sn.xy;
+      y2 = y2 + sn.y2;
+      k = k + (this.n);
+    }
+    const pi = this.pts[i];
+    const pj = this.pts[j];
+    const pOrig = this.pts[0];
+    const px = ((pi.x + pj.x) / 2.0) - pOrig.x;
+    const py = ((pi.y + pj.y) / 2.0) - pOrig.y;
+    const ey = pj.x - pi.x;
+    const ex = 0.0 - (pj.y - pi.y);
+    const a = ((x2 - ((2.0 * x) * px)) / k) + (px * px);
+    const b = (((xy - (x * py)) - (y * px)) / k) + (px * py);
+    const c = ((y2 - ((2.0 * y) * py)) / k) + (py * py);
+    let s = (((ex * ex) * a) + (((2.0 * ex) * ey) * b)) + ((ey * ey) * c);
+    if ( s < 0.0 ) {
+      s = 0.0;
+    }
+    return Math.sqrt(s);
+  };
+  bestPolygon () {
+    let clip0 = [];
+    let clip1 = [];
+    let seg0 = [];
+    let seg1 = [];
+    let pen = [];
+    let prev = [];
+    let i = 0;
+    while (i < this.n) {
+      clip0.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i <= this.n) {
+      clip1.push(0);
+      seg0.push(0);
+      seg1.push(0);
+      pen.push(0.0 - 1.0);
+      prev.push(0);
+      i = i + 1;
+    };
+    pen[0] = 0.0;
+    i = 0;
+    while (i < this.n) {
+      let c = EvgTraceFit.modI(((this.lon[EvgTraceFit.modI((i - 1), this.n)]) - 1), this.n);
+      if ( c == i ) {
+        c = EvgTraceFit.modI((i + 1), this.n);
+      }
+      if ( c < i ) {
+        clip0[i] = this.n;
+      } else {
+        clip0[i] = c;
+      }
+      i = i + 1;
+    };
+    let j = 1;
+    i = 0;
+    while (i < this.n) {
+      while (j <= (clip0[i])) {
+        clip1[j] = i;
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    i = 0;
+    j = 0;
+    while (i < this.n) {
+      seg0[j] = i;
+      i = clip0[i];
+      j = j + 1;
+    };
+    seg0[j] = this.n;
+    this.m = j;
+    i = this.n;
+    j = this.m;
+    while (j > 0) {
+      seg1[j] = i;
+      i = clip1[i];
+      j = j - 1;
+    };
+    seg1[0] = 0;
+    j = 1;
+    while (j <= this.m) {
+      i = seg1[j];
+      while (i <= (seg0[j])) {
+        let best = 0.0 - 1.0;
+        let bestK = 0;
+        let k = seg0[(j - 1)];
+        while (k >= (clip1[i])) {
+          const thispen = this.penalty3(k, i);
+          const prevPen = pen[k];
+          const total = thispen + prevPen;
+          if ( (best < 0.0) || (total < best) ) {
+            best = total;
+            bestK = k;
+          }
+          k = k - 1;
+        };
+        pen[i] = best;
+        prev[i] = bestK;
+        i = i + 1;
+      };
+      j = j + 1;
+    };
+    let poOut = [];
+    i = 0;
+    while (i < this.m) {
+      poOut.push(0);
+      i = i + 1;
+    };
+    i = this.n;
+    j = this.m - 1;
+    while (i > 0) {
+      i = prev[i];
+      poOut[j] = i;
+      j = j - 1;
+    };
+    this.po = poOut;
+  };
+  adjustVertices () {
+    let out = [];
+    let i = 0;
+    while (i < this.m) {
+      const iPrev = EvgTraceFit.modI((i - 1), this.m);
+      const iNext = EvgTraceFit.modI((i + 1), this.m);
+      const pCur = this.pts[(this.po[i])];
+      const pPrev = this.pts[(this.po[iPrev])];
+      const pNext = this.pts[(this.po[iNext])];
+      const ax = pCur.x - pPrev.x;
+      const ay = pCur.y - pPrev.y;
+      const bx = pNext.x - pCur.x;
+      const by = pNext.y - pCur.y;
+      let vx = pCur.x;
+      let vy = pCur.y;
+      if ( (ax == 0.0) || (ay == 0.0) ) {
+        if ( (bx == 0.0) || (by == 0.0) ) {
+          if ( ax == 0.0 ) {
+            vx = pCur.x;
+          } else {
+            vx = pCur.x;
+          }
+          if ( ay == 0.0 ) {
+            vy = pCur.y;
+          } else {
+            vy = pCur.y;
+          }
+          vx = pCur.x;
+          vy = pCur.y;
+        }
+      }
+      const dot = (ax * bx) + (ay * by);
+      const la = Math.sqrt(((ax * ax) + (ay * ay)));
+      const lb = Math.sqrt(((bx * bx) + (by * by)));
+      if ( (la > 0.0) && (lb > 0.0) ) {
+        const cosA = dot / (la * lb);
+        if ( cosA > 0.9 ) {
+          vx = ((pPrev.x + pCur.x) + pNext.x) / 3.0;
+          vy = ((pPrev.y + pCur.y) + pNext.y) / 3.0;
+        }
+      }
+      const sx = pCur.x - this.x0;
+      const sy = pCur.y - this.y0;
+      let wx = vx - this.x0;
+      let wy = vy - this.y0;
+      if ( wx < (sx - 0.5) ) {
+        wx = sx - 0.5;
+      }
+      if ( wx > (sx + 0.5) ) {
+        wx = sx + 0.5;
+      }
+      if ( wy < (sy - 0.5) ) {
+        wy = sy - 0.5;
+      }
+      if ( wy > (sy + 0.5) ) {
+        wy = sy + 0.5;
+      }
+      out.push(EvgTracePoint.of((wx + this.x0), (wy + this.y0)));
+      i = i + 1;
+    };
+    this.vertex = out;
+  };
+}
+EvgTraceFit.absD = function(v) {
+  if ( v < 0.0 ) {
+    return 0.0 - v;
+  }
+  return v;
+};
+EvgTraceFit.signI = function(v) {
+  if ( v > 0 ) {
+    return 1;
+  }
+  if ( v < 0 ) {
+    return 0 - 1;
+  }
+  return 0;
+};
+EvgTraceFit.modI = function(a, n) {
+  if ( n <= 0 ) {
+    return 0;
+  }
+  let r = a - ((((a / n) | 0)) * n);
+  if ( r < 0 ) {
+    r = r + n;
+  }
+  return r;
+};
+EvgTraceFit.cyclic = function(a, b, c) {
+  if ( a <= c ) {
+    return (a <= b) && (b < c);
+  }
+  return (a <= b) || (b < c);
+};
+EvgTraceFit.xprod = function(ax, ay, bx, by) {
+  return (ax * by) - (ay * bx);
+};
+EvgTraceFit.fitRing = function(ring) {
+  const fit = new EvgTraceFit();
+  return fit.run(ring);
+};
+EvgTraceFit.absI = function(v) {
+  if ( v < 0 ) {
+    return 0 - v;
+  }
+  return v;
+};
 class PathCommand  {
   constructor() {
     this.type = "";
@@ -18,8 +702,8 @@ class PathCommand  {
 class PathRing  {
   constructor() {
     this.pts = [];
-    let p = [];
-    this.pts = p;
+    let p_2 = [];
+    this.pts = p_2;
   }
   pointCount () {
     return (((this.pts.length) / 2) | 0);
@@ -2271,8 +2955,8 @@ class EVGGradient  {
     this.isLinear = true;
     this.angle = 0.0;
     this.stops = [];
-    let s = [];
-    this.stops = s;
+    let s_1 = [];
+    this.stops = s_1;
   }
   getStartColor () {
     if ( (this.stops.length) > 0 ) {
@@ -4104,147 +4788,6 @@ class ImageBuffer  {
     return this.scale(1);
   };
 }
-class EvgTracePoint  {
-  constructor() {
-    this.x = 0.0;
-    this.y = 0.0;
-  }
-}
-EvgTracePoint.of = function(x, y) {
-  const p = new EvgTracePoint();
-  p.x = x;
-  p.y = y;
-  return p;
-};
-EvgTracePoint.ofInt = function(x, y) {
-  const p = new EvgTracePoint();
-  p.x = x;
-  p.y = y;
-  return p;
-};
-class EvgTraceRing  {
-  constructor() {
-    this.pts = [];
-    this.area = 0;
-    this.sign = "+";
-    this.minX = 0;
-    this.minY = 0;
-    this.maxX = 0;
-    this.maxY = 0;
-    let p_1 = [];
-    this.pts = p_1;
-  }
-  len () {
-    return this.pts.length;
-  };
-}
-class EvgTraceOptions  {
-  constructor() {
-    this.turdsize = 2;
-    this.alphamax = 1.0;
-    this.turnpolicy = "minority";
-    this.optcurve = true;
-    this.opttolerance = 0.2;
-    this.threshold = 128;
-    this.blackOnWhite = true;
-  }
-}
-EvgTraceOptions.defaults = function() {
-  return new EvgTraceOptions();
-};
-class EvgBinaryBitmap  {
-  constructor() {
-    this.w = 0;
-    this.h = 0;
-    this.data = [];
-    let d = [];
-    this.data = d;
-  }
-  size () {
-    return this.data.length;
-  };
-  at (x, y) {
-    if ( x < 0 ) {
-      return false;
-    }
-    if ( y < 0 ) {
-      return false;
-    }
-    if ( x >= this.w ) {
-      return false;
-    }
-    if ( y >= this.h ) {
-      return false;
-    }
-    const v = this.data[((y * this.w) + x)];
-    return v == 1;
-  };
-  setBit (x, y, on) {
-    if ( x < 0 ) {
-      return;
-    }
-    if ( y < 0 ) {
-      return;
-    }
-    if ( x >= this.w ) {
-      return;
-    }
-    if ( y >= this.h ) {
-      return;
-    }
-    if ( on ) {
-      this.data[(y * this.w) + x] = 1;
-    } else {
-      this.data[(y * this.w) + x] = 0;
-    }
-  };
-  flip (x, y) {
-    if ( (this).at(x, y) ) {
-      this.setBit(x, y, false);
-    } else {
-      this.setBit(x, y, true);
-    }
-  };
-  copy () {
-    const bm = new EvgBinaryBitmap();
-    bm.w = this.w;
-    bm.h = this.h;
-    let d = [];
-    const n = this.data.length;
-    let i = 0;
-    while (i < n) {
-      d.push(this.data[i]);
-      i = i + 1;
-    };
-    bm.data = d;
-    return bm;
-  };
-  findNext (start) {
-    const n = this.data.length;
-    let i = start;
-    while (i < n) {
-      if ( (this.data[i]) == 1 ) {
-        return i;
-      }
-      i = i + 1;
-    };
-    return 0 - 1;
-  };
-}
-EvgBinaryBitmap.create = function(w, h) {
-  const bm = new EvgBinaryBitmap();
-  bm.w = w;
-  bm.h = h;
-  let d = [];
-  const n = w * h;
-  let i = 0;
-  while (i < n) {
-    d.push(0);
-    i = i + 1;
-  };
-  bm.data = d;
-  return bm;
-};
 class EvgBitmapTracer  {
   constructor() {
     this.rings = [];
@@ -4495,7 +5038,7 @@ class EvgBitmapTracer  {
     let ri = 0;
     while (ri < (this.rings.length)) {
       const ring = this.rings[ri];
-      const poly = this.simplifyRing(ring);
+      const poly = EvgTraceFit.fitRing(ring);
       const n = poly.length;
       if ( n >= 3 ) {
         if ( this.options.optcurve ) {
@@ -4519,137 +5062,6 @@ class EvgBitmapTracer  {
       i = i + 1;
     };
     out.push(VectorShapes.closePath());
-  };
-  simplifyRing (ring) {
-    const src = ring.pts;
-    const n = src.length;
-    if ( n < 3 ) {
-      return src;
-    }
-    let cleaned = [];
-    let i = 0;
-    while (i < n) {
-      const p = src[i];
-      if ( (cleaned.length) == 0 ) {
-        cleaned.push(p);
-      } else {
-        const prev = cleaned[((cleaned.length) - 1)];
-        if ( (prev.x == p.x) && (prev.y == p.y) ) {
-        } else {
-          cleaned.push(p);
-        }
-      }
-      i = i + 1;
-    };
-    let cn = cleaned.length;
-    if ( cn >= 2 ) {
-      const first = cleaned[0];
-      const last = cleaned[(cn - 1)];
-      if ( (first.x == last.x) && (first.y == last.y) ) {
-        let trimmed = [];
-        let k = 0;
-        while (k < (cn - 1)) {
-          trimmed.push(cleaned[k]);
-          k = k + 1;
-        };
-        cleaned = trimmed;
-        cn = cleaned.length;
-      }
-    }
-    if ( cn < 3 ) {
-      return cleaned;
-    }
-    let eps = this.options.opttolerance;
-    if ( eps < 0.0 ) {
-      eps = 0.0;
-    }
-    let keep = [];
-    i = 0;
-    while (i < cn) {
-      keep.push(0);
-      i = i + 1;
-    };
-    keep[0] = 1;
-    keep[cn - 1] = 1;
-    this.rdpMark(cleaned, keep, 0, cn - 1, eps);
-    this.rdpMarkClosed(cleaned, keep, eps);
-    let out = [];
-    i = 0;
-    while (i < cn) {
-      if ( (keep[i]) == 1 ) {
-        out.push(cleaned[i]);
-      }
-      i = i + 1;
-    };
-    if ( (out.length) < 3 ) {
-      return cleaned;
-    }
-    return out;
-  };
-  rdpMark (pts, keep, i0, i1, eps) {
-    if ( (i1 - i0) < 2 ) {
-      return;
-    }
-    const a = pts[i0];
-    const b = pts[i1];
-    let bestD = 0.0 - 1.0;
-    let bestI = i0;
-    let i = i0 + 1;
-    while (i < i1) {
-      const p = pts[i];
-      const d = this.perpDist(p, a, b);
-      if ( d > bestD ) {
-        bestD = d;
-        bestI = i;
-      }
-      i = i + 1;
-    };
-    if ( bestD > eps ) {
-      keep[bestI] = 1;
-      this.rdpMark(pts, keep, i0, bestI, eps);
-      this.rdpMark(pts, keep, bestI, i1, eps);
-    }
-  };
-  rdpMarkClosed (pts, keep, eps) {
-    const n = pts.length;
-    if ( n < 3 ) {
-      return;
-    }
-    const a = pts[(n - 1)];
-    const b = pts[0];
-    let bestD = 0.0 - 1.0;
-    let bestI = 0;
-    let i = 1;
-    while (i < (n - 1)) {
-      const p = pts[i];
-      const d = this.perpDist(p, a, b);
-      if ( d > bestD ) {
-        bestD = d;
-        bestI = i;
-      }
-      i = i + 1;
-    };
-    if ( bestD > eps ) {
-      keep[bestI] = 1;
-      this.rdpMark(pts, keep, 0, bestI, eps);
-      this.rdpMark(pts, keep, bestI, n - 1, eps);
-    }
-  };
-  perpDist (p, a, b) {
-    const vx = b.x - a.x;
-    const vy = b.y - a.y;
-    const len2 = (vx * vx) + (vy * vy);
-    if ( len2 <= 1e-10 ) {
-      const dx = p.x - a.x;
-      const dy = p.y - a.y;
-      return Math.sqrt(((dx * dx) + (dy * dy)));
-    }
-    const t = (((p.x - a.x) * vx) + ((p.y - a.y) * vy)) / len2;
-    const qx = a.x + (vx * t);
-    const qy = a.y + (vy * t);
-    const dx2 = p.x - qx;
-    const dy2 = p.y - qy;
-    return Math.sqrt(((dx2 * dx2) + (dy2 * dy2)));
   };
   modI (a, n) {
     let r = a - ((((a / n) | 0)) * n);
@@ -5086,6 +5498,19 @@ class EvgBitmapTracerTest  {
     const b = tr.toPathBuilder();
     t.ok("PathBuilder is not empty", b.isEmpty() == false);
   };
+  testOptimalRectPolygon (t) {
+    const bm = this.filledRect(40, 40, 8, 8, 20, 16);
+    const opts = EvgTraceOptions.defaults();
+    opts.optcurve = false;
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    const cmds = tr.getCommands();
+    t.eqInt("optimal rect: one moveto", this.countType(cmds, "M"), 1);
+    t.eqInt("optimal rect: four corners → three linetos", this.countType(cmds, "L"), 3);
+    t.eqInt("optimal rect: one closepath", this.countType(cmds, "Z"), 1);
+    t.eqInt("optimal rect: command budget", cmds.length, 5);
+    t.ok("path data stays compact", (tr.getPathData().length) < 120);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -5098,6 +5523,7 @@ function __js_main() {
   test.testPolygonMode(t);
   test.testImageBuffer(t);
   test.testEVGElement(t);
+  test.testOptimalRectPolygon(t);
   t.summary();
 }
 __js_main();
