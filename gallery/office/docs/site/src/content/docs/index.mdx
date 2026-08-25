@@ -1,0 +1,49 @@
+---
+title: About this documentation
+description: Technical documentation of the Ranger Office applications. The API reference is generated from the Ranger facades of each release.
+---
+
+The Ranger gallery holds the application stack: graphics, office formats,
+editors and other large programs written in Ranger. This site documents the
+Office side of that stack.
+
+The applications do not share one document model. Word pagination, Excel
+formulas and PowerPoint master inheritance each keep their own model. They
+share the machinery underneath: fonts, measurement, history, geometry, colour,
+and **EVG** — the layout engine and the display list that every application
+paints through.
+
+## What this site holds
+
+| Part | Content | Source |
+| --- | --- | --- |
+| Guides | EVG, PowerPoint, charts, Word, Excel and diagrams | Written by hand |
+| API reference | Every published method of a facade, with the comment that sits above it | Generated from the Ranger sources |
+
+Two APIs exist today:
+
+- **PowerPoint** — `@ranger/pptx`: open a `.pptx`, change it, write it back,
+  draw it to PNG or PDF, and put a Vega chart on a slide as shapes.
+- **Charts** — Vela's `VlChart`: build a Vega-Lite chart by calling methods.
+  There is no npm package yet. The live page on the EVG showcase loads the
+  compiled Ranger classes.
+
+Word, Excel and diagrams have editors and demos. They do not yet have a
+published facade in `gallery/*/api/`. The guides name the demos and the source.
+
+## How the reference is made
+
+The API pages are not written by hand. A tool reads the Ranger facades, copies
+the comments, and writes the pages. A method that is not in the source cannot
+appear on a page. A method marked `; @internal` stays out of the pages.
+
+## Related pages
+
+- The [language documentation](/Ranger/docs/) describes Ranger itself (MIT).
+- The [playground](/Ranger/) compiles Ranger in the browser.
+- The [PowerPoint editor](/Ranger/pptx/) opens a deck with no server.
+- The [PowerPoint API playground](/Ranger/office/) writes a deck on the left
+  and opens the bytes on the right.
+- The [EVG showcase](/Ranger/evg/) renders the layout engine's own pages.
+- The [Vela page](/Ranger/vela/) pastes a Vega specification and draws it.
+- The [repository](https://github.com/terotests/Ranger) holds the sources.
