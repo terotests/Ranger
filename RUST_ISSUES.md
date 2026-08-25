@@ -710,6 +710,25 @@ new code that nobody wrote with Rust in mind, and it cost two emitter rules
 and one analysis. The families are not endless, but they are not exhausted
 either — each new program finds the ones its style happens to reach.
 
+### An `if` condition is a statement position too
+
+The same merge brought a run-time panic that rustc, again, could not see:
+
+    if (toolbar.pressItem(toolbar.hot)) {
+
+The receiver takes `borrow_mut()` on the toolbar's cell while the argument
+still holds a `borrow()` of it — `already borrowed`, on the first pointer
+press. The call path hoists exactly this kind of argument, and the very next
+line, `def t (toolbar.at(toolbar.hot))`, was hoisted all along; the condition
+was not, because the hoist only ran at expression level 0 and a condition is
+walked deeper. `beforeOperatorStatement` now hoists an `if` condition's
+conflicting arguments before the `if`. Not a `while` condition: that runs
+again every turn and a temporary lifted out of it would not.
+
+The lesson holds from the first round. This one took a browser to find, and
+what found it was one page assertion out of 127 — the frame parity test
+passes either way, because parity never presses a button.
+
 A WASM *build* exists now too, at `gallery/pptx/web/wasm-rust/`: `bind.rs`
 beside it exports the editor over the C ABI and `host.mjs` presents the module
 as the object the page already expects, so the standalone page runs on it

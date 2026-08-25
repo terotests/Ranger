@@ -166,6 +166,7 @@ export async function installPptxWeb(url) {
     mods(shift, ctrl) { w.web_mods(shift ? 1 : 0, ctrl ? 1 : 0); }
     scroll(x, y, delta) { w.web_scroll(x | 0, y | 0, delta | 0); }
     scrollPixels(x, y, dy) { w.web_scroll_pixels(x | 0, y | 0, dy | 0); }
+    scrollPixels2(x, y, dx, dy) { w.web_scroll_pixels2(x | 0, y | 0, dx | 0, dy | 0); }
 
     // ---- commands and state ----
     run(id, arg) {
@@ -180,8 +181,12 @@ export async function installPptxWeb(url) {
     suggestedName() { return outStr(w.web_suggested_name()); }
     selectionBox() { return outStr(w.web_selection_box()); }
     selectionCount() { return w.web_selection_count(); }
+    readOnly() { return w.web_read_only() !== 0; }
+    caretParagraph() { return outStr(w.web_caret_paragraph()); }
     imageParts() { return outStr(w.web_image_parts()); }
     slidePanelWidth() { return w.web_slide_panel_width(); }
+    panelScrollAt() { return w.web_panel_scroll_at(); }
+    overSlidePanel(x, y) { return w.web_over_slide_panel(x | 0, y | 0) !== 0; }
     editing() { return w.web_editing() !== 0; }
     editingText() { return w.web_editing_text() !== 0; }
     presenting() { return w.web_presenting() !== 0; }
@@ -191,6 +196,10 @@ export async function installPptxWeb(url) {
     // ---- the frame ----
     sceneBinary() {
       w.scene_build();
+      return this.readScene();
+    }
+
+    readScene() {
       const n = w.scene_strings_len();
       const strings = new Array(n);
       for (let i = 0; i < n; i++) strings[i] = outStr(w.scene_string(i));
@@ -204,6 +213,12 @@ export async function installPptxWeb(url) {
         height: w.scene_height(),
       };
     }
+    // The frame without the thumbnails, and the thumbnails on their own —
+    // both through the same arrays, so one is read out before the other is
+    // asked for. `readScene` is that read.
+    sceneBinaryNoPanel() { w.scene_build_no_panel(); return this.readScene(); }
+    panelBinary() { w.panel_build(); return this.readScene(); }
+    panelStamp() { return outStr(w.web_panel_stamp()); }
     scene() { return outStr(w.web_scene_json()); }
     slideScene(i, widthPx) { return outStr(w.web_slide_scene(i | 0, widthPx | 0)); }
 

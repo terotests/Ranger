@@ -32160,6 +32160,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             const bosFc = node.getFirst();
+                            if ( bosFc.vref == "if" ) {
+                              if ( (node.children.length) >= 2 ) {
+                                const bosCond = node.getSecond();
+                                if ( this.rustNodeIsLambda(bosCond) == false ) {
+                                  await this.rustExtractSelfCallConflicts(bosCond, ctx, wr);
+                                }
+                              }
+                              return;
+                            }
                             if ( this.rustIsMutatingOpName(bosFc.vref) == false ) {
                               return;
                             }

@@ -294,6 +294,11 @@ pub extern "C" fn web_scroll_pixels(x: i32, y: i32, dy: i32) {
     web(|e| e.scrollPixels(x as i64, y as i64, dy as i64))
 }
 
+#[no_mangle]
+pub extern "C" fn web_scroll_pixels2(x: i32, y: i32, dx: i32, dy: i32) {
+    web(|e| e.scrollPixels2(x as i64, y as i64, dx as i64, dy as i64))
+}
+
 // ---- commands and state ------------------------------------------------
 
 /// # Safety
@@ -343,6 +348,28 @@ pub extern "C" fn web_image_parts() -> usize {
 #[no_mangle]
 pub extern "C" fn web_slide_panel_width() -> i32 {
     web(|e| e.slidePanelWidth()) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn web_panel_scroll_at() -> i32 {
+    web(|e| e.panelScrollAt()) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn web_over_slide_panel(x: i32, y: i32) -> i32 {
+    web(|e| e.overSlidePanel(x as i64, y as i64)) as i32
+}
+
+// A format the reader opens and the writer cannot write back — .odp today.
+// The page asks before it offers a Save, and says so in the status line.
+#[no_mangle]
+pub extern "C" fn web_read_only() -> i32 {
+    web(|e| e.readOnly()) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn web_caret_paragraph() -> usize {
+    web(|e| { let s = e.caretParagraph(); put_str(&s) })
 }
 
 #[no_mangle]
@@ -410,6 +437,34 @@ pub extern "C" fn scene_build() {
     narrow(&bin.pts, &PTS);
     narrow(&bin.ends, &ENDS);
     SCENE.with(|s| *s.borrow_mut() = Some(bin));
+}
+
+// The frame without the thumbnails, and the thumbnails alone. Both fill the
+// SAME three arrays, so a page reads one out before it asks for the other —
+// the rule `scene_build` already worked under. `panel_stamp` is how a page
+// decides it need not ask: the panel is most of a frame and changes almost
+// never.
+#[no_mangle]
+pub extern "C" fn scene_build_no_panel() {
+    let bin = web(|e| e.sceneBinaryNoPanel());
+    narrow(&bin.cmds, &CMDS);
+    narrow(&bin.pts, &PTS);
+    narrow(&bin.ends, &ENDS);
+    SCENE.with(|s| *s.borrow_mut() = Some(bin));
+}
+
+#[no_mangle]
+pub extern "C" fn panel_build() {
+    let bin = web(|e| e.panelBinary());
+    narrow(&bin.cmds, &CMDS);
+    narrow(&bin.pts, &PTS);
+    narrow(&bin.ends, &ENDS);
+    SCENE.with(|s| *s.borrow_mut() = Some(bin));
+}
+
+#[no_mangle]
+pub extern "C" fn web_panel_stamp() -> usize {
+    web(|e| { let s = e.panelStamp(); put_str(&s) })
 }
 
 fn scene<R>(f: impl FnOnce(&EVGSceneBinary) -> R, empty: R) -> R {

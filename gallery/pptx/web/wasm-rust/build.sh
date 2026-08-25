@@ -101,7 +101,7 @@ SRC="$ROOT/gallery/pptx/web/standalone/dist"
 if [ ! -s "$SRC/index.html" ]; then
   bash "$ROOT/gallery/pptx/web/standalone/build.sh" >/dev/null
 fi
-for item in fonts gl host presets.txt deck.pptx standalone.mjs; do
+for item in fonts gl host presets.txt deck.pptx sample.odp standalone.mjs; do
   rm -rf "${STAGE:?}/$item"
   cp -r "$SRC/$item" "$STAGE/$item"
 done
