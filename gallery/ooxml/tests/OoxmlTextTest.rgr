@@ -28,7 +28,7 @@
 Import "../OoxmlText.rgr"
 Import "../../datagrid/src/xlsx/XmlLite.rgr"
 Import "../../docx_viewer/src/WordXml.rgr"
-Import "../../pptx/src/PptxXml.rgr"
+Import "../../xml/XmlCore.rgr"
 
 class OoxmlCheck {
     def passed:int 0
@@ -55,7 +55,7 @@ class OoxmlCheck {
     ; The same input through all three readers, which is the whole point: a
     ; reader that drifts fails here rather than in a document nobody renders.
     fn allThree:void (name:string src:string want:string) {
-        def px:PptxXmlParser (new PptxXmlParser)
+        def px:XmlParser (new XmlParser)
         this.eqStr((name + " [xlsx]") (XmlLite.decodeEntities(src)) want)
         this.eqStr((name + " [docx]") (WordXml.decodeEntities(src)) want)
         this.eqStr((name + " [pptx]") (px.decodeEntities(src)) want)

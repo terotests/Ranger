@@ -12,6 +12,8 @@ Import "PptxParser.rgr"
 Import "PptxResolver.rgr"
 Import "PptxModel.rgr"
 Import "PptxView.rgr"
+Import "../../odp/OdpParser.rgr"
+Import "../../odp/OdpToEvg.rgr"
 Import "PptxEdit.rgr"
 Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
@@ -181,6 +183,21 @@ class PptxToolbar extends EVGToolbar {
 
 class PptxApp {
     def parser:PptxParser (new PptxParser())
+    ; --- the other presentation format ---------------------------------------
+    ; A second READER and a second painter, never a second half of one model.
+    ; `gallery/odp` imports nothing from here and this imports nothing of its
+    ; internals: the two meet at `EVGDisplayList`, which is the layer both
+    ; formats were always going to have in common. PLAN_FORMATS.md Phase 1.
+    def odpParser:OdpParser (new OdpParser())
+    def odpDoc:OdpPresentation (new OdpPresentation())
+    def odpConv:OdpToEvg (new OdpToEvg())
+    ; Which reader owns what is on screen. This is the flag the format
+    ; adapter (PLAN_FORMATS.md 1.8) exists to delete; until it does, it is
+    ; ONE flag set in ONE place — `loadBytes` — rather than an extension
+    ; compared in twenty.
+    def isOdp:boolean false
+    def odpThumbs:[int:EVGDisplayList]
+    def odpThumbW:int 0
     def resolver:PptxResolver (new PptxResolver())
     def presentation:PptxPresentation (new PptxPresentation())
     def view:PptxView (new PptxView())
@@ -413,6 +430,10 @@ class PptxApp {
         ; but cannot produce an outline, and the book editor needs outlines —
         ; so both are fed from the one call a host already makes.
         shapes.loadPresets(text)
+        ; Both painters draw the same 187 geometries, so both are handed the
+        ; same catalogue at the same moment. A browser cannot read the file
+        ; beside the module; the page fetches it once.
+        odpConv.loadPresets(text)
     }
 
     ; The 187 preset geometries as a catalogue somebody can browse. This
@@ -807,6 +828,15 @@ class PptxApp {
     ; A deck from bytes: the browser build has no file system, so it fetches
     ; (or is handed) the .pptx and passes it in whole.
     fn loadBytes:boolean (bytes:buffer name:string) {
+        ; The format comes from the CONTENT, not from the name. An ODF package
+        ; states what it is in its first hundred bytes — first entry, stored,
+        ; uncompressed — which is a better answer than an extension and the
+        ; only one a dropped buffer has at all.
+        def odfKind:string (OdfPackage.sniffKind(bytes))
+        if (odfKind == "presentation") {
+            return (this.loadOdpBytes(bytes name))
+        }
+        isOdp = false
         lastPath = name
         parser.close()
         parser = (new PptxParser())
@@ -951,6 +981,9 @@ class PptxApp {
     ; package. A browser needs them as objects it can turn into textures, so
     ; they are handed over rather than served.
     fn imagePartsJson:string () {
+        if isOdp {
+            return (this.odpImagePartsJson())
+        }
         def names:[string]
         def si:int 0
         while (si < (presentation.slideCount())) {
@@ -1000,6 +1033,9 @@ class PptxApp {
     }
 
     fn imageBytes:buffer (part:string) {
+        if isOdp {
+            return (this.odpImageBytes(part))
+        }
         def si:int 0
         while (si < (presentation.slideCount())) {
             def slide:PptxSlide (itemAt presentation.slides si)
@@ -1042,7 +1078,141 @@ class PptxApp {
     }
 
     fn slideCount:int () {
+        if isOdp {
+            return (odpDoc.pageCount())
+        }
         return (presentation.slideCount())
+    }
+
+    ; --- the .odp page, in the same window ------------------------------------
+    ;
+    ; Deliberately the same three steps the deck takes — scale, origin, offset
+    ; the list into place — because they are the window's steps and not the
+    ; format's. What differs is one call, and that is the whole claim this
+    ; branch is here to test.
+    fn paintOdpPage:void (framed:EVGDisplayList) {
+        if ((odpDoc.pageCount()) == 0) {
+            return
+        }
+        def sc:double (this.ptScale())
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
+        framed.addFrame((ox - 1.0) (oy - 1.0) ((odpDoc.widthPt * sc) + 2.0) ((odpDoc.heightPt * sc) + 2.0) 1.0 (EVGColor.rgb(70 78 96)))
+        odpConv.setScale((sc / (96.0 / 72.0)))
+        odpConv.measure.attach(view.ctx view.fontFamily)
+        def dl:EVGDisplayList (odpConv.pageToDisplayList(odpDoc index))
+        PptxApp.offsetList(dl (to_int ox) (to_int oy))
+        PptxApp.appendList(framed dl)
+    }
+
+    ; An .odp from bytes. Called by `loadBytes` when the package says it is
+    ; one, and by nothing else — the sniff happens once, at the door.
+    fn loadOdpBytes:boolean (bytes:buffer name:string) {
+        odpParser.close()
+        odpParser = (new OdpParser())
+        def ok:boolean (odpParser.openBytes(bytes name))
+        if (ok == false) {
+            isOdp = false
+            loaded = false
+            view.status = "failed to open"
+            return false
+        }
+        odpDoc = (odpParser.parsePresentation())
+        def freshThumbs:[int:EVGDisplayList]
+        odpThumbs = freshThumbs
+        odpThumbW = 0
+        isOdp = true
+        loaded = true
+        lastPath = name
+        view.deckName = name
+        index = 0
+        odpConv.measure.attach(view.ctx view.fontFamily)
+        view.status = ((to_string (odpDoc.pageCount())) + " slides")
+        return true
+    }
+
+    ; The pictures an .odp holds, for a host with no file server. Same
+    ; contract as the deck's — a list of package paths, then the bytes for
+    ; one — so `pptx-host.mjs` needed no second mechanism and no change.
+    fn odpImagePartsJson:string () {
+        def names:[string]
+        def i:int 0
+        while (i < (odpDoc.pageCount())) {
+            def page:OdpPage (itemAt odpDoc.pages i)
+            def j:int 0
+            while (j < (array_length page.shapes)) {
+                PptxApp.collectOdpImages((itemAt page.shapes j) names)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def out:string "["
+        def k:int 0
+        while (k < (array_length names)) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\"" + (itemAt names k) + "\"")
+            k = (k + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn collectOdpImages:void (shape:OdpShape names:[string]) {
+        if ((strlen shape.imagePart) > 0) {
+            if ((buffer_length shape.imageBytes) > 0) {
+                def seen:boolean false
+                def k:int 0
+                while (k < (array_length names)) {
+                    if ((itemAt names k) == shape.imagePart) {
+                        seen = true
+                    }
+                    k = (k + 1)
+                }
+                if (seen == false) {
+                    push names shape.imagePart
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            PptxApp.collectOdpImages((itemAt shape.children i) names)
+            i = (i + 1)
+        }
+    }
+
+    fn odpImageBytes:buffer (part:string) {
+        def i:int 0
+        while (i < (odpDoc.pageCount())) {
+            def page:OdpPage (itemAt odpDoc.pages i)
+            def j:int 0
+            while (j < (array_length page.shapes)) {
+                def found:buffer (PptxApp.findOdpImageBytes((itemAt page.shapes j) part))
+                if ((buffer_length found) > 0) {
+                    return found
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return (buffer_alloc 0)
+    }
+
+    sfn findOdpImageBytes:buffer (shape:OdpShape part:string) {
+        if (shape.imagePart == part) {
+            if ((buffer_length shape.imageBytes) > 0) {
+                return shape.imageBytes
+            }
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            def found:buffer (PptxApp.findOdpImageBytes((itemAt shape.children i) part))
+            if ((buffer_length found) > 0) {
+                return found
+            }
+            i = (i + 1)
+        }
+        return (buffer_alloc 0)
     }
 
     fn currentSlide@(optional):PptxSlide () {
@@ -1820,18 +1990,23 @@ class PptxApp {
         if framePanel {
             this.paintPanel(framed)
         }
-        def slide@(optional):PptxSlide (this.currentSlide())
-        if (!null? slide) {
-            def sl:PptxSlide (unwrap slide)
-            def sc:double (this.ptScale())
-            def ox:double (this.slideOriginX())
-            def oy:double (this.slideOriginY())
-            ; The page, and the desk it is on. A slide drawn into the corner of
-            ; a window that is a different shape reads as a rendering fault.
-            framed.addFrame((ox - 1.0) (oy - 1.0) ((sl.width * sc) + 2.0) ((sl.height * sc) + 2.0) 1.0 (EVGColor.rgb(70 78 96)))
-            def dl:EVGDisplayList (view.buildDisplayList(sl))
-            PptxApp.offsetList(dl (to_int ox) (to_int oy))
-            PptxApp.appendList(framed dl)
+        if isOdp {
+            this.paintOdpPage(framed)
+        } {
+            def slide@(optional):PptxSlide (this.currentSlide())
+            if (!null? slide) {
+                def sl:PptxSlide (unwrap slide)
+                def sc:double (this.ptScale())
+                def ox:double (this.slideOriginX())
+                def oy:double (this.slideOriginY())
+                ; The page, and the desk it is on. A slide drawn into the corner
+                ; of a window that is a different shape reads as a rendering
+                ; fault.
+                framed.addFrame((ox - 1.0) (oy - 1.0) ((sl.width * sc) + 2.0) ((sl.height * sc) + 2.0) 1.0 (EVGColor.rgb(70 78 96)))
+                def dl:EVGDisplayList (view.buildDisplayList(sl))
+                PptxApp.offsetList(dl (to_int ox) (to_int oy))
+                PptxApp.appendList(framed dl)
+            }
         }
         if editMode {
             this.paintEditOverlay(framed)
@@ -2573,16 +2748,48 @@ class PptxApp {
         return ((to_double H) - 104.0)
     }
 
-    fn ptScale:double () {
+    ; The page box in points, whichever format is open.
+    ;
+    ; Every geometry helper below used to start by unwrapping a `PptxSlide`
+    ; and reading two fields off it. None of them wanted the slide: fitting a
+    ; page into a window, centring it, and turning a click back into page
+    ; coordinates are questions about a SIZE. Asking for the size instead is
+    ; what lets a second format use the same window without a second copy of
+    ; this arithmetic.
+    fn pageWidthPt:double () {
+        if isOdp {
+            return odpDoc.widthPt
+        }
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
-            return (96.0 / 72.0)
+            return 0.0
         }
         def s:PptxSlide (unwrap slide)
-        if presenting {
-            return (this.showScaleFor(s))
+        return s.width
+    }
+
+    fn pageHeightPt:double () {
+        if isOdp {
+            return odpDoc.heightPt
         }
-        def f:double (view.fitScale(s))
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return 0.0
+        }
+        def s:PptxSlide (unwrap slide)
+        return s.height
+    }
+
+    fn ptScale:double () {
+        def pw:double (this.pageWidthPt())
+        def ph:double (this.pageHeightPt())
+        if (pw <= 0.0) {
+            return (96.0 / 72.0)
+        }
+        if presenting {
+            return (this.showScaleForSize(pw ph))
+        }
+        def f:double (view.fitScaleFor(pw ph))
         return ((96.0 / 72.0) * f)
     }
 
@@ -2592,9 +2799,13 @@ class PptxApp {
     }
 
     fn showScaleFor:double (s:PptxSlide) {
+        return (this.showScaleForSize(s.width s.height))
+    }
+
+    fn showScaleForSize:double (widthPt:double heightPt:double) {
         def px:double (96.0 / 72.0)
-        def wpx:double (s.width * px)
-        def hpx:double (s.height * px)
+        def wpx:double (widthPt * px)
+        def hpx:double (heightPt * px)
         if (wpx <= 0.0) {
             return px
         }
@@ -2613,13 +2824,12 @@ class PptxApp {
     ; Where the slide's top-left corner sits in the window. The fit-to-window
     ; scale leaves a margin on one axis; the page is centred in it.
     fn slideOriginX:double () {
-        def slide@(optional):PptxSlide (this.currentSlide())
-        if (null? slide) {
+        def pw:double (this.pageWidthPt())
+        if (pw <= 0.0) {
             return 0.0
         }
-        def s:PptxSlide (unwrap slide)
         def sc:double (this.ptScale())
-        def wpx:double (s.width * sc)
+        def wpx:double (pw * sc)
         if presenting {
             return ((this.showAreaX()) + (((this.showAreaW()) - wpx) * 0.5))
         }
@@ -2638,13 +2848,12 @@ class PptxApp {
 
     fn slideOriginY:double () {
         def top:double (to_double (toolbarH + (this.panelHeight())))
-        def slide@(optional):PptxSlide (this.currentSlide())
-        if (null? slide) {
+        def ph:double (this.pageHeightPt())
+        if (ph <= 0.0) {
             return top
         }
-        def s:PptxSlide (unwrap slide)
         def sc:double (this.ptScale())
-        def hpx:double (s.height * sc)
+        def hpx:double (ph * sc)
         if presenting {
             return ((this.showAreaY()) + (((this.showAreaH()) - hpx) * 0.5))
         }
@@ -3247,7 +3456,26 @@ class PptxApp {
         modCtrl = ctrl
     }
 
+    ; Whether what is open can be edited at all. `.odp` is read-only here —
+    ; PLAN_FORMATS.md targets L1 for it, and there is no ODF writer — so the
+    ; honest thing is to say so once, in a method a UI can ask, rather than to
+    ; let an edit land in a model nothing will ever save.
+    ;
+    ; This is `DocumentFormatAdapter.capabilities` in embryo: the question a
+    ; shell should ask is "can this be edited", never "is the extension
+    ; .pptx".
+    fn canEdit:boolean () {
+        return (isOdp == false)
+    }
+
     fn setEditMode:void (on:boolean) {
+        if on {
+            if ((this.canEdit()) == false) {
+                editMode = false
+                toolbar.editOn = false
+                return
+            }
+        }
         editMode = on
         toolbar.editOn = on
         if (on == false) {
@@ -3381,7 +3609,14 @@ class PptxApp {
         return (t.dump())
     }
 
+    ; The page's own aspect, which the thumbnail strip sizes itself from. With
+    ; a .odp open these used to answer with `presentation.slideWidth` — the
+    ; DEFAULT of an empty deck — so every thumbnail was drawn in 4:3 with a
+    ; white band under a 16:9 page.
     fn slideW:double () {
+        if isOdp {
+            return odpDoc.widthPt
+        }
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
             return presentation.slideWidth
@@ -3391,6 +3626,9 @@ class PptxApp {
     }
 
     fn slideH:double () {
+        if isOdp {
+            return odpDoc.heightPt
+        }
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
             return presentation.slideHeight
@@ -4982,12 +5220,71 @@ class PptxApp {
         out = (out + ((to_string panelScroll) + "@") + ((to_string index) + ":"))
         out = (out + ((to_string panelDrag) + ">") + ((to_string panelDropAt) + ";"))
         def n:int (this.slideCount())
+        ; A .odp's pages are not in `presentation.slides` — that array is
+        ; EMPTY while one is open, which is exactly the trap `thumbnailAt`
+        ; was added for. Those thumbnails are cached by width alone, since a
+        ; .odp is read-only here, so the page count and the panel's geometry
+        ; are the whole of what can change about them.
+        if isOdp {
+            return (out + ((to_string n) + "odp"))
+        }
         def i:int 0
         while (i < n) {
-            def sl:PptxSlide (itemAt presentation.slides i)
-            out = (out + ((to_string sl.key) + ".") + ((to_string sl.revision) + ","))
+            if (i < (array_length presentation.slides)) {
+                def sl:PptxSlide (itemAt presentation.slides i)
+                out = (out + ((to_string sl.key) + ".") + ((to_string sl.revision) + ","))
+            }
             i = (i + 1)
         }
+        return out
+    }
+
+    ; A thumbnail for slide `i`, from whichever reader owns the document.
+    ;
+    ; This used to be `itemAt presentation.slides i` written inline in the
+    ; panel, and with a .odp open that indexes an EMPTY array. It did not
+    ; crash in the browser test, which is the part worth writing down: the
+    ; .odp fixture has exactly as many pages as the .pptx it was converted
+    ; from, so every index was still in range and the panel quietly drew the
+    ; PREVIOUS document's thumbnails beside the new one's slide. A screenshot
+    ; found it; 113 passing assertions did not.
+    fn thumbnailAt:EVGDisplayList (i:int tx:int ty:int tw:int) {
+        if isOdp {
+            return (this.odpThumbnailFor(i tx ty tw))
+        }
+        if (i < 0) {
+            return (new EVGDisplayList)
+        }
+        if (i >= (array_length presentation.slides)) {
+            return (new EVGDisplayList)
+        }
+        def slide:PptxSlide (itemAt presentation.slides i)
+        return (this.thumbnailFor(slide i tx ty tw))
+    }
+
+    ; The .odp panel's own cache. The deck's is keyed by a slide's revision
+    ; because a slide can be edited; a .odp is read-only here, so the only
+    ; thing that can invalidate one of these is the thumbnail changing width.
+    fn odpThumbnailFor:EVGDisplayList (i:int tx:int ty:int tw:int) {
+        if (odpThumbW != tw) {
+            def fresh:[int:EVGDisplayList]
+            odpThumbs = fresh
+            odpThumbW = tw
+        }
+        ; What is cached is the page at the origin. Where it goes on screen
+        ; changes as the panel scrolls, so the copy handed back is the one
+        ; that gets moved — caching a positioned list would put every
+        ; thumbnail where the first frame happened to want it.
+        if ((has odpThumbs i) == false) {
+            def scale:double ((to_double tw) / (odpDoc.widthPt * (96.0 / 72.0)))
+            odpConv.setScale(scale)
+            odpConv.measure.attach(view.ctx view.fontFamily)
+            set odpThumbs i (odpConv.pageToDisplayList(odpDoc i))
+        }
+        def cached:EVGDisplayList (unwrap (get odpThumbs i))
+        def out (new EVGDisplayList)
+        PptxApp.appendList(out cached)
+        PptxApp.offsetList(out tx ty)
         return out
     }
 
@@ -5035,9 +5332,8 @@ class PptxApp {
                 }
             }
             if visible {
-                def slide:PptxSlide (itemAt presentation.slides i)
                 dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
-                def sub:EVGDisplayList (this.thumbnailFor(slide i tx ty tw))
+                def sub:EVGDisplayList (this.thumbnailAt(i tx ty tw))
                 dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
                 PptxApp.appendList(dl sub)
                 dl.addClipEnd()
@@ -5442,6 +5738,28 @@ class PptxApp {
         return (to_string pt)
     }
 
+    fn paintOdpNotes:void (dl:EVGDisplayList r:PptxEditRect) {
+        def page@(optional):OdpPage (odpDoc.pageAt(index))
+        if (null? page) {
+            return
+        }
+        def p:OdpPage (unwrap page)
+        if ((strlen p.notes) == 0) {
+            toolbarView.pushText(dl "No speaker notes on this slide" (r.x + 10.0) (r.y + 24.0) 12.0 (EVGColor.rgb(150 155 165)))
+            return
+        }
+        def lines:[string] (strsplit p.notes "\n")
+        def y:double (r.y + 24.0)
+        def i:int 0
+        while (i < (array_length lines)) {
+            if (y < ((r.y + r.h) - 4.0)) {
+                toolbarView.pushText(dl (itemAt lines i) (r.x + 10.0) y 12.0 (EVGColor.rgb(40 44 58)))
+                y = (y + 16.0)
+            }
+            i = (i + 1)
+        }
+    }
+
     fn paintNotes:void (dl:EVGDisplayList) {
         if (notesVisible == false) {
             return
@@ -5454,6 +5772,13 @@ class PptxApp {
             label = "Notes — typing"
         }
         toolbarView.pushText(dl label (r.x + 10.0) (r.y + 4.0) 11.0 theme.dim)
+        if isOdp {
+            ; ODF keeps the speaker notes INSIDE the `draw:page` rather than in
+            ; a part of their own, so there is no notes shape to edit — the
+            ; text is read straight off the page and shown.
+            this.paintOdpNotes(dl r)
+            return
+        }
         def hit@(optional):PptxShape (editor.notesShape())
         if (null? hit) {
             return

@@ -121,6 +121,7 @@ export async function installPptxWeb() {
     selectionCount() { return m.web_selection_count(); }
     imageParts() { return m.web_image_parts(); }
     slidePanelWidth() { return m.web_slide_panel_width(); }
+    panelScrollAt() { return m.web_panel_scroll_at(); }
     overSlidePanel(x, y) { return m.web_over_slide_panel(x | 0, y | 0); }
     editing() { return m.web_editing(); }
     editingText() { return m.web_editing_text(); }

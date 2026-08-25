@@ -18,7 +18,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
-Import "PptxTextMeasure.rgr"
+Import "../../office/text/OfficeTextMeasure.rgr"
 Import "../../office/text/OfficeText.rgr"
 Import "../../evg/EVGCodepoint.rgr"
 
@@ -70,7 +70,7 @@ class PptxTextLayout {
 
     ; The width of columns [from, to) of a paragraph, run by run, because a
     ; slice can cross a run boundary and the halves are different sizes.
-    sfn measureSlice:double (para:PptxParagraph from:int to:int m:PptxTextMeasure scale:double) {
+    sfn measureSlice:double (para:PptxParagraph from:int to:int m:OfficeTextMeasure scale:double) {
         if (to <= from) {
             return 0.0
         }
@@ -375,7 +375,7 @@ class PptxTextLayout {
         return para.align
     }
 
-    sfn layout:[PptxTextLine] (body:PptxTextBody m:PptxTextMeasure scale:double x:double y:double w:double h:double) {
+    sfn layout:[PptxTextLine] (body:PptxTextBody m:OfficeTextMeasure scale:double x:double y:double w:double h:double) {
         def out:[PptxTextLine]
         def padL:double (body.insetL * scale)
         def padT:double (body.insetT * scale)

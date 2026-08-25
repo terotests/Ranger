@@ -28427,6 +28427,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( this.rustNodeIsLambda(arg) ) {
                           argNeedsTmp = false;
                         }
+                        if ( (arg.rust_use_tmpvar.length) > 0 ) {
+                          argNeedsTmp = false;
+                        }
+                        if ( this.rustArgIsOutParam(node, i) ) {
+                          argNeedsTmp = false;
+                        }
                         if ( argNeedsTmp ) {
                           const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
                           tmpVarIdx = tmpVarIdx + 1;
@@ -28915,6 +28921,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( this.rustNodeIsLambda(arg) ) {
                         continue;
                       }
+                      if ( (arg.rust_use_tmpvar.length) > 0 ) {
+                        continue;
+                      }
+                      if ( this.rustArgIsOutParam(node, i_1) ) {
+                        continue;
+                      }
                       const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
                       tmpVarIdx = tmpVarIdx + 1;
                       wr.out(("let " + tmpVarName) + " = ", false);
@@ -29047,6 +29059,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         var argNode = givenArgs.children[argIdx];
                         let argHasSelfRef = this.containsSelfReference(argNode);
                         if ( this.rustNodeIsLambda(argNode) ) {
+                          argHasSelfRef = false;
+                        }
+                        if ( (argNode.rust_use_tmpvar.length) > 0 ) {
                           argHasSelfRef = false;
                         }
                         if ( argHasSelfRef ) {
@@ -30527,6 +30542,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       header.out("    }", true);
                       header.out("}", true);
                       header.out("type HashMap<K, V> = RgOrderedMap<K, V>;", true);
+                      header.out("fn rg_index_of(s: &str, key: &str) -> i64 {", true);
+                      header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }", true);
+                      header.out("}", true);
+                      header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {", true);
+                      header.out("    if start <= 0 { return rg_index_of(s, key); }", true);
+                      header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };", true);
+                      header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }", true);
+                      header.out("}", true);
+                      header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {", true);
+                      header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }", true);
+                      header.out("}", true);
                       header.out("", true);
                       let mutPass = 0;
                       let mutChanged = true;
@@ -31653,7 +31679,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           async rustExtractSelfCallConflicts (node, ctx, wr) {
                             const real = this.rustUnwrapParens(node);
                             this.rustHoistFieldReceiver(real, ctx, wr);
-                            if ( this.isSelfMethodCall(real) ) {
+                            if ( real.hasFnCall ) {
                               const cArgs = real.getSecond();
                               for ( let cI = 0; cI < cArgs.children.length; cI++) {
                                 var cA = cArgs.children[cI];
@@ -31673,12 +31699,62 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         }
                                       }
                                     }
+                                    if ( cNeedsTmp == false ) {
+                                      if ( (cReal.ns.length) >= 2 ) {
+                                        let cRootRc = false;
+                                        if ( (cReal.nsp.length) >= 1 ) {
+                                          const cRoot = cReal.nsp[0];
+                                          if ( cRoot.rust_needs_rc_wrap ) {
+                                            cRootRc = true;
+                                          }
+                                        }
+                                        if ( cRootRc == false ) {
+                                          const cRootName = cReal.ns[0];
+                                          if ( ctx.isVarDefined(cRootName) ) {
+                                            const cRootD = ctx.getVariableDef(cRootName);
+                                            if ( cRootD.rust_needs_rc_wrap ) {
+                                              cRootRc = true;
+                                            }
+                                          }
+                                        }
+                                        if ( cRootRc ) {
+                                          cNeedsTmp = true;
+                                          cIsPathRead = true;
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                if ( cNeedsTmp == false ) {
+                                  if ( this.rust_receiverless_method ) {
+                                    if ( cReal.hasFnCall == false ) {
+                                      if ( (cReal.ns.length) >= 2 ) {
+                                        if ( (cReal.ns[0]) == "this" ) {
+                                          cNeedsTmp = true;
+                                          cIsPathRead = true;
+                                        }
+                                      }
+                                      if ( (cReal.ns.length) == 1 ) {
+                                        if ( cReal.hasParamDesc ) {
+                                          const cBareP = cReal.paramDesc;
+                                          if ( cBareP.is_class_variable ) {
+                                            cNeedsTmp = true;
+                                            cIsPathRead = true;
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                if ( cNeedsTmp ) {
+                                  if ( this.rustArgIsOutParam(real, cI) ) {
+                                    cNeedsTmp = false;
                                   }
                                 }
                                 if ( cNeedsTmp ) {
                                   await this.rustExtractSelfCallConflicts(cReal, ctx, wr);
                                   const cTmp = ctx.rustGetTempVar();
-                                  wr.out(("let " + cTmp) + " = ", false);
+                                  wr.out(("let mut " + cTmp) + " = ", false);
                                   ctx.setInExpr();
                                   await this.WalkNode(cReal, ctx, wr);
                                   ctx.unsetInExpr();
@@ -31693,7 +31769,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   cA.rust_use_tmpvar = cTmp;
                                 }
                               };
-                              return;
+                              if ( this.isSelfMethodCall(real) ) {
+                                return;
+                              }
                             }
                             let rcvName = "";
                             let rcvArgsOpt;
@@ -32046,6 +32124,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             };
                             return false;
                           };
+                          rustArgIsOutParam (node, idx) {
+                            if ( typeof(node.fnDesc) === "undefined" ) {
+                              return false;
+                            }
+                            const opFd = node.fnDesc;
+                            if ( (opFd.params.length) <= idx ) {
+                              return false;
+                            }
+                            const opParam = opFd.params[idx];
+                            if ( opParam.needs_cpp_reference ) {
+                              return true;
+                            }
+                            return opParam.rust_borrow_type == 2;
+                          };
                           rustIsSelfCallNode (n) {
                             if ( this.isSelfMethodCall(n) ) {
                               return true;
@@ -32069,18 +32161,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             const bosTarget = node.getSecond();
-                            if ( this.rustNodeIsOwnPath(bosTarget, ctx) == false ) {
-                              return;
-                            }
+                            const bosOwn = this.rustNodeIsOwnPath(bosTarget, ctx);
+                            const bosLen = bosTarget.ns.length;
                             let bosRoot = bosTarget.vref;
-                            if ( (bosTarget.ns.length) > 0 ) {
-                              bosRoot = bosTarget.ns[((bosTarget.ns.length) - 1)];
+                            if ( bosLen > 0 ) {
+                              bosRoot = bosTarget.ns[(bosLen - 1)];
+                            }
+                            let bosHandle = "";
+                            if ( bosLen >= 2 ) {
+                              if ( (bosTarget.ns[0]) != "this" ) {
+                                bosHandle = bosTarget.ns[0];
+                              }
+                            }
+                            if ( (bosOwn == false) && ((bosHandle.length) == 0) ) {
+                              return;
                             }
                             for ( let bosI = 0; bosI < node.children.length; bosI++) {
                               var bosArg = node.children[bosI];
                               if ( bosI > 1 ) {
                                 const bosReal = this.rustUnwrapParens(bosArg);
-                                let bosHoist = this.rustIsSelfCallNode(bosReal);
+                                let bosHoist = false;
+                                if ( bosOwn ) {
+                                  bosHoist = this.rustIsSelfCallNode(bosReal);
+                                }
                                 if ( bosHoist == false ) {
                                   if ( bosI == 2 ) {
                                     if ( this.rustIsIndexedWriteOp(bosFc.vref) ) {
@@ -32092,10 +32195,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     }
                                   }
                                 }
+                                if ( bosHoist == false ) {
+                                  if ( this.rust_receiverless_method && bosOwn ) {
+                                    if ( (bosReal.children.length) > 0 ) {
+                                      if ( this.containsSelfReference(bosArg) ) {
+                                        bosHoist = true;
+                                      }
+                                    }
+                                  }
+                                }
+                                if ( bosHoist == false ) {
+                                  if ( (bosReal.children.length) > 0 ) {
+                                    if ( (bosHandle.length) > 0 ) {
+                                      if ( this.rustExprMentionsName(bosArg, bosHandle) ) {
+                                        bosHoist = true;
+                                      }
+                                    }
+                                    if ( bosHoist == false ) {
+                                      if ( (bosRoot.length) > 0 ) {
+                                        if ( this.rustExprMentionsName(bosArg, bosRoot) ) {
+                                          bosHoist = true;
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
                                 if ( bosHoist ) {
                                   await this.rustExtractSelfCallConflicts(bosReal, ctx, wr);
                                   const bosTmp = ctx.rustGetTempVar();
-                                  wr.out(("let " + bosTmp) + " = ", false);
+                                  wr.out(("let mut " + bosTmp) + " = ", false);
                                   ctx.setInExpr();
                                   await this.WalkNode(bosReal, ctx, wr);
                                   ctx.unsetInExpr();
@@ -32831,6 +32959,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( (left_is_trait_type == false) && preeval_opt_ok ) {
                                   if ( (left.ns.length) == 1 ) {
                                     if ( this.rustExprReadsThrough(right, (left.ns[0])) ) {
+                                      preeval_rhs = true;
+                                    }
+                                  }
+                                }
+                              }
+                              if ( (preeval_rhs == false) && this.rust_receiverless_method ) {
+                                if ( ((is_weak == false) && (left_is_trait_type == false)) && preeval_opt_ok ) {
+                                  if ( this.rustNodeIsOwnPath(left, ctx) ) {
+                                    if ( this.containsSelfReference(right) ) {
                                       preeval_rhs = true;
                                     }
                                   }
@@ -57582,6 +57719,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const idx_14 = cmdArg.int_value;
                                   if ( (node.children.length) > idx_14 ) {
                                     const arg_14 = node.children[idx_14];
+                                    if ( (arg_14.rust_use_tmpvar.length) > 0 ) {
+                                      wr.out(arg_14.rust_use_tmpvar, false);
+                                      arg_14.rust_use_tmpvar = "";
+                                      return;
+                                    }
                                     let mvRcWrap = false;
                                     if ( arg_14.hasNewOper ) {
                                       const mvCont = node.children[1];

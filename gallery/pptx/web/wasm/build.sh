@@ -8,11 +8,10 @@
 #
 #   * Ranger -> LLVM -> WASM is freestanding: primitives and exported
 #     functions, no strings, no maps, no objects. Not this program.
-#   * Ranger -> Rust -> WASM compiles now too: `-l=rust` emits the whole
-#     viewer and rustc accepts it with no errors, for wasm32 as well (see
-#     RUST_ISSUES.md). What it still lacks is the other half of this file —
-#     `bind.cpp` has no Rust counterpart, so nothing is exported and the page
-#     cannot drive the module. A second route, not yet a second build.
+#   * Ranger -> Rust -> WASM is a build of its own now, beside this one, at
+#     gallery/pptx/web/wasm-rust/. Same `pptx_web.rgr`, `rustc` instead of
+#     em++, and a module with zero imports so there is no glue file. It runs
+#     the same page and passes the same tests; see the README there.
 #   * Ranger -> C++ -> Emscripten -> WASM compiles clean and has its bindings.
 #     This.
 #
@@ -112,7 +111,11 @@ SRC="$ROOT/gallery/pptx/web/standalone/dist"
 if [ ! -s "$SRC/index.html" ]; then
   bash "$ROOT/gallery/pptx/web/standalone/build.sh" >/dev/null
 fi
-for item in fonts gl host presets.txt deck.pptx standalone.mjs; do
+# `sample.odp` is in this list for the same reason `deck.pptx` is: the page is
+# the SAME standalone.mjs on both URLs, so a file missing here is a button
+# that 404s on one engine and works on the other — a difference between the
+# two builds that has nothing to do with either engine.
+for item in fonts gl host presets.txt deck.pptx sample.odp standalone.mjs; do
   rm -rf "${STAGE:?}/$item"
   cp -r "$SRC/$item" "$STAGE/$item"
 done

@@ -27,9 +27,10 @@
 #                commit's own output rather than a recorded one.
 #   /office/  -> the .pptx API playground: code on the left writing a deck, the
 #                editor on the right opening the bytes it produced. Its
-#                reference is at /office/reference/, generated from the Ranger
-#                facades. It is built HERE rather than into /docs/ because it
-#                quotes AGPL comments and the documentation site is MIT.
+#                reference is at /office/reference/ (Astro + Starlight: EVG,
+#                PowerPoint, charts, Word, Excel, diagrams, and the generated
+#                API pages). It is built HERE rather than into /docs/ because
+#                it quotes AGPL comments and the language documentation is MIT.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -67,12 +68,17 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
-      # These carry the deck editor, the API playground AND the API reference
-      # at /office/reference/, which is generated from the facades under
-      # gallery/pptx/api — so a change to one republishes the reference
-      # without docs/ being touched.
+      # These carry the deck editor, the API playground, and the Office
+      # reference at /office/reference/ — so a change to a facade republishes
+      # the docs without docs/ (the MIT language site) being touched.
       - "gallery/pptx/**"
       - "gallery/office/**"
+      # The deck viewer opens a .odp too, and the reader under it lives in
+      # three directories of its own. Without these a change to the ODF side
+      # would leave /pptx/ on the site describing a viewer it no longer is.
+      - "gallery/odp/**"
+      - "gallery/odf/**"
+      - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -188,12 +194,36 @@ jobs:
       - name: Build the Office API playground
         run: bash gallery/pptx/web/playground/build.sh --out "$GITHUB_WORKSPACE/_site/office"
 
-      # ---- .pptx API reference at /office/reference/ ----------------------
-      # Beside the playground it documents and under the same licence as the
-      # code both are built from. `npm run docs:generate` no longer builds it —
-      # see the banner in gallery/office/docs/tools/render-reference.mjs.
-      - name: Build the Office API reference
-        run: bash gallery/office/docs/build.sh --out "$GITHUB_WORKSPACE/_site/office/reference"
+      # ---- Office reference at /office/reference/ --------------------------
+      # Astro + Starlight, beside the playground it documents and under the
+      # same licence as the code it quotes. `npm run docs:generate` does not
+      # build this — see gallery/office/docs/README.md.
+      - name: Generate the Office API pages
+        run: bash gallery/office/docs/build.sh
+
+      - name: Copy the playground into the Office docs
+        run: OFFICE_PLAYGROUND_DIST="$GITHUB_WORKSPACE/_site/office" node gallery/office/docs/tools/sync-playground.mjs
+
+      - name: Install Office documentation dependencies
+        working-directory: gallery/office/docs/site
+        run: npm ci
+
+      - name: Build the Office documentation site
+        working-directory: gallery/office/docs/site
+        run: npm run build
+        env:
+          RANGER_COMMIT: ${{ github.sha }}
+
+      - name: Copy the Office documentation into the site
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/_site/office/reference"
+          cp -r gallery/office/docs/site/dist/. "$GITHUB_WORKSPACE/_site/office/reference/"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/pptx/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/evg/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/playground/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/playground/playground.mjs"
+          grep -q "AGPL" "$GITHUB_WORKSPACE/_site/office/reference/index.html"
 
       # The same check the deck editor gets below, for the same reason: a page
       # whose engine failed to copy looks exactly like one whose engine failed
@@ -201,6 +231,7 @@ jobs:
       - name: Check the Office API playground has an engine
         run: |
           test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/pptx/index.html"
           test -s "$GITHUB_WORKSPACE/_site/office/pptx_playground.js"
           test -s "$GITHUB_WORKSPACE/_site/office/playground.mjs"
           test -s "$GITHUB_WORKSPACE/_site/office/gl/evg-webgl.js"
@@ -234,6 +265,10 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/pptx/standalone.mjs"
           test -s "$GITHUB_WORKSPACE/_site/pptx/gl/evg-webgl.js"
           test -s "$GITHUB_WORKSPACE/_site/pptx/deck.pptx"
+          # The .odp the page's own button fetches. A missing file here is a
+          # button that does nothing, and the page looks fine until it is
+          # pressed — which is the failure mode this whole step exists for.
+          test -s "$GITHUB_WORKSPACE/_site/pptx/sample.odp"
           grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
 
       # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------

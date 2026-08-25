@@ -77,6 +77,14 @@ class PptxWeb {
         return (app.addFaceBytes(data))
     }
 
+    ; Whether the open document can be edited and saved. A `.odp` cannot:
+    ; this repository reads one and does not write one, and a Save button that
+    ; produced a .pptx from an .odp would be a data-loss bug wearing a helpful
+    ; label.
+    fn readOnly:boolean () {
+        return ((app.canEdit()) == false)
+    }
+
     fn openDeck:boolean (data:buffer name:string) {
         def ok:boolean (app.loadBytes(data name))
         if (ok == false) {
@@ -183,6 +191,11 @@ class PptxWeb {
     ; The deck as a package, for the page to hand to the browser. A tab has
     ; no file system, so "save" here is bytes and a download.
     fn saveBytes:buffer () {
+        ; Nothing to save from a format this cannot write. Answering with an
+        ; empty buffer is what the host already treats as "no file".
+        if (this.readOnly()) {
+            return (buffer_alloc 0)
+        }
         return (app.deckBytes())
     }
 
@@ -246,6 +259,14 @@ class PptxWeb {
 
     fn panelKeptLastFrame:int () {
         return (app.panelKeptLastFrame())
+    }
+
+    ; How far the thumbnails have scrolled, in pixels. The thing a swipe over
+    ; the panel is supposed to MOVE — a page checking a gesture by diffing the
+    ; whole scene is asking a much blunter question, and one that answers yes
+    ; for any unrelated difference between two frames.
+    fn panelScrollAt:int () {
+        return app.panelScroll
     }
 
     fn slidePanelWidth:int () {

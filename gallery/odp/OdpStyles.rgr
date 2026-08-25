@@ -1,0 +1,421 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdpStyles.rgr — the ODF style chain, resolved through OfficeStyle
+; ==============================================================================
+;
+; ODF inheritance is one mechanism used four times, which is a nicer shape than
+; PresentationML's four mechanisms and is why this file is short:
+;
+;     style:default-style          the family's floor
+;         ↑ style:parent-style-name
+;     a common style in styles.xml         "standard", "Blank-title"
+;         ↑ style:parent-style-name
+;     an automatic style in content.xml    "gr2", "P1", "T1"
+;
+; Every level states some properties and says nothing about the rest, and
+; "says nothing" is a THIRD answer beside true and false —
+;
+;     <style:text-properties fo:font-weight="normal"/>   says NOT bold
+;     no text-properties at all                          says nothing
+;
+; — so the carrier is `OfficeTextStyle` and the rule is its `applyOver`. That
+; is the whole reason this file does not hold plain booleans, and it is the bug
+; that cost the deck, document and spreadsheet readers one wrong answer each.
+;
+; FOUR FAMILIES matter to a slide, and a run's effective format is the chain of
+; three of them applied in this order:
+;
+;     the shape's style      graphic / presentation   (its text-properties)
+;     the paragraph's style  paragraph
+;     the run's style        text
+;
+; The graphic properties — fill, stroke, padding, vertical alignment — come off
+; the first of those alone.
+;
+; WHAT IS DELIBERATELY NOT HERE: list styles, page layouts and number formats.
+; The first two are read where they are used (`OdpParser` reads the page
+; layout for the slide size, because exactly one caller wants it), and the
+; third belongs to a spreadsheet.
+; ==============================================================================
+
+Import "../xml/XmlCore.rgr"
+Import "OdpModel.rgr"
+Import "../office/text/OfficeStyle.rgr"
+
+; What one `<style:style>` states, and nothing about what it inherits.
+class OdpStyleDef {
+    def name:string ""
+    def family:string ""
+    def parentName:string ""
+
+    def text:OfficeTextStyle (new OfficeTextStyle())
+
+    def fillKind:StyleText (new StyleText())
+    def fillColor:StyleText (new StyleText())
+    def fillOpacity:StyleNum (new StyleNum())
+    def strokeKind:StyleText (new StyleText())
+    def strokeColor:StyleText (new StyleText())
+    def strokeWidth:StyleNum (new StyleNum())
+
+    def align:StyleText (new StyleText())
+    def verticalAlign:StyleText (new StyleText())
+    def padLeft:StyleNum (new StyleNum())
+    def padRight:StyleNum (new StyleNum())
+    def padTop:StyleNum (new StyleNum())
+    def padBottom:StyleNum (new StyleNum())
+
+    Constructor () {
+    }
+}
+
+; What a shape's box looks like once the chain has been walked. A view, not a
+; model: built for one shape and thrown away.
+class OdpGraphicProps {
+    def fill:OdpFill (new OdpFill())
+    def stroke:OdpStroke (new OdpStroke())
+    def verticalAlign:string "top"
+    def padLeft:double 0.0
+    def padRight:double 0.0
+    def padTop:double 0.0
+    def padBottom:double 0.0
+    def align:string ""
+
+    Constructor () {
+    }
+}
+
+class OdpStyles {
+    ; family + "/" + name → what it states. One table rather than one per
+    ; family, because `style:parent-style-name` never crosses a family and a
+    ; single map keyed by both cannot accidentally let it.
+    def defs:[string:OdpStyleDef]
+    ; family → the `style:default-style` for it, which is the floor of every
+    ; chain in that family.
+    def defaults:[string:OdpStyleDef]
+
+    Constructor () {
+        def d:[string:OdpStyleDef]
+        defs = d
+        def f:[string:OdpStyleDef]
+        defaults = f
+    }
+
+    sfn keyOf:string (family:string name:string) {
+        return (family + "/" + name)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Reading
+    ; ------------------------------------------------------------------
+
+    ; Every `<style:style>` and `<style:default-style>` under a node, at any
+    ; depth. `office:styles`, `office:automatic-styles` and `office:master-
+    ; styles` all hold them and a master page holds them inside itself.
+    fn collect:void (node:XmlNode) {
+        def name:string node.name
+        if (name == "style:style") {
+            this.addStyle(node false)
+        }
+        if (name == "style:default-style") {
+            this.addStyle(node true)
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def child:XmlNode (itemAt node.children i)
+            if (child.isText == false) {
+                this.collect(child)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn addStyle:void (node:XmlNode isDefault:boolean) {
+        def def0 (new OdpStyleDef())
+        def0.name = (node.attr("style:name"))
+        def0.family = (node.attr("style:family"))
+        def0.parentName = (node.attr("style:parent-style-name"))
+        if ((strlen def0.family) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def child:XmlNode (itemAt node.children i)
+            if (child.isText == false) {
+                this.readProperties(def0 child)
+            }
+            i = (i + 1)
+        }
+        if isDefault {
+            set defaults def0.family def0
+            return
+        }
+        if ((strlen def0.name) == 0) {
+            return
+        }
+        set defs (OdpStyles.keyOf(def0.family def0.name)) def0
+    }
+
+    fn readProperties:void (def0:OdpStyleDef node:XmlNode) {
+        def n:string node.name
+        ; LibreOffice writes `loext:graphic-properties` for a paragraph's own
+        ; fill. Reading only the `style:` spelling loses the colour of every
+        ; shape whose fill was stated there, which is what an .odp converted
+        ; from .pptx does with a shape's body fill.
+        if ((n == "style:graphic-properties") || (n == "loext:graphic-properties")) {
+            this.readGraphic(def0 node)
+        }
+        if (n == "style:drawing-page-properties") {
+            this.readGraphic(def0 node)
+        }
+        if (n == "style:paragraph-properties") {
+            OdpStyles.setIfStated(def0.align (node.attr("fo:text-align")))
+        }
+        if (n == "style:text-properties") {
+            this.readText(def0 node)
+        }
+    }
+
+    fn readGraphic:void (def0:OdpStyleDef node:XmlNode) {
+        OdpStyles.setIfStated(def0.fillKind (node.attr("draw:fill")))
+        OdpStyles.setIfStated(def0.fillColor (node.attr("draw:fill-color")))
+        OdpStyles.setIfStated(def0.strokeKind (node.attr("draw:stroke")))
+        OdpStyles.setIfStated(def0.strokeColor (node.attr("svg:stroke-color")))
+        OdpStyles.setIfStated(def0.verticalAlign (node.attr("draw:textarea-vertical-align")))
+        OdpStyles.setLength(def0.strokeWidth (node.attr("svg:stroke-width")))
+        OdpStyles.setLength(def0.padLeft (node.attr("fo:padding-left")))
+        OdpStyles.setLength(def0.padRight (node.attr("fo:padding-right")))
+        OdpStyles.setLength(def0.padTop (node.attr("fo:padding-top")))
+        OdpStyles.setLength(def0.padBottom (node.attr("fo:padding-bottom")))
+        def op:string (node.attr("draw:opacity"))
+        if ((strlen op) > 0) {
+            def0.fillOpacity.set((OdpUnits.percent(op 1.0)))
+        }
+    }
+
+    ; The tri-state, at the one place it is read. `fo:font-weight="normal"` is
+    ; not the absence of `fo:font-weight`, and a `boolean` field here would
+    ; make a word explicitly taken out of bold come back bold — the bug this
+    ; repository fixed three times in three formats before it was carried once.
+    fn readText:void (def0:OdpStyleDef node:XmlNode) {
+        def family:string (node.attr("style:font-name"))
+        if ((strlen family) == 0) {
+            family = (node.attr("fo:font-family"))
+        }
+        if ((strlen family) > 0) {
+            def0.text.family.set(family)
+        }
+        def size:string (node.attr("fo:font-size"))
+        if ((strlen size) > 0) {
+            ; A size can be a percentage of the inherited one. That needs the
+            ; chain to have been walked already, so it is not something this
+            ; layer can answer; a percentage is left unstated rather than
+            ; guessed, and the inherited size stands.
+            if ((indexOf size "%") < 0) {
+                def0.text.sizePt.set((OdpUnits.toPt(size)))
+            }
+        }
+        def weight:string (node.attr("fo:font-weight"))
+        if ((strlen weight) > 0) {
+            def0.text.bold.set((OdpStyles.isBoldWeight(weight)))
+        }
+        def slant:string (node.attr("fo:font-style"))
+        if ((strlen slant) > 0) {
+            def0.text.italic.set(((slant == "italic") || (slant == "oblique")))
+        }
+        def under:string (node.attr("style:text-underline-style"))
+        if ((strlen under) > 0) {
+            def0.text.underline.set((under != "none"))
+        }
+        def strike:string (node.attr("style:text-line-through-style"))
+        if ((strlen strike) > 0) {
+            def0.text.strike.set((strike != "none"))
+        }
+        def colour:string (node.attr("fo:color"))
+        if ((strlen colour) > 0) {
+            def0.text.foreground.set(colour)
+        }
+        def back:string (node.attr("fo:background-color"))
+        if ((strlen back) > 0) {
+            if (back != "transparent") {
+                def0.text.background.set(back)
+            }
+        }
+    }
+
+    ; ODF states a weight as a keyword or as a CSS number. 600 and above is
+    ; bold everywhere that matters, and `normal` is the explicit NOT bold that
+    ; the whole tri-state exists to carry.
+    sfn isBoldWeight:boolean (w:string) {
+        if (w == "bold") {
+            return true
+        }
+        if (w == "normal") {
+            return false
+        }
+        def parsed@(optional):double (str2double w)
+        def v:double (?? parsed 400.0)
+        return (v >= 600.0)
+    }
+
+    sfn setIfStated:void (slot:StyleText value:string) {
+        if ((strlen value) > 0) {
+            slot.set(value)
+        }
+    }
+
+    sfn setLength:void (slot:StyleNum value:string) {
+        if ((strlen value) > 0) {
+            slot.set((OdpUnits.toPt(value)))
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; Walking the chain
+    ; ------------------------------------------------------------------
+
+    ; The chain for a style, ROOT FIRST — the default style, then each parent,
+    ; then the style itself. Root first is what lets the caller apply each one
+    ; over the last and stop thinking about direction, which is the mistake
+    ; `OfficeHistory` names: two walks over one relation drift.
+    fn chainOf:[OdpStyleDef] (family:string name:string) {
+        def out:[OdpStyleDef]
+        def stack:[OdpStyleDef]
+        def current:string name
+        def guard:int 0
+        while (((strlen current) > 0) && (guard < 32)) {
+            def key:string (OdpStyles.keyOf(family current))
+            if ((has defs key) == false) {
+                break
+            }
+            def hit:OdpStyleDef (unwrap (get defs key))
+            push stack hit
+            current = hit.parentName
+            guard = (guard + 1)
+        }
+        if (has defaults family) {
+            push out (unwrap (get defaults family))
+        }
+        def i:int ((array_length stack) - 1)
+        while (i >= 0) {
+            push out (itemAt stack i)
+            i = (i - 1)
+        }
+        return out
+    }
+
+    ; A run's format: the shape's own style, then the paragraph's, then the
+    ; run's, each applied over the last. Any of the three names may be empty,
+    ; which is the ordinary case rather than an error.
+    fn resolveText:OfficeTextStyle (shapeFamily:string shapeStyle:string paraStyle:string runStyle:string) {
+        def out (new OfficeTextStyle())
+        this.applyChainText(out shapeFamily shapeStyle)
+        this.applyChainText(out "paragraph" paraStyle)
+        this.applyChainText(out "text" runStyle)
+        return out
+    }
+
+    fn applyChainText:void (into:OfficeTextStyle family:string name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def chain:[OdpStyleDef] (this.chainOf(family name))
+        def i:int 0
+        while (i < (array_length chain)) {
+            def d:OdpStyleDef (itemAt chain i)
+            def layer:OfficeTextStyle (d.text.copy())
+            layer.applyOver(into)
+            into.copyFrom(layer)
+            i = (i + 1)
+        }
+    }
+
+    ; The box: fill, stroke, padding, vertical alignment.
+    fn resolveGraphic:OdpGraphicProps (family:string name:string) {
+        def out (new OdpGraphicProps())
+        if ((strlen name) == 0) {
+            return out
+        }
+        def chain:[OdpStyleDef] (this.chainOf(family name))
+        def fillKind:string ""
+        def fillColor:string ""
+        def fillOpacity:double 1.0
+        def strokeKind:string ""
+        def strokeColor:string ""
+        def strokeWidth:double 0.0
+        def i:int 0
+        while (i < (array_length chain)) {
+            def d:OdpStyleDef (itemAt chain i)
+            if (d.fillKind.isSet) {
+                fillKind = d.fillKind.value
+            }
+            if (d.fillColor.isSet) {
+                fillColor = d.fillColor.value
+            }
+            if (d.fillOpacity.isSet) {
+                fillOpacity = d.fillOpacity.value
+            }
+            if (d.strokeKind.isSet) {
+                strokeKind = d.strokeKind.value
+            }
+            if (d.strokeColor.isSet) {
+                strokeColor = d.strokeColor.value
+            }
+            if (d.strokeWidth.isSet) {
+                strokeWidth = d.strokeWidth.value
+            }
+            if (d.verticalAlign.isSet) {
+                out.verticalAlign = d.verticalAlign.value
+            }
+            if (d.align.isSet) {
+                out.align = d.align.value
+            }
+            if (d.padLeft.isSet) {
+                out.padLeft = d.padLeft.value
+            }
+            if (d.padRight.isSet) {
+                out.padRight = d.padRight.value
+            }
+            if (d.padTop.isSet) {
+                out.padTop = d.padTop.value
+            }
+            if (d.padBottom.isSet) {
+                out.padBottom = d.padBottom.value
+            }
+            i = (i + 1)
+        }
+        if ((strlen fillKind) > 0) {
+            out.fill.kind = fillKind
+        }
+        out.fill.color = fillColor
+        out.fill.opacity = fillOpacity
+        ; A solid fill with no colour stated anywhere is ODF's way of saying
+        ; "the application's default", which is a mid blue in Impress and
+        ; nothing anybody meant in a converted deck. Drawing nothing is the
+        ; honest answer and it is visible; inventing a colour is not.
+        if (out.fill.kind == "solid") {
+            if ((strlen fillColor) == 0) {
+                out.fill.kind = "none"
+            }
+        }
+        if ((strlen strokeKind) > 0) {
+            out.stroke.kind = strokeKind
+        }
+        out.stroke.color = strokeColor
+        out.stroke.widthPt = strokeWidth
+        if (out.stroke.kind != "none") {
+            if ((strlen strokeColor) == 0) {
+                ; ODF's default line colour is black, and unlike a fill this
+                ; one IS what every producer means: a stroke stated without a
+                ; colour is a hairline outline.
+                out.stroke.color = "#000000"
+            }
+            ; `svg:stroke-width="0cm"` with a solid stroke means the thinnest
+            ; line the device can draw, not an invisible one.
+            if (out.stroke.widthPt <= 0.0) {
+                out.stroke.widthPt = 0.75
+            }
+        }
+        return out
+    }
+}

@@ -676,10 +676,30 @@ below this one).
 21 warnings, no errors. They are the ordinary ones: `while true`, unused
 imports, one `unconditional_recursion`.
 
-A WASM *build* still needs the bindings — `gallery/pptx/web/wasm/bind.cpp`
-has no Rust counterpart yet, so nothing is exported and the host cannot call
-in. `rustc --target wasm32-unknown-unknown --crate-type=cdylib` produces a
-module today; what it does not yet produce is a module the page can drive.
+A WASM *build* exists now too, at `gallery/pptx/web/wasm-rust/`: `bind.rs`
+beside it exports the editor over the C ABI and `host.mjs` presents the module
+as the object the page already expects, so the standalone page runs on it
+unchanged. `rustc --target wasm32-unknown-unknown --crate-type=cdylib` is the
+whole toolchain — the module has zero imports, so there is no glue file and no
+SDK to source.
+
+### Compiling is not the same as working
+
+Everything above was measured with rustc alone, and rustc was satisfied while
+the program was still wrong. Running it found six more emitter bugs, all fixed
+in the compiler, none of them visible to a type checker:
+
+| What it looked like | What it was |
+| --- | --- |
+| a deck with an accent in it dropped every shape after the first | `indexOf` returned a BYTE index while `strlen`, `charAt` and `substring` counted characters. Consistency within a target is the requirement, and Rust was the one target that broke it. Three prelude helpers now convert. |
+| five different panics, all `already borrowed` | a borrow held across something that takes the same cell: an assignment whose right side reads the object it writes, an operator whose operand does, a call argument that does, a tail expression outliving the local it borrows. rustc cannot see these — the borrow is of a `RefCell`, not of the struct. |
+| a PNG failed to decode | `writeByte(this.readU8())` read TWO bytes: two hoisting passes both claimed the same argument. The `__arg_N` sites now check whether the argument is already in a temporary. |
+| the deck parsed to five empty slides | an out parameter hoisted into a temporary that was then dropped. Hoisting now leaves out parameters to the one site that writes the temporary back. |
+
+The guard against a repeat is `npm run pptx:wasm:rust:parity`: 35 decks, 43
+slides, 8459 scene commands compared field for field against the JavaScript
+engine, plus the standalone page's own 98 assertions run in a browser against
+the WASM module.
 
 ### The performance question this was asked for
 

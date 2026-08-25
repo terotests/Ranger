@@ -151,8 +151,8 @@ class OfficeRtlPropsTest {
 
     ; The first paragraph of a text body parsed from XML.
     fn slidePara:PptxParagraph (pPr:string) {
-        def xp (new PptxXmlParser())
-        def doc@(optional):PptxXmlNode (xp.parse((("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p>" + pPr) + "<a:r><a:rPr lang=\"ar\"/><a:t>x</a:t></a:r></a:p></p:txBody>")))
+        def xp (new XmlParser())
+        def doc@(optional):XmlNode (xp.parse((("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p>" + pPr) + "<a:r><a:rPr lang=\"ar\"/><a:t>x</a:t></a:r></a:p></p:txBody>")))
         def parser (new PptxParser())
         def body:PptxTextBody (parser.parseTextBody((unwrap doc)))
         return (itemAt body.paragraphs 0)

@@ -590,7 +590,15 @@ async function draw() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.round(doc.width * dpr), h = Math.round(doc.height * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-  canvas.style.height = doc.height + "px";
+  if (document.documentElement.classList.contains("embed")) {
+    canvas.style.height = "";
+    canvas.style.flex = "1";
+    canvas.style.minHeight = "0";
+    canvas.style.width = "100%";
+    canvas.style.objectFit = "contain";
+  } else {
+    canvas.style.height = doc.height + "px";
+  }
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.055, 0.067, 0.086, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
@@ -694,10 +702,11 @@ function attachEditor() {
  * Run the reader's code. It returns a Deck; anything else is a mistake worth
  * naming.
  *
- * Nothing runs on its own any more — not on load, not when the example is
- * changed. An example that opens the reader's file and edits it is not a thing
- * to do behind their back, and once one example needs a button the rest may as
- * well need the same one.
+ * Nothing runs on its own in the full playground — not on load, not when the
+ * example is changed. An example that opens the reader's file and edits it is
+ * not a thing to do behind their back, and once one example needs a button the
+ * rest may as well need the same one. An iframe with `?embed=1` is the
+ * exception: the docs page that wrapped it has to show a slide, not a button.
  *
  * `Source` is the bytes of the file the reader opened, and it is the ORIGINAL
  * bytes every time — the output of a run is never written back over them. An
@@ -708,6 +717,7 @@ function attachEditor() {
 function run() {
   clearLog();
   let deck;
+  const done = () => Promise.resolve();
   // `console.log` from inside the example reaches the pane under the code as
   // well as the browser's console. A page that answers "how many slides?" only
   // in devtools has not answered it.
@@ -725,20 +735,23 @@ function run() {
     const source = sourceBytes;
     deck = fn(JsApi, renderer, Chart, source, (...a) => say(a.map(printable).join(" "), false));
   } catch (err) {
-    return fail("the code threw: " + (err && err.message ? err.message : String(err)));
+    fail("the code threw: " + (err && err.message ? err.message : String(err)));
+    return done();
   } finally {
     Object.assign(console, real);
   }
   if (!deck || typeof deck.save !== "function") {
-    return fail("the code has to `return` a deck — the last line of every example does.");
+    fail("the code has to `return` a deck — the last line of every example does.");
+    return done();
   }
   let bytes;
   try {
     bytes = deck.save();
   } catch (err) {
-    return fail("saving the deck failed: " + err.message);
+    fail("saving the deck failed: " + err.message);
+    return done();
   }
-  showDeck(bytes).then(() => {
+  return showDeck(bytes).then(() => {
     statusEl.className = "good";
     const from = sourceBytes
       ? `${sourceName} (${sourceBytes.length.toLocaleString()} bytes) → `
@@ -1043,14 +1056,68 @@ async function boot() {
     else fail(renderer.error || "the deck could not be printed");
   });
 
-  // Nothing runs on load. The editor is given an empty deck so the pane is a
-  // slide rather than a blank canvas, and the first Run is the reader's.
-  const empty = JsApi.create();
-  empty.addSlide().background("FFFFFF");
-  await showDeck(empty.save());
-  statusEl.className = "";
-  statusEl.textContent = "ready — press Run, or open a .pptx to edit one you already have.";
-  window.__playgroundReady = true;
+  /**
+   * Docs pages iframe this page with `?embed=1&preset=…`. The query is also
+   * applied from `postMessage` so a page can ship a snippet that is not one
+   * of the named presets. Autorun is the point of an embed — a docs reader
+   * who has to press Run to see the picture the page is talking about has
+   * not been shown the picture. The full playground still waits for Run.
+   */
+  function applyEmbedQuery() {
+    const q = new URLSearchParams(location.search);
+    const embed = q.get("embed") === "1" || q.get("embed") === "true";
+    if (embed) {
+      document.documentElement.classList.add("embed");
+      document.body.classList.add("embed");
+      window.__embedMode = true;
+      if (q.get("view") === "slides") document.documentElement.classList.add("slides-only");
+    }
+    const preset = q.get("preset");
+    const offered = table();
+    if (preset && offered[preset]) {
+      select.value = preset;
+      $("code").value = offered[preset];
+    }
+    return embed && q.get("run") !== "0";
+  }
+
+  window.addEventListener("message", (ev) => {
+    if (ev.source !== window.parent) return;
+    const d = ev.data;
+    if (!d || d.type !== "pptx-embed") return;
+    document.documentElement.classList.add("embed");
+    document.body.classList.add("embed");
+    window.__embedMode = true;
+    if (d.view === "slides") document.documentElement.classList.add("slides-only");
+    if (typeof d.code === "string" && d.code.trim()) {
+      $("code").value = d.code;
+      run();
+      return;
+    }
+    if (typeof d.preset === "string" && table()[d.preset]) {
+      select.value = d.preset;
+      $("code").value = table()[d.preset];
+      run();
+    }
+  });
+
+  // Nothing runs on load in the full playground. An embed autoruns so the
+  // docs page that wrapped this iframe has a slide to show, not a blank deck
+  // and a button.
+  const shouldAutorun = applyEmbedQuery();
+  try {
+    if (shouldAutorun) {
+      await Promise.resolve(run());
+    } else {
+      const empty = JsApi.create();
+      empty.addSlide().background("FFFFFF");
+      await showDeck(empty.save());
+      statusEl.className = "";
+      statusEl.textContent = "ready — press Run, or open a .pptx to edit one you already have.";
+    }
+  } finally {
+    window.__playgroundReady = true;
+  }
 }
 
 boot().catch((e) => fail("could not start: " + e.message));

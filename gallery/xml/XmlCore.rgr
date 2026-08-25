@@ -1,26 +1,56 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; PptxXml - minimal XML DOM for PresentationML / DrawingML parts
+; XmlCore — the one XML reader for the document formats in this gallery
 ; ==============================================================================
 ;
-; Deliberately tiny: element nodes, attributes, text children. Namespace
-; prefixes are stripped from element local names (`p:sp` → `sp`) but kept on
-; attributes that need them (`r:embed`). Same XXE-safe entity policy as
-; SvgParser — only the five predefined XML entities are expanded.
+; This was `gallery/pptx/src/PptxXml.rgr` and it is the same parser. It moved
+; here when a second format needed it, which is the only reason a module
+; belongs in a shared directory at all — see `gallery/office/README.md` on
+; what an unused API is worth.
+;
+; Deliberately tiny: element nodes, attributes, text children, and the span
+; each element occupied in its part. That last one is not a detail: it is what
+; lets a writer copy through markup it does not understand (`SourceRef`,
+; `PptxOpaque`), and it is why `.pptx` is the only format in this repository
+; with a save that does not damage what it never read.
+;
+; TWO NAME POLICIES, and the reason there are two rather than one.
+;
+;   keepPrefixes = false   `p:sp` → `sp`      (OOXML: the default)
+;   keepPrefixes = true    `text:p` → `text:p` (ODF)
+;
+; OOXML can afford to strip the prefix because its local names are effectively
+; unique within a part. ODF cannot: `text:p` and `draw:p` are different
+; elements, and `style:name`, `draw:name` and `text:style-name` are three
+; different attributes. A reader that strips prefixes in an `.odp` silently
+; confuses them, which is the kind of bug that renders something plausible.
+;
+; Attribute names are never stripped, in either mode — DrawingML needs
+; `r:embed` and ODF needs `xlink:href`.
+;
+; WHITESPACE. Text that is only spaces is dropped, because keeping it turns
+; every pretty-printed file into a tree of blank nodes. Inside an element that
+; HOLDS text it is content: `<a:t> </a:t>` is the space between two words.
+; Which elements those are is a fact about the format, so it is a field
+; (`spaceElements`) rather than a hard-coded name — it was `t` alone, which is
+; correct for DrawingML and wrong for `text:span`.
+;
+; Same XXE-safe entity policy as SvgParser: only the five predefined XML
+; entities and numeric references, never an external one.
 ; ==============================================================================
 
-Import "../../ooxml/OoxmlText.rgr"
+Import "../ooxml/OoxmlText.rgr"
 
-class PptxXmlAttr {
+class XmlAttr {
     def name:string ""
     def value:string ""
 }
 
-class PptxXmlNode {
+class XmlNode {
     def name:string ""
-    def attrs:[PptxXmlAttr]
-    def children:[PptxXmlNode]
+    def attrs:[XmlAttr]
+    def children:[XmlNode]
     def text:string ""
     def isText:boolean false
     ; Where this element was in the part it was parsed from: the index of its
@@ -32,16 +62,16 @@ class PptxXmlNode {
     def srcEnd:int 0
 
     Constructor () {
-        def a:[PptxXmlAttr]
+        def a:[XmlAttr]
         attrs = a
-        def c:[PptxXmlNode]
+        def c:[XmlNode]
         children = c
     }
 
     fn hasAttr:boolean (n:string) {
         def i:int 0
         while (i < (array_length attrs)) {
-            def a:PptxXmlAttr (itemAt attrs i)
+            def a:XmlAttr (itemAt attrs i)
             if (a.name == n) {
                 return true
             }
@@ -53,7 +83,7 @@ class PptxXmlNode {
     fn attr:string (n:string) {
         def i:int 0
         while (i < (array_length attrs)) {
-            def a:PptxXmlAttr (itemAt attrs i)
+            def a:XmlAttr (itemAt attrs i)
             if (a.name == n) {
                 return a.value
             }
@@ -73,29 +103,29 @@ class PptxXmlNode {
         return (array_length children)
     }
 
-    fn childAt:PptxXmlNode (i:int) {
+    fn childAt:XmlNode (i:int) {
         return (itemAt children i)
     }
 
-    fn firstChild@(optional):PptxXmlNode (localName:string) {
+    fn firstChild@(optional):XmlNode (localName:string) {
         def i:int 0
         while (i < (array_length children)) {
-            def c:PptxXmlNode (itemAt children i)
+            def c:XmlNode (itemAt children i)
             if ((c.isText == false) && (c.name == localName)) {
-                def hit@(optional):PptxXmlNode c
+                def hit@(optional):XmlNode c
                 return hit
             }
             i = (i + 1)
         }
-        def __missing@(optional):PptxXmlNode
+        def __missing@(optional):XmlNode
         return __missing
     }
 
-    fn childrenNamed:[PptxXmlNode] (localName:string) {
-        def out:[PptxXmlNode]
+    fn childrenNamed:[XmlNode] (localName:string) {
+        def out:[XmlNode]
         def i:int 0
         while (i < (array_length children)) {
-            def c:PptxXmlNode (itemAt children i)
+            def c:XmlNode (itemAt children i)
             if ((c.isText == false) && (c.name == localName)) {
                 push out c
             }
@@ -105,23 +135,23 @@ class PptxXmlNode {
     }
 
     ; Depth-first first match by local name.
-    fn find@(optional):PptxXmlNode (localName:string) {
+    fn find@(optional):XmlNode (localName:string) {
         if (name == localName) {
-            def selfHit@(optional):PptxXmlNode this
+            def selfHit@(optional):XmlNode this
             return selfHit
         }
         def i:int 0
         while (i < (array_length children)) {
-            def c:PptxXmlNode (itemAt children i)
+            def c:XmlNode (itemAt children i)
             if (c.isText == false) {
-                def hit@(optional):PptxXmlNode (c.find(localName))
+                def hit@(optional):XmlNode (c.find(localName))
                 if (!null? hit) {
                     return hit
                 }
             }
             i = (i + 1)
         }
-        def __missing@(optional):PptxXmlNode
+        def __missing@(optional):XmlNode
         return __missing
     }
 
@@ -132,7 +162,7 @@ class PptxXmlNode {
         def out:string ""
         def i:int 0
         while (i < (array_length children)) {
-            def c:PptxXmlNode (itemAt children i)
+            def c:XmlNode (itemAt children i)
             out = (out + (c.textContent()))
             i = (i + 1)
         }
@@ -140,20 +170,20 @@ class PptxXmlNode {
     }
 }
 
-class PptxXmlTag {
+class XmlTag {
     def name:string ""
     def isEnd:boolean false
     def selfClose:boolean false
-    def attrs:[PptxXmlAttr]
+    def attrs:[XmlAttr]
     def valid:boolean false
 
     Constructor () {
-        def a:[PptxXmlAttr]
+        def a:[XmlAttr]
         attrs = a
     }
 }
 
-class PptxXmlParser {
+class XmlParser {
     def src:string ""
     def pos:int 0
     def len:int 0
@@ -161,18 +191,27 @@ class PptxXmlParser {
     def maxDepth:int 64
     def nodeCount:int 0
     def aborted:boolean false
+    ; Keep the namespace prefix on element names. False is OOXML's policy and
+    ; the default, so every existing caller behaves exactly as it did.
+    def keepPrefixes:boolean false
+    ; Element names whose whitespace-only text is content rather than layout.
+    ; Empty means the built-in OOXML answer, `t`, which is what this parser
+    ; had hard-coded before ODF needed `text:p` and `text:span`.
+    def spaceElements:[string]
 
     Constructor () {
+        def se:[string]
+        spaceElements = se
     }
 
-    fn parse@(optional):PptxXmlNode (source:string) {
+    fn parse@(optional):XmlNode (source:string) {
         src = source
         pos = 0
         len = (strlen source)
         nodeCount = 0
         aborted = false
         this.skipProlog()
-        def root@(optional):PptxXmlNode (this.readElement(0))
+        def root@(optional):XmlNode (this.readElement(0))
         return root
     }
 
@@ -255,6 +294,30 @@ class PptxXmlParser {
         return (substring qname (colon + 1) (strlen qname))
     }
 
+    ; The element name as this reader will publish it. The one place the two
+    ; name policies differ, so a caller cannot half-apply one.
+    fn elementName:string (qname:string) {
+        if keepPrefixes {
+            return qname
+        }
+        return (XmlParser.localName(qname))
+    }
+
+    ; Is whitespace-only text inside this element content?
+    fn keepsSpace:boolean (name:string) {
+        if ((array_length spaceElements) == 0) {
+            return (name == "t")
+        }
+        def i:int 0
+        while (i < (array_length spaceElements)) {
+            if ((itemAt spaceElements i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     ; Keep r:embed / xmlns:… style names; strip nothing for attrs that have
     ; a prefix other than xmlns (DrawingML relationships need r:embed).
     sfn attrName:string (qname:string) {
@@ -271,8 +334,8 @@ class PptxXmlParser {
         return (OoxmlText.decodeEntities(s))
     }
 
-    fn readTag:PptxXmlTag () {
-        def tag (new PptxXmlTag())
+    fn readTag:XmlTag () {
+        def tag (new XmlTag())
         if (pos >= len) {
             return tag
         }
@@ -296,7 +359,7 @@ class PptxXmlParser {
                 }
                 pos = (pos + 1)
             }
-            tag.name = (PptxXmlParser.localName((substring src ns pos)))
+            tag.name = (this.elementName((substring src ns pos)))
             this.skipSpace()
             if ((pos < len) && ((charAt src pos) == 62)) {
                 pos = (pos + 1)
@@ -340,7 +403,7 @@ class PptxXmlParser {
             }
             pos = (pos + 1)
         }
-        tag.name = (PptxXmlParser.localName((substring src nameStart pos)))
+        tag.name = (this.elementName((substring src nameStart pos)))
         ; Attributes
         while (pos < len) {
             this.skipSpace()
@@ -372,7 +435,7 @@ class PptxXmlParser {
                 }
                 pos = (pos + 1)
             }
-            def attrName:string (PptxXmlParser.attrName((substring src an pos)))
+            def attrName:string (XmlParser.attrName((substring src an pos)))
             this.skipSpace()
             def value:string ""
             if ((pos < len) && ((charAt src pos) == 61)) {
@@ -392,7 +455,7 @@ class PptxXmlParser {
                     }
                 }
             }
-            def a (new PptxXmlAttr())
+            def a (new XmlAttr())
             a.name = attrName
             a.value = value
             push tag.attrs a
@@ -400,51 +463,51 @@ class PptxXmlParser {
         return tag
     }
 
-    fn readElement@(optional):PptxXmlNode (depth:int) {
+    fn readElement@(optional):XmlNode (depth:int) {
         if aborted {
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         if (depth > maxDepth) {
             aborted = true
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         if (nodeCount >= maxNodes) {
             aborted = true
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         this.skipSpace()
         if (pos >= len) {
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         if ((charAt src pos) != 60) {
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         ; Where this element starts, taken BEFORE the tag is read: everything
         ; between here and the matching end tag is what a writer can copy
         ; through verbatim.
         def elemStart:int pos
-        def tag:PptxXmlTag (this.readTag())
+        def tag:XmlTag (this.readTag())
         if (tag.valid == false) {
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         if tag.isEnd {
-            def __missing@(optional):PptxXmlNode
+            def __missing@(optional):XmlNode
             return __missing
         }
         nodeCount = (nodeCount + 1)
-        def node (new PptxXmlNode())
+        def node (new XmlNode())
         node.name = tag.name
         node.attrs = tag.attrs
         node.srcStart = elemStart
         if tag.selfClose {
             node.srcEnd = pos
-            def selfCloseHit@(optional):PptxXmlNode node
+            def selfCloseHit@(optional):XmlNode node
             return selfCloseHit
         }
         ; Children / text until matching end tag.
@@ -458,15 +521,15 @@ class PptxXmlParser {
             if ((charAt src pos) == 60) {
                 ; Peek end tag
                 if (((pos + 1) < len) && ((charAt src (pos + 1)) == 47)) {
-                    def endTag:PptxXmlTag (this.readTag())
+                    def endTag:XmlTag (this.readTag())
                     ; End of this element — and the end of what it spans.
                     node.srcEnd = pos
-                    def endHit@(optional):PptxXmlNode node
+                    def endHit@(optional):XmlNode node
                     return endHit
                 }
                 ; Nested comment etc. may leave invalid tag — skip
                 def save:int pos
-                def child@(optional):PptxXmlNode (this.readElement((depth + 1)))
+                def child@(optional):XmlNode (this.readElement((depth + 1)))
                 if (!null? child) {
                     push node.children (unwrap child)
                 } {
@@ -503,7 +566,7 @@ class PptxXmlParser {
                 ; dropping it ran "The Ultimate Training Diary" together.
                 def keep:boolean (onlySpace == false)
                 if (onlySpace) {
-                    if (node.name == "t") {
+                    if (this.keepsSpace(node.name)) {
                         keep = true
                     }
                     if ((node.attr("xml:space")) == "preserve") {
@@ -511,7 +574,7 @@ class PptxXmlParser {
                     }
                 }
                 if keep {
-                    def tnode (new PptxXmlNode())
+                    def tnode (new XmlNode())
                     tnode.isText = true
                     tnode.text = decoded
                     push node.children tnode
@@ -521,7 +584,7 @@ class PptxXmlParser {
         ; Ran off the end without a closing tag: the element spans whatever
         ; is left, which is the honest answer for a truncated part.
         node.srcEnd = pos
-        def fallthrough@(optional):PptxXmlNode node
+        def fallthrough@(optional):XmlNode node
         return fallthrough
     }
 }

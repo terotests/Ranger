@@ -6782,7 +6782,7 @@ int r_string_index_of( const std::string& str, const std::string& key )  {
 " )                   
                     
                 )
-                rust ( "(" (e 1) ".find(" (kref 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                rust ( "rg_index_of(&" (e 1) ", " (kref 2) ")" )
             }        
         }
 
@@ -6812,7 +6812,7 @@ int r_string_index_of_from( const std::string& str, const std::string& key, int 
 }
 " )                   
                 )
-                rust ( "(" (e 1) "[" (e 3) " as usize..].find(" (kref 2) ").map(|i| (i + " (e 3) " as usize) as i64).unwrap_or(-1))" )
+                rust ( "rg_index_of_from(&" (e 1) ", " (kref 2) ", " (e 3) ")" )
                 kotlin ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
                 dart ( (e 1) ".indexOf(" (e 2) ", " (e 3) ")" )
                 ranger ( "(indexOfFrom " (e 1) " " (e 2) " " (e 3) ")")
@@ -6844,7 +6844,7 @@ int r_string_last_index_of( const std::string& str, const std::string& key )  {
 }
 " )                   
                 )
-                rust ( "(" (e 1) ".rfind(" (kref 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                rust ( "rg_last_index_of(&" (e 1) ", " (kref 2) ")" )
                 kotlin ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 dart ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 ranger ( "(lastIndexOf " (e 1) " " (e 2) ")")

@@ -83,6 +83,7 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [`gallery/README.md`](gallery/README.md) - index of the application stack (AGPL): EVG, Office, DataGrid, parsers, games, and `@process` host apps
 - [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
+- [`PLAN_FORMATS.md`](PLAN_FORMATS.md) — the architecture for reading more than three file formats: the layer stack, the internal models, and the phased roadmap after DOCX/XLSX/PPTX. Phase 1 is `.odp` beside `.pptx`, run as the experiment that proves or disproves the shared scene
 - [`CHANGELOG.md`](CHANGELOG.md) - version history
 - [`AGENTS.md`](AGENTS.md) — git/PR rules and Ranger gotchas for AI agents; links the [FAQ](https://terotests.github.io/Ranger/docs/faq/)
 - `ai/` — short offline notes for assistants (`README.md`, `QUICKREF.md`, `GRAMMAR.md`, `INTROSPECTION.md`); prefer the docs site when online

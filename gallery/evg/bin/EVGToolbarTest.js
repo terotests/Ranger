@@ -5509,6 +5509,23 @@ class EVGDisplayList  {
     c.a = col.alpha();
     this.cmds.push(c);
   };
+  addImage (src, x, y, w, h, flipH, flipV, rotate) {
+    if ( (src.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 2;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.src = src;
+    c.a = 1.0;
+    c.flipH = flipH;
+    c.flipV = flipV;
+    c.rotate = rotate;
+    this.cmds.push(c);
+  };
   addText (text, x, y, size, col, family, bold, italic, width, height) {
     if ( (text.length) == 0 ) {
       return;

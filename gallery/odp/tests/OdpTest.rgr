@@ -1,0 +1,402 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OdpTest — the OpenDocument presentation reader, and its .pptx twin
+; ==============================================================================
+;
+; Every fixture here is LibreOffice's own conversion of a `.pptx` fixture that
+; is already in this repository, and that is the design of the test rather
+; than a convenience. The last section opens BOTH files with BOTH readers and
+; requires them to agree: same page count, same title, same box to a tenth of
+; a point, same text.
+;
+; That is the assertion PLAN_FORMATS.md Phase 1 turns on. Two models that
+; never meet, two readers that share nothing above the XML layer, and one
+; answer — because it is one document. A parity test between formats is the
+; only kind that can fail when a reader is confidently wrong, which a
+; golden-file test cannot: a golden file pins what changed, not what was
+; right.
+;
+;   npm run odp:test
+; ==============================================================================
+
+Import "../OdpParser.rgr"
+Import "../OdpToEvg.rgr"
+Import "../../pptx/src/PptxParser.rgr"
+Import "../../pptx/src/PptxResolver.rgr"
+
+class OdpCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d <= tol))
+    }
+}
+
+class OdpTest {
+
+    ; ------------------------------------------------------------------
+    ; A length in ODF is a string
+    ; ------------------------------------------------------------------
+
+    sfn testUnits:void (c:OdpCheck) {
+        print "--- lengths ---"
+        c.near("one inch" (OdpUnits.toPt("1in")) 72.0 0.001)
+        c.near("2.54cm is an inch" (OdpUnits.toPt("2.54cm")) 72.0 0.01)
+        c.near("25.4mm is an inch" (OdpUnits.toPt("25.4mm")) 72.0 0.01)
+        c.near("a point is a point" (OdpUnits.toPt("12pt")) 12.0 0.001)
+        c.near("a pica is twelve" (OdpUnits.toPt("1pc")) 12.0 0.001)
+        ; A CSS pixel, not a device one. ODF says device; every producer means
+        ; CSS, and taking it literally makes anything laid out in pixels the
+        ; wrong size on a HiDPI display and right on nothing.
+        c.near("a px is three quarters of a point" (OdpUnits.toPt("96px")) 72.0 0.001)
+        ; A shape that starts above the page. Decks really do this, and a
+        ; parser that stops at the minus sign puts it at the top-left corner.
+        c.near("a negative length" (OdpUnits.toPt("-1.27cm")) -36.0 0.01)
+        c.near("no unit is already ours" (OdpUnits.toPt("18")) 18.0 0.001)
+        c.near("nothing is nothing" (OdpUnits.toPt("")) 0.0 0.001)
+        c.near("an exponent survives" (OdpUnits.toPt("1e1pt")) 10.0 0.001)
+        print "--- percentages and angles ---"
+        c.near("a percentage" (OdpUnits.percent("120%" 1.0)) 1.2 0.001)
+        ; Not stated is never 0. A line height of nothing is not a line of no
+        ; height.
+        c.near("not stated is the fallback" (OdpUnits.percent("" 1.0)) 1.0 0.001)
+        ; ODF turns anticlockwise in radians; every painter here turns
+        ; clockwise in degrees. Getting the SIGN wrong mirrors every rotated
+        ; shape on the slide and looks like a rounding error.
+        c.near("a quarter turn, and it changes hands" (OdpUnits.radiansToDegrees(1.5707963267948966)) -90.0 0.001)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Two shape vocabularies
+    ; ------------------------------------------------------------------
+
+    sfn testPresetNames:void (c:OdpCheck) {
+        print "--- shape names ---"
+        ; The finding this whole phase turned on: LibreOffice carries the
+        ; DrawingML preset name through a conversion under an `ooxml-` prefix,
+        ; so a converted deck can be drawn with the 187 geometries this
+        ; repository already evaluates.
+        c.eqStr("a converted preset keeps its name" (OdpParser.presetNameOf("ooxml-roundRect")) "roundRect")
+        c.eqStr("and its box" (OdpParser.presetNameOf("ooxml-rect")) "rect")
+        ; A deck AUTHORED in Impress uses an older vocabulary for the same
+        ; shapes, and those are mapped by hand.
+        c.eqStr("Impress spells a rectangle out" (OdpParser.presetNameOf("rectangle")) "rect")
+        c.eqStr("and a rounded one" (OdpParser.presetNameOf("round-rectangle")) "roundRect")
+        c.eqStr("an ellipse" (OdpParser.presetNameOf("ellipse")) "ellipse")
+        c.eqStr("a smiley" (OdpParser.presetNameOf("smiley")) "smileyFace")
+        ; An unmapped name is KEPT rather than blanked, so the painter draws
+        ; the shape's box instead of nothing. A missing shape looks finished
+        ; and is not.
+        c.eqStr("an unknown name is kept" (OdpParser.presetNameOf("paper")) "paper")
+        c.eqStr("nothing is nothing" (OdpParser.presetNameOf("")) "")
+    }
+
+    ; ------------------------------------------------------------------
+    ; A document
+    ; ------------------------------------------------------------------
+
+    sfn testReadDeck:void (c:OdpCheck) {
+        print "--- 20-business-deck.odp ---"
+        def p (new OdpParser())
+        def ok:boolean (p.openParts("gallery/odp/fixtures" "20-business-deck.odp"))
+        c.ok("it opens" ok)
+        if (ok == false) {
+            return
+        }
+        def pres:OdpPresentation (p.parsePresentation())
+        c.eqInt("five pages" (pres.pageCount()) 5)
+        ; 13.333 x 7.5 inches: the widescreen page, read out of a page layout
+        ; a master page names. A reader that missed that chain would answer
+        ; with the default and letterbox every slide.
+        c.near("a widescreen page, in points" pres.widthPt 960.0 0.5)
+        c.near("and its height" pres.heightPt 540.0 0.5)
+
+        def page1:OdpPage (itemAt pres.pages 0)
+        c.eqStr("the first page is named" page1.name "Northwind Quarterly Review")
+        ; The title comes from `presentation:class`, never from "the topmost
+        ; text box" — that box is very often a label, and calling it a title
+        ; sends a reader looking for a section that is not there.
+        c.eqStr("its title" (page1.title()) "Northwind Quarterly Review")
+        c.ok("the master is named" ((strlen page1.masterName) > 0))
+        c.ok("the page has a background" (page1.background.isVisible()))
+        c.eqStr("which is white" page1.background.color "#ffffff")
+
+        ; The notes thumbnail is a picture OF the slide, and it is a child of
+        ; the notes rather than of the page. A reader that took every drawing
+        ; child would draw the slide on itself.
+        def i:int 0
+        def thumbnails:int 0
+        while (i < (array_length page1.shapes)) {
+            def s:OdpShape (itemAt page1.shapes i)
+            if (s.presentationClass == "page") {
+                thumbnails = (thumbnails + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("no notes thumbnail reached the slide" thumbnails 0)
+        c.eqInt("two frames on the title page" (array_length page1.shapes) 2)
+
+        print "--- what the shapes say ---"
+        def page2:OdpPage (itemAt pres.pages 1)
+        def roundRects:int 0
+        def j:int 0
+        while (j < (array_length page2.shapes)) {
+            def s2:OdpShape (itemAt page2.shapes j)
+            if (s2.presetName == "roundRect") {
+                roundRects = (roundRects + 1)
+                c.ok("the rounded box is filled" (s2.fill.isVisible()))
+                c.eqStr("with the colour the file states" s2.fill.color "#e3f2fd")
+            }
+            j = (j + 1)
+        }
+        c.eqInt("the agenda page has a rounded box" roundRects 1)
+
+        ; A picture: named by its package path, with its bytes on the model,
+        ; because a browser has no file server to fetch it from.
+        def page3:OdpPage (itemAt pres.pages 2)
+        def images:int 0
+        def k:int 0
+        while (k < (array_length page3.shapes)) {
+            def s3:OdpShape (itemAt page3.shapes k)
+            if (s3.kind == (OdpShapeKind.image())) {
+                images = (images + 1)
+                c.ok("the picture is named by its package path" ((indexOf s3.imagePart "Pictures/") == 0))
+                c.ok("and its bytes came with it" ((buffer_length s3.imageBytes) > 0))
+            }
+            k = (k + 1)
+        }
+        c.eqInt("two pictures on the snapshot page" images 2)
+
+        ; A group keeps its children rather than being flattened, because the
+        ; z-order inside one is its own.
+        def page4:OdpPage (itemAt pres.pages 3)
+        def groups:int 0
+        def m:int 0
+        while (m < (array_length page4.shapes)) {
+            def s4:OdpShape (itemAt page4.shapes m)
+            if (s4.kind == (OdpShapeKind.group())) {
+                groups = (groups + 1)
+                c.ok("the group has children" ((array_length s4.children) >= 3))
+                c.ok("and a box that contains them" ((s4.width > 0.0) && (s4.height > 0.0)))
+            }
+            m = (m + 1)
+        }
+        c.eqInt("the shape page has a group" groups 1)
+        p.close()
+    }
+
+    ; ------------------------------------------------------------------
+    ; The tri-state, in ODF
+    ; ------------------------------------------------------------------
+
+    sfn testStyles:void (c:OdpCheck) {
+        print "--- a style property that knows it was not stated ---"
+        def p (new OdpParser())
+        def ok:boolean (p.openParts("gallery/odp/fixtures" "06-text-runs.odp"))
+        c.ok("06-text-runs.odp opens" ok)
+        if (ok == false) {
+            return
+        }
+        def pres:OdpPresentation (p.parsePresentation())
+        def page:OdpPage (itemAt pres.pages 0)
+        def bold:int 0
+        def notBold:int 0
+        def italic:int 0
+        def stated:int 0
+        def i:int 0
+        while (i < (array_length page.shapes)) {
+            def s:OdpShape (itemAt page.shapes i)
+            def j:int 0
+            while (j < (array_length s.paragraphs)) {
+                def para:OdpParagraph (itemAt s.paragraphs j)
+                def k:int 0
+                while (k < (array_length para.runs)) {
+                    def run:OdpRun (itemAt para.runs k)
+                    if (run.style.bold.isSet) {
+                        stated = (stated + 1)
+                        if run.style.bold.value {
+                            bold = (bold + 1)
+                        } {
+                            notBold = (notBold + 1)
+                        }
+                    }
+                    if (run.style.italic.or(false)) {
+                        italic = (italic + 1)
+                    }
+                    k = (k + 1)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        ; The distinction, present: some runs SAY they are bold and others SAY
+        ; they are not. A plain boolean cannot hold the second, which is the
+        ; bug this repository fixed three times before carrying it once.
+        c.ok("some runs state their weight" (stated > 0))
+        c.ok("at least one is bold" (bold > 0))
+        c.ok("at least one says it is NOT bold" (notBold > 0))
+        c.ok("and something is italic" (italic > 0))
+        p.close()
+    }
+
+    ; ------------------------------------------------------------------
+    ; Draw commands
+    ; ------------------------------------------------------------------
+
+    sfn testDisplayList:void (c:OdpCheck) {
+        print "--- the page becomes draw commands ---"
+        def p (new OdpParser())
+        def ok:boolean (p.openParts("gallery/odp/fixtures" "02-shapes.odp"))
+        c.ok("02-shapes.odp opens" ok)
+        if (ok == false) {
+            return
+        }
+        def pres:OdpPresentation (p.parsePresentation())
+        def conv (new OdpToEvg())
+        def presetText@(optional):string (read_file "gallery/office/geom/assets" "presets.txt")
+        conv.loadPresets((?? presetText ""))
+        c.ok("the preset catalogue loaded" (conv.presetsReady()))
+        def dl:EVGDisplayList (conv.pageToDisplayList(pres 0))
+        c.ok("the page is a display list" ((dl.count()) > 4))
+        def rects:int 0
+        def texts:int 0
+        def polys:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == 0) {
+                rects = (rects + 1)
+            }
+            if (cmd.kind == 3) {
+                texts = (texts + 1)
+            }
+            if (cmd.kind == 6) {
+                polys = (polys + 1)
+            }
+            if (cmd.kind == 7) {
+                polys = (polys + 1)
+            }
+            i = (i + 1)
+        }
+        c.ok("with the background and the filled boxes on it" (rects >= 2))
+        c.ok("and the title text" (texts >= 1))
+        ; The ellipse is the proof that the shared preset evaluator ran: a
+        ; rectangle would come out as a rect command whatever happened.
+        c.ok("and the ellipse as a polygon" (polys >= 1))
+        ; A page nobody asked for is empty rather than fatal.
+        def none:EVGDisplayList (conv.pageToDisplayList(pres 99))
+        c.eqInt("a page that is not there is just the paper" (none.count()) 1)
+        p.close()
+    }
+
+    ; ------------------------------------------------------------------
+    ; The same document, both formats, both readers
+    ; ------------------------------------------------------------------
+
+    sfn testParity:void (c:OdpCheck) {
+        print "--- one document, two formats, two readers ---"
+        def op (new OdpParser())
+        def ook:boolean (op.openParts("gallery/odp/fixtures" "01-text.odp"))
+        def pp (new PptxParser())
+        def pok:boolean (pp.openParts("gallery/pptx/fixtures" "01-text.pptx"))
+        c.ok("the .odp opens" ook)
+        c.ok("the .pptx opens" pok)
+        if ((ook && pok) == false) {
+            return
+        }
+        def odp:OdpPresentation (op.parsePresentation())
+        def raw:PptxPresentation (pp.parsePresentation())
+        def resolver (new PptxResolver())
+        def deck:PptxPresentation (resolver.resolvePresentation(raw))
+
+        c.eqInt("the same number of pages" (odp.pageCount()) (deck.slideCount()))
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def page:OdpPage (itemAt odp.pages 0)
+        ; The page box, to a tenth of a point. ODF states it in centimetres and
+        ; OOXML in EMU, so this is also the check that both unit readers are
+        ; right — the numbers are not each other's rounding.
+        c.near("the same page width" odp.widthPt slide.width 0.5)
+        c.near("the same page height" odp.heightPt slide.height 0.5)
+
+        c.eqStr("the same first sentence" (OdpTest.firstText(page)) (OdpTest.firstPptxText(slide)) )
+        ; And the same box for the shape that holds it. A reader that had the
+        ; units wrong would still get the text right, which is why the sentence
+        ; alone is not enough.
+        def oShape:OdpShape (itemAt page.shapes 0)
+        def pShape:PptxShape (itemAt slide.shapes 0)
+        c.near("the same left edge" oShape.x pShape.x 0.1)
+        c.near("the same top edge" oShape.y pShape.y 0.1)
+        c.near("the same width" oShape.width pShape.width 0.1)
+        c.near("the same height" oShape.height pShape.height 0.1)
+        op.close()
+        pp.close()
+    }
+
+    sfn firstText:string (page:OdpPage) {
+        def i:int 0
+        while (i < (array_length page.shapes)) {
+            def s:OdpShape (itemAt page.shapes i)
+            def t:string (s.plainText())
+            if ((strlen t) > 0) {
+                return t
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn firstPptxText:string (slide:PptxSlide) {
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def s:PptxShape (itemAt slide.shapes i)
+            def t:string (s.text.plainText())
+            if ((strlen t) > 0) {
+                return t
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn main:void () {
+        print "== OdpTest =="
+        def c (new OdpCheck())
+        OdpTest.testUnits(c)
+        OdpTest.testPresetNames(c)
+        OdpTest.testReadDeck(c)
+        OdpTest.testStyles(c)
+        OdpTest.testDisplayList(c)
+        OdpTest.testParity(c)
+        print ""
+        print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
