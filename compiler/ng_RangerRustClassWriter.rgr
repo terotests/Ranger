@@ -2727,6 +2727,27 @@ class RangerRustClassWriter {
               }
             }
           }
+          ; …and a LOCAL collection read into another local. Rust MOVES it,
+          ; and the name it was read from is almost always still live —
+          ; `def glyphs:[int] cps` then `hasArabic(cps)`. The string rule
+          ; above asks ref_cnt the same question.
+          if valueInner.hasParamDesc {
+            def vpL:RangerAppParamDesc valueInner.paramDesc
+            if ((vpL.is_class_variable == false) && (vpL.rust_borrow_type == 0)) {
+              if (vpL.ref_cnt > 1) {
+                def vpLNN@(optional):CodeNode vpL.nameNode
+                if (!null? vpLNN) {
+                  def vpLN:CodeNode (unwrap vpLNN)
+                  if (((strlen vpLN.array_type) > 0) || ((strlen vpLN.key_type) > 0)) {
+                    should_clone_vardef = true
+                  }
+                  if (((vpLN.type_name == "buffer") || (vpLN.type_name == "int_buffer")) || (vpLN.type_name == "double_buffer")) {
+                    should_clone_vardef = true
+                  }
+                }
+              }
+            }
+          }
           if should_clone_vardef {
             ; a str reference (static string, borrowed &str parameter) makes
             ; an owned String with .to_string(); .clone() would copy the &str
@@ -3288,6 +3309,32 @@ class RangerRustClassWriter {
       def haveSegD:boolean false
       def segOptional:boolean false
       def segMember:boolean false
+      ; the path descs can be missing — the front end fills `nsp` only where
+      ; it resolved the whole path. A bare member name still answers from
+      ; the class, and without it an `@(optional)` field went into the
+      ; hidden argument as the Option rather than the Rc inside it.
+      if ((array_length fc.nsp) <= segIdx) {
+        if (segIdx == 0) {
+          def fbClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if (!null? fbClsO) {
+            def fbCls:RangerAppClassDesc (unwrap fbClsO)
+            def fbVarO@(optional):RangerAppParamDesc (fbCls.findVariable((itemAt fc.ns 0)))
+            if (!null? fbVarO) {
+              def fbVar:RangerAppParamDesc (unwrap fbVarO)
+              segMember = true
+              if fbVar.is_optional {
+                def fbNNO@(optional):CodeNode fbVar.nameNode
+                if (!null? fbNNO) {
+                  def fbNN:CodeNode (unwrap fbNNO)
+                  if (((strlen fbNN.array_type) == 0) && ((strlen fbNN.key_type) == 0)) {
+                    segOptional = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
       if ((array_length fc.nsp) > segIdx) {
         def segD:RangerAppParamDesc (itemAt fc.nsp segIdx)
         haveSegD = true
@@ -5415,6 +5462,25 @@ class RangerRustClassWriter {
           if (((array_length obj.ns) <= 1) && (obj.expression == false)) {
             wr.out("&" false)
             this.WriteVRef(obj ctx wr)
+            ; an `@(optional)` field holds `Option<Rc<…>>`, and the hidden
+            ; argument is the Rc inside it — the path builder in
+            ; writeSelfRcReceiverArg reaches for the same unwrap
+            def hcOptRecv:boolean false
+            if obj.hasParamDesc {
+              def hcOP:RangerAppParamDesc obj.paramDesc
+              if (hcOP.is_optional && hcOP.is_class_variable) {
+                def hcONN@(optional):CodeNode hcOP.nameNode
+                if (!null? hcONN) {
+                  def hcON:CodeNode (unwrap hcONN)
+                  if (((strlen hcON.array_type) == 0) && ((strlen hcON.key_type) == 0)) {
+                    hcOptRecv = true
+                  }
+                }
+              }
+            }
+            if hcOptRecv {
+              wr.out(".as_ref().unwrap()" false)
+            }
             hc_wrote_selfrc = true
           } {
             ctx.addError(node "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).")

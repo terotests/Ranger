@@ -26378,6 +26378,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       }
+                      if ( valueInner.hasParamDesc ) {
+                        const vpL = valueInner.paramDesc;
+                        if ( (vpL.is_class_variable == false) && (vpL.rust_borrow_type == 0) ) {
+                          if ( vpL.ref_cnt > 1 ) {
+                            const vpLNN = vpL.nameNode;
+                            if ( (typeof(vpLNN) !== "undefined" && vpLNN != null )  ) {
+                              const vpLN = vpLNN;
+                              if ( ((vpLN.array_type.length) > 0) || ((vpLN.key_type.length) > 0) ) {
+                                should_clone_vardef = true;
+                              }
+                              if ( ((vpLN.type_name == "buffer") || (vpLN.type_name == "int_buffer")) || (vpLN.type_name == "double_buffer") ) {
+                                should_clone_vardef = true;
+                              }
+                            }
+                          }
+                        }
+                      }
                       if ( should_clone_vardef ) {
                         if ( vardef_src_ref_str == false ) {
                           if ( ((value_1.expression == false) && value_1.hasParamDesc) && ((value_1.ns.length) == 1) ) {
@@ -26804,6 +26821,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     let haveSegD = false;
                     let segOptional = false;
                     let segMember = false;
+                    if ( (fc.nsp.length) <= segIdx ) {
+                      if ( segIdx == 0 ) {
+                        const fbClsO = ctx.getCurrentClass();
+                        if ( (typeof(fbClsO) !== "undefined" && fbClsO != null )  ) {
+                          const fbCls = fbClsO;
+                          const fbVarO = fbCls.findVariable((fc.ns[0]));
+                          if ( (typeof(fbVarO) !== "undefined" && fbVarO != null )  ) {
+                            const fbVar = fbVarO;
+                            segMember = true;
+                            if ( fbVar.is_optional ) {
+                              const fbNNO = fbVar.nameNode;
+                              if ( (typeof(fbNNO) !== "undefined" && fbNNO != null )  ) {
+                                const fbNN = fbNNO;
+                                if ( ((fbNN.array_type.length) == 0) && ((fbNN.key_type.length) == 0) ) {
+                                  segOptional = true;
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
                     if ( (fc.nsp.length) > segIdx ) {
                       const segD = fc.nsp[segIdx];
                       haveSegD = true;
@@ -28553,6 +28592,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( ((obj.ns.length) <= 1) && (obj.expression == false) ) {
                             wr.out("&", false);
                             await this.WriteVRef(obj, ctx, wr);
+                            let hcOptRecv = false;
+                            if ( obj.hasParamDesc ) {
+                              const hcOP = obj.paramDesc;
+                              if ( hcOP.is_optional && hcOP.is_class_variable ) {
+                                const hcONN = hcOP.nameNode;
+                                if ( (typeof(hcONN) !== "undefined" && hcONN != null )  ) {
+                                  const hcON = hcONN;
+                                  if ( ((hcON.array_type.length) == 0) && ((hcON.key_type.length) == 0) ) {
+                                    hcOptRecv = true;
+                                  }
+                                }
+                              }
+                            }
+                            if ( hcOptRecv ) {
+                              wr.out(".as_ref().unwrap()", false);
+                            }
                             hc_wrote_selfrc = true;
                           } else {
                             ctx.addError(node, "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).");
