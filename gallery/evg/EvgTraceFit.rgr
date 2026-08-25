@@ -521,62 +521,150 @@ class EvgTraceFit {
         po = poOut
     }
 
-    ; Least-squares vertex placement inside the unit square of each pivot.
+    ; Least-squares vertex placement inside the unit square of each pivot
+    ; (Potrace paper §2.2.4 / adjustVertices). For each polygon edge, fit a
+    ; line (centroid + direction) to the underlying path points; at each
+    ; vertex minimise the sum of squared distances to the two adjacent lines,
+    ; clamped to the 1×1 pixel square around the integer pivot.
     fn adjustVertices:void () {
-        def out:[EvgTracePoint]
+        def ctr:[EvgTracePoint]
+        def dir:[EvgTracePoint]
         def i:int 0
         while (i < m) {
+            push ctr (EvgTracePoint.of(0.0 0.0))
+            push dir (EvgTracePoint.of(0.0 0.0))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < m) {
+            def j:int (itemAt po (EvgTraceFit.modI((i + 1) m)))
+            def jj:int ((EvgTraceFit.modI((j - (itemAt po i)) n)) + (itemAt po i))
+            def c:EvgTracePoint (EvgTracePoint.of(0.0 0.0))
+            def d:EvgTracePoint (EvgTracePoint.of(0.0 0.0))
+            this.pointslope((itemAt po i) jj c d)
+            set ctr i c
+            set dir i d
+            i = (i + 1)
+        }
+
+        ; Quadratic forms Q[i]: v^T Q v = squared distance to line i.
+        ; Stored as 9 doubles per edge: row-major 3×3.
+        def qdata:[double]
+        i = 0
+        while (i < (m * 9)) {
+            push qdata 0.0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < m) {
+            def di:EvgTracePoint (itemAt dir i)
+            def ci:EvgTracePoint (itemAt ctr i)
+            def d2:double ((di.x * di.x) + (di.y * di.y))
+            def base:int (i * 9)
+            if (d2 == 0.0) {
+                ; zero form already
+            } {
+                def v0:double di.y
+                def v1:double (0.0 - di.x)
+                def v2:double ((0.0 - (v1 * ci.y)) - (v0 * ci.x))
+                def l:int 0
+                while (l < 3) {
+                    def k:int 0
+                    while (k < 3) {
+                        def vl:double v0
+                        if (l == 1) { vl = v1 }
+                        if (l == 2) { vl = v2 }
+                        def vk:double v0
+                        if (k == 1) { vk = v1 }
+                        if (k == 2) { vk = v2 }
+                        set qdata ((base + (l * 3)) + k) ((vl * vk) / d2)
+                        k = (k + 1)
+                    }
+                    l = (l + 1)
+                }
+            }
+            i = (i + 1)
+        }
+
+        def out:[EvgTracePoint]
+        i = 0
+        while (i < m) {
             def iPrev:int (EvgTraceFit.modI((i - 1) m))
-            def iNext:int (EvgTraceFit.modI((i + 1) m))
+            def Q:[double]
+            def t:int 0
+            while (t < 9) {
+                push Q 0.0
+                t = (t + 1)
+            }
+            t = 0
+            while (t < 9) {
+                def a:double (itemAt qdata ((iPrev * 9) + t))
+                def b:double (itemAt qdata ((i * 9) + t))
+                set Q t (a + b)
+                t = (t + 1)
+            }
             def pCur:EvgTracePoint (itemAt pts (itemAt po i))
-            def pPrev:EvgTracePoint (itemAt pts (itemAt po iPrev))
-            def pNext:EvgTracePoint (itemAt pts (itemAt po iNext))
-            ; Intersection of the two chord directions through neighbouring
-            ; pivots, clamped into the 1×1 square around pCur. For axis-aligned
-            ; rects this recovers exact corners; for general shapes it is a
-            ; stable first-order stand-in for the full quadform solver.
-            def ax:double (pCur.x - pPrev.x)
-            def ay:double (pCur.y - pPrev.y)
-            def bx:double (pNext.x - pCur.x)
-            def by:double (pNext.y - pCur.y)
-            def vx:double pCur.x
-            def vy:double pCur.y
-            ; Prefer the integer corner when both adjacent edges are orthogonal.
-            if ((ax == 0.0) || (ay == 0.0)) {
-                if ((bx == 0.0) || (by == 0.0)) {
-                    if (ax == 0.0) {
-                        vx = pCur.x
-                    } {
-                        vx = pCur.x
-                    }
-                    if (ay == 0.0) {
-                        vy = pCur.y
-                    } {
-                        vy = pCur.y
-                    }
-                    ; For a true corner (horizontal then vertical, or vice versa),
-                    ; keep the pivot — that is already the pixel corner.
-                    vx = pCur.x
-                    vy = pCur.y
-                }
-            }
-            ; Soften non-orthogonal pivots toward the chord midpoint blend.
-            def dot:double ((ax * bx) + (ay * by))
-            def la:double (sqrt ((ax * ax) + (ay * ay)))
-            def lb:double (sqrt ((bx * bx) + (by * by)))
-            if ((la > 0.0) && (lb > 0.0)) {
-                def cosA:double (dot / (la * lb))
-                ; Near-collinear: pull slightly toward chord continuity.
-                if (cosA > 0.9) {
-                    vx = (((pPrev.x + pCur.x) + pNext.x) / 3.0)
-                    vy = (((pPrev.y + pCur.y) + pNext.y) / 3.0)
-                }
-            }
-            ; Clamp into the unit square around the integer pivot.
             def sx:double (pCur.x - x0)
             def sy:double (pCur.y - y0)
-            def wx:double (vx - x0)
-            def wy:double (vy - y0)
+            def wx:double sx
+            def wy:double sy
+
+            ; Try to solve the 2×2 system from ∂Q/∂x = ∂Q/∂y = 0.
+            def q00:double (itemAt Q 0)
+            def q01:double (itemAt Q 1)
+            def q02:double (itemAt Q 2)
+            def q10:double (itemAt Q 3)
+            def q11:double (itemAt Q 4)
+            def q12:double (itemAt Q 5)
+            def det:double ((q00 * q11) - (q01 * q10))
+            def solved:boolean false
+            if (det != 0.0) {
+                wx = ((((0.0 - q02) * q11) + (q12 * q01)) / det)
+                wy = (((q02 * q10) - (q12 * q00)) / det)
+                solved = true
+            }
+            def dx:double (EvgTraceFit.absD((wx - sx)))
+            def dy:double (EvgTraceFit.absD((wy - sy)))
+            if ((solved == false) || (dx > 0.5) || (dy > 0.5)) {
+                ; Fall back: pick the minimum of Q over the unit square corners
+                ; and edge midpoints around the pivot.
+                def best:double (this.quadform(Q sx sy))
+                def bx:double sx
+                def by:double sy
+                def cand:[double]
+                ; edges
+                push cand (sx - 0.5)
+                push cand sy
+                push cand (sx + 0.5)
+                push cand sy
+                push cand sx
+                push cand (sy - 0.5)
+                push cand sx
+                push cand (sy + 0.5)
+                ; corners
+                push cand (sx - 0.5)
+                push cand (sy - 0.5)
+                push cand (sx + 0.5)
+                push cand (sy - 0.5)
+                push cand (sx - 0.5)
+                push cand (sy + 0.5)
+                push cand (sx + 0.5)
+                push cand (sy + 0.5)
+                def ci:int 0
+                while (ci < (array_length cand)) {
+                    def cx:double (itemAt cand ci)
+                    def cy:double (itemAt cand (ci + 1))
+                    def val:double (this.quadform(Q cx cy))
+                    if (val < best) {
+                        best = val
+                        bx = cx
+                        by = cy
+                    }
+                    ci = (ci + 2)
+                }
+                wx = bx
+                wy = by
+            }
             if (wx < (sx - 0.5)) { wx = (sx - 0.5) }
             if (wx > (sx + 0.5)) { wx = (sx + 0.5) }
             if (wy < (sy - 0.5)) { wy = (sy - 0.5) }
@@ -585,5 +673,95 @@ class EvgTraceFit {
             i = (i + 1)
         }
         vertex = out
+    }
+
+    fn quadform:double (Q:[double] x:double y:double) {
+        def v0:double x
+        def v1:double y
+        def v2:double 1.0
+        def sum:double 0.0
+        def i:int 0
+        while (i < 3) {
+            def vi:double v0
+            if (i == 1) { vi = v1 }
+            if (i == 2) { vi = v2 }
+            def j:int 0
+            while (j < 3) {
+                def vj:double v0
+                if (j == 1) { vj = v1 }
+                if (j == 2) { vj = v2 }
+                def qij:double (itemAt Q ((i * 3) + j))
+                sum = (sum + ((vi * qij) * vj))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    ; Fit centroid + unit direction of the path from i to j (inclusive wrap).
+    fn pointslope:void (iIn:int jIn:int ctr:EvgTracePoint dir:EvgTracePoint) {
+        def i:int iIn
+        def j:int jIn
+        def r:int 0
+        while (j >= n) {
+            j = (j - n)
+            r = (r + 1)
+        }
+        while (i >= n) {
+            i = (i - n)
+            r = (r - 1)
+        }
+        while (j < 0) {
+            j = (j + n)
+            r = (r - 1)
+        }
+        while (i < 0) {
+            i = (i + n)
+            r = (r + 1)
+        }
+        def si:EvgTraceSum (itemAt sums i)
+        def sj:EvgTraceSum (itemAt sums (j + 1))
+        def sn:EvgTraceSum (itemAt sums n)
+        def x:double ((sj.x - si.x) + ((to_double r) * sn.x))
+        def y:double ((sj.y - si.y) + ((to_double r) * sn.y))
+        def x2:double ((sj.x2 - si.x2) + ((to_double r) * sn.x2))
+        def xy:double ((sj.xy - si.xy) + ((to_double r) * sn.xy))
+        def y2:double ((sj.y2 - si.y2) + ((to_double r) * sn.y2))
+        def k:double (to_double (((j + 1) - i) + (r * n)))
+        if (k == 0.0) {
+            ctr.x = 0.0
+            ctr.y = 0.0
+            dir.x = 0.0
+            dir.y = 0.0
+            return
+        }
+        ctr.x = (x / k)
+        ctr.y = (y / k)
+        def a:double (((x2 - ((x * x) / k)) / k))
+        def b:double (((xy - ((x * y) / k)) / k))
+        def c:double (((y2 - ((y * y) / k)) / k))
+        def disc:double (((a - c) * (a - c)) + ((4.0 * b) * b))
+        def lambda2:double (((a + c) + (sqrt disc)) / 2.0)
+        a = (a - lambda2)
+        c = (c - lambda2)
+        def l:double 0.0
+        if ((EvgTraceFit.absD(a)) >= (EvgTraceFit.absD(c))) {
+            l = (sqrt ((a * a) + (b * b)))
+            if (l != 0.0) {
+                dir.x = ((0.0 - b) / l)
+                dir.y = (a / l)
+            }
+        } {
+            l = (sqrt ((c * c) + (b * b)))
+            if (l != 0.0) {
+                dir.x = ((0.0 - c) / l)
+                dir.y = (b / l)
+            }
+        }
+        if (l == 0.0) {
+            dir.x = 0.0
+            dir.y = 0.0
+        }
     }
 }

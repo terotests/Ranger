@@ -441,6 +441,16 @@ class EvgBitmapTracer {
             def poly:[EvgTracePoint] (EvgTraceFit.fitRing(ring))
             def n:int (array_length poly)
             if (n >= 3) {
+                ; Potrace reverses negative (hole) polygons so evenodd winding matches.
+                if (ring.sign == "-") {
+                    def rev:[EvgTracePoint]
+                    def ri2:int (n - 1)
+                    while (ri2 >= 0) {
+                        push rev (itemAt poly ri2)
+                        ri2 = (ri2 - 1)
+                    }
+                    poly = rev
+                }
                 if options.optcurve {
                     def curve:EvgTraceCurve (EvgTraceCurve.fromPolygon(poly options.alphamax))
                     def opt:EvgTraceCurve (curve.optimize(options.opttolerance))

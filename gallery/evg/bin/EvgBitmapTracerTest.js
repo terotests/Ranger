@@ -577,50 +577,141 @@ class EvgTraceFit  {
     this.po = poOut;
   };
   adjustVertices () {
-    let out = [];
+    let ctr = [];
+    let dir = [];
     let i = 0;
     while (i < this.m) {
+      ctr.push(EvgTracePoint.of(0.0, 0.0));
+      dir.push(EvgTracePoint.of(0.0, 0.0));
+      i = i + 1;
+    };
+    i = 0;
+    while (i < this.m) {
+      const j = this.po[EvgTraceFit.modI((i + 1), this.m)];
+      const jj = EvgTraceFit.modI((j - (this.po[i])), this.n) + (this.po[i]);
+      const c = EvgTracePoint.of(0.0, 0.0);
+      const d = EvgTracePoint.of(0.0, 0.0);
+      this.pointslope(this.po[i], jj, c, d);
+      ctr[i] = c;
+      dir[i] = d;
+      i = i + 1;
+    };
+    let qdata = [];
+    i = 0;
+    while (i < (this.m * 9)) {
+      qdata.push(0.0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < this.m) {
+      const di = dir[i];
+      const ci = ctr[i];
+      const d2 = (di.x * di.x) + (di.y * di.y);
+      const base = i * 9;
+      if ( d2 == 0.0 ) {
+      } else {
+        const v0 = di.y;
+        const v1 = 0.0 - di.x;
+        const v2 = (0.0 - (v1 * ci.y)) - (v0 * ci.x);
+        let l = 0;
+        while (l < 3) {
+          let k = 0;
+          while (k < 3) {
+            let vl = v0;
+            if ( l == 1 ) {
+              vl = v1;
+            }
+            if ( l == 2 ) {
+              vl = v2;
+            }
+            let vk = v0;
+            if ( k == 1 ) {
+              vk = v1;
+            }
+            if ( k == 2 ) {
+              vk = v2;
+            }
+            qdata[(base + (l * 3)) + k] = (vl * vk) / d2;
+            k = k + 1;
+          };
+          l = l + 1;
+        };
+      }
+      i = i + 1;
+    };
+    let out = [];
+    i = 0;
+    while (i < this.m) {
       const iPrev = EvgTraceFit.modI((i - 1), this.m);
-      const iNext = EvgTraceFit.modI((i + 1), this.m);
+      let Q = [];
+      let t = 0;
+      while (t < 9) {
+        Q.push(0.0);
+        t = t + 1;
+      };
+      t = 0;
+      while (t < 9) {
+        const a = qdata[((iPrev * 9) + t)];
+        const b = qdata[((i * 9) + t)];
+        Q[t] = a + b;
+        t = t + 1;
+      };
       const pCur = this.pts[(this.po[i])];
-      const pPrev = this.pts[(this.po[iPrev])];
-      const pNext = this.pts[(this.po[iNext])];
-      const ax = pCur.x - pPrev.x;
-      const ay = pCur.y - pPrev.y;
-      const bx = pNext.x - pCur.x;
-      const by = pNext.y - pCur.y;
-      let vx = pCur.x;
-      let vy = pCur.y;
-      if ( (ax == 0.0) || (ay == 0.0) ) {
-        if ( (bx == 0.0) || (by == 0.0) ) {
-          if ( ax == 0.0 ) {
-            vx = pCur.x;
-          } else {
-            vx = pCur.x;
-          }
-          if ( ay == 0.0 ) {
-            vy = pCur.y;
-          } else {
-            vy = pCur.y;
-          }
-          vx = pCur.x;
-          vy = pCur.y;
-        }
-      }
-      const dot = (ax * bx) + (ay * by);
-      const la = Math.sqrt(((ax * ax) + (ay * ay)));
-      const lb = Math.sqrt(((bx * bx) + (by * by)));
-      if ( (la > 0.0) && (lb > 0.0) ) {
-        const cosA = dot / (la * lb);
-        if ( cosA > 0.9 ) {
-          vx = ((pPrev.x + pCur.x) + pNext.x) / 3.0;
-          vy = ((pPrev.y + pCur.y) + pNext.y) / 3.0;
-        }
-      }
       const sx = pCur.x - this.x0;
       const sy = pCur.y - this.y0;
-      let wx = vx - this.x0;
-      let wy = vy - this.y0;
+      let wx = sx;
+      let wy = sy;
+      const q00 = Q[0];
+      const q01 = Q[1];
+      const q02 = Q[2];
+      const q10 = Q[3];
+      const q11 = Q[4];
+      const q12 = Q[5];
+      const det = (q00 * q11) - (q01 * q10);
+      let solved = false;
+      if ( det != 0.0 ) {
+        wx = (((0.0 - q02) * q11) + (q12 * q01)) / det;
+        wy = ((q02 * q10) - (q12 * q00)) / det;
+        solved = true;
+      }
+      const dx = EvgTraceFit.absD((wx - sx));
+      const dy = EvgTraceFit.absD((wy - sy));
+      if ( ((solved == false) || (dx > 0.5)) || (dy > 0.5) ) {
+        let best = this.quadform(Q, sx, sy);
+        let bx = sx;
+        let by = sy;
+        let cand = [];
+        cand.push(sx - 0.5);
+        cand.push(sy);
+        cand.push(sx + 0.5);
+        cand.push(sy);
+        cand.push(sx);
+        cand.push(sy - 0.5);
+        cand.push(sx);
+        cand.push(sy + 0.5);
+        cand.push(sx - 0.5);
+        cand.push(sy - 0.5);
+        cand.push(sx + 0.5);
+        cand.push(sy - 0.5);
+        cand.push(sx - 0.5);
+        cand.push(sy + 0.5);
+        cand.push(sx + 0.5);
+        cand.push(sy + 0.5);
+        let ci_1 = 0;
+        while (ci_1 < (cand.length)) {
+          const cx = cand[ci_1];
+          const cy = cand[(ci_1 + 1)];
+          const val = this.quadform(Q, cx, cy);
+          if ( val < best ) {
+            best = val;
+            bx = cx;
+            by = cy;
+          }
+          ci_1 = ci_1 + 2;
+        };
+        wx = bx;
+        wy = by;
+      }
       if ( wx < (sx - 0.5) ) {
         wx = sx - 0.5;
       }
@@ -637,6 +728,101 @@ class EvgTraceFit  {
       i = i + 1;
     };
     this.vertex = out;
+  };
+  quadform (Q, x, y) {
+    const v0 = x;
+    const v1 = y;
+    const v2 = 1.0;
+    let sum = 0.0;
+    let i = 0;
+    while (i < 3) {
+      let vi = v0;
+      if ( i == 1 ) {
+        vi = v1;
+      }
+      if ( i == 2 ) {
+        vi = v2;
+      }
+      let j = 0;
+      while (j < 3) {
+        let vj = v0;
+        if ( j == 1 ) {
+          vj = v1;
+        }
+        if ( j == 2 ) {
+          vj = v2;
+        }
+        const qij = Q[((i * 3) + j)];
+        sum = sum + ((vi * qij) * vj);
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    return sum;
+  };
+  pointslope (iIn, jIn, ctr, dir) {
+    let i = iIn;
+    let j = jIn;
+    let r = 0;
+    while (j >= this.n) {
+      j = j - this.n;
+      r = r + 1;
+    };
+    while (i >= this.n) {
+      i = i - this.n;
+      r = r - 1;
+    };
+    while (j < 0) {
+      j = j + this.n;
+      r = r - 1;
+    };
+    while (i < 0) {
+      i = i + this.n;
+      r = r + 1;
+    };
+    const si = this.sums[i];
+    const sj = this.sums[(j + 1)];
+    const sn = this.sums[this.n];
+    const x = (sj.x - si.x) + ((r) * sn.x);
+    const y = (sj.y - si.y) + ((r) * sn.y);
+    const x2 = (sj.x2 - si.x2) + ((r) * sn.x2);
+    const xy = (sj.xy - si.xy) + ((r) * sn.xy);
+    const y2 = (sj.y2 - si.y2) + ((r) * sn.y2);
+    const k = (((j + 1) - i) + (r * this.n));
+    if ( k == 0.0 ) {
+      ctr.x = 0.0;
+      ctr.y = 0.0;
+      dir.x = 0.0;
+      dir.y = 0.0;
+      return;
+    }
+    ctr.x = x / k;
+    ctr.y = y / k;
+    let a = (x2 - ((x * x) / k)) / k;
+    const b = (xy - ((x * y) / k)) / k;
+    let c = (y2 - ((y * y) / k)) / k;
+    const disc = ((a - c) * (a - c)) + ((4.0 * b) * b);
+    const lambda2 = ((a + c) + (Math.sqrt(disc))) / 2.0;
+    a = a - lambda2;
+    c = c - lambda2;
+    let l = 0.0;
+    if ( EvgTraceFit.absD(a) >= EvgTraceFit.absD(c) ) {
+      l = Math.sqrt(((a * a) + (b * b)));
+      if ( l != 0.0 ) {
+        dir.x = (0.0 - b) / l;
+        dir.y = a / l;
+      }
+    } else {
+      l = Math.sqrt(((c * c) + (b * b)));
+      if ( l != 0.0 ) {
+        dir.x = (0.0 - c) / l;
+        dir.y = b / l;
+      }
+    }
+    if ( l == 0.0 ) {
+      dir.x = 0.0;
+      dir.y = 0.0;
+    }
   };
 }
 EvgTraceFit.absD = function(v) {
@@ -5621,9 +5807,18 @@ class EvgBitmapTracer  {
     let ri = 0;
     while (ri < (this.rings.length)) {
       const ring = this.rings[ri];
-      const poly = EvgTraceFit.fitRing(ring);
+      let poly = EvgTraceFit.fitRing(ring);
       const n = poly.length;
       if ( n >= 3 ) {
+        if ( ring.sign == "-" ) {
+          let rev = [];
+          let ri2 = n - 1;
+          while (ri2 >= 0) {
+            rev.push(poly[ri2]);
+            ri2 = ri2 - 1;
+          };
+          poly = rev;
+        }
         if ( this.options.optcurve ) {
           const curve = EvgTraceCurve.fromPolygon(poly, this.options.alphamax);
           const opt = curve.optimize(this.options.opttolerance);
