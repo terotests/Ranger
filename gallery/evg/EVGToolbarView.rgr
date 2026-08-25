@@ -459,7 +459,13 @@ class EVGToolbarView {
     ; The side of the square an icon is drawn in. Twenty of a thirty-pixel
     ; button, which is the desktop proportion; the old drawing used sixteen of
     ; twenty-six and read small because it WAS small.
-    def glyphSize:int 20
+    ; 24 on a 24-grid, so an icon authored at full size draws at full size.
+    ;
+    ; It was 20, which shrank every silhouette to 83% and made the difference
+    ; between, say, the two clipboard icons a matter of a couple of pixels.
+    ; Reported as "the icons are too small and hard to tell apart", and both
+    ; halves of that were the same number.
+    def glyphSize:int 24
 
     ; What goes on top of a silhouette: the letter in a text box, the coloured
     ; scale in a picture. Kept apart from the shape so the shape stays one
@@ -476,6 +482,21 @@ class EVGToolbarView {
     fn paintIconDetail:void (dl:EVGDisplayList t:ToolItem k:int cx:int cy:int ink:EVGColor) {
         if (k == (ToolIcon.textBox())) {
             this.pushToolText(dl "A" cx cy 11.0 ink true)
+            return
+        }
+        if (k == (ToolIcon.cut())) {
+            ; The two finger holes, as rings drawn in the strip's own colour.
+            this.pushIconPath(dl "M6.5 17 a3 3 0 0 1 0 6 a3 3 0 0 1 0 -6 z" cx cy glyphSize ink)
+            this.pushIconPath(dl "M17.5 17 a3 3 0 0 1 0 6 a3 3 0 0 1 0 -6 z" cx cy glyphSize ink)
+            this.pushIconPath(dl "M6.5 19 a1 1 0 0 1 0 2 a1 1 0 0 1 0 -2 z" cx cy glyphSize theme.bg)
+            this.pushIconPath(dl "M17.5 19 a1 1 0 0 1 0 2 a1 1 0 0 1 0 -2 z" cx cy glyphSize theme.bg)
+            return
+        }
+        if (k == (ToolIcon.shapes())) {
+            ; A circle and a triangle over the square, in the accent, so the
+            ; button reads as "a choice of shapes" rather than as one shape.
+            this.pushIconPath(dl "M16 3 a5 5 0 0 1 0 10 a5 5 0 0 1 0 -10 z" cx cy glyphSize theme.accent)
+            this.pushIconPath(dl "M7 2 l5 8 h-10 z" cx cy glyphSize theme.accent)
             return
         }
         if (k == (ToolIcon.picture())) {
@@ -914,6 +935,22 @@ class EVGToolbarView {
             this.paintAlignIcon(dl cx cy 2 ink)
             return
         }
+        if (k == (ToolIcon.textJustify())) {
+            this.paintAlignIcon(dl cx cy 3 ink)
+            return
+        }
+        if (k == (ToolIcon.arrangeLeft())) {
+            this.pushArrangeIcon(dl cx cy 0 ink)
+            return
+        }
+        if (k == (ToolIcon.arrangeCenter())) {
+            this.pushArrangeIcon(dl cx cy 1 ink)
+            return
+        }
+        if (k == (ToolIcon.arrangeRight())) {
+            this.pushArrangeIcon(dl cx cy 2 ink)
+            return
+        }
         ; --- vertical alignment
         ;
         ; These were three pairs of floating bars that differed by four pixels
@@ -979,7 +1016,12 @@ class EVGToolbarView {
     fn paintAlignIcon:void (dl:EVGDisplayList cx:int cy:int mode:int col:EVGColor) {
         def i:int 0
         while (i < 4) {
+            ; Justified: every line runs the full measure, which is what
+            ; justification looks like and what mode 3 means here.
             def wide:boolean ((i % 2) == 0)
+            if (mode == 3) {
+                wide = true
+            }
             def lw:int 14
             if (wide == false) {
                 lw = 9
@@ -994,6 +1036,41 @@ class EVGToolbarView {
                 }
             }
             this.pushRect(dl (to_double lx) (to_double ((cy - 7) + (i * 4))) (to_double lw) 2.0 col)
+            i = (i + 1)
+        }
+    }
+
+    ; Two boxes pushed against a rule: aligning OBJECTS.
+    ;
+    ; This is not the same operation as aligning text and it had the same
+    ; picture, on strips where both appear — so one pair of buttons moved
+    ; frames, the other moved words, and nothing on them said which.
+    fn pushArrangeIcon:void (dl:EVGDisplayList cx:int cy:int mode:int col:EVGColor) {
+        def edge:int (cx - 8)
+        if (mode == 1) {
+            edge = cx
+        }
+        if (mode == 2) {
+            edge = (cx + 8)
+        }
+        ; The rule the boxes are lined up on.
+        this.pushRect(dl (to_double edge) (to_double (cy - 9)) 1.0 18.0 col)
+        ; Two boxes of different lengths, so the alignment is visible at all:
+        ; two equal boxes look the same lined up any of the three ways.
+        def i:int 0
+        while (i < 2) {
+            def bw:int 12
+            if (i == 1) {
+                bw = 7
+            }
+            def bx:int (edge + 2)
+            if (mode == 1) {
+                bx = (edge - (idiv bw 2))
+            }
+            if (mode == 2) {
+                bx = ((edge - bw) - 2)
+            }
+            this.pushRect(dl (to_double bx) (to_double ((cy - 7) + (i * 9))) (to_double bw) 5.0 col)
             i = (i + 1)
         }
     }

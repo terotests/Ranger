@@ -457,7 +457,13 @@ class BookFlowEngine {
                 ln.fontFamily = style.fontFamily
                 ln.fontSize = style.fontSize
                 ln.color = style.color
+                ; The paragraph's own alignment wins over the style's. This is
+                ; the only place a line gets one, so it is the only place that
+                ; has to know the override exists.
                 ln.align = style.align
+                if ((strlen para.align) > 0) {
+                    ln.align = para.align
+                }
                 ln.bold = style.bold
                 ln.italic = style.italic
                 ln.frameId = frame.id

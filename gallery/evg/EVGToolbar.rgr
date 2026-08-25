@@ -199,6 +199,25 @@ class ToolIcon {
     sfn printDoc:int ()    { return 80 }
     ; The chevron a dropdown draws beside its own picture.
     sfn caret:int ()       { return 81 }
+    ; The shape gallery: a square, a circle and a triangle, which is what
+    ; every office suite puts on the button that opens one. It had been
+    ; borrowing `merge`, two arrows pointing at each other, and a reader who
+    ; cannot guess what a button does clicks it to find out — which is exactly
+    ; how this one got reported as a broken insert.
+    sfn shapes:int ()      { return 82 }
+    ; Scissors. Copy and paste had pictures and cut did not, which is the one
+    ; of the three nobody can substitute a word for.
+    sfn cut:int ()         { return 83 }
+    ; Justified text: four full-width lines. The other three alignments have
+    ; had a picture since the beginning and this one had none, so it could not
+    ; be offered.
+    sfn textJustify:int () { return 84 }
+    ; Lining OBJECTS up against an edge, which is not the same thing as
+    ; aligning text and had been borrowing its picture. Two boxes and the rule
+    ; they are pushed against; the text ones stay four lines of type.
+    sfn arrangeLeft:int () { return 85 }
+    sfn arrangeCenter:int () { return 86 }
+    sfn arrangeRight:int () { return 87 }
 }
 
 class ToolItem {
@@ -312,11 +331,13 @@ class EVGToolbar {
     ; pixels of glyph in 26, which is why the icons read as small even before
     ; anything about their shapes is discussed. The button grew with them so
     ; the strip does not get denser, only more legible.
-    def rowH:int 34
+    ; Tall enough for a 24-pixel glyph with room around it. The row was 34,
+    ; which left 28 for the button and forced the glyph down to 20.
+    def rowH:int 40
     def rows:int 1
     def height:int 36
     def pad:int 5
-    def iconW:int 30
+    def iconW:int 34
     ; A row with a large button in it is this tall instead of `rowH`; the
     ; ordinary chips centre themselves in it.
     def largeH:int 54

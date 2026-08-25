@@ -1101,13 +1101,20 @@ async function boot() {
     }
   });
 
-  // Nothing runs on load in the full playground. An embed autoruns so the
-  // docs page that wrapped this iframe has a slide to show, not a blank deck
-  // and a button.
+  // Nothing runs on load in the full playground. An embed with a preset
+  // autoruns so the docs page that wrapped it has a slide to show. An embed
+  // with `run=0` waits: the parent holds the code editor and will post the
+  // snippet when it is ready, and showing an empty deck first would flash
+  // a blank slide under that editor.
   const shouldAutorun = applyEmbedQuery();
+  const waitForParent = window.__embedMode
+    && new URLSearchParams(location.search).get("run") === "0";
   try {
     if (shouldAutorun) {
       await Promise.resolve(run());
+    } else if (waitForParent) {
+      statusEl.className = "";
+      statusEl.textContent = "waiting for code…";
     } else {
       const empty = JsApi.create();
       empty.addSlide().background("FFFFFF");

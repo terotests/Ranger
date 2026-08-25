@@ -109,6 +109,18 @@ class ToolIconPath {
         if (k == (ToolIcon.shapeRect())) {
             return "M2 5 h20 v14 h-20 z"
         }
+        ; The gallery. The square is the silhouette; the circle and the
+        ; triangle are drawn over it by `paintIconDetail`, because one path
+        ; here is one ring and three shapes are three.
+        if (k == (ToolIcon.shapes())) {
+            return "M3 12 h10 v10 h-10 z"
+        }
+        ; Scissors: the two blades crossing, as one ring. The finger holes are
+        ; drawn over it by `paintIconDetail`, for the reason at the top of this
+        ; file — a hole here would fill solid.
+        if (k == (ToolIcon.cut())) {
+            return "M7 2 l7 12 l-1.5 2.5 l-7 -12 z M17 2 l-7 12 l1.5 2.5 l7 -12 z"
+        }
         if (k == (ToolIcon.shapeEllipse())) {
             return "M12 4 a10 8 0 0 1 0 16 a10 8 0 0 1 0 -16 z"
         }

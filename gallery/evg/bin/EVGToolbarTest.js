@@ -7816,6 +7816,24 @@ ToolIcon.printDoc = function() {
 ToolIcon.caret = function() {
   return 81;
 };
+ToolIcon.shapes = function() {
+  return 82;
+};
+ToolIcon.cut = function() {
+  return 83;
+};
+ToolIcon.textJustify = function() {
+  return 84;
+};
+ToolIcon.arrangeLeft = function() {
+  return 85;
+};
+ToolIcon.arrangeCenter = function() {
+  return 86;
+};
+ToolIcon.arrangeRight = function() {
+  return 87;
+};
 class ToolItem  {
   constructor() {
     this.command = "";
@@ -7858,11 +7876,11 @@ class EVGToolbar  {
     this.tabs = [];
     this.activeTab = 0;
     this.tabH = 28;
-    this.rowH = 34;
+    this.rowH = 40;
     this.rows = 1;
     this.height = 36;
     this.pad = 5;
-    this.iconW = 30;
+    this.iconW = 34;
     this.largeH = 54;
     this.rtl = false;
     this.openMenu = -1;
@@ -17094,6 +17112,12 @@ ToolIconPath.dataFor = function(k) {
   if ( k == ToolIcon.shapeRect() ) {
     return "M2 5 h20 v14 h-20 z";
   }
+  if ( k == ToolIcon.shapes() ) {
+    return "M3 12 h10 v10 h-10 z";
+  }
+  if ( k == ToolIcon.cut() ) {
+    return "M7 2 l7 12 l-1.5 2.5 l-7 -12 z M17 2 l-7 12 l1.5 2.5 l7 -12 z";
+  }
   if ( k == ToolIcon.shapeEllipse() ) {
     return "M12 4 a10 8 0 0 1 0 16 a10 8 0 0 1 0 -16 z";
   }
@@ -17290,7 +17314,7 @@ class EVGToolbarView  {
     this.ctx = new UIContext();
     this.theme = new EVGToolbarTheme();
     this.fontFamily = "Open Sans";
-    this.glyphSize = 20;
+    this.glyphSize = 24;
   }
   attach (c, family) {
     this.ctx = c;
@@ -17560,6 +17584,18 @@ class EVGToolbarView  {
   paintIconDetail (dl, t, k, cx, cy, ink) {
     if ( k == ToolIcon.textBox() ) {
       this.pushToolText(dl, "A", cx, cy, 11.0, ink, true);
+      return;
+    }
+    if ( k == ToolIcon.cut() ) {
+      this.pushIconPath(dl, "M6.5 17 a3 3 0 0 1 0 6 a3 3 0 0 1 0 -6 z", cx, cy, this.glyphSize, ink);
+      this.pushIconPath(dl, "M17.5 17 a3 3 0 0 1 0 6 a3 3 0 0 1 0 -6 z", cx, cy, this.glyphSize, ink);
+      this.pushIconPath(dl, "M6.5 19 a1 1 0 0 1 0 2 a1 1 0 0 1 0 -2 z", cx, cy, this.glyphSize, this.theme.bg);
+      this.pushIconPath(dl, "M17.5 19 a1 1 0 0 1 0 2 a1 1 0 0 1 0 -2 z", cx, cy, this.glyphSize, this.theme.bg);
+      return;
+    }
+    if ( k == ToolIcon.shapes() ) {
+      this.pushIconPath(dl, "M16 3 a5 5 0 0 1 0 10 a5 5 0 0 1 0 -10 z", cx, cy, this.glyphSize, this.theme.accent);
+      this.pushIconPath(dl, "M7 2 l5 8 h-10 z", cx, cy, this.glyphSize, this.theme.accent);
       return;
     }
     if ( k == ToolIcon.picture() ) {
@@ -17941,6 +17977,22 @@ class EVGToolbarView  {
       this.paintAlignIcon(dl, cx, cy, 2, ink);
       return;
     }
+    if ( k == ToolIcon.textJustify() ) {
+      this.paintAlignIcon(dl, cx, cy, 3, ink);
+      return;
+    }
+    if ( k == ToolIcon.arrangeLeft() ) {
+      this.pushArrangeIcon(dl, cx, cy, 0, ink);
+      return;
+    }
+    if ( k == ToolIcon.arrangeCenter() ) {
+      this.pushArrangeIcon(dl, cx, cy, 1, ink);
+      return;
+    }
+    if ( k == ToolIcon.arrangeRight() ) {
+      this.pushArrangeIcon(dl, cx, cy, 2, ink);
+      return;
+    }
     if ( k == ToolIcon.valignTop() ) {
       this.pushValignIcon(dl, cx, cy, 0, ink);
       return;
@@ -17986,7 +18038,10 @@ class EVGToolbarView  {
   paintAlignIcon (dl, cx, cy, mode, col) {
     let i = 0;
     while (i < 4) {
-      const wide = (i % 2) == 0;
+      let wide = (i % 2) == 0;
+      if ( mode == 3 ) {
+        wide = true;
+      }
       let lw = 14;
       if ( wide == false ) {
         lw = 9;
@@ -18001,6 +18056,32 @@ class EVGToolbarView  {
         }
       }
       this.pushRect(dl, lx, ((cy - 7) + (i * 4)), lw, 2.0, col);
+      i = i + 1;
+    };
+  };
+  pushArrangeIcon (dl, cx, cy, mode, col) {
+    let edge = cx - 8;
+    if ( mode == 1 ) {
+      edge = cx;
+    }
+    if ( mode == 2 ) {
+      edge = cx + 8;
+    }
+    this.pushRect(dl, edge, (cy - 9), 1.0, 18.0, col);
+    let i = 0;
+    while (i < 2) {
+      let bw = 12;
+      if ( i == 1 ) {
+        bw = 7;
+      }
+      let bx = edge + 2;
+      if ( mode == 1 ) {
+        bx = edge - (((bw / 2) | 0));
+      }
+      if ( mode == 2 ) {
+        bx = (edge - bw) - 2;
+      }
+      this.pushRect(dl, bx, ((cy - 7) + (i * 9)), bw, 5.0, col);
       i = i + 1;
     };
   };

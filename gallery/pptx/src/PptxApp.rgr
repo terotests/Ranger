@@ -93,7 +93,7 @@ class PptxToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
         this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
-        this.add("shape.pick" "" "Browse the shapes" (ToolIcon.merge()))
+        this.add("shape.pick" "" "More shapes and emoji" (ToolIcon.shapes()))
         this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
 
         this.addTab("Arrange")
@@ -110,10 +110,10 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
         ; Moving shapes to line up with each other, which is what Align meant
         ; on the Format tab and should never have.
-        this.addDropdown("Line up" (ToolIcon.alignLeft()))
-        this.addUnder("edit.align.left" "" "Left edges" (ToolIcon.alignLeft()))
-        this.addUnder("edit.align.hcenter" "" "Centres, across" (ToolIcon.alignCenter()))
-        this.addUnder("edit.align.right" "" "Right edges" (ToolIcon.alignRight()))
+        this.addDropdown("Line up" (ToolIcon.arrangeLeft()))
+        this.addUnder("edit.align.left" "" "Left edges" (ToolIcon.arrangeLeft()))
+        this.addUnder("edit.align.hcenter" "" "Centres, across" (ToolIcon.arrangeCenter()))
+        this.addUnder("edit.align.right" "" "Right edges" (ToolIcon.arrangeRight()))
 
         this.addTab("Format")
         ; Align, on the FORMAT tab, means the text inside the shape — which is
@@ -121,6 +121,14 @@ class PptxToolbar extends EVGToolbar {
         ; to move the shape across the slide instead, which is a different job
         ; and now lives under Arrange. Three buttons became one list because
         ; only one of the three is ever wanted at a time.
+        ;
+        ; Master reached the same complaint from the other side while this
+        ; branch was open: it kept `edit.align.*` here and gave the three their
+        ; own pictures so that lining SHAPES up could not be mistaken for
+        ; aligning TEXT. Both halves are kept — the shape ones moved to Arrange
+        ; above rather than staying here, since that is where the rest of
+        ; moving things about lives, and they take master's new icons, which is
+        ; what stops the two Lefts from sharing one picture.
         this.addDropdown("Align" (ToolIcon.alignLeft()))
         this.addUnder("text.align.left" "" "Left" (ToolIcon.alignLeft()))
         this.addUnder("text.align.center" "" "Centre" (ToolIcon.alignCenter()))

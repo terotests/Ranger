@@ -8,6 +8,9 @@ documentation, built here because the pages quote AGPL sources.
 The playground stays at [`/office/`](https://terotests.github.io/Ranger/office/).
 Guides can iframe it with `?embed=1&preset=…` so a page runs an example and
 shows the slide stack it produced. `PptxExample.astro` is that iframe.
+`PptxApiExample.astro` is the other shape: the JavaScript lives in a code
+editor on the page, **Run** sends it to a slides-only viewer, and the
+viewer opens the `.pptx` those bytes produced.
 
 ```
 npm run office:docs:generate          # model + Starlight Markdown from the facades
@@ -37,10 +40,10 @@ playground rather than beside the language documentation.
 | --- | --- |
 | `api-sources.json` | Which facades are published, the URL slug (`page`), and how each Ranger name is spelled in JavaScript. |
 | `tools/extract-api.mjs` | Reads the Ranger, writes the model to `.model/<id>-api.json`. |
-| `tools/render-starlight.mjs` | Model → Starlight Markdown (`pptx.md`, `vela.md`, …). |
+| `tools/render-starlight.mjs` | Model → Starlight Markdown (`pptx.mdx`, `vela.md`, …). The PowerPoint page embeds live `PptxApiExample` blocks. |
 | `tools/check-api-coverage.mjs` | Fails the build when a documented method has no counterpart in the JavaScript wrapper. A Ranger-only API records no wrapper and is skipped. |
 | `tools/sync-playground.mjs` | Copies the built playground into `site/public/playground/` so live examples can iframe it. |
-| `site/` | The Astro + Starlight project. Guides are written by hand. API pages are generated. Live examples use `site/src/components/PptxExample.astro`. |
+| `site/` | The Astro + Starlight project. Guides are written by hand. API pages are generated. Live examples use `PptxExample.astro` (whole playground) and `PptxApiExample.astro` (editor on the page, viewer below). |
 
 A method marked `; @internal` in its Ranger comment stays out of the pages
 without being hidden from the source.

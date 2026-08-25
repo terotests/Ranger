@@ -96,6 +96,11 @@ done
 # there is something to try without owning a Mac.
 mkdir -p "$OUT/fixtures"
 cp gallery/book/fixtures/AlbumData.xml "$OUT/fixtures/AlbumData.xml"
+# The 187 DrawingML preset geometries, for the shape picker. The emoji in it
+# carry their own outlines and need no file; the presets are formulae and
+# cannot be drawn without this one, so leaving it out gives a picker that
+# lists every preset and draws a blank cell for each.
+cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
 
 # --- the build stamp ---------------------------------------------------------
 # A rebuilt page a browser will not fetch is indistinguishable from a page that

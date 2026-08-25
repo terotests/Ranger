@@ -98,6 +98,8 @@ class BookEditor {
     def editMode:boolean false
     def pageIndex:int 0
     def selection:[string]
+    ; What copy and cut put aside, as COPIES. See `copySelection`.
+    def clipFrames:[BookFrame]
 
     ; Snapping to the other frames on the page, to the margins and to the page
     ; itself. Tolerance is in page points, so it means the same thing at any
@@ -1062,6 +1064,162 @@ class BookEditor {
             }
             pi = (pi + 1)
         }
+    }
+
+    ; Align the TEXT in the selected frames, rather than the frames themselves.
+    ;
+    ; The strip's three align buttons have always moved frames — that is the
+    ; Arrange kind of alignment and every editor has it. Nothing anywhere
+    ; aligned a paragraph, so a centred dedication was impossible without
+    ; writing a style for it.
+    ;
+    ; The unit is the STORY, not the caret, because this editor has no caret:
+    ; it selects frames. So "centre this" means every paragraph of every story
+    ; the selected text frames show, which is what a one-frame caption is
+    ; anyway and what somebody selecting a chapter's frame means.
+    ;
+    ; `how` is left, center, right or justify; "" puts the style back in
+    ; charge.
+    fn alignText:boolean (how:string) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        def done:[string]
+        def touched:boolean false
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                def sid:string f.storyId
+                if ((strlen sid) > 0) {
+                    ; A story shown by two selected frames is one story, and
+                    ; aligning it twice would push two snapshots.
+                    if ((BookEditor.hasText(done sid)) == false) {
+                        push done sid
+                        if (doc.hasStory(sid)) {
+                            if (touched == false) {
+                                this.pushSnapshot()
+                                touched = true
+                            }
+                            def story:BookStory (doc.storyFor(sid))
+                            def p:int 0
+                            while (p < (story.paragraphCount())) {
+                                def para:BookParagraph (story.paragraphAt(p))
+                                para.align = how
+                                p = (p + 1)
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (touched == false) {
+            return false
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    sfn hasText:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the clipboard --------------------------------------------------------
+    ;
+    ; Frames, not text. Copying INSIDE a text frame is the text engine's
+    ; business and it has its own; this is the outer clipboard, the one that
+    ; moves a picture from one spread to another.
+    ;
+    ; It holds copies rather than references. A cut deletes the originals, and
+    ; a clipboard pointing at deleted frames is a paste that resurrects
+    ; something the document no longer has.
+
+    fn copySelection:boolean () {
+        if ((array_length selection) == 0) {
+            return false
+        }
+        clear clipFrames
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def src:BookFrame (doc.frameFor(id))
+                def copy:BookFrame (src.copyOf())
+                ; A copy is not a continuation of the original's story, and it
+                ; must not answer to the original's name.
+                copy.nextFrameId = ""
+                copy.id = ""
+                push clipFrames copy
+            }
+            i = (i + 1)
+        }
+        return ((array_length clipFrames) > 0)
+    }
+
+    fn cutSelection:boolean () {
+        if (editMode == false) {
+            return false
+        }
+        if ((this.copySelection()) == false) {
+            return false
+        }
+        return (this.deleteSelection())
+    }
+
+    ; Onto the page being looked at, offset so it does not land exactly on
+    ; what it was copied from — pasting onto the original and seeing nothing
+    ; move is indistinguishable from a paste that did not happen.
+    fn pasteClipboard:boolean () {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length clipFrames) == 0) {
+            return false
+        }
+        if ((doc.pageCount()) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def page:BookPage (doc.pageAt(pageIndex))
+        def made:[string]
+        def i:int 0
+        while (i < (array_length clipFrames)) {
+            def src:BookFrame (itemAt clipFrames i)
+            def copy:BookFrame (src.copyOf())
+            copy.id = (doc.nextId("f"))
+            copy.nextFrameId = ""
+            copy.x = (copy.x + 12.0)
+            copy.y = (copy.y + 12.0)
+            page.addFrame(copy)
+            push made copy.id
+            i = (i + 1)
+        }
+        clear selection
+        def k:int 0
+        while (k < (array_length made)) {
+            push selection (itemAt made k)
+            k = (k + 1)
+        }
+        dirty = true
+        this.reflow()
+        return ((array_length made) > 0)
+    }
+
+    fn clipboardCount:int () {
+        return (array_length clipFrames)
     }
 
     fn duplicateSelection:boolean () {
