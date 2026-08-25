@@ -95,6 +95,7 @@ void web_type(std::string t, bool shift, bool ctrl)      { g_web->type(t, shift,
 void web_mods(bool shift, bool ctrl)                     { g_web->mods(shift, ctrl); }
 void web_scroll(int x, int y, int d)                     { g_web->scroll(x, y, d); }
 void web_scroll_pixels(int x, int y, int dy)             { g_web->scrollPixels(x, y, dy); }
+void web_scroll_pixels2(int x, int y, int dx, int dy)    { g_web->scrollPixels2(x, y, dx, dy); }
 
 // ---- commands and state ------------------------------------------------
 
@@ -107,6 +108,7 @@ std::string web_suggested_name()    { return g_web->suggestedName(); }
 std::string web_selection_box()     { return g_web->selectionBox(); }
 std::string web_image_parts()       { return g_web->imageParts(); }
 int  web_slide_panel_width()        { return g_web->slidePanelWidth(); }
+bool web_over_slide_panel(int x, int y) { return g_web->overSlidePanel(x, y); }
 int  web_selection_count()          { return g_web->selectionCount(); }
 bool web_editing()                  { return g_web->editing(); }
 bool web_editing_text()             { return g_web->editingText(); }
@@ -185,6 +187,7 @@ EMSCRIPTEN_BINDINGS(pptx_web) {
     function("web_mods", &web_mods);
     function("web_scroll", &web_scroll);
     function("web_scroll_pixels", &web_scroll_pixels);
+    function("web_scroll_pixels2", &web_scroll_pixels2);
 
     function("web_run", &web_run);
     function("web_commands", &web_commands);
@@ -195,6 +198,7 @@ EMSCRIPTEN_BINDINGS(pptx_web) {
     function("web_selection_box", &web_selection_box);
     function("web_image_parts", &web_image_parts);
     function("web_slide_panel_width", &web_slide_panel_width);
+    function("web_over_slide_panel", &web_over_slide_panel);
     function("web_selection_count", &web_selection_count);
     function("web_editing", &web_editing);
     function("web_editing_text", &web_editing_text);

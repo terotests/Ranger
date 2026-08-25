@@ -104,6 +104,7 @@ export async function installPptxWeb() {
     mods(shift, ctrl) { m.web_mods(!!shift, !!ctrl); }
     scroll(x, y, delta) { m.web_scroll(x | 0, y | 0, delta | 0); }
     scrollPixels(x, y, dy) { m.web_scroll_pixels(x | 0, y | 0, dy | 0); }
+    scrollPixels2(x, y, dx, dy) { m.web_scroll_pixels2(x | 0, y | 0, dx | 0, dy | 0); }
 
     // ---- commands and state ----
     run(id, arg) {
@@ -120,6 +121,7 @@ export async function installPptxWeb() {
     selectionCount() { return m.web_selection_count(); }
     imageParts() { return m.web_image_parts(); }
     slidePanelWidth() { return m.web_slide_panel_width(); }
+    overSlidePanel(x, y) { return m.web_over_slide_panel(x | 0, y | 0); }
     editing() { return m.web_editing(); }
     editingText() { return m.web_editing_text(); }
     presenting() { return m.web_presenting(); }

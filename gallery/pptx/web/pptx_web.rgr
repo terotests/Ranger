@@ -208,14 +208,40 @@ class PptxWeb {
     ; trackpad actually reports, and what a host should send if it has the
     ; number.
     fn scrollPixels:void (x:int y:int dy:int) {
+        this.scrollPixels2(x y 0 dy)
+    }
+
+    ; …and with the sideways travel too, which a trackpad reports and a mouse
+    ; does not. It matters when the thumbnails are a strip along the TOP —
+    ; every narrow window — because there "further along the deck" is
+    ; sideways, and a reader flicking at a horizontal row of pictures moves
+    ; their fingers whichever way feels right.
+    ;
+    ; `dx` and `dy` arrive in the BROWSER's convention, positive right and
+    ; positive down, because that is what `wheel` hands the page. `UIInput`
+    ; keeps X the other way round — positive LEFT — so the negation is here,
+    ; at the edge, rather than in the app.
+    fn scrollPixels2:void (x:int y:int dx:int dy:int) {
         input.newFrame()
         input.setPointerPos(x y)
         input.addScroll(dy)
+        input.addScrollX((0 - dx))
         app.update(input)
     }
 
     fn slidePanelWidth:int () {
         return (app.panelWidth())
+    }
+
+    ; Whether a point is over the thumbnails — which the PAGE cannot work out,
+    ; because the panel is a column down the side in a wide window and a strip
+    ; along the top in a narrow one, and only the app knows which it is today.
+    ;
+    ; The page used to ask `slidePanelWidth()` and compare, and that answers 0
+    ; for the strip, so on every narrow window the wheel was swallowed before
+    ; it reached the app and the thumbnails could not be scrolled at all.
+    fn overSlidePanel:boolean (x:int y:int) {
+        return (app.panelInBand(x y))
     }
 
     fn editing:boolean () {

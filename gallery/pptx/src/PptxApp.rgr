@@ -1611,9 +1611,32 @@ class PptxApp {
         ; in, rather than notches. See `scrollPanelPixels`: a trackpad swipe is
         ; dozens of small wheel events, and counting each of them as a whole
         ; notch scrolled a hundred slides past in one flick.
-        if (input.scrollDelta != 0) {
-            if (input.pointerX < (this.panelWidth())) {
-                this.scrollPanelPixels(input.scrollDelta)
+        ; Over the PANEL, wherever the panel is. This used to ask whether the
+        ; pointer was left of `panelWidth()`, and `panelWidth()` answers 0 when
+        ; the panel is a strip along the TOP rather than a column down the side
+        ; — which is the layout every narrow window gets. So in that layout the
+        ; test was `x < 0`, never true, and the thumbnails could not be
+        ; scrolled at all: reported as "two fingers on the trackpad do not move
+        ; the thumbnails". `panelInBand` is the same question the panel's own
+        ; press handling asks, and it knows about both layouts.
+        if (this.panelInBand(input.pointerX input.pointerY)) {
+            ; A strip runs ACROSS, so a two-finger swipe sideways moves it as
+            ; readily as one downwards — a reader flicking at a horizontal row
+            ; of thumbnails means "further along" whichever way their fingers
+            ; went. A column takes only the vertical travel, because sideways
+            ; there means nothing.
+            ;
+            ; Note the sign. `scrollDelta` is positive DOWNWARDS and
+            ; `scrollDeltaX` positive LEFTWARDS — `UIInput` says so and the
+            ; spreadsheet negates it on the way in for the same reason. Both
+            ; directions have to end up meaning "further along the deck", so
+            ; the sideways one is subtracted.
+            def travel:int input.scrollDelta
+            if (this.panelOnTop()) {
+                travel = (travel - input.scrollDeltaX)
+            }
+            if (travel != 0) {
+                this.scrollPanelPixels(travel)
             }
         }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
@@ -2465,6 +2488,13 @@ class PptxApp {
         }
         index = i
         editor.slideIndex = i
+        ; …and bring the panel with it. `gotoSlide` has always done this, but
+        ; everything that moves the current slide from the EDITOR side came
+        ; through here and did not: adding a slide, undoing one, and every
+        ; call an API script makes. A deck of forty slides answered "slide 31"
+        ; in the status line while the thumbnails still showed one to eight,
+        ; so a script that adds a slide appeared to have done nothing.
+        this.ensureSlideVisible()
     }
 
     ; Handles, clockwise from the top-left, on the selection's box.

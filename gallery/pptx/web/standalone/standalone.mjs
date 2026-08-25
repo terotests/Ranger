@@ -389,7 +389,13 @@ canvas.addEventListener("wheel", async (ev) => {
   // Only the panel scrolls today, and the app is the one that knows where it
   // is — so the wheel is handed over with the pointer's position rather than
   // decided here.
-  if (x >= (web.slidePanelWidth() | 0)) return;
+  //
+  // This used to ask `slidePanelWidth()` and compare. That answers 0 when the
+  // thumbnails are a strip along the TOP instead of a column down the side —
+  // which is what every narrow window gets — so the guard read `x >= 0`, true
+  // everywhere, and the wheel was thrown away before the app ever saw it. The
+  // thumbnails simply could not be scrolled on a phone-shaped window.
+  if (!web.overSlidePanel(x, y)) return;
   ev.preventDefault();
   // How far the gesture travelled, in pixels — not which way it went.
   //
@@ -399,9 +405,13 @@ canvas.addEventListener("wheel", async (ev) => {
   // mouse wheel where Chrome reports pixels, so a host that ignores it
   // scrolls at completely different speeds in the two.
   let dy = ev.deltaY;
-  if (ev.deltaMode === 1) dy *= 16;
-  else if (ev.deltaMode === 2) dy *= canvas.clientHeight;
-  web.scrollPixels(x, y, Math.round(dy));
+  let dx = ev.deltaX;
+  if (ev.deltaMode === 1) { dy *= 16; dx *= 16; }
+  else if (ev.deltaMode === 2) { dy *= canvas.clientHeight; dx *= canvas.clientWidth; }
+  // Both axes, in the browser's own convention. A horizontal strip of
+  // thumbnails runs sideways, so a sideways swipe has to move it — the app
+  // decides which axis its layout cares about.
+  web.scrollPixels2(x, y, Math.round(dx), Math.round(dy));
   await draw();
 }, { passive: false });
 
@@ -989,6 +999,72 @@ async function selftest() {
     lastScene = null;
     await draw();
     ok("and going back puts it where it was", (web.slidePanelWidth() | 0) === wide);
+
+    // …and the thumbnails can be scrolled in EITHER layout.
+    //
+    // The wheel handler used to decide "is this the panel's?" by comparing x
+    // against `slidePanelWidth()`, which answers 0 for the strip along the
+    // top — so on every narrow window the guard was `x >= 0`, the event was
+    // thrown away in the page, and the app never heard about it. The
+    // thumbnails were unscrollable and nothing in Ranger could see it,
+    // because the gesture died on this side of the boundary.
+    const deckWas = web.slideCount() | 0;
+    for (let i = 0; i < 20; i++) web.run("slide.add", "");
+    lastScene = null;
+    await draw();
+
+    // Through a REAL wheel event on the canvas, not through `scrollPixels2`.
+    // The bug was in the page's own listener — it decided the gesture was not
+    // the panel's and returned before calling anything — so a check that
+    // calls the binding directly would have passed throughout.
+    const wheelAt = async (sceneX, sceneY, dx, dy) => {
+      const r = canvas.getBoundingClientRect();
+      const { width, height } = { width: canvas.width, height: canvas.height };
+      const ev = new WheelEvent("wheel", {
+        clientX: r.left + sceneX * (r.width / Math.max(1, width)),
+        clientY: r.top + sceneY * (r.height / Math.max(1, height)),
+        deltaX: dx, deltaY: dy, deltaMode: 0, bubbles: true, cancelable: true,
+      });
+      canvas.dispatchEvent(ev);
+      await new Promise((r2) => setTimeout(r2, 0));
+      lastScene = null;
+      await draw();
+    };
+
+    // The column, down the side.
+    let before = web.scene();
+    await wheelAt(Math.max(1, (web.slidePanelWidth() | 0) >> 1), 400, 0, 400);
+    ok("a wheel over the column moves the thumbnails", web.scene() !== before);
+
+    // The strip, along the top. `overSlidePanel` is the app's own answer to
+    // where the panel is, which is the whole point: the page stopped guessing.
+    web.resize(420, 780);
+    lastScene = null;
+    await draw();
+    let spot = null;
+    for (let cy = 0; cy < 780 && !spot; cy += 4)
+      if (web.overSlidePanel(120, cy)) spot = cy;
+    ok("the page can find the strip without knowing the layout", spot !== null);
+    before = web.scene();
+    await wheelAt(120, spot ?? 0, 0, 400);
+    ok("a wheel over the strip moves them too", web.scene() !== before);
+    // Sideways, which is the gesture a horizontal row of pictures asks for
+    // and the only one a trackpad reports as deltaX.
+    before = web.scene();
+    await wheelAt(120, spot ?? 0, 400, 0);
+    ok("and a sideways swipe moves them along", web.scene() !== before);
+
+    // Put the deck back: everything after this checks printing, the show and
+    // the fonts against the deck the page opened with, and twenty extra
+    // slides would make those checks about something else.
+    for (let i = 0; i < 20; i++) web.run("edit.undo", "");
+    lastScene = null;
+    await draw();
+    ok("the deck is back to the size it was", (web.slideCount() | 0) === deckWas);
+
+    web.resize(1280, 800);
+    lastScene = null;
+    await draw();
     await fitToWindow();
   }
 
