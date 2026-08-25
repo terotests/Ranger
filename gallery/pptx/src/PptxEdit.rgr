@@ -1676,6 +1676,17 @@ class PptxEditor {
         sh.height = h
         sh.hasXfrm = true
         sh.fill = (PptxColor.srgbOf("4472C4"))
+        ; A label on a shape sits in the MIDDLE of it, both ways. The empty
+        ; paragraph is put here rather than when the first character arrives,
+        ; because by then there is nothing left to say what the shape wanted:
+        ; text typed into a shape used to land against its top-left corner,
+        ; which no editor does and nobody means.
+        sh.text.anchor = "ctr"
+        sh.text.anchorSet = true
+        def para (new PptxParagraph())
+        para.align = "ctr"
+        para.alignSet = true
+        push sh.text.paragraphs para
         push s.shapes sh
         this.select(sh.editId)
         this.pushSnapshot("insert shape")

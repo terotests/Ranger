@@ -93,11 +93,23 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.back" "" "Send to back" (ToolIcon.sendBack()))
         this.add("edit.group" "" "Group" (ToolIcon.group()))
         this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
+        ; Moving shapes to line up with each other, which is what Align meant
+        ; on the Format tab and should never have.
+        this.addDropdown("Line up" (ToolIcon.alignLeft()))
+        this.addUnder("edit.align.left" "" "Left edges" (ToolIcon.alignLeft()))
+        this.addUnder("edit.align.hcenter" "" "Centres, across" (ToolIcon.alignCenter()))
+        this.addUnder("edit.align.right" "" "Right edges" (ToolIcon.alignRight()))
 
         this.addTab("Format")
-        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
-        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
-        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        ; Align, on the FORMAT tab, means the text inside the shape — which is
+        ; what a reader who has just selected a text box is asking for. It used
+        ; to move the shape across the slide instead, which is a different job
+        ; and now lives under Arrange. Three buttons became one list because
+        ; only one of the three is ever wanted at a time.
+        this.addDropdown("Align" (ToolIcon.alignLeft()))
+        this.addUnder("text.align.left" "" "Left" (ToolIcon.alignLeft()))
+        this.addUnder("text.align.center" "" "Centre" (ToolIcon.alignCenter()))
+        this.addUnder("text.align.right" "" "Right" (ToolIcon.alignRight()))
         this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
         this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
@@ -647,6 +659,9 @@ class PptxApp {
         commands.add("edit.backward" "Send backward" "Arrange" "")
         commands.add("edit.group" "Group" "Arrange" "Ctrl+G")
         commands.add("edit.ungroup" "Ungroup" "Arrange" "")
+        commands.add("text.align.left" "Align text left" "Format" "")
+        commands.add("text.align.center" "Centre text" "Format" "")
+        commands.add("text.align.right" "Align text right" "Format" "")
         commands.add("edit.align.left" "Align left" "Arrange" "")
         commands.add("edit.align.hcenter" "Align centre" "Arrange" "")
         commands.add("edit.align.right" "Align right" "Arrange" "")
@@ -2877,6 +2892,7 @@ class PptxApp {
         if ((strlen pendingTool) == 0) {
             return
         }
+        def tool:string pendingTool
         pendingTool = ""
         view.status = ""
         def x0:double marqueeX
@@ -2894,6 +2910,13 @@ class PptxApp {
         ; Too small to have been meant as a rectangle: treat it as a click.
         def minW:double ((this.slideW()) * 0.04)
         def minH:double ((this.slideH()) * 0.04)
+        def drewIt:boolean true
+        if (w0 < minW) {
+            drewIt = false
+        }
+        if (h0 < minH) {
+            drewIt = false
+        }
         if (w0 < minW) {
             w0 = ((this.slideW()) * 0.34)
             x0 = (x0 - (w0 * 0.5))
@@ -2908,11 +2931,60 @@ class PptxApp {
         if (y0 < 0.0) {
             y0 = 0.0
         }
-        def newId:int (editor.addTextBox(x0 y0 w0 h0 ""))
-        if (newId > 0) {
-            editor.beginTextEdit(newId)
-            view.status = ""
+        if (tool == "text") {
+            def newId:int (editor.addTextBox(x0 y0 w0 h0 ""))
+            if (newId > 0) {
+                editor.beginTextEdit(newId)
+                view.status = ""
+            }
+            return
         }
+        ; A shape. An entry that carries its own outline — every emoji — goes
+        ; in as a custom geometry rather than a preset name, because there is
+        ; no preset called "panda". Everything else stays a NAME: PowerPoint
+        ; draws a preset from its own geometry at whatever size the shape is,
+        ; and a flattened copy of it would not.
+        ; The catalogue is asked but not required. `rect` and `ellipse` are
+        ; preset names the toolbar arms directly and the catalogue has never
+        ; heard of them — insisting on an entry meant the two buttons on the
+        ; Insert tab drew nothing at all.
+        def entry:ShapeEntry (shapes.find(tool))
+        def known:boolean (entry.id == tool)
+        if known {
+            ; A shape that states the proportion it needs keeps it when the
+            ; reader only CLICKED — a panda in a box they did not draw is a
+            ; wide panda. A box they did draw is theirs, aspect or not.
+            if (drewIt == false) {
+                if (entry.aspect > 0.0) {
+                    def wAspect:double (h0 * entry.aspect)
+                    x0 = (x0 + ((w0 - wAspect) * 0.5))
+                    w0 = wAspect
+                }
+            }
+            if (entry.hasPath()) {
+                this.insertOutline(entry x0 y0 w0 h0)
+                return
+            }
+        }
+        editor.addShapeAt(tool x0 y0 w0 h0)
+    }
+
+    ; Arm a tool. The next drag on the slide says where it goes and how big.
+    ;
+    ; `what` is either "text" or a name the shape catalogue knows — which is
+    ; the same vocabulary the picker hands back, so a preset and an emoji arm
+    ; the same way and `placePendingTool` sorts out which is which.
+    fn armTool:boolean (what:string) {
+        this.setEditMode(true)
+        editor.endTextEdit()
+        editor.clearSelection()
+        pendingTool = what
+        if (what == "text") {
+            view.status = "drag on the slide to place a text box"
+        } {
+            view.status = "drag on the slide to draw the shape"
+        }
+        return true
     }
 
     ; Put the tool down without using it. Escape, and a click on the strip.
@@ -3363,6 +3435,17 @@ class PptxApp {
         if (id == "edit.ungroup") {
             return (editor.ungroupSelection())
         }
+        ; Aligning the TEXT in the selected shapes. The values are
+        ; DrawingML's own, which is what the model and the writer speak.
+        if (id == "text.align.left") {
+            return (editor.setTextAlign("l"))
+        }
+        if (id == "text.align.center") {
+            return (editor.setTextAlign("ctr"))
+        }
+        if (id == "text.align.right") {
+            return (editor.setTextAlign("r"))
+        }
         if (id == "edit.align.left") {
             return (editor.alignSelection("left"))
         }
@@ -3450,53 +3533,22 @@ class PptxApp {
             if (entry.id != arg) {
                 return false
             }
-            def sw:double ((this.slideW()) * 0.25)
-            def sh2:double ((this.slideH()) * 0.22)
-            ; A shape that states the proportion it needs is inserted in it.
-            ; A panda dropped into a 25-by-22 box is a wide panda, and the
-            ; catalogue already knows which shapes mind — the same `aspect`
-            ; the picker sizes its previews to.
-            if (entry.aspect > 0.0) {
-                sw = (sh2 * entry.aspect)
-            }
-            def px:double ((this.slideW()) * 0.3)
-            def py:double ((this.slideH()) * 0.3)
-            ; An entry that carries its own outline — every emoji — goes in as
-            ; a custom geometry rather than a preset name, because there is no
-            ; preset called "panda". Everything else stays a NAME: PowerPoint
-            ; draws a preset from its own geometry at whatever size the shape
-            ; is dragged to, and a flattened copy of it would not.
-            if (entry.hasPath()) {
-                def madePath:int (this.insertOutline(entry px py sw sh2))
-                this.setEditMode(true)
-                return (madePath > 0)
-            }
-            def madeId:int (editor.addShapeAt(arg px py sw sh2))
-            this.setEditMode(true)
-            return (madeId > 0)
+            ; The tool is ARMED, not used. The shape appears where the reader
+            ; drags it, the way every other editor does it — dropping it at a
+            ; fixed spot on the slide meant they could not see where it was
+            ; going, and the picker was still sitting over the slide hiding
+            ; the answer. So the picker shuts and the next drag decides.
+            picker.close()
+            return (this.armTool(arg))
         }
         if (id == "shape.rect") {
-            def w:double ((this.slideW()) * 0.25)
-            def h:double ((this.slideH()) * 0.18)
-            def newId:int (editor.addShapeAt("rect" ((this.slideW()) * 0.25) ((this.slideH()) * 0.35) w h))
-            this.setEditMode(true)
-            return (newId > 0)
+            return (this.armTool("rect"))
         }
         if (id == "shape.ellipse") {
-            def w2:double ((this.slideW()) * 0.22)
-            def h2:double w2
-            def newId2:int (editor.addShapeAt("ellipse" ((this.slideW()) * 0.4) ((this.slideH()) * 0.3) w2 h2))
-            this.setEditMode(true)
-            return (newId2 > 0)
+            return (this.armTool("ellipse"))
         }
         if (id == "text.add") {
-            ; Arm the tool; the next drag on the slide says where and how big.
-            this.setEditMode(true)
-            editor.endTextEdit()
-            editor.clearSelection()
-            pendingTool = "text"
-            view.status = "drag on the slide to place a text box"
-            return true
+            return (this.armTool("text"))
         }
         if (id == "picture.add") {
             fileRequest = "image"

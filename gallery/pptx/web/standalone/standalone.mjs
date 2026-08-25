@@ -601,6 +601,28 @@ fileEl?.addEventListener("change", async (ev) => {
   await draw();
 });
 
+/**
+ * Draw the armed tool out on the slide.
+ *
+ * Inserting a shape ARMS a tool now; the drag that follows says where it goes
+ * and how big. Four checks below need that gesture, and a fixed pixel worked
+ * at one window size only — so the point comes from the app's own numbers:
+ * the panel's width, and fractions of the frame the page is drawing at.
+ */
+async function dragOutShape() {
+  const panelW = web.slidePanelWidth() | 0;
+  const x = panelW + Math.round((sceneW - panelW) * 0.15);
+  const y = Math.round(sceneH * 0.35);
+  const dx = Math.round((sceneW - panelW) * 0.2);
+  const dy = Math.round(sceneH * 0.15);
+  web.pointerAt(x, y, true, true, false);
+  for (let i = 1; i <= 3; i++) {
+    web.pointerAt(x + Math.round((dx * i) / 3), y + Math.round((dy * i) / 3), false, true, false);
+  }
+  web.pointerAt(x + dx, y + dy, false, false, true);
+  await draw();
+}
+
 async function selftest() {
   const checks = [];
   const ok = (name, cond) => checks.push({ name, ok: !!cond });
@@ -650,9 +672,14 @@ async function selftest() {
     web.run("edit.toggle", "");
     ok("and back on", web.editing() === true);
     const before = JSON.parse(web.scene()).list.cmds.length;
+    // Inserting a shape ARMS the tool; the drag that follows says where it
+    // goes and how big. It used to drop one at a fixed spot on the slide,
+    // which a reader could not see the placement of — and the picker was
+    // still covering the answer.
     ok("insert a box", web.run("shape.rect", ""));
-    await draw();
-    ok("a shape was selected by inserting it", (web.selectionCount() | 0) === 1);
+    ok("and nothing is on the slide until it is drawn", (web.selectionCount() | 0) === 0);
+    await dragOutShape();
+    ok("a shape was selected by drawing it", (web.selectionCount() | 0) === 1);
     const after = JSON.parse(web.scene()).list.cmds.length;
     ok("the slide and its selection are one display list", after > before);
     // Drag it: press in the middle of what is selected, three moves with the
@@ -758,7 +785,7 @@ async function selftest() {
   // typed goes in at the caret rather than at the end of the text.
   {
     web.run("shape.rect", "");
-    await draw();
+    await dragOutShape();
     const before = JSON.parse(web.scene()).list.cmds.length;
     web.keyMod("f2", false, false);
     await draw();
@@ -843,7 +870,7 @@ async function selftest() {
   {
     if (!web.editing()) web.run("edit.toggle", "");
     web.run("shape.rect", "");
-    await draw();
+    await dragOutShape();
     // Where the shape is, in window pixels, so the band can start on empty
     // canvas beside it rather than at a guessed corner — the toolbar wraps to
     // as many rows as the width needs, so "near the top" is not empty.
@@ -894,7 +921,7 @@ async function selftest() {
   {
     web.run("edit.toggle", "");
     web.run("shape.rect", "");
-    await draw();
+    await dragOutShape();
     const slidesBefore = web.slideCount() | 0;
     const raw = web.saveBytes();
     const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw || []);
