@@ -849,6 +849,18 @@ class PptxShape {
     ; Custom / flattened path in shape-local unit coords (optional)
     def hasPath:boolean false
     def pathUnit:[double]
+    ; Where each contour of that path ENDS, as an index into `pathUnit`.
+    ;
+    ; Empty means the whole array is one contour, which is what every shape
+    ; that came out of a file or a freehand stroke is — so nothing that
+    ; existed before this field has to set it.
+    ;
+    ; It exists because a shape is not always one ring. A mushroom's spots, a
+    ; panda's eye patches, the counter in a letter O: an outline with holes is
+    ; several contours filled together under one rule, and flattening them
+    ; into one list joins the end of each to the start of the next with a line
+    ; that is not in the shape. The holes then fill solid.
+    def pathEnds:[int]
     ; Whether that path ends with `<a:close/>`, and so encloses an area.
     ;
     ; Only meaningful when `hasPath`. Flattening the path to points throws
@@ -891,6 +903,8 @@ class PptxShape {
         tableRowH = rh
         def pu:[double]
         pathUnit = pu
+        def pe:[int]
+        pathEnds = pe
     }
 }
 

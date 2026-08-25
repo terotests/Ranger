@@ -132,10 +132,28 @@ under. The generated file carries its own notice, the licence text travels with
 the font at `gallery/pdf_writer/assets/fonts/Noto_Emoji/LICENSE.txt`, and
 nothing here is called Noto. Apple's shapes are **not** copied and must not be.
 
-*Open:* the **slide** editor refuses them. `PptxShape.pathUnit` holds one ring,
-and a mushroom's spots and a panda's eye patches are rings of their own — the
-outer ring alone is a blank blob, one shape per ring fills the holes in. The
-book editor takes them today because a `BookFrame` holds the whole path.
+**Both editors take them.** The slide editor could not, for a while: a preset
+goes onto a slide as a NAME — PowerPoint draws it from its own geometry at
+whatever size it is dragged to — and there is no preset called "panda", so an
+emoji has to go in as the outline itself. `PptxShape.pathUnit` held **one**
+contour, and a mushroom's spots and a panda's eye patches are contours of their
+own: the outer one alone is a blank blob, and one shape per contour fills the
+holes in.
+
+`PptxShape.pathEnds` is where each contour stops. Empty means one contour, so
+every shape that existed before it behaves exactly as it did, and five places
+learned about it at once:
+
+| | what changed |
+| --- | --- |
+| the writer | one `<a:path>` per contour instead of one for the lot |
+| the parser | reads **every** `<a:path>`; it read only the first |
+| `PptxToEvg` | fills the contours together, even-odd, so holes stay holes |
+| `PptxEdit` | carries the boundaries when a shape is duplicated |
+| `PptxApp` | `shape.insert` puts an outline in as custom geometry |
+
+The parser half is not optional housekeeping: without it the deck this writer
+produces would come back as its outer contours and nothing else.
 
 ### `OfficeFont`
 

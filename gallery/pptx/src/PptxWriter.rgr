@@ -345,30 +345,62 @@ class PptxWriter {
     ; fill it came back as a solid blob. `PptxShape.pathClosed` has recorded
     ; the answer since the parser learned to read it; this is the writer
     ; finally asking.
+    ; @internal One contour, as one `<a:path>`.
+    sfn pathRingXml:string (pts:[double] from:int upto:int closed:boolean) {
+        def n:int (idiv (upto - from) 2)
+        if (n < 2) {
+            return ""
+        }
+        def out:string "<a:path w=\"100000\" h=\"100000\">"
+        def i:int 0
+        while (i < n) {
+            def px:double (itemAt pts (from + (i * 2)))
+            def py:double (itemAt pts ((from + (i * 2)) + 1))
+            def sx:string (to_string (to_int ((px * 100000.0) + 0.5)))
+            def sy:string (to_string (to_int ((py * 100000.0) + 0.5)))
+            def pt:string ("<a:pt x=\"" + sx + "\" y=\"" + sy + "\"/>")
+            if (i == 0) {
+                out = (out + "<a:moveTo>" + pt + "</a:moveTo>")
+            } {
+                out = (out + "<a:lnTo>" + pt + "</a:lnTo>")
+            }
+            i = (i + 1)
+        }
+        if closed {
+            out = (out + "<a:close/>")
+        }
+        return (out + "</a:path>")
+    }
+
     sfn geomXml:string (shape:PptxShape) {
         if shape.hasPath {
             def n:int (idiv (array_length shape.pathUnit) 2)
             if (n >= 2) {
-                def out:string "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"0\" t=\"0\" r=\"100000\" b=\"100000\"/><a:pathLst><a:path w=\"100000\" h=\"100000\">"
-                def i:int 0
-                while (i < n) {
-                    def px:double (itemAt shape.pathUnit (i * 2))
-                    def py:double (itemAt shape.pathUnit ((i * 2) + 1))
-                    def sx:string (to_string (to_int ((px * 100000.0) + 0.5)))
-                    def sy:string (to_string (to_int ((py * 100000.0) + 0.5)))
-                    def pt:string ("<a:pt x=\"" + sx + "\" y=\"" + sy + "\"/>")
-                    if (i == 0) {
-                        out = (out + "<a:moveTo>" + pt + "</a:moveTo>")
-                    } {
-                        out = (out + "<a:lnTo>" + pt + "</a:lnTo>")
+                def out:string "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"0\" t=\"0\" r=\"100000\" b=\"100000\"/><a:pathLst>"
+                ; ONE `<a:path>` PER CONTOUR.
+                ;
+                ; This wrote every point into a single path, which is right for
+                ; the one-ring shapes a viewer draws and wrong for anything
+                ; with a hole in it: PowerPoint would join the end of each
+                ; contour to the start of the next and fill the holes solid.
+                ; `pathEnds` is empty on every shape that has one contour, so
+                ; that case still writes exactly what it wrote before.
+                def start:int 0
+                def r:int 0
+                def ringCount:int (array_length shape.pathEnds)
+                if (ringCount == 0) {
+                    ringCount = 1
+                }
+                while (r < ringCount) {
+                    def upto:int (array_length shape.pathUnit)
+                    if ((array_length shape.pathEnds) > 0) {
+                        upto = (itemAt shape.pathEnds r)
                     }
-                    i = (i + 1)
+                    out = (out + (PptxWriter.pathRingXml(shape.pathUnit start upto shape.pathClosed)))
+                    start = upto
+                    r = (r + 1)
                 }
-                def tail:string "</a:path></a:pathLst></a:custGeom>"
-                if shape.pathClosed {
-                    return (out + "<a:close/>" + tail)
-                }
-                return (out + tail)
+                return (out + "</a:pathLst></a:custGeom>")
             }
         }
         def preset:string shape.preset

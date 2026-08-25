@@ -644,6 +644,7 @@
     "office:style:test": "bash gallery/office/text/tools/run_style_test.sh",
     "office:bidi:test": "bash gallery/office/text/tools/run_bidi_test.sh",
     "office:arabic:test": "bash gallery/office/text/tools/run_arabic_test.sh",
+    "office:shapes:native": "bash gallery/office/geom/tools/run_shapes_native.sh",
     "office:emoji:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/office/geom/tools/emoji_shapes.rgr -d=./gallery/office/bin -o=emoji_shapes.js -nodecli && node ./gallery/office/bin/emoji_shapes.js",
     "office:shapes:sheet": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/office/geom/tools/shape_sheet.rgr -d=./gallery/office/bin -o=shape_sheet.js -nodecli && node ./gallery/office/bin/shape_sheet.js",
     "office:shapes:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/office/geom/tests/OfficeShapeCatalogTest.rgr -d=./gallery/office/bin -o=OfficeShapeCatalogTest.js -nodecli && node ./gallery/office/bin/OfficeShapeCatalogTest.js",
