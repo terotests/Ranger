@@ -36,6 +36,30 @@ class PptxEditHostTest {
         return (PptxEditHostTest.buildDeck("02-shapes.pptx"))
     }
 
+    ; Press the panel's control for `cmd`/`arg`, in the middle of wherever the
+    ; panel says it drew it. False when there is no such control — which is a
+    ; failure worth seeing, not a silent skip.
+    sfn pressProp:boolean (app:PptxApp cmd:string arg:string) {
+        def at:int (app.propsControlAt(cmd arg))
+        if (at < 0) {
+            return false
+        }
+        def px:int ((app.propsControlX(at)) + (idiv (app.propsControlW(at)) 2))
+        def py:int ((app.propsControlY(at)) + (idiv (app.propsControlH(at)) 2))
+        def took:boolean (app.pointer(px py true true false))
+        app.pointer(px py false false true)
+        app.buildFrame()
+        return took
+    }
+
+    sfn nearly:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+
     ; One key press, with or without shift, through the app the way a host
     ; delivers it.
     sfn press:void (app:PptxApp key:int shift:boolean) {
@@ -364,6 +388,97 @@ class PptxEditHostTest {
         c.ok("the paragraph is numbered" firstPara.bulletAutoNum)
         c.ok("the list button turns it off again" (lb.runCommand("text.number" "")))
         c.ok("and it is off" ((lb.editor.listKind()) == "none"))
+
+        print "-- the properties panel, down the right --"
+        ; What a shape looks like was reachable only by knowing that a command
+        ; called `edit.fill` existed and finding somewhere to type a hex
+        ; string. Worse, nothing could READ a value back: `edit.fill` answered
+        ; nothing, so the only way to find out what a shape was filled with
+        ; was to look at it and guess.
+        ;
+        ; Pressed the way a reader presses it — through `pointer`, at the
+        ; coordinates the panel says it drew each control at. A test that
+        ; called `runCommand` would pass with the panel drawn somewhere no
+        ; press can reach, which is the whole risk in adding one.
+        def pa:PptxApp (PptxEditHostTest.build())
+        pa.resize(1280 800)
+        pa.buildFrame()
+        c.ok("a wide window has room for it" ((pa.propsWidth()) > 0))
+        def pr:PptxEditRect (pa.propsRect())
+        c.ok("it is against the right-hand edge" ((PptxEditHostTest.nearly((pr.x + pr.w) (to_double pa.W)))))
+        c.ok("and runs from the strip to the status line" ((PptxEditHostTest.nearly(pr.y (to_double pa.toolbarH)))))
+        ; The slide gives up the room, or it is drawn half underneath.
+        c.ok("the slide is sized around both panels" (pa.view.chromeW == ((pa.panelWidth()) + (pa.propsWidth()))))
+
+        ; With nothing selected the panel says so and offers nothing — a panel
+        ; of dead controls reads as a broken panel.
+        pa.editor.clearSelection()
+        pa.buildFrame()
+        c.ok("with nothing selected it offers no controls" ((pa.propsControlCount()) == 0))
+
+        def ps:PptxShape (PptxEditHostTest.firstShape(pa))
+        pa.editor.select(ps.editId)
+        pa.buildFrame()
+        c.ok("selecting a shape fills it" ((pa.propsControlCount()) > 0))
+
+        ; A fill swatch. `accent1` is the deck's own first accent — the panel
+        ; offers the DECK's palette rather than a generic rainbow, because a
+        ; deck's accents are the colours its author meant to be used.
+        def want:string (pa.swatchHex("accent1"))
+        c.ok("the theme has a first accent" ((strlen want) == 6))
+        c.ok("pressing the accent1 fill swatch fills the shape"
+             (PptxEditHostTest.pressProp(pa "edit.fill" want)))
+        c.ok("and the shape is filled with it" (ps.fill.srgb == want))
+        c.ok("and it stays selected, so the panel still applies" ((pa.editor.selectionCount()) == 1))
+
+        ; …and the panel then SHOWS it: the swatch that matches is ringed, so
+        ; a reader can see where they are in the palette. The ring is two
+        ; extra commands in the frame, so the frame grows.
+        def litFill:int (pa.propsControlAt("edit.fill" want))
+        c.ok("the swatch is still there afterwards" (litFill >= 0))
+
+        ; None takes the fill away again.
+        c.ok("None is offered for a fill" ((pa.propsControlAt("edit.fill" "")) >= 0))
+        c.ok("and pressing it clears the fill" (PptxEditHostTest.pressProp(pa "edit.fill" "")))
+        c.ok("so the shape has no fill of its own" (ps.fill.isSet == false))
+
+        ; The outline, and its thickness separately — which is the point of
+        ; having a width row at all. `setLineHex` took colour and width
+        ; together, so recolouring an outline reset a 3pt rule to a hairline.
+        c.ok("pressing a line swatch outlines the shape"
+             (PptxEditHostTest.pressProp(pa "edit.line" want)))
+        c.ok("and the outline is that colour" (ps.line.srgb == want))
+        c.ok("a width can be picked" (PptxEditHostTest.pressProp(pa "edit.linewidth" "3")))
+        c.ok("and it took" ((PptxEditHostTest.nearly(ps.lineWidthPt 3.0))))
+        ; The one that was wrong: changing the COLOUR must not reset it.
+        def other:string (pa.swatchHex("accent2"))
+        c.ok("recolouring the outline" (PptxEditHostTest.pressProp(pa "edit.line" other)))
+        c.ok("keeps the thickness that was chosen" ((PptxEditHostTest.nearly(ps.lineWidthPt 3.0))))
+        c.ok("while changing the colour" (ps.line.srgb == other))
+
+        ; Text colour, which is a different job from `edit.text` — that sets
+        ; the text ITSELF, under a confusingly similar name.
+        c.ok("a text colour can be picked" (PptxEditHostTest.pressProp(pa "edit.textcolor" want)))
+        c.ok("and the editor reads it back" ((pa.editor.selectionColorHex()) == want))
+        ; …which is what the panel's swatch shows. No "None" here: text always
+        ; has a colour.
+        c.ok("text has no None" ((pa.propsControlAt("edit.textcolor" "")) < 0))
+
+        ; A narrow window keeps the slide instead. A column spends width, and
+        ; width is what a phone has least of — the same call the deck panel
+        ; makes.
+        def narrow:PptxApp (PptxEditHostTest.build())
+        narrow.resize(420 820)
+        narrow.buildFrame()
+        c.ok("a narrow window gives the panel no width" ((narrow.propsWidth()) == 0))
+        c.ok("and draws no controls" ((narrow.propsControlCount()) == 0))
+
+        ; And it can be put away on a wide one.
+        c.ok("it can be folded away" (pa.runCommand("view.props" "")))
+        pa.buildFrame()
+        c.ok("and then takes no width" ((pa.propsWidth()) == 0))
+        c.ok("nor draws anything" ((pa.propsControlCount()) == 0))
+        pa.runCommand("view.props" "")
 
         print "-- the font chooser, where the slide counter used to be --"
         ; The counter read "3 / 12" and opened a grid of numbered buttons.

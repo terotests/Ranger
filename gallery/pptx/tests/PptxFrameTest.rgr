@@ -188,9 +188,12 @@ class PptxFrameTest {
         c.ok("the strip is as tall as it needs" (app.toolbarH == (app.toolbar.heightFor(960))))
         ; And the slide is given the room that is left, not the whole window —
         ; the strip and the status line above and below it, the notes strip
-        ; under it, the slide panel beside it.
+        ; under it, the deck down one side and the properties panel down the
+        ; other. BOTH panels: a slide sized around only the left one is drawn
+        ; half underneath the right one.
         c.eqInt("the fit-to-window scale keeps the frame clear" app.view.chromeH ((app.toolbarH + app.statusH) + (app.notesHeight())))
-        c.eqInt("and the panel's width with it" app.view.chromeW (app.panelWidth()))
+        c.eqInt("and both panels' widths with it" app.view.chromeW ((app.panelWidth()) + (app.propsWidth())))
+        c.ok("which is more than either alone" (app.view.chromeW > (app.panelWidth())))
 
         print "-- every button names a command the app answers --"
         def i:int 0

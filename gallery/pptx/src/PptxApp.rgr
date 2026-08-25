@@ -134,6 +134,7 @@ class PptxToolbar extends EVGToolbar {
 
         this.addTab("Slides")
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
+        this.add("view.props" "" "Show fill, line and text" (ToolIcon.fill()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.palette()))
         this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
         this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.slideCopy()))
@@ -265,6 +266,27 @@ class PptxApp {
     def chromeCss:string ""
     def chromeSheet:EVGStyleSheet (new EVGStyleSheet())
     def coarsePointer:boolean false
+    ; The properties panel: fill, line and text down the right-hand side.
+    ;
+    ; What a shape looks like was previously reachable only by knowing that a
+    ; command called `edit.fill` existed and finding something to type a hex
+    ; string into. The four things a reader changes constantly — what a shape
+    ; is filled with, what its outline is and how thick, and what colour its
+    ; text is — now have a place that is always on screen and that SHOWS the
+    ; current value rather than only setting a new one. A swatch you can read
+    ; is half of what the panel is for.
+    def propsW:int 168
+    def propsVisible:boolean true
+    ; Where the panel's rows ended up last time it was painted, so a press can
+    ; be matched to one. Parallel arrays rather than a class: a row is a
+    ; rectangle, a command and an argument, and nothing else.
+    def propHitX:[int]
+    def propHitY:[int]
+    def propHitW:[int]
+    def propHitH:[int]
+    def propHitCmd:[string]
+    def propHitArg:[string]
+
     ; The slide panel: the deck down the left-hand side.
     def panelW:int 150
     def panelVisible:boolean true
@@ -413,7 +435,7 @@ class PptxApp {
         toolbar.editOn = editMode
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
-        view.chromeW = (this.panelWidth())
+        view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         this.registerCommands()
     }
 
@@ -709,6 +731,9 @@ class PptxApp {
         commands.add("text.outdent" "Outdent the list" "Format" "Shift+Tab")
         commands.addArg("edit.fill" "Fill colour" "Format" "")
         commands.addArg("edit.line" "Outline colour" "Format" "")
+        commands.addArg("edit.linewidth" "Outline thickness" "Format" "")
+        commands.addArg("edit.textcolor" "Text colour" "Format" "")
+        commands.add("view.props" "Show the properties panel" "View" "")
         commands.addArg("edit.text" "Set the text" "Format" "")
         commands.add("shape.rect" "Insert a box" "Insert" "")
         commands.add("shape.ellipse" "Insert an ellipse" "Insert" "")
@@ -1157,7 +1182,7 @@ class PptxApp {
         this.applyChrome()
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
-        view.chromeW = (this.panelWidth())
+        view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         view.resize(W H)
     }
 
@@ -1406,6 +1431,12 @@ class PptxApp {
             return true
         }
         if (this.panelPointer(px py pressed down released)) {
+            return true
+        }
+        ; …and the properties panel down the other side. Before the slide, or
+        ; a press on a swatch falls through onto the canvas and drops the very
+        ; selection the panel is about.
+        if (this.propsPointer(px py pressed)) {
             return true
         }
         if pressed {
@@ -1806,6 +1837,7 @@ class PptxApp {
             this.paintEditOverlay(framed)
         }
         this.paintNotes(framed)
+        this.paintProps(framed)
         if editMode {
             this.paintCaret(framed)
         }
@@ -2592,7 +2624,12 @@ class PptxApp {
             return ((this.showAreaX()) + (((this.showAreaW()) - wpx) * 0.5))
         }
         def left:double (to_double (this.panelWidth()))
-        def dx:double (left + ((((to_double W) - left) - wpx) * 0.5))
+        ; Centred in what is left BETWEEN the two panels, not in what is left
+        ; after the one on the left. With only a left panel the difference is
+        ; nothing; with a properties panel on the right as well, a slide
+        ; centred the old way sits half under it.
+        def right:double (to_double (this.propsWidth()))
+        def dx:double (left + (((((to_double W) - left) - right) - wpx) * 0.5))
         if (dx < left) {
             return left
         }
@@ -3600,6 +3637,11 @@ class PptxApp {
             editor.setGrid((editor.gridEnabled == false))
             return true
         }
+        if (id == "view.props") {
+            propsVisible = (propsVisible == false)
+            this.resize(W H)
+            return true
+        }
         if (id == "view.snap") {
             editor.snapEnabled = (editor.snapEnabled == false)
             return true
@@ -3714,7 +3756,32 @@ class PptxApp {
             return (editor.setFillHex(arg))
         }
         if (id == "edit.line") {
-            return (editor.setLineHex(arg 1.0))
+            ; Keep whatever thickness the shape already has. Passing 1.0 here
+            ; meant that recolouring an outline silently reset a 3pt rule to a
+            ; hairline — the properties panel makes that obvious, because the
+            ; width row would jump every time a colour was picked.
+            def keep:double 1.0
+            def lin@(optional):PptxShape (editor.firstSelected())
+            if (!null? lin) {
+                def ls:PptxShape (unwrap lin)
+                if (ls.lineWidthPt > 0.0) {
+                    keep = ls.lineWidthPt
+                }
+            }
+            if ((strlen arg) == 0) {
+                return (editor.clearLine())
+            }
+            return (editor.setLineHex(arg keep))
+        }
+        ; The outline's thickness on its own, in points.
+        if (id == "edit.linewidth") {
+            def wv@(optional):double (str2double arg)
+            return (editor.setLineWidthPt((?? wv 0.0)))
+        }
+        ; The text's colour. `edit.text` next to it sets the text ITSELF,
+        ; which is a different job with a confusingly similar name.
+        if (id == "edit.textcolor") {
+            return (editor.setTextColorHex(arg))
         }
         if (id == "edit.text") {
             def sel@(optional):PptxShape (editor.firstSelected())
@@ -5031,6 +5098,28 @@ class PptxApp {
     ; a shape — because they ARE a shape, one that is not on the slide. The
     ; strip is just the box that shape is laid out in.
 
+    ; What the properties panel takes out of the WIDTH. Zero when it is off,
+    ; and zero on a narrow window — the same call the slide panel makes, and
+    ; for the same reason: a column spends width, and width is what a phone
+    ; has least of.
+    fn propsWidth:int () {
+        if (propsVisible == false) {
+            return 0
+        }
+        if (W < 820) {
+            return 0
+        }
+        return propsW
+    }
+
+    ; The band itself: below the strip, above the status line, hard right.
+    fn propsRect:PptxEditRect () {
+        def w:double (to_double (this.propsWidth()))
+        def y:double (to_double toolbarH)
+        def h:double (to_double ((H - toolbarH) - statusH))
+        return (PptxEditRect.of(((to_double W) - w) y w h))
+    }
+
     fn notesHeight:int () {
         if (notesVisible == false) {
             return 0
@@ -5048,7 +5137,10 @@ class PptxApp {
         def x:double (to_double (this.panelWidth()))
         def h:double (to_double (this.notesHeight()))
         def y:double (to_double ((H - statusH) - (this.notesHeight())))
-        return (PptxEditRect.of(x y ((to_double W) - x) h))
+        ; …and stops where the properties panel starts, or the notes are drawn
+        ; underneath it and the text runs on out of sight.
+        def w:double ((((to_double W) - x) - (to_double (this.propsWidth()))))
+        return (PptxEditRect.of(x y w h))
     }
 
     fn notesTextRect:PptxEditRect () {
@@ -5086,6 +5178,268 @@ class PptxApp {
             return true
         }
         return true
+    }
+
+    ; --- the properties panel --------------------------------------------------
+    ;
+    ; Fill, outline, outline width and text colour, down the right-hand side,
+    ; each row SHOWING what the selection is set to as well as offering to
+    ; change it. Reading a value used to be impossible: `edit.fill` took a hex
+    ; string and answered nothing, so the only way to find out what a shape
+    ; was filled with was to look at it and guess.
+    ;
+    ; The swatches are the DECK's own theme colours, not a fixed palette. A
+    ; deck's accents are the colours its author meant to be used, and a
+    ; chooser offering a generic rainbow beside them is a chooser that makes
+    ; every slide look like it was edited by two different people.
+    fn paintProps:void (dl:EVGDisplayList) {
+        clear propHitX
+        clear propHitY
+        clear propHitW
+        clear propHitH
+        clear propHitCmd
+        clear propHitArg
+        if ((this.propsWidth()) == 0) {
+            return
+        }
+        def r:PptxEditRect (this.propsRect())
+        dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(32 36 47)))
+        dl.addRect(r.x r.y 1.0 r.h theme.line)
+        def x:double (r.x + 12.0)
+        def y:double (r.y + 10.0)
+        def inner:double (r.w - 24.0)
+
+        ; Nothing selected is worth saying out loud. A panel of dead controls
+        ; reads as a broken panel; a panel that says why is a panel.
+        if ((editor.selectionCount()) == 0) {
+            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 theme.dim)
+            toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (EVGColor.rgb(110 118 134)))
+            toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (EVGColor.rgb(110 118 134)))
+            return
+        }
+
+        def hit@(optional):PptxShape (editor.firstSelected())
+        def fillHex:string ""
+        def lineHex:string ""
+        def widthPt:double 0.0
+        if (!null? hit) {
+            def sh:PptxShape (unwrap hit)
+            if sh.fill.isSet {
+                fillHex = sh.fill.srgb
+            }
+            if sh.line.isSet {
+                lineHex = sh.line.srgb
+            }
+            widthPt = sh.lineWidthPt
+        }
+
+        y = (this.propsSwatchRow(dl "Fill" x y inner fillHex "edit.fill"))
+        y = (y + 8.0)
+        y = (this.propsSwatchRow(dl "Line" x y inner lineHex "edit.line"))
+        y = (y + 8.0)
+        y = (this.propsWidthRow(dl x y inner widthPt))
+        y = (y + 8.0)
+        y = (this.propsSwatchRow(dl "Text" x y inner (editor.selectionColorHex()) "edit.textcolor"))
+    }
+
+    ; One labelled row: the name, the current colour beside it, and the
+    ; swatches under it. Answers the y the next row starts at.
+    fn propsSwatchRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:string cmd:string) {
+        toolbarView.pushText(dl label x y 11.0 theme.dim)
+        ; The current value, right of the label. This is the half of the panel
+        ; that was missing entirely: a control that only SETS leaves a reader
+        ; guessing what is set.
+        def cw:double 34.0
+        def cx:double ((x + w) - cw)
+        if ((strlen now) > 0) {
+            dl.addRect(cx (y - 2.0) cw 14.0 (PptxApp.hexColor(now)))
+            dl.addFrame(cx (y - 2.0) cw 14.0 1.0 (EVGColor.rgb(90 98 118)))
+        } {
+            ; No colour of its own — inherited, or none at all. Said in words,
+            ; because an empty box and a white one look the same.
+            toolbarView.pushText(dl "—" (cx + 12.0) y 11.0 (EVGColor.rgb(110 118 134)))
+        }
+        def top:double (y + 18.0)
+        def names:[string] (PptxApp.swatchNames())
+        def per:int 6
+        def cell:double ((w - 5.0) / (to_double per))
+        def i:int 0
+        while (i < (array_length names)) {
+            def hex:string (this.swatchHex((itemAt names i)))
+            def col:int (i % per)
+            def row:int (idiv i per)
+            def sx:double (x + ((to_double col) * cell))
+            def sy:double (top + ((to_double row) * (cell + 3.0)))
+            dl.addRect(sx sy (cell - 3.0) (cell - 3.0) (PptxApp.hexColor(hex)))
+            ; The one the selection is already set to is ringed, so a reader
+            ; can see where they are in the palette rather than only where
+            ; they might go.
+            if (hex == now) {
+                dl.addFrame((sx - 1.0) (sy - 1.0) (cell - 1.0) (cell - 1.0) 2.0 (EVGColor.rgb(90 140 230)))
+            } {
+                dl.addFrame(sx sy (cell - 3.0) (cell - 3.0) 1.0 (EVGColor.rgb(70 78 96)))
+            }
+            this.addPropHit((to_int sx) (to_int sy) (to_int (cell - 3.0)) (to_int (cell - 3.0)) cmd hex)
+            i = (i + 1)
+        }
+        def rows:int (idiv (((array_length names) + per) - 1) per)
+        def below:double (top + ((to_double rows) * (cell + 3.0)))
+        ; "None" only where none is a thing a shape can be. A line has to be
+        ; removable and so does a fill; text always has a colour.
+        if (cmd != "edit.textcolor") {
+            toolbarView.pushText(dl "None" (x + 2.0) (below + 2.0) 11.0 (EVGColor.rgb(150 158 178)))
+            dl.addFrame(x below 40.0 15.0 1.0 (EVGColor.rgb(70 78 96)))
+            this.addPropHit((to_int x) (to_int below) 40 15 cmd "")
+            below = (below + 19.0)
+        }
+        return below
+    }
+
+    ; The outline's thickness, as the few widths anybody picks.
+    fn propsWidthRow:double (dl:EVGDisplayList x:double y:double w:double now:double) {
+        toolbarView.pushText(dl "Line width" x y 11.0 theme.dim)
+        def steps:[double] ([] _:double ( 0.75 1.5 3.0 6.0 ))
+        def cell:double ((w - 6.0) / 4.0)
+        def top:double (y + 16.0)
+        def i:int 0
+        while (i < (array_length steps)) {
+            def pt:double (itemAt steps i)
+            def sx:double (x + ((to_double i) * (cell + 2.0)))
+            def on:boolean false
+            if ((fabs (now - pt)) < 0.01) {
+                on = true
+            }
+            def bg:EVGColor (EVGColor.rgb(46 52 66))
+            if on {
+                bg = (EVGColor.rgb(60 90 150))
+            }
+            dl.addRect(sx top cell 18.0 bg)
+            dl.addFrame(sx top cell 18.0 1.0 (EVGColor.rgb(70 78 96)))
+            ; A rule as thick as the width it stands for — the number is in
+            ; the tooltip's place and the picture is the point.
+            dl.addRect((sx + 4.0) ((top + 9.0) - (pt * 0.5)) (cell - 8.0) pt (EVGColor.rgb(225 230 240)))
+            this.addPropHit((to_int sx) (to_int top) (to_int cell) 18 "edit.linewidth" (PptxApp.ptText(pt)))
+            i = (i + 1)
+        }
+        return (top + 22.0)
+    }
+
+    ; Which control the panel drew for `cmd` with `arg`, or -1 when it drew
+    ; none. With `propsControlX` and the three beside it, that is enough for a
+    ; test to press the panel the way a reader does rather than reaching past
+    ; it into the commands — the whole risk in adding a panel is that a
+    ; control ends up somewhere a press cannot reach, and a test that calls
+    ; `runCommand` proves nothing about that.
+    fn propsControlAt:int (cmd:string arg:string) {
+        def i:int 0
+        while (i < (array_length propHitCmd)) {
+            if ((itemAt propHitCmd i) == cmd) {
+                if ((itemAt propHitArg i) == arg) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn propsControlX:int (i:int) {
+        return (itemAt propHitX i)
+    }
+
+    fn propsControlY:int (i:int) {
+        return (itemAt propHitY i)
+    }
+
+    fn propsControlW:int (i:int) {
+        return (itemAt propHitW i)
+    }
+
+    fn propsControlH:int (i:int) {
+        return (itemAt propHitH i)
+    }
+
+    fn propsControlCount:int () {
+        return (array_length propHitCmd)
+    }
+
+    fn addPropHit:void (x:int y:int w:int h:int cmd:string arg:string) {
+        push propHitX x
+        push propHitY y
+        push propHitW w
+        push propHitH h
+        push propHitCmd cmd
+        push propHitArg arg
+    }
+
+    ; A press in the panel. Answers true when it was the panel's.
+    fn propsPointer:boolean (px:int py:int pressed:boolean) {
+        if (pressed == false) {
+            return false
+        }
+        if ((this.propsWidth()) == 0) {
+            return false
+        }
+        def r:PptxEditRect (this.propsRect())
+        if ((to_double px) < r.x) {
+            return false
+        }
+        if ((to_double py) < r.y) {
+            return false
+        }
+        if ((to_double py) > (r.y + r.h)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length propHitX)) {
+            def hx:int (itemAt propHitX i)
+            def hy:int (itemAt propHitY i)
+            if (px >= hx) {
+                if (py >= hy) {
+                    if (px < (hx + (itemAt propHitW i))) {
+                        if (py < (hy + (itemAt propHitH i))) {
+                            this.runCommand((itemAt propHitCmd i) (itemAt propHitArg i))
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; Inside the band but not on a control: still the panel's, or the
+        ; press falls through and drops the selection the panel is about.
+        return true
+    }
+
+    ; The theme slots a swatch row offers, in the order a deck's own palette
+    ; is written. Black and white last, because they are the two a reader
+    ; reaches for when the theme has nothing right.
+    sfn swatchNames:[string] () {
+        return ([] _:string ( "accent1" "accent2" "accent3" "accent4" "accent5" "accent6" "dk1" "dk2" "lt2" "bg1" "black" "white" ))
+    }
+
+    fn swatchHex:string (name:string) {
+        if (name == "black") {
+            return "000000"
+        }
+        if (name == "white") {
+            return "FFFFFF"
+        }
+        def hex:string (presentation.theme.colorOf(name))
+        if ((strlen hex) == 0) {
+            return "808080"
+        }
+        return hex
+    }
+
+    sfn hexColor:EVGColor (hex:string) {
+        return (EVGColor.parse(("#" + hex)))
+    }
+
+    ; A width as the string the command takes. Whole numbers without a point,
+    ; because "1.5" and "3" are what a reader would write.
+    sfn ptText:string (pt:double) {
+        return (to_string pt)
     }
 
     fn paintNotes:void (dl:EVGDisplayList) {

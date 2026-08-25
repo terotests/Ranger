@@ -2352,6 +2352,52 @@ class PptxEditor {
         return true
     }
 
+    ; Take the outline away. `setLineHex` with an empty string would set the
+    ; line to black, which is the opposite of what "None" means.
+    fn clearLine:boolean () {
+        if ((array_length selection) == 0) {
+            return false
+        }
+        def shapes:[PptxShape] (this.selectedShapes())
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            def none (new PptxColor())
+            sh.line = none
+            sh.lineWidthPt = 0.0
+            i = (i + 1)
+        }
+        this.pushSnapshot("line none")
+        return true
+    }
+
+    ; The outline's thickness, leaving its colour alone — which is what a
+    ; reader picking a width means, and what `setLineHex` could not express
+    ; because it took both at once.
+    fn setLineWidthPt:boolean (widthPt:double) {
+        if ((array_length selection) == 0) {
+            return false
+        }
+        if (widthPt <= 0.0) {
+            return false
+        }
+        def shapes:[PptxShape] (this.selectedShapes())
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            sh.lineWidthPt = widthPt
+            ; A width with no colour draws nothing, so a shape that never had
+            ; an outline gets the one a reader plainly just asked for. Black
+            ; is what every editor gives a new rule.
+            if (sh.line.isSet == false) {
+                sh.line = (PptxColor.srgbOf("000000"))
+            }
+            i = (i + 1)
+        }
+        this.pushSnapshot("line width")
+        return true
+    }
+
     fn setOpacity:boolean (alpha:double) {
         if ((array_length selection) == 0) {
             return false
@@ -2546,6 +2592,45 @@ class PptxEditor {
                         seen = run.fontFamily
                     } {
                         if (seen != run.fontFamily) {
+                            return ""
+                        }
+                    }
+                }
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        return seen
+    }
+
+    ; What colour the selection's text is, or "" when it is in more than one —
+    ; the same question `selectionFamily` answers for the typeface, and for
+    ; the same reason: a swatch showing the current value has to have one.
+    fn selectionColorHex:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            def shapes:[PptxShape] (this.selectedShapes())
+            if ((array_length shapes) == 0) {
+                return ""
+            }
+            hit = (itemAt shapes 0)
+        }
+        def sh:PptxShape (unwrap hit)
+        if (sh.hasText == false) {
+            return ""
+        }
+        def seen:string ""
+        def pi:int 0
+        while (pi < (array_length sh.text.paragraphs)) {
+            def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if run.color.isSet {
+                    if ((strlen seen) == 0) {
+                        seen = run.color.srgb
+                    } {
+                        if (seen != run.color.srgb) {
                             return ""
                         }
                     }
