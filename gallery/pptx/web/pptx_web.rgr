@@ -229,6 +229,13 @@ class PptxWeb {
         app.update(input)
     }
 
+    ; The list state of the paragraph the caret is in, as JSON — the level it
+    ; sits at and whether it is a list item at all. A page that can only ask
+    ; "is the editor on" cannot check that Tab indented anything.
+    fn caretParagraph:string () {
+        return (app.editor.caretParagraphJson())
+    }
+
     fn slidePanelWidth:int () {
         return (app.panelWidth())
     }

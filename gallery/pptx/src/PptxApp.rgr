@@ -4109,12 +4109,17 @@ class PptxApp {
         ; A newline goes where the caret is, not at the end of the box. It
         ; used to fall through to `appendText`, so pressing Enter in the
         ; middle of a paragraph put the break after the last word instead.
+        ;
+        ; And in a list Enter is a decision rather than an insertion — on an
+        ; item with nothing in it, it steps out of the list instead of adding
+        ; another empty bullet. `enterAtCaret` is where that is decided; it
+        ; types the newline itself in every other case.
+        ;
+        ; There was a second, identical `if` under this one calling
+        ; `newlineAtCaret`. It could never run, and it was the branch anyone
+        ; reading this would have assumed was the live one.
         if (k == (UIKey.enter())) {
-            editor.typeAtCaret("\n")
-            return true
-        }
-        if (k == (UIKey.enter())) {
-            return (editor.newlineAtCaret())
+            return (editor.enterAtCaret())
         }
         if (k == (UIKey.escape())) {
             editor.endTextEdit()

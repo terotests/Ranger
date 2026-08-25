@@ -36,6 +36,16 @@ class PptxEditHostTest {
         return (PptxEditHostTest.buildDeck("02-shapes.pptx"))
     }
 
+    ; One key press, with or without shift, through the app the way a host
+    ; delivers it.
+    sfn press:void (app:PptxApp key:int shift:boolean) {
+        def input (new UIInput)
+        input.newFrame()
+        input.setModifiers(shift false)
+        input.pushKey(key)
+        app.update(input)
+    }
+
     ; Press, move, release — a drag across the slide, in window pixels.
     sfn dragOut:void (app:PptxApp x0:int y0:int x1:int y1:int) {
         app.pointer(x0 y0 true true false)
@@ -354,6 +364,60 @@ class PptxEditHostTest {
         c.ok("the paragraph is numbered" firstPara.bulletAutoNum)
         c.ok("the list button turns it off again" (lb.runCommand("text.number" "")))
         c.ok("and it is off" ((lb.editor.listKind()) == "none"))
+
+        print "-- Tab indents a list, and two empty Enters end it --"
+        ; Through the KEYS, not through the commands. `text.indent` and
+        ; `text.outdent` were reachable from the toolbar all along; what was
+        ; missing was any way to press Tab and have it arrive — the browser
+        ; host did not carry the key at all, so it moved focus off the canvas
+        ; instead — and any meaning for Enter on an item with nothing in it.
+        def ki:PptxApp (PptxEditHostTest.build())
+        def ks:PptxShape (PptxEditHostTest.firstShape(ki))
+        ki.editor.select(ks.editId)
+        c.ok("a caret goes into the box" (ki.runCommand("text.edit" "")))
+        c.ok("and the box is a list" (ki.editor.setListKind("bullet")))
+        def kp:PptxParagraph (itemAt ks.text.paragraphs 0)
+        c.ok("its first item is at the outermost level" (kp.level == 0))
+        PptxEditHostTest.press(ki (UIKey.tab()) false)
+        c.ok("Tab takes the item in one level" (kp.level == 1))
+        PptxEditHostTest.press(ki (UIKey.tab()) false)
+        c.ok("and again" (kp.level == 2))
+        PptxEditHostTest.press(ki (UIKey.tab()) true)
+        c.ok("shift+Tab brings it back out" (kp.level == 1))
+        PptxEditHostTest.press(ki (UIKey.tab()) true)
+        c.ok("to the outermost level" (kp.level == 0))
+        PptxEditHostTest.press(ki (UIKey.tab()) true)
+        c.ok("and no further — there is no level below the first" (kp.level == 0))
+
+        ; Enter on an item with something in it splits it, as ever. This is
+        ; the guard on the other side of the change: a reader typing a list
+        ; must still be able to press Enter between items.
+        def before:int (array_length ks.text.paragraphs)
+        ki.editor.moveCaretBy("end" false)
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("Enter on an item with text in it makes another" ((array_length ks.text.paragraphs) == (before + 1)))
+        def fresh:PptxParagraph (itemAt ks.text.paragraphs 1)
+        c.ok("and the new item is a list item too" fresh.hasBullet)
+        c.ok("with nothing typed into it yet" ((PptxTextEdit.paraLen(ks.text 1)) == 0))
+
+        ; …and now the empty one. One level in first, so the step OUT of the
+        ; nesting and the step out of the list itself are both checked — a fix
+        ; that only turned the bullet off would end a sub-list at the wrong
+        ; place, which is the mistake worth catching.
+        ki.editor.indentList(1)
+        c.ok("the empty item is nested" (fresh.level == 1))
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("Enter on an empty item steps out of the nesting" (fresh.level == 0))
+        c.ok("and it is still a list item" fresh.hasBullet)
+        c.ok("without making another one" ((array_length ks.text.paragraphs) == (before + 1)))
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("a second Enter ends the list" (fresh.hasBullet == false))
+        c.ok("and states it, so the layout does not put the bullet back" fresh.bulletSet)
+        c.ok("still without making another item" ((array_length ks.text.paragraphs) == (before + 1)))
+        ; A third is an ordinary newline again: the reader is out of the list
+        ; and typing prose.
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("and a third Enter is an ordinary newline" ((array_length ks.text.paragraphs) == (before + 2)))
 
         print "-- what a numbered item is numbered --"
         def body (new PptxTextBody())

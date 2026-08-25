@@ -846,6 +846,7 @@ async function selftest() {
     await draw();
   }
 
+
   // The slide panel: the deck down the left, each thumbnail the same scene the
   // slide itself is drawn from.
   {
@@ -1186,6 +1187,62 @@ async function selftest() {
     await draw();
     ok("and the editor is back", JSON.parse(web.scene()).list.cmds.length > 0);
   }
+  // Tab in a list, through a real keydown.
+  //
+  // LAST, on purpose. Two blocks above lean on a fixed number of `edit.undo`
+  // calls to take their boxes away again, and a block placed before them that
+  // pushes any snapshots of its own makes those counts miss: the box they
+  // meant to remove is saved into the deck instead, and the font check at the
+  // end then finds a family the page never loaded. This block indents,
+  // outdents and ends a list, so it pushes several — it belongs after
+  // everything that counts.
+  //
+  // Tab was not in the host's key map at all, so the browser did what it does
+  // with an unclaimed Tab: it moved focus off the canvas. The app's own Tab
+  // handling — indent, and shift+Tab to outdent — could never run, and the
+  // only way to indent a list item was the toolbar. Dispatching the event is
+  // the point of this check: calling `keyMod("tab", …)` would pass either way.
+  //
+  // And Tab has to be given BACK when there is no caret, or somebody working
+  // without a mouse can never leave the canvas. That is the second assertion.
+  {
+    web.run("shape.rect", "");
+    await dragOutShape();
+    web.keyMod("f2", false, false);
+    web.run("text.bullet", "");
+    await draw();
+    const tab = (shift) => {
+      canvas.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Tab", shiftKey: shift, bubbles: true, cancelable: true,
+      }));
+      return new Promise((r) => setTimeout(r, 0));
+    };
+    const level = () => JSON.parse(web.caretParagraph() || "{}").level ?? -1;
+    const at0 = level();
+    ok("the caret is in a list item", at0 === 0);
+    await tab(false);
+    await draw();
+    ok("a real Tab keydown indents it", level() === 1);
+    await tab(true);
+    await draw();
+    ok("and shift+Tab takes it back out", level() === 0);
+
+    // No caret: the key belongs to the browser again. One Escape gives the
+    // caret up and leaves the shape selected, which is what the delete below
+    // needs — the slide has to go back to exactly the shapes it had, or the
+    // font check further down is asking about a box this block left behind.
+    web.keyMod("escape", false, false);
+    await draw();
+    ok("Escape gave the caret up", web.editingText() === false);
+    const free = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    canvas.dispatchEvent(free);
+    await new Promise((r) => setTimeout(r, 0));
+    ok("with no caret Tab is left to the browser", free.defaultPrevented === false);
+    web.run("edit.delete", "");
+    await draw();
+    ok("and the box this block drew is gone again", (web.selectionCount() | 0) === 0);
+  }
+
   // The fonts, from both ends. The layout measures with OUR FontManager and
   // the GL backend rasterizes through a 2D canvas, so the two only agree while
   // the browser has the same faces registered and the display list names one

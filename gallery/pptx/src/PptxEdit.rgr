@@ -2934,6 +2934,88 @@ class PptxEditor {
         return true
     }
 
+    ; The paragraph the caret is in, as JSON: which level it sits at and
+    ; whether it is a list item. Small, and only what a host needs in order to
+    ; check that a key did what it was supposed to — the model itself does not
+    ; cross the boundary.
+    fn caretParagraphJson:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return "{\"level\":-1,\"bullet\":false}"
+        }
+        def sh:PptxShape (unwrap hit)
+        def pi:int caret.para
+        if (pi < 0) {
+            return "{\"level\":-1,\"bullet\":false}"
+        }
+        if (pi >= (array_length sh.text.paragraphs)) {
+            return "{\"level\":-1,\"bullet\":false}"
+        }
+        def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+        def bullet:string "false"
+        if para.hasBullet {
+            bullet = "true"
+        }
+        return (("{\"level\":" + (to_string para.level)) + ((",\"bullet\":" + bullet) + "}"))
+    }
+
+    ; Enter, when the caret is in a list.
+    ;
+    ; Every editor a reader has used ends a list the same way: press Enter on
+    ; an item you have not typed anything into, and instead of another empty
+    ; bullet you get out. One level at a time, so a sub-list steps back to its
+    ; parent before it stops being a list at all — which is what makes a nested
+    ; list writable without reaching for the toolbar between every level.
+    ;
+    ; Without this an empty bullet was simply added, and the only way out of a
+    ; list was to press Enter, then find the list button and press it twice.
+    ; Reported as "two empty Enters should end the list".
+    ;
+    ; The name says `enter` rather than `newline` because it is a decision and
+    ; not an insertion: it answers what Enter MEANS here, which some of the
+    ; time is nothing being typed at all.
+    fn enterAtCaret:boolean () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return (this.typeAtCaret("\n"))
+        }
+        def sh:PptxShape (unwrap hit)
+        ; Only with nothing selected. Enter with a selection replaces it, and
+        ; a reader who has selected a whole item and pressed Enter means to
+        ; type over it, not to leave the list.
+        if ((this.textSelectionEmpty()) == false) {
+            return (this.typeAtCaret("\n"))
+        }
+        def pi:int caret.para
+        if (pi < 0) {
+            return (this.typeAtCaret("\n"))
+        }
+        if (pi >= (array_length sh.text.paragraphs)) {
+            return (this.typeAtCaret("\n"))
+        }
+        def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+        if (para.hasBullet == false) {
+            return (this.typeAtCaret("\n"))
+        }
+        ; Empty means empty of TEXT. A paragraph carrying an empty run, which
+        ; is what backspacing an item down to nothing leaves behind, is still
+        ; an item a reader sees as blank.
+        if ((PptxTextEdit.paraLen(sh.text pi)) > 0) {
+            return (this.typeAtCaret("\n"))
+        }
+        if (para.level > 0) {
+            return (this.indentList(0 - 1))
+        }
+        ; At the outermost level there is nowhere left to go but out of the
+        ; list. `bulletSet` is what stops the layout's own list style from
+        ; putting the bullet straight back.
+        para.bulletSet = true
+        para.hasBullet = false
+        para.bulletAutoNum = false
+        this.pushSnapshot("end list")
+        return true
+    }
+
     fn newlineAtCaret:boolean () {
         def hit@(optional):PptxShape (this.editingShape())
         if (null? hit) {
