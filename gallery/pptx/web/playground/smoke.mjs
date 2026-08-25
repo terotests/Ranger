@@ -421,7 +421,7 @@ ok("embed mode is on", embedState.mode && embedState.htmlEmbed);
 ok("embed hides the playground chrome",
   embedState.header === "none" && embedState.file === "none" && embedState.download === "none");
 ok("embed autoruns the requested preset",
-  embedState.status === "good" && /3\s*\/\s*3/.test(embedState.scene));
+  embedState.status === "good" && /1\s*\/\s*3/.test(embedState.scene));
 const embedFirst = await embedPage.locator("#screen").screenshot();
 await embedPage.click("#next");
 await embedPage.waitForTimeout(300);
