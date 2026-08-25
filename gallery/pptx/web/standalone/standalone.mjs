@@ -312,6 +312,10 @@ const pointer = attachPointer({
     if (want === "open") fileEl?.click();
     if (want === "image") imageEl?.click();
   },
+  // While the phone's keyboard is up and its field has focus, a tap must not
+  // move focus to the canvas — that is what dismisses the keyboard. The field
+  // is declared below; this closure runs long after it is.
+  keepsFocus: () => !!softkeys && document.activeElement === softkeys,
 });
 const coords = (ev) => pointer.coords(ev);
 
