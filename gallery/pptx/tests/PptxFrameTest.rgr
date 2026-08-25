@@ -530,6 +530,55 @@ class PptxFrameTest {
         PptxFrameTest.wheelAt(tall 200 (tall.toolbarH + (tall.panelHeight()) + 200) 0 120)
         c.eqInt("a wheel under the strip is not the panel's" tall.panelScroll t3)
 
+        print "-- the thumbnails are their own list, and hold still --"
+        ; The panel is most of a frame and almost never differs from the frame
+        ; before it. On the six-slide chart deck it is 7,500 of the frame's
+        ; 9,400 commands, and dragging a shape changes none of them — yet every
+        ; one was re-encoded across the bridge and re-decoded in JavaScript on
+        ; every pointer move. Measured on the code-editor page: 11.5 ms of
+        ; encode and decode a frame, down to 4.7 once the panel came out.
+        ;
+        ; So the frame can be had without the panel, the panel on its own, and
+        ; `panelStamp` says whether last frame's panel will still do.
+        def sp:PptxApp (PptxFrameTest.build())
+        sp.resize(1280 800)
+        PptxFrameTest.padSlides(sp 40)
+        def whole:EVGDisplayList (sp.buildFrame())
+        def scene:EVGDisplayList (sp.buildSceneFrame())
+        def strip:EVGDisplayList (sp.buildPanelFrame())
+        c.ok("the panel is worth taking out" ((array_length strip.cmds) > (array_length scene.cmds)))
+        ; Nothing lost and nothing drawn twice: the two lists are the frame.
+        c.eqInt("the two lists are the whole frame"
+                ((array_length scene.cmds) + (array_length strip.cmds))
+                (array_length whole.cmds))
+        ; And `buildFrame` is unchanged for everything that never asked —
+        ; the flag it turns off has to come back on.
+        def again:EVGDisplayList (sp.buildFrame())
+        c.eqInt("asking for the frame again gives the whole frame" (array_length again.cmds) (array_length whole.cmds))
+
+        ; The stamp is the whole point: same string, same picture.
+        def st0:string (sp.panelStamp())
+        c.ok("the stamp says something" ((strlen st0) > 0))
+        sp.buildSceneFrame()
+        c.ok("and does not change from being asked twice" ((sp.panelStamp()) == st0))
+        ; Turning a slide changes it — the ring moves, and on a long deck the
+        ; panel scrolls.
+        sp.gotoSlide(20)
+        sp.buildSceneFrame()
+        c.ok("turning the page changes it" ((sp.panelStamp()) != st0))
+        ; …and so does editing a slide, because a thumbnail is keyed by its
+        ; slide's revision. A stamp that missed this would leave a stale
+        ; picture of a slide the reader had just changed.
+        def st1:string (sp.panelStamp())
+        def edited:PptxSlide (itemAt sp.presentation.slides 20)
+        edited.revision = (edited.revision + 1)
+        c.ok("and so does editing a slide" ((sp.panelStamp()) != st1))
+        ; But moving a shape on the slide the reader is looking at does NOT,
+        ; until the edit is recorded — which is what makes a drag cheap.
+        def st2:string (sp.panelStamp())
+        sp.buildSceneFrame()
+        c.ok("a frame on its own leaves it alone" ((sp.panelStamp()) == st2))
+
         print "-- a slide added from a script is scrolled to --"
         ; Everything that moves the current slide from the EDITOR's side comes
         ; through `syncFromEditor`: adding a slide, undoing one, and every call

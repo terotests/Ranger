@@ -259,6 +259,20 @@ class PptxApp {
     def panelW:int 150
     def panelVisible:boolean true
     def panelScroll:int 0
+    ; Whether `buildFrame` paints the thumbnails into the frame it returns.
+    ;
+    ; It always did, and that turned out to be the most expensive thing a
+    ; frame does. On a six-slide chart deck the panel is 7,500 of the frame's
+    ; 9,400 commands — and none of them change while a reader drags a shape.
+    ; Every one was re-encoded to the binary bridge, re-decoded in JavaScript
+    ; and re-drawn, sixty times a second, to show a picture identical to the
+    ; last one. Measured: 103 ms a frame with the panel in, 40 ms with it out.
+    ;
+    ; So a host that knows how may ask for the two separately — `buildFrame`
+    ; without the panel, and `buildPanelFrame` only when `panelStamp` says the
+    ; thumbnails have actually changed. Hosts that do not care keep asking for
+    ; one list and get exactly what they always did.
+    def framePanel:boolean true
     ; The deck as a STRIP ACROSS THE TOP rather than a column down the side,
     ; which is what a phone wants: a phone is narrow and tall, so a column
     ; spends the dimension there is least of. Nonzero height means the strip;
@@ -1651,7 +1665,14 @@ class PptxApp {
         }
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
-        this.paintPanel(framed)
+        ; Where the panel has scrolled itself to is settled every frame, panel
+        ; drawn or not: the slide the reader is on has to be in view by the
+        ; time anyone asks where the thumbnails are, and a host drawing the
+        ; panel on its own timetable would otherwise see a stale scroll.
+        this.settlePanelScroll()
+        if framePanel {
+            this.paintPanel(framed)
+        }
         def slide@(optional):PptxSlide (this.currentSlide())
         if (!null? slide) {
             def sl:PptxSlide (unwrap slide)
@@ -2113,6 +2134,30 @@ class PptxApp {
         view.slideIndex = index
         view.slideCount = (this.slideCount())
         def dl:EVGDisplayList (this.buildFrame())
+        def bin:EVGSceneBinary (dl.toBinary())
+        bin.width = (to_double W)
+        bin.height = (to_double H)
+        return bin
+    }
+
+    ; The frame WITHOUT the thumbnails, and the thumbnails on their own.
+    ;
+    ; A host that draws both gets the same picture as `sceneBinary`, and pays
+    ; for the panel only when `panelStamp` changes. See `framePanel` for what
+    ; that is worth: on a six-slide chart deck the panel is four fifths of
+    ; every frame, and it is the same four fifths every frame.
+    fn sceneBinaryNoPanel:EVGSceneBinary () {
+        view.slideIndex = index
+        view.slideCount = (this.slideCount())
+        def dl:EVGDisplayList (this.buildSceneFrame())
+        def bin:EVGSceneBinary (dl.toBinary())
+        bin.width = (to_double W)
+        bin.height = (to_double H)
+        return bin
+    }
+
+    fn panelBinary:EVGSceneBinary () {
+        def dl:EVGDisplayList (this.buildPanelFrame())
         def bin:EVGSceneBinary (dl.toBinary())
         bin.width = (to_double W)
         bin.height = (to_double H)
@@ -4685,14 +4730,72 @@ class PptxApp {
         return sub
     }
 
+    ; The panel follows the current slide and stays inside its own bounds.
+    ; Called once a frame from `buildFrame`, whether or not the panel is being
+    ; painted into it — see `framePanel`.
+    fn settlePanelScroll:void () {
+        if (panelVisible == false) {
+            return
+        }
+        this.followSelectionInPanel()
+        this.clampPanelScroll()
+    }
+
+    ; The frame WITHOUT the thumbnails, for a host that draws them separately.
+    fn buildSceneFrame:EVGDisplayList () {
+        def was:boolean framePanel
+        framePanel = false
+        def out:EVGDisplayList (this.buildFrame())
+        framePanel = was
+        return out
+    }
+
+    ; …and the thumbnails on their own, in the same window coordinates, so a
+    ; host draws this list and then that one and gets the frame back.
+    fn buildPanelFrame:EVGDisplayList () {
+        def out:EVGDisplayList (new EVGDisplayList)
+        if presenting {
+            return out
+        }
+        this.settlePanelScroll()
+        this.paintPanel(out)
+        return out
+    }
+
+    ; What the panel would draw, as a short string. Same string, same picture:
+    ; a host keeps the last list it decoded while this does not change, which
+    ; is what takes the thumbnails out of the per-frame cost entirely.
+    ;
+    ; Everything the panel's appearance depends on is in here — where it is
+    ; and how big, how far it has scrolled, which slide is ringed, where a
+    ; dragged slide would land — and then each slide's identity and revision,
+    ; which is exactly what the thumbnail cache is keyed by. A slide edited on
+    ; another page of the deck changes its revision, so its thumbnail is
+    ; rebuilt; nothing else is.
+    fn panelStamp:string () {
+        if (panelVisible == false) {
+            return "off"
+        }
+        def out:string (((to_string W) + "x") + ((to_string H) + ":"))
+        out = (out + ((to_string toolbarH) + "/") + ((to_string statusH) + "/") + ((to_string panelH) + "/") + ((to_string panelW) + ":"))
+        out = (out + ((to_string panelScroll) + "@") + ((to_string index) + ":"))
+        out = (out + ((to_string panelDrag) + ">") + ((to_string panelDropAt) + ";"))
+        def n:int (this.slideCount())
+        def i:int 0
+        while (i < n) {
+            def sl:PptxSlide (itemAt presentation.slides i)
+            out = (out + ((to_string sl.key) + ".") + ((to_string sl.revision) + ","))
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn paintPanel:void (dl:EVGDisplayList) {
         panelBuilt = 0
         thumbKept = 0
         if (panelVisible == false) {
             return
         }
-        this.followSelectionInPanel()
-        this.clampPanelScroll()
         def onTop:boolean (this.panelOnTop())
         def bandBg:EVGColor (EVGColor.rgb(32 36 47))
         def top:double (to_double toolbarH)

@@ -236,6 +236,18 @@ class PptxWeb {
         return (app.editor.caretParagraphJson())
     }
 
+    ; How many thumbnails the last frame BUILT, and how many it took from the
+    ; cache. A panel that rebuilds every thumbnail every frame is the single
+    ; most expensive thing a frame can do, and nothing on the page could see
+    ; it happening.
+    fn panelBuiltLastFrame:int () {
+        return (app.panelBuiltLastFrame())
+    }
+
+    fn panelKeptLastFrame:int () {
+        return (app.panelKeptLastFrame())
+    }
+
     fn slidePanelWidth:int () {
         return (app.panelWidth())
     }
@@ -347,6 +359,26 @@ class PptxWeb {
     ; than parsing 1.5 MB of JSON out of `scene` — see `EVGSceneBinary`.
     fn sceneBinary:EVGSceneBinary () {
         return (app.sceneBinary())
+    }
+
+    ; The same frame with the thumbnails left out, and the thumbnails on their
+    ; own — for a page that would rather not re-send 7,500 unchanged commands
+    ; on every pointer move.
+    ;
+    ; The contract: ask `sceneBinaryNoPanel` every frame, then `panelStamp`,
+    ; and `panelBinary` only when that string has changed since last time.
+    ; Draw the panel's list first and the scene's over it. `sceneBinary` still
+    ; answers the whole frame for anything that would rather not bother.
+    fn sceneBinaryNoPanel:EVGSceneBinary () {
+        return (app.sceneBinaryNoPanel())
+    }
+
+    fn panelBinary:EVGSceneBinary () {
+        return (app.panelBinary())
+    }
+
+    fn panelStamp:string () {
+        return (app.panelStamp())
     }
 
     ; ONE slide, alone, at a width the caller chooses: no chrome, no panel, no

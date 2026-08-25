@@ -129,6 +129,24 @@ void scene_build() {
     narrow(g_scene->pts,  g_pts);
     narrow(g_scene->ends, g_ends);
 }
+// The frame without the thumbnails, and the thumbnails alone. Both fill the
+// SAME arrays, so a page reads one out before it asks for the other — the
+// rule `scene_build` already worked under. See `panelStamp`: the panel is
+// most of a frame and changes almost never, so a page asks for it only when
+// the stamp says it would draw something different.
+void scene_build_no_panel() {
+    g_scene = g_web->sceneBinaryNoPanel();
+    narrow(g_scene->cmds, g_cmds);
+    narrow(g_scene->pts,  g_pts);
+    narrow(g_scene->ends, g_ends);
+}
+void panel_build() {
+    g_scene = g_web->panelBinary();
+    narrow(g_scene->cmds, g_cmds);
+    narrow(g_scene->pts,  g_pts);
+    narrow(g_scene->ends, g_ends);
+}
+std::string web_panel_stamp() { return g_web->panelStamp(); }
 int    scene_count()      { return g_scene ? g_scene->count : 0; }
 double scene_width()      { return g_scene ? g_scene->width : 0.0; }
 double scene_height()     { return g_scene ? g_scene->height : 0.0; }
@@ -207,6 +225,9 @@ EMSCRIPTEN_BINDINGS(pptx_web) {
     function("web_tick", &web_tick);
 
     function("scene_build", &scene_build);
+    function("scene_build_no_panel", &scene_build_no_panel);
+    function("panel_build", &panel_build);
+    function("web_panel_stamp", &web_panel_stamp);
     function("scene_count", &scene_count);
     function("scene_width", &scene_width);
     function("scene_height", &scene_height);
