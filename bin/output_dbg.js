@@ -24269,7 +24269,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_receiver_mut_known = false;     /** note: unused */
               this.rust_emit_class_name = "";
               this.rust_receiver_shared_known = false;
-              this.rust_prop_base_state = 0;
               this.rust_writing_mut_arg = false;
               this.rust_path_head_mut = false;
               this.rust_field_call_mut_ready = false;
@@ -25339,7 +25338,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( this.rust_call_receiver_mut ) {
                     wr.out(".borrow_mut()", false);
                   } else {
-                    wr.out(".borrow()", false);
+                    wr.out((process.env.RGR_DBG ? ".borrow()/*Z0*/" : ".borrow()"), false);
                   }
                   const rvLen = node.ns.length;
                   let rvName = node.ns[(rvLen - 1)];
@@ -25385,7 +25384,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( (typeof(dotCls) !== "undefined" && dotCls != null )  ) {
                       const dotC = dotCls;
                       if ( this.rustClassIsShared(dotC.name, ctx) ) {
-                        wr.out(".borrow()" + node.vref, false);
+                        wr.out((process.env.RGR_DBG ? ".borrow()/*Z1*/" : ".borrow()") + node.vref, false);
                         return;
                       }
                     }
@@ -25404,26 +25403,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
               }
               if ( ((node.hasParamDesc == false) && ((node.ns.length) == 1)) && ((node.vref.length) > 0) ) {
-                if ( this.rust_prop_base_state == 0 ) {
-                  if ( (ctx.isVarDefined(node.vref) == false) && (ctx.hasClass(node.vref) == false) ) {
-                    let dotDecl = 0;
-                    let dotShared = 0;
-                    const dotRoot = ctx.getRoot();
-                    for( var dci in dotRoot.definedClasses) {
-                      if(dotRoot.definedClasses.hasOwnProperty(dci)) {
-                        var dcl = dotRoot.definedClasses[dci] 
-                        const dfv = dcl.findVariable(node.vref);
-                        if ( (typeof(dfv) !== "undefined" && dfv != null )  ) {
-                          dotDecl = dotDecl + 1;
-                          if ( this.rustClassIsShared(dcl.name, ctx) ) {
-                            dotShared = dotShared + 1;
-                          }
+                if ( (ctx.isVarDefined(node.vref) == false) && (ctx.hasClass(node.vref) == false) ) {
+                  let dotDecl = 0;
+                  let dotShared = 0;
+                  const dotRoot = ctx.getRoot();
+                  for( var dci in dotRoot.definedClasses) {
+                    if(dotRoot.definedClasses.hasOwnProperty(dci)) {
+                      var dcl = dotRoot.definedClasses[dci] 
+                      const dfv = dcl.findVariable(node.vref);
+                      if ( (typeof(dfv) !== "undefined" && dfv != null )  ) {
+                        dotDecl = dotDecl + 1;
+                        if ( this.rustClassIsShared(dcl.name, ctx) ) {
+                          dotShared = dotShared + 1;
                         }
-                      } };
-                      if ( (dotDecl > 0) && (dotDecl == dotShared) ) {
-                        wr.out("borrow()." + node.vref, false);
-                        return;
                       }
+                    } };
+                    if ( (dotDecl > 0) && (dotDecl == dotShared) ) {
+                      wr.out("borrow()." + node.vref, false);
+                      return;
                     }
                   }
                 }
@@ -25520,12 +25517,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         } else {
                           if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
                             if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
-                              wr.out(".borrow()", false);
+                              wr.out((process.env.RGR_DBG ? ".borrow()/*Z2*/" : ".borrow()"), false);
                             } else {
                               wr.out(".borrow_mut()", false);
                             }
                           } else {
-                            wr.out(".borrow()", false);
+                            wr.out((process.env.RGR_DBG ? ".borrow()/*Z3*/" : ".borrow()"), false);
                           }
                         }
                       }
@@ -25566,7 +25563,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wkMut = true;
                           }
                         }
-                        let wkBorrow = ".borrow()";
+                        let wkBorrow = (process.env.RGR_DBG ? ".borrow()/*Z4*/" : ".borrow()");
                         if ( wkMut ) {
                           wkBorrow = ".borrow_mut()";
                         }
@@ -25685,12 +25682,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 } else {
                                   if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
                                     if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
-                                      wr.out(".borrow()", false);
+                                      wr.out((process.env.RGR_DBG ? ".borrow()/*Z5*/" : ".borrow()"), false);
                                     } else {
                                       wr.out(".borrow_mut()", false);
                                     }
                                   } else {
-                                    wr.out(".borrow()", false);
+                                    wr.out((process.env.RGR_DBG ? ".borrow()/*Z6*/" : ".borrow()"), false);
                                   }
                                 }
                               }
@@ -25709,7 +25706,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( ctx.in_lhs_of_assignment ) {
                               wr.out(".borrow_mut()", false);
                             } else {
-                              wr.out(".borrow()", false);
+                              wr.out((process.env.RGR_DBG ? ".borrow()/*Z7*/" : ".borrow()"), false);
                             }
                           }
                         } else {
@@ -25759,7 +25756,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( ctx.in_lhs_of_assignment ) {
                         wr.out(".borrow_mut()", false);
                       } else {
-                        wr.out(".borrow()", false);
+                        wr.out((process.env.RGR_DBG ? ".borrow()/*Z8*/" : ".borrow()"), false);
                       }
                       return;
                     }
@@ -26849,7 +26846,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( (typeof(segRcNN) !== "undefined" && segRcNN != null )  ) {
                             const segRcN = segRcNN;
                             if ( ((segRcN.array_type.length) == 0) && ((segRcN.key_type.length) == 0) ) {
-                              path = path + ".borrow()";
+                              path = path + (process.env.RGR_DBG ? ".borrow()/*Z9*/" : ".borrow()");
                             }
                           }
                         }
@@ -28399,7 +28396,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 ctx.setInExpr();
                                 await this.WalkNode(obj, ctx, wr);
                                 ctx.unsetInExpr();
-                                wr.out(".clone()", false);
                                 wr.out(((("; let " + exprSelfRcTmp) + "_r = ") + "") + "", false);
                               }
                             }
@@ -28453,7 +28449,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             ctx.setInExpr();
                             await this.WalkNode(obj, ctx, wr);
                             ctx.unsetInExpr();
-                            wr.out(".clone()", false);
                             wr.out(((("; let " + exprSelfRcTmp) + "_r = (") + exprSelfRcTmp) + "", false);
                           } else {
                             wr.out("(", false);
@@ -31391,24 +31386,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                             }
-                            let pgState = 0;
                             if ( (pgType.length) > 0 ) {
                               if ( this.rustClassIsShared(pgType, ctx) ) {
                                 if ( ctx.in_lhs_of_assignment ) {
                                   wr.out(".borrow_mut()", false);
                                 } else {
-                                  wr.out(".borrow()", false);
+                                  wr.out((process.env.RGR_DBG ? ".borrow()/*Z10*/" : ".borrow()"), false);
                                 }
-                                pgState = 1;
-                              } else {
-                                pgState = 2;
                               }
                             }
                             wr.out(".", false);
-                            const pgSaved = this.rust_prop_base_state;
-                            this.rust_prop_base_state = pgState;
                             await this.WalkNode(prop, ctx, wr);
-                            this.rust_prop_base_state = pgSaved;
                           };
                           rustUnwrapParens (node) {
                             let cur = node;

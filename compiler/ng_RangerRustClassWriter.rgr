@@ -58,6 +58,11 @@ class RangerRustClassWriter {
   def rust_emit_class_name:string ""
   ; set while a call receiver is written and the callee is known to take &self
   def rust_receiver_shared_known:boolean false
+  ; what CreatePropertyGet already settled about the object in front of a
+  ; `(expr).field`: 0 unknown, 1 the borrow is written, 2 the object is not
+  ; a shared class. The field-tail rule in WriteVRef guesses from the field
+  ; NAME alone, and only where this says nothing.
+  def rust_prop_base_state:int 0
   ; set while a plain-path ARGUMENT is written that the callee takes by
   ; `&mut`. An Rc handle on that path has to borrow mutably: `&mut
   ; sc.borrow().zone` is a `&mut` into a shared borrow.
@@ -1455,6 +1460,10 @@ class RangerRustClassWriter {
     ; declares the field is shared, the expression before it yields an Rc:
     ; borrow before the field.
     if (((node.hasParamDesc == false) && ((array_length node.ns) == 1)) && ((strlen node.vref) > 0)) {
+      ; …but only where CreatePropertyGet could not answer. It knows the
+      ; object's declared type, which beats counting how many classes in the
+      ; program happen to declare a field of this name.
+      if (rust_prop_base_state == 0) {
       if (((ctx.isVarDefined(node.vref)) == false) && ((ctx.hasClass(node.vref)) == false)) {
         def dotDecl:int 0
         def dotShared:int 0
@@ -1472,6 +1481,7 @@ class RangerRustClassWriter {
           wr.out(("borrow()." + node.vref) false)
           return
         }
+      }
       }
     }
 
@@ -5207,6 +5217,10 @@ class RangerRustClassWriter {
                   ctx.setInExpr()
                   this.WalkNode(obj ctx wr)
                   ctx.unsetInExpr()
+                  ; the binding OWNS the handle: reading one out of a
+                  ; borrow moves it, and a `Ref<'_, T>` cannot be moved out
+                  ; of. An Rc clone is a refcount bump.
+                  wr.out(".clone()" false)
                   wr.out((((("; let " + exprSelfRcTmp) + "_r = ") + "") + "") false)
                 }
               }
@@ -5273,6 +5287,7 @@ class RangerRustClassWriter {
           ctx.setInExpr()
           this.WalkNode(obj ctx wr)
           ctx.unsetInExpr()
+          wr.out(".clone()" false)
           ; the call lands in a binding, not the block tail: a tail
           ; expression keeps its RefMut temporary alive past the drop of
           ; the receiver binding (E0597)
@@ -8713,6 +8728,66 @@ class RangerRustClassWriter {
       return true
     }
     return false
+  }
+
+  ; `(itemAt runs ri).color` — a field read on an EXPRESSION rather than on
+  ; a name. The generic writer puts the object in parentheses and writes the
+  ; field after it; on Rust an expression that yields a shared class yields
+  ; an `Rc<RefCell<T>>`, which has no fields of its own, so the read has to
+  ; go through the cell first ("no field `color` on type `Rc<RefCell<…>>`").
+  fn CreatePropertyGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def obj:CodeNode (node.getSecond())
+    def prop:CodeNode (node.getThird())
+    wr.out("(" false)
+    ctx.setInExpr()
+    this.WalkNode(obj ctx wr)
+    ctx.unsetInExpr()
+    wr.out(")" false)
+    def pgType:string obj.eval_type_name
+    if ((strlen pgType) == 0) {
+      pgType = obj.type_name
+    }
+    ; …but a CALL already hands back a borrow of its own result, and a
+    ; second one is `.borrow().borrow()`
+    def pgInner:CodeNode (this.rustUnwrapParens(obj))
+    if (pgInner.hasFnCall || pgInner.has_call) {
+      pgType = ""
+    }
+    ; …and so does the PROPERTY, when the front end resolved which class it
+    ; belongs to — WriteVRef writes the borrow in front of a `.name` whose
+    ; desc names a shared owner. Only the unresolved ones are left here.
+    if ((strlen prop.vref) > 0) {
+      if ((charAt prop.vref 0) == 46) {
+        if prop.hasParamDesc {
+          def pgPD:RangerAppParamDesc prop.paramDesc
+          def pgOwner@(optional):RangerAppClassDesc pgPD.propertyClass
+          if (!null? pgOwner) {
+            def pgOwnerC:RangerAppClassDesc (unwrap pgOwner)
+            if (this.rustClassIsShared(pgOwnerC.name ctx)) {
+              pgType = ""
+            }
+          }
+        }
+      }
+    }
+    def pgState:int 0
+    if ((strlen pgType) > 0) {
+      if (this.rustClassIsShared(pgType ctx)) {
+        if ctx.in_lhs_of_assignment {
+          wr.out(".borrow_mut()" false)
+        } {
+          wr.out(".borrow()" false)
+        }
+        pgState = 1
+      } {
+        pgState = 2
+      }
+    }
+    wr.out("." false)
+    def pgSaved:int rust_prop_base_state
+    rust_prop_base_state = pgState
+    this.WalkNode(prop ctx wr)
+    rust_prop_base_state = pgSaved
   }
 
   fn rustUnwrapParens:CodeNode (node:CodeNode) {
