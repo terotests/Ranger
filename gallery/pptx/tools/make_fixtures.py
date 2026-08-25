@@ -2772,6 +2772,16 @@ def main() -> None:
         arrow_connector(6, 3200000, 1800000, 2000000, 600000, head="arrow"),
         arrow_connector(7, 6000000, 1800000, 1600000, 600000, flip_v=True),
         spaced_runs_shape(8, 600000, 3000000, 5000000, 700000),
+        # A shape's OWN adjustment, and a preset that is a stroke rather than
+        # an area. The corners of the two boxes have to differ — a reader that
+        # ignores `a:gd name="adj"` draws them identically — and the bracket
+        # has no fill at all, so drawing it as an area draws nothing.
+        adj_shape(9, "Tight corners", 600000, 3900000, 2000000, 900000,
+                  "roundRect", 5313),
+        adj_shape(10, "Round corners", 2900000, 3900000, 2000000, 900000,
+                  "roundRect", 40000),
+        adj_shape(11, "Bracket rule", 5300000, 3900000, 120000, 900000,
+                  "leftBracket", 8333, fill=None),
     )
     write_pptx("29-theme-styles.pptx", [(slide_xml(styled), slide_rels())],
                theme_xml=styled_theme())
@@ -2923,6 +2933,85 @@ def main() -> None:
         "35-other-style.pptx",
         [(slide_xml(sp_tree(plain, grouped)), slide_rels())],
         master_xml=other_master,
+    )
+
+    # 36 — whose colour wins, and how much room the box really keeps
+    #
+    # Two faults reported against one real deck (RealTrainer_2.pptx), both of
+    # which this fixture reproduces without shipping the reporter's document.
+    #
+    # (a) Colour. A shape can name its text colour in `<p:style><a:fontRef>`
+    #     instead of on the run. The precedence is: the run's own `rPr`, then
+    #     the shape's `fontRef`, then the master's default text style, then
+    #     black. Ranger drew the `fontRef` shapes BLACK, because the list-style
+    #     pass wrote the master's black onto every run that stated no colour,
+    #     and by the time `fontRef` was applied there was no way left to tell a
+    #     run that had asked for black from one that had never asked at all.
+    #     So the master here states black and the two `fontRef` shapes state
+    #     lt1 (white): a reader that loses the precedence draws them invisible
+    #     against their own dark fill, which is exactly what was reported.
+    #     `Stated` is the guard in the other direction — its run asks for red,
+    #     and red has to beat the shape's white.
+    #
+    # (b) Insets. `a:bodyPr` defaults are NOT square: ECMA-376 gives lIns/rIns
+    #     91440 EMU (7.2pt) but tIns/bIns 45720 EMU (3.6pt). Ranger reserved
+    #     7.2pt top and bottom, 3.6pt too much of each, so an auto-fitted title
+    #     that only just fits its box was pushed down out of it — reported as
+    #     "the title sits at the bottom, Google Slides centres it". `Insets`
+    #     states no insets at all, so every one of the four is the default.
+    def styled_text(sid: int, name: str, y: int, font_scheme: str,
+                    run_rpr: str, text: str) -> str:
+        return (
+            f'<p:sp><p:nvSpPr><p:cNvPr id="{sid}" name="{name}"/><p:cNvSpPr/>'
+            "<p:nvPr/></p:nvSpPr>"
+            f'<p:spPr><a:xfrm><a:off x="457200" y="{y}"/><a:ext cx="4114800" cy="914400"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+            '<a:solidFill><a:srgbClr val="1F3864"/></a:solidFill></p:spPr>'
+            "<p:style>"
+            '<a:lnRef idx="0"><a:schemeClr val="accent1"/></a:lnRef>'
+            '<a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef>'
+            '<a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef>'
+            f'<a:fontRef idx="minor"><a:schemeClr val="{font_scheme}"/></a:fontRef>'
+            "</p:style>"
+            '<p:txBody><a:bodyPr rtlCol="0" anchor="ctr"/><a:lstStyle/>'
+            f'<a:p><a:pPr algn="ctr"/><a:r>{run_rpr}<a:t>{text}</a:t></a:r></a:p>'
+            "</p:txBody></p:sp>"
+        )
+
+    # No `a:bodyPr` children at all: the four insets are whatever the reader
+    # believes the defaults to be, which is the whole assertion.
+    insets = (
+        '<p:sp><p:nvSpPr><p:cNvPr id="5" name="Insets"/><p:cNvSpPr txBox="1"/>'
+        "<p:nvPr/></p:nvSpPr>"
+        '<p:spPr><a:xfrm><a:off x="457200" y="3657600"/><a:ext cx="4114800" cy="914400"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        '<p:txBody><a:bodyPr/><a:lstStyle/>'
+        '<a:p><a:r><a:rPr lang="en-GB" sz="1800"/><a:t>Insets</a:t></a:r></a:p>'
+        "</p:txBody></p:sp>"
+    )
+
+    # The master says black for everything that is not a placeholder, so black
+    # is what a reader that drops `fontRef` will fall back to.
+    fontref_master = MASTER.replace(
+        "</p:sldMaster>",
+        '<p:txStyles><p:otherStyle><a:lvl1pPr><a:defRPr sz="1800">'
+        '<a:solidFill><a:srgbClr val="000000"/></a:solidFill>'
+        "</a:defRPr></a:lvl1pPr></p:otherStyle></p:txStyles></p:sldMaster>",
+    )
+    write_pptx(
+        "36-fontref-color.pptx",
+        [(slide_xml(sp_tree(
+            styled_text(2, "FromStyle", 457200, "lt1",
+                        '<a:rPr lang="en-GB" sz="1800"/>', "FromStyle"),
+            styled_text(3, "AlsoStyle", 1600200, "lt1",
+                        '<a:rPr lang="en-GB" sz="1800" b="1"/>', "AlsoStyle"),
+            styled_text(4, "Stated", 2743200, "lt1",
+                        '<a:rPr lang="en-GB" sz="1800">'
+                        '<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>'
+                        "</a:rPr>", "Stated"),
+            insets,
+        )), slide_rels())],
+        master_xml=fontref_master,
     )
 
     print("fixtures ready")

@@ -338,8 +338,19 @@ class OfficeShapeCatalogTest {
         def sx:int (((deckApp.picker.win.contentX()) + deckApp.picker.sideW) + (deckApp.picker.gap + 10))
         def sy:int ((deckApp.picker.win.contentY()) + (deckApp.picker.gap + 10))
         c.ok("the same press is taken there too" (deckApp.pickerPointer(sx sy true)))
+        ; Picking ARMS the tool and shuts the picker; the drag that follows
+        ; says where the shape goes and how big. Dropping one at a fixed spot
+        ; meant the reader could not see where it was going, and the picker
+        ; was still sitting over the slide hiding the answer.
+        c.ok("and the picker gets out of the way" ((deckApp.picker.isOpen()) == false))
+        c.eqInt("with nothing on the slide yet" (array_length slide.shapes) sBefore)
+        def dx0:int (deckApp.panelW + 120)
+        def dy0:int 220
+        deckApp.pointer(dx0 dy0 true true false)
+        deckApp.pointer((dx0 + 60) (dy0 + 40) false true false)
+        deckApp.pointer((dx0 + 140) (dy0 + 90) false false true)
         def sAfter:int (array_length slide.shapes)
-        c.eqInt("and the deck gained a shape" sAfter (sBefore + 1))
+        c.eqInt("and the deck gained a shape where it was drawn" sAfter (sBefore + 1))
         def sh:PptxShape (itemAt slide.shapes (sAfter - 1))
 
         ; The two documents got DIFFERENT things out of the one id, which is
@@ -370,7 +381,13 @@ class OfficeShapeCatalogTest {
         ; name, so it goes in as the outline itself — and its contours have to
         ; stay apart, or a panda's eye patches fill in and it is a blob.
         def n0:int (array_length slide.shapes)
-        c.ok("an emoji inserts on a slide" (deckApp.runCommand("shape.insert" "emojiPandaFace")))
+        c.ok("an emoji arms the tool" (deckApp.runCommand("shape.insert" "emojiPandaFace")))
+        ; …and the drag that follows draws it, the same as any other shape.
+        def ex0:int (deckApp.panelW + 120)
+        def ey0:int 300
+        deckApp.pointer(ex0 ey0 true true false)
+        deckApp.pointer((ex0 + 50) (ey0 + 50) false true false)
+        deckApp.pointer((ex0 + 110) (ey0 + 110) false false true)
         def n1:int (array_length slide.shapes)
         c.eqInt("as one shape" n1 (n0 + 1))
         def panda:PptxShape (itemAt slide.shapes (n1 - 1))

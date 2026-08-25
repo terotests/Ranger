@@ -104,6 +104,7 @@ export async function installPptxWeb() {
     mods(shift, ctrl) { m.web_mods(!!shift, !!ctrl); }
     scroll(x, y, delta) { m.web_scroll(x | 0, y | 0, delta | 0); }
     scrollPixels(x, y, dy) { m.web_scroll_pixels(x | 0, y | 0, dy | 0); }
+    scrollPixels2(x, y, dx, dy) { m.web_scroll_pixels2(x | 0, y | 0, dx | 0, dy | 0); }
 
     // ---- commands and state ----
     run(id, arg) {
@@ -120,6 +121,8 @@ export async function installPptxWeb() {
     selectionCount() { return m.web_selection_count(); }
     imageParts() { return m.web_image_parts(); }
     slidePanelWidth() { return m.web_slide_panel_width(); }
+    panelScrollAt() { return m.web_panel_scroll_at(); }
+    overSlidePanel(x, y) { return m.web_over_slide_panel(x | 0, y | 0); }
     editing() { return m.web_editing(); }
     editingText() { return m.web_editing_text(); }
     presenting() { return m.web_presenting(); }
@@ -129,6 +132,10 @@ export async function installPptxWeb() {
     // ---- the frame ----
     sceneBinary() {
       m.scene_build();
+      return this.readScene();
+    }
+
+    readScene() {
       const n = m.scene_strings_len();
       const strings = new Array(n);
       for (let i = 0; i < n; i++) strings[i] = m.scene_string(i);
@@ -142,6 +149,12 @@ export async function installPptxWeb() {
         height: m.scene_height(),
       };
     }
+    // The frame without the thumbnails, and the thumbnails on their own —
+    // both through the same arrays, so one is read out before the other is
+    // asked for. `readScene` is that read.
+    sceneBinaryNoPanel() { m.scene_build_no_panel(); return this.readScene(); }
+    panelBinary() { m.panel_build(); return this.readScene(); }
+    panelStamp() { return m.web_panel_stamp(); }
     scene() { return m.web_scene_json(); }
     slideScene(i, widthPx) { return m.web_slide_scene(i | 0, widthPx | 0); }
 

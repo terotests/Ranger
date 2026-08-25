@@ -51,6 +51,7 @@ class PptxTest {
         this.testStatedVersusSilent()
         this.testDrawnFontFamily()
         this.testOtherStyle()
+        this.testFontRefColor()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -491,6 +492,95 @@ class PptxTest {
             this.check("colour and all" (dr.color.srgb == "000000"))
         }
         parser.close()
+    }
+
+    ; --- whose colour wins, and how much room the box really keeps ----------
+    ;
+    ; Two faults reported against one deck, both here on a fixture built to
+    ; the same shape (36-fontref-color.pptx).
+    ;
+    ; (a) A shape may state its text colour in `<p:style><a:fontRef>` rather
+    ;     than on the run. Precedence: the run's own `rPr`, then the shape's
+    ;     `fontRef`, then the master's default text style, then black. Ranger
+    ;     drew those shapes BLACK. The cause was an ordering one: the
+    ;     list-style pass wrote the master's colour onto every run that had
+    ;     stated none, and after that nothing could tell a run that had ASKED
+    ;     for black from one that had never asked — so `fontRef`, applied
+    ;     later, had no run left to apply to. The fix is a flag the PARSER
+    ;     sets, `colorStated`, recording what the file itself said.
+    ;
+    ; (b) `a:bodyPr`'s default insets are not square. ECMA-376 gives lIns and
+    ;     rIns 91440 EMU (7.2pt) but tIns and bIns 45720 EMU (3.6pt). Ranger
+    ;     reserved 7.2pt top and bottom — 3.6pt too much of each — so a title
+    ;     that only just fitted its box was pushed down out of it. Reported as
+    ;     "the title sits at the bottom, Google Slides centres it".
+    fn testFontRefColor:void () {
+        print "--- a shape's fontRef beats the master, and the run beats both ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "36-fontref-color.pptx")) == false) {
+            this.check("open 36-fontref-color" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+
+        ; The master says black for everything that is not a placeholder, and
+        ; the run says nothing, so black is what a reader that drops `fontRef`
+        ; lands on — invisible against the shape's own dark blue fill.
+        def styledOpt@(optional):PptxShape (PptxTest.byName(slide "FromStyle"))
+        this.check("the fontRef shape is there" (!null? styledOpt))
+        if (!null? styledOpt) {
+            def sh:PptxShape (unwrap styledOpt)
+            def sp:PptxParagraph (itemAt sh.text.paragraphs 0)
+            def sr:PptxTextRun (itemAt sp.runs 0)
+            this.check("its colour is set" sr.color.isSet)
+            this.check("and it is the fontRef's white, not the master's black" (sr.color.srgb == "FFFFFF"))
+        }
+
+        ; The same again on a bold run: `b="1"` is an `rPr` that states
+        ; something WITHOUT stating a colour, and "the run has an rPr" is the
+        ; easy thing to mistake for "the run stated a colour".
+        def boldOpt@(optional):PptxShape (PptxTest.byName(slide "AlsoStyle"))
+        if (!null? boldOpt) {
+            def bsh:PptxShape (unwrap boldOpt)
+            def bp:PptxParagraph (itemAt bsh.text.paragraphs 0)
+            def br:PptxTextRun (itemAt bp.runs 0)
+            this.check("an rPr without a colour still takes the fontRef" (br.color.srgb == "FFFFFF"))
+        }
+
+        ; …and the other direction. A run that DOES state a colour keeps it:
+        ; the fix must not hand `fontRef` the whole shape.
+        def statedOpt@(optional):PptxShape (PptxTest.byName(slide "Stated"))
+        this.check("the stated-colour shape is there" (!null? statedOpt))
+        if (!null? statedOpt) {
+            def tsh:PptxShape (unwrap statedOpt)
+            def tp:PptxParagraph (itemAt tsh.text.paragraphs 0)
+            def tr:PptxTextRun (itemAt tp.runs 0)
+            this.check("a run that names its own colour keeps it" (tr.color.srgb == "FF0000"))
+        }
+
+        ; `<a:bodyPr/>` with no children at all: all four insets are defaults.
+        def insOpt@(optional):PptxShape (PptxTest.byName(slide "Insets"))
+        this.check("the bare-bodyPr shape is there" (!null? insOpt))
+        if (!null? insOpt) {
+            def ish:PptxShape (unwrap insOpt)
+            def body:PptxTextBody ish.text
+            this.check("default lIns is 7.2pt" ((PptxTest.near(body.insetL 7.2))))
+            this.check("default rIns is 7.2pt" ((PptxTest.near(body.insetR 7.2))))
+            ; The two that were wrong. 7.2 here reserved 3.6pt too much at the
+            ; top and the bottom of every box in every deck.
+            this.check("default tIns is 3.6pt, not 7.2" ((PptxTest.near(body.insetT 3.6))))
+            this.check("default bIns is 3.6pt, not 7.2" ((PptxTest.near(body.insetB 3.6))))
+        }
+        parser.close()
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.001)
     }
 
     ; `byName`, but through groups.

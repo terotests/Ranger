@@ -389,6 +389,24 @@ export function attachKeys({ web, draw, afterInput, onSave, enabled, target }) {
       await redraw();
       return;
     }
+    // Tab is the one key that cannot simply be in the map. Inside a text box
+    // it means "indent this list item", the way it does in every editor — but
+    // everywhere else it is how somebody who does not use a mouse leaves the
+    // canvas, and a page that swallows it unconditionally is a page they are
+    // trapped in. So it is taken only while there is a caret, and handed back
+    // to the browser the rest of the time.
+    //
+    // Until this existed the app's Tab handling could never run at all: the
+    // key was not in the map, the browser moved focus away from the canvas,
+    // and `text.indent` was reachable only from the toolbar.
+    if (ev.key === "Tab") {
+      if (!web.editingText()) return;
+      ev.preventDefault();
+      web.keyMod("tab", !!ev.shiftKey, ctrl);
+      await redraw();
+      settled();
+      return;
+    }
     const name = KEYS[ev.key];
     if (name) {
       ev.preventDefault();

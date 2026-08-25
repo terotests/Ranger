@@ -5509,6 +5509,23 @@ class EVGDisplayList  {
     c.a = col.alpha();
     this.cmds.push(c);
   };
+  addImage (src, x, y, w, h, flipH, flipV, rotate) {
+    if ( (src.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 2;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.src = src;
+    c.a = 1.0;
+    c.flipH = flipH;
+    c.flipV = flipV;
+    c.rotate = rotate;
+    this.cmds.push(c);
+  };
   addText (text, x, y, size, col, family, bold, italic, width, height) {
     if ( (text.length) == 0 ) {
       return;
@@ -7799,6 +7816,24 @@ ToolIcon.printDoc = function() {
 ToolIcon.caret = function() {
   return 81;
 };
+ToolIcon.shapes = function() {
+  return 82;
+};
+ToolIcon.cut = function() {
+  return 83;
+};
+ToolIcon.textJustify = function() {
+  return 84;
+};
+ToolIcon.arrangeLeft = function() {
+  return 85;
+};
+ToolIcon.arrangeCenter = function() {
+  return 86;
+};
+ToolIcon.arrangeRight = function() {
+  return 87;
+};
 class ToolItem  {
   constructor() {
     this.command = "";
@@ -7819,6 +7854,7 @@ class ToolItem  {
     this.labelW = 0;
     this.isMenu = false;
     this.menuOwner = -1;
+    this.wasAt = -1;
     this.isLarge = false;
   }
 }
@@ -7840,11 +7876,11 @@ class EVGToolbar  {
     this.tabs = [];
     this.activeTab = 0;
     this.tabH = 28;
-    this.rowH = 34;
+    this.rowH = 40;
     this.rows = 1;
     this.height = 36;
     this.pad = 5;
-    this.iconW = 30;
+    this.iconW = 34;
     this.largeH = 54;
     this.rtl = false;
     this.openMenu = -1;
@@ -7963,6 +7999,109 @@ class EVGToolbar  {
     t.menuOwner = owner;
     t.showLabel = true;
     return t;
+  };
+  indexOfLabel (label) {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.isMenu ) {
+        if ( t.label == label ) {
+          return i;
+        }
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  clearUnderMenu (owner) {
+    this.tagPositions();
+    let keep = [];
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.menuOwner != owner ) {
+        keep.push(t);
+      }
+      i = i + 1;
+    };
+    if ( this.openMenu == owner ) {
+      this.openMenu = -1;
+    }
+    this.reindex(keep);
+  };
+  addUnderMenu (owner, command, arg, label, icon) {
+    this.tagPositions();
+    const t = new ToolItem();
+    t.command = command;
+    t.arg = arg;
+    t.label = label;
+    t.icon = icon;
+    t.showLabel = true;
+    t.wasAt = -1;
+    t.menuOwner = owner;
+    let at = owner + 1;
+    let k = owner + 1;
+    while (k < (this.items.length)) {
+      const other = this.items[k];
+      if ( other.menuOwner == owner ) {
+        at = k + 1;
+      }
+      k = k + 1;
+    };
+    let out = [];
+    let m = 0;
+    while (m < (this.items.length)) {
+      if ( m == at ) {
+        out.push(t);
+      }
+      out.push(this.items[m]);
+      m = m + 1;
+    };
+    if ( at >= (this.items.length) ) {
+      out.push(t);
+    }
+    this.reindex(out);
+    return t;
+  };
+  tagPositions () {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      t.wasAt = i;
+      i = i + 1;
+    };
+  };
+  reindex (next) {
+    let i = 0;
+    while (i < (next.length)) {
+      const t = next[i];
+      if ( t.menuOwner >= 0 ) {
+        let found = -1;
+        let j = 0;
+        while (j < (next.length)) {
+          const other = next[j];
+          if ( other.wasAt == t.menuOwner ) {
+            found = j;
+          }
+          j = j + 1;
+        };
+        t.menuOwner = found;
+      }
+      i = i + 1;
+    };
+    if ( this.openMenu >= 0 ) {
+      const wasOpen = this.openMenu;
+      this.openMenu = -1;
+      let k = 0;
+      while (k < (next.length)) {
+        const item = next[k];
+        if ( item.wasAt == wasOpen ) {
+          this.openMenu = k;
+        }
+        k = k + 1;
+      };
+    }
+    this.items = next;
   };
   lastMenuIndex () {
     let i = (this.items.length) - 1;
@@ -8412,12 +8551,12 @@ class EVGToolbar  {
       const a = this.items[i];
       if ( a.isSeparator == false ) {
         if ( a.icon > 0 ) {
-          if ( a.textW == 0 ) {
+          if ( (a.textW == 0) && (a.showLabel == false) ) {
             let j = i + 1;
             while (j < (this.items.length)) {
               const b = this.items[j];
               if ( b.isSeparator == false ) {
-                if ( b.textW == 0 ) {
+                if ( (b.textW == 0) && (b.showLabel == false) ) {
                   if ( b.icon == a.icon ) {
                     if ( b.command != a.command ) {
                       return a.icon;
@@ -15742,6 +15881,7 @@ class UICachedLine  {
 class UITextRenderer  {
   constructor() {
     this.fm = new FontManager();
+    this.named = [];
     this.measurer = new EVGTextMeasurer();
     this.rt = new RasterText();
     this.fontFamily = "Open Sans";
@@ -15759,6 +15899,7 @@ class UITextRenderer  {
     const ok = this.fm.loadFont(relativePath);
     if ( ok ) {
       this.fontFamily = family;
+      this.rememberFamily(family);
       const ttf = this.fm.getFont(family);
       this.rt.setFont(ttf);
       this.rt.setFallbackManager(this.fm);
@@ -15781,6 +15922,7 @@ class UITextRenderer  {
     const ok = this.fm.loadFontBuffer(family, data);
     if ( ok ) {
       this.fontFamily = family;
+      this.rememberFamily(family);
       const ttf = this.fm.getFont(family);
       this.rt.setFont(ttf);
       this.rt.setFallbackManager(this.fm);
@@ -15793,6 +15935,22 @@ class UITextRenderer  {
   };
   addFaceBytes (data) {
     return this.fm.loadFontBuffer("", data);
+  };
+  familyNames () {
+    return this.named;
+  };
+  rememberFamily (family) {
+    if ( (family.length) == 0 ) {
+      return;
+    }
+    let i = 0;
+    while (i < (this.named.length)) {
+      if ( (this.named[i]) == family ) {
+        return;
+      }
+      i = i + 1;
+    };
+    this.named.push(family);
   };
   setDefaultSize (sz) {
     this.defaultSize = sz;
@@ -16954,6 +17112,12 @@ ToolIconPath.dataFor = function(k) {
   if ( k == ToolIcon.shapeRect() ) {
     return "M2 5 h20 v14 h-20 z";
   }
+  if ( k == ToolIcon.shapes() ) {
+    return "M3 12 h10 v10 h-10 z";
+  }
+  if ( k == ToolIcon.cut() ) {
+    return "M7 2 l7 12 l-1.5 2.5 l-7 -12 z M17 2 l-7 12 l1.5 2.5 l7 -12 z";
+  }
   if ( k == ToolIcon.shapeEllipse() ) {
     return "M12 4 a10 8 0 0 1 0 16 a10 8 0 0 1 0 -16 z";
   }
@@ -17150,7 +17314,7 @@ class EVGToolbarView  {
     this.ctx = new UIContext();
     this.theme = new EVGToolbarTheme();
     this.fontFamily = "Open Sans";
-    this.glyphSize = 20;
+    this.glyphSize = 24;
   }
   attach (c, family) {
     this.ctx = c;
@@ -17420,6 +17584,18 @@ class EVGToolbarView  {
   paintIconDetail (dl, t, k, cx, cy, ink) {
     if ( k == ToolIcon.textBox() ) {
       this.pushToolText(dl, "A", cx, cy, 11.0, ink, true);
+      return;
+    }
+    if ( k == ToolIcon.cut() ) {
+      this.pushIconPath(dl, "M6.5 17 a3 3 0 0 1 0 6 a3 3 0 0 1 0 -6 z", cx, cy, this.glyphSize, ink);
+      this.pushIconPath(dl, "M17.5 17 a3 3 0 0 1 0 6 a3 3 0 0 1 0 -6 z", cx, cy, this.glyphSize, ink);
+      this.pushIconPath(dl, "M6.5 19 a1 1 0 0 1 0 2 a1 1 0 0 1 0 -2 z", cx, cy, this.glyphSize, this.theme.bg);
+      this.pushIconPath(dl, "M17.5 19 a1 1 0 0 1 0 2 a1 1 0 0 1 0 -2 z", cx, cy, this.glyphSize, this.theme.bg);
+      return;
+    }
+    if ( k == ToolIcon.shapes() ) {
+      this.pushIconPath(dl, "M16 3 a5 5 0 0 1 0 10 a5 5 0 0 1 0 -10 z", cx, cy, this.glyphSize, this.theme.accent);
+      this.pushIconPath(dl, "M7 2 l5 8 h-10 z", cx, cy, this.glyphSize, this.theme.accent);
       return;
     }
     if ( k == ToolIcon.picture() ) {
@@ -17801,6 +17977,22 @@ class EVGToolbarView  {
       this.paintAlignIcon(dl, cx, cy, 2, ink);
       return;
     }
+    if ( k == ToolIcon.textJustify() ) {
+      this.paintAlignIcon(dl, cx, cy, 3, ink);
+      return;
+    }
+    if ( k == ToolIcon.arrangeLeft() ) {
+      this.pushArrangeIcon(dl, cx, cy, 0, ink);
+      return;
+    }
+    if ( k == ToolIcon.arrangeCenter() ) {
+      this.pushArrangeIcon(dl, cx, cy, 1, ink);
+      return;
+    }
+    if ( k == ToolIcon.arrangeRight() ) {
+      this.pushArrangeIcon(dl, cx, cy, 2, ink);
+      return;
+    }
     if ( k == ToolIcon.valignTop() ) {
       this.pushValignIcon(dl, cx, cy, 0, ink);
       return;
@@ -17846,7 +18038,10 @@ class EVGToolbarView  {
   paintAlignIcon (dl, cx, cy, mode, col) {
     let i = 0;
     while (i < 4) {
-      const wide = (i % 2) == 0;
+      let wide = (i % 2) == 0;
+      if ( mode == 3 ) {
+        wide = true;
+      }
       let lw = 14;
       if ( wide == false ) {
         lw = 9;
@@ -17861,6 +18056,32 @@ class EVGToolbarView  {
         }
       }
       this.pushRect(dl, lx, ((cy - 7) + (i * 4)), lw, 2.0, col);
+      i = i + 1;
+    };
+  };
+  pushArrangeIcon (dl, cx, cy, mode, col) {
+    let edge = cx - 8;
+    if ( mode == 1 ) {
+      edge = cx;
+    }
+    if ( mode == 2 ) {
+      edge = cx + 8;
+    }
+    this.pushRect(dl, edge, (cy - 9), 1.0, 18.0, col);
+    let i = 0;
+    while (i < 2) {
+      let bw = 12;
+      if ( i == 1 ) {
+        bw = 7;
+      }
+      let bx = edge + 2;
+      if ( mode == 1 ) {
+        bx = edge - (((bw / 2) | 0));
+      }
+      if ( mode == 2 ) {
+        bx = (edge - bw) - 2;
+      }
+      this.pushRect(dl, bx, ((cy - 7) + (i * 9)), bw, 5.0, col);
       i = i + 1;
     };
   };

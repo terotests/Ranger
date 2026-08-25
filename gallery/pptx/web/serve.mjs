@@ -112,6 +112,9 @@ function applyEvent(ev) {
   } else if (ev.type === "wheel") {
     liveInput.setPointerPos(lastX, lastY);
     liveInput.addScroll(ev.delta | 0);
+    // `UIInput` keeps X positive LEFTWARDS where the browser reports it
+    // positive rightwards, so the negation belongs here, at the edge.
+    liveInput.addScrollX(-(ev.deltaX | 0));
   } else {
     return;
   }

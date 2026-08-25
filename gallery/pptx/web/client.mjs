@@ -103,9 +103,13 @@ canvas.addEventListener(
   (e) => {
     e.preventDefault();
     let dy = e.deltaY;
-    if (e.deltaMode === 1) dy *= LINE_PX;
-    else if (e.deltaMode === 2) dy *= canvas.clientHeight;
-    post({ type: "wheel", delta: Math.round(dy) });
+    let dx = e.deltaX;
+    if (e.deltaMode === 1) { dy *= LINE_PX; dx *= LINE_PX; }
+    else if (e.deltaMode === 2) { dy *= canvas.clientHeight; dx *= canvas.clientWidth; }
+    // Sideways travel too: when the thumbnails are a strip along the top —
+    // every narrow window — "further along the deck" is a sideways swipe, and
+    // a host that only forwards deltaY leaves that strip unscrollable.
+    post({ type: "wheel", delta: Math.round(dy), deltaX: Math.round(dx) });
   },
   { passive: false },
 );
