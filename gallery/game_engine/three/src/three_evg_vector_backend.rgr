@@ -1,0 +1,545 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_evg_vector_backend — project Three meshes to EVG vector polygons.
+; ==============================================================================
+;
+; Drop-in ThreeRenderBackend: instead of writing a pixel framebuffer, each
+; drawMesh call projects triangles to 2D and stores them. After render(), emit:
+;   • EVGDisplayList PATH commands (painter's algorithm, back→front)
+;   • SVG <path> document (true vector for print / paste)
+;   • RasterBuffer via VectorRasterizer.fillAA (AA preview at page resolution)
+;
+; Textured triangles are subdivided in UV space into one filled polygon per
+; texel (Sutherland–Hodgman clip), so a checker map stays sharp vectors rather
+; than a single muddy centroid colour.
+; ==============================================================================
+
+Import "three_render_backend.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_matrix4.rgr"
+Import "three_texture.rgr"
+Import "three_material.rgr"
+Import "three_vector3.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../../pdf_writer/src/raster/VectorRasterizer.rgr"
+
+class ThreeEvgVectorBackend extends ThreeRenderBackend {
+    def w:int 0
+    def h:int 0
+    def clearR:double 0.086
+    def clearG:double 0.102
+    def clearB:double 0.133
+    def ox:double 0.0
+    def oy:double 0.0
+    def tx0:[double]
+    def ty0:[double]
+    def tx1:[double]
+    def ty1:[double]
+    def tx2:[double]
+    def ty2:[double]
+    def tDepth:[double]
+    def tR:[int]
+    def tG:[int]
+    def tB:[int]
+    def triCount:int 0
+
+    fn setOffset:void (x:double y:double) {
+        ox = x
+        oy = y
+    }
+
+    fn beginFrame:void (width:int height:int r:double g:double b:double) {
+        w = width
+        h = height
+        clearR = r
+        clearG = g
+        clearB = b
+        def e0:[double]
+        def e1:[double]
+        def e2:[double]
+        def e3:[double]
+        def e4:[double]
+        def e5:[double]
+        def ed:[double]
+        def er:[int]
+        def eg:[int]
+        def eb:[int]
+        tx0 = e0
+        ty0 = e1
+        tx1 = e2
+        ty1 = e3
+        tx2 = e4
+        ty2 = e5
+        tDepth = ed
+        tR = er
+        tG = eg
+        tB = eb
+        triCount = 0
+    }
+
+    fn pushPoly:void (pts:[double] depth:double r:int g:int b:int) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            return
+        }
+        ; Fan from first vertex into triangles (convex clips from a triangle).
+        def i:int 1
+        while ((i + 1) < n) {
+            push tx0 (itemAt pts 0)
+            push ty0 (itemAt pts 1)
+            push tx1 (itemAt pts (i * 2))
+            push ty1 (itemAt pts ((i * 2) + 1))
+            push tx2 (itemAt pts ((i + 1) * 2))
+            push ty2 (itemAt pts (((i + 1) * 2) + 1))
+            push tDepth depth
+            push tR r
+            push tG g
+            push tB b
+            triCount = (triCount + 1)
+            i = (i + 1)
+        }
+    }
+
+    ; Map a UV point back to screen via the source triangle's UV→screen map.
+    fn uvToScreenX:double (u:double v:double u0:double v0:double u1:double v1:double u2:double v2:double x0:double x1:double x2:double) {
+        def den:double (((u1 - u0) * (v2 - v0)) - ((u2 - u0) * (v1 - v0)))
+        if ((den < 0.0000001) && (den > (0.0 - 0.0000001))) {
+            return x0
+        }
+        def w1:double ((((u - u0) * (v2 - v0)) - ((u2 - u0) * (v - v0))) / den)
+        def w2:double ((((u1 - u0) * (v - v0)) - ((u - u0) * (v1 - v0))) / den)
+        def w0:double ((1.0 - w1) - w2)
+        return (((w0 * x0) + (w1 * x1)) + (w2 * x2))
+    }
+
+    fn uvToScreenY:double (u:double v:double u0:double v0:double u1:double v1:double u2:double v2:double y0:double y1:double y2:double) {
+        def den:double (((u1 - u0) * (v2 - v0)) - ((u2 - u0) * (v1 - v0)))
+        if ((den < 0.0000001) && (den > (0.0 - 0.0000001))) {
+            return y0
+        }
+        def w1:double ((((u - u0) * (v2 - v0)) - ((u2 - u0) * (v - v0))) / den)
+        def w2:double ((((u1 - u0) * (v - v0)) - ((u - u0) * (v1 - v0))) / den)
+        def w0:double ((1.0 - w1) - w2)
+        return (((w0 * y0) + (w1 * y1)) + (w2 * y2))
+    }
+
+    ; Sutherland–Hodgman: clip polygon (flat UV list) against one half-plane.
+    ; axis 0 = U, 1 = V; keepLess=true keeps coord <= limit, else >= limit.
+    fn clipUv:void (src:[double] dst:[double] axis:int keepLess:boolean limit:double) {
+        clear dst
+        def n:int (idiv (array_length src) 2)
+        if (n == 0) {
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            if (j >= n) {
+                j = 0
+            }
+            def ax:double (itemAt src (i * 2))
+            def ay:double (itemAt src ((i * 2) + 1))
+            def bx:double (itemAt src (j * 2))
+            def by:double (itemAt src ((j * 2) + 1))
+            def aVal:double ax
+            def bVal:double bx
+            if (axis == 1) {
+                aVal = ay
+                bVal = by
+            }
+            def aIn:boolean false
+            def bIn:boolean false
+            if keepLess {
+                if (aVal <= (limit + 0.0000001)) {
+                    aIn = true
+                }
+                if (bVal <= (limit + 0.0000001)) {
+                    bIn = true
+                }
+            } {
+                if (aVal >= (limit - 0.0000001)) {
+                    aIn = true
+                }
+                if (bVal >= (limit - 0.0000001)) {
+                    bIn = true
+                }
+            }
+            if aIn {
+                if bIn {
+                    push dst bx
+                    push dst by
+                } {
+                    def t:double 0.0
+                    if ((bVal - aVal) > 0.0000001) {
+                        t = ((limit - aVal) / (bVal - aVal))
+                    } {
+                        if ((bVal - aVal) < (0.0 - 0.0000001)) {
+                            t = ((limit - aVal) / (bVal - aVal))
+                        }
+                    }
+                    push dst (ax + (t * (bx - ax)))
+                    push dst (ay + (t * (by - ay)))
+                }
+            } {
+                if bIn {
+                    def t2:double 0.0
+                    if ((bVal - aVal) > 0.0000001) {
+                        t2 = ((limit - aVal) / (bVal - aVal))
+                    } {
+                        if ((bVal - aVal) < (0.0 - 0.0000001)) {
+                            t2 = ((limit - aVal) / (bVal - aVal))
+                        }
+                    }
+                    push dst (ax + (t2 * (bx - ax)))
+                    push dst (ay + (t2 * (by - ay)))
+                    push dst bx
+                    push dst by
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn emitTexelPoly:void (u0:double v0:double u1:double v1:double u2:double v2:double x0:double y0:double x1:double y1:double x2:double y2:double depth:double uMin:double uMax:double vMin:double vMax:double r:int g:int b:int) {
+        def poly:[double]
+        push poly u0
+        push poly v0
+        push poly u1
+        push poly v1
+        push poly u2
+        push poly v2
+        def tmp:[double]
+        this.clipUv(poly tmp 0 false uMin)
+        this.clipUv(tmp poly 0 true uMax)
+        this.clipUv(poly tmp 1 false vMin)
+        this.clipUv(tmp poly 1 true vMax)
+        def n:int (idiv (array_length poly) 2)
+        if (n < 3) {
+            return
+        }
+        def screen:[double]
+        def i:int 0
+        while (i < n) {
+            def uu:double (itemAt poly (i * 2))
+            def vv:double (itemAt poly ((i * 2) + 1))
+            push screen (this.uvToScreenX(uu vv u0 v0 u1 v1 u2 v2 x0 x1 x2))
+            push screen (this.uvToScreenY(uu vv u0 v0 u1 v1 u2 v2 y0 y1 y2))
+            i = (i + 1)
+        }
+        this.pushPoly(screen depth r g b)
+    }
+
+    fn emitTexturedTri:void (tex:ThreeTexture u0:double v0:double u1:double v1:double u2:double v2:double x0:double y0:double x1:double y1:double x2:double y2:double depth:double colorR:double colorG:double colorB:double) {
+        def tw:int tex.width
+        def th:int tex.height
+        if ((tw <= 0) || (th <= 0)) {
+            def pts:[double]
+            push pts x0
+            push pts y0
+            push pts x1
+            push pts y1
+            push pts x2
+            push pts y2
+            this.pushPoly(pts depth (to_int (colorR * 255.0)) (to_int (colorG * 255.0)) (to_int (colorB * 255.0)))
+            return
+        }
+        def minU:double u0
+        if (u1 < minU) {
+            minU = u1
+        }
+        if (u2 < minU) {
+            minU = u2
+        }
+        def maxU:double u0
+        if (u1 > maxU) {
+            maxU = u1
+        }
+        if (u2 > maxU) {
+            maxU = u2
+        }
+        def minV:double v0
+        if (v1 < minV) {
+            minV = v1
+        }
+        if (v2 < minV) {
+            minV = v2
+        }
+        def maxV:double v0
+        if (v1 > maxV) {
+            maxV = v1
+        }
+        if (v2 > maxV) {
+            maxV = v2
+        }
+        ; Wrap into 0..1 for the common 0..1 face UVs (matches software wrap).
+        if (minU < 0.0) {
+            minU = 0.0
+        }
+        if (minV < 0.0) {
+            minV = 0.0
+        }
+        if (maxU > 1.0) {
+            maxU = 1.0
+        }
+        if (maxV > 1.0) {
+            maxV = 1.0
+        }
+        def ix0:int (to_int (minU * (to_double tw)))
+        def ix1:int (to_int (maxU * (to_double tw)))
+        def iy0:int (to_int (minV * (to_double th)))
+        def iy1:int (to_int (maxV * (to_double th)))
+        if (ix0 < 0) {
+            ix0 = 0
+        }
+        if (iy0 < 0) {
+            iy0 = 0
+        }
+        if (ix1 >= tw) {
+            ix1 = (tw - 1)
+        }
+        if (iy1 >= th) {
+            iy1 = (th - 1)
+        }
+        def iy:int iy0
+        while (iy <= iy1) {
+            def ix:int ix0
+            while (ix <= ix1) {
+                def uMin:double ((to_double ix) / (to_double tw))
+                def uMax:double ((to_double (ix + 1)) / (to_double tw))
+                def vMin:double ((to_double iy) / (to_double th))
+                def vMax:double ((to_double (iy + 1)) / (to_double th))
+                def off:int (((iy * tw) + ix) * 4)
+                def tr:double ((to_double (buffer_get tex.rgba off)) / 255.0)
+                def tg:double ((to_double (buffer_get tex.rgba (off + 1))) / 255.0)
+                def tb:double ((to_double (buffer_get tex.rgba (off + 2))) / 255.0)
+                def rr:int (to_int ((colorR * tr) * 255.0))
+                def gg:int (to_int ((colorG * tg) * 255.0))
+                def bb:int (to_int ((colorB * tb) * 255.0))
+                this.emitTexelPoly(u0 v0 u1 v1 u2 v2 x0 y0 x1 y1 x2 y2 depth uMin uMax vMin vMax rr gg bb)
+                ix = (ix + 1)
+            }
+            iy = (iy + 1)
+        }
+    }
+
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+        def vc:int (geometry.vertexCount())
+        if (vc == 0) {
+            return
+        }
+        def hasTexture:boolean mat.hasMap
+        def tex:ThreeTexture mat.map
+        def colorR:double mat.colorR
+        def colorG:double mat.colorG
+        def colorB:double mat.colorB
+        def sx:[double]
+        def sy:[double]
+        def sz:[double]
+        def bad:[int]
+        def vi:int 0
+        while (vi < vc) {
+            def lx:double (geometry.getPosition(vi 0))
+            def ly:double (geometry.getPosition(vi 1))
+            def lz:double (geometry.getPosition(vi 2))
+            def cw:double (mvp.clipW(lx ly lz))
+            def ndc:ThreeVector3 (mvp.transformPoint((ThreeVector3.of(lx ly lz))))
+            def screenX:double ((((ndc.x * 0.5) + 0.5) * (to_double w)) + ox)
+            def screenY:double (((1.0 - ((ndc.y * 0.5) + 0.5)) * (to_double h)) + oy)
+            push sx screenX
+            push sy screenY
+            push sz ndc.z
+            if (cw <= 0.0) {
+                push bad 1
+            } {
+                push bad 0
+            }
+            vi = (vi + 1)
+        }
+        def ic:int (geometry.indexCount())
+        def t:int 0
+        while (t < ic) {
+            def i0:int (geometry.getIndex(t))
+            def i1:int (geometry.getIndex(t + 1))
+            def i2:int (geometry.getIndex(t + 2))
+            if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
+                def x0:double (itemAt sx i0)
+                def y0:double (itemAt sy i0)
+                def z0:double (itemAt sz i0)
+                def x1:double (itemAt sx i1)
+                def y1:double (itemAt sy i1)
+                def z1:double (itemAt sz i1)
+                def x2:double (itemAt sx i2)
+                def y2:double (itemAt sy i2)
+                def z2:double (itemAt sz i2)
+                def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
+                if ((area > 0.0001) || (area < (0.0 - 0.0001))) {
+                    def depth:double (((z0 + z1) + z2) / 3.0)
+                    if hasTexture {
+                        def u0:double (geometry.getUv(i0 0))
+                        def v0:double (geometry.getUv(i0 1))
+                        def u1:double (geometry.getUv(i1 0))
+                        def v1:double (geometry.getUv(i1 1))
+                        def u2:double (geometry.getUv(i2 0))
+                        def v2:double (geometry.getUv(i2 1))
+                        this.emitTexturedTri(tex u0 v0 u1 v1 u2 v2 x0 y0 x1 y1 x2 y2 depth colorR colorG colorB)
+                    } {
+                        def pts:[double]
+                        push pts x0
+                        push pts y0
+                        push pts x1
+                        push pts y1
+                        push pts x2
+                        push pts y2
+                        this.pushPoly(pts depth (to_int (colorR * 255.0)) (to_int (colorG * 255.0)) (to_int (colorB * 255.0)))
+                    }
+                }
+            }
+            t = (t + 3)
+        }
+    }
+
+    fn sortBackToFront:void () {
+        def i:int 1
+        while (i < triCount) {
+            def j:int i
+            while (j > 0) {
+                def dCur:double (itemAt tDepth j)
+                def dPrev:double (itemAt tDepth (j - 1))
+                if (dCur <= dPrev) {
+                    j = 0
+                } {
+                    this.swapTri(j (j - 1))
+                    j = (j - 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn swapTri:void (a:int b:int) {
+        def ax0:double (itemAt tx0 a)
+        def ay0:double (itemAt ty0 a)
+        def ax1:double (itemAt tx1 a)
+        def ay1:double (itemAt ty1 a)
+        def ax2:double (itemAt tx2 a)
+        def ay2:double (itemAt ty2 a)
+        def ad:double (itemAt tDepth a)
+        def ar:int (itemAt tR a)
+        def ag:int (itemAt tG a)
+        def ab:int (itemAt tB a)
+        set tx0 a (itemAt tx0 b)
+        set ty0 a (itemAt ty0 b)
+        set tx1 a (itemAt tx1 b)
+        set ty1 a (itemAt ty1 b)
+        set tx2 a (itemAt tx2 b)
+        set ty2 a (itemAt ty2 b)
+        set tDepth a (itemAt tDepth b)
+        set tR a (itemAt tR b)
+        set tG a (itemAt tG b)
+        set tB a (itemAt tB b)
+        set tx0 b ax0
+        set ty0 b ay0
+        set tx1 b ax1
+        set ty1 b ay1
+        set tx2 b ax2
+        set ty2 b ay2
+        set tDepth b ad
+        set tR b ar
+        set tG b ag
+        set tB b ab
+    }
+
+    fn clearColor:EVGColor () {
+        return (EVGColor.rgb((to_int (clearR * 255.0)) (to_int (clearG * 255.0)) (to_int (clearB * 255.0))))
+    }
+
+    fn toDisplayList:EVGDisplayList (pageW:double pageH:double) {
+        this.sortBackToFront()
+        def dl:EVGDisplayList (new EVGDisplayList)
+        def bg:EVGColor (EVGColor.rgb(255 255 255))
+        dl.addRect(0.0 0.0 pageW pageH bg)
+        def sceneBg:EVGColor (this.clearColor())
+        dl.addRect(ox oy (to_double w) (to_double h) sceneBg)
+        def i:int 0
+        while (i < triCount) {
+            def pts:[double]
+            push pts (itemAt tx0 i)
+            push pts (itemAt ty0 i)
+            push pts (itemAt tx1 i)
+            push pts (itemAt ty1 i)
+            push pts (itemAt tx2 i)
+            push pts (itemAt ty2 i)
+            def col:EVGColor (EVGColor.rgb((itemAt tR i) (itemAt tG i) (itemAt tB i)))
+            dl.addPolygon(pts col)
+            i = (i + 1)
+        }
+        return dl
+    }
+
+    fn toSvg:string (pageW:double pageH:double) {
+        this.sortBackToFront()
+        def out:string ("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + (EVGDisplayList.num(pageW)) + "\" height=\"" + (EVGDisplayList.num(pageH)) + "\" viewBox=\"0 0 " + (EVGDisplayList.num(pageW)) + " " + (EVGDisplayList.num(pageH)) + "\">\n")
+        out = (out + "<rect x=\"0\" y=\"0\" width=\"" + (EVGDisplayList.num(pageW)) + "\" height=\"" + (EVGDisplayList.num(pageH)) + "\" fill=\"#ffffff\"/>\n")
+        def br:int (to_int (clearR * 255.0))
+        def bg:int (to_int (clearG * 255.0))
+        def bb:int (to_int (clearB * 255.0))
+        out = (out + "<rect x=\"" + (EVGDisplayList.num(ox)) + "\" y=\"" + (EVGDisplayList.num(oy)) + "\" width=\"" + (EVGDisplayList.num((to_double w))) + "\" height=\"" + (EVGDisplayList.num((to_double h))) + "\" fill=\"rgb(" + (to_string br) + "," + (to_string bg) + "," + (to_string bb) + ")\"/>\n")
+        def i:int 0
+        while (i < triCount) {
+            def d:string ("M " + (EVGDisplayList.num((itemAt tx0 i))) + " " + (EVGDisplayList.num((itemAt ty0 i))))
+            d = (d + " L " + (EVGDisplayList.num((itemAt tx1 i))) + " " + (EVGDisplayList.num((itemAt ty1 i))))
+            d = (d + " L " + (EVGDisplayList.num((itemAt tx2 i))) + " " + (EVGDisplayList.num((itemAt ty2 i))) + " Z")
+            def fill:string ("rgb(" + (to_string (itemAt tR i)) + "," + (to_string (itemAt tG i)) + "," + (to_string (itemAt tB i)) + ")")
+            out = (out + "<path d=\"" + d + "\" fill=\"" + fill + "\" stroke=\"none\"/>\n")
+            i = (i + 1)
+        }
+        return (out + "</svg>\n")
+    }
+
+    ; AA vector fill into a page-sized RasterBuffer (preview / SoftCanvas path).
+    fn paintRaster:void (buf:RasterBuffer) {
+        this.sortBackToFront()
+        def sceneBg:EVGColor (this.clearColor())
+        def x0:int (to_int ox)
+        def y0:int (to_int oy)
+        def xx:int x0
+        while (xx < (x0 + w)) {
+            def yy:int y0
+            while (yy < (y0 + h)) {
+                buf.setPixel(xx yy (sceneBg.red()) (sceneBg.green()) (sceneBg.blue()) 255)
+                yy = (yy + 1)
+            }
+            xx = (xx + 1)
+        }
+        def vr:VectorRasterizer (new VectorRasterizer)
+        def i:int 0
+        while (i < triCount) {
+            def pts:[double]
+            push pts (itemAt tx0 i)
+            push pts (itemAt ty0 i)
+            push pts (itemAt tx1 i)
+            push pts (itemAt ty1 i)
+            push pts (itemAt tx2 i)
+            push pts (itemAt ty2 i)
+            vr.reset()
+            vr.addRing(pts)
+            vr.fillAA(buf (itemAt tR i) (itemAt tG i) (itemAt tB i) 255 (VectorRasterizer.nonZero()))
+            i = (i + 1)
+        }
+    }
+
+    fn triangleCount:int () {
+        return triCount
+    }
+
+    fn width:int () {
+        return w
+    }
+
+    fn height:int () {
+        return h
+    }
+}

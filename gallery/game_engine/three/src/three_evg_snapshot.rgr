@@ -1,27 +1,25 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; three_evg_snapshot — Three.js scene → static image for EVG print targets.
+; three_evg_snapshot — Three.js scene → EVG vector print (paths / SVG).
 ; ==============================================================================
 ;
-; Renders a ThreeScene once through ThreeWebGLRenderer's software backend and
-; turns the RGB frame into assets EVG already understands:
+; Projects a ThreeScene through ThreeEvgVectorBackend (plugged into
+; ThreeWebGLRenderer) and emits what EVG print targets already consume:
 ;
-;   • RasterBuffer / ImageBuffer  — for SoftCanvas blit or further raster work
-;   • PNG on disk                 — for <Image src="…"> / EVGPDFRenderer /
-;                                   EVGDisplayList.addImage (path-based)
-;   • EVGElement.createImg()      — ready to drop into an EVGElement tree
-;   • EVGDisplayList              — page background + image command for painters
+;   • EVGDisplayList PATH polygons   — PDF / SoftPainter / GPU list painters
+;   • SVG document                   — true vector still for print / paste
+;   • SoftCanvas preview PNG         — AA polygon fill at page resolution
+;                                       (not a low-res triangle raster upscale)
 ;
-; This is the print / still-image path (books, PDF, PNG tools), the inverse of
-; the interactive EVG-over-Three GUI overlay (IDEAL_TEAPOT.md). Software
-; backend is intentionally unlit (flat colour × texture); use it for
-; deterministic headless stills.
+; Bitmap helpers (toRaster / toPng / toEvgImage) remain for callers that still
+; want a raster still from the software backend.
 ; ==============================================================================
 
 Import "three_webgl_renderer.rgr"
 Import "three_scene.rgr"
 Import "three_perspective_camera.rgr"
+Import "three_evg_vector_backend.rgr"
 Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
 Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
 Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
@@ -31,6 +29,17 @@ Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/EVGDisplayList.rgr"
 
 class ThreeEvgSnapshot {
+    ; Run the scene once through the vector backend (page placement optional).
+    sfn renderVector:ThreeEvgVectorBackend (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int ox:double oy:double) {
+        def backend:ThreeEvgVectorBackend (new ThreeEvgVectorBackend)
+        backend.setOffset(ox oy)
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setSize(w h)
+        renderer.setBackend(backend)
+        renderer.render(scene camera)
+        return backend
+    }
+
     ; Expand software-backend RGB (w*h*3) into an opaque RGBA RasterBuffer.
     sfn rgbToRaster:RasterBuffer (rgb:buffer w:int h:int) {
         def rb:RasterBuffer (new RasterBuffer)
@@ -49,7 +58,6 @@ class ThreeEvgSnapshot {
         return rb
     }
 
-    ; Same expansion into ImageBuffer (SoftCanvas.blitImage).
     sfn rgbToImage:ImageBuffer (rgb:buffer w:int h:int) {
         def img:ImageBuffer (new ImageBuffer)
         img.initClear(w h)
@@ -67,7 +75,6 @@ class ThreeEvgSnapshot {
         return img
     }
 
-    ; One software frame of the scene. Caller owns the returned buffer (RGB).
     sfn renderRgb:buffer (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int) {
         def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
         renderer.setSize(w h)
@@ -75,20 +82,16 @@ class ThreeEvgSnapshot {
         return (renderer.raw())
     }
 
-    ; Scene → RasterBuffer (RGBA), ready for PNGEncoder / SoftCanvas.
     sfn toRaster:RasterBuffer (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int) {
         def rgb:buffer (ThreeEvgSnapshot.renderRgb(scene camera w h))
         return (ThreeEvgSnapshot.rgbToRaster(rgb w h))
     }
 
-    ; Scene → ImageBuffer for SoftCanvas.blitImage without a file round-trip.
     sfn toImage:ImageBuffer (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int) {
         def rgb:buffer (ThreeEvgSnapshot.renderRgb(scene camera w h))
         return (ThreeEvgSnapshot.rgbToImage(rgb w h))
     }
 
-    ; Scene → PNG file (opaque RGB colour type). Path is dir/file.
-    ; Returns the joined path string EVG Image / DisplayList sources expect.
     sfn toPng:string (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int dir:string file:string) {
         def rb:RasterBuffer (ThreeEvgSnapshot.toRaster(scene camera w h))
         def enc:PNGEncoder (new PNGEncoder)
@@ -102,9 +105,6 @@ class ThreeEvgSnapshot {
         return (dir + "/" + file)
     }
 
-    ; Scene → PNG on disk + EVGElement.createImg() pointing at that path.
-    ; displayW/displayH are the laid-out box size in the EVG tree (may differ
-    ; from the render resolution w×h for print scale).
     sfn toEvgImage:EVGElement (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int dir:string file:string displayW:double displayH:double) {
         def src:string (ThreeEvgSnapshot.toPng(scene camera w h dir file))
         def el:EVGElement (EVGElement.createImg())
@@ -115,14 +115,46 @@ class ThreeEvgSnapshot {
         return el
     }
 
-    ; Scene → EVGDisplayList: optional page fill + image at (x,y,dw,dh).
-    ; Writes the PNG beside the document assets so painters resolve `src`.
-    sfn toDisplayList:EVGDisplayList (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int dir:string file:string pageW:double pageH:double imgX:double imgY:double imgW:double imgH:double) {
-        def src:string (ThreeEvgSnapshot.toPng(scene camera w h dir file))
-        def dl:EVGDisplayList (new EVGDisplayList)
-        def bg:EVGColor (EVGColor.rgb(255 255 255))
-        dl.addRect(0.0 0.0 pageW pageH bg)
-        dl.addImage(src imgX imgY imgW imgH false false 0.0)
-        return dl
+    ; Scene → EVGDisplayList of PATH polygons (vector print seam).
+    sfn toDisplayList:EVGDisplayList (scene:ThreeScene camera:ThreePerspectiveCamera imgW:int imgH:int pageW:double pageH:double imgX:double imgY:double) {
+        def backend:ThreeEvgVectorBackend (ThreeEvgSnapshot.renderVector(scene camera imgW imgH imgX imgY))
+        return (backend.toDisplayList(pageW pageH))
+    }
+
+    ; Scene → SVG string (true vector).
+    sfn toSvg:string (scene:ThreeScene camera:ThreePerspectiveCamera imgW:int imgH:int pageW:double pageH:double imgX:double imgY:double) {
+        def backend:ThreeEvgVectorBackend (ThreeEvgSnapshot.renderVector(scene camera imgW imgH imgX imgY))
+        return (backend.toSvg(pageW pageH))
+    }
+
+    ; Write SVG file; returns dir/file path.
+    sfn toSvgFile:string (scene:ThreeScene camera:ThreePerspectiveCamera imgW:int imgH:int pageW:double pageH:double imgX:double imgY:double dir:string file:string) {
+        def svg:string (ThreeEvgSnapshot.toSvg(scene camera imgW imgH pageW pageH imgX imgY))
+        def buf:buffer (buffer_from_string svg)
+        buffer_write_file dir file buf
+        if ((strlen dir) == 0) {
+            return file
+        }
+        if (dir == ".") {
+            return file
+        }
+        return (dir + "/" + file)
+    }
+
+    ; Page-sized RasterBuffer filled with AA vector polygons (preview only).
+    sfn toVectorPng:string (scene:ThreeScene camera:ThreePerspectiveCamera imgW:int imgH:int pageW:int pageH:int imgX:int imgY:int dir:string file:string) {
+        def backend:ThreeEvgVectorBackend (ThreeEvgSnapshot.renderVector(scene camera imgW imgH (to_double imgX) (to_double imgY)))
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.createWithColor(pageW pageH 255 255 255 255)
+        backend.paintRaster(rb)
+        def enc:PNGEncoder (new PNGEncoder)
+        enc.encode(rb dir file)
+        if ((strlen dir) == 0) {
+            return file
+        }
+        if (dir == ".") {
+            return file
+        }
+        return (dir + "/" + file)
     }
 }

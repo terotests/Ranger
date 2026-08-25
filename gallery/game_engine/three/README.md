@@ -87,18 +87,22 @@ renders it with the software backend (writes `/tmp/three_cube.ppm`).
 
 ### EVG print stills (`ThreeEvgSnapshot`)
 
-`three_evg_snapshot.rgr` turns a rendered frame into assets the EVG print
-pipeline already consumes (path-based `<Image src>` / PDF / display list):
+`three_evg_snapshot.rgr` projects a Three scene through
+`ThreeEvgVectorBackend` into **EVG PATH polygons** (not a low-res bitmap):
 
 ```ranger
-def src:string (ThreeEvgSnapshot.toPng(scene camera 512 512 "assets" "cube.png"))
-def el:EVGElement (ThreeEvgSnapshot.toEvgImage(scene camera 512 512 "assets" "cube.png" 400.0 400.0))
-def dl:EVGDisplayList (ThreeEvgSnapshot.toDisplayList(scene camera 512 512 "assets" "cube.png" 480.0 560.0 40.0 40.0 400.0 400.0))
+def dl (ThreeEvgSnapshot.toDisplayList(scene camera 400 400 480.0 560.0 40.0 40.0))
+def svg (ThreeEvgSnapshot.toSvg(scene camera 400 400 480.0 560.0 40.0 40.0))
+def png (ThreeEvgSnapshot.toVectorPng(scene camera 400 400 480 560 40 40 "assets" "print.png"))
 ```
 
-`three_evg_snapshot_test.rgr` (in `run.sh`) asserts coverage + EVG wiring and
-writes `three/artifacts/three_evg_cube.png` plus a page composite
-`three/artifacts/three_evg_print.png`.
+- `toDisplayList` — page background + one filled PATH triangle per mesh face
+  (painter's algorithm) for PDF / SoftPainter / GPU list backends
+- `toSvg` / `toSvgFile` — true vector document for print / paste
+- `toVectorPng` — AA polygon fill at page resolution (preview only)
+
+`three_evg_snapshot_test.rgr` (in `run.sh`) asserts PATH/SVG wiring and writes
+`three/artifacts/three_evg_cube.svg` plus `three/artifacts/three_evg_print.png`.
 
 ## The 1:1 Three.js cube runs in the TSX interpreter (façade PoC)
 

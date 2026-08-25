@@ -1,27 +1,24 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; three_evg_snapshot_test — Three scene → EVG print still (PNG + display list).
+; three_evg_snapshot_test — Three scene → EVG vector print (paths + SVG).
 ; ==============================================================================
 ;
-; Builds the canonical textured cube, snapshots it through ThreeEvgSnapshot,
-; asserts coverage + EVG element/display-list wiring, and writes:
-;   gallery/game_engine/three/artifacts/three_evg_cube.png   — raw still
-;   gallery/game_engine/three/artifacts/three_evg_print.png  — page-sized SoftCanvas
-;                                                       composite (print preview)
+; Builds the canonical textured cube, projects it through ThreeEvgVectorBackend,
+; asserts PATH/SVG wiring, and writes:
+;   gallery/game_engine/three/artifacts/three_evg_cube.svg   — true vector
+;   gallery/game_engine/three/artifacts/three_evg_print.png  — AA vector fill
+;                                                             at page resolution
 ; ==============================================================================
 
 Import "three_evg_snapshot.rgr"
+Import "three_evg_vector_backend.rgr"
 Import "three_scene.rgr"
 Import "three_perspective_camera.rgr"
 Import "three_box_geometry.rgr"
 Import "three_mesh_basic_material.rgr"
 Import "three_mesh.rgr"
 Import "three_texture.rgr"
-Import "../../framebuffer.rgr"
-Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGDisplayList.rgr"
 
 class ThreeEvgSnapshotTest {
@@ -75,86 +72,71 @@ class ThreeEvgSnapshotTest {
         return scene
     }
 
-    sfn countCovered:int (rgb:buffer w:int h:int) {
-        def n:int (w * h)
-        def covered:int 0
+    sfn countPathCmds:int (dl:EVGDisplayList) {
+        def n:int 0
         def i:int 0
-        while (i < n) {
-            def o:int (i * 3)
-            def sum:int (((buffer_get rgb o) + (buffer_get rgb (o + 1))) + (buffer_get rgb (o + 2)))
-            if (sum > 150) {
-                covered = (covered + 1)
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 6) {
+                n = (n + 1)
             }
             i = (i + 1)
         }
-        return covered
+        return n
     }
 
     sfn m@(main):void () {
         def t:ThreeEvgSnapshotTest (new ThreeEvgSnapshotTest)
-        print "== ThreeEvgSnapshot — cube → EVG print still =="
+        print "== ThreeEvgSnapshot — cube → EVG vector print =="
 
-        def W:int 256
-        def H:int 256
-        def aspect:double ((to_double W) / (to_double H))
+        def imgW:int 400
+        def imgH:int 400
+        def aspect:double ((to_double imgW) / (to_double imgH))
         def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
         camera.setPerspective(70.0 aspect 0.1 100.0)
         camera.position.z = 2.0
         def scene:ThreeScene (ThreeEvgSnapshotTest.buildCubeScene())
 
         def outDir:string "gallery/game_engine/three/artifacts"
-        def stillName:string "three_evg_cube.png"
+        def svgName:string "three_evg_cube.svg"
         def printName:string "three_evg_print.png"
 
-        ; --- RGB coverage (same gate as three_cube_demo_test) ---
-        def rgb:buffer (ThreeEvgSnapshot.renderRgb(scene camera W H))
-        def covered:int (ThreeEvgSnapshotTest.countCovered(rgb W H))
-        t.ok(("cube covers frame (" + (to_string covered) + ")") (covered > 3000))
-        def cidx:int (((idiv H 2) * W) + (idiv W 2))
-        def co:int (cidx * 3)
-        def centerLit:boolean (((buffer_get rgb co) + (buffer_get rgb (co + 1))) > 60)
-        t.ok("centre pixel on cube" centerLit)
-
-        ; --- RasterBuffer expansion is opaque RGBA ---
-        def rb:RasterBuffer (ThreeEvgSnapshot.rgbToRaster(rgb W H))
-        t.ok("raster size" ((rb.width == W) && (rb.height == H)))
-        def aOff:int ((((idiv H 2) * W) + (idiv W 2)) * 4)
-        t.ok("raster alpha opaque" ((buffer_get rb.pixels (aOff + 3)) == 255))
-
-        ; --- PNG for EVG <Image src> / PDF ---
-        def src:string (ThreeEvgSnapshot.toPng(scene camera W H outDir stillName))
-        t.ok("png path" (src == (outDir + "/" + stillName)))
-
-        ; --- EVGElement image node ---
-        def imgEl:EVGElement (ThreeEvgSnapshot.toEvgImage(scene camera W H outDir stillName 400.0 400.0))
-        t.ok("evg element is image" (imgEl.isImage()))
-        t.ok("evg element src set" ((strlen imgEl.src) > 0))
-        t.ok("evg element width set" imgEl.width.isSet)
-
-        ; --- EVGDisplayList page + image (print seam) ---
         def pageW:double 480.0
         def pageH:double 560.0
         def margin:double 40.0
-        def imgBox:double 400.0
-        def dl:EVGDisplayList (ThreeEvgSnapshot.toDisplayList(scene camera W H outDir stillName pageW pageH margin margin imgBox imgBox))
-        t.ok("display list has page+image" ((dl.count()) == 2))
-        def imgCmd:EVGDrawCmd (dl.at(1))
-        t.ok("display list image kind" (imgCmd.kind == 2))
-        t.ok("display list image src" ((strlen imgCmd.src) > 0))
 
-        ; --- SoftCanvas print-page composite (visual proof for reviewers) ---
-        def page:SoftCanvas (new SoftCanvas)
-        page.init((to_int pageW) (to_int pageH))
-        page.clear(248 246 242)
-        def still:ImageBuffer (ThreeEvgSnapshot.toImage(scene camera W H))
-        page.blitImageRectScaled(still 0 0 W H (to_int margin) (to_int margin) (to_int imgBox) (to_int imgBox))
-        def pageRb:RasterBuffer (new RasterBuffer)
-        pageRb.width = (page.getWidth())
-        pageRb.height = (page.getHeight())
-        pageRb.pixels = (page.raw())
-        def enc:PNGEncoder (new PNGEncoder)
-        enc.encode(pageRb outDir printName)
-        t.ok("print page written" true)
+        ; --- vector backend collects projected triangles ---
+        def backend:ThreeEvgVectorBackend (ThreeEvgSnapshot.renderVector(scene camera imgW imgH margin margin))
+        t.ok(("collected triangles (" + (to_string (backend.triangleCount())) + ")") ((backend.triangleCount()) >= 12))
+
+        ; --- EVGDisplayList is PATH polygons, not IMAGE ---
+        def dl:EVGDisplayList (backend.toDisplayList(pageW pageH))
+        def paths:int (ThreeEvgSnapshotTest.countPathCmds(dl))
+        t.ok(("display list has PATH cmds (" + (to_string paths) + ")") (paths >= 12))
+        t.ok("no IMAGE cmd in vector list" true)
+        def i:int 0
+        def sawImage:boolean false
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 2) {
+                sawImage = true
+            }
+            i = (i + 1)
+        }
+        t.ok("vector list has no IMAGE" (sawImage == false))
+        def firstPath:EVGDrawCmd (dl.at(2))
+        t.ok("path has 3 vertices" ((array_length firstPath.pts) == 6))
+
+        ; --- SVG is true vector ---
+        def svgPath:string (ThreeEvgSnapshot.toSvgFile(scene camera imgW imgH pageW pageH margin margin outDir svgName))
+        t.ok("svg path" (svgPath == (outDir + "/" + svgName)))
+        def svg:string (buffer_to_string (buffer_read_file outDir svgName))
+        t.ok("svg has path elements" ((indexOf svg "<path d=") >= 0))
+        t.ok("svg has no embedded raster" ((indexOf svg "data:image") < 0))
+
+        ; --- page PNG preview via AA polygon fill (page resolution) ---
+        def pngPath:string (ThreeEvgSnapshot.toVectorPng(scene camera imgW imgH (to_int pageW) (to_int pageH) (to_int margin) (to_int margin) outDir printName))
+        t.ok("vector png path" (pngPath == (outDir + "/" + printName)))
 
         print "== summary =="
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))

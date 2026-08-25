@@ -13,6 +13,7 @@ data_folder/
 # The book editor's screenshots are documentation — the README shows them.
 !gallery/book/artifacts/*.png
 !gallery/game_engine/three/artifacts/*.png
+!gallery/game_engine/three/artifacts/*.svg
 !gallery/game_engine/scripting/assets/**
 !gallery/game_engine/games/**/assets/**
 !gallery/game_engine/games/**/sprites/**
