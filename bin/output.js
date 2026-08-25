@@ -25193,7 +25193,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return rpRes;
             };
             rustReceiverKnownShared (fc, ctx) {
-              if ( (fc.ns.length) != 2 ) {
+              let rksTwoName = false;
+              if ( (fc.ns.length) == 2 ) {
+                if ( (fc.ns[0]) != "this" ) {
+                  rksTwoName = true;
+                }
+              }
+              if ( ((fc.ns.length) != 2) || rksTwoName ) {
                 const rksPathC = this.rustReceiverPathClass(fc, ctx);
                 if ( typeof(rksPathC) === "undefined" ) {
                   return false;
@@ -25676,7 +25682,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( ctx.isInLhs() ) {
                                   wr.out(".as_mut().unwrap()", false);
                                 } else {
-                                  wr.out(".as_mut().unwrap()", false);
+                                  if ( this.rust_writing_call_receiver && this.rust_receiver_shared_known ) {
+                                    wr.out(".as_ref().unwrap()", false);
+                                  } else {
+                                    wr.out(".as_mut().unwrap()", false);
+                                  }
                                 }
                               }
                               if ( optSegShared ) {

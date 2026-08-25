@@ -1197,7 +1197,17 @@ class RangerRustClassWriter {
   ; it — an extension, an inherited copy — is unknown, and unknown means the
   ; mutable borrow, which always type-checks.
   fn rustReceiverKnownShared:boolean (fc:CodeNode ctx:RangerAppWriterContext) {
-    if ((array_length fc.ns) != 2) {
+    ; a two-segment path whose root is not `this` is a call on a NAME —
+    ; `huffman.getDCTable(…)`, `entry.getName()`. It was falling through to
+    ; the self-call branch below and answering "unknown", which takes the
+    ; mutable borrow everywhere.
+    def rksTwoName:boolean false
+    if ((array_length fc.ns) == 2) {
+      if ((itemAt fc.ns 0) != "this") {
+        rksTwoName = true
+      }
+    }
+    if (((array_length fc.ns) != 2) || rksTwoName) {
       ; a call through a FIELD — `this.langWriter.WriteScalarValue(…)`. The
       ; receiver's own class answers, and for a trait family that is one
       ; answer for every member.
@@ -1816,8 +1826,17 @@ class RangerRustClassWriter {
                   if (ctx.isInLhs()) {
                     wr.out(".as_mut().unwrap()" false)
                   } {
-                    ; Default to as_mut for safety (methods might mutate)
-                    wr.out(".as_mut().unwrap()" false)
+                    ; …and a call RECEIVER takes the borrow the callee needs.
+                    ; `as_mut()` there asks for `&mut self` from a method the
+                    ; analysis proved does not need one, and the two used to
+                    ; disagree; where the callee is positively known to take
+                    ; `&self`, the shared form is what it wants. Everything
+                    ; else keeps the mutable default.
+                    if (rust_writing_call_receiver && rust_receiver_shared_known) {
+                      wr.out(".as_ref().unwrap()" false)
+                    } {
+                      wr.out(".as_mut().unwrap()" false)
+                    }
                   }
                 }
                 if optSegShared {
