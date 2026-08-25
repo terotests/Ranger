@@ -24489,6 +24489,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         return true;
                       }
                     }
+                    if ( (pN.key_type.length) == 0 ) {
+                      if ( ((pN.type_name == "buffer") || (pN.type_name == "int_buffer")) || (pN.type_name == "double_buffer") ) {
+                        return true;
+                      }
+                    }
                   }
                 }
               }
@@ -32201,6 +32206,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     rhs_is_array = true;
                                   }
                                   if ( (rv_type == 7) || ((rnn.key_type.length) > 0) ) {
+                                    rhs_is_object = true;
+                                    rhs_is_array = true;
+                                  }
+                                  if ( ((rv_type == 16) || (rv_type == 17)) || (rv_type == 18) ) {
+                                    rhs_is_object = true;
+                                    rhs_is_array = true;
+                                  }
+                                  if ( rv_type == 15 ) {
                                     rhs_is_object = true;
                                     rhs_is_array = true;
                                   }
@@ -58308,6 +58321,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.mutatingOps["removeIndex"] = true;
                             this.mutatingOps["removeLast"] = true;
                             this.mutatingOps["removeFirst"] = true;
+                            this.mutatingOps["set_at"] = true;
+                            this.mutatingOps["remove_index"] = true;
+                            this.mutatingOps["array_extract"] = true;
+                            this.mutatingOps["pushString"] = true;
+                            this.mutatingOps["map_clear"] = true;
+                            this.mutatingOps["insert"] = true;
+                            this.mutatingOps["nullify"] = true;
+                            this.mutatingOps["str_append"] = true;
                             this.mutatingOps["put"] = true;
                           };
                           isMutatingOperator (opName) {

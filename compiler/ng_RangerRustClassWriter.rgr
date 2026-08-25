@@ -290,6 +290,15 @@ class RangerRustClassWriter {
               return true
             }
           }
+          ; …and a BUFFER, which writeArgsDef gives the same slice form. It
+          ; carries its element type in the type name rather than in
+          ; array_type, so the test above never saw one: `bytes.clone()` on
+          ; a `&[u8]` is another `&[u8]`, and the owned sink wanted a Vec.
+          if ((strlen pN.key_type) == 0) {
+            if (((pN.type_name == "buffer") || (pN.type_name == "int_buffer")) || (pN.type_name == "double_buffer")) {
+              return true
+            }
+          }
         }
       }
     }
@@ -9725,6 +9734,18 @@ class RangerRustClassWriter {
           ; a Hash is a plain HashMap the same way (phantom-optional),
           ; and clones like an array when read whole
           if ((rv_type == RangerNodeType.Hash) || ((strlen rnn.key_type) > 0)) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+          ; …and a BUFFER is a Vec too. Reading one out of a borrow moves
+          ; it — `out.imageBytes = shape.imageBytes` was "cannot move out
+          ; of dereference of `Ref<'_, T>`" while the String field beside
+          ; it cloned.
+          if (((rv_type == RangerNodeType.Buffer) || (rv_type == RangerNodeType.IntBuffer)) || (rv_type == RangerNodeType.DoubleBuffer)) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+          if (rv_type == RangerNodeType.CharBuffer) {
             rhs_is_object = true
             rhs_is_array = true
           }
