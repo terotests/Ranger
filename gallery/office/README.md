@@ -215,6 +215,10 @@ delegates to it.
 
 ## What goes here next
 
+> **Beyond OOXML.** [`PLAN_FORMATS.md`](../../PLAN_FORMATS.md) is the phased
+> plan for the formats after DOCX/XLSX/PPTX, and for `OfficeScene` — the
+> resolved layer several of them converge on.
+
 The order below is by leverage. See [`gallery/ooxml/README.md`](../ooxml/README.md)
 for the full roadmap and what each item is worth.
 

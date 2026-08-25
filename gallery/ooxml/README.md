@@ -93,6 +93,11 @@ hand-written readers could hold.
 
 ## What goes here next
 
+> **Beyond OOXML.** The plan for ODF, PDF, HTML/CSS, EPUB and the data
+> formats — and for the encoding layer they all need first — is
+> [`PLAN_FORMATS.md`](../../PLAN_FORMATS.md) in the repository root. It extends
+> this roadmap; the items below are what it starts from.
+
 The order below is by leverage, not by size. Each entry names what exists in
 the repo today, so the work starts from the real code rather than from a
 diagram.
