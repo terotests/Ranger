@@ -1,0 +1,128 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_evg_snapshot — Three.js scene → static image for EVG print targets.
+; ==============================================================================
+;
+; Renders a ThreeScene once through ThreeWebGLRenderer's software backend and
+; turns the RGB frame into assets EVG already understands:
+;
+;   • RasterBuffer / ImageBuffer  — for SoftCanvas blit or further raster work
+;   • PNG on disk                 — for <Image src="…"> / EVGPDFRenderer /
+;                                   EVGDisplayList.addImage (path-based)
+;   • EVGElement.createImg()      — ready to drop into an EVGElement tree
+;   • EVGDisplayList              — page background + image command for painters
+;
+; This is the print / still-image path (books, PDF, PNG tools), the inverse of
+; the interactive EVG-over-Three GUI overlay (IDEAL_TEAPOT.md). Software
+; backend is intentionally unlit (flat colour × texture); use it for
+; deterministic headless stills.
+; ==============================================================================
+
+Import "three_webgl_renderer.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGUnit.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+
+class ThreeEvgSnapshot {
+    ; Expand software-backend RGB (w*h*3) into an opaque RGBA RasterBuffer.
+    sfn rgbToRaster:RasterBuffer (rgb:buffer w:int h:int) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.create(w h)
+        def n:int (w * h)
+        def i:int 0
+        while (i < n) {
+            def so:int (i * 3)
+            def doff:int (i * 4)
+            buffer_set rb.pixels doff (buffer_get rgb so)
+            buffer_set rb.pixels (doff + 1) (buffer_get rgb (so + 1))
+            buffer_set rb.pixels (doff + 2) (buffer_get rgb (so + 2))
+            buffer_set rb.pixels (doff + 3) 255
+            i = (i + 1)
+        }
+        return rb
+    }
+
+    ; Same expansion into ImageBuffer (SoftCanvas.blitImage).
+    sfn rgbToImage:ImageBuffer (rgb:buffer w:int h:int) {
+        def img:ImageBuffer (new ImageBuffer)
+        img.initClear(w h)
+        def n:int (w * h)
+        def i:int 0
+        while (i < n) {
+            def so:int (i * 3)
+            def doff:int (i * 4)
+            buffer_set img.pixels doff (buffer_get rgb so)
+            buffer_set img.pixels (doff + 1) (buffer_get rgb (so + 1))
+            buffer_set img.pixels (doff + 2) (buffer_get rgb (so + 2))
+            buffer_set img.pixels (doff + 3) 255
+            i = (i + 1)
+        }
+        return img
+    }
+
+    ; One software frame of the scene. Caller owns the returned buffer (RGB).
+    sfn renderRgb:buffer (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int) {
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setSize(w h)
+        renderer.render(scene camera)
+        return (renderer.raw())
+    }
+
+    ; Scene → RasterBuffer (RGBA), ready for PNGEncoder / SoftCanvas.
+    sfn toRaster:RasterBuffer (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int) {
+        def rgb:buffer (ThreeEvgSnapshot.renderRgb(scene camera w h))
+        return (ThreeEvgSnapshot.rgbToRaster(rgb w h))
+    }
+
+    ; Scene → ImageBuffer for SoftCanvas.blitImage without a file round-trip.
+    sfn toImage:ImageBuffer (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int) {
+        def rgb:buffer (ThreeEvgSnapshot.renderRgb(scene camera w h))
+        return (ThreeEvgSnapshot.rgbToImage(rgb w h))
+    }
+
+    ; Scene → PNG file (opaque RGB colour type). Path is dir/file.
+    ; Returns the joined path string EVG Image / DisplayList sources expect.
+    sfn toPng:string (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int dir:string file:string) {
+        def rb:RasterBuffer (ThreeEvgSnapshot.toRaster(scene camera w h))
+        def enc:PNGEncoder (new PNGEncoder)
+        enc.encode(rb dir file)
+        if ((strlen dir) == 0) {
+            return file
+        }
+        if (dir == ".") {
+            return file
+        }
+        return (dir + "/" + file)
+    }
+
+    ; Scene → PNG on disk + EVGElement.createImg() pointing at that path.
+    ; displayW/displayH are the laid-out box size in the EVG tree (may differ
+    ; from the render resolution w×h for print scale).
+    sfn toEvgImage:EVGElement (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int dir:string file:string displayW:double displayH:double) {
+        def src:string (ThreeEvgSnapshot.toPng(scene camera w h dir file))
+        def el:EVGElement (EVGElement.createImg())
+        el.src = src
+        el.width = (EVGUnit.px(displayW))
+        el.height = (EVGUnit.px(displayH))
+        el.objectFit = "fill"
+        return el
+    }
+
+    ; Scene → EVGDisplayList: optional page fill + image at (x,y,dw,dh).
+    ; Writes the PNG beside the document assets so painters resolve `src`.
+    sfn toDisplayList:EVGDisplayList (scene:ThreeScene camera:ThreePerspectiveCamera w:int h:int dir:string file:string pageW:double pageH:double imgX:double imgY:double imgW:double imgH:double) {
+        def src:string (ThreeEvgSnapshot.toPng(scene camera w h dir file))
+        def dl:EVGDisplayList (new EVGDisplayList)
+        def bg:EVGColor (EVGColor.rgb(255 255 255))
+        dl.addRect(0.0 0.0 pageW pageH bg)
+        dl.addImage(src imgX imgY imgW imgH false false 0.0)
+        return dl
+    }
+}

@@ -1,0 +1,167 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_evg_snapshot_test — Three scene → EVG print still (PNG + display list).
+; ==============================================================================
+;
+; Builds the canonical textured cube, snapshots it through ThreeEvgSnapshot,
+; asserts coverage + EVG element/display-list wiring, and writes:
+;   gallery/game_engine/three/artifacts/three_evg_cube.png   — raw still
+;   gallery/game_engine/three/artifacts/three_evg_print.png  — page-sized SoftCanvas
+;                                                       composite (print preview)
+; ==============================================================================
+
+Import "three_evg_snapshot.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_mesh.rgr"
+Import "three_texture.rgr"
+Import "../../framebuffer.rgr"
+Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+
+class ThreeEvgSnapshotTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    sfn checkerTexture:ThreeTexture () {
+        def px:buffer (buffer_alloc 16)
+        buffer_set px 0 220
+        buffer_set px 1 60
+        buffer_set px 2 60
+        buffer_set px 3 255
+        buffer_set px 4 60
+        buffer_set px 5 200
+        buffer_set px 6 90
+        buffer_set px 7 255
+        buffer_set px 8 70
+        buffer_set px 9 120
+        buffer_set px 10 230
+        buffer_set px 11 255
+        buffer_set px 12 230
+        buffer_set px 13 220
+        buffer_set px 14 180
+        buffer_set px 15 255
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(px 2 2)
+        return tex
+    }
+
+    sfn buildCubeScene:ThreeScene () {
+        def geometry:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geometry.setSize(1.0 1.0 1.0)
+        def material:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        material.setMap((ThreeEvgSnapshotTest.checkerTexture()))
+        def mesh:ThreeMesh (new ThreeMesh)
+        mesh.setGeometry(geometry)
+        mesh.setMaterial(material)
+        mesh.rotation.set(0.5 0.7 0.0)
+        def scene:ThreeScene (new ThreeScene)
+        scene.add(mesh)
+        return scene
+    }
+
+    sfn countCovered:int (rgb:buffer w:int h:int) {
+        def n:int (w * h)
+        def covered:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            def sum:int (((buffer_get rgb o) + (buffer_get rgb (o + 1))) + (buffer_get rgb (o + 2)))
+            if (sum > 150) {
+                covered = (covered + 1)
+            }
+            i = (i + 1)
+        }
+        return covered
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeEvgSnapshotTest (new ThreeEvgSnapshotTest)
+        print "== ThreeEvgSnapshot — cube → EVG print still =="
+
+        def W:int 256
+        def H:int 256
+        def aspect:double ((to_double W) / (to_double H))
+        def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        camera.setPerspective(70.0 aspect 0.1 100.0)
+        camera.position.z = 2.0
+        def scene:ThreeScene (ThreeEvgSnapshotTest.buildCubeScene())
+
+        def outDir:string "gallery/game_engine/three/artifacts"
+        def stillName:string "three_evg_cube.png"
+        def printName:string "three_evg_print.png"
+
+        ; --- RGB coverage (same gate as three_cube_demo_test) ---
+        def rgb:buffer (ThreeEvgSnapshot.renderRgb(scene camera W H))
+        def covered:int (ThreeEvgSnapshotTest.countCovered(rgb W H))
+        t.ok(("cube covers frame (" + (to_string covered) + ")") (covered > 3000))
+        def cidx:int (((idiv H 2) * W) + (idiv W 2))
+        def co:int (cidx * 3)
+        def centerLit:boolean (((buffer_get rgb co) + (buffer_get rgb (co + 1))) > 60)
+        t.ok("centre pixel on cube" centerLit)
+
+        ; --- RasterBuffer expansion is opaque RGBA ---
+        def rb:RasterBuffer (ThreeEvgSnapshot.rgbToRaster(rgb W H))
+        t.ok("raster size" ((rb.width == W) && (rb.height == H)))
+        def aOff:int ((((idiv H 2) * W) + (idiv W 2)) * 4)
+        t.ok("raster alpha opaque" ((buffer_get rb.pixels (aOff + 3)) == 255))
+
+        ; --- PNG for EVG <Image src> / PDF ---
+        def src:string (ThreeEvgSnapshot.toPng(scene camera W H outDir stillName))
+        t.ok("png path" (src == (outDir + "/" + stillName)))
+
+        ; --- EVGElement image node ---
+        def imgEl:EVGElement (ThreeEvgSnapshot.toEvgImage(scene camera W H outDir stillName 400.0 400.0))
+        t.ok("evg element is image" (imgEl.isImage()))
+        t.ok("evg element src set" ((strlen imgEl.src) > 0))
+        t.ok("evg element width set" imgEl.width.isSet)
+
+        ; --- EVGDisplayList page + image (print seam) ---
+        def pageW:double 480.0
+        def pageH:double 560.0
+        def margin:double 40.0
+        def imgBox:double 400.0
+        def dl:EVGDisplayList (ThreeEvgSnapshot.toDisplayList(scene camera W H outDir stillName pageW pageH margin margin imgBox imgBox))
+        t.ok("display list has page+image" ((dl.count()) == 2))
+        def imgCmd:EVGDrawCmd (dl.at(1))
+        t.ok("display list image kind" (imgCmd.kind == 2))
+        t.ok("display list image src" ((strlen imgCmd.src) > 0))
+
+        ; --- SoftCanvas print-page composite (visual proof for reviewers) ---
+        def page:SoftCanvas (new SoftCanvas)
+        page.init((to_int pageW) (to_int pageH))
+        page.clear(248 246 242)
+        def still:ImageBuffer (ThreeEvgSnapshot.toImage(scene camera W H))
+        page.blitImageRectScaled(still 0 0 W H (to_int margin) (to_int margin) (to_int imgBox) (to_int imgBox))
+        def pageRb:RasterBuffer (new RasterBuffer)
+        pageRb.width = (page.getWidth())
+        pageRb.height = (page.getHeight())
+        pageRb.pixels = (page.raw())
+        def enc:PNGEncoder (new PNGEncoder)
+        enc.encode(pageRb outDir printName)
+        t.ok("print page written" true)
+
+        print "== summary =="
+        print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
+        if (t.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

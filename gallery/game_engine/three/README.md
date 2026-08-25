@@ -85,6 +85,21 @@ so there is no GPU code in the core:
 `three_cube_demo_test.rgr` builds the canonical cube in the Three.js API shape and
 renders it with the software backend (writes `/tmp/three_cube.ppm`).
 
+### EVG print stills (`ThreeEvgSnapshot`)
+
+`three_evg_snapshot.rgr` turns a rendered frame into assets the EVG print
+pipeline already consumes (path-based `<Image src>` / PDF / display list):
+
+```ranger
+def src:string (ThreeEvgSnapshot.toPng(scene camera 512 512 "assets" "cube.png"))
+def el:EVGElement (ThreeEvgSnapshot.toEvgImage(scene camera 512 512 "assets" "cube.png" 400.0 400.0))
+def dl:EVGDisplayList (ThreeEvgSnapshot.toDisplayList(scene camera 512 512 "assets" "cube.png" 480.0 560.0 40.0 40.0 400.0 400.0))
+```
+
+`three_evg_snapshot_test.rgr` (in `run.sh`) asserts coverage + EVG wiring and
+writes `three/artifacts/three_evg_cube.png` plus a page composite
+`three/artifacts/three_evg_print.png`.
+
 ## The 1:1 Three.js cube runs in the TSX interpreter (façade PoC)
 
 `tsx/three.tsx` is a **thin façade** (plain THREE.* data classes) and `tsx/cube.tsx`

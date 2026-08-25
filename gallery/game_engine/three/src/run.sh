@@ -78,6 +78,8 @@ run_suite three_cube_texture_test
 run_suite three_sky_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
+# Three scene → PNG + EVGElement / EVGDisplayList for print (PDF/PNG) targets.
+run_suite three_evg_snapshot_test
 run_suite three_gl_backend_test
 # The single-truth host registry (THREE_BRIDGE.md): every front-end commands this
 # one registry by integer handle; no front-end owns Three objects privately.
