@@ -831,6 +831,32 @@ const JsApi = {
   },
 };
 
+/**
+ * The deck as it stands, which is not the same as the deck the code produced.
+ *
+ * The editor on the right is LIVE: drag a shape, type in one, insert one, and
+ * the deck has changed — in the editor. `deckBytes` is the output of the last
+ * Run and knows nothing about any of it, so exporting from it silently threw
+ * away everything the reader had done by hand. Download, PNG and PDF all ask
+ * the editor instead, and the editor is the thing they were looking at.
+ *
+ * `saveBytes` answers an ArrayBuffer; the callers want bytes.
+ */
+function currentBytes() {
+  if (web) {
+    try {
+      const raw = web.saveBytes();
+      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw || []);
+      if (bytes.length > 0) return bytes;
+    } catch (err) {
+      // An editor with nothing open cannot save, which is not a failure worth
+      // a message — fall through to whatever the last Run produced.
+      console.warn("the editor could not save; exporting the last run instead:", err);
+    }
+  }
+  return deckBytes;
+}
+
 function saveFile(name, bytes, mime) {
   const blob = new Blob([bytes], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -961,19 +987,22 @@ async function boot() {
     const name = sourceName
       ? sourceName.replace(/\.pptx$/i, "") + "-edited.pptx"
       : "playground.pptx";
-    if (deckBytes) saveFile(name, deckBytes,
+    const bytes = currentBytes();
+    if (bytes) saveFile(name, bytes,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation");
   });
   $("png").addEventListener("click", () => {
-    if (!deckBytes) return;
-    const d = PptxApi.open(toRanger(deckBytes));
+    const bytes = currentBytes();
+    if (!bytes) return;
+    const d = PptxApi.open(toRanger(bytes));
     const png = fromRanger(renderer.toPng(d, slideIndex, 2.0));
     if (png.length) saveFile(`slide-${slideIndex + 1}.png`, png, "image/png");
     else fail(renderer.error || "the slide could not be drawn");
   });
   $("pdf").addEventListener("click", () => {
-    if (!deckBytes) return;
-    const d = PptxApi.open(toRanger(deckBytes));
+    const bytes = currentBytes();
+    if (!bytes) return;
+    const d = PptxApi.open(toRanger(bytes));
     const pdf = fromRanger(renderer.toPdfDeck(d));
     if (pdf.length) saveFile("playground.pdf", pdf, "application/pdf");
     else fail(renderer.error || "the deck could not be printed");

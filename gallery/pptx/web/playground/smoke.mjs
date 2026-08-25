@@ -411,6 +411,49 @@ ok("and the blank-deck examples come back",
   cleared.options.includes("A title slide") && !cleared.options.includes("What is in this deck?"));
 ok("and nothing of the file is left on screen", /\d+ \/ 1/.test(cleared.where));
 
+// --- what the buttons export is what is ON SCREEN --------------------------
+//
+// The editor on the right is live: a reader can drag a shape, type into one,
+// insert one. Those edits live in the EDITOR, and the page used to export the
+// bytes the last Run produced — so anything done by hand was silently dropped
+// on Download, PNG and PDF. What is checked here is the whole click path: the
+// download is intercepted at `URL.createObjectURL` and the blob is opened with
+// the API, so the assertion is about the file a reader would actually get.
+const exported = await page.evaluate(async () => {
+  // Start from a known deck, then edit it by hand the way a reader would.
+  const sel = document.getElementById("preset");
+  sel.value = "A title slide";
+  sel.dispatchEvent(new Event("change"));
+  document.getElementById("run").click();
+  await new Promise((r) => setTimeout(r, 800));
+  const web = window.__pptxWeb;
+  const wasCount = window.__jsApi.open(web.saveBytes()).slide(0).shapeCount;
+
+  web.run("edit.toggle", "");
+  web.run("shape.rect", "");            // a shape only the EDITOR knows about
+  await new Promise((r) => setTimeout(r, 300));
+
+  // Observe the download without breaking it. Returning a made-up URL here
+  // makes the browser log "Not allowed to load local resource", which then
+  // shows up as the page throwing — so the real URL is still handed back and
+  // only the blob is kept.
+  const realUrl = URL.createObjectURL.bind(URL);
+  let caught = null;
+  URL.createObjectURL = (blob) => { caught = blob; return realUrl(blob); };
+  document.getElementById("download").click();
+  URL.createObjectURL = realUrl;
+  if (!caught) return { error: "nothing was offered for download" };
+
+  const bytes = new Uint8Array(await caught.arrayBuffer());
+  const d = window.__jsApi.open(bytes);
+  return { wasCount, nowCount: d.slide(0).shapeCount, length: bytes.length,
+           zip: bytes[0] === 0x50 && bytes[1] === 0x4b };
+});
+ok("Download offers a .pptx", exported.zip && exported.length > 2000);
+ok("and it carries the edit made by hand in the editor",
+  exported.nowCount === exported.wasCount + 1);
+if (exported.error) console.log("  " + exported.error);
+
 // A 404 for the page's own favicon is the browser asking, not the page
 // failing; anything else the page requested and did not get is a real hole.
 const realMissing = missing.filter((m) => m !== "favicon.ico");
