@@ -2904,6 +2904,17 @@ class PptxApp {
                         def local:[double] (PptxToEvg.rotateAbout(dx dy 0.0 0.0 (0.0 - deg)))
                         ldx = (itemAt local 0)
                         ldy = (itemAt local 1)
+                    } {
+                        ; Square to the slide, so the edge under the hand can be
+                        ; lined up with the other shapes and with the grid, and
+                        ; a guide drawn where it landed — the same help moving a
+                        ; shape has always had. A TURNED box is resized in its
+                        ; own frame, where the snap lines mean nothing, so it is
+                        ; left alone rather than snapped to a line that is not
+                        ; where it looks.
+                        def fit:PptxEditRect (editor.snapResize(dragHandle dx dy))
+                        ldx = fit.x
+                        ldy = fit.y
                     }
                     editor.applyResize(dragHandle ldx ldy)
                     dragLastX = sx

@@ -520,6 +520,50 @@ class PptxEditHostTest {
             c.ok("the shape grew" (s4.width > w0))
         }
 
+        print "-- and a handle snaps to what is beside it --"
+        ; Moving a shape has always snapped to its neighbours and drawn a
+        ; guide. Resizing one snapped to nothing: a reader could line two
+        ; boxes up by dragging them and lose it again the moment they made one
+        ; wider, with nothing on screen to say how far out they were.
+        ;
+        ; Through the POINTER, because the arithmetic is covered in the editor
+        ; suite and what was missing here was the call — a resize drag that
+        ; simply never asked. A test of `snapResize` alone passes with this
+        ; call site deleted.
+        def snapApp:PptxApp (PptxEditHostTest.build())
+        def shapes6:[PptxShape] (snapApp.editor.editableShapes())
+        c.ok("the fixture has two shapes to line up" ((array_length shapes6) >= 2))
+        if ((array_length shapes6) >= 2) {
+            def s6a:PptxShape (itemAt shapes6 0)
+            def s6b:PptxShape (itemAt shapes6 1)
+            ; Put B's left edge a little to the right of A's right edge, so
+            ; dragging A's east handle out has something to land on.
+            def line:double (s6a.x + s6a.width)
+            s6b.x = (line + 4.0)
+            snapApp.editor.snapEnabled = true
+            snapApp.editor.select(s6a.editId)
+            def ex:int (PptxEditHostTest.screenX(snapApp line))
+            def ey:int (PptxEditHostTest.screenY(snapApp (s6a.y + (s6a.height * 0.5))))
+            c.ok("the east handle is where the edge is" ((snapApp.handleAt(ex ey)) == 3))
+            ; Two screen pixels out — inside the tolerance, so the edge should
+            ; land on the neighbour rather than where the pointer stopped.
+            snapApp.pointer(ex ey true true false)
+            snapApp.pointer((ex + 2) ey false true false)
+            def mid@(optional):PptxShape (snapApp.editor.findShape(s6a.editId))
+            if (!null? mid) {
+                def m6:PptxShape (unwrap mid)
+                def landed:double (m6.x + m6.width)
+                def off:double (landed - s6b.x)
+                if (off < 0.0) {
+                    off = (0.0 - off)
+                }
+                c.ok("the dragged edge lands on the neighbour" (off < 0.01))
+                c.ok("and a guide says where" ((array_length snapApp.editor.guideX) == 1))
+            }
+            snapApp.pointer((ex + 2) ey false false true)
+            c.ok("and the guide is put away when the hand lets go" ((array_length snapApp.editor.guideX) == 0))
+        }
+
         print "-- a caret inside a shape --"
         def app5:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
         def texts:[PptxShape] (app5.editor.editableShapes())

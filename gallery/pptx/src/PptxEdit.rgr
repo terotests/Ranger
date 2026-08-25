@@ -1382,6 +1382,81 @@ class PptxEditor {
         return (PptxEditRect.of((dx + ax) (dy + ay) 0.0 0.0))
     }
 
+    ; The same, for a handle rather than the whole shape.
+    ;
+    ; Moving a shape snaps all six of its edges and centres to whatever is
+    ; near; resizing snaps only the edges the HANDLE actually moves — the
+    ; right-hand handle cannot line the left edge up with anything, and
+    ; offering to is how a resize ends up dragging the far side of the box
+    ; about. So the candidates here are the one or two edges under the hand.
+    ;
+    ; Until this existed a resize snapped to nothing at all and drew no guide:
+    ; a reader could line two boxes up by dragging them and then lose it again
+    ; the moment they made one of them wider, with nothing on screen to say
+    ; how far out they were.
+    ;
+    ; `dx` and `dy` are on the SLIDE's axes, which is the only frame the snap
+    ; lines are in. A rotated box is resized in its own frame instead, so its
+    ; caller does not ask — see where this is called from.
+    ;
+    ; Handles, clockwise from the top-left: 0 nw, 1 n, 2 ne, 3 e, 4 se, 5 s,
+    ; 6 sw, 7 w — so 0, 6 and 7 move the left edge, 2, 3 and 4 the right, and
+    ; 1 and 5 neither. The same reading down: 0, 1 and 2 move the top, 4, 5
+    ; and 6 the bottom.
+    fn snapResize:PptxEditRect (handle:int dx:double dy:double) {
+        this.clearGuides()
+        if (snapEnabled == false) {
+            return (PptxEditRect.of(dx dy 0.0 0.0))
+        }
+        def b:PptxEditRect (this.selectionBounds())
+        if (b.w <= 0.0) {
+            return (PptxEditRect.of(dx dy 0.0 0.0))
+        }
+        def ex:[double]
+        if ((handle == 0) || (handle == 6) || (handle == 7)) {
+            push ex (b.x + dx)
+        }
+        if ((handle == 2) || (handle == 3) || (handle == 4)) {
+            push ex ((b.right()) + dx)
+        }
+        def ey:[double]
+        if ((handle == 0) || (handle == 1) || (handle == 2)) {
+            push ey (b.y + dy)
+        }
+        if ((handle == 4) || (handle == 5) || (handle == 6)) {
+            push ey ((b.bottom()) + dy)
+        }
+        def linesX:[double] (this.snapLinesX())
+        def linesY:[double] (this.snapLinesY())
+        if gridEnabled {
+            def gi:int 0
+            while (gi < (array_length ex)) {
+                push linesX (PptxEditor.snapToStep((itemAt ex gi) gridPt))
+                gi = (gi + 1)
+            }
+            def gj:int 0
+            while (gj < (array_length ey)) {
+                push linesY (PptxEditor.snapToStep((itemAt ey gj) gridPt))
+                gj = (gj + 1)
+            }
+        }
+        def ax:double 0.0
+        def ay:double 0.0
+        if ((array_length ex) > 0) {
+            ax = (PptxEditor.nearestSnap(ex linesX snapTolPt))
+        }
+        if ((array_length ey) > 0) {
+            ay = (PptxEditor.nearestSnap(ey linesY snapTolPt))
+        }
+        if ((fabs ax) > 0.0001) {
+            push guideX (PptxEditor.matchedLine(ex linesX snapTolPt))
+        }
+        if ((fabs ay) > 0.0001) {
+            push guideY (PptxEditor.matchedLine(ey linesY snapTolPt))
+        }
+        return (PptxEditRect.of((dx + ax) (dy + ay) 0.0 0.0))
+    }
+
     ; Handles, clockwise from the top-left: 0 nw, 1 n, 2 ne, 3 e, 4 se, 5 s,
     ; 6 sw, 7 w. A multiple selection scales inside its own box, so the shapes
     ; keep their arrangement.
