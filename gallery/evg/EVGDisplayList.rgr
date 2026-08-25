@@ -127,6 +127,58 @@ class EVGDrawCmd {
     }
 }
 
+; ==============================================================================
+; EVGSceneBinary — the same display list, as typed arrays instead of text
+; ==============================================================================
+;
+; `toJson` is the bridge every host has used to get a picture out of the
+; engine, and on a chart-heavy slide it is what the frame costs. Measured, one
+; slide of 10 084 commands and 88 656 point coordinates:
+;
+;     buildFrame      12 ms      the layout — the actual work
+;     toJson          62 ms      turning it into 1.47 MB of text
+;     JSON.parse      19 ms      the host turning that text back into objects
+;
+; Five sixths of a frame spent handing over a picture that took a sixth to
+; compute. And the text is not the cost either: assembling 1.47 MB with 200 000
+; concatenations is 3 ms, and formatting every number is 25. It is death by
+; half a million small operations, so no faster string writer would help.
+;
+; Typed arrays do not have the problem at all. `int_buffer` is an `Int32Array`
+; on the JavaScript target and a flat block of memory everywhere else; filling
+; 500 000 of them takes 3 ms, and the host reads the SAME array — nothing is
+; parsed, nothing is copied, nothing is allocated per command.
+;
+; WHY FIXED POINT. `toJson` writes two decimals and no more — `num` rounds to
+; hundredths — so a coordinate multiplied by 100 and rounded is not an
+; approximation of what the JSON carried, it is exactly it. The two bridges
+; therefore describe the same picture to the last unit, which is what lets a
+; test compare them field by field.
+;
+; WHY THE STRINGS ARE STILL STRINGS. There are 203 text runs and 1 158
+; characters in that same frame, against 88 656 coordinates. Text is a
+; rounding error in this payload; packing it into the array would cost more in
+; complexity than it saves in time, so a command carries an INDEX into a small
+; pool and the pool crosses as an array of strings.
+class EVGSceneBinary {
+    ; One fixed-size record per command; see `EVGDisplayList.STRIDE`.
+    def cmds:int_buffer (int_buffer_alloc 0)
+    ; Every ring's coordinates, in hundredths, one command's after another's.
+    def pts:int_buffer (int_buffer_alloc 0)
+    ; Where each command's rings stop, in the same order.
+    def ends:int_buffer (int_buffer_alloc 0)
+    ; The text, font, weight and image names a command names by index.
+    def strings:[string]
+    def count:int 0
+    def width:double 0.0
+    def height:double 0.0
+
+    Constructor () {
+        def s:[string]
+        strings = s
+    }
+}
+
 class EVGDisplayList {
     def cmds:[EVGDrawCmd]
     ; The same engine layout measured with. A paragraph is emitted one command
@@ -682,6 +734,164 @@ class EVGDisplayList {
     ; One flat array of commands. A backend needs no Ranger runtime to consume
     ; it, which is what lets the WebGL renderer be plain JavaScript while the
     ; SDL2 one is the same list decoded in C++.
+    ; How many ints one command occupies. Fixed, so a reader indexes rather
+    ; than walks: command `i` starts at `i * 24`.
+    sfn stride:int () {
+        return 24
+    }
+
+    ; A value in hundredths, which is the precision `num` writes and therefore
+    ; the precision the JSON bridge has always carried.
+    sfn fixed:int (v:double) {
+        if (v < 0.0) {
+            return (0 - (to_int (((0.0 - v) * 100.0) + 0.5)))
+        }
+        return (to_int ((v * 100.0) + 0.5))
+    }
+
+    ; Three channels in one int, because a colour is three bytes and an
+    ; Int32Array holds four.
+    sfn packRgb:int (r:int g:int b:int) {
+        return (((r * 65536) + (g * 256)) + b)
+    }
+
+    ; The display list as typed arrays. See the banner on `EVGSceneBinary`.
+    fn toBinary:EVGSceneBinary () {
+        def out (new EVGSceneBinary())
+        def n:int (array_length cmds)
+        out.count = n
+        def stride:int (EVGDisplayList.stride())
+        def totalPts:int 0
+        def totalEnds:int 0
+        def i:int 0
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            def pc:int (array_length c.pts)
+            totalPts = (totalPts + pc)
+            if (pc > 0) {
+                def ec:int (array_length c.ringEnds)
+                if (ec == 0) {
+                    ; One ring covering everything, which is what a command
+                    ; that set `pts` and no `ringEnds` means — the same rule
+                    ; `toJson` applies, and for the same reason.
+                    totalEnds = (totalEnds + 1)
+                } {
+                    totalEnds = (totalEnds + ec)
+                }
+            }
+            i = (i + 1)
+        }
+        def recs:int_buffer (int_buffer_alloc (n * stride))
+        def pbuf:int_buffer (int_buffer_alloc totalPts)
+        def ebuf:int_buffer (int_buffer_alloc totalEnds)
+        def pool:[string]
+        def poolIndex:[string:int]
+        def pAt:int 0
+        def eAt:int 0
+        def k:int 0
+        while (k < n) {
+            def c2:EVGDrawCmd (itemAt cmds k)
+            def base:int (k * stride)
+            int_buffer_set recs base c2.kind
+            int_buffer_set recs (base + 1) (EVGDisplayList.fixed(c2.x))
+            int_buffer_set recs (base + 2) (EVGDisplayList.fixed(c2.y))
+            int_buffer_set recs (base + 3) (EVGDisplayList.fixed(c2.w))
+            int_buffer_set recs (base + 4) (EVGDisplayList.fixed(c2.h))
+            int_buffer_set recs (base + 5) (EVGDisplayList.fixed(c2.radius))
+            int_buffer_set recs (base + 6) (EVGDisplayList.fixed(c2.thickness))
+            int_buffer_set recs (base + 7) (EVGDisplayList.packRgb(c2.r c2.g c2.b))
+            int_buffer_set recs (base + 8) (EVGDisplayList.fixed(c2.a))
+            def flags:int 0
+            if c2.hasGrad {
+                flags = (flags + 1)
+            }
+            if (c2.textAlign == "italic") {
+                flags = (flags + 2)
+            }
+            if c2.flipH {
+                flags = (flags + 4)
+            }
+            if c2.flipV {
+                flags = (flags + 8)
+            }
+            if c2.evenOdd {
+                flags = (flags + 16)
+            }
+            int_buffer_set recs (base + 9) flags
+            int_buffer_set recs (base + 10) c2.gradDir
+            int_buffer_set recs (base + 11) (EVGDisplayList.packRgb(c2.r2 c2.g2 c2.b2))
+            int_buffer_set recs (base + 12) (EVGDisplayList.fixed(c2.a2))
+            int_buffer_set recs (base + 13) (EVGDisplayList.fixed(c2.fontSize))
+            int_buffer_set recs (base + 14) (EVGDisplayList.fixed(c2.rotate))
+            ; A command with no text names none of the three text strings, and
+            ; `toJson` writes none of them either — so the reader must be able
+            ; to tell "no text" from "empty text", which -1 says and 0 would
+            ; not.
+            def textIdx:int (0 - 1)
+            def fontIdx:int (0 - 1)
+            def weightIdx:int (0 - 1)
+            if ((strlen c2.text) > 0) {
+                textIdx = (EVGDisplayList.intern(pool poolIndex c2.text))
+                fontIdx = (EVGDisplayList.intern(pool poolIndex c2.fontFamily))
+                if ((strlen c2.fontWeight) > 0) {
+                    weightIdx = (EVGDisplayList.intern(pool poolIndex c2.fontWeight))
+                }
+            }
+            int_buffer_set recs (base + 15) textIdx
+            int_buffer_set recs (base + 16) fontIdx
+            int_buffer_set recs (base + 17) weightIdx
+            def srcIdx:int (0 - 1)
+            if ((strlen c2.src) > 0) {
+                srcIdx = (EVGDisplayList.intern(pool poolIndex c2.src))
+            }
+            int_buffer_set recs (base + 18) srcIdx
+            def pc2:int (array_length c2.pts)
+            int_buffer_set recs (base + 19) pAt
+            int_buffer_set recs (base + 20) pc2
+            def eStart:int eAt
+            if (pc2 > 0) {
+                def pi:int 0
+                while (pi < pc2) {
+                    int_buffer_set pbuf (pAt + pi) (EVGDisplayList.fixed((itemAt c2.pts pi)))
+                    pi = (pi + 1)
+                }
+                pAt = (pAt + pc2)
+                def ec2:int (array_length c2.ringEnds)
+                if (ec2 == 0) {
+                    int_buffer_set ebuf eAt pc2
+                    eAt = (eAt + 1)
+                } {
+                    def ei:int 0
+                    while (ei < ec2) {
+                        int_buffer_set ebuf (eAt + ei) (itemAt c2.ringEnds ei)
+                        ei = (ei + 1)
+                    }
+                    eAt = (eAt + ec2)
+                }
+            }
+            int_buffer_set recs (base + 21) eStart
+            int_buffer_set recs (base + 22) (eAt - eStart)
+            k = (k + 1)
+        }
+        out.cmds = recs
+        out.pts = pbuf
+        out.ends = ebuf
+        out.strings = pool
+        return out
+    }
+
+    ; One entry per distinct string. A slide names the same font on every run
+    ; it has, so the pool is a fraction of the number of commands.
+    sfn intern:int (pool:[string] index:[string:int] value:string) {
+        if (has index value) {
+            return (unwrap (get index value))
+        }
+        def at:int (array_length pool)
+        push pool value
+        set index value at
+        return at
+    }
+
     fn toJson:string () {
         def out:string "{\"cmds\":["
         def i:int 0

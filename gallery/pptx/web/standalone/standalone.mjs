@@ -11,7 +11,7 @@
  * appear in the GL path at all now.
  */
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback } from "./gl/evg-webgl.js";
-import { attachPointer, attachKeys, createMediaCache } from "./host/pptx-host.mjs";
+import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -231,10 +231,15 @@ const refreshMedia = () => media.refresh();
 const imagesFor = (doc) => media.imagesFor(doc);
 
 async function draw() {
-  const text = web.scene();
-  if (text === lastScene) return;
-  lastScene = text;
-  const doc = JSON.parse(text);
+  // Typed arrays rather than 1.5 MB of JSON — see `decodeScene`. The frame is
+  // compared by its command count and its first command's geometry instead of
+  // by a string, because there is no string any more; a scene that really is
+  // unchanged still costs the layout, which is the sixth of the frame that is
+  // the actual work.
+  const doc = decodeScene(web.sceneBinary());
+  const stamp = sceneStamp(doc);
+  if (stamp === lastScene) return;
+  lastScene = stamp;
   sceneW = doc.width;
   sceneH = doc.height;
 

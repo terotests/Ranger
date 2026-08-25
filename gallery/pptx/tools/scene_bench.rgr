@@ -1,0 +1,76 @@
+Import "../src/PptxApp.rgr"
+
+; Where does a frame's time go: building the display list, or writing it out?
+;
+;   npm run pptx:scene:bench
+;
+; This is the measurement the binary scene bridge exists for, and the one that
+; answers a question the JavaScript side cannot: it splits the ENGINE's own
+; cost apart. On the six-slide chart deck, slide 2, 10 084 commands:
+;
+;     buildFrame   12 ms    the layout, which is the actual work
+;     toJson       62 ms    turning it into 1.47 MB of text
+;     toBinary      8 ms    filling the same frame into Int32Arrays
+;
+; Five sixths of a frame spent describing a picture that took a sixth to draw.
+; That is worth writing down because of what it rules out: the cost was never
+; the language or the layout, so porting the engine to WASM would not have
+; touched it — the same toJson would still have run, and across a WASM
+; boundary a megabyte of text costs MORE, not less. The bridge had to go first.
+;
+; The deck is built by tools/chart_deck.mjs from the playground's own preset,
+; so this measures the deck the playground actually produces.
+class SceneBench {
+    sfn main:void () {
+        def app (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def raw:buffer (buffer_read_file "gallery/pptx/bin" "chart_deck.pptx")
+        def ok:boolean (app.loadBytes(raw "chart_deck.pptx"))
+        if (ok == false) {
+            print "could not open gallery/pptx/bin/chart_deck.pptx — run `npm run pptx:scene:bench`, which builds it first"
+            return
+        }
+        app.resize(960 540)
+        app.gotoSlide(1)
+        def warm:int 0
+        while (warm < 3) {
+            def w:EVGDisplayList (app.buildFrame())
+            def wj:string (w.toJson())
+            warm = (warm + 1)
+        }
+        def rounds:int 10
+        def t0:double (wall_clock_ms)
+        def i:int 0
+        while (i < rounds) {
+            def dl:EVGDisplayList (app.buildFrame())
+            i = (i + 1)
+        }
+        def t1:double (wall_clock_ms)
+        def frame:EVGDisplayList (app.buildFrame())
+        def t2:double (wall_clock_ms)
+        def k:int 0
+        while (k < rounds) {
+            def js:string (frame.toJson())
+            k = (k + 1)
+        }
+        def t3:double (wall_clock_ms)
+        def text:string (frame.toJson())
+        ; The same frame, as typed arrays.
+        def tb0:double (wall_clock_ms)
+        def bi:int 0
+        def sink:int 0
+        while (bi < rounds) {
+            def bin:EVGSceneBinary (frame.toBinary())
+            sink = (sink + bin.count)
+            bi = (bi + 1)
+        }
+        def tb1:double (wall_clock_ms)
+        def one:EVGSceneBinary (frame.toBinary())
+        print ("commands   " + (to_string (array_length frame.cmds)))
+        print ("json       " + (to_string (idiv (strlen text) 1024)) + " KB")
+        print ("binary     " + (to_string (idiv (((int_buffer_length one.cmds) + (int_buffer_length one.pts) + (int_buffer_length one.ends)) * 4) 1024)) + " KB, " + (to_string (array_length one.strings)) + " strings")
+        print ("buildFrame " + (to_string (to_int ((t1 - t0) / (to_double rounds)))) + " ms")
+        print ("toJson     " + (to_string (to_int ((t3 - t2) / (to_double rounds)))) + " ms")
+        print ("toBinary   " + (to_string (to_int ((tb1 - tb0) / (to_double rounds)))) + " ms   (sink " + (to_string sink) + ")")
+    }
+}

@@ -14,7 +14,7 @@
  * a page that generated with one copy of the code and drew with another could
  * show a slide no reader would ever get.
  */
-import { attachPointer, attachKeys, createMediaCache } from "./host/pptx-host.mjs";
+import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback }
   from "./gl/evg-webgl.js";
 
@@ -400,10 +400,13 @@ const sceneSize = () => ({ width: sceneW, height: sceneH });
 
 async function draw() {
   if (!web) return;
-  const text = web.scene();
-  if (text === lastScene) return;
-  lastScene = text;
-  const doc = JSON.parse(text);
+  // Typed arrays rather than JSON — see `decodeScene` in the host module. The
+  // frame is told from the one before it by `sceneStamp`, because there is no
+  // string left to compare.
+  const doc = decodeScene(web.sceneBinary());
+  const stamp = sceneStamp(doc);
+  if (stamp === lastScene) return;
+  lastScene = stamp;
   sceneW = doc.width;
   sceneH = doc.height;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);

@@ -5455,6 +5455,19 @@ class EVGDrawCmd  {
     return "STROKE";
   };
 }
+class EVGSceneBinary  {
+  constructor() {
+    this.cmds = new Int32Array(0);
+    this.pts = new Int32Array(0);
+    this.ends = new Int32Array(0);
+    this.strings = [];
+    this.count = 0;
+    this.width = 0.0;     /** note: unused */
+    this.height = 0.0;     /** note: unused */
+    let s_1 = [];
+    this.strings = s_1;
+  }
+}
 class EVGDisplayList  {
   constructor() {
     this.cmds = [];
@@ -5915,6 +5928,122 @@ class EVGDisplayList  {
       this.cmds.push(pp);
     }
   };
+  toBinary () {
+    const out = new EVGSceneBinary();
+    const n = this.cmds.length;
+    out.count = n;
+    const stride = EVGDisplayList.stride();
+    let totalPts = 0;
+    let totalEnds = 0;
+    let i = 0;
+    while (i < n) {
+      const c = this.cmds[i];
+      const pc = c.pts.length;
+      totalPts = totalPts + pc;
+      if ( pc > 0 ) {
+        const ec = c.ringEnds.length;
+        if ( ec == 0 ) {
+          totalEnds = totalEnds + 1;
+        } else {
+          totalEnds = totalEnds + ec;
+        }
+      }
+      i = i + 1;
+    };
+    let recs = new Int32Array((n * stride));
+    let pbuf = new Int32Array(totalPts);
+    let ebuf = new Int32Array(totalEnds);
+    let pool = [];
+    let poolIndex = {};
+    let pAt = 0;
+    let eAt = 0;
+    let k = 0;
+    while (k < n) {
+      const c2 = this.cmds[k];
+      const base = k * stride;
+      recs[base] = c2.kind;
+      recs[base + 1] = EVGDisplayList.fixed(c2.x);
+      recs[base + 2] = EVGDisplayList.fixed(c2.y);
+      recs[base + 3] = EVGDisplayList.fixed(c2.w);
+      recs[base + 4] = EVGDisplayList.fixed(c2.h);
+      recs[base + 5] = EVGDisplayList.fixed(c2.radius);
+      recs[base + 6] = EVGDisplayList.fixed(c2.thickness);
+      recs[base + 7] = EVGDisplayList.packRgb(c2.r, c2.g, c2.b);
+      recs[base + 8] = EVGDisplayList.fixed(c2.a);
+      let flags = 0;
+      if ( c2.hasGrad ) {
+        flags = flags + 1;
+      }
+      if ( c2.textAlign == "italic" ) {
+        flags = flags + 2;
+      }
+      if ( c2.flipH ) {
+        flags = flags + 4;
+      }
+      if ( c2.flipV ) {
+        flags = flags + 8;
+      }
+      if ( c2.evenOdd ) {
+        flags = flags + 16;
+      }
+      recs[base + 9] = flags;
+      recs[base + 10] = c2.gradDir;
+      recs[base + 11] = EVGDisplayList.packRgb(c2.r2, c2.g2, c2.b2);
+      recs[base + 12] = EVGDisplayList.fixed(c2.a2);
+      recs[base + 13] = EVGDisplayList.fixed(c2.fontSize);
+      recs[base + 14] = EVGDisplayList.fixed(c2.rotate);
+      let textIdx = 0 - 1;
+      let fontIdx = 0 - 1;
+      let weightIdx = 0 - 1;
+      if ( (c2.text.length) > 0 ) {
+        textIdx = EVGDisplayList.intern(pool, poolIndex, c2.text);
+        fontIdx = EVGDisplayList.intern(pool, poolIndex, c2.fontFamily);
+        if ( (c2.fontWeight.length) > 0 ) {
+          weightIdx = EVGDisplayList.intern(pool, poolIndex, c2.fontWeight);
+        }
+      }
+      recs[base + 15] = textIdx;
+      recs[base + 16] = fontIdx;
+      recs[base + 17] = weightIdx;
+      let srcIdx = 0 - 1;
+      if ( (c2.src.length) > 0 ) {
+        srcIdx = EVGDisplayList.intern(pool, poolIndex, c2.src);
+      }
+      recs[base + 18] = srcIdx;
+      const pc2 = c2.pts.length;
+      recs[base + 19] = pAt;
+      recs[base + 20] = pc2;
+      const eStart = eAt;
+      if ( pc2 > 0 ) {
+        let pi = 0;
+        while (pi < pc2) {
+          pbuf[pAt + pi] = EVGDisplayList.fixed((c2.pts[pi]));
+          pi = pi + 1;
+        };
+        pAt = pAt + pc2;
+        const ec2 = c2.ringEnds.length;
+        if ( ec2 == 0 ) {
+          ebuf[eAt] = pc2;
+          eAt = eAt + 1;
+        } else {
+          let ei = 0;
+          while (ei < ec2) {
+            ebuf[eAt + ei] = c2.ringEnds[ei];
+            ei = ei + 1;
+          };
+          eAt = eAt + ec2;
+        }
+      }
+      recs[base + 21] = eStart;
+      recs[base + 22] = eAt - eStart;
+      k = k + 1;
+    };
+    out.cmds = recs;
+    out.pts = pbuf;
+    out.ends = ebuf;
+    out.strings = pool;
+    return out;
+  };
   toJson () {
     let out = "{\"cmds\":[";
     let i = 0;
@@ -6060,6 +6189,27 @@ class EVGDisplayList  {
     return s;
   };
 }
+EVGDisplayList.stride = function() {
+  return 24;
+};
+EVGDisplayList.fixed = function(v) {
+  if ( v < 0.0 ) {
+    return 0 - (Math.floor( (((0.0 - v) * 100.0) + 0.5)));
+  }
+  return Math.floor( ((v * 100.0) + 0.5));
+};
+EVGDisplayList.packRgb = function(r, g, b) {
+  return ((r * 65536) + (g * 256)) + b;
+};
+EVGDisplayList.intern = function(pool, index, value) {
+  if ( ( typeof(index[value] ) != "undefined" && Object.prototype.hasOwnProperty.call(index, value) ) ) {
+    return (( Object.prototype.hasOwnProperty.call(index, value) ? index[value] : undefined ));
+  }
+  const at = pool.length;
+  pool.push(value);
+  index[value] = at;
+  return at;
+};
 EVGDisplayList.num = function(v) {
   const neg = v < 0.0;
   let av = v;

@@ -310,6 +310,12 @@ class PptxWeb {
         return (app.sceneJson())
     }
 
+    ; The frame as typed arrays. The page reads the arrays it is handed rather
+    ; than parsing 1.5 MB of JSON out of `scene` — see `EVGSceneBinary`.
+    fn sceneBinary:EVGSceneBinary () {
+        return (app.sceneBinary())
+    }
+
     ; ONE slide, alone, at a width the caller chooses: no chrome, no panel, no
     ; selection handles. The frame `scene` returns is the editor; this is the
     ; deck. A page that wants to print, or to export a picture, needs the
