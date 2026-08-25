@@ -59,10 +59,13 @@ class OfficeShapePicker {
 
     ; Geometry, in pixels. The side column holds the categories; the rest is
     ; the grid.
-    def sideW:int 132
-    def cell:int 74
-    def gap:int 6
-    def rowH:int 90
+    def sideW:int 140
+    ; A shape at 74 pixels is a shape you have to lean in at. These are what
+    ; somebody picks FROM, so they are worth the room: bigger cells and fewer
+    ; per row beats a dense grid nobody can read.
+    def cell:int 96
+    def gap:int 8
+    def rowH:int 118
     ; The height of one category row. A FIELD because the hit test and the
     ; painter both need it, and two copies of the same 22 is how a list that
     ; looks right starts selecting the row above the one that was pressed.
@@ -98,8 +101,8 @@ class OfficeShapePicker {
             win.visible = true
             return
         }
-        def w:int 660
-        def h:int 520
+        def w:int 800
+        def h:int 580
         if (w > (pageW - 40)) {
             w = (pageW - 40)
         }

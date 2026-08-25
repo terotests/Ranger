@@ -67,6 +67,25 @@ class BookWeb {
         app.addImageBytes(path data)
     }
 
+    ; `gallery/office/geom/assets/presets.txt`, which the page fetches.
+    ;
+    ; WITHOUT THIS THE SHAPE PICKER IS HALF EMPTY and says nothing about why.
+    ; The 262 emoji carry their own outlines and draw with no file at all; the
+    ; 187 DrawingML presets are formulae and cannot be drawn until these
+    ; arrive. So the picker listed every preset by name, drew a blank cell for
+    ; each, and refused to insert one — and looked like a rendering bug rather
+    ; than a missing asset, because the emoji beside them were fine.
+    ;
+    ; The deck editor's hosts have always made this call. The book's never did.
+    fn loadPresets:void (text:string) {
+        app.loadShapePresets(text)
+    }
+
+    ; Whether that worked, so a host can say so instead of showing empty cells.
+    fn hasPresets:boolean () {
+        return (app.shapes.presetsLoaded)
+    }
+
     ; The book that ships with the editor. `assetBase` is what the page can
     ; fetch the photographs from.
     fn openSample:void (assetBase:string) {

@@ -148,6 +148,24 @@ class BookSdl {
         return drawn
     }
 
+    ; The 187 DrawingML preset geometries, for the shape picker.
+    ;
+    ; The catalogue's 262 emoji carry their own outlines and draw with no file
+    ; at all; the presets are formulae and cannot be drawn until this text
+    ; arrives. Without it the picker lists every preset by name, draws a blank
+    ; cell for each and refuses to insert one — which reads as a rendering bug
+    ; rather than a missing file, because the emoji beside them are fine. So it
+    ; says so on startup rather than leaving it to be discovered.
+    fn loadShapes:void () {
+        def text:string (?? (read_file "gallery/office/geom/assets" "presets.txt") "")
+        if ((strlen text) == 0) {
+            print "shapes     presets.txt not found - the picker will offer the emoji only"
+            return
+        }
+        app.loadShapePresets(text)
+        print ("shapes     " + (to_string (app.shapes.count())) + " in the catalogue")
+    }
+
     ; -------------------------------------------------------- the document --
     fn openDocument:boolean () {
         if (cfg.open == "album") {
@@ -507,6 +525,8 @@ class BookSdl {
         if (faces == 0) {
             print "           no face loaded - text will be measured with a bitmap step and will not wrap"
         }
+
+        this.loadShapes()
 
         if ((this.openDocument()) == false) {
             return 1
