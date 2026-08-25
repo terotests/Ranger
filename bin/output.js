@@ -24272,6 +24272,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_emit_class_name = "";
               this.rust_receiver_shared_known = false;
               this.rust_prop_base_state = 0;
+              this.rust_recv_place_mut = false;
               this.rust_writing_mut_arg = false;
               this.rust_path_head_mut = false;
               this.rust_field_call_mut_ready = false;
@@ -25523,7 +25524,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       }
                       if ( rcw_skip == false ) {
-                        if ( this.rust_writing_mut_arg ) {
+                        if ( this.rust_writing_mut_arg || this.rust_recv_place_mut ) {
                           wr.out(".borrow_mut()", false);
                         } else {
                           if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
@@ -28470,7 +28471,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           } else {
                             wr.out("(", false);
                             ctx.setInExpr();
+                            let recvPlaceMut = false;
+                            if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                              const rpmFnD = node.fnDesc;
+                              recvPlaceMut = rpmFnD.rust_mut_self;
+                            }
+                            const savedPlaceMut = this.rust_recv_place_mut;
+                            this.rust_recv_place_mut = recvPlaceMut;
                             await this.WalkNode(obj, ctx, wr);
+                            this.rust_recv_place_mut = savedPlaceMut;
                             ctx.unsetInExpr();
                           }
                           if ( obj_is_trait_type ) {
@@ -31423,7 +31432,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let pgState = 0;
                             if ( (pgType.length) > 0 ) {
                               if ( this.rustClassIsShared(pgType, ctx) ) {
-                                if ( ctx.in_lhs_of_assignment ) {
+                                if ( ctx.in_lhs_of_assignment || this.rust_recv_place_mut ) {
                                   wr.out(".borrow_mut()", false);
                                 } else {
                                   wr.out(".borrow()", false);

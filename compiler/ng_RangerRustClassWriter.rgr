@@ -63,6 +63,10 @@ class RangerRustClassWriter {
   ; a shared class. The field-tail rule in WriteVRef guesses from the field
   ; NAME alone, and only where this says nothing.
   def rust_prop_base_state:int 0
+  ; set while a call RECEIVER that is an expression is written and the
+  ; callee writes through it: every cell on the way to the place borrows
+  ; mutably
+  def rust_recv_place_mut:boolean false
   ; set while a plain-path ARGUMENT is written that the callee takes by
   ; `&mut`. An Rc handle on that path has to borrow mutably: `&mut
   ; sc.borrow().zone` is a `&mut` into a shared borrow.
@@ -1610,7 +1614,9 @@ class RangerRustClassWriter {
           if (rcw_skip == false) {
             ; …and an argument the callee takes by `&mut` reaches through
             ; this handle to a place it will write
-            if rust_writing_mut_arg {
+            ; …and so does a receiver PLACE the callee writes through:
+            ; `(keep.source).set(…)` reaches `source` through this cell
+            if (rust_writing_mut_arg || rust_recv_place_mut) {
               wr.out(".borrow_mut()" false)
             } {
               if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
@@ -5314,7 +5320,18 @@ class RangerRustClassWriter {
         } {
           wr.out("(" false)
           ctx.setInExpr()
+          ; the receiver is a PLACE the callee may write through:
+          ; `(keep.source).set(…)` reaches `source` through `keep`'s cell,
+          ; and a shared borrow of that cell cannot hand out a `&mut`
+          def recvPlaceMut:boolean false
+          if (!null? node.fnDesc) {
+            def rpmFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+            recvPlaceMut = rpmFnD.rust_mut_self
+          }
+          def savedPlaceMut:boolean rust_recv_place_mut
+          rust_recv_place_mut = recvPlaceMut
           this.WalkNode(obj ctx wr)
+          rust_recv_place_mut = savedPlaceMut
           ctx.unsetInExpr()
         }
         if obj_is_trait_type {
@@ -8813,7 +8830,7 @@ class RangerRustClassWriter {
     def pgState:int 0
     if ((strlen pgType) > 0) {
       if (this.rustClassIsShared(pgType ctx)) {
-        if ctx.in_lhs_of_assignment {
+        if (ctx.in_lhs_of_assignment || rust_recv_place_mut) {
           wr.out(".borrow_mut()" false)
         } {
           wr.out(".borrow()" false)
