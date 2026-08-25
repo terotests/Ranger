@@ -58,6 +58,10 @@ class RangerRustClassWriter {
   def rust_emit_class_name:string ""
   ; set while a call receiver is written and the callee is known to take &self
   def rust_receiver_shared_known:boolean false
+  ; set while a call receiver PATH is written whose head is `this` and whose
+  ; target is a field held inline: the callee borrows the field, and the
+  ; field is part of this struct, so the head takes the mutable borrow
+  def rust_path_head_mut:boolean false
   ; set once the receiver-mutability pre-pass has a first answer for every
   ; class, so a later pass may ask what a call through a FIELD does. On the
   ; first pass nothing is settled and every answer would read the
@@ -1326,6 +1330,15 @@ class RangerRustClassWriter {
     if rust_receiverless_method {
       if ctx.in_lhs_of_assignment {
         return "__self_rc.borrow_mut()"
+      }
+      ; …unless the path ends in a call on a field held INLINE. Then the
+      ; callee borrows the field mutably, the field is part of this struct,
+      ; and a shared head is "cannot borrow data in dereference of
+      ; `Ref<'_, T>` as mutable".
+      if rust_writing_call_receiver {
+        if rust_path_head_mut {
+          return "__self_rc.borrow_mut()"
+        }
       }
       return "__self_rc.borrow()"
     }
@@ -3858,7 +3871,14 @@ class RangerRustClassWriter {
     if ((array_length node.children) < 1) {
       return false
     }
-    def fcc:CodeNode (node.getFirst())
+    return (this.rustFieldPathCallMutates((node.getFirst()) ctx))
+  }
+
+  ; The same question of a call receiver PATH alone: `reader.seek` or
+  ; `this.reader.seek`. The emission asks it too — a path head that is
+  ; `this` has to take the mutable borrow when the field it reaches is held
+  ; inline and the callee writes to it.
+  fn rustFieldPathCallMutates:boolean (fcc:CodeNode ctx:RangerAppWriterContext) {
     def fccLen:int (array_length fcc.ns)
     if (fccLen < 2) {
       return false
@@ -4471,6 +4491,28 @@ class RangerRustClassWriter {
       for node.ns pathSeg:string pathSegI {
         if (pathSegI > 0) {
           set ctx.rust_path_field_names pathSeg true
+        }
+      }
+    }
+    ; a call RECEIVER is reached through a path too. `fontManager.hasFont(…)`
+    ; reads the field before the callee borrows it, and an optional field
+    ; kept in a cell cannot answer that read: the `.borrow()` would have to
+    ; wrap the whole expression, and the Option handling is already in front
+    ; of it. Without this the field came out `RefCell<Option<Rc<…>>>` and
+    ; every read said `.as_ref().unwrap()` straight on the cell.
+    if node.hasFnCall {
+      if ((array_length node.children) > 0) {
+        def pathFc:CodeNode (node.getFirst())
+        def pathFcLen:int (array_length pathFc.ns)
+        if (pathFcLen > 1) {
+          def pathRoot:string (itemAt pathFc.ns 0)
+          if (pathRoot == "this") {
+            if (pathFcLen > 2) {
+              set ctx.rust_path_field_names (itemAt pathFc.ns 1) true
+            }
+          } {
+            set ctx.rust_path_field_names pathRoot true
+          }
         }
       }
     }
@@ -5878,20 +5920,24 @@ class RangerRustClassWriter {
             ; Fallback to WriteVRef
             rust_call_receiver_mut = (this.rustReceiverMutFor(node fc ctx))
           rust_receiver_shared_known = (this.rustReceiverKnownShared(fc ctx))
+          rust_path_head_mut = (this.rustFieldPathCallMutates(fc ctx))
             rust_writing_call_receiver = true
             this.WriteVRef(fc ctx wr)
             rust_writing_call_receiver = false
             rust_call_receiver_mut = true
             rust_receiver_shared_known = false
+            rust_path_head_mut = false
           }
         } {
           rust_call_receiver_mut = (this.rustReceiverMutFor(node fc ctx))
           rust_receiver_shared_known = (this.rustReceiverKnownShared(fc ctx))
+          rust_path_head_mut = (this.rustFieldPathCallMutates(fc ctx))
           rust_writing_call_receiver = true
           this.WriteVRef(fc ctx wr)
           rust_writing_call_receiver = false
           rust_call_receiver_mut = true
           rust_receiver_shared_known = false
+          rust_path_head_mut = false
         }
         wr.out("(" false)
         def pre_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
@@ -6104,11 +6150,13 @@ class RangerRustClassWriter {
         ; Note: Don't add self. here as WriteVRef already handles member variables
         rust_call_receiver_mut = (this.rustReceiverMutFor(node fc ctx))
           rust_receiver_shared_known = (this.rustReceiverKnownShared(fc ctx))
+          rust_path_head_mut = (this.rustFieldPathCallMutates(fc ctx))
         rust_writing_call_receiver = true
         this.WriteVRef(fc ctx wr)
         rust_writing_call_receiver = false
         rust_call_receiver_mut = true
         rust_receiver_shared_known = false
+        rust_path_head_mut = false
         wr.out("(" false)
         for node.fnDesc.params arg:RangerAppParamDesc i {
           def n@(optional):CodeNode (itemAt givenArgs.children i)
@@ -6603,11 +6651,13 @@ class RangerRustClassWriter {
       ; Note: Don't add self. here as WriteVRef already handles member variables
       rust_call_receiver_mut = (this.rustReceiverMutFor(node fc ctx))
           rust_receiver_shared_known = (this.rustReceiverKnownShared(fc ctx))
+          rust_path_head_mut = (this.rustFieldPathCallMutates(fc ctx))
       rust_writing_call_receiver = true
       this.WriteVRef(fc ctx wr)
       rust_writing_call_receiver = false
       rust_call_receiver_mut = true
       rust_receiver_shared_known = false
+      rust_path_head_mut = false
       wr.out("(" false)
       def std_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
       for node.fnDesc.params arg:RangerAppParamDesc i {

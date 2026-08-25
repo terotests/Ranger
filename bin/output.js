@@ -24269,6 +24269,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_receiver_mut_known = false;     /** note: unused */
               this.rust_emit_class_name = "";
               this.rust_receiver_shared_known = false;
+              this.rust_path_head_mut = false;
               this.rust_field_call_mut_ready = false;
               this.rust_writing_field_type = false;
               this.thisName = "self";
@@ -25311,6 +25312,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( this.rust_receiverless_method ) {
                 if ( ctx.in_lhs_of_assignment ) {
                   return "__self_rc.borrow_mut()";
+                }
+                if ( this.rust_writing_call_receiver ) {
+                  if ( this.rust_path_head_mut ) {
+                    return "__self_rc.borrow_mut()";
+                  }
                 }
                 return "__self_rc.borrow()";
               }
@@ -27262,7 +27268,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( (node.children.length) < 1 ) {
                     return false;
                   }
-                  const fcc = node.getFirst();
+                  return this.rustFieldPathCallMutates(node.getFirst(), ctx);
+                };
+                rustFieldPathCallMutates (fcc, ctx) {
                   const fccLen = fcc.ns.length;
                   if ( fccLen < 2 ) {
                     return false;
@@ -27820,6 +27828,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         ctx.rust_path_field_names[pathSeg] = true;
                       }
                     };
+                  }
+                  if ( node.hasFnCall ) {
+                    if ( (node.children.length) > 0 ) {
+                      const pathFc = node.getFirst();
+                      const pathFcLen = pathFc.ns.length;
+                      if ( pathFcLen > 1 ) {
+                        const pathRoot = pathFc.ns[0];
+                        if ( pathRoot == "this" ) {
+                          if ( pathFcLen > 2 ) {
+                            ctx.rust_path_field_names[pathFc.ns[1]] = true;
+                          }
+                        } else {
+                          ctx.rust_path_field_names[pathRoot] = true;
+                        }
+                      }
+                    }
                   }
                   for ( let pathChI = 0; pathChI < node.children.length; pathChI++) {
                     var pathCh = node.children[pathChI];
@@ -28973,20 +28997,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         } else {
                           this.rust_call_receiver_mut = this.rustReceiverMutFor(node, fc, ctx);
                           this.rust_receiver_shared_known = this.rustReceiverKnownShared(fc, ctx);
+                          this.rust_path_head_mut = this.rustFieldPathCallMutates(fc, ctx);
                           this.rust_writing_call_receiver = true;
                           await this.WriteVRef(fc, ctx, wr);
                           this.rust_writing_call_receiver = false;
                           this.rust_call_receiver_mut = true;
                           this.rust_receiver_shared_known = false;
+                          this.rust_path_head_mut = false;
                         }
                       } else {
                         this.rust_call_receiver_mut = this.rustReceiverMutFor(node, fc, ctx);
                         this.rust_receiver_shared_known = this.rustReceiverKnownShared(fc, ctx);
+                        this.rust_path_head_mut = this.rustFieldPathCallMutates(fc, ctx);
                         this.rust_writing_call_receiver = true;
                         await this.WriteVRef(fc, ctx, wr);
                         this.rust_writing_call_receiver = false;
                         this.rust_call_receiver_mut = true;
                         this.rust_receiver_shared_known = false;
+                        this.rust_path_head_mut = false;
                       }
                       wr.out("(", false);
                       const pre_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
@@ -29172,11 +29200,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       };
                       this.rust_call_receiver_mut = this.rustReceiverMutFor(node, fc, ctx);
                       this.rust_receiver_shared_known = this.rustReceiverKnownShared(fc, ctx);
+                      this.rust_path_head_mut = this.rustFieldPathCallMutates(fc, ctx);
                       this.rust_writing_call_receiver = true;
                       await this.WriteVRef(fc, ctx, wr);
                       this.rust_writing_call_receiver = false;
                       this.rust_call_receiver_mut = true;
                       this.rust_receiver_shared_known = false;
+                      this.rust_path_head_mut = false;
                       wr.out("(", false);
                       for ( let i_1 = 0; i_1 < node.fnDesc.params.length; i_1++) {
                         var arg_1 = node.fnDesc.params[i_1];
@@ -29617,11 +29647,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     this.rust_call_receiver_mut = this.rustReceiverMutFor(node, fc, ctx);
                     this.rust_receiver_shared_known = this.rustReceiverKnownShared(fc, ctx);
+                    this.rust_path_head_mut = this.rustFieldPathCallMutates(fc, ctx);
                     this.rust_writing_call_receiver = true;
                     await this.WriteVRef(fc, ctx, wr);
                     this.rust_writing_call_receiver = false;
                     this.rust_call_receiver_mut = true;
                     this.rust_receiver_shared_known = false;
+                    this.rust_path_head_mut = false;
                     wr.out("(", false);
                     const std_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
                     for ( let i_4 = 0; i_4 < node.fnDesc.params.length; i_4++) {
@@ -56762,6 +56794,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return true;
                             }
                             if ( n == "removeLast" ) {
+                              return true;
+                            }
+                            if ( n == "remove_index" ) {
+                              return true;
+                            }
+                            if ( n == "array_extract" ) {
+                              return true;
+                            }
+                            if ( n == "set_at" ) {
+                              return true;
+                            }
+                            if ( n == "pushString" ) {
                               return true;
                             }
                             if ( n == "removeFirst" ) {

@@ -718,6 +718,14 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if (n == "remove") { return true }
     if (n == "removeIndex") { return true }
     if (n == "removeLast") { return true }
+    ; …and the names Lang.rgr actually gives the in-place array operators.
+    ; `set_at c.pts pi v` was missing, so its target was written as a READ:
+    ; `c.borrow().pts[pi] = …` on an Rc receiver, which is "cannot borrow
+    ; data in dereference of `Ref<'_, T>` as mutable".
+    if (n == "remove_index") { return true }
+    if (n == "array_extract") { return true }
+    if (n == "set_at") { return true }
+    if (n == "pushString") { return true }
     if (n == "removeFirst") { return true }
     return false
   }
