@@ -112,7 +112,11 @@ SRC="$ROOT/gallery/pptx/web/standalone/dist"
 if [ ! -s "$SRC/index.html" ]; then
   bash "$ROOT/gallery/pptx/web/standalone/build.sh" >/dev/null
 fi
-for item in fonts gl host presets.txt deck.pptx standalone.mjs; do
+# `sample.odp` is in this list for the same reason `deck.pptx` is: the page is
+# the SAME standalone.mjs on both URLs, so a file missing here is a button
+# that 404s on one engine and works on the other — a difference between the
+# two builds that has nothing to do with either engine.
+for item in fonts gl host presets.txt deck.pptx sample.odp standalone.mjs; do
   rm -rf "${STAGE:?}/$item"
   cp -r "$SRC/$item" "$STAGE/$item"
 done
