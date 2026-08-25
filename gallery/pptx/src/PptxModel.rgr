@@ -213,6 +213,12 @@ class PptxTextRun {
     ; than flags for the reason given on `PptxShape.styleFillSig`: a flag
     ; would stay set after the user changed the font, and the save would then
     ; discard the change. These stop matching the moment anything moves.
+    ; Whether the run's own `rPr` carried a colour. Not the same as
+    ; `color.isSet`: the resolver fills a colour in from the list style before
+    ; the shape's `<p:style><a:fontRef>` gets a turn, and by then a run that
+    ; said nothing is indistinguishable from one that asked for black. This is
+    ; set by the PARSER and by the editor, and by nothing that infers.
+    def colorStated:boolean false
     def resolvedFontSig:string ""
     def resolvedColorSig:string ""
     def resolvedSizeSig:string ""
@@ -518,10 +524,17 @@ class PptxListStyle {
 
 class PptxTextBody {
     def paragraphs:[PptxParagraph]
-    def insetL:double 7.2       ; pt defaults ≈ 0.1"
-    def insetT:double 7.2
+    ; `a:bodyPr` insets, in points, and the four are NOT the same by default.
+    ; ECMA-376 gives lIns/rIns = 91440 EMU (7.2pt = 0.1") and tIns/bIns =
+    ; 45720 EMU (3.6pt = 0.05"). All four were 7.2 here, which reserved 7.2pt
+    ; too much height in every text box that does not state its own insets: a
+    ; 40pt title in the 55.7pt box PowerPoint had auto-fitted to it no longer
+    ; fitted, so it overflowed downward from a top anchor and the title came
+    ; out sitting on the bottom edge of its box.
+    def insetL:double 7.2
+    def insetT:double 3.6
     def insetR:double 7.2
-    def insetB:double 7.2
+    def insetB:double 3.6
     def insetsSet:boolean false
     def anchor:string "t"       ; t / ctr / b
     def anchorSet:boolean false
@@ -538,6 +551,10 @@ class PptxTextBody {
     def defItalic:boolean false
     def defFontFamily:string ""
     def defColor:PptxColor (new PptxColor())
+    ; Whether `defColor` came from the shape's own `<p:style><a:fontRef>`
+    ; rather than from inheritance. It matters because that one outranks the
+    ; master's default text style, and nothing else about a default does.
+    def defColorFromStyle:boolean false
     def defAlign:string "l"
     ; The nine levels this body states, before anything is inherited into
     ; them. The resolver merges the master's and the layout's over it.

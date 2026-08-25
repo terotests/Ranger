@@ -91,6 +91,7 @@ class PptxResolver {
         out.bold = run.bold
         out.italic = run.italic
         out.color = (this.cloneColor(run.color))
+        out.colorStated = run.colorStated
         out.highlight = (this.cloneColor(run.highlight))
         return out
     }
@@ -111,6 +112,7 @@ class PptxResolver {
         out.defItalic = body.defItalic
         out.defFontFamily = body.defFontFamily
         out.defColor = (this.cloneColor(body.defColor))
+        out.defColorFromStyle = body.defColorFromStyle
         out.defAlign = body.defAlign
         out.fontScale = body.fontScale
         out.lineScale = body.lineScale
@@ -567,6 +569,7 @@ class PptxResolver {
                         dstBody.defItalic = srcBody.defItalic
                         dstBody.defFontFamily = srcBody.defFontFamily
                         dstBody.defColor = (this.cloneColor(srcBody.defColor))
+                        dstBody.defColorFromStyle = srcBody.defColorFromStyle
                         dstBody.defAlign = srcBody.defAlign
                     }
                 }
@@ -613,6 +616,25 @@ class PptxResolver {
                 run.fontFamily = (this.resolveFont(run.fontFamily theme))
                 if (run.highlight.isSet) {
                     run.highlight = (this.resolveColor(run.highlight theme))
+                }
+                ; Precedence, and the order is the whole of this:
+                ;
+                ;   1. what the RUN said
+                ;   2. the shape's `<p:style><a:fontRef>` colour
+                ;   3. the master's default text style
+                ;   4. black
+                ;
+                ; `applyDefRPrToRun` above has already written (3) into the
+                ; run, so by here a run with no colour of its own LOOKS like
+                ; one that stated black — and the white a themed button asks
+                ; for through `fontRef` never got a turn. `statedColor` is
+                ; what the run really said, taken before that call.
+                if (run.colorStated == false) {
+                    if body.defColorFromStyle {
+                        if (body.defColor.isSet) {
+                            run.color = (this.cloneColor(body.defColor))
+                        }
+                    }
                 }
                 if (run.color.isSet) {
                     run.color = (this.resolveColor(run.color theme))
@@ -804,6 +826,7 @@ class PptxResolver {
             return
         }
         shape.text.defColor = (this.styleColor(shape.fontRefColor shape.fontRefColor theme))
+        shape.text.defColorFromStyle = true
     }
 
     fn resolveTableLine:void (line:PptxTableLine theme:PptxTheme) {

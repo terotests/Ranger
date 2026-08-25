@@ -884,6 +884,7 @@ class PptxTextEdit {
                             }
                             if (what == "color") {
                                 run.color = (PptxColor.srgbOf(text))
+                                run.colorStated = true
                             }
                             if (what == "family") {
                                 run.fontFamily = text

@@ -555,13 +555,34 @@ let sceneW = canvas.width;
 let sceneH = canvas.height;
 const sceneSize = () => ({ width: sceneW, height: sceneH });
 
+// The thumbnails, kept from the last time they actually changed.
+//
+// They are most of the frame and almost never differ from the frame before.
+// On the six-slide chart example the panel is 7,500 of the frame's 9,400
+// commands, and dragging a shape changes none of them — yet every one was
+// re-encoded across the bridge, re-decoded here and re-drawn on every pointer
+// move. Measured on this page: 103 ms a frame with the panel in the scene,
+// 40 ms with it out. That is the difference between a shape that follows the
+// hand rotating it and one that catches up when the hand lets go.
+//
+// `panelStamp` is the app's own answer to "would the panel draw the same
+// picture" — geometry, scroll, which slide is ringed, and every slide's
+// revision. Same string, same panel, so the list from last time will do.
+let panelDoc = null;
+let panelKey = "";
+
 async function draw() {
   if (!web) return;
   // Typed arrays rather than JSON — see `decodeScene` in the host module. The
   // frame is told from the one before it by `sceneStamp`, because there is no
   // string left to compare.
-  const doc = decodeScene(web.sceneBinary());
-  const stamp = sceneStamp(doc);
+  const doc = decodeScene(web.sceneBinaryNoPanel());
+  const key = web.panelStamp();
+  if (key !== panelKey) {
+    panelKey = key;
+    panelDoc = decodeScene(web.panelBinary());
+  }
+  const stamp = sceneStamp(doc) + "|" + key;
   if (stamp === lastScene) return;
   lastScene = stamp;
   sceneW = doc.width;
@@ -581,11 +602,25 @@ async function draw() {
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.055, 0.067, 0.086, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-  const images = media ? await media.imagesFor(doc) : new Map();
-  renderDisplayList(gl, doc, { dpr, images });
+  const panelCmds = panelDoc ? panelDoc.list.cmds : [];
+  const framed = panelCmds.length
+    ? { ...doc, list: { ...doc.list, cmds: doc.list.cmds.concat(panelCmds) } }
+    : doc;
+  const images = media ? await media.imagesFor(framed) : new Map();
+  // One render, over the two lists joined.
+  //
+  // NOT two calls: `renderDisplayList` clears the canvas before it draws, so
+  // it owns the frame — calling it twice paints the first list out. Both
+  // orders were tried and each lost whichever list went first.
+  //
+  // The join is a concatenation of two arrays, which costs nothing beside the
+  // decode it saves, and the order is the one `buildFrame` uses: the frame
+  // opens with a rectangle over the whole window, so the panel has to come
+  // after it. They occupy different bands in any case.
+  renderDisplayList(gl, framed, { dpr, images });
   // Published so the smoke test can ask the app what it thinks is true rather
   // than inferring it from pixels — the same hook the standalone page exposes.
-  window.__pptxDoc = doc;
+  window.__pptxDoc = framed;
   window.__pptxWeb = web;
 }
 
@@ -1066,13 +1101,20 @@ async function boot() {
     }
   });
 
-  // Nothing runs on load in the full playground. An embed autoruns so the
-  // docs page that wrapped this iframe has a slide to show, not a blank deck
-  // and a button.
+  // Nothing runs on load in the full playground. An embed with a preset
+  // autoruns so the docs page that wrapped it has a slide to show. An embed
+  // with `run=0` waits: the parent holds the code editor and will post the
+  // snippet when it is ready, and showing an empty deck first would flash
+  // a blank slide under that editor.
   const shouldAutorun = applyEmbedQuery();
+  const waitForParent = window.__embedMode
+    && new URLSearchParams(location.search).get("run") === "0";
   try {
     if (shouldAutorun) {
       await Promise.resolve(run());
+    } else if (waitForParent) {
+      statusEl.className = "";
+      statusEl.textContent = "waiting for code…";
     } else {
       const empty = JsApi.create();
       empty.addSlide().background("FFFFFF");

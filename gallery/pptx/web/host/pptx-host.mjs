@@ -306,7 +306,39 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
    */
   const onMouseDown = (ev) => ev.preventDefault();
 
+  /**
+   * The end of a touch, which is where a phone decides about its keyboard.
+   *
+   * Two things have to happen here and neither can happen anywhere else.
+   *
+   * FIRST, `preventDefault` — which is the ONLY reliable way to stop the
+   * compatibility mouse events being synthesised at all. Refusing the
+   * `mousedown` default (above) stops it taking focus in Chrome, but Safari
+   * decides about focus at the end of the gesture rather than at that event,
+   * so on an iPhone the keyboard still went. It is worth having both: the
+   * mousedown guard covers a stylus and a trackpad, this covers a finger.
+   * `{ passive: false }` is not decoration — without it the browser ignores
+   * the preventDefault and logs nothing.
+   *
+   * SECOND, `settled()` — the page's chance to focus the keyboard field —
+   * runs here as well as on `pointerup`, synchronously, because iOS raises
+   * its keyboard only for a `focus()` inside a handler for a gesture it
+   * recognises, and `touchend` is the one it honours. `pointerup` is already
+   * past by then.
+   *
+   * The symptom this is here to fix, reported from an iPhone and precise
+   * enough to name the cause: the keyboard stays up for as long as the finger
+   * is held down, and goes the moment it lifts — and can be kept by sliding
+   * the finger off the edge of the screen so it never lifts on the canvas.
+   * That is the end of the gesture, not a re-render.
+   */
+  const onTouchEnd = (ev) => {
+    ev.preventDefault();
+    settled();
+  };
+
   canvas.addEventListener("mousedown", onMouseDown);
+  canvas.addEventListener("touchend", onTouchEnd, { passive: false });
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerup", onUp);
@@ -315,6 +347,7 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
   return {
     detach() {
       canvas.removeEventListener("mousedown", onMouseDown);
+      canvas.removeEventListener("touchend", onTouchEnd);
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
@@ -354,6 +387,24 @@ export function attachKeys({ web, draw, afterInput, onSave, enabled, target }) {
       ev.preventDefault();
       web.type(ev.key, !!ev.shiftKey, true);
       await redraw();
+      return;
+    }
+    // Tab is the one key that cannot simply be in the map. Inside a text box
+    // it means "indent this list item", the way it does in every editor — but
+    // everywhere else it is how somebody who does not use a mouse leaves the
+    // canvas, and a page that swallows it unconditionally is a page they are
+    // trapped in. So it is taken only while there is a caret, and handed back
+    // to the browser the rest of the time.
+    //
+    // Until this existed the app's Tab handling could never run at all: the
+    // key was not in the map, the browser moved focus away from the canvas,
+    // and `text.indent` was reachable only from the toolbar.
+    if (ev.key === "Tab") {
+      if (!web.editingText()) return;
+      ev.preventDefault();
+      web.keyMod("tab", !!ev.shiftKey, ctrl);
+      await redraw();
+      settled();
       return;
     }
     const name = KEYS[ev.key];

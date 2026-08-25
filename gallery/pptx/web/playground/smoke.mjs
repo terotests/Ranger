@@ -518,7 +518,16 @@ const exported = await page.evaluate(async () => {
   const wasCount = window.__jsApi.open(web.saveBytes()).slide(0).shapeCount;
 
   web.run("edit.toggle", "");
-  web.run("shape.rect", "");            // a shape only the EDITOR knows about
+  // A shape only the EDITOR knows about. Inserting one ARMS the tool; the drag
+  // that follows says where it goes and how big.
+  web.run("shape.rect", "");
+  const panelW = web.slidePanelWidth() | 0;
+  const doc = window.__pptxDoc;
+  const sx = panelW + Math.round((doc.width - panelW) * 0.2);
+  const sy = Math.round(doc.height * 0.4);
+  web.pointerAt(sx, sy, true, true, false);
+  web.pointerAt(sx + 60, sy + 40, false, true, false);
+  web.pointerAt(sx + 140, sy + 90, false, false, true);
   await new Promise((r) => setTimeout(r, 300));
 
   // Observe the download without breaking it. Returning a made-up URL here

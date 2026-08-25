@@ -112,6 +112,7 @@ class PptxClone {
         r.italicSet = src.italicSet
         r.italic = src.italic
         r.color = (PptxClone.color(src.color))
+        r.colorStated = src.colorStated
         r.highlight = (PptxClone.color(src.highlight))
         return r
     }
@@ -1381,6 +1382,81 @@ class PptxEditor {
         return (PptxEditRect.of((dx + ax) (dy + ay) 0.0 0.0))
     }
 
+    ; The same, for a handle rather than the whole shape.
+    ;
+    ; Moving a shape snaps all six of its edges and centres to whatever is
+    ; near; resizing snaps only the edges the HANDLE actually moves — the
+    ; right-hand handle cannot line the left edge up with anything, and
+    ; offering to is how a resize ends up dragging the far side of the box
+    ; about. So the candidates here are the one or two edges under the hand.
+    ;
+    ; Until this existed a resize snapped to nothing at all and drew no guide:
+    ; a reader could line two boxes up by dragging them and then lose it again
+    ; the moment they made one of them wider, with nothing on screen to say
+    ; how far out they were.
+    ;
+    ; `dx` and `dy` are on the SLIDE's axes, which is the only frame the snap
+    ; lines are in. A rotated box is resized in its own frame instead, so its
+    ; caller does not ask — see where this is called from.
+    ;
+    ; Handles, clockwise from the top-left: 0 nw, 1 n, 2 ne, 3 e, 4 se, 5 s,
+    ; 6 sw, 7 w — so 0, 6 and 7 move the left edge, 2, 3 and 4 the right, and
+    ; 1 and 5 neither. The same reading down: 0, 1 and 2 move the top, 4, 5
+    ; and 6 the bottom.
+    fn snapResize:PptxEditRect (handle:int dx:double dy:double) {
+        this.clearGuides()
+        if (snapEnabled == false) {
+            return (PptxEditRect.of(dx dy 0.0 0.0))
+        }
+        def b:PptxEditRect (this.selectionBounds())
+        if (b.w <= 0.0) {
+            return (PptxEditRect.of(dx dy 0.0 0.0))
+        }
+        def ex:[double]
+        if ((handle == 0) || (handle == 6) || (handle == 7)) {
+            push ex (b.x + dx)
+        }
+        if ((handle == 2) || (handle == 3) || (handle == 4)) {
+            push ex ((b.right()) + dx)
+        }
+        def ey:[double]
+        if ((handle == 0) || (handle == 1) || (handle == 2)) {
+            push ey (b.y + dy)
+        }
+        if ((handle == 4) || (handle == 5) || (handle == 6)) {
+            push ey ((b.bottom()) + dy)
+        }
+        def linesX:[double] (this.snapLinesX())
+        def linesY:[double] (this.snapLinesY())
+        if gridEnabled {
+            def gi:int 0
+            while (gi < (array_length ex)) {
+                push linesX (PptxEditor.snapToStep((itemAt ex gi) gridPt))
+                gi = (gi + 1)
+            }
+            def gj:int 0
+            while (gj < (array_length ey)) {
+                push linesY (PptxEditor.snapToStep((itemAt ey gj) gridPt))
+                gj = (gj + 1)
+            }
+        }
+        def ax:double 0.0
+        def ay:double 0.0
+        if ((array_length ex) > 0) {
+            ax = (PptxEditor.nearestSnap(ex linesX snapTolPt))
+        }
+        if ((array_length ey) > 0) {
+            ay = (PptxEditor.nearestSnap(ey linesY snapTolPt))
+        }
+        if ((fabs ax) > 0.0001) {
+            push guideX (PptxEditor.matchedLine(ex linesX snapTolPt))
+        }
+        if ((fabs ay) > 0.0001) {
+            push guideY (PptxEditor.matchedLine(ey linesY snapTolPt))
+        }
+        return (PptxEditRect.of((dx + ax) (dy + ay) 0.0 0.0))
+    }
+
     ; Handles, clockwise from the top-left: 0 nw, 1 n, 2 ne, 3 e, 4 se, 5 s,
     ; 6 sw, 7 w. A multiple selection scales inside its own box, so the shapes
     ; keep their arrangement.
@@ -1676,6 +1752,17 @@ class PptxEditor {
         sh.height = h
         sh.hasXfrm = true
         sh.fill = (PptxColor.srgbOf("4472C4"))
+        ; A label on a shape sits in the MIDDLE of it, both ways. The empty
+        ; paragraph is put here rather than when the first character arrives,
+        ; because by then there is nothing left to say what the shape wanted:
+        ; text typed into a shape used to land against its top-left corner,
+        ; which no editor does and nobody means.
+        sh.text.anchor = "ctr"
+        sh.text.anchorSet = true
+        def para (new PptxParagraph())
+        para.align = "ctr"
+        para.alignSet = true
+        push sh.text.paragraphs para
         push s.shapes sh
         this.select(sh.editId)
         this.pushSnapshot("insert shape")
@@ -2265,6 +2352,52 @@ class PptxEditor {
         return true
     }
 
+    ; Take the outline away. `setLineHex` with an empty string would set the
+    ; line to black, which is the opposite of what "None" means.
+    fn clearLine:boolean () {
+        if ((array_length selection) == 0) {
+            return false
+        }
+        def shapes:[PptxShape] (this.selectedShapes())
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            def none (new PptxColor())
+            sh.line = none
+            sh.lineWidthPt = 0.0
+            i = (i + 1)
+        }
+        this.pushSnapshot("line none")
+        return true
+    }
+
+    ; The outline's thickness, leaving its colour alone — which is what a
+    ; reader picking a width means, and what `setLineHex` could not express
+    ; because it took both at once.
+    fn setLineWidthPt:boolean (widthPt:double) {
+        if ((array_length selection) == 0) {
+            return false
+        }
+        if (widthPt <= 0.0) {
+            return false
+        }
+        def shapes:[PptxShape] (this.selectedShapes())
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            sh.lineWidthPt = widthPt
+            ; A width with no colour draws nothing, so a shape that never had
+            ; an outline gets the one a reader plainly just asked for. Black
+            ; is what every editor gives a new rule.
+            if (sh.line.isSet == false) {
+                sh.line = (PptxColor.srgbOf("000000"))
+            }
+            i = (i + 1)
+        }
+        this.pushSnapshot("line width")
+        return true
+    }
+
     fn setOpacity:boolean (alpha:double) {
         if ((array_length selection) == 0) {
             return false
@@ -2418,6 +2551,97 @@ class PptxEditor {
         return (this.applyRunStyle("size" false size ""))
     }
 
+    ; The typeface, for the caret's range or for everything in the selected
+    ; shapes — the same two-step every other run style takes.
+    fn setTextFamily:boolean (family:string) {
+        if ((strlen family) == 0) {
+            return false
+        }
+        if (this.styleTextRange("family" false 0.0 family)) {
+            return true
+        }
+        return (this.applyRunStyle("family" false 0.0 family))
+    }
+
+    ; What typeface the selection is in, or "" when it is in more than one —
+    ; which is what a chooser needs in order to show the current value rather
+    ; than a guess. The caret's own run first, then the first run of the first
+    ; selected shape.
+    fn selectionFamily:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            def shapes:[PptxShape] (this.selectedShapes())
+            if ((array_length shapes) == 0) {
+                return ""
+            }
+            hit = (itemAt shapes 0)
+        }
+        def sh:PptxShape (unwrap hit)
+        if (sh.hasText == false) {
+            return ""
+        }
+        def seen:string ""
+        def pi:int 0
+        while (pi < (array_length sh.text.paragraphs)) {
+            def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if ((strlen run.fontFamily) > 0) {
+                    if ((strlen seen) == 0) {
+                        seen = run.fontFamily
+                    } {
+                        if (seen != run.fontFamily) {
+                            return ""
+                        }
+                    }
+                }
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        return seen
+    }
+
+    ; What colour the selection's text is, or "" when it is in more than one —
+    ; the same question `selectionFamily` answers for the typeface, and for
+    ; the same reason: a swatch showing the current value has to have one.
+    fn selectionColorHex:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            def shapes:[PptxShape] (this.selectedShapes())
+            if ((array_length shapes) == 0) {
+                return ""
+            }
+            hit = (itemAt shapes 0)
+        }
+        def sh:PptxShape (unwrap hit)
+        if (sh.hasText == false) {
+            return ""
+        }
+        def seen:string ""
+        def pi:int 0
+        while (pi < (array_length sh.text.paragraphs)) {
+            def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if run.color.isSet {
+                    if ((strlen seen) == 0) {
+                        seen = run.color.srgb
+                    } {
+                        if (seen != run.color.srgb) {
+                            return ""
+                        }
+                    }
+                }
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        return seen
+    }
+
     fn setTextColorHex:boolean (hex:string) {
         if (this.styleTextRange("color" false 0.0 hex)) {
             return true
@@ -2456,6 +2680,16 @@ class PptxEditor {
                         }
                         if (what == "color") {
                             run.color = (PptxColor.srgbOf(hex))
+                            run.colorStated = true
+                        }
+                        ; The typeface travels in the same string slot the
+                        ; colour does — `applyStyle`, the version that works on
+                        ; a caret range rather than a whole shape, has read
+                        ; "family" out of it for some time and this one never
+                        ; did. So changing the font with a whole box selected
+                        ; and no caret in it did nothing at all.
+                        if (what == "family") {
+                            run.fontFamily = hex
                         }
                         ri = (ri + 1)
                     }
@@ -2918,6 +3152,88 @@ class PptxEditor {
         caret = at
         anchor = (at.copy())
         this.pushCoalesced("typing")
+        return true
+    }
+
+    ; The paragraph the caret is in, as JSON: which level it sits at and
+    ; whether it is a list item. Small, and only what a host needs in order to
+    ; check that a key did what it was supposed to — the model itself does not
+    ; cross the boundary.
+    fn caretParagraphJson:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return "{\"level\":-1,\"bullet\":false}"
+        }
+        def sh:PptxShape (unwrap hit)
+        def pi:int caret.para
+        if (pi < 0) {
+            return "{\"level\":-1,\"bullet\":false}"
+        }
+        if (pi >= (array_length sh.text.paragraphs)) {
+            return "{\"level\":-1,\"bullet\":false}"
+        }
+        def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+        def bullet:string "false"
+        if para.hasBullet {
+            bullet = "true"
+        }
+        return (("{\"level\":" + (to_string para.level)) + ((",\"bullet\":" + bullet) + "}"))
+    }
+
+    ; Enter, when the caret is in a list.
+    ;
+    ; Every editor a reader has used ends a list the same way: press Enter on
+    ; an item you have not typed anything into, and instead of another empty
+    ; bullet you get out. One level at a time, so a sub-list steps back to its
+    ; parent before it stops being a list at all — which is what makes a nested
+    ; list writable without reaching for the toolbar between every level.
+    ;
+    ; Without this an empty bullet was simply added, and the only way out of a
+    ; list was to press Enter, then find the list button and press it twice.
+    ; Reported as "two empty Enters should end the list".
+    ;
+    ; The name says `enter` rather than `newline` because it is a decision and
+    ; not an insertion: it answers what Enter MEANS here, which some of the
+    ; time is nothing being typed at all.
+    fn enterAtCaret:boolean () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return (this.typeAtCaret("\n"))
+        }
+        def sh:PptxShape (unwrap hit)
+        ; Only with nothing selected. Enter with a selection replaces it, and
+        ; a reader who has selected a whole item and pressed Enter means to
+        ; type over it, not to leave the list.
+        if ((this.textSelectionEmpty()) == false) {
+            return (this.typeAtCaret("\n"))
+        }
+        def pi:int caret.para
+        if (pi < 0) {
+            return (this.typeAtCaret("\n"))
+        }
+        if (pi >= (array_length sh.text.paragraphs)) {
+            return (this.typeAtCaret("\n"))
+        }
+        def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+        if (para.hasBullet == false) {
+            return (this.typeAtCaret("\n"))
+        }
+        ; Empty means empty of TEXT. A paragraph carrying an empty run, which
+        ; is what backspacing an item down to nothing leaves behind, is still
+        ; an item a reader sees as blank.
+        if ((PptxTextEdit.paraLen(sh.text pi)) > 0) {
+            return (this.typeAtCaret("\n"))
+        }
+        if (para.level > 0) {
+            return (this.indentList(0 - 1))
+        }
+        ; At the outermost level there is nowhere left to go but out of the
+        ; list. `bulletSet` is what stops the layout's own list style from
+        ; putting the bullet straight back.
+        para.bulletSet = true
+        para.hasBullet = false
+        para.bulletAutoNum = false
+        this.pushSnapshot("end list")
         return true
     }
 
@@ -4011,6 +4327,7 @@ class PptxEditor {
             run.fontSizePt = 12.0
             run.sizeSet = true
             run.color = (PptxColor.srgbOf("595959"))
+            run.colorStated = true
             push para.runs run
             push sh.text.paragraphs para
             this.assignIdTo(sh)
@@ -4056,6 +4373,7 @@ class PptxEditor {
             run.fontSizePt = 12.0
             run.sizeSet = true
             run.color = (PptxColor.srgbOf("595959"))
+            run.colorStated = true
             push para.runs run
             push sh.text.paragraphs para
             this.assignIdTo(sh)

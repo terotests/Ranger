@@ -82,6 +82,19 @@ class PptxFrameTest {
     ; Lengthen the open deck until it has `want` slides, by repeating the ones
     ; it already has. The panel only scrolls when there are more thumbnails
     ; than fit, and the fixtures are all short.
+    ; A wheel or a two-finger swipe at a point, in the browser's own units:
+    ; pixels of travel, positive right and positive down. The negation X takes
+    ; on the way into `UIInput` is part of what this checks, so it is done here
+    ; exactly as the web binding does it rather than skipped.
+    sfn wheelAt:void (app:PptxApp x:int y:int dx:int dy:int) {
+        def input (new UIInput)
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScroll(dy)
+        input.addScrollX((0 - dx))
+        app.update(input)
+    }
+
     sfn padSlides:void (app:PptxApp want:int) {
         def have:int (array_length app.presentation.slides)
         if (have <= 0) {
@@ -175,16 +188,23 @@ class PptxFrameTest {
         c.ok("the strip is as tall as it needs" (app.toolbarH == (app.toolbar.heightFor(960))))
         ; And the slide is given the room that is left, not the whole window —
         ; the strip and the status line above and below it, the notes strip
-        ; under it, the slide panel beside it.
+        ; under it, the deck down one side and the properties panel down the
+        ; other. BOTH panels: a slide sized around only the left one is drawn
+        ; half underneath the right one.
         c.eqInt("the fit-to-window scale keeps the frame clear" app.view.chromeH ((app.toolbarH + app.statusH) + (app.notesHeight())))
-        c.eqInt("and the panel's width with it" app.view.chromeW (app.panelWidth()))
+        c.eqInt("and both panels' widths with it" app.view.chromeW ((app.panelWidth()) + (app.propsWidth())))
+        c.ok("which is more than either alone" (app.view.chromeW > (app.panelWidth())))
 
         print "-- every button names a command the app answers --"
         def i:int 0
         def unknown:int 0
         while (i < (app.toolbar.count())) {
             def t:ToolItem (app.toolbar.at(i))
-            if (t.isSeparator == false) {
+            ; A dropdown runs nothing itself: pressing it opens its list,
+            ; and the ENTRIES under it are what carry commands. Those entries
+            ; live in this same array, so they are still swept here — only
+            ; the button that opens them is exempt.
+            if ((t.isSeparator == false) && (t.isMenu == false)) {
                 if ((app.commands.has(t.command)) == false) {
                     unknown = (unknown + 1)
                     print ("    no command for " + t.command)
@@ -453,6 +473,133 @@ class PptxFrameTest {
         c.eqInt("a hand scroll moves it" f.panelScroll 120)
         f.buildFrame()
         c.eqInt("and the next frame leaves it where the reader put it" f.panelScroll 120)
+
+        print "-- two fingers over the thumbnails, in either layout --"
+        ; The wheel arrives with a POSITION, and the app decides from it
+        ; whether the gesture belongs to the thumbnails. It used to decide by
+        ; asking whether x was left of `panelWidth()` — and `panelWidth()`
+        ; answers 0 when the panel is a strip along the TOP rather than a
+        ; column down the side, which is the layout every narrow window gets.
+        ; So on a narrow window the test read `x < 0`, never true, and the
+        ; thumbnails could not be scrolled at all. Reported as "two fingers on
+        ; the trackpad do not move the thumbnails".
+        ;
+        ; Both layouts, through `update` with a pointer position, because that
+        ; is the path a browser takes — calling `scrollPanelPixels` directly
+        ; is the one part of it that was never broken.
+        def wide:PptxApp (PptxFrameTest.build())
+        wide.resize(1280 800)
+        PptxFrameTest.padSlides(wide 40)
+        wide.buildFrame()
+        c.ok("the column layout" ((wide.panelWidth()) > 0))
+        c.ok("with somewhere to scroll" ((wide.panelMaxScroll()) > 0))
+        def w0:int wide.panelScroll
+        PptxFrameTest.wheelAt(wide (idiv (wide.panelWidth()) 2) (idiv wide.H 2) 0 120)
+        c.ok("a wheel over the column scrolls it" (wide.panelScroll > w0))
+        ; …and one over the SLIDE does not: the gesture belongs to whatever is
+        ; under it, and swallowing every wheel would make the panel jump
+        ; whenever a reader scrolled anywhere.
+        def w1:int wide.panelScroll
+        PptxFrameTest.wheelAt(wide ((wide.panelWidth()) + 200) (idiv wide.H 2) 0 120)
+        c.eqInt("but one over the slide does not" wide.panelScroll w1)
+
+        ; The narrow window: the panel is a strip along the top, and
+        ; `panelWidth()` is 0 there by design.
+        def tall:PptxApp (PptxFrameTest.build())
+        tall.resize(420 820)
+        PptxFrameTest.padSlides(tall 40)
+        tall.buildFrame()
+        c.ok("the strip layout" (tall.panelOnTop()))
+        c.eqInt("takes nothing out of the width" (tall.panelWidth()) 0)
+        c.ok("and has somewhere to scroll" ((tall.panelMaxScroll()) > 0))
+        def stripY:int (tall.toolbarH + (idiv (tall.panelHeight()) 2))
+        def t0:int tall.panelScroll
+        PptxFrameTest.wheelAt(tall 200 stripY 0 120)
+        c.ok("a wheel over the strip scrolls it" (tall.panelScroll > t0))
+        ; A strip runs across, so a SIDEWAYS swipe has to move it too — that is
+        ; the gesture a reader makes at a horizontal row of pictures, and the
+        ; only one a trackpad reports as deltaX.
+        def t1:int tall.panelScroll
+        PptxFrameTest.wheelAt(tall 200 stripY 120 0)
+        c.ok("and so does a sideways one" (tall.panelScroll > t1))
+        ; Both the same way along the deck. Sideways travel is negated once on
+        ; its way in — `UIInput` counts X positive LEFTWARDS — and a sign got
+        ; wrong there would scroll the strip backwards rather than not at all.
+        def t2:int tall.panelScroll
+        PptxFrameTest.wheelAt(tall 200 stripY (0 - 240) 0)
+        c.ok("a swipe the other way goes back" (tall.panelScroll < t2))
+        ; And a wheel below the strip is the slide's, not the panel's.
+        def t3:int tall.panelScroll
+        PptxFrameTest.wheelAt(tall 200 (tall.toolbarH + (tall.panelHeight()) + 200) 0 120)
+        c.eqInt("a wheel under the strip is not the panel's" tall.panelScroll t3)
+
+        print "-- the thumbnails are their own list, and hold still --"
+        ; The panel is most of a frame and almost never differs from the frame
+        ; before it. On the six-slide chart deck it is 7,500 of the frame's
+        ; 9,400 commands, and dragging a shape changes none of them — yet every
+        ; one was re-encoded across the bridge and re-decoded in JavaScript on
+        ; every pointer move. Measured on the code-editor page: 11.5 ms of
+        ; encode and decode a frame, down to 4.7 once the panel came out.
+        ;
+        ; So the frame can be had without the panel, the panel on its own, and
+        ; `panelStamp` says whether last frame's panel will still do.
+        def sp:PptxApp (PptxFrameTest.build())
+        sp.resize(1280 800)
+        PptxFrameTest.padSlides(sp 40)
+        def whole:EVGDisplayList (sp.buildFrame())
+        def scene:EVGDisplayList (sp.buildSceneFrame())
+        def strip:EVGDisplayList (sp.buildPanelFrame())
+        c.ok("the panel is worth taking out" ((array_length strip.cmds) > (array_length scene.cmds)))
+        ; Nothing lost and nothing drawn twice: the two lists are the frame.
+        c.eqInt("the two lists are the whole frame"
+                ((array_length scene.cmds) + (array_length strip.cmds))
+                (array_length whole.cmds))
+        ; And `buildFrame` is unchanged for everything that never asked —
+        ; the flag it turns off has to come back on.
+        def again:EVGDisplayList (sp.buildFrame())
+        c.eqInt("asking for the frame again gives the whole frame" (array_length again.cmds) (array_length whole.cmds))
+
+        ; The stamp is the whole point: same string, same picture.
+        def st0:string (sp.panelStamp())
+        c.ok("the stamp says something" ((strlen st0) > 0))
+        sp.buildSceneFrame()
+        c.ok("and does not change from being asked twice" ((sp.panelStamp()) == st0))
+        ; Turning a slide changes it — the ring moves, and on a long deck the
+        ; panel scrolls.
+        sp.gotoSlide(20)
+        sp.buildSceneFrame()
+        c.ok("turning the page changes it" ((sp.panelStamp()) != st0))
+        ; …and so does editing a slide, because a thumbnail is keyed by its
+        ; slide's revision. A stamp that missed this would leave a stale
+        ; picture of a slide the reader had just changed.
+        def st1:string (sp.panelStamp())
+        def edited:PptxSlide (itemAt sp.presentation.slides 20)
+        edited.revision = (edited.revision + 1)
+        c.ok("and so does editing a slide" ((sp.panelStamp()) != st1))
+        ; But moving a shape on the slide the reader is looking at does NOT,
+        ; until the edit is recorded — which is what makes a drag cheap.
+        def st2:string (sp.panelStamp())
+        sp.buildSceneFrame()
+        c.ok("a frame on its own leaves it alone" ((sp.panelStamp()) == st2))
+
+        print "-- a slide added from a script is scrolled to --"
+        ; Everything that moves the current slide from the EDITOR's side comes
+        ; through `syncFromEditor`: adding a slide, undoing one, and every call
+        ; an API script makes. It set the index and left the panel alone, so a
+        ; script that appended a slide to a deck of forty left the status line
+        ; saying "41" with the thumbnails still showing one to eight — which
+        ; reads as the script having done nothing at all.
+        def api:PptxApp (PptxFrameTest.build())
+        PptxFrameTest.padSlides(api 40)
+        api.buildFrame()
+        c.eqInt("the panel starts at the top of a long deck" api.panelScroll 0)
+        api.editor.slideIndex = 33
+        api.syncFromEditor()
+        c.eqInt("the app follows the editor" api.index 33)
+        c.ok("and so does the panel, before anything is painted" (api.panelScroll > 0))
+        def seen:int (api.panelThumbY(33))
+        c.ok("the slide's own thumbnail is in view" (seen >= api.toolbarH))
+        c.ok("wholly so" ((seen + (api.panelThumbH())) <= (api.H - api.statusH)))
 
         print "-- a hover asks for the frame to be drawn again --"
         ; The hosts redraw when `pointer` says true, and a bare move over the

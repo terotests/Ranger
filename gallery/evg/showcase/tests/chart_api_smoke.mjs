@@ -48,6 +48,22 @@ function loadPlaywright() {
   return null;
 }
 
+function findChrome() {
+  const fixed = [process.env.CHROME_PATH, "/usr/bin/chromium", "/usr/bin/google-chrome",
+                 "/usr/local/bin/google-chrome"].filter(Boolean);
+  for (const c of fixed) if (fs.existsSync(c)) return c;
+  const pwBrowsers = "/opt/pw-browsers";
+  if (fs.existsSync(pwBrowsers)) {
+    for (const dir of fs.readdirSync(pwBrowsers)) {
+      for (const rel of ["chrome-linux/chrome", "chrome"]) {
+        const c = path.join(pwBrowsers, dir, rel);
+        if (fs.existsSync(c)) return c;
+      }
+    }
+  }
+  return null;
+}
+
 const pw = loadPlaywright();
 if (!pw) {
   console.log("Playwright is not available — the live page was not checked.");
@@ -73,11 +89,18 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
 
-const browser = await pw.chromium.launch();
+const browser = await pw.chromium.launch({
+  executablePath: findChrome() || undefined,
+});
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 const problems = [];
 page.on("pageerror", (e) => problems.push(`page error: ${e}`));
-page.on("console", (m) => { if (m.type() === "error") problems.push(`console: ${m.text()}`); });
+page.on("console", (m) => {
+  if (m.type() !== "error") return;
+  const where = (m.location() && m.location().url) || "";
+  if (/\/favicon\.ico$/.test(where)) return;
+  problems.push(`console: ${m.text()}`);
+});
 
 const checks = [];
 function check(name, ok, detail = "") {
@@ -227,6 +250,84 @@ await page.waitForTimeout(120);
 const vega = await page.evaluate(() => document.getElementById("vega").textContent);
 check("and the Vega it compiles to", vega.includes("\"scales\"") && vega.includes("\"marks\""),
   `${vega.split("\n").length} lines`);
+
+// Docs pages iframe this page with ?embed=1&view=chart. The full playground
+// still draws on load (checked above). The embed hides the chrome, autoruns
+// a preset, and a parent can post a snippet that is not one of the presets.
+const embedPage = await browser.newPage({ viewport: { width: 800, height: 520 } });
+embedPage.on("pageerror", (e) => problems.push(`embed: ${e}`));
+await embedPage.goto(`http://127.0.0.1:${port}/chart-api/?embed=1&view=chart&preset=bar`,
+  { waitUntil: "load" });
+await embedPage.waitForFunction(() => window.__chartApiReady === true, null, { timeout: 15000 });
+await embedPage.waitForFunction(() => document.querySelector("#chart svg") !== null, null, { timeout: 15000 });
+const embed = await embedPage.evaluate(() => ({
+  mode: !!window.__embedMode,
+  header: getComputedStyle(document.querySelector("header")).display,
+  editor: getComputedStyle(document.querySelector("main > div:first-child")).display,
+  paths: document.querySelectorAll("#chart svg path").length,
+}));
+check("embed mode is on", embed.mode);
+check("embed hides the playground chrome", embed.header === "none" && embed.editor === "none");
+check("embed autoruns the requested preset", embed.paths >= 2, `${embed.paths} paths`);
+check("embed hides the chart chrome",
+  await embedPage.evaluate(() => getComputedStyle(document.querySelector(".head")).display) === "none");
+await embedPage.close();
+
+const waitPage = await browser.newPage({ viewport: { width: 800, height: 520 } });
+waitPage.on("pageerror", (e) => problems.push(`wait: ${e}`));
+await waitPage.goto(`http://127.0.0.1:${port}/chart-api/?embed=1&view=chart&run=0`,
+  { waitUntil: "load" });
+await waitPage.waitForFunction(() => window.__chartApiReady === true, null, { timeout: 15000 });
+const waiting = await waitPage.evaluate(() => ({
+  svg: document.querySelector("#chart svg") !== null,
+  status: document.getElementById("status").textContent,
+}));
+check("embed with run=0 waits for a parent", !waiting.svg && /waiting/.test(waiting.status),
+  waiting.status.trim());
+await waitPage.close();
+
+const postedCode = `chart.size(280, 160);
+chart.heading("Posted from parent");
+const bars = chart.bar();
+bars.x("region").keepOrder();
+bars.y("sales").aggregate("sum");`;
+fs.writeFileSync(path.join(LIVE, "embed-host.html"), `<!doctype html>
+<html><body style="margin:0">
+<iframe id="f" src="./index.html?embed=1&view=chart&run=0"
+        style="width:100%;height:480px;border:0"></iframe>
+<script>
+  const f = document.getElementById("f");
+  const code = ${JSON.stringify(postedCode)};
+  const send = () => {
+    try {
+      if (f.contentWindow && f.contentWindow.__chartApiReady) {
+        f.contentWindow.postMessage({ type: "vela-embed", view: "chart", lang: "js", code: code }, "*");
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  };
+  const t = setInterval(() => { if (send()) clearInterval(t); }, 50);
+  f.addEventListener("load", () => { if (send()) clearInterval(t); });
+</script>
+</body></html>`);
+const host = await browser.newPage({ viewport: { width: 800, height: 520 } });
+host.on("pageerror", (e) => problems.push(`host: ${e}`));
+await host.goto(`http://127.0.0.1:${port}/chart-api/embed-host.html`, { waitUntil: "load" });
+await host.waitForFunction(() => {
+  const f = document.getElementById("f");
+  const doc = f && f.contentDocument;
+  return doc && doc.querySelector("#chart svg");
+}, null, { timeout: 20000 });
+const posted = await host.evaluate(() => {
+  const doc = document.getElementById("f").contentDocument;
+  const status = doc.getElementById("status").textContent;
+  const svg = doc.getElementById("chart").innerHTML;
+  return { status, drew: /<svg/.test(svg), heading: /Posted from parent/.test(svg) };
+});
+check("a parent can post a snippet into the embed", posted.drew && /kutsua/.test(posted.status));
+check("and the posted heading is in the drawing", posted.heading);
+await host.close();
 
 check("nothing threw", problems.length === 0, problems.slice(0, 3).join(" | "));
 

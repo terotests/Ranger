@@ -137,9 +137,12 @@ gallery/office/docs/site/node_modules/
 gallery/office/docs/site/dist/
 gallery/office/docs/site/.astro/
 gallery/office/docs/site/src/content/docs/pptx.md
+gallery/office/docs/site/src/content/docs/pptx.mdx
 gallery/office/docs/site/src/content/docs/vela.md
-# Copied from the playground build so live examples can iframe it.
+gallery/office/docs/site/src/content/docs/vela.mdx
+# Copied from the playground / chart-api builds so live examples can iframe them.
 gallery/office/docs/site/public/playground/
+gallery/office/docs/site/public/chart-api/
 
 # The playground build output.
 gallery/pptx/web/playground/dist/

@@ -57,3 +57,79 @@
 .pptx-example__cap a {
   color: var(--sl-color-accent);
 }
+
+/*
+ * Docs-native API examples: the JavaScript is an editor on the page, the
+ * iframe below is only the slide viewer. Starlight's content styles would
+ * otherwise restyle the textarea; `not-content` opts the figure out.
+ */
+.pptx-api-example,
+.live-api-example {
+  margin: 1.25rem 0 1.75rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--sl-color-gray-6);
+}
+.pptx-api-example__bar,
+.live-api-example__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--sl-color-gray-5);
+  font-size: 0.82rem;
+}
+.pptx-api-example__title,
+.live-api-example__title {
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+.pptx-api-example__bar button,
+.live-api-example__bar button {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.15rem 0.7rem;
+  background: var(--sl-color-accent);
+  color: var(--sl-color-white);
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.pptx-api-example__bar button:hover,
+.live-api-example__bar button:hover {
+  filter: brightness(1.08);
+}
+.pptx-api-example__hint,
+.live-api-example__hint {
+  color: var(--sl-color-gray-3);
+}
+.pptx-api-example__open,
+.live-api-example__open {
+  margin-inline-start: auto;
+  color: var(--sl-color-accent);
+}
+.pptx-api-example__code,
+.live-api-example__code {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  resize: vertical;
+  padding: 0.85rem 1rem;
+  font: 0.82rem/1.55 ui-monospace, var(--sl-font-mono, monospace), monospace;
+  tab-size: 2;
+  background: #0e1116;
+  color: #dbe4ee;
+  outline: 0;
+}
+.pptx-api-example__frame,
+.live-api-example__frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--sl-color-gray-5);
+  background: #fff;
+}

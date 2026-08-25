@@ -69,19 +69,33 @@ class BookToolbar extends EVGToolbar {
         this.add("frame.text" "" "Insert a text frame" (ToolIcon.textColor()))
         this.add("frame.image" "" "Insert a picture frame" (ToolIcon.report()))
         this.add("frame.shape" "" "Insert a shape" (ToolIcon.borderAll()))
-        this.add("shape.pick" "" "Browse the shapes" (ToolIcon.merge()))
+        this.add("shape.pick" "" "More shapes and emoji" (ToolIcon.shapes()))
         this.addSeparator()
         ; The two buttons that make this a book tool rather than a page tool.
         this.add("frame.link" "" "Flow the story through these frames" (ToolIcon.link()))
         this.add("frame.unlink" "" "Break the flow here" (ToolIcon.borderNone()))
         this.addSeparator()
-        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.merge()))
-        this.add("edit.delete" "" "Delete" (ToolIcon.deleteRow()))
+        this.add("edit.cut" "" "Cut" (ToolIcon.cut()))
+        this.add("edit.copy" "" "Copy" (ToolIcon.copy()))
+        this.add("edit.paste" "" "Paste" (ToolIcon.paste()))
+        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.copy()))
+        ; A waste basket, not a spreadsheet's delete-row. This button was
+        ; reported as hard to find, and it was: it had the icon for taking a
+        ; row out of a grid, on a strip with no grid on it.
+        this.add("edit.delete" "" "Delete" (ToolIcon.trash()))
         this.add("edit.front" "" "Bring to front" (ToolIcon.valignTop()))
         this.add("edit.back" "" "Send to back" (ToolIcon.valignBot()))
-        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
-        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
-        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        ; The FRAMES, which is what these have always done. Named so, because
+        ; a strip with "Align left" on it twice is a strip nobody can use.
+        this.add("edit.align.left" "" "Line the frames up on the left" (ToolIcon.arrangeLeft()))
+        this.add("edit.align.hcenter" "" "Line the frames up on their centres" (ToolIcon.arrangeCenter()))
+        this.add("edit.align.right" "" "Line the frames up on the right" (ToolIcon.arrangeRight()))
+        this.addSeparator()
+        ; The TEXT inside them, which nothing could do until now.
+        this.add("text.align.left" "" "Align the text left" (ToolIcon.alignLeft()))
+        this.add("text.align.center" "" "Centre the text" (ToolIcon.alignCenter()))
+        this.add("text.align.right" "" "Align the text right" (ToolIcon.alignRight()))
+        this.add("text.align.justify" "" "Justify the text" (ToolIcon.textJustify()))
         this.addSeparator()
         this.add("image.cover" "" "Crop the picture to fill the frame" (ToolIcon.borderOut()))
         this.add("image.contain" "" "Fit the whole picture in" (ToolIcon.borderNone()))
@@ -266,6 +280,9 @@ class BookApp {
         commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
         commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
         commands.add("edit.delete" "Delete" "Edit" "Del")
+        commands.add("edit.cut" "Cut" "Edit" "Ctrl+X")
+        commands.add("edit.copy" "Copy" "Edit" "Ctrl+C")
+        commands.add("edit.paste" "Paste" "Edit" "Ctrl+V")
         commands.add("edit.duplicate" "Duplicate" "Edit" "Ctrl+D")
         commands.add("edit.selectall" "Select all" "Edit" "Ctrl+A")
         commands.add("frame.text" "Insert a text frame" "Insert" "")
@@ -275,7 +292,11 @@ class BookApp {
         commands.add("frame.unlink" "Break the flow here" "Story" "")
         commands.add("edit.front" "Bring to front" "Arrange" "")
         commands.add("edit.back" "Send to back" "Arrange" "")
-        commands.add("edit.align.left" "Align left" "Arrange" "")
+        commands.add("text.align.left" "Align the text left" "Format" "")
+        commands.add("text.align.center" "Centre the text" "Format" "")
+        commands.add("text.align.right" "Align the text right" "Format" "")
+        commands.add("text.align.justify" "Justify the text" "Format" "")
+        commands.add("edit.align.left" "Line the frames up on the left" "Arrange" "")
         commands.add("edit.align.hcenter" "Align centre" "Arrange" "")
         commands.add("edit.align.right" "Align right" "Arrange" "")
         commands.add("edit.align.top" "Align top" "Arrange" "")
@@ -697,6 +718,35 @@ class BookApp {
             editor.selectAll()
             this.refreshStatus()
             return true
+        }
+        if (id == "text.align.left") {
+            return (this.alignText("left"))
+        }
+        if (id == "text.align.center") {
+            return (this.alignText("center"))
+        }
+        if (id == "text.align.right") {
+            return (this.alignText("right"))
+        }
+        if (id == "text.align.justify") {
+            return (this.alignText("justify"))
+        }
+        if (id == "edit.copy") {
+            return (editor.copySelection())
+        }
+        if (id == "edit.cut") {
+            def cut:boolean (editor.cutSelection())
+            if cut {
+                this.refreshStatus()
+            }
+            return cut
+        }
+        if (id == "edit.paste") {
+            def put:boolean (editor.pasteClipboard())
+            if put {
+                this.refreshStatus()
+            }
+            return put
         }
         if (id == "edit.delete") {
             def ok3:boolean (editor.deleteSelection())
@@ -1328,6 +1378,14 @@ class BookApp {
         return true
     }
 
+    fn alignText:boolean (how:string) {
+        def ok:boolean (editor.alignText(how))
+        if ok {
+            this.refreshStatus()
+        }
+        return ok
+    }
+
     ; A shape was chosen. Everything above this line is shared with the slide
     ; editor; this is the line that is not, and it is one line: the book turns
     ; the id into an outline it owns.
@@ -1405,9 +1463,21 @@ class BookApp {
             clear editor.selection
             return
         }
+        ; Backspace as well as Delete. A laptop keyboard often has no Delete
+        ; key at all, and "select the frame, press the key everything else
+        ; deletes with, nothing happens" is what an editor that ignores
+        ; Backspace feels like.
         if (k == (UIKey.del())) {
             this.runCommand("edit.delete" "")
             return
+        }
+        if (k == (UIKey.backspace())) {
+            if (editor.editMode) {
+                if ((editor.selectionCount()) > 0) {
+                    this.runCommand("edit.delete" "")
+                    return
+                }
+            }
         }
         ; Arrows nudge a selected frame while editing and turn the spread
         ; otherwise. The same key, meaning the thing the mode is about.
@@ -1476,6 +1546,15 @@ class BookApp {
         }
         if ((c == "d") || (c == "D")) {
             this.runCommand("edit.duplicate" "")
+        }
+        if ((c == "c") || (c == "C")) {
+            this.runCommand("edit.copy" "")
+        }
+        if ((c == "x") || (c == "X")) {
+            this.runCommand("edit.cut" "")
+        }
+        if ((c == "v") || (c == "V")) {
+            this.runCommand("edit.paste" "")
         }
         if ((c == "a") || (c == "A")) {
             this.runCommand("edit.selectall" "")
@@ -1546,6 +1625,12 @@ class BookApp {
         def spreads:int (d.spreadCount())
         toolbar.refresh(spread spreads)
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
+        ; The tooltip, which hangs BELOW the strip and so has to be drawn after
+        ; everything the strip covers. The slide editor has always called this;
+        ; the book never did, so every button on it was a picture with no name
+        ; — and a picture nobody can read is how somebody clicks the wrong one.
+        ; The labels were there the whole time.
+        toolbarView.paintOverlay(framed toolbar)
 
         def sy:int (H - statusH)
         framed.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)

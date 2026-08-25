@@ -36,6 +36,54 @@ class PptxEditHostTest {
         return (PptxEditHostTest.buildDeck("02-shapes.pptx"))
     }
 
+    ; Press the panel's control for `cmd`/`arg`, in the middle of wherever the
+    ; panel says it drew it. False when there is no such control — which is a
+    ; failure worth seeing, not a silent skip.
+    sfn pressProp:boolean (app:PptxApp cmd:string arg:string) {
+        def at:int (app.propsControlAt(cmd arg))
+        if (at < 0) {
+            return false
+        }
+        def px:int ((app.propsControlX(at)) + (idiv (app.propsControlW(at)) 2))
+        def py:int ((app.propsControlY(at)) + (idiv (app.propsControlH(at)) 2))
+        def took:boolean (app.pointer(px py true true false))
+        app.pointer(px py false false true)
+        app.buildFrame()
+        return took
+    }
+
+    sfn nearly:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+
+    ; One key press, with or without shift, through the app the way a host
+    ; delivers it.
+    sfn press:void (app:PptxApp key:int shift:boolean) {
+        def input (new UIInput)
+        input.newFrame()
+        input.setModifiers(shift false)
+        input.pushKey(key)
+        app.update(input)
+    }
+
+    ; Press, move, release — a drag across the slide, in window pixels.
+    sfn dragOut:void (app:PptxApp x0:int y0:int x1:int y1:int) {
+        app.pointer(x0 y0 true true false)
+        def steps:int 4
+        def i:int 1
+        while (i <= steps) {
+            def x:int (x0 + (idiv ((x1 - x0) * i) steps))
+            def y:int (y0 + (idiv ((y1 - y0) * i) steps))
+            app.pointer(x y true false false)
+            i = (i + 1)
+        }
+        app.pointer(x1 y1 false false true)
+    }
+
     sfn buildDeck:PptxApp (name:string) {
         def app:PptxApp (new PptxApp)
         app.init("gallery/pdf_writer/assets/fonts")
@@ -341,6 +389,258 @@ class PptxEditHostTest {
         c.ok("the list button turns it off again" (lb.runCommand("text.number" "")))
         c.ok("and it is off" ((lb.editor.listKind()) == "none"))
 
+        print "-- the properties panel, down the right --"
+        ; What a shape looks like was reachable only by knowing that a command
+        ; called `edit.fill` existed and finding somewhere to type a hex
+        ; string. Worse, nothing could READ a value back: `edit.fill` answered
+        ; nothing, so the only way to find out what a shape was filled with
+        ; was to look at it and guess.
+        ;
+        ; Pressed the way a reader presses it — through `pointer`, at the
+        ; coordinates the panel says it drew each control at. A test that
+        ; called `runCommand` would pass with the panel drawn somewhere no
+        ; press can reach, which is the whole risk in adding one.
+        def pa:PptxApp (PptxEditHostTest.build())
+        pa.resize(1280 800)
+        pa.buildFrame()
+        c.ok("a wide window has room for it" ((pa.propsWidth()) > 0))
+        def pr:PptxEditRect (pa.propsRect())
+        c.ok("it is against the right-hand edge" ((PptxEditHostTest.nearly((pr.x + pr.w) (to_double pa.W)))))
+        c.ok("and runs from the strip to the status line" ((PptxEditHostTest.nearly(pr.y (to_double pa.toolbarH)))))
+        ; The slide gives up the room, or it is drawn half underneath.
+        c.ok("the slide is sized around both panels" (pa.view.chromeW == ((pa.panelWidth()) + (pa.propsWidth()))))
+
+        ; With nothing selected the panel says so and offers nothing — a panel
+        ; of dead controls reads as a broken panel.
+        pa.editor.clearSelection()
+        pa.buildFrame()
+        c.ok("with nothing selected it offers no controls" ((pa.propsControlCount()) == 0))
+
+        def ps:PptxShape (PptxEditHostTest.firstShape(pa))
+        pa.editor.select(ps.editId)
+        pa.buildFrame()
+        c.ok("selecting a shape fills it" ((pa.propsControlCount()) > 0))
+
+        ; A fill swatch. `accent1` is the deck's own first accent — the panel
+        ; offers the DECK's palette rather than a generic rainbow, because a
+        ; deck's accents are the colours its author meant to be used.
+        def want:string (pa.swatchHex("accent1"))
+        c.ok("the theme has a first accent" ((strlen want) == 6))
+        c.ok("pressing the accent1 fill swatch fills the shape"
+             (PptxEditHostTest.pressProp(pa "edit.fill" want)))
+        c.ok("and the shape is filled with it" (ps.fill.srgb == want))
+        c.ok("and it stays selected, so the panel still applies" ((pa.editor.selectionCount()) == 1))
+
+        ; …and the panel then SHOWS it: the swatch that matches is ringed, so
+        ; a reader can see where they are in the palette. The ring is two
+        ; extra commands in the frame, so the frame grows.
+        def litFill:int (pa.propsControlAt("edit.fill" want))
+        c.ok("the swatch is still there afterwards" (litFill >= 0))
+
+        ; None takes the fill away again.
+        c.ok("None is offered for a fill" ((pa.propsControlAt("edit.fill" "")) >= 0))
+        c.ok("and pressing it clears the fill" (PptxEditHostTest.pressProp(pa "edit.fill" "")))
+        c.ok("so the shape has no fill of its own" (ps.fill.isSet == false))
+
+        ; The outline, and its thickness separately — which is the point of
+        ; having a width row at all. `setLineHex` took colour and width
+        ; together, so recolouring an outline reset a 3pt rule to a hairline.
+        c.ok("pressing a line swatch outlines the shape"
+             (PptxEditHostTest.pressProp(pa "edit.line" want)))
+        c.ok("and the outline is that colour" (ps.line.srgb == want))
+        c.ok("a width can be picked" (PptxEditHostTest.pressProp(pa "edit.linewidth" "3")))
+        c.ok("and it took" ((PptxEditHostTest.nearly(ps.lineWidthPt 3.0))))
+        ; The one that was wrong: changing the COLOUR must not reset it.
+        def other:string (pa.swatchHex("accent2"))
+        c.ok("recolouring the outline" (PptxEditHostTest.pressProp(pa "edit.line" other)))
+        c.ok("keeps the thickness that was chosen" ((PptxEditHostTest.nearly(ps.lineWidthPt 3.0))))
+        c.ok("while changing the colour" (ps.line.srgb == other))
+
+        ; Text colour, which is a different job from `edit.text` — that sets
+        ; the text ITSELF, under a confusingly similar name.
+        c.ok("a text colour can be picked" (PptxEditHostTest.pressProp(pa "edit.textcolor" want)))
+        c.ok("and the editor reads it back" ((pa.editor.selectionColorHex()) == want))
+        ; …which is what the panel's swatch shows. No "None" here: text always
+        ; has a colour.
+        c.ok("text has no None" ((pa.propsControlAt("edit.textcolor" "")) < 0))
+
+        ; A narrow window keeps the slide instead. A column spends width, and
+        ; width is what a phone has least of — the same call the deck panel
+        ; makes.
+        def narrow:PptxApp (PptxEditHostTest.build())
+        narrow.resize(420 820)
+        narrow.buildFrame()
+        c.ok("a narrow window gives the panel no width" ((narrow.propsWidth()) == 0))
+        c.ok("and draws no controls" ((narrow.propsControlCount()) == 0))
+
+        ; And it can be put away on a wide one.
+        c.ok("it can be folded away" (pa.runCommand("view.props" "")))
+        pa.buildFrame()
+        c.ok("and then takes no width" ((pa.propsWidth()) == 0))
+        c.ok("nor draws anything" ((pa.propsControlCount()) == 0))
+        pa.runCommand("view.props" "")
+
+        print "-- the font chooser, where the slide counter used to be --"
+        ; The counter read "3 / 12" and opened a grid of numbered buttons.
+        ; Four nav buttons sit to its left and the whole deck is drawn down
+        ; the side as thumbnails, so it was the third way to do the same thing
+        ; and the worst of the three — while the typeface, which a reader
+        ; reaches for constantly, was nowhere on the strip at all.
+        def fa:PptxApp (PptxEditHostTest.build())
+        fa.buildFrame()
+        c.ok("the slide counter is gone from the strip" ((PptxEditHostTest.indexOfCommand(fa "slide.pick")) < 0))
+        c.ok("but it is still a command" (fa.commands.has("slide.pick")))
+        def fi:int (fa.toolbar.indexOfLabel("Font"))
+        c.ok("there is a Font chooser instead" (fi >= 0))
+
+        ; Its entries are the faces this build loaded, plus whatever the open
+        ; deck is already set in. The second half is the point: a deck from
+        ; PowerPoint is in Calibri and this build has no Calibri face, but the
+        ; FILE says Calibri and a reader adding a line wants it to go on
+        ; saying so.
+        def entries:int 0
+        def sawLoaded:boolean false
+        def ei:int 0
+        while (ei < (fa.toolbar.count())) {
+            def et:ToolItem (fa.toolbar.at(ei))
+            if (et.menuOwner == fi) {
+                entries = (entries + 1)
+                if (et.label == "Open Sans") {
+                    sawLoaded = true
+                }
+                c.ok("every entry runs text.font" (et.command == "text.font"))
+            }
+            ei = (ei + 1)
+        }
+        c.ok("it has some fonts in it" (entries > 0))
+        c.ok("including the one this build draws with" sawLoaded)
+
+        ; …and a typeface the deck names that this build has no face for. A
+        ; chooser offering only what it can DRAW would make it impossible to
+        ; stay in the deck's own font: PowerPoint decks are in Calibri, this
+        ; build draws Calibri in Open Sans, and the file still has to say
+        ; Calibri for every other reader.
+        def deckShape:PptxShape (PptxEditHostTest.firstShape(fa))
+        def dp:PptxParagraph (itemAt deckShape.text.paragraphs 0)
+        def dr:PptxTextRun (itemAt dp.runs 0)
+        dr.fontFamily = "Nothing This Build Has"
+        fa.buildFrame()
+        def sawDeck:boolean false
+        def di:int 0
+        while (di < (fa.toolbar.count())) {
+            def dt:ToolItem (fa.toolbar.at(di))
+            if (dt.menuOwner == (fa.toolbar.indexOfLabel("Nothing This Build Has"))) {
+                sawDeck = true
+            }
+            di = (di + 1)
+        }
+        def deckEntry:boolean false
+        def dj:int 0
+        while (dj < (fa.toolbar.count())) {
+            def dt2:ToolItem (fa.toolbar.at(dj))
+            if (dt2.command == "text.font") {
+                if (dt2.arg == "Nothing This Build Has") {
+                    deckEntry = true
+                }
+            }
+            dj = (dj + 1)
+        }
+        c.ok("a typeface only the deck names is offered too" deckEntry)
+
+        ; …and NOT the fallback faces. The emoji face and the Arabic one are
+        ; loaded so that `FontManager` can search them per codepoint when the
+        ; text face has no glyph — `addFace` says in as many words that they
+        ; are faces "the renderer will not switch to". Offering them here
+        ; would let a reader set a paragraph of English in an emoji font.
+        def sawFallback:boolean false
+        def fj:int 0
+        while (fj < (fa.toolbar.count())) {
+            def ft:ToolItem (fa.toolbar.at(fj))
+            if (ft.command == "text.font") {
+                if ((indexOf ft.arg "Emoji") >= 0) {
+                    sawFallback = true
+                }
+                if ((indexOf ft.arg "Messiri") >= 0) {
+                    sawFallback = true
+                }
+            }
+            fj = (fj + 1)
+        }
+        c.ok("the fallback faces are not offered as body text" (sawFallback == false))
+        dr.fontFamily = ""
+
+        ; And picking one changes the text. Through the COMMAND, because the
+        ; command is what a menu entry runs.
+        def fs:PptxShape (PptxEditHostTest.firstShape(fa))
+        fa.editor.select(fs.editId)
+        c.ok("a font can be chosen" (fa.runCommand("text.font" "Open Sans")))
+        def fp:PptxParagraph (itemAt fs.text.paragraphs 0)
+        def fr:PptxTextRun (itemAt fp.runs 0)
+        c.ok("and the run says so" (fr.fontFamily == "Open Sans"))
+        c.ok("the editor agrees" ((fa.editor.selectionFamily()) == "Open Sans"))
+        ; …and the chooser then shows it, which is the whole reason for
+        ; putting it on the strip rather than in a dialog.
+        fa.buildFrame()
+        def fmenu:ToolItem (fa.toolbar.at((fa.toolbar.indexOfLabel("Open Sans"))))
+        c.ok("the chooser shows the selection's typeface" (fmenu.isMenu))
+        ; An empty name is a no-op rather than a run set to nothing.
+        c.ok("an empty name changes nothing" ((fa.runCommand("text.font" "")) == false))
+        c.ok("and the run is untouched" (fr.fontFamily == "Open Sans"))
+
+        print "-- Tab indents a list, and two empty Enters end it --"
+        ; Through the KEYS, not through the commands. `text.indent` and
+        ; `text.outdent` were reachable from the toolbar all along; what was
+        ; missing was any way to press Tab and have it arrive — the browser
+        ; host did not carry the key at all, so it moved focus off the canvas
+        ; instead — and any meaning for Enter on an item with nothing in it.
+        def ki:PptxApp (PptxEditHostTest.build())
+        def ks:PptxShape (PptxEditHostTest.firstShape(ki))
+        ki.editor.select(ks.editId)
+        c.ok("a caret goes into the box" (ki.runCommand("text.edit" "")))
+        c.ok("and the box is a list" (ki.editor.setListKind("bullet")))
+        def kp:PptxParagraph (itemAt ks.text.paragraphs 0)
+        c.ok("its first item is at the outermost level" (kp.level == 0))
+        PptxEditHostTest.press(ki (UIKey.tab()) false)
+        c.ok("Tab takes the item in one level" (kp.level == 1))
+        PptxEditHostTest.press(ki (UIKey.tab()) false)
+        c.ok("and again" (kp.level == 2))
+        PptxEditHostTest.press(ki (UIKey.tab()) true)
+        c.ok("shift+Tab brings it back out" (kp.level == 1))
+        PptxEditHostTest.press(ki (UIKey.tab()) true)
+        c.ok("to the outermost level" (kp.level == 0))
+        PptxEditHostTest.press(ki (UIKey.tab()) true)
+        c.ok("and no further — there is no level below the first" (kp.level == 0))
+
+        ; Enter on an item with something in it splits it, as ever. This is
+        ; the guard on the other side of the change: a reader typing a list
+        ; must still be able to press Enter between items.
+        def before:int (array_length ks.text.paragraphs)
+        ki.editor.moveCaretBy("end" false)
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("Enter on an item with text in it makes another" ((array_length ks.text.paragraphs) == (before + 1)))
+        def fresh:PptxParagraph (itemAt ks.text.paragraphs 1)
+        c.ok("and the new item is a list item too" fresh.hasBullet)
+        c.ok("with nothing typed into it yet" ((PptxTextEdit.paraLen(ks.text 1)) == 0))
+
+        ; …and now the empty one. One level in first, so the step OUT of the
+        ; nesting and the step out of the list itself are both checked — a fix
+        ; that only turned the bullet off would end a sub-list at the wrong
+        ; place, which is the mistake worth catching.
+        ki.editor.indentList(1)
+        c.ok("the empty item is nested" (fresh.level == 1))
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("Enter on an empty item steps out of the nesting" (fresh.level == 0))
+        c.ok("and it is still a list item" fresh.hasBullet)
+        c.ok("without making another one" ((array_length ks.text.paragraphs) == (before + 1)))
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("a second Enter ends the list" (fresh.hasBullet == false))
+        c.ok("and states it, so the layout does not put the bullet back" fresh.bulletSet)
+        c.ok("still without making another item" ((array_length ks.text.paragraphs) == (before + 1)))
+        ; A third is an ordinary newline again: the reader is out of the list
+        ; and typing prose.
+        PptxEditHostTest.press(ki (UIKey.enter()) false)
+        c.ok("and a third Enter is an ordinary newline" ((array_length ks.text.paragraphs) == (before + 2)))
+
         print "-- what a numbered item is numbered --"
         def body (new PptxTextBody())
         PptxEditHostTest.numbered(body 0 "one")
@@ -440,6 +740,50 @@ class PptxEditHostTest {
         if (!null? sized) {
             def s4:PptxShape (unwrap sized)
             c.ok("the shape grew" (s4.width > w0))
+        }
+
+        print "-- and a handle snaps to what is beside it --"
+        ; Moving a shape has always snapped to its neighbours and drawn a
+        ; guide. Resizing one snapped to nothing: a reader could line two
+        ; boxes up by dragging them and lose it again the moment they made one
+        ; wider, with nothing on screen to say how far out they were.
+        ;
+        ; Through the POINTER, because the arithmetic is covered in the editor
+        ; suite and what was missing here was the call — a resize drag that
+        ; simply never asked. A test of `snapResize` alone passes with this
+        ; call site deleted.
+        def snapApp:PptxApp (PptxEditHostTest.build())
+        def shapes6:[PptxShape] (snapApp.editor.editableShapes())
+        c.ok("the fixture has two shapes to line up" ((array_length shapes6) >= 2))
+        if ((array_length shapes6) >= 2) {
+            def s6a:PptxShape (itemAt shapes6 0)
+            def s6b:PptxShape (itemAt shapes6 1)
+            ; Put B's left edge a little to the right of A's right edge, so
+            ; dragging A's east handle out has something to land on.
+            def line:double (s6a.x + s6a.width)
+            s6b.x = (line + 4.0)
+            snapApp.editor.snapEnabled = true
+            snapApp.editor.select(s6a.editId)
+            def ex:int (PptxEditHostTest.screenX(snapApp line))
+            def ey:int (PptxEditHostTest.screenY(snapApp (s6a.y + (s6a.height * 0.5))))
+            c.ok("the east handle is where the edge is" ((snapApp.handleAt(ex ey)) == 3))
+            ; Two screen pixels out — inside the tolerance, so the edge should
+            ; land on the neighbour rather than where the pointer stopped.
+            snapApp.pointer(ex ey true true false)
+            snapApp.pointer((ex + 2) ey false true false)
+            def mid@(optional):PptxShape (snapApp.editor.findShape(s6a.editId))
+            if (!null? mid) {
+                def m6:PptxShape (unwrap mid)
+                def landed:double (m6.x + m6.width)
+                def off:double (landed - s6b.x)
+                if (off < 0.0) {
+                    off = (0.0 - off)
+                }
+                c.ok("the dragged edge lands on the neighbour" (off < 0.01))
+                c.ok("and a guide says where" ((array_length snapApp.editor.guideX) == 1))
+            }
+            snapApp.pointer((ex + 2) ey false false true)
+            c.ok("and the guide is put away when the hand lets go" ((array_length snapApp.editor.guideX) == 0))
         }
 
         print "-- a caret inside a shape --"
@@ -769,10 +1113,22 @@ class PptxEditHostTest {
         print "-- inserting, deleting, and the slide list --"
         def app4:PptxApp (PptxEditHostTest.build())
         def n0:int (array_length (app4.editor.editableShapes()))
-        c.ok("insert a box" (app4.runCommand("shape.rect" "")))
+        ; A shape command ARMS the tool; the drag that follows says where the
+        ; shape goes and how big it is. It used to drop a fixed box in the
+        ; middle of the slide the moment the picker was touched, which put the
+        ; new shape on top of whatever the reader was looking at and gave them
+        ; no say in its size — reported as "the picker hides the slide".
+        c.ok("the box command is a command" (app4.runCommand("shape.rect" "")))
         c.ok("inserting turns editing on" app4.editMode)
-        c.ok("there is one more shape" ((array_length (app4.editor.editableShapes())) == (n0 + 1)))
+        c.ok("it arms the tool rather than inserting" (app4.pendingTool == "rect"))
+        c.ok("so nothing is on the slide yet" ((array_length (app4.editor.editableShapes())) == n0))
+        ; And now the drag. Big enough to read as a drawn rectangle rather
+        ; than a click — `placePendingTool` treats anything under 4% of the
+        ; slide as a click and falls back to a default size.
+        PptxEditHostTest.dragOut(app4 320 260 620 460)
+        c.ok("the drag puts one there" ((array_length (app4.editor.editableShapes())) == (n0 + 1)))
         c.ok("and it is selected" ((app4.editor.selectionCount()) == 1))
+        c.ok("the tool is spent" ((strlen app4.pendingTool) == 0))
         c.ok("delete takes it away" (app4.runCommand("edit.delete" "")))
         c.ok("back to where we started" ((array_length (app4.editor.editableShapes())) == n0))
         def slides0:int (app4.slideCount())
@@ -927,7 +1283,9 @@ class PptxEditHostTest {
         ; The fixture's own shapes, plus one inserted, so the build is about
         ; the build and not about how many shapes the deck happened to have.
         maker.runCommand("shape.rect" "")
+        PptxEditHostTest.dragOut(maker 320 260 560 400)
         maker.runCommand("shape.ellipse" "")
+        PptxEditHostTest.dragOut(maker 340 440 580 580)
         def shapes2:[PptxShape] (maker.editor.editableShapes())
         c.ok("there are shapes to animate" ((array_length shapes2) >= 2))
         if ((array_length shapes2) >= 2) {

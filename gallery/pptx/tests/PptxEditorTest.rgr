@@ -370,6 +370,53 @@ class PptxEditorTest {
         ed.moveSelectionSnapped(2.0 0.0)
         this.check("snapping can be turned off" (this.near(a.x 142.0)))
         this.check("b untouched" (this.near(b.x 300.0)))
+
+        print "--- …and while a handle is being dragged, not only the whole shape ---"
+        ; Moving a shape has always snapped. Resizing one snapped to nothing
+        ; and drew no guide: a reader could line two boxes up by dragging them
+        ; and lose it again the moment they made one wider, with nothing on
+        ; screen to say how far out they were.
+        def re (new PptxEditor())
+        def deck2:PptxPresentation (this.buildDeck())
+        re.attach(deck2)
+        def sl2:PptxSlide (itemAt deck2.slides 0)
+        def ra:PptxShape (itemAt sl2.shapes 1)
+        def rb:PptxShape (itemAt sl2.shapes 2)
+        re.select(ra.editId)
+        ; A's right edge is at 300 and B's left edge is at 300. Drag the east
+        ; handle out by two points and it should come back to the neighbour.
+        def fitE:PptxEditRect (re.snapResize(3 2.0 0.0))
+        this.check("the east handle snaps back to the neighbour" (this.near(fitE.x 0.0)))
+        this.check("and says where, with a guide" ((array_length re.guideX) == 1))
+        this.check("on the line it landed on" (this.near((itemAt re.guideX 0) 300.0)))
+        ; Far out, and nothing is offered.
+        def farE:PptxEditRect (re.snapResize(3 40.0 0.0))
+        this.check("a long drag of a handle is left alone" (this.near(farE.x 40.0)))
+        this.check("with no guide" ((array_length re.guideX) == 0))
+
+        ; The handle decides WHICH edge is a candidate. A's LEFT edge is at
+        ; 100 and nothing is near it, so the west handle has nothing to snap
+        ; to even though the right edge is sitting on a line — offering that
+        ; one would drag the far side of the box about, which is the mistake
+        ; worth catching.
+        def fitW:PptxEditRect (re.snapResize(7 2.0 0.0))
+        this.check("the west handle does not snap to the east edge's line" (this.near(fitW.x 2.0)))
+
+        ; A handle that moves no horizontal edge at all — north and south —
+        ; leaves x alone whatever is near it.
+        def fitN:PptxEditRect (re.snapResize(1 2.0 0.0))
+        this.check("a vertical handle never moves x" (this.near(fitN.x 2.0)))
+
+        ; …and vertically. A's bottom edge is at 200 and B's top edge is at
+        ; 200, so the south handle has a line of its own.
+        def fitS:PptxEditRect (re.snapResize(5 0.0 2.0))
+        this.check("the south handle snaps to the neighbour's top" (this.near(fitS.y 0.0)))
+        this.check("with a horizontal guide" ((array_length re.guideY) == 1))
+
+        re.snapEnabled = false
+        def offR:PptxEditRect (re.snapResize(3 2.0 0.0))
+        this.check("and a handle obeys the snap setting too" (this.near(offR.x 2.0)))
+        this.check("b is still where it was" (this.near(rb.x 300.0)))
     }
 
     fn testStructure:void () {

@@ -228,9 +228,13 @@ class PptxRotateTest {
         def sb:PptxEditRect (a.shapeScreenBox(one))
         def rotX:int (to_int (sb.x + (sb.w * 0.5)))
         def rotY:int (to_int (a.rotateHandleY(sb.y)))
-        ; This shape sits near the top of the slide, which is the case that
-        ; used to put the handle inside the strip.
-        c.ok("the shape is near the top" (sb.y < (to_double (a.toolbarH + 40))))
+        ; This shape sits near the top of the SLIDE, which is the case that
+        ; used to put the handle inside the strip. Measured from the slide's
+        ; own top edge rather than from the toolbar: how far down the window
+        ; the slide starts depends on how much room the chrome leaves, and a
+        ; panel added on either side changes that without changing anything
+        ; this test is about.
+        c.ok("the shape is near the top of the slide" ((sb.y - (a.slideOriginY())) < 40.0))
         c.ok("but the handle is below the toolbar" (rotY >= a.toolbarH))
         c.eqInt("and it is still the rotation handle" (a.handleAt(rotX rotY)) 8)
         ; The one that matters: pressing it starts a rotation rather than

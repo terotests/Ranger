@@ -64,7 +64,20 @@ class PptxToolbar extends EVGToolbar {
         this.add("slide.next" "" "Next slide" (ToolIcon.navNext()))
         this.add("slide.last" "" "Last slide" (ToolIcon.navLast()))
         this.addSeparator()
-        this.addText("slide.pick" "" "1 / 1" 88)
+        ; The typeface, where the slide counter used to be.
+        ;
+        ; That counter read "3 / 12" and opened a grid of numbered buttons.
+        ; Four nav buttons sit to its left and the whole deck is drawn down
+        ; the side as thumbnails, so it was the third way to do the same
+        ; thing and the worst of the three — while the one thing a reader
+        ; reaches for constantly, the font of the text they have selected,
+        ; was nowhere on the strip at all. `slide.pick` is still a command;
+        ; it just no longer takes the best slot on the tab.
+        ;
+        ; The entries are filled in at `refreshFonts`, from the faces the page
+        ; has actually loaded — a chooser offering a typeface nothing can draw
+        ; would measure with one face and paint with another.
+        this.addDropdown("Font" (ToolIcon.textBox()))
         this.addSeparator()
         ; The editing half of the strip. It is always here — the buttons are
         ; live only while `edit.toggle` is pressed, which is what tells you
@@ -80,7 +93,7 @@ class PptxToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
         this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
-        this.add("shape.pick" "" "Browse the shapes" (ToolIcon.merge()))
+        this.add("shape.pick" "" "More shapes and emoji" (ToolIcon.shapes()))
         this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
 
         this.addTab("Arrange")
@@ -95,11 +108,31 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.back" "" "Send to back" (ToolIcon.sendBack()))
         this.add("edit.group" "" "Group" (ToolIcon.group()))
         this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
+        ; Moving shapes to line up with each other, which is what Align meant
+        ; on the Format tab and should never have.
+        this.addDropdown("Line up" (ToolIcon.arrangeLeft()))
+        this.addUnder("edit.align.left" "" "Left edges" (ToolIcon.arrangeLeft()))
+        this.addUnder("edit.align.hcenter" "" "Centres, across" (ToolIcon.arrangeCenter()))
+        this.addUnder("edit.align.right" "" "Right edges" (ToolIcon.arrangeRight()))
 
         this.addTab("Format")
-        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
-        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
-        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        ; Align, on the FORMAT tab, means the text inside the shape — which is
+        ; what a reader who has just selected a text box is asking for. It used
+        ; to move the shape across the slide instead, which is a different job
+        ; and now lives under Arrange. Three buttons became one list because
+        ; only one of the three is ever wanted at a time.
+        ;
+        ; Master reached the same complaint from the other side while this
+        ; branch was open: it kept `edit.align.*` here and gave the three their
+        ; own pictures so that lining SHAPES up could not be mistaken for
+        ; aligning TEXT. Both halves are kept — the shape ones moved to Arrange
+        ; above rather than staying here, since that is where the rest of
+        ; moving things about lives, and they take master's new icons, which is
+        ; what stops the two Lefts from sharing one picture.
+        this.addDropdown("Align" (ToolIcon.alignLeft()))
+        this.addUnder("text.align.left" "" "Left" (ToolIcon.alignLeft()))
+        this.addUnder("text.align.center" "" "Centre" (ToolIcon.alignCenter()))
+        this.addUnder("text.align.right" "" "Right" (ToolIcon.alignRight()))
         this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
         this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
@@ -111,6 +144,7 @@ class PptxToolbar extends EVGToolbar {
 
         this.addTab("Slides")
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
+        this.add("view.props" "" "Show fill, line and text" (ToolIcon.fill()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.palette()))
         this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
         this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.slideCopy()))
@@ -134,9 +168,6 @@ class PptxToolbar extends EVGToolbar {
         while (i < (array_length items)) {
             def t:ToolItem (itemAt items i)
             t.pressed = false
-            if (t.command == "slide.pick") {
-                t.label = ((to_string (index + 1)) + " / " + (to_string count))
-            }
             if (t.command == "edit.toggle") {
                 t.pressed = editOn
             }
@@ -260,10 +291,51 @@ class PptxApp {
     def chromeCss:string ""
     def chromeSheet:EVGStyleSheet (new EVGStyleSheet())
     def coarsePointer:boolean false
+    ; The properties panel: fill, line and text down the right-hand side.
+    ;
+    ; What a shape looks like was previously reachable only by knowing that a
+    ; command called `edit.fill` existed and finding something to type a hex
+    ; string into. The four things a reader changes constantly — what a shape
+    ; is filled with, what its outline is and how thick, and what colour its
+    ; text is — now have a place that is always on screen and that SHOWS the
+    ; current value rather than only setting a new one. A swatch you can read
+    ; is half of what the panel is for.
+    def propsW:int 168
+    def propsVisible:boolean true
+    ; Where the panel's rows ended up last time it was painted, so a press can
+    ; be matched to one. Parallel arrays rather than a class: a row is a
+    ; rectangle, a command and an argument, and nothing else.
+    def propHitX:[int]
+    def propHitY:[int]
+    def propHitW:[int]
+    def propHitH:[int]
+    def propHitCmd:[string]
+    def propHitArg:[string]
+
     ; The slide panel: the deck down the left-hand side.
     def panelW:int 150
     def panelVisible:boolean true
     def panelScroll:int 0
+    ; Whether `buildFrame` paints the thumbnails into the frame it returns.
+    ;
+    ; It always did, and that turned out to be the most expensive thing a
+    ; frame does. On a six-slide chart deck the panel is 7,500 of the frame's
+    ; 9,400 commands — and none of them change while a reader drags a shape.
+    ; Every one was re-encoded to the binary bridge, re-decoded in JavaScript
+    ; and re-drawn, sixty times a second, to show a picture identical to the
+    ; last one. Measured: 103 ms a frame with the panel in, 40 ms with it out.
+    ;
+    ; So a host that knows how may ask for the two separately — `buildFrame`
+    ; without the panel, and `buildPanelFrame` only when `panelStamp` says the
+    ; thumbnails have actually changed. Hosts that do not care keep asking for
+    ; one list and get exactly what they always did.
+    def framePanel:boolean true
+    ; Which families the Font dropdown was last filled with, joined. The list
+    ; is rebuilt only when that string changes — opening a deck in a typeface
+    ; nothing else uses adds one, and nothing else does — because rebuilding a
+    ; menu every frame would take it out from under the reader's hand while it
+    ; was open.
+    def fontsListed:string ""
     ; The deck as a STRIP ACROSS THE TOP rather than a column down the side,
     ; which is what a phone wants: a phone is narrow and tall, so a column
     ; spends the dimension there is least of. Nonzero height means the strip;
@@ -392,7 +464,7 @@ class PptxApp {
         toolbar.editOn = editMode
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
-        view.chromeW = (this.panelWidth())
+        view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         this.registerCommands()
     }
 
@@ -668,6 +740,9 @@ class PptxApp {
         commands.add("edit.backward" "Send backward" "Arrange" "")
         commands.add("edit.group" "Group" "Arrange" "Ctrl+G")
         commands.add("edit.ungroup" "Ungroup" "Arrange" "")
+        commands.add("text.align.left" "Align text left" "Format" "")
+        commands.add("text.align.center" "Centre text" "Format" "")
+        commands.add("text.align.right" "Align text right" "Format" "")
         commands.add("edit.align.left" "Align left" "Arrange" "")
         commands.add("edit.align.hcenter" "Align centre" "Arrange" "")
         commands.add("edit.align.right" "Align right" "Arrange" "")
@@ -680,10 +755,14 @@ class PptxApp {
         commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
         commands.add("text.bullet" "Bulleted list" "Format" "")
         commands.add("text.number" "Numbered list" "Format" "")
+        commands.addArg("text.font" "Set the typeface" "Format" "")
         commands.add("text.indent" "Indent the list" "Format" "Tab")
         commands.add("text.outdent" "Outdent the list" "Format" "Shift+Tab")
         commands.addArg("edit.fill" "Fill colour" "Format" "")
         commands.addArg("edit.line" "Outline colour" "Format" "")
+        commands.addArg("edit.linewidth" "Outline thickness" "Format" "")
+        commands.addArg("edit.textcolor" "Text colour" "Format" "")
+        commands.add("view.props" "Show the properties panel" "View" "")
         commands.addArg("edit.text" "Set the text" "Format" "")
         commands.add("shape.rect" "Insert a box" "Insert" "")
         commands.add("shape.ellipse" "Insert an ellipse" "Insert" "")
@@ -796,6 +875,105 @@ class PptxApp {
         ; deck went to the top of a phone and the slide was still being fitted
         ; around a column that was no longer there.
         this.resize(W H)
+    }
+
+    ; Fill the Font dropdown, and put the selection's own typeface on its face.
+    ;
+    ; The entries are added once — the faces a page loads it loads at startup,
+    ; so the list does not change while the app runs, and rebuilding it every
+    ; frame would reset the open menu under the reader's hand. The LABEL is
+    ; settled every frame, because the selection changes constantly and the
+    ; whole point of putting the chooser on the strip is that it says what the
+    ; text in front of you is set in.
+    fn refreshFonts:void () {
+        def at:int (toolbar.indexOfLabel("Font"))
+        if (at < 0) {
+            return
+        }
+        def menu:ToolItem (toolbar.at(at))
+        def names:[string] (this.choosableFonts())
+        def sig:string ""
+        def si:int 0
+        while (si < (array_length names)) {
+            sig = (sig + ((itemAt names si) + ","))
+            si = (si + 1)
+        }
+        if (sig != fontsListed) {
+            fontsListed = sig
+            toolbar.clearUnderMenu(at)
+            def i:int 0
+            while (i < (array_length names)) {
+                def name:string (itemAt names i)
+                toolbar.addUnderMenu(at "text.font" name name (ToolIcon.textBox()))
+                i = (i + 1)
+            }
+        }
+        ; "Font" when the selection is in more than one typeface, or in none
+        ; this page can name — the honest answer, rather than whichever run
+        ; happened to come first.
+        def now:string (editor.selectionFamily())
+        if ((strlen now) > 0) {
+            menu.label = now
+        } {
+            menu.label = "Font"
+        }
+    }
+
+    ; What the Font chooser may offer: the faces this build can draw with,
+    ; and then whatever the OPEN DECK is already set in.
+    ;
+    ; The second half matters more than it looks. A deck from PowerPoint is in
+    ; Calibri, and this page has no Calibri — it measures and draws Calibri
+    ; text in Open Sans, which is what a viewer without a face is supposed to
+    ; do. But the FILE says Calibri, and a reader adding a line to that deck
+    ; wants the new line to say Calibri too, so that it matches everywhere
+    ; else the deck is opened. A chooser that offered only what this page can
+    ; draw would make it impossible to stay in the deck's own typeface.
+    fn choosableFonts:[string] () {
+        def out:[string] (view.ctx.tr.familyNames())
+        def si:int 0
+        while (si < (presentation.slideCount())) {
+            def sl:PptxSlide (itemAt presentation.slides si)
+            this.collectFamilies(sl.shapes out)
+            si = (si + 1)
+        }
+        return out
+    }
+
+    fn collectFamilies:void (shapes:[PptxShape] out:[string]) {
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if sh.hasText {
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    def ri:int 0
+                    while (ri < (array_length para.runs)) {
+                        def run:PptxTextRun (itemAt para.runs ri)
+                        PptxApp.pushOnce(out run.fontFamily)
+                        ri = (ri + 1)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            this.collectFamilies(sh.children out)
+            i = (i + 1)
+        }
+    }
+
+    sfn pushOnce:void (out:[string] name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length out)) {
+            if ((itemAt out i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push out name
     }
 
     fn addFontBytes:boolean (family:string data:buffer) {
@@ -1182,7 +1360,7 @@ class PptxApp {
         this.applyChrome()
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
-        view.chromeW = (this.panelWidth())
+        view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         view.resize(W H)
     }
 
@@ -1431,6 +1609,12 @@ class PptxApp {
             return true
         }
         if (this.panelPointer(px py pressed down released)) {
+            return true
+        }
+        ; …and the properties panel down the other side. Before the slide, or
+        ; a press on a swatch falls through onto the canvas and drops the very
+        ; selection the panel is about.
+        if (this.propsPointer(px py pressed)) {
             return true
         }
         if pressed {
@@ -1766,9 +1950,32 @@ class PptxApp {
         ; in, rather than notches. See `scrollPanelPixels`: a trackpad swipe is
         ; dozens of small wheel events, and counting each of them as a whole
         ; notch scrolled a hundred slides past in one flick.
-        if (input.scrollDelta != 0) {
-            if (input.pointerX < (this.panelWidth())) {
-                this.scrollPanelPixels(input.scrollDelta)
+        ; Over the PANEL, wherever the panel is. This used to ask whether the
+        ; pointer was left of `panelWidth()`, and `panelWidth()` answers 0 when
+        ; the panel is a strip along the TOP rather than a column down the side
+        ; — which is the layout every narrow window gets. So in that layout the
+        ; test was `x < 0`, never true, and the thumbnails could not be
+        ; scrolled at all: reported as "two fingers on the trackpad do not move
+        ; the thumbnails". `panelInBand` is the same question the panel's own
+        ; press handling asks, and it knows about both layouts.
+        if (this.panelInBand(input.pointerX input.pointerY)) {
+            ; A strip runs ACROSS, so a two-finger swipe sideways moves it as
+            ; readily as one downwards — a reader flicking at a horizontal row
+            ; of thumbnails means "further along" whichever way their fingers
+            ; went. A column takes only the vertical travel, because sideways
+            ; there means nothing.
+            ;
+            ; Note the sign. `scrollDelta` is positive DOWNWARDS and
+            ; `scrollDeltaX` positive LEFTWARDS — `UIInput` says so and the
+            ; spreadsheet negates it on the way in for the same reason. Both
+            ; directions have to end up meaning "further along the deck", so
+            ; the sideways one is subtracted.
+            def travel:int input.scrollDelta
+            if (this.panelOnTop()) {
+                travel = (travel - input.scrollDeltaX)
+            }
+            if (travel != 0) {
+                this.scrollPanelPixels(travel)
             }
         }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
@@ -1783,7 +1990,14 @@ class PptxApp {
         }
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
-        this.paintPanel(framed)
+        ; Where the panel has scrolled itself to is settled every frame, panel
+        ; drawn or not: the slide the reader is on has to be in view by the
+        ; time anyone asks where the thumbnails are, and a host drawing the
+        ; panel on its own timetable would otherwise see a stale scroll.
+        this.settlePanelScroll()
+        if framePanel {
+            this.paintPanel(framed)
+        }
         if isOdp {
             this.paintOdpPage(framed)
         } {
@@ -1806,6 +2020,7 @@ class PptxApp {
             this.paintEditOverlay(framed)
         }
         this.paintNotes(framed)
+        this.paintProps(framed)
         if editMode {
             this.paintCaret(framed)
         }
@@ -1823,6 +2038,7 @@ class PptxApp {
         toolbarH = (toolbar.heightFor(W))
         toolbar.boldOn = (this.selectionBold())
         toolbar.italicOn = (this.selectionItalic())
+        this.refreshFonts()
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 
@@ -2256,6 +2472,30 @@ class PptxApp {
         return bin
     }
 
+    ; The frame WITHOUT the thumbnails, and the thumbnails on their own.
+    ;
+    ; A host that draws both gets the same picture as `sceneBinary`, and pays
+    ; for the panel only when `panelStamp` changes. See `framePanel` for what
+    ; that is worth: on a six-slide chart deck the panel is four fifths of
+    ; every frame, and it is the same four fifths every frame.
+    fn sceneBinaryNoPanel:EVGSceneBinary () {
+        view.slideIndex = index
+        view.slideCount = (this.slideCount())
+        def dl:EVGDisplayList (this.buildSceneFrame())
+        def bin:EVGSceneBinary (dl.toBinary())
+        bin.width = (to_double W)
+        bin.height = (to_double H)
+        return bin
+    }
+
+    fn panelBinary:EVGSceneBinary () {
+        def dl:EVGDisplayList (this.buildPanelFrame())
+        def bin:EVGSceneBinary (dl.toBinary())
+        bin.width = (to_double W)
+        bin.height = (to_double H)
+        return bin
+    }
+
     ; One slide as its own scene, at a stated width in pixels.
     ;
     ; `sceneJson` is the editor — chrome, panel, handles and all. Printing and
@@ -2602,7 +2842,12 @@ class PptxApp {
             return ((this.showAreaX()) + (((this.showAreaW()) - wpx) * 0.5))
         }
         def left:double (to_double (this.panelWidth()))
-        def dx:double (left + ((((to_double W) - left) - wpx) * 0.5))
+        ; Centred in what is left BETWEEN the two panels, not in what is left
+        ; after the one on the left. With only a left panel the difference is
+        ; nothing; with a properties panel on the right as well, a slide
+        ; centred the old way sits half under it.
+        def right:double (to_double (this.propsWidth()))
+        def dx:double (left + (((((to_double W) - left) - right) - wpx) * 0.5))
         if (dx < left) {
             return left
         }
@@ -2659,6 +2904,13 @@ class PptxApp {
         }
         index = i
         editor.slideIndex = i
+        ; …and bring the panel with it. `gotoSlide` has always done this, but
+        ; everything that moves the current slide from the EDITOR side came
+        ; through here and did not: adding a slide, undoing one, and every
+        ; call an API script makes. A deck of forty slides answered "slide 31"
+        ; in the status line while the thumbnails still showed one to eight,
+        ; so a script that adds a slide appeared to have done nothing.
+        this.ensureSlideVisible()
     }
 
     ; Handles, clockwise from the top-left, on the selection's box.
@@ -3023,6 +3275,17 @@ class PptxApp {
                         def local:[double] (PptxToEvg.rotateAbout(dx dy 0.0 0.0 (0.0 - deg)))
                         ldx = (itemAt local 0)
                         ldy = (itemAt local 1)
+                    } {
+                        ; Square to the slide, so the edge under the hand can be
+                        ; lined up with the other shapes and with the grid, and
+                        ; a guide drawn where it landed — the same help moving a
+                        ; shape has always had. A TURNED box is resized in its
+                        ; own frame, where the snap lines mean nothing, so it is
+                        ; left alone rather than snapped to a line that is not
+                        ; where it looks.
+                        def fit:PptxEditRect (editor.snapResize(dragHandle dx dy))
+                        ldx = fit.x
+                        ldy = fit.y
                     }
                     editor.applyResize(dragHandle ldx ldy)
                     dragLastX = sx
@@ -3086,6 +3349,7 @@ class PptxApp {
         if ((strlen pendingTool) == 0) {
             return
         }
+        def tool:string pendingTool
         pendingTool = ""
         view.status = ""
         def x0:double marqueeX
@@ -3103,6 +3367,13 @@ class PptxApp {
         ; Too small to have been meant as a rectangle: treat it as a click.
         def minW:double ((this.slideW()) * 0.04)
         def minH:double ((this.slideH()) * 0.04)
+        def drewIt:boolean true
+        if (w0 < minW) {
+            drewIt = false
+        }
+        if (h0 < minH) {
+            drewIt = false
+        }
         if (w0 < minW) {
             w0 = ((this.slideW()) * 0.34)
             x0 = (x0 - (w0 * 0.5))
@@ -3117,11 +3388,60 @@ class PptxApp {
         if (y0 < 0.0) {
             y0 = 0.0
         }
-        def newId:int (editor.addTextBox(x0 y0 w0 h0 ""))
-        if (newId > 0) {
-            editor.beginTextEdit(newId)
-            view.status = ""
+        if (tool == "text") {
+            def newId:int (editor.addTextBox(x0 y0 w0 h0 ""))
+            if (newId > 0) {
+                editor.beginTextEdit(newId)
+                view.status = ""
+            }
+            return
         }
+        ; A shape. An entry that carries its own outline — every emoji — goes
+        ; in as a custom geometry rather than a preset name, because there is
+        ; no preset called "panda". Everything else stays a NAME: PowerPoint
+        ; draws a preset from its own geometry at whatever size the shape is,
+        ; and a flattened copy of it would not.
+        ; The catalogue is asked but not required. `rect` and `ellipse` are
+        ; preset names the toolbar arms directly and the catalogue has never
+        ; heard of them — insisting on an entry meant the two buttons on the
+        ; Insert tab drew nothing at all.
+        def entry:ShapeEntry (shapes.find(tool))
+        def known:boolean (entry.id == tool)
+        if known {
+            ; A shape that states the proportion it needs keeps it when the
+            ; reader only CLICKED — a panda in a box they did not draw is a
+            ; wide panda. A box they did draw is theirs, aspect or not.
+            if (drewIt == false) {
+                if (entry.aspect > 0.0) {
+                    def wAspect:double (h0 * entry.aspect)
+                    x0 = (x0 + ((w0 - wAspect) * 0.5))
+                    w0 = wAspect
+                }
+            }
+            if (entry.hasPath()) {
+                this.insertOutline(entry x0 y0 w0 h0)
+                return
+            }
+        }
+        editor.addShapeAt(tool x0 y0 w0 h0)
+    }
+
+    ; Arm a tool. The next drag on the slide says where it goes and how big.
+    ;
+    ; `what` is either "text" or a name the shape catalogue knows — which is
+    ; the same vocabulary the picker hands back, so a preset and an emoji arm
+    ; the same way and `placePendingTool` sorts out which is which.
+    fn armTool:boolean (what:string) {
+        this.setEditMode(true)
+        editor.endTextEdit()
+        editor.clearSelection()
+        pendingTool = what
+        if (what == "text") {
+            view.status = "drag on the slide to place a text box"
+        } {
+            view.status = "drag on the slide to draw the shape"
+        }
+        return true
     }
 
     ; Put the tool down without using it. Escape, and a click on the strip.
@@ -3563,6 +3883,11 @@ class PptxApp {
             editor.setGrid((editor.gridEnabled == false))
             return true
         }
+        if (id == "view.props") {
+            propsVisible = (propsVisible == false)
+            this.resize(W H)
+            return true
+        }
         if (id == "view.snap") {
             editor.snapEnabled = (editor.snapEnabled == false)
             return true
@@ -3600,6 +3925,17 @@ class PptxApp {
         }
         if (id == "edit.ungroup") {
             return (editor.ungroupSelection())
+        }
+        ; Aligning the TEXT in the selected shapes. The values are
+        ; DrawingML's own, which is what the model and the writer speak.
+        if (id == "text.align.left") {
+            return (editor.setTextAlign("l"))
+        }
+        if (id == "text.align.center") {
+            return (editor.setTextAlign("ctr"))
+        }
+        if (id == "text.align.right") {
+            return (editor.setTextAlign("r"))
         }
         if (id == "edit.align.left") {
             return (editor.alignSelection("left"))
@@ -3647,6 +3983,12 @@ class PptxApp {
             }
             return (editor.setListKind("number"))
         }
+        ; The typeface, by name. `arg` is a family the page has a face for —
+        ; the chooser only ever offers those — and an empty one is a no-op
+        ; rather than a run set to nothing.
+        if (id == "text.font") {
+            return (editor.setTextFamily(arg))
+        }
         if (id == "text.indent") {
             return (editor.indentList(1))
         }
@@ -3660,7 +4002,32 @@ class PptxApp {
             return (editor.setFillHex(arg))
         }
         if (id == "edit.line") {
-            return (editor.setLineHex(arg 1.0))
+            ; Keep whatever thickness the shape already has. Passing 1.0 here
+            ; meant that recolouring an outline silently reset a 3pt rule to a
+            ; hairline — the properties panel makes that obvious, because the
+            ; width row would jump every time a colour was picked.
+            def keep:double 1.0
+            def lin@(optional):PptxShape (editor.firstSelected())
+            if (!null? lin) {
+                def ls:PptxShape (unwrap lin)
+                if (ls.lineWidthPt > 0.0) {
+                    keep = ls.lineWidthPt
+                }
+            }
+            if ((strlen arg) == 0) {
+                return (editor.clearLine())
+            }
+            return (editor.setLineHex(arg keep))
+        }
+        ; The outline's thickness on its own, in points.
+        if (id == "edit.linewidth") {
+            def wv@(optional):double (str2double arg)
+            return (editor.setLineWidthPt((?? wv 0.0)))
+        }
+        ; The text's colour. `edit.text` next to it sets the text ITSELF,
+        ; which is a different job with a confusingly similar name.
+        if (id == "edit.textcolor") {
+            return (editor.setTextColorHex(arg))
         }
         if (id == "edit.text") {
             def sel@(optional):PptxShape (editor.firstSelected())
@@ -3688,53 +4055,22 @@ class PptxApp {
             if (entry.id != arg) {
                 return false
             }
-            def sw:double ((this.slideW()) * 0.25)
-            def sh2:double ((this.slideH()) * 0.22)
-            ; A shape that states the proportion it needs is inserted in it.
-            ; A panda dropped into a 25-by-22 box is a wide panda, and the
-            ; catalogue already knows which shapes mind — the same `aspect`
-            ; the picker sizes its previews to.
-            if (entry.aspect > 0.0) {
-                sw = (sh2 * entry.aspect)
-            }
-            def px:double ((this.slideW()) * 0.3)
-            def py:double ((this.slideH()) * 0.3)
-            ; An entry that carries its own outline — every emoji — goes in as
-            ; a custom geometry rather than a preset name, because there is no
-            ; preset called "panda". Everything else stays a NAME: PowerPoint
-            ; draws a preset from its own geometry at whatever size the shape
-            ; is dragged to, and a flattened copy of it would not.
-            if (entry.hasPath()) {
-                def madePath:int (this.insertOutline(entry px py sw sh2))
-                this.setEditMode(true)
-                return (madePath > 0)
-            }
-            def madeId:int (editor.addShapeAt(arg px py sw sh2))
-            this.setEditMode(true)
-            return (madeId > 0)
+            ; The tool is ARMED, not used. The shape appears where the reader
+            ; drags it, the way every other editor does it — dropping it at a
+            ; fixed spot on the slide meant they could not see where it was
+            ; going, and the picker was still sitting over the slide hiding
+            ; the answer. So the picker shuts and the next drag decides.
+            picker.close()
+            return (this.armTool(arg))
         }
         if (id == "shape.rect") {
-            def w:double ((this.slideW()) * 0.25)
-            def h:double ((this.slideH()) * 0.18)
-            def newId:int (editor.addShapeAt("rect" ((this.slideW()) * 0.25) ((this.slideH()) * 0.35) w h))
-            this.setEditMode(true)
-            return (newId > 0)
+            return (this.armTool("rect"))
         }
         if (id == "shape.ellipse") {
-            def w2:double ((this.slideW()) * 0.22)
-            def h2:double w2
-            def newId2:int (editor.addShapeAt("ellipse" ((this.slideW()) * 0.4) ((this.slideH()) * 0.3) w2 h2))
-            this.setEditMode(true)
-            return (newId2 > 0)
+            return (this.armTool("ellipse"))
         }
         if (id == "text.add") {
-            ; Arm the tool; the next drag on the slide says where and how big.
-            this.setEditMode(true)
-            editor.endTextEdit()
-            editor.clearSelection()
-            pendingTool = "text"
-            view.status = "drag on the slide to place a text box"
-            return true
+            return (this.armTool("text"))
         }
         if (id == "picture.add") {
             fileRequest = "image"
@@ -4265,12 +4601,17 @@ class PptxApp {
         ; A newline goes where the caret is, not at the end of the box. It
         ; used to fall through to `appendText`, so pressing Enter in the
         ; middle of a paragraph put the break after the last word instead.
+        ;
+        ; And in a list Enter is a decision rather than an insertion — on an
+        ; item with nothing in it, it steps out of the list instead of adding
+        ; another empty bullet. `enterAtCaret` is where that is decided; it
+        ; types the newline itself in every other case.
+        ;
+        ; There was a second, identical `if` under this one calling
+        ; `newlineAtCaret`. It could never run, and it was the branch anyone
+        ; reading this would have assumed was the live one.
         if (k == (UIKey.enter())) {
-            editor.typeAtCaret("\n")
-            return true
-        }
-        if (k == (UIKey.enter())) {
-            return (editor.newlineAtCaret())
+            return (editor.enterAtCaret())
         }
         if (k == (UIKey.escape())) {
             editor.endTextEdit()
@@ -4836,6 +5177,76 @@ class PptxApp {
         return sub
     }
 
+    ; The panel follows the current slide and stays inside its own bounds.
+    ; Called once a frame from `buildFrame`, whether or not the panel is being
+    ; painted into it — see `framePanel`.
+    fn settlePanelScroll:void () {
+        if (panelVisible == false) {
+            return
+        }
+        this.followSelectionInPanel()
+        this.clampPanelScroll()
+    }
+
+    ; The frame WITHOUT the thumbnails, for a host that draws them separately.
+    fn buildSceneFrame:EVGDisplayList () {
+        def was:boolean framePanel
+        framePanel = false
+        def out:EVGDisplayList (this.buildFrame())
+        framePanel = was
+        return out
+    }
+
+    ; …and the thumbnails on their own, in the same window coordinates, so a
+    ; host draws this list and then that one and gets the frame back.
+    fn buildPanelFrame:EVGDisplayList () {
+        def out:EVGDisplayList (new EVGDisplayList)
+        if presenting {
+            return out
+        }
+        this.settlePanelScroll()
+        this.paintPanel(out)
+        return out
+    }
+
+    ; What the panel would draw, as a short string. Same string, same picture:
+    ; a host keeps the last list it decoded while this does not change, which
+    ; is what takes the thumbnails out of the per-frame cost entirely.
+    ;
+    ; Everything the panel's appearance depends on is in here — where it is
+    ; and how big, how far it has scrolled, which slide is ringed, where a
+    ; dragged slide would land — and then each slide's identity and revision,
+    ; which is exactly what the thumbnail cache is keyed by. A slide edited on
+    ; another page of the deck changes its revision, so its thumbnail is
+    ; rebuilt; nothing else is.
+    fn panelStamp:string () {
+        if (panelVisible == false) {
+            return "off"
+        }
+        def out:string (((to_string W) + "x") + ((to_string H) + ":"))
+        out = (out + ((to_string toolbarH) + "/") + ((to_string statusH) + "/") + ((to_string panelH) + "/") + ((to_string panelW) + ":"))
+        out = (out + ((to_string panelScroll) + "@") + ((to_string index) + ":"))
+        out = (out + ((to_string panelDrag) + ">") + ((to_string panelDropAt) + ";"))
+        def n:int (this.slideCount())
+        ; A .odp's pages are not in `presentation.slides` — that array is
+        ; EMPTY while one is open, which is exactly the trap `thumbnailAt`
+        ; was added for. Those thumbnails are cached by width alone, since a
+        ; .odp is read-only here, so the page count and the panel's geometry
+        ; are the whole of what can change about them.
+        if isOdp {
+            return (out + ((to_string n) + "odp"))
+        }
+        def i:int 0
+        while (i < n) {
+            if (i < (array_length presentation.slides)) {
+                def sl:PptxSlide (itemAt presentation.slides i)
+                out = (out + ((to_string sl.key) + ".") + ((to_string sl.revision) + ","))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; A thumbnail for slide `i`, from whichever reader owns the document.
     ;
     ; This used to be `itemAt presentation.slides i` written inline in the
@@ -4891,8 +5302,6 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
-        this.followSelectionInPanel()
-        this.clampPanelScroll()
         def onTop:boolean (this.panelOnTop())
         def bandBg:EVGColor (EVGColor.rgb(32 36 47))
         def top:double (to_double toolbarH)
@@ -4993,6 +5402,28 @@ class PptxApp {
     ; a shape — because they ARE a shape, one that is not on the slide. The
     ; strip is just the box that shape is laid out in.
 
+    ; What the properties panel takes out of the WIDTH. Zero when it is off,
+    ; and zero on a narrow window — the same call the slide panel makes, and
+    ; for the same reason: a column spends width, and width is what a phone
+    ; has least of.
+    fn propsWidth:int () {
+        if (propsVisible == false) {
+            return 0
+        }
+        if (W < 820) {
+            return 0
+        }
+        return propsW
+    }
+
+    ; The band itself: below the strip, above the status line, hard right.
+    fn propsRect:PptxEditRect () {
+        def w:double (to_double (this.propsWidth()))
+        def y:double (to_double toolbarH)
+        def h:double (to_double ((H - toolbarH) - statusH))
+        return (PptxEditRect.of(((to_double W) - w) y w h))
+    }
+
     fn notesHeight:int () {
         if (notesVisible == false) {
             return 0
@@ -5010,7 +5441,10 @@ class PptxApp {
         def x:double (to_double (this.panelWidth()))
         def h:double (to_double (this.notesHeight()))
         def y:double (to_double ((H - statusH) - (this.notesHeight())))
-        return (PptxEditRect.of(x y ((to_double W) - x) h))
+        ; …and stops where the properties panel starts, or the notes are drawn
+        ; underneath it and the text runs on out of sight.
+        def w:double ((((to_double W) - x) - (to_double (this.propsWidth()))))
+        return (PptxEditRect.of(x y w h))
     }
 
     fn notesTextRect:PptxEditRect () {
@@ -5048,6 +5482,268 @@ class PptxApp {
             return true
         }
         return true
+    }
+
+    ; --- the properties panel --------------------------------------------------
+    ;
+    ; Fill, outline, outline width and text colour, down the right-hand side,
+    ; each row SHOWING what the selection is set to as well as offering to
+    ; change it. Reading a value used to be impossible: `edit.fill` took a hex
+    ; string and answered nothing, so the only way to find out what a shape
+    ; was filled with was to look at it and guess.
+    ;
+    ; The swatches are the DECK's own theme colours, not a fixed palette. A
+    ; deck's accents are the colours its author meant to be used, and a
+    ; chooser offering a generic rainbow beside them is a chooser that makes
+    ; every slide look like it was edited by two different people.
+    fn paintProps:void (dl:EVGDisplayList) {
+        clear propHitX
+        clear propHitY
+        clear propHitW
+        clear propHitH
+        clear propHitCmd
+        clear propHitArg
+        if ((this.propsWidth()) == 0) {
+            return
+        }
+        def r:PptxEditRect (this.propsRect())
+        dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(32 36 47)))
+        dl.addRect(r.x r.y 1.0 r.h theme.line)
+        def x:double (r.x + 12.0)
+        def y:double (r.y + 10.0)
+        def inner:double (r.w - 24.0)
+
+        ; Nothing selected is worth saying out loud. A panel of dead controls
+        ; reads as a broken panel; a panel that says why is a panel.
+        if ((editor.selectionCount()) == 0) {
+            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 theme.dim)
+            toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (EVGColor.rgb(110 118 134)))
+            toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (EVGColor.rgb(110 118 134)))
+            return
+        }
+
+        def hit@(optional):PptxShape (editor.firstSelected())
+        def fillHex:string ""
+        def lineHex:string ""
+        def widthPt:double 0.0
+        if (!null? hit) {
+            def sh:PptxShape (unwrap hit)
+            if sh.fill.isSet {
+                fillHex = sh.fill.srgb
+            }
+            if sh.line.isSet {
+                lineHex = sh.line.srgb
+            }
+            widthPt = sh.lineWidthPt
+        }
+
+        y = (this.propsSwatchRow(dl "Fill" x y inner fillHex "edit.fill"))
+        y = (y + 8.0)
+        y = (this.propsSwatchRow(dl "Line" x y inner lineHex "edit.line"))
+        y = (y + 8.0)
+        y = (this.propsWidthRow(dl x y inner widthPt))
+        y = (y + 8.0)
+        y = (this.propsSwatchRow(dl "Text" x y inner (editor.selectionColorHex()) "edit.textcolor"))
+    }
+
+    ; One labelled row: the name, the current colour beside it, and the
+    ; swatches under it. Answers the y the next row starts at.
+    fn propsSwatchRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:string cmd:string) {
+        toolbarView.pushText(dl label x y 11.0 theme.dim)
+        ; The current value, right of the label. This is the half of the panel
+        ; that was missing entirely: a control that only SETS leaves a reader
+        ; guessing what is set.
+        def cw:double 34.0
+        def cx:double ((x + w) - cw)
+        if ((strlen now) > 0) {
+            dl.addRect(cx (y - 2.0) cw 14.0 (PptxApp.hexColor(now)))
+            dl.addFrame(cx (y - 2.0) cw 14.0 1.0 (EVGColor.rgb(90 98 118)))
+        } {
+            ; No colour of its own — inherited, or none at all. Said in words,
+            ; because an empty box and a white one look the same.
+            toolbarView.pushText(dl "—" (cx + 12.0) y 11.0 (EVGColor.rgb(110 118 134)))
+        }
+        def top:double (y + 18.0)
+        def names:[string] (PptxApp.swatchNames())
+        def per:int 6
+        def cell:double ((w - 5.0) / (to_double per))
+        def i:int 0
+        while (i < (array_length names)) {
+            def hex:string (this.swatchHex((itemAt names i)))
+            def col:int (i % per)
+            def row:int (idiv i per)
+            def sx:double (x + ((to_double col) * cell))
+            def sy:double (top + ((to_double row) * (cell + 3.0)))
+            dl.addRect(sx sy (cell - 3.0) (cell - 3.0) (PptxApp.hexColor(hex)))
+            ; The one the selection is already set to is ringed, so a reader
+            ; can see where they are in the palette rather than only where
+            ; they might go.
+            if (hex == now) {
+                dl.addFrame((sx - 1.0) (sy - 1.0) (cell - 1.0) (cell - 1.0) 2.0 (EVGColor.rgb(90 140 230)))
+            } {
+                dl.addFrame(sx sy (cell - 3.0) (cell - 3.0) 1.0 (EVGColor.rgb(70 78 96)))
+            }
+            this.addPropHit((to_int sx) (to_int sy) (to_int (cell - 3.0)) (to_int (cell - 3.0)) cmd hex)
+            i = (i + 1)
+        }
+        def rows:int (idiv (((array_length names) + per) - 1) per)
+        def below:double (top + ((to_double rows) * (cell + 3.0)))
+        ; "None" only where none is a thing a shape can be. A line has to be
+        ; removable and so does a fill; text always has a colour.
+        if (cmd != "edit.textcolor") {
+            toolbarView.pushText(dl "None" (x + 2.0) (below + 2.0) 11.0 (EVGColor.rgb(150 158 178)))
+            dl.addFrame(x below 40.0 15.0 1.0 (EVGColor.rgb(70 78 96)))
+            this.addPropHit((to_int x) (to_int below) 40 15 cmd "")
+            below = (below + 19.0)
+        }
+        return below
+    }
+
+    ; The outline's thickness, as the few widths anybody picks.
+    fn propsWidthRow:double (dl:EVGDisplayList x:double y:double w:double now:double) {
+        toolbarView.pushText(dl "Line width" x y 11.0 theme.dim)
+        def steps:[double] ([] _:double ( 0.75 1.5 3.0 6.0 ))
+        def cell:double ((w - 6.0) / 4.0)
+        def top:double (y + 16.0)
+        def i:int 0
+        while (i < (array_length steps)) {
+            def pt:double (itemAt steps i)
+            def sx:double (x + ((to_double i) * (cell + 2.0)))
+            def on:boolean false
+            if ((fabs (now - pt)) < 0.01) {
+                on = true
+            }
+            def bg:EVGColor (EVGColor.rgb(46 52 66))
+            if on {
+                bg = (EVGColor.rgb(60 90 150))
+            }
+            dl.addRect(sx top cell 18.0 bg)
+            dl.addFrame(sx top cell 18.0 1.0 (EVGColor.rgb(70 78 96)))
+            ; A rule as thick as the width it stands for — the number is in
+            ; the tooltip's place and the picture is the point.
+            dl.addRect((sx + 4.0) ((top + 9.0) - (pt * 0.5)) (cell - 8.0) pt (EVGColor.rgb(225 230 240)))
+            this.addPropHit((to_int sx) (to_int top) (to_int cell) 18 "edit.linewidth" (PptxApp.ptText(pt)))
+            i = (i + 1)
+        }
+        return (top + 22.0)
+    }
+
+    ; Which control the panel drew for `cmd` with `arg`, or -1 when it drew
+    ; none. With `propsControlX` and the three beside it, that is enough for a
+    ; test to press the panel the way a reader does rather than reaching past
+    ; it into the commands — the whole risk in adding a panel is that a
+    ; control ends up somewhere a press cannot reach, and a test that calls
+    ; `runCommand` proves nothing about that.
+    fn propsControlAt:int (cmd:string arg:string) {
+        def i:int 0
+        while (i < (array_length propHitCmd)) {
+            if ((itemAt propHitCmd i) == cmd) {
+                if ((itemAt propHitArg i) == arg) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn propsControlX:int (i:int) {
+        return (itemAt propHitX i)
+    }
+
+    fn propsControlY:int (i:int) {
+        return (itemAt propHitY i)
+    }
+
+    fn propsControlW:int (i:int) {
+        return (itemAt propHitW i)
+    }
+
+    fn propsControlH:int (i:int) {
+        return (itemAt propHitH i)
+    }
+
+    fn propsControlCount:int () {
+        return (array_length propHitCmd)
+    }
+
+    fn addPropHit:void (x:int y:int w:int h:int cmd:string arg:string) {
+        push propHitX x
+        push propHitY y
+        push propHitW w
+        push propHitH h
+        push propHitCmd cmd
+        push propHitArg arg
+    }
+
+    ; A press in the panel. Answers true when it was the panel's.
+    fn propsPointer:boolean (px:int py:int pressed:boolean) {
+        if (pressed == false) {
+            return false
+        }
+        if ((this.propsWidth()) == 0) {
+            return false
+        }
+        def r:PptxEditRect (this.propsRect())
+        if ((to_double px) < r.x) {
+            return false
+        }
+        if ((to_double py) < r.y) {
+            return false
+        }
+        if ((to_double py) > (r.y + r.h)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length propHitX)) {
+            def hx:int (itemAt propHitX i)
+            def hy:int (itemAt propHitY i)
+            if (px >= hx) {
+                if (py >= hy) {
+                    if (px < (hx + (itemAt propHitW i))) {
+                        if (py < (hy + (itemAt propHitH i))) {
+                            this.runCommand((itemAt propHitCmd i) (itemAt propHitArg i))
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; Inside the band but not on a control: still the panel's, or the
+        ; press falls through and drops the selection the panel is about.
+        return true
+    }
+
+    ; The theme slots a swatch row offers, in the order a deck's own palette
+    ; is written. Black and white last, because they are the two a reader
+    ; reaches for when the theme has nothing right.
+    sfn swatchNames:[string] () {
+        return ([] _:string ( "accent1" "accent2" "accent3" "accent4" "accent5" "accent6" "dk1" "dk2" "lt2" "bg1" "black" "white" ))
+    }
+
+    fn swatchHex:string (name:string) {
+        if (name == "black") {
+            return "000000"
+        }
+        if (name == "white") {
+            return "FFFFFF"
+        }
+        def hex:string (presentation.theme.colorOf(name))
+        if ((strlen hex) == 0) {
+            return "808080"
+        }
+        return hex
+    }
+
+    sfn hexColor:EVGColor (hex:string) {
+        return (EVGColor.parse(("#" + hex)))
+    }
+
+    ; A width as the string the command takes. Whole numbers without a point,
+    ; because "1.5" and "3" are what a reader would write.
+    sfn ptText:string (pt:double) {
+        return (to_string pt)
     }
 
     fn paintOdpNotes:void (dl:EVGDisplayList r:PptxEditRect) {

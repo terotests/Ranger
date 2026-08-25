@@ -7,9 +7,10 @@
  * the same Starlight chrome as the language documentation — without putting
  * AGPL quotes into that MIT tree.
  *
- * Writes gallery/office/docs/site/src/content/docs/<page>.md. The page name
- * is `api.page` or `api.id`, so PowerPoint stays at /office/reference/pptx/.
- * Those files are generated. They are not in git.
+ * Writes gallery/office/docs/site/src/content/docs/<page>.md (or .mdx when
+ * the page embeds a live example). The page name is `api.page` or `api.id`,
+ * so PowerPoint stays at /office/reference/pptx/. Those files are generated.
+ * They are not in git.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -148,6 +149,8 @@ function rangerSignature(cls, m) {
 function renderApi(api, order) {
   const body = [];
   const rangerApi = api.kind === "ranger";
+  const livePptx = api.id === "pptx";
+  const liveChart = api.id === "charts";
   body.push("---");
   body.push(`title: "${escapeYaml(api.title)}"`);
   body.push(`description: "${escapeYaml(api.summary)}"`);
@@ -155,8 +158,20 @@ function renderApi(api, order) {
   body.push(`  order: ${order}`);
   body.push("---");
   body.push("");
-  if (rangerApi) {
+  if (livePptx) {
+    body.push('import PptxApiExample from "../../components/PptxApiExample.astro";');
+    body.push('import { createTitleSlide, severalSlides } from "../../examples/pptx-live.js";');
+    body.push("");
+  }
+  if (liveChart) {
+    body.push('import ChartApiExample from "../../components/ChartApiExample.astro";');
+    body.push('import { chartBar, chartLayer } from "../../examples/vela-live.js";');
+    body.push("");
+  }
+  if (rangerApi && !liveChart) {
     body.push("A Ranger API. There is no npm package yet. Import the source, or use the compiled classes on the [live chart page](/Ranger/evg/chart-api/).");
+  } else if (rangerApi && liveChart) {
+    body.push("A Ranger API. There is no npm package yet. The examples on this page call the compiled classes in the browser. The [standalone live page](/Ranger/evg/chart-api/) is the same API with Ranger and JavaScript tabs.");
   } else {
     body.push(`Installed as \`${api.package}\`.`);
   }
@@ -187,6 +202,27 @@ function renderApi(api, order) {
     const js = entry.js || {};
     for (const cls of entry.classes) {
       body.push(...classSection(js, cls, ranger));
+      const owner = (js.classes && js.classes[cls.name]) || cls.name;
+      if (owner === "Pptx") {
+        body.push("The two programs below call this API in the page. Edit the");
+        body.push("JavaScript and press **Run**. The viewer opens the `.pptx` the");
+        body.push("code produced — not a preview of the model in memory.");
+        body.push("");
+        body.push('<PptxApiExample title="Pptx.create — a title slide" code={createTitleSlide} />');
+        body.push("");
+        body.push('<PptxApiExample title="deck.addSlide — a three-slide stack" code={severalSlides} />');
+        body.push("");
+      }
+      if (owner === "VlChart") {
+        body.push("The two programs below call this API in the page. `chart` is a");
+        body.push("compiled `VlChart`. Edit the JavaScript and press **Run**. The");
+        body.push("drawing is the SVG this runtime produced.");
+        body.push("");
+        body.push('<ChartApiExample title="chart.bar — sales by region" code={chartBar} />');
+        body.push("");
+        body.push('<ChartApiExample title="chart.area and chart.line — one encoding, two marks" code={chartLayer} />');
+        body.push("");
+      }
     }
   }
 
@@ -208,7 +244,10 @@ function main() {
   for (const [i, api] of registry.apis.entries()) {
     const model = readJson(path.join(DATA, `${api.id}-api.json`));
     const page = api.page || api.id;
-    const file = path.join(CONTENT, `${page}.md`);
+    const ext = (api.id === "pptx" || api.id === "charts") ? ".mdx" : ".md";
+    const file = path.join(CONTENT, `${page}${ext}`);
+    const stale = path.join(CONTENT, `${page}${ext === ".mdx" ? ".md" : ".mdx"}`);
+    if (fs.existsSync(stale)) fs.unlinkSync(stale);
     fs.writeFileSync(file, renderApi(model, 10 + i));
     written.push(file);
   }

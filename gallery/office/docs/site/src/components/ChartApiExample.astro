@@ -1,0 +1,99 @@
+---
+/**
+ * A docs-native Chart API example: the JavaScript lives in a code editor
+ * on the page. Pressing Run sends it to a chart-only iframe of the live
+ * Vela page, which compiles the calls and draws the SVG. `chart` is the
+ * compiled VlChart — the same object /evg/chart-api/ exposes.
+ */
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import { chartData as defaultData } from "../examples/vela-live.js";
+
+interface Props {
+  code: string;
+  data?: string;
+  title?: string;
+  editorRows?: number;
+  viewerHeight?: string;
+}
+
+const {
+  code,
+  data = defaultData,
+  title = "Live Chart API example",
+  editorRows,
+  viewerHeight = "18rem",
+} = Astro.props;
+const lineCount = code.split("\n").length;
+const rows = editorRows ?? Math.min(16, Math.max(6, lineCount + 1));
+const params = new URLSearchParams({ embed: "1", view: "chart", run: "0" });
+const src = `${import.meta.env.BASE_URL}chart-api/?${params.toString()}`;
+const playgroundHref = `${import.meta.env.BASE_URL}chart-api/`;
+---
+
+<figure class="live-api-example chart-api-example not-content">
+  <div class="live-api-example__bar">
+    <span class="live-api-example__title">{title}</span>
+    <button type="button" data-run>Run ▶</button>
+    <span class="live-api-example__hint">Ctrl+Enter runs. The drawing is the SVG this runtime produced.</span>
+    <a class="live-api-example__open" href={playgroundHref}>Open in the playground</a>
+  </div>
+  <textarea
+    class="live-api-example__code"
+    spellcheck="false"
+    rows={rows}
+    aria-label={title}
+    data-chart-data={data}
+  >{code}</textarea>
+  <iframe
+    class="live-api-example__frame"
+    src={src}
+    title={`${title} — chart`}
+    style={`height: ${viewerHeight}`}
+    loading="lazy"
+  ></iframe>
+</figure>
+
+<script>
+  function send(frame: HTMLIFrameElement, snippet: string, table: string) {
+    try {
+      const w = frame.contentWindow as Window & { __chartApiReady?: boolean } | null;
+      if (w && w.__chartApiReady) {
+        w.postMessage({ type: "vela-embed", view: "chart", lang: "js", code: snippet, data: table }, "*");
+        return true;
+      }
+    } catch {
+      /* iframe not ready */
+    }
+    return false;
+  }
+
+  function bind(root: HTMLElement) {
+    const editor = root.querySelector("textarea");
+    const button = root.querySelector<HTMLButtonElement>("button[data-run]");
+    const frame = root.querySelector("iframe");
+    if (!editor || !button || !frame) return;
+    const table = editor.getAttribute("data-chart-data") || "";
+
+    const arm = () => {
+      const t = window.setInterval(() => {
+        if (send(frame, editor.value, table)) window.clearInterval(t);
+      }, 50);
+      window.setTimeout(() => window.clearInterval(t), 30000);
+    };
+
+    button.addEventListener("click", () => {
+      if (!send(frame, editor.value, table)) arm();
+    });
+    editor.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (!send(frame, editor.value, table)) arm();
+      }
+    });
+
+    frame.addEventListener("load", arm);
+    arm();
+  }
+
+  document.querySelectorAll<HTMLElement>(".chart-api-example").forEach(bind);
+</script>
