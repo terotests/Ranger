@@ -80,7 +80,7 @@ class PptxToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
         this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
-        this.add("shape.pick" "" "Browse the shapes" (ToolIcon.merge()))
+        this.add("shape.pick" "" "More shapes and emoji" (ToolIcon.shapes()))
         this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
 
         this.addTab("Arrange")
@@ -97,9 +97,9 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
 
         this.addTab("Format")
-        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
-        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
-        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        this.add("edit.align.left" "" "Line the shapes up on the left" (ToolIcon.arrangeLeft()))
+        this.add("edit.align.hcenter" "" "Line the shapes up on their centres" (ToolIcon.arrangeCenter()))
+        this.add("edit.align.right" "" "Line the shapes up on the right" (ToolIcon.arrangeRight()))
         this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
         this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))

@@ -204,6 +204,15 @@ class BookStyle {
 class BookParagraph {
     def text:string ""
     def styleName:string "body"
+    ; This paragraph's own alignment, or "" for the style's.
+    ;
+    ; An OVERRIDE and not a copy, because alignment on a book page belongs to
+    ; the style nine times out of ten — a body style is justified and every
+    ; body paragraph is justified with it. The tenth is a dedication or a
+    ; caption that wants to be centred without a style of its own, and before
+    ; this there was nowhere to say so: the editor's three align buttons moved
+    ; FRAMES, and nothing anywhere could align text.
+    def align:string ""
     ; Set by the flow engine so an editor can jump from a page back to the
     ; source paragraph. Not authored.
     def firstPage:int -1
@@ -211,6 +220,7 @@ class BookParagraph {
     Constructor () {
         text = ""
         styleName = "body"
+        align = ""
         firstPage = -1
     }
 

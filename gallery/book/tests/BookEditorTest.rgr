@@ -478,6 +478,93 @@ class BookEditorTest {
         c.ok("and Escape closes it" (app.preflightWindow.visible == false))
     }
 
+    ; --- the things a person expects an editor to have ----------------------
+    ;
+    ; Every assertion here is for something that was reported as broken by
+    ; somebody using the editor, not by a test. That is the point of the
+    ; block: the commands existed, or half-existed, and nothing checked that
+    ; the strip and the keyboard actually reached them.
+    sfn testTheBasics:void (c:EdCheck) {
+        print "-- copy, paste, delete, and aligning text --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        app.runCommand("edit.toggle" "")
+
+        ; --- the clipboard. Ctrl+C and Ctrl+V did nothing at all: there was
+        ; no copy, no cut and no paste anywhere in the book editor.
+        app.runCommand("frame.shape" "")
+        def page:BookPage (app.editor.currentPage())
+        def n0:int (array_length page.frames)
+        c.ok("copy takes the selection" (app.runCommand("edit.copy" "")))
+        c.ok("paste puts it back" (app.runCommand("edit.paste" "")))
+        c.eqInt("as one more frame" (array_length page.frames) (n0 + 1))
+        ; A clipboard that empties on paste is a clipboard that pastes once.
+        c.ok("and pasting again works" (app.runCommand("edit.paste" "")))
+        c.eqInt("giving another" (array_length page.frames) (n0 + 2))
+
+        def n1:int (array_length page.frames)
+        c.ok("cut removes what it took" (app.runCommand("edit.cut" "")))
+        c.ok("leaving fewer frames" ((array_length page.frames) < n1))
+        c.ok("and it can be pasted" (app.runCommand("edit.paste" "")))
+
+        ; --- the keyboard. Delete was bound and Backspace was not, and a
+        ; laptop often has no Delete key.
+        app.runCommand("frame.shape" "")
+        def n2:int (array_length ((app.editor.currentPage()).frames))
+        app.key((UIKey.backspace()) false)
+        c.eqInt("backspace deletes the selected frame" (array_length ((app.editor.currentPage()).frames)) (n2 - 1))
+
+        ; --- aligning TEXT, which nothing could do. The three align buttons
+        ; on the strip move frames; a paragraph had no alignment of its own.
+        def tf:string (BookEditorTest.firstTextFrame(app))
+        c.ok("the fixture has a text frame" ((strlen tf) > 0))
+        ; The story is read OFF the frame rather than guessed by name: a
+        ; fixture that renames its story would otherwise pass this test while
+        ; asserting about a paragraph nothing on the page shows.
+        def frame:BookFrame (d.frameFor(tf))
+        def story:BookStory (d.storyFor(frame.storyId))
+        c.ok("with a story under it" ((story.paragraphCount()) > 0))
+        def para:BookParagraph (story.paragraphAt(0))
+        app.editor.select(tf false)
+        c.ok("text.align.center is a command" (app.runCommand("text.align.center" "")))
+        c.ok("and the paragraph took it" (para.align == "center"))
+        c.ok("justify too" (app.runCommand("text.align.justify" "")))
+        c.ok("and it stuck" (para.align == "justify"))
+        ; The flow engine is what turns it into a drawn line, so a paragraph
+        ; that changed and a line that did not is the bug worth catching.
+        def flow:BookFlowResult app.editor.flowResult
+        c.ok("and a line came out justified" (BookEditorTest.anyLineAligned(flow tf "justify")))
+    }
+
+    sfn firstTextFrame:string (app:BookApp) {
+        def page:BookPage (app.editor.currentPage())
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            if ((strlen f.storyId) > 0) {
+                return f.id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn anyLineAligned:boolean (flow:BookFlowResult frameId:string want:string) {
+        def i:int 0
+        while (i < (array_length flow.lines)) {
+            def ln:BookLine (itemAt flow.lines i)
+            if (ln.frameId == frameId) {
+                if (ln.align == want) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn main:void () {
         print "== BookEditorTest =="
         def c (new EdCheck())
@@ -496,6 +583,7 @@ class BookEditorTest {
         BookEditorTest.testHostCommands(c)
         BookEditorTest.testSceneHasEverything(c)
         BookEditorTest.testPreflightThroughTheHost(c)
+        BookEditorTest.testTheBasics(c)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

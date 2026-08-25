@@ -143,6 +143,22 @@ async function boot() {
     }
   }
   for (const fam of FAMILIES) web.noteFamily(fam);
+  // The DrawingML preset geometries, for the shape picker.
+  //
+  // The emoji in the catalogue carry their own outlines and draw with no file
+  // at all; the 187 presets are formulae and cannot be drawn until this text
+  // arrives. Skipped, the picker lists every preset, draws a blank cell for
+  // each and refuses to insert one — which looks like a rendering bug rather
+  // than a missing asset, because the emoji beside them are fine.
+  try {
+    const presets = await fetch("./presets.txt" + q, { cache: "no-store" });
+    if (presets.ok) web.loadPresets(await presets.text());
+  } catch (e) {
+    /* the picker still lists them; it simply cannot draw them */
+  }
+  if (!web.hasPresets()) {
+    console.warn("presets.txt did not load - the shape picker will show the emoji only");
+  }
   // The atlas measures with the browser's copy of the same faces; drawing
   // before they arrive rasterizes the first frame in a fallback.
   if (document.fonts && document.fonts.ready) {
