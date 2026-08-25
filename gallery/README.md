@@ -8,7 +8,7 @@ implementations.
 
 Documentation of the Office side — EVG, PowerPoint, charts, Word, Excel and
 diagrams — is at
-[`https://terotests.github.io/Ranger/office/docs/`](https://terotests.github.io/Ranger/office/docs/).
+[`https://terotests.github.io/Ranger/office/reference/`](https://terotests.github.io/Ranger/office/reference/).
 The sources and the Starlight project live in [`office/docs`](office/docs).
 
 **License: AGPL-3.0-or-later** for Ranger-authored code under this directory,

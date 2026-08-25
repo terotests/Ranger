@@ -5,7 +5,7 @@ description: The DataGrid spreadsheet viewer and editor. An .xlsx workbook becom
 
 The Excel gallery reads a `.xlsx` package, loads a workbook and a formula
 engine, and paints a virtualized grid through
-[EVG](/Ranger/office/docs/evg/). The grid owns geometry. EVG does not lay the
+[EVG](/Ranger/office/reference/evg/). The grid owns geometry. EVG does not lay the
 cells out with CSS.
 
 There is **no published API** yet. There is no `gallery/datagrid/api/` facade

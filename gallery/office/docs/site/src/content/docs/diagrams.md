@@ -4,7 +4,7 @@ description: Ranger Flow is a graph editor on EVG and WebGL. Database ER diagram
 ---
 
 Ranger Flow is a React Flow-shaped node graph written in Ranger, drawn
-through [EVG](/Ranger/office/docs/evg/) rather than the DOM, and rendered on
+through [EVG](/Ranger/office/reference/evg/) rather than the DOM, and rendered on
 the GPU. Its first domain is a database ER diagram / UML class editor,
 because that use exercises field-level ports, edge routing, auto-layout and
 large graphs at once.

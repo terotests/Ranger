@@ -27,12 +27,10 @@
 #                commit's own output rather than a recorded one.
 #   /office/  -> the .pptx API playground: code on the left writing a deck, the
 #                editor on the right opening the bytes it produced. Its
-#                documentation is at /office/docs/ (Astro + Starlight: EVG,
+#                reference is at /office/reference/ (Astro + Starlight: EVG,
 #                PowerPoint, charts, Word, Excel, diagrams, and the generated
-#                API pages). The HTML dump of those APIs is at
-#                /office/reference/. Both are built HERE rather than into
-#                /docs/ because they quote AGPL comments and the language
-#                documentation is MIT.
+#                API pages). It is built HERE rather than into /docs/ because
+#                it quotes AGPL comments and the language documentation is MIT.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -70,10 +68,9 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
-      # These carry the deck editor, the API playground, the Office
-      # documentation at /office/docs/, and the API dump at
-      # /office/reference/ — so a change to a facade republishes the docs
-      # without docs/ (the MIT language site) being touched.
+      # These carry the deck editor, the API playground, and the Office
+      # reference at /office/reference/ — so a change to a facade republishes
+      # the docs without docs/ (the MIT language site) being touched.
       - "gallery/pptx/**"
       - "gallery/office/**"
       - "gallery/pdf_writer/src/**"
@@ -191,12 +188,12 @@ jobs:
       - name: Build the Office API playground
         run: bash gallery/pptx/web/playground/build.sh --out "$GITHUB_WORKSPACE/_site/office"
 
-      # ---- Office docs at /office/docs/ + API dump at /office/reference/ --
-      # Beside the playground they document and under the same licence as the
-      # code they are built from. `npm run docs:generate` does not build them —
-      # see gallery/office/docs/README.md.
-      - name: Build the Office API dump
-        run: bash gallery/office/docs/build.sh --out "$GITHUB_WORKSPACE/_site/office/reference"
+      # ---- Office reference at /office/reference/ --------------------------
+      # Astro + Starlight, beside the playground it documents and under the
+      # same licence as the code it quotes. `npm run docs:generate` does not
+      # build this — see gallery/office/docs/README.md.
+      - name: Generate the Office API pages
+        run: bash gallery/office/docs/build.sh
 
       - name: Install Office documentation dependencies
         working-directory: gallery/office/docs/site
@@ -210,10 +207,12 @@ jobs:
 
       - name: Copy the Office documentation into the site
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/_site/office/docs"
-          cp -r gallery/office/docs/site/dist/. "$GITHUB_WORKSPACE/_site/office/docs/"
-          test -s "$GITHUB_WORKSPACE/_site/office/docs/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/docs/evg/index.html"
+          mkdir -p "$GITHUB_WORKSPACE/_site/office/reference"
+          cp -r gallery/office/docs/site/dist/. "$GITHUB_WORKSPACE/_site/office/reference/"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/pptx/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/evg/index.html"
+          grep -q "AGPL" "$GITHUB_WORKSPACE/_site/office/reference/index.html"
 
       # The same check the deck editor gets below, for the same reason: a page
       # whose engine failed to copy looks exactly like one whose engine failed
@@ -222,8 +221,6 @@ jobs:
         run: |
           test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
           test -s "$GITHUB_WORKSPACE/_site/office/reference/pptx/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/charts/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/docs/index.html"
           test -s "$GITHUB_WORKSPACE/_site/office/pptx_playground.js"
           test -s "$GITHUB_WORKSPACE/_site/office/playground.mjs"
           test -s "$GITHUB_WORKSPACE/_site/office/gl/evg-webgl.js"

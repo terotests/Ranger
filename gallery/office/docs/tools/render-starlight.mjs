@@ -3,19 +3,19 @@
 /**
  * Turn an API model into Starlight Markdown pages.
  *
- * The HTML dump at /office/reference/ is still written by render-reference.mjs.
- * These pages are the same model inside the Office documentation site, so a
- * reader gets search, a sidebar and the same typography as the language
- * documentation — without putting AGPL quotes into that MIT tree.
+ * These pages are the Office reference, published at /office/reference/ with
+ * the same Starlight chrome as the language documentation — without putting
+ * AGPL quotes into that MIT tree.
  *
- * Writes gallery/office/docs/site/src/content/docs/reference/<id>.md
- * (pptx.md, charts.md, …). Those files are generated. They are not in git.
+ * Writes gallery/office/docs/site/src/content/docs/<page>.md. The page name
+ * is `api.page` or `api.id`, so PowerPoint stays at /office/reference/pptx/.
+ * Those files are generated. They are not in git.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { DATA, HOME, REGISTRY, ensureDir, readJson } from "./paths.mjs";
 
-const CONTENT = path.join(HOME, "site", "src", "content", "docs", "reference");
+const CONTENT = path.join(HOME, "site", "src", "content", "docs");
 const REPOSITORY = "https://github.com/terotests/Ranger";
 
 function escapeYaml(text) {
@@ -207,7 +207,8 @@ function main() {
   const written = [];
   for (const [i, api] of registry.apis.entries()) {
     const model = readJson(path.join(DATA, `${api.id}-api.json`));
-    const file = path.join(CONTENT, `${api.id}.md`);
+    const page = api.page || api.id;
+    const file = path.join(CONTENT, `${page}.md`);
     fs.writeFileSync(file, renderApi(model, 10 + i));
     written.push(file);
   }

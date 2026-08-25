@@ -6,7 +6,7 @@ and the games site holds `/games/`; one GitHub Pages deployment assembles
 them (`.github/workflows/deploy-pages.yml`).
 
 The Office applications (EVG, Word, Excel, PowerPoint, charts, diagrams) have
-their own site at [`/office/docs/`](https://terotests.github.io/Ranger/office/docs/),
+their own site at [`/office/reference/`](https://terotests.github.io/Ranger/office/reference/),
 built from `gallery/office/docs/` because those pages quote AGPL sources. See
 [`gallery/office/docs/README.md`](../gallery/office/docs/README.md).
 

@@ -1,9 +1,10 @@
 {
-  "$comment": "Registry of the Ranger sources that declare a published API surface. gallery/office/docs/tools/extract-api.mjs reads this file and writes gallery/office/docs/.model/*-api.json. render-reference.mjs turns that into the HTML dump at /office/reference/; render-starlight.mjs turns it into the Starlight pages at /office/docs/reference/. It lives here rather than under docs/ because the pages quote AGPL comments and the language documentation is MIT. A facade added to gallery/*/api/ and not listed here is documented nowhere, which check-api-coverage.mjs reports.",
+  "$comment": "Registry of the Ranger sources that declare a published API surface. extract-api.mjs reads this file; render-starlight.mjs writes Starlight pages at /office/reference/<page>/. `page` is the URL slug (pptx stays at /office/reference/pptx/). It lives here rather than under docs/ because the pages quote AGPL comments and the language documentation is MIT. A facade added to gallery/*/api/ and not listed here is documented nowhere, which check-api-coverage.mjs reports.",
   "apis": [
     {
       "id": "pptx",
       "title": "PowerPoint",
+      "page": "pptx",
       "package": "@ranger/pptx",
       "summary": "Open a .pptx, read it, change it, write it back \u2014 draw it to PNG or PDF, and put a Vega chart on it as shapes.",
       "entries": [
@@ -105,7 +106,8 @@
     },
     {
       "id": "charts",
-      "title": "Charts",
+      "title": "Chart API",
+      "page": "vela",
       "package": "Vela",
       "kind": "ranger",
       "summary": "Build a Vega-Lite chart by calling methods. The runtime draws the specification this API writes.",

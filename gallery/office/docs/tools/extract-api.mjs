@@ -24,8 +24,8 @@
  * — every facade in this repository is written that way — so the documentation
  * is the source rather than a second description of it that drifts.
  *
- * Writes gallery/office/docs/.model/<id>-api.json, which the renderer next
- * door turns into pages. Both the model and the pages stay under gallery/:
+ * Writes gallery/office/docs/.model/<id>-api.json, which render-starlight.mjs
+ * turns into Starlight pages. Both the model and the pages stay under gallery/:
  * the comments this reads are AGPL text, and the documentation site is MIT.
  */
 import fs from "node:fs";

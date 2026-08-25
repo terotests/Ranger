@@ -66,8 +66,8 @@ that rewrites a title should not construct any of that.
 
 | API | Package | Status |
 | --- | --- | --- |
-| PowerPoint document, render, chart-on-slide | `@ranger/pptx` | Published. See [PowerPoint](/Ranger/office/docs/powerpoint/) and the [API reference](/Ranger/office/docs/reference/pptx/). |
-| Charts (Vela) | `gallery/vela/src/VlChart.rgr` | Ranger API, live in the browser. See [Charts](/Ranger/office/docs/charts/) and the [API reference](/Ranger/office/docs/reference/charts/). |
+| PowerPoint document, render, chart-on-slide | `@ranger/pptx` | Published. See [PowerPoint](/Ranger/office/reference/powerpoint/) and the [API reference](/Ranger/office/reference/pptx/). |
+| Charts (Vela) | `gallery/vela/src/VlChart.rgr` | Ranger API, live in the browser. See [Charts](/Ranger/office/reference/charts/) and the [API reference](/Ranger/office/reference/vela/). |
 | Word | — | Editor and demo. No facade yet. |
 | Excel | — | Editor and demo. No facade yet. |
 | Diagrams | — | Editor and demo. No facade yet. |
@@ -76,4 +76,4 @@ that rewrites a title should not construct any of that.
 
 The Office directory is [`gallery/office`](https://github.com/terotests/Ranger/tree/master/gallery/office).
 The applications sit beside it. Gallery code uses the AGPL. See
-[Licenses](/Ranger/office/docs/start/licenses/).
+[Licenses](/Ranger/office/reference/start/licenses/).

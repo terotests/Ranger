@@ -5,7 +5,7 @@ description: The DOCX viewer and editor. WordprocessingML becomes a paginated pa
 
 The Word gallery reads a `.docx` package, resolves styles and numbering into
 a `RichDocument`, paginates it, and paints each page through
-[EVG](/Ranger/office/docs/evg/). EVG never sees `w:pStyle`, `w:numId` or
+[EVG](/Ranger/office/reference/evg/). EVG never sees `w:pStyle`, `w:numId` or
 OOXML inheritance — only resolved fonts, colours and placed geometry.
 
 There is **no published API** yet. There is no `gallery/docx_viewer/api/`

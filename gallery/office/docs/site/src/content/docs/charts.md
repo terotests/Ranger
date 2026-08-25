@@ -59,7 +59,7 @@ Four rules the API follows:
    column of ISO dates is an instant. Anything else is a name.
 4. The data is a value beside the chart. One dataset can feed several charts.
 
-The full method list is the [Charts API reference](/Ranger/office/docs/reference/charts/).
+The full method list is the [Charts API reference](/Ranger/office/reference/vela/).
 It is generated from `gallery/vela/src/VlChart.rgr`.
 
 ## Demos that are on the public site
@@ -96,14 +96,14 @@ This is not a PowerPoint chart part (`c:chart` plus an embedded workbook).
 It is a group of shapes. Ungrouping in PowerPoint leaves the bars and the
 labels behind as shapes, which is the point of not shipping a picture.
 
-The methods are in the [PowerPoint API reference](/Ranger/office/docs/reference/pptx/#chart)
+The methods are in the [PowerPoint API reference](/Ranger/office/reference/pptx/#charts)
 under Charts.
 
 ## Charts in the spreadsheet
 
 The Excel editor can hold a chart on a sheet. The chart is a Vela
 specification drawn into the grid's own display list. There is no published
-facade for that path yet. See [Excel](/Ranger/office/docs/excel/) for the
+facade for that path yet. See [Excel](/Ranger/office/reference/excel/) for the
 demo commands.
 
 A chart copied in the grid can be pasted into the Word viewer. Both speak

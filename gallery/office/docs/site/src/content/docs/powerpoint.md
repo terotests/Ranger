@@ -4,7 +4,7 @@ description: Read, write, draw and edit .pptx decks. The published API is @range
 ---
 
 The PowerPoint gallery reads a `.pptx` package, resolves theme → master →
-layout → slide, and paints the result through [EVG](/Ranger/office/docs/evg/).
+layout → slide, and paints the result through [EVG](/Ranger/office/reference/evg/).
 It is also a published JavaScript API: a program can open a deck, change it
 and write it back without constructing the editor.
 
@@ -56,7 +56,7 @@ does not model is copied through byte for byte. `saveNew()` builds a package
 from the model alone. Use `save()` on a deck you opened and `saveNew()` on a
 deck you created.
 
-The full method list is the [PowerPoint API reference](/Ranger/office/docs/reference/pptx/).
+The full method list is the [PowerPoint API reference](/Ranger/office/reference/pptx/).
 It is generated from `gallery/pptx/api/PptxApi.rgr`, `PptxRenderApi.rgr` and
 `PptxChartApi.rgr`.
 
@@ -70,7 +70,6 @@ A shorter walkthrough lives in
 | Editor, JavaScript | [`/pptx/`](/Ranger/pptx/) | Parse a deck in the page, draw it with WebGL, edit it. No server. |
 | Editor, WebAssembly | [`/pptx-wasm/`](/Ranger/pptx-wasm/) | The same editor, compiled Ranger → C++ → WASM. |
 | API playground | [`/office/`](/Ranger/office/) | Code on the left writes a deck. The editor on the right opens the bytes. |
-| API reference (HTML dump) | [`/office/reference/pptx/`](/Ranger/office/reference/pptx/) | The same generated reference, without this site around it. |
 
 The playground is the check that the writer and the reader agree. A unit test
 on either alone does not prove that.
@@ -89,7 +88,7 @@ rectangles, labels are text boxes, areas are custom geometry. They scale
 without blurring, and the numbers are in `slide.text`.
 
 That API is documented with the rest of the PowerPoint surface, and the
-[Charts](/Ranger/office/docs/charts/) guide describes Vela, which compiles the
+[Charts](/Ranger/office/reference/charts/) guide describes Vela, which compiles the
 specification.
 
 ## Source

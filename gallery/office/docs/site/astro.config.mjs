@@ -27,16 +27,14 @@ if (commit && !process.env.RANGER_COMMIT) {
 }
 
 /**
- * The Office documentation is one directory of the GitHub Pages site.
- * The playground holds /office/, the generated HTML dump holds
- * /office/reference/, and this site holds /office/docs/.
- *
- * It lives under gallery/ rather than under docs/ because the pages quote
- * AGPL sources — see gallery/office/docs/README.md.
+ * This site IS the Office reference, published at /office/reference/ —
+ * the same path the standalone HTML dump used to occupy. The playground
+ * holds /office/ beside it. It lives under gallery/ rather than under
+ * docs/ because the pages quote AGPL sources.
  */
 export default defineConfig({
   site: "https://terotests.github.io",
-  base: "/Ranger/office/docs/",
+  base: "/Ranger/office/reference/",
   trailingSlash: "always",
   integrations: [
     starlight({
@@ -85,7 +83,10 @@ export default defineConfig({
         },
         {
           label: "API reference",
-          items: [{ autogenerate: { directory: "reference" } }],
+          items: [
+            { label: "PowerPoint API", slug: "pptx" },
+            { label: "Chart API", slug: "vela" },
+          ],
         },
       ],
     }),
