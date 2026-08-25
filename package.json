@@ -224,7 +224,7 @@
     "pptx:wasm": "bash gallery/pptx/web/wasm/build.sh",
     "pptx:wasm:serve": "bash gallery/pptx/web/wasm/build.sh && python3 -m http.server -d gallery/pptx/web/wasm/dist 8004",
     "pptx:wasm:test": "bash gallery/pptx/web/wasm/build.sh && node gallery/pptx/web/standalone/smoke.mjs --dist gallery/pptx/web/wasm/dist --engine pptx_wasm.wasm --build-cmd \"npm run pptx:wasm\" --port 8879",
-    "pptx:wasm:parity": "bash gallery/pptx/web/wasm/build.sh && node gallery/pptx/web/wasm/parity.mjs",
+    "pptx:wasm:parity": "bash gallery/pptx/web/wasm/build.sh && bash gallery/pptx/api/js/build.sh && node gallery/pptx/web/wasm/parity.mjs",
     "pptx:bridge:test": "bash gallery/pptx/web/standalone/build.sh && bash gallery/pptx/api/js/build.sh && node gallery/pptx/web/bridge.mjs",
     "pptx:scene:bench": "bash gallery/pptx/api/js/build.sh && node gallery/pptx/tools/chart_deck.mjs && bash scripts/rgr-suite.sh ./gallery/pptx/tools/scene_bench.rgr ./gallery/pptx/bin scene_bench.js",
     "pptx:playground": "bash gallery/pptx/web/playground/build.sh",

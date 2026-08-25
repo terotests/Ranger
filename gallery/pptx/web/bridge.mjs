@@ -35,7 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeScene } from "./host/pptx-host.mjs";
-import { chartDeck } from "../tools/chart_deck.mjs";
+
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../..");
@@ -45,6 +45,15 @@ if (!fs.existsSync(BUNDLE)) {
   console.error("no bundle at " + BUNDLE + " — run `npm run pptx:web` first");
   process.exit(1);
 }
+// The published JavaScript API, which the chart deck is built with — generated
+// rather than checked in. Imported dynamically so a missing build is reported
+// here rather than thrown out of a static import chain before this runs.
+const API_BUNDLE = path.join(ROOT, "gallery/pptx/api/js/dist/pptx_api.cjs");
+if (!fs.existsSync(API_BUNDLE)) {
+  console.error("no bundle at " + API_BUNDLE + " — run `npm run pptx:api:build` first");
+  process.exit(1);
+}
+const { chartDeck } = await import("../tools/chart_deck.mjs");
 const { PptxWeb } = (0, eval)(fs.readFileSync(BUNDLE, "utf8") + "; ({ PptxWeb })");
 
 /** Node bytes as the ArrayBuffer-with-a-view the compiled code expects. */
