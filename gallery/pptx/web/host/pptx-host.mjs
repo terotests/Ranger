@@ -224,7 +224,7 @@ export function createMediaCache({ web, loadImages }) {
  * Returns a `detach` so a page that rebuilds its editor does not end up with
  * two of these arguing over one canvas.
  */
-export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFileRequest }) {
+export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFileRequest, keepsFocus }) {
   const redraw = draw || (async () => {});
   const settled = afterInput || (() => {});
 
@@ -243,7 +243,11 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
   }
 
   const onDown = async (ev) => {
-    canvas.focus();
+    // Not while the page is holding focus somewhere on purpose. On a phone
+    // that somewhere is the off-screen field the soft keyboard is attached
+    // to, and taking focus off it is how a keyboard is dismissed — including
+    // by a tap inside the very text being typed into.
+    if (!keepsFocus || !keepsFocus()) canvas.focus();
     const { x, y } = coords(ev);
     pointerHeld = true;
     web.mods(!!ev.shiftKey, !!(ev.ctrlKey || ev.metaKey));
@@ -280,6 +284,29 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
 
   const onCancel = () => { pointerHeld = false; };
 
+  /**
+   * The browser's own focus grab, refused.
+   *
+   * Every touch browser synthesises `mousedown`/`mouseup`/`click` after
+   * `touchend`, so that pages written for a mouse work with a finger. The
+   * canvas is `tabindex="0"`, and the DEFAULT ACTION of a mousedown on a
+   * focusable element is to focus it. So one tap ran like this:
+   *
+   *     pointerdown  pointerup   → the page focuses the keyboard field
+   *     touchend
+   *     mousedown               → the BROWSER focuses the canvas
+   *
+   * and the keyboard rose and vanished a moment later, with the app still in
+   * text edit and nothing able to type into it. No amount of re-focusing on
+   * our side fixes that, because the grab happens after we are done.
+   *
+   * Preventing the default costs nothing: this module focuses the canvas
+   * itself in `onDown`, on every backend, so the only behaviour removed is
+   * the one that was taking focus away.
+   */
+  const onMouseDown = (ev) => ev.preventDefault();
+
+  canvas.addEventListener("mousedown", onMouseDown);
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerup", onUp);
@@ -287,6 +314,7 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
 
   return {
     detach() {
+      canvas.removeEventListener("mousedown", onMouseDown);
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
