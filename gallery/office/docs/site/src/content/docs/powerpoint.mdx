@@ -3,7 +3,8 @@ title: PowerPoint
 description: Read, write, draw and edit .pptx decks. The published API is @ranger/pptx. The editor runs in the browser with no server.
 ---
 
-import PptxExample from "../../components/PptxExample.astro";
+import PptxApiExample from "../../components/PptxApiExample.astro";
+import { createTitleSlide, severalSlides } from "../../examples/pptx-live.js";
 
 The PowerPoint gallery reads a `.pptx` package, resolves theme → master →
 layout → slide, and paints the result through [EVG](/Ranger/office/reference/evg/).
@@ -34,13 +35,11 @@ only resolved geometry, sRGB, fonts and image bytes.
 
 ## Try it here
 
-The block below is the same playground as [`/office/`](/Ranger/office/),
-embedded. The code on the left runs against `@ranger/pptx`. The picture on
-the right is the `.pptx` that code produced, opened by the slide editor —
-not a preview of the model in memory. Use **‹** / **›** to page the stack,
-edit the code, and press **Run**.
+The JavaScript is the published API. Press **Run** and the viewer below
+opens the `.pptx` those bytes produced — not a preview of the model in
+memory. Edit the code and run it again. **‹** / **›** page the stack.
 
-<PptxExample preset="Several slides" title="Three slides from the published API" height="34rem" />
+<PptxApiExample title="Three slides from Pptx.create and addSlide" code={severalSlides} viewerHeight="24rem" />
 
 ## The published API
 
@@ -53,6 +52,11 @@ const deck = Pptx.open(bytes);
 deck.slide(0).shapeNamed("Title").setText("Q3 review");
 const out = deck.save();
 ```
+
+`Pptx.create()` is the other door — a deck from nothing. The editor below
+runs that call in the page:
+
+<PptxApiExample title="Pptx.create — a title slide" code={createTitleSlide} />
 
 Three entry points, because in Ranger an import is not lazy. The one you
 import decides what you carry:

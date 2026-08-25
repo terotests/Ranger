@@ -26,7 +26,12 @@ for page in $(node -e "
   const r = require('./$HOME_DIR/api-sources.json');
   process.stdout.write(r.apis.map(a => a.page || a.id).join(' '));
 "); do
-  test -s "$HOME_DIR/site/src/content/docs/$page.md"
-  grep -q "AGPL-3.0-or-later" "$HOME_DIR/site/src/content/docs/$page.md"
+  if [ -s "$HOME_DIR/site/src/content/docs/$page.mdx" ]; then
+    f="$HOME_DIR/site/src/content/docs/$page.mdx"
+  else
+    f="$HOME_DIR/site/src/content/docs/$page.md"
+  fi
+  test -s "$f"
+  grep -q "AGPL-3.0-or-later" "$f"
 done
 echo "  starlight pages in $HOME_DIR/site/src/content/docs"
