@@ -9248,6 +9248,68 @@ class RangerRustClassWriter {
     return true
   }
 
+  ; Walk an operand, or the temporary a hoist put its value in. The
+  ; hand-written collection operators do not go through the call path, so
+  ; they consume the mark themselves.
+  fn rustWalkOperand:void (n:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((strlen n.rust_use_tmpvar) > 0) {
+      wr.out(n.rust_use_tmpvar false)
+      n.rust_use_tmpvar = ""
+      return
+    }
+    this.WalkNode(n ctx wr)
+  }
+
+  ; A call on THIS object in either of the two shapes the front end builds:
+  ; the dotted `this.make()` and the `(call this make args)` an operator
+  ; operand carries.
+  fn rustIsSelfCallNode:boolean (n:CodeNode) {
+    if (this.isSelfMethodCall(n)) {
+      return true
+    }
+    if n.has_call {
+      if ((array_length n.children) >= 3) {
+        def hcObj:CodeNode (n.getSecond())
+        if (hcObj.vref == "this") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; `push this.items (this.make())` — the operator writes through
+  ; `&mut self.items` while the call takes `&mut self`, and both borrows are
+  ; live in the one statement (E0499). The call goes to a temporary first,
+  ; which is what the call path already does for its own arguments.
+  fn beforeOperatorStatement:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 3) {
+      return
+    }
+    def bosFc:CodeNode (node.getFirst())
+    if ((this.rustIsMutatingOpName(bosFc.vref)) == false) {
+      return
+    }
+    if ((this.rustNodeIsOwnPath((node.getSecond()) ctx)) == false) {
+      return
+    }
+    for node.children bosArg:CodeNode bosI {
+      if (bosI > 1) {
+        def bosReal:CodeNode (this.rustUnwrapParens(bosArg))
+        if (this.rustIsSelfCallNode(bosReal)) {
+          this.rustExtractSelfCallConflicts(bosReal ctx wr)
+          def bosTmp:string (ctx.rustGetTempVar())
+          wr.out((("let " + bosTmp) + " = ") false)
+          ctx.setInExpr()
+          this.WalkNode(bosReal ctx wr)
+          ctx.unsetInExpr()
+          wr.out(";" true)
+          bosArg.rust_use_tmpvar = bosTmp
+        }
+      }
+    }
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
@@ -11048,15 +11110,15 @@ class RangerRustClassWriter {
         def push_rc_state:int (this.rustInitRcState(right ctx))
         if (push_rc_state == 0) {
           wr.out("Rc::new(RefCell::new(" false)
-          this.WalkNode(right ctx wr)
+          this.rustWalkOperand(right ctx wr)
           wr.out("))" false)
         }
         if (push_rc_state == 1) {
-          this.WalkNode(right ctx wr)
+          this.rustWalkOperand(right ctx wr)
           wr.out(".clone()" false)
         }
         if (push_rc_state == 2) {
-          this.WalkNode(right ctx wr)
+          this.rustWalkOperand(right ctx wr)
           ; …unless it is only a REFERENCE to a handle — the element the Vec
           ; keeps has to be an owned Rc
           if (this.rustValueIsBorrowedHandle(right ctx)) {
@@ -11067,7 +11129,7 @@ class RangerRustClassWriter {
         wr.out(");" true)
         return
       }
-      this.WalkNode(right ctx wr)
+      this.rustWalkOperand(right ctx wr)
       
       ; Add .to_string() if pushing to a string array and the value is a string literal
       if (arr_type == "string") {

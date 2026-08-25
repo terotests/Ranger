@@ -18362,6 +18362,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         };
         async CustomOperator (node, ctx, wr) {
         };
+        async beforeOperatorStatement (node, ctx, wr) {
+        };
         async WriteSetterVRef (node, ctx, wr) {
         };
         writeArrayTypeDef (node, ctx, wr) {
@@ -31798,6 +31800,56 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(";", true);
                             return true;
                           };
+                          async rustWalkOperand (n, ctx, wr) {
+                            if ( (n.rust_use_tmpvar.length) > 0 ) {
+                              wr.out(n.rust_use_tmpvar, false);
+                              n.rust_use_tmpvar = "";
+                              return;
+                            }
+                            await this.WalkNode(n, ctx, wr);
+                          };
+                          rustIsSelfCallNode (n) {
+                            if ( this.isSelfMethodCall(n) ) {
+                              return true;
+                            }
+                            if ( n.has_call ) {
+                              if ( (n.children.length) >= 3 ) {
+                                const hcObj = n.getSecond();
+                                if ( hcObj.vref == "this" ) {
+                                  return true;
+                                }
+                              }
+                            }
+                            return false;
+                          };
+                          async beforeOperatorStatement (node, ctx, wr) {
+                            if ( (node.children.length) < 3 ) {
+                              return;
+                            }
+                            const bosFc = node.getFirst();
+                            if ( this.rustIsMutatingOpName(bosFc.vref) == false ) {
+                              return;
+                            }
+                            if ( this.rustNodeIsOwnPath(node.getSecond(), ctx) == false ) {
+                              return;
+                            }
+                            for ( let bosI = 0; bosI < node.children.length; bosI++) {
+                              var bosArg = node.children[bosI];
+                              if ( bosI > 1 ) {
+                                const bosReal = this.rustUnwrapParens(bosArg);
+                                if ( this.rustIsSelfCallNode(bosReal) ) {
+                                  await this.rustExtractSelfCallConflicts(bosReal, ctx, wr);
+                                  const bosTmp = ctx.rustGetTempVar();
+                                  wr.out(("let " + bosTmp) + " = ", false);
+                                  ctx.setInExpr();
+                                  await this.WalkNode(bosReal, ctx, wr);
+                                  ctx.unsetInExpr();
+                                  wr.out(";", true);
+                                  bosArg.rust_use_tmpvar = bosTmp;
+                                }
+                              }
+                            };
+                          };
                           async CustomOperator (node, ctx, wr) {
                             const fc = node.getFirst();
                             const cmd = fc.vref;
@@ -33257,15 +33309,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 const push_rc_state = this.rustInitRcState(right_1, ctx);
                                 if ( push_rc_state == 0 ) {
                                   wr.out("Rc::new(RefCell::new(", false);
-                                  await this.WalkNode(right_1, ctx, wr);
+                                  await this.rustWalkOperand(right_1, ctx, wr);
                                   wr.out("))", false);
                                 }
                                 if ( push_rc_state == 1 ) {
-                                  await this.WalkNode(right_1, ctx, wr);
+                                  await this.rustWalkOperand(right_1, ctx, wr);
                                   wr.out(".clone()", false);
                                 }
                                 if ( push_rc_state == 2 ) {
-                                  await this.WalkNode(right_1, ctx, wr);
+                                  await this.rustWalkOperand(right_1, ctx, wr);
                                   if ( this.rustValueIsBorrowedHandle(right_1, ctx) ) {
                                     wr.out(".clone()", false);
                                   }
@@ -33274,7 +33326,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(");", true);
                                 return;
                               }
-                              await this.WalkNode(right_1, ctx, wr);
+                              await this.rustWalkOperand(right_1, ctx, wr);
                               if ( arr_type == "string" ) {
                                 if ( right_1.value_type == 4 ) {
                                   wr.out(".to_string()", false);
@@ -56815,6 +56867,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.suppress_expr_parens = false;
                             if ( ctx.expressionLevel() == 0 ) {
                               wr.newline();
+                              await this.langWriter.beforeOperatorStatement(node, ctx, wr);
                               if ( operatorsOf_23.getTargetLang_24(ctx) == "swift3" ) {
                                 const opn = node.operator_node;
                                 const nn = opn.getSecond();
@@ -57059,6 +57112,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const idx_8 = cmdArg.int_value;
                                   if ( (node.children.length) > idx_8 ) {
                                     const arg_8 = node.children[idx_8];
+                                    if ( (arg_8.rust_use_tmpvar.length) > 0 ) {
+                                      wr.out(arg_8.rust_use_tmpvar, false);
+                                      arg_8.rust_use_tmpvar = "";
+                                      return;
+                                    }
                                     let mutTarget = false;
                                     if ( idx_8 == 1 ) {
                                       if ( (node.children.length) > 0 ) {
