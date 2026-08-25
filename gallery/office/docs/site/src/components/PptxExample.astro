@@ -1,0 +1,89 @@
+---
+/**
+ * A live PowerPoint example: the API playground, iframed, with the chrome
+ * stripped and a named preset (or a snippet) already running.
+ *
+ * The picture on the right is the .pptx the code produced, opened by the
+ * same editor the standalone playground uses — not a preview of the model
+ * in memory. Prev / next page through the slide stack.
+ */
+// SPDX-License-Identifier: AGPL-3.0-or-later
+interface Props {
+  /** A named playground preset, e.g. "Several slides". */
+  preset?: string;
+  /** Custom JavaScript. Takes precedence over `preset`. */
+  code?: string;
+  title?: string;
+  height?: string;
+  /** `slides` hides the code pane and shows only the viewer. */
+  view?: "split" | "slides";
+}
+
+const {
+  preset,
+  code,
+  title,
+  height = "32rem",
+  view = "split",
+} = Astro.props;
+
+const params = new URLSearchParams({ embed: "1" });
+if (view === "slides") params.set("view", "slides");
+if (code) {
+  params.set("run", "0");
+} else if (preset) {
+  params.set("preset", preset);
+}
+
+const src = `${import.meta.env.BASE_URL}playground/?${params.toString()}`;
+const caption = title ?? preset ?? "Live example";
+---
+
+<figure class="pptx-example not-content">
+  <iframe
+    class="pptx-example__frame"
+    src={src}
+    title={caption}
+    style={`height: ${height}`}
+    allow="webgl"
+    data-embed-code={code ?? ""}
+    loading="lazy"
+  ></iframe>
+  <figcaption class="pptx-example__cap">
+    {caption}
+    {" · "}
+    <a href="/Ranger/office/">Open in the playground</a>
+  </figcaption>
+</figure>
+
+<script>
+  function sendCode(frame: HTMLIFrameElement, snippet: string) {
+    const send = () => {
+      try {
+        const w = frame.contentWindow as Window & { __playgroundReady?: boolean } | null;
+        if (w && w.__playgroundReady) {
+          w.postMessage({ type: "pptx-embed", code: snippet }, "*");
+          return true;
+        }
+      } catch {
+        /* iframe not ready */
+      }
+      return false;
+    };
+    if (send()) return;
+    const t = window.setInterval(() => {
+      if (send()) window.clearInterval(t);
+    }, 50);
+    window.setTimeout(() => window.clearInterval(t), 30000);
+  }
+
+  function bind(frame: HTMLIFrameElement) {
+    const snippet = frame.getAttribute("data-embed-code") || "";
+    if (!snippet) return;
+    const go = () => sendCode(frame, snippet);
+    if (frame.contentDocument?.readyState === "complete") go();
+    frame.addEventListener("load", go);
+  }
+
+  document.querySelectorAll<HTMLIFrameElement>("iframe.pptx-example__frame").forEach(bind);
+</script>
