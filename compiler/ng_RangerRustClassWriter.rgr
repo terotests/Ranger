@@ -58,6 +58,11 @@ class RangerRustClassWriter {
   def rust_emit_class_name:string ""
   ; set while a call receiver is written and the callee is known to take &self
   def rust_receiver_shared_known:boolean false
+  ; set once the receiver-mutability pre-pass has a first answer for every
+  ; class, so a later pass may ask what a call through a FIELD does. On the
+  ; first pass nothing is settled and every answer would read the
+  ; conservative default, which marks the whole program `&mut self`.
+  def rust_field_call_mut_ready:boolean false
   ; set while a STRUCT FIELD's type is written. A borrowed closure needs a
   ; lifetime to sit in a struct, and the struct has none; an owned one does
   ; not. A parameter keeps the borrow, which is what call sites pass.
@@ -3832,6 +3837,179 @@ class RangerRustClassWriter {
     }
   }
   
+  ; `reader.seek(x)` — a method called on a field of THIS object, where the
+  ; field holds another object inline. The callee borrows the field, the
+  ; field is reached through `self`, and so a callee that takes `&mut self`
+  ; makes the method around it `&mut self` too.
+  ;
+  ; The `has_call` rule further down asks the same question, but only of the
+  ; `(call obj method args)` node the front end builds for a call on an
+  ; EXPRESSION. An ordinary `reader.seek(x)` is a `hasFnCall` node whose
+  ; receiver lives inside the dotted name `reader.seek`, and nothing looked
+  ; there — which is what 277 of the 396 rustc errors on the PPTX viewer
+  ; were, one bug in 267 different functions.
+  fn rustFieldCallMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (rust_field_call_mut_ready == false) {
+      return false
+    }
+    if (node.hasFnCall == false) {
+      return false
+    }
+    if ((array_length node.children) < 1) {
+      return false
+    }
+    def fcc:CodeNode (node.getFirst())
+    def fccLen:int (array_length fcc.ns)
+    if (fccLen < 2) {
+      return false
+    }
+    def fccIdx:int 0
+    if ((itemAt fcc.ns 0) == "this") {
+      fccIdx = 1
+    }
+    ; the last segment names the method, so a field has to come before it —
+    ; `this.method()` is a call on this object, and the call graph has it
+    if (fccIdx > (fccLen - 2)) {
+      return false
+    }
+    def fccFld:string (itemAt fcc.ns fccIdx)
+    if (fccIdx == 0) {
+      if ((ctx.isMemberVariable(fccFld)) == false) {
+        return false
+      }
+    }
+    def fccClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? fccClsO) {
+      return false
+    }
+    def fccCls:RangerAppClassDesc (unwrap fccClsO)
+    def fccVarO@(optional):RangerAppParamDesc (fccCls.findVariable(fccFld))
+    if (null? fccVarO) {
+      return false
+    }
+    def fccVar:RangerAppParamDesc (unwrap fccVarO)
+    ; a cell field is written through its own cell, and an Rc field through
+    ; its own RefCell — neither of them borrows this struct mutably
+    if fccVar.rust_interior_cell {
+      return false
+    }
+    def fccNNO@(optional):CodeNode fccVar.nameNode
+    if (null? fccNNO) {
+      return false
+    }
+    def fccNN:CodeNode (unwrap fccNNO)
+    def fccIsColl:boolean (((strlen fccNN.array_type) > 0) || ((strlen fccNN.key_type) > 0))
+    if (fccIsColl == false) {
+      if fccVar.rust_needs_rc_wrap {
+        return false
+      }
+    }
+    ; …and what the callee does with its own object. The receiver's class
+    ; answers; for a trait family it answers once for the whole family.
+    def fccPathO@(optional):RangerAppClassDesc (this.rustReceiverPathClass(fcc ctx))
+    if (null? fccPathO) {
+      if (fccIsColl == false) {
+        if (ctx.isDefinedClass(fccNN.type_name)) {
+          fccPathO = (ctx.findClass(fccNN.type_name))
+        }
+      }
+    }
+    if (null? fccPathO) {
+      return false
+    }
+    def fccPath:RangerAppClassDesc (unwrap fccPathO)
+    def fccMethod:string (itemAt fcc.ns (fccLen - 1))
+    if ((fccPath.hasMethod(fccMethod)) == false) {
+      return false
+    }
+    return ((this.rustClassMethodKnownShared(fccPath fccMethod ctx)) == false)
+  }
+
+  ; Is this node a value reached through `self` — `this`, a field of this
+  ; object, or a path that starts at one? A reference taken to any of them
+  ; is a reference into this struct.
+  fn rustNodeIsOwnPath:boolean (nIn:CodeNode ctx:RangerAppWriterContext) {
+    def n:CodeNode (this.rustUnwrapParens(nIn))
+    def opName:string ""
+    def opLen:int (array_length n.ns)
+    if (opLen > 0) {
+      if ((itemAt n.ns 0) == "this") {
+        if (opLen == 1) {
+          return true
+        }
+        opName = (itemAt n.ns 1)
+      } {
+        opName = (itemAt n.ns 0)
+        if ((ctx.isMemberVariable(opName)) == false) {
+          return false
+        }
+      }
+    } {
+      if (n.vref == "this") {
+        return true
+      }
+      if ((strlen n.vref) == 0) {
+        return false
+      }
+      opName = n.vref
+      if ((ctx.isMemberVariable(opName)) == false) {
+        return false
+      }
+    }
+    def opClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? opClsO) {
+      return false
+    }
+    def opCls:RangerAppClassDesc (unwrap opClsO)
+    def opVarO@(optional):RangerAppParamDesc (opCls.findVariable(opName))
+    if (null? opVarO) {
+      return false
+    }
+    def opVar:RangerAppParamDesc (unwrap opVarO)
+    ; a cell field hands out its own `&mut` through borrow_mut()
+    if opVar.rust_interior_cell {
+      return false
+    }
+    return true
+  }
+
+  ; `Helper.touch(own)` where the callee takes that parameter by `&mut`.
+  ; The argument is written `&mut self.own`, which borrows this struct
+  ; mutably — so does `this` itself passed the same way, which comes out
+  ; `&mut self`. Either makes the method around the call `&mut self`.
+  fn rustArgBorrowsThisMutably:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (rust_field_call_mut_ready == false) {
+      return false
+    }
+    if (null? node.fnDesc) {
+      return false
+    }
+    if ((array_length node.children) < 2) {
+      return false
+    }
+    def abFd:RangerAppFunctionDesc (unwrap node.fnDesc)
+    def abArgs:CodeNode (itemAt node.children 1)
+    def abCnt:int (array_length abFd.params)
+    for abArgs.children abArg:CodeNode abI {
+      if (abI < abCnt) {
+        def abP:RangerAppParamDesc (itemAt abFd.params abI)
+        def abMut:boolean false
+        if abP.needs_cpp_reference {
+          abMut = true
+        }
+        if (abP.rust_borrow_type == 2) {
+          abMut = true
+        }
+        if abMut {
+          if (this.rustNodeIsOwnPath(abArg ctx)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   ; Helper: Check if method body DIRECTLY mutates this (field assignments, optional field access)
   ; Does NOT consider transitive mutations via method calls
   fn fnBodyDirectlyMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
@@ -3933,6 +4111,16 @@ class RangerRustClassWriter {
       }
     }
     
+    ; a mutating method on a field held inline: `reader.seek(x)`
+    if (this.rustFieldCallMutatesThis(node ctx)) {
+      return true
+    }
+
+    ; …or a reference into this struct handed to someone else
+    if (this.rustArgBorrowsThisMutably(node ctx)) {
+      return true
+    }
+
     ; Check for method calls on member variables (e.g., this.fontManager.loadFont())
     ; This mutates the member variable (requires &mut self) — except a read
     ; operator on a member collection, string or buffer: `itemAt items 0` is
@@ -5654,8 +5842,13 @@ class RangerRustClassWriter {
         
         ; Now write the actual function call with temp vars for pre-evaled args
         ; First check if this is a static method call (method doesn't use 'this')
+        ; …on ANY receiver, not only `this`. A method emitted without a
+        ; receiver is an associated function, and `recv.m(…)` on one is
+        ; "this is an associated function, not a method" — 28 of them, all
+        ; on a receiver the argument pre-evaluation had just hoisted into a
+        ; local. The hidden `__self_rc` argument carries the receiver.
         def call_as_static_preeval:boolean false
-        if (part == "this") {
+        if true {
           if node.hasFnCall {
             def fnD:RangerAppFunctionDesc node.fnDesc
             def fnB@(optional):CodeNode fnD.fnBody
@@ -5978,9 +6171,7 @@ class RangerRustClassWriter {
             
             if needsMutRef2 {
               ; Parameter needs &mut - output &mut prefix
-              if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
-                wr.out("&mut " false)
-              }
+              this.rustWriteMutArgPrefix(nVal wr)
               ctx.setInExpr()
               wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
@@ -6143,9 +6334,7 @@ class RangerRustClassWriter {
             }
 
             if needsMutRef {
-              if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
-                wr.out("&mut " false)
-              }
+              this.rustWriteMutArgPrefix(nVal wr)
               ctx.setInExpr()
               wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
@@ -6312,9 +6501,7 @@ class RangerRustClassWriter {
             }
 
             if needsMutRef3 {
-              if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
-                wr.out("&mut " false)
-              }
+              this.rustWriteMutArgPrefix(nVal wr)
               ctx.setInExpr()
               wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
@@ -6537,9 +6724,7 @@ class RangerRustClassWriter {
 
         if needsMutRef {
           ; Parameter needs &mut - output &mut prefix
-          if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
-            wr.out("&mut " false)
-          }
+          this.rustWriteMutArgPrefix(nVal wr)
           ctx.setInExpr()
           wr.suppress_expr_parens = true
           this.WalkNode(nVal ctx wr)
@@ -7264,6 +7449,25 @@ class RangerRustClassWriter {
       ; so call sites in earlier-emitted classes borrow the receiver's
       ; cell in the matching mode. Trait-related classes keep the
       ; conservative default (&mut) — their emission special-cases.
+      ;
+      ; It runs to a FIXPOINT. A method that calls a mutating method on a
+      ; field mutates through this struct too, and the answer for the
+      ; field's class is not settled when the class holding the field is
+      ; read — so the first pass answers the old question, and every
+      ; further pass may only turn a `&self` into a `&mut self`. That is
+      ; monotone, so it converges; the round cap is a backstop, not a plan.
+      def mutPass:int 0
+      def mutChanged:boolean true
+      while ((mutPass < 12) && mutChanged) {
+        mutChanged = false
+        rust_field_call_mut_ready = (mutPass > 0)
+        ; the family answer is cached on the trait root, and this pass is
+        ; about to ask it again with more known
+        if (mutPass > 0) {
+          for hdrRoot.definedClasses rcl:RangerAppClassDesc rci {
+            rcl.rust_trait_mut_ready = false
+          }
+        }
       for hdrRoot.definedClasses mcl:RangerAppClassDesc mci {
         def mclSpecial:boolean (((((mcl.is_system || mcl.is_trait) || mcl.is_template) || mcl.is_operator_class) || mcl.is_generic_instance) || mcl.is_union)
         ; a trait-related class keeps &mut self on every method of the trait
@@ -7290,13 +7494,23 @@ class RangerRustClassWriter {
               ; signature it calls agree on the borrow — they used to differ
               ; whenever the receiver decision was not the strict one, and a
               ; borrow_mut() where the callee takes &self is a run-time panic
+              def mmMut:boolean false
               if (this.rustMethodNeedsReceiver(mm (unwrap mmB) mmCtx ctx)) {
                 ; a trait-interface method reads the family's answer, which
                 ; markTraitIfaceMutations has already put into mDirect
-                mm.rust_mut_self = (this.methodMutatesThis(mm.name mDirect mGraph))
-              } {
-                mm.rust_mut_self = false
+                mmMut = (this.methodMutatesThis(mm.name mDirect mGraph))
+                ; …and the verdict only ever rises, which is what makes the
+                ; rounds terminate
+                if (mutPass > 0) {
+                  if mm.rust_mut_self {
+                    mmMut = true
+                  }
+                }
               }
+              if (mmMut != mm.rust_mut_self) {
+                mutChanged = true
+              }
+              mm.rust_mut_self = mmMut
             }
           }
           ; …and onto the variants, which is the set the emission writes from.
@@ -7316,6 +7530,14 @@ class RangerRustClassWriter {
                 def mvMut:boolean false
                 if (this.rustMethodNeedsReceiver(mv (unwrap mvB) mvCtx ctx)) {
                   mvMut = (this.methodMutatesThis(mv.name mDirect mGraph))
+                  if (mutPass > 0) {
+                    if mv.rust_mut_self {
+                      mvMut = true
+                    }
+                  }
+                }
+                if (mvMut != mv.rust_mut_self) {
+                  mutChanged = true
                 }
                 mv.rust_mut_self = mvMut
                 def mvOther@(optional):RangerAppFunctionDesc (mcl.findMethod(mv.name))
@@ -7378,6 +7600,11 @@ class RangerRustClassWriter {
           }
         }
       }
+        mutPass = (mutPass + 1)
+      }
+      ; every class has an answer now, so the emission may ask the same
+      ; question of a call through a field as the pre-pass did
+      rust_field_call_mut_ready = true
       ; A second sweep, so the flag a late child raised on its parent reaches
       ; the siblings whose turn had already passed.
       for hdrRoot.definedClasses aCl:RangerAppClassDesc aCi {
@@ -8237,6 +8464,39 @@ class RangerRustClassWriter {
 
   ; the &mut twin: a mut-reference parameter passed straight through needs
   ; no second `&mut` — the name reborrows
+  ; a bare `this` handed to a `&mut T` parameter. `self` is already the
+  ; reference the parameter wants, so `&mut self` takes a reference TO the
+  ; binding — and that binding is not declared `mut`, which is an error in
+  ; a `&self` and a `&mut self` method alike. `&mut *self` reborrows it.
+  fn rustArgIsBareThis:boolean (nValIn:CodeNode) {
+    if rust_receiverless_method {
+      return false
+    }
+    ; the argument arrives wrapped in its own expression node
+    def nVal:CodeNode (this.rustUnwrapParens(nValIn))
+    if (nVal.vref == "this") {
+      return true
+    }
+    if ((array_length nVal.ns) == 1) {
+      if ((itemAt nVal.ns 0) == "this") {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; The borrow an argument takes for a `&mut T` parameter.
+  fn rustWriteMutArgPrefix:void (nVal:CodeNode wr:CodeWriter) {
+    if (this.rustArgIsAlreadyMutRef(nVal)) {
+      return
+    }
+    if (this.rustArgIsBareThis(nVal)) {
+      wr.out("&mut *" false)
+      return
+    }
+    wr.out("&mut " false)
+  }
+
   fn rustArgIsAlreadyMutRef:boolean (nVal:CodeNode) {
     if (nVal.value_type != RangerNodeType.VRef) {
       return false
