@@ -1838,10 +1838,21 @@ class RangerRustClassWriter {
                     ; disagree; where the callee is positively known to take
                     ; `&self`, the shared form is what it wants. Everything
                     ; else keeps the mutable default.
-                    if (rust_writing_call_receiver && rust_receiver_shared_known) {
-                      wr.out(".as_ref().unwrap()" false)
+                    if rust_writing_call_receiver {
+                      if rust_receiver_shared_known {
+                        wr.out(".as_ref().unwrap()" false)
+                      } {
+                        wr.out(".as_mut().unwrap()" false)
+                      }
                     } {
-                      wr.out(".as_mut().unwrap()" false)
+                      ; …and a plain READ has no method to mutate through:
+                      ; `self.fdct.zigzagOrder[i]` asked for `&mut self` in a
+                      ; `&self` method for a field it only reads
+                      if rust_writing_mut_arg {
+                        wr.out(".as_mut().unwrap()" false)
+                      } {
+                        wr.out(".as_ref().unwrap()" false)
+                      }
                     }
                   }
                 }
@@ -2563,6 +2574,22 @@ class RangerRustClassWriter {
             wr.out("Some(" false)
           }
         }
+        ; …and a plain optional local — `def hit@(optional):PptxFillStyle
+        ; (itemAt styles i)` — is an `Option<T>` too. Only the shared case
+        ; was wrapped, so the element went into the slot bare.
+        def plainOptSome:boolean false
+        if ((local_needs_rc_wrap == false) && eff_optional) {
+          if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+            if ((value.hasFlag("optional")) == false) {
+              if (rhs_is_optional_field == false) {
+                if ((this.rustExprIsOptional(value ctx)) == false) {
+                  plainOptSome = true
+                  wr.out("Some(" false)
+                }
+              }
+            }
+          }
+        }
         ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
         if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
           wr.out("Rc::new(RefCell::new(" false)
@@ -2620,6 +2647,9 @@ class RangerRustClassWriter {
           }
         }
         if ((local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false)) {
+          wr.out(")" false)
+        }
+        if plainOptSome {
           wr.out(")" false)
         }
         ; An Option<Rc<…>> that passes through whole is still a READ of a
@@ -4267,6 +4297,17 @@ class RangerRustClassWriter {
         def callObj:CodeNode (node.getSecond())
         def methodNode:CodeNode (node.getThird())
         def member_call_target:boolean false
+        ; `(call this m args)` is a call on THIS object, not on a field of
+        ; it: the call graph answers for it, and counting it here made every
+        ; caller of a `&self` method `&mut self` — `has` calls `find`, and
+        ; `find` only reads.
+        def callObjIsThis:boolean false
+        if (callObj.vref == "this") {
+          if ((array_length callObj.ns) <= 1) {
+            callObjIsThis = true
+          }
+        }
+        if (callObjIsThis == false) {
         ; Check if callObj is a member variable or starts with 'this.'
         if (has callObj.ns) {
           if ((array_length callObj.ns) > 0) {
@@ -4291,6 +4332,7 @@ class RangerRustClassWriter {
           if (ctx.isMemberVariable(callObj.vref)) {
             member_call_target = true
           }
+        }
         }
         if member_call_target {
           if (this.rustCallTargetIsCollection(callObj)) {
@@ -5296,7 +5338,7 @@ class RangerRustClassWriter {
                   wr.out((((("; let " + exprSelfRcTmp) + "_r = ") + "") + "") false)
                 }
               }
-              wr.out(((stC.name + "::") + method.vref) false)
+              wr.out(((stC.name + "::") + (this.adjustType(method.vref))) false)
               hc_static = true
             }
           }
@@ -5441,7 +5483,7 @@ class RangerRustClassWriter {
         }
       }
       
-      wr.out(method.vref false)
+      wr.out((this.adjustType(method.vref)) false)
       }
       wr.out("(" false)
       ctx.setInExpr()
@@ -5505,6 +5547,22 @@ class RangerRustClassWriter {
         }
         ; Check if this arg should use a pre-evaluated temp variable
         if ((strlen arg.rust_use_tmpvar) > 0) {
+          ; …and it still takes the borrow the parameter declares: the
+          ; temporary is a local of this frame, and a `&str` parameter
+          ; wanted a reference to it, not the String itself
+          if (!null? calledFnDesc) {
+            def hcTmpFn:RangerAppFunctionDesc (unwrap calledFnDesc)
+            if ((array_length hcTmpFn.params) > i) {
+              def hcTmpP:RangerAppParamDesc (itemAt hcTmpFn.params i)
+              if (hcTmpP.needs_cpp_reference || (hcTmpP.rust_borrow_type == 2)) {
+                wr.out("&mut " false)
+              } {
+                if (hcTmpP.rust_borrow_type == 1) {
+                  wr.out("&" false)
+                }
+              }
+            }
+          }
           wr.out(arg.rust_use_tmpvar false)
           ; Clear the flag after use
           arg.rust_use_tmpvar = ""
@@ -6066,7 +6124,7 @@ class RangerRustClassWriter {
           if (!null? fnContainerClass) {
             def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
             def methodName:string (itemAt fc.ns ((array_length fc.ns) - 1))
-            wr.out(((containerClass.name + "::") + methodName) false)
+            wr.out(((containerClass.name + "::") + (this.adjustType(methodName))) false)
           } {
             ; Fallback to WriteVRef
             rust_call_receiver_mut = (this.rustReceiverMutFor(node fc ctx))
@@ -6484,7 +6542,7 @@ class RangerRustClassWriter {
           def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
           ; Get method name from fc.ns (e.g., ["this", "buildHuffmanCodes"])
           def methodName:string (itemAt fc.ns ((array_length fc.ns) - 1))
-          wr.out(((containerClass.name + "::") + methodName) false)
+          wr.out(((containerClass.name + "::") + (this.adjustType(methodName))) false)
           wr.out("(" false)
           ; a receiverless method still takes the hidden receiver handle
           def selfCallSelfRc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
@@ -6650,7 +6708,7 @@ class RangerRustClassWriter {
           def containerClass2:RangerAppClassDesc (unwrap fnContainerClass2)
           ; Get method name from fc.ns (last element is method name)
           def methodName2:string (itemAt fc.ns ((array_length fc.ns) - 1))
-          wr.out(((containerClass2.name + "::") + methodName2) false)
+          wr.out(((containerClass2.name + "::") + (this.adjustType(methodName2))) false)
           wr.out("(" false)
           ; a method that stores `this` takes the hidden receiver handle even
           ; when it is emitted without a `self` — the static SPELLING of the
@@ -7841,34 +7899,9 @@ class RangerRustClassWriter {
     ; question all work from
     def allStructVars:[RangerAppParamDesc] (this.rustAllStructVars(cl ctx))
 
-    ; Check if class has trait object fields (cannot derive Clone)
-    def hasTraitObjectField:boolean false
-    for allStructVars pvar:RangerAppParamDesc i {
-      ; Check if the type is a class that has child classes (used as trait object)
-      def nameN@(optional):CodeNode pvar.nameNode
-      if (!null? nameN) {
-        def nn:CodeNode (unwrap nameN)
-        def typeName:string nn.type_name
-        if ((strlen typeName) > 0) {
-          def typeClass@(optional):RangerAppClassDesc (ctx.findClass(typeName))
-          if (!null? typeClass) {
-            def tc:RangerAppClassDesc (unwrap typeClass)
-            if tc.is_extended_by_children {
-              hasTraitObjectField = true
-            }
-          }
-        }
-        ; a CLOSURE field is Box<dyn FnMut(…)>, which is no more Clone than a
-        ; trait object is — the derive fails on the whole struct
-        def clFldT:RangerNodeType nn.value_type
-        if (nn.eval_type != RangerNodeType.NoType) {
-          clFldT = nn.eval_type
-        }
-        if (clFldT == RangerNodeType.ExpressionType) {
-          hasTraitObjectField = true
-        }
-      }
-    }
+    ; Check if class has trait object fields (cannot derive Clone) — its own
+    ; and the ones it holds INLINE, however deep
+    def hasTraitObjectField:boolean (this.rustClassBlocksClone(cl ctx 0))
     
     if hasTraitObjectField {
       ; Don't derive Clone for structs with trait object fields
@@ -8160,7 +8193,7 @@ class RangerRustClassWriter {
         ; call sites that do NOT ask; the repair belongs there.
         variant.rust_can_be_static = (method_uses_this == false)
         
-        wr.out((("fn " + variant.name) + "(") false)
+        wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
         if method_uses_this {
           ; For trait parent classes (is_extended_by_children), use &self for trait methods
           ; because mutation happens through RefCell when called via the trait
@@ -8315,7 +8348,7 @@ class RangerRustClassWriter {
               }
               variant.rust_can_be_static = (method_uses_this == false)
               
-              wr.out((("fn " + variant.name) + "(") false)
+              wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
               if method_uses_this {
                 ; A trait parent used to force `&mut self` here whatever the
                 ; body does. The family answer is on the descriptor now, and
@@ -8415,7 +8448,7 @@ class RangerRustClassWriter {
           ; the inherent method uses: a bare writeTypeDef here gave the trait
           ; `changer : CodeNode` where the method it forwards to takes
           ; `Rc<RefCell<CodeNode>>`, and every forwarding body was an E0308.
-          wr.out(("fn " + variant.name + "(") false)
+          wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
           this.rustFillTraitMutations(cl ctx)
           this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
           rust_in_trait_decl = true
@@ -8436,7 +8469,7 @@ class RangerRustClassWriter {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
           ; …and the impl matches the declaration
-          wr.out(("fn " + variant.name + "(") false)
+          wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
           this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
           this.writeArgsDef(variant ctx wr)
           this.writeRustFnClose(variant ctx wr)
@@ -8444,10 +8477,10 @@ class RangerRustClassWriter {
           wr.indent(1)
           ; Check if method is static - if so, don't pass self
           if variant.rust_can_be_static {
-            wr.out(((cl.name + "::" + variant.name) + "(") false)
+            wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(") false)
             this.writeTraitForwardArgs(variant ctx wr false)
           } {
-            wr.out(((cl.name + "::" + variant.name) + "(self") false)
+            wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(self") false)
             this.writeTraitForwardArgs(variant ctx wr true)
           }
           wr.out(")" true)
@@ -8475,7 +8508,7 @@ class RangerRustClassWriter {
               def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
               for mVs.variants variant:RangerAppFunctionDesc i {
                 ; …and so does a subclass implementing the parent's trait
-                wr.out(("fn " + variant.name + "(") false)
+                wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
                 this.rustFillTraitMutations(pc ctx)
                 this.writeRustReceiver((has pc.rust_trait_mut variant.name) wr)
                 this.writeArgsDef(variant ctx wr)
@@ -8504,10 +8537,10 @@ class RangerRustClassWriter {
                 }
                 ; Generate the call
                 if isStatic {
-                  wr.out(((cl.name + "::" + variant.name) + "(") false)
+                  wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(") false)
                   this.writeTraitForwardArgs(variant ctx wr false)
                 } {
-                  wr.out(((cl.name + "::" + variant.name) + "(self") false)
+                  wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(self") false)
                   this.writeTraitForwardArgs(variant ctx wr true)
                 }
                 wr.out(")" true)
@@ -9442,6 +9475,55 @@ class RangerRustClassWriter {
       return
     }
     this.WalkNode(n ctx wr)
+  }
+
+  ; Can this class derive Clone? A trait-object field cannot, nor a closure
+  ; — and neither can a struct that holds one INLINE, however deep: `struct
+  ; UIContext { tr : UITextRenderer }` derived Clone while UITextRenderer
+  ; could not. A field behind an Rc clones the handle and asks nothing of
+  ; what is inside it.
+  fn rustClassBlocksClone:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext depth:int) {
+    if (depth > 6) {
+      return false
+    }
+    def cbcVars:[RangerAppParamDesc] (this.rustAllStructVars(cl ctx))
+    for cbcVars pvar:RangerAppParamDesc i {
+      def nameN@(optional):CodeNode pvar.nameNode
+      if (!null? nameN) {
+        def nn:CodeNode (unwrap nameN)
+        ; a CLOSURE field is Box<dyn FnMut(…)>, which is no more Clone than
+        ; a trait object is
+        def clFldT:RangerNodeType nn.value_type
+        if (nn.eval_type != RangerNodeType.NoType) {
+          clFldT = nn.eval_type
+        }
+        if (clFldT == RangerNodeType.ExpressionType) {
+          return true
+        }
+        ; a map's value type lives in array_type as well, and a Vec or a
+        ; HashMap is Clone exactly when its element is
+        def cbcT:string nn.type_name
+        if ((strlen nn.array_type) > 0) {
+          cbcT = nn.array_type
+        }
+        if ((strlen cbcT) > 0) {
+          if (ctx.isDefinedClass(cbcT)) {
+            def tc:RangerAppClassDesc (ctx.findClass(cbcT))
+            if tc.is_extended_by_children {
+              return true
+            }
+            if ((this.rustClassIsShared(cbcT ctx)) == false) {
+              if (tc.name != cl.name) {
+                if (this.rustClassBlocksClone(tc ctx (depth + 1))) {
+                  return true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return false
   }
 
   ; The operators that write one ELEMENT at an index.
@@ -10952,7 +11034,7 @@ class RangerRustClassWriter {
                 }
               }
               if retStatic {
-                wr.out(((retStaticName + "::") + (itemAt retFc.ns ((array_length retFc.ns) - 1))) false)
+                wr.out(((retStaticName + "::") + (this.adjustType((itemAt retFc.ns ((array_length retFc.ns) - 1))))) false)
               } {
                 this.WriteVRef(retFc ctx wr)
               }
