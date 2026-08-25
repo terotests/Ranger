@@ -53,7 +53,34 @@
   #status.bad { color: #ff9d9d; }
   #status.good { color: #9ee6a5; }
   .slides { display: flex; gap: 6px; align-items: center; }
+  /*
+   * Docs pages iframe this page with ?embed=1. Hide the playground chrome
+   * (title, file picker, download) so the remaining surface is the code and
+   * the slide stack — the same editor, just without the surrounding page.
+   */
+  html.embed, html.embed body { height: 100%; margin: 0; overflow: hidden; }
+  html.embed header,
+  html.embed .source { display: none; }
+  html.embed #download,
+  html.embed #png,
+  html.embed #pdf,
+  html.embed #clear { display: none; }
+  html.embed main { height: 100vh; min-height: 100vh; }
+  html.embed .pane { min-height: 0; }
+  html.embed textarea { min-height: 0; }
+  html.embed canvas { flex: 1; min-height: 0; width: 100%; height: auto; object-fit: contain; }
+  html.slides-only .pane:first-child { display: none; }
+  html.slides-only .pane + .pane { border-left: 0; }
 </style>
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    if (q.get("embed") === "1" || q.get("embed") === "true") {
+      document.documentElement.classList.add("embed");
+      if (q.get("view") === "slides") document.documentElement.classList.add("slides-only");
+    }
+  })();
+</script>
 </head>
 <body>
 <header>

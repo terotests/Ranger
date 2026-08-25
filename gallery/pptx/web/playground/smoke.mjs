@@ -100,6 +100,10 @@ await page.waitForFunction(() => window.__playgroundReady === true, null, { time
 const checks = [];
 const ok = (name, cond) => checks.push({ name, ok: !!cond });
 
+ok("the full playground does not run on load",
+  await page.evaluate(() =>
+    !window.__embedMode && /^ready/.test(document.getElementById("status").textContent || "")));
+
 const presets = await page.$$eval("#preset option", (os) => os.map((o) => o.value));
 ok("the presets are listed", presets.length >= 4);
 
@@ -391,6 +395,90 @@ const viaEditor = zipParts(Uint8Array.from(await page.evaluate(() =>
 const lostByEditor = partsIn.filter((n) => !viaEditor.includes(n));
 ok("and the editor keeps them too", lostByEditor.length === 0);
 if (lostByEditor.length) console.log("  editor lost: " + lostByEditor.join(", "));
+
+// --- docs embed: autorun a preset and page the slide stack ----------------
+//
+// The documentation iframes this page with `?embed=1&preset=…` so a guide can
+// show a live deck next to the prose. The full playground must still wait for
+// Run (checked above). What is checked here is the other contract: the embed
+// hides the chrome, runs the named example, and the arrows still turn pages.
+const embedPage = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+embedPage.on("pageerror", (e) => errors.push("embed: " + String(e)));
+embedPage.on("console", (m) => { if (m.type() === "error") errors.push("embed: " + m.text()); });
+const embedUrl = `http://127.0.0.1:${PORT}/index.html?embed=1&preset=${encodeURIComponent("Several slides")}`;
+await embedPage.goto(embedUrl);
+await embedPage.waitForFunction(() => window.__playgroundReady === true, null, { timeout: 60000 });
+const embedState = await embedPage.evaluate(() => ({
+  mode: !!window.__embedMode,
+  htmlEmbed: document.documentElement.classList.contains("embed"),
+  header: getComputedStyle(document.querySelector("header")).display,
+  file: getComputedStyle(document.querySelector(".source")).display,
+  download: getComputedStyle(document.getElementById("download")).display,
+  scene: document.getElementById("where").textContent,
+  status: document.getElementById("status").className,
+}));
+ok("embed mode is on", embedState.mode && embedState.htmlEmbed);
+ok("embed hides the playground chrome",
+  embedState.header === "none" && embedState.file === "none" && embedState.download === "none");
+ok("embed autoruns the requested preset",
+  embedState.status === "good" && /1\s*\/\s*3/.test(embedState.scene));
+const embedFirst = await embedPage.locator("#screen").screenshot();
+await embedPage.click("#next");
+await embedPage.waitForTimeout(300);
+const embedSecond = await embedPage.locator("#screen").screenshot();
+const embedWhere = await embedPage.evaluate(() => document.getElementById("where").textContent);
+ok("embed paging reaches slide 2 of 3", /^2\s*\/\s*3/.test(embedWhere));
+ok("embed paging draws a different slide", embedFirst.length !== embedSecond.length);
+await embedPage.close();
+
+// A docs page can also post a snippet that is not one of the named presets.
+// Served from the same origin as the playground so the test can read the
+// iframe's document; a docs page uses postMessage for the same reason.
+const postedCode = `const deck = Pptx.create();
+const slide = deck.addSlide().background("FFFFFF");
+slide.addTextBox(70, 150, 820, 110, "Posted from parent")
+     .setName("Title")
+     .run(0, 0).font("Calibri", 44).bold().color("#1F3864");
+return deck;`;
+fs.writeFileSync(path.join(DIST, "embed-host.html"), `<!doctype html>
+<html><body style="margin:0">
+<iframe id="f" src="./index.html?embed=1&run=0"
+        style="width:100%;height:640px;border:0"></iframe>
+<script>
+  const f = document.getElementById("f");
+  const code = ${JSON.stringify(postedCode)};
+  const send = () => {
+    try {
+      if (f.contentWindow && f.contentWindow.__playgroundReady) {
+        f.contentWindow.postMessage({ type: "pptx-embed", code: code }, "*");
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  };
+  const t = setInterval(() => { if (send()) clearInterval(t); }, 50);
+  f.addEventListener("load", () => { if (send()) clearInterval(t); });
+</script>
+</body></html>`);
+const host = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+host.on("pageerror", (e) => errors.push("host: " + String(e)));
+await host.goto(`http://127.0.0.1:${PORT}/embed-host.html`);
+await host.waitForFunction(() => {
+  const f = document.getElementById("f");
+  const doc = f && f.contentDocument;
+  const status = doc && doc.getElementById("status");
+  return status && status.className === "good";
+}, null, { timeout: 60000 });
+const posted = await host.evaluate(() => {
+  const doc = document.getElementById("f").contentDocument;
+  return {
+    scene: doc.getElementById("where").textContent,
+    status: doc.getElementById("status").className,
+  };
+});
+ok("a parent can post a snippet into the embed", posted.status === "good");
+ok("and the posted snippet produced a one-slide deck", /^1\s*\/\s*1/.test(posted.scene));
+await host.close();
 
 // Back to the deck this page made, so the checks after this one start clean.
 await page.evaluate(async (bytes) => {

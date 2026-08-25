@@ -3,6 +3,8 @@ title: Charts
 description: Vela compiles Vega and Vega-Lite. VlChart builds a chart by calling methods. PowerPoint can put the result on a slide as shapes.
 ---
 
+import PptxExample from "../../components/PptxExample.astro";
+
 Charts in this gallery have two published surfaces, and they meet at EVG.
 
 **Vela** is a Vega-compatible runtime written in Ranger. A specification goes
@@ -30,6 +32,14 @@ and puts it on a PowerPoint slide as DrawingML shapes.
                  EVG path         SVG         PPTX shapes
               PDF / PNG / HTML              (@ranger/pptx/chart)
 ```
+
+## Charts on a slide, live
+
+The block below is the PowerPoint playground with the six-chart deck already
+running. Every bar, line and label is a DrawingML shape in the `.pptx` the
+editor opened — not a picture. Page with **‹** / **›**.
+
+<PptxExample preset="Six chart slides" title="Six chart slides as DrawingML shapes" height="36rem" />
 
 ## The chart API (Vela)
 

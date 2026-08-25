@@ -3,6 +3,8 @@ title: PowerPoint
 description: Read, write, draw and edit .pptx decks. The published API is @ranger/pptx. The editor runs in the browser with no server.
 ---
 
+import PptxExample from "../../components/PptxExample.astro";
+
 The PowerPoint gallery reads a `.pptx` package, resolves theme → master →
 layout → slide, and paints the result through [EVG](/Ranger/office/reference/evg/).
 It is also a published JavaScript API: a program can open a deck, change it
@@ -29,6 +31,16 @@ presentation.pptx
 
 EVG never sees relationship ids, masters, `schemeClr` or placeholder rules —
 only resolved geometry, sRGB, fonts and image bytes.
+
+## Try it here
+
+The block below is the same playground as [`/office/`](/Ranger/office/),
+embedded. The code on the left runs against `@ranger/pptx`. The picture on
+the right is the `.pptx` that code produced, opened by the slide editor —
+not a preview of the model in memory. Use **‹** / **›** to page the stack,
+edit the code, and press **Run**.
+
+<PptxExample preset="Several slides" title="Three slides from the published API" height="34rem" />
 
 ## The published API
 
