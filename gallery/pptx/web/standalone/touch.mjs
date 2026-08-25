@@ -155,7 +155,13 @@ const late = await state();
 const trace = await drain();
 ok("the app is still in text edit a moment later", late.edit === true);
 ok("and the keyboard field STILL has focus", late.active === "softkeys");
-if (late.active !== "softkeys") console.log("  events: " + trace);
+
+// And the compatibility events are not merely defused but never synthesised:
+// `preventDefault` on `touchend` stops them at the source, which is what
+// Safari needs — it decides about focus at the END of the gesture rather than
+// at the mousedown, so a defused mousedown was not enough on an iPhone.
+ok("no compatibility mouse event is synthesised at all", !/mouse(down|up)/.test(trace));
+if (/mouse(down|up)/.test(trace) || late.active !== "softkeys") console.log("  events: " + trace);
 
 // Typing has to arrive. Not through a synthetic `input` on the field — that
 // would test the page's own listener against itself — but through the
