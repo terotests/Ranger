@@ -244,6 +244,9 @@ class ToolItem {
     ; -1. An entry takes no room on the strip while its list is shut, which
     ; is the whole point — five border commands in one slot.
     def menuOwner:int -1
+    ; Scratch: where this item was before the array was last rebuilt. Only
+    ; `tagPositions` and `reindex` touch it — see `addUnderMenu`.
+    def wasAt:int -1
     ; A button drawn big, with its name UNDER the picture rather than beside
     ; it. For the one or two commands on a page that are the reason the page
     ; exists — Insert's text box is what somebody opens Insert to do. A strip
@@ -497,6 +500,139 @@ class EVGToolbar {
         t.menuOwner = owner
         t.showLabel = true
         return t
+    }
+
+    ; Where a dropdown with this label is, or -1. `addUnder` fills the list
+    ; that was declared LAST, which is only any use while the strip is being
+    ; built; an owner filling a menu in later — the font chooser, whose
+    ; entries are the faces the page loaded and whatever the open deck is set
+    ; in — has to be able to name the one it means.
+    fn indexOfLabel:int (label:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if t.isMenu {
+                if (t.label == label) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Empty a dropdown's list, keeping the button, and add an entry to the end
+    ; of one. For a menu whose entries are not known when the strip is built.
+    ;
+    ; WHY BOTH GO THROUGH `reindex`. An entry names its menu by that menu's
+    ; INDEX in this array, so inserting or removing anything moves owners that
+    ; had nothing to do with the change. Adjusting them by hand means getting
+    ; "how many of the things that went were in front of me" right for every
+    ; item, which is the kind of arithmetic that is wrong once and then wrong
+    ; forever. So each item is tagged with where it used to be, the array is
+    ; rebuilt, and every owner is looked up in that tag — no counting.
+    fn clearUnderMenu:void (owner:int) {
+        this.tagPositions()
+        def keep:[ToolItem]
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.menuOwner != owner) {
+                push keep t
+            }
+            i = (i + 1)
+        }
+        ; A list being emptied cannot stay open over it.
+        if (openMenu == owner) {
+            openMenu = -1
+        }
+        this.reindex(keep)
+    }
+
+    fn addUnderMenu:ToolItem (owner:int command:string arg:string label:string icon:int) {
+        this.tagPositions()
+        def t (new ToolItem)
+        t.command = command
+        t.arg = arg
+        t.label = label
+        t.icon = icon
+        t.showLabel = true
+        ; Tagged with the owner's OLD position, which `reindex` then turns
+        ; into wherever the owner ends up.
+        t.wasAt = -1
+        t.menuOwner = owner
+        ; Just past the last entry this menu already has, so entries come out
+        ; in the order they were added.
+        def at:int (owner + 1)
+        def k:int (owner + 1)
+        while (k < (array_length items)) {
+            def other:ToolItem (itemAt items k)
+            if (other.menuOwner == owner) {
+                at = (k + 1)
+            }
+            k = (k + 1)
+        }
+        def out:[ToolItem]
+        def m:int 0
+        while (m < (array_length items)) {
+            if (m == at) {
+                push out t
+            }
+            push out (itemAt items m)
+            m = (m + 1)
+        }
+        if (at >= (array_length items)) {
+            push out t
+        }
+        this.reindex(out)
+        return t
+    }
+
+    ; Remember where every item is now, so an owner can be found again after
+    ; the array has been rebuilt. -1 marks an item that was not in it.
+    fn tagPositions:void () {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            t.wasAt = i
+            i = (i + 1)
+        }
+    }
+
+    ; Adopt a rebuilt array and point every entry back at its own menu.
+    fn reindex:void (next:[ToolItem]) {
+        def i:int 0
+        while (i < (array_length next)) {
+            def t:ToolItem (itemAt next i)
+            if (t.menuOwner >= 0) {
+                def found:int -1
+                def j:int 0
+                while (j < (array_length next)) {
+                    def other:ToolItem (itemAt next j)
+                    if (other.wasAt == t.menuOwner) {
+                        found = j
+                    }
+                    j = (j + 1)
+                }
+                t.menuOwner = found
+            }
+            i = (i + 1)
+        }
+        ; …and the open menu, which is an index into the same array.
+        if (openMenu >= 0) {
+            def wasOpen:int openMenu
+            openMenu = -1
+            def k:int 0
+            while (k < (array_length next)) {
+                ; Bound to a local first: `(itemAt …).field` does not resolve.
+                def item:ToolItem (itemAt next k)
+                if (item.wasAt == wasOpen) {
+                    openMenu = k
+                }
+                k = (k + 1)
+            }
+        }
+        items = next
     }
 
     fn lastMenuIndex:int () {

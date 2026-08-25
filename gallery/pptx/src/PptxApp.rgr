@@ -62,7 +62,20 @@ class PptxToolbar extends EVGToolbar {
         this.add("slide.next" "" "Next slide" (ToolIcon.navNext()))
         this.add("slide.last" "" "Last slide" (ToolIcon.navLast()))
         this.addSeparator()
-        this.addText("slide.pick" "" "1 / 1" 88)
+        ; The typeface, where the slide counter used to be.
+        ;
+        ; That counter read "3 / 12" and opened a grid of numbered buttons.
+        ; Four nav buttons sit to its left and the whole deck is drawn down
+        ; the side as thumbnails, so it was the third way to do the same
+        ; thing and the worst of the three — while the one thing a reader
+        ; reaches for constantly, the font of the text they have selected,
+        ; was nowhere on the strip at all. `slide.pick` is still a command;
+        ; it just no longer takes the best slot on the tab.
+        ;
+        ; The entries are filled in at `refreshFonts`, from the faces the page
+        ; has actually loaded — a chooser offering a typeface nothing can draw
+        ; would measure with one face and paint with another.
+        this.addDropdown("Font" (ToolIcon.textBox()))
         this.addSeparator()
         ; The editing half of the strip. It is always here — the buttons are
         ; live only while `edit.toggle` is pressed, which is what tells you
@@ -144,9 +157,6 @@ class PptxToolbar extends EVGToolbar {
         while (i < (array_length items)) {
             def t:ToolItem (itemAt items i)
             t.pressed = false
-            if (t.command == "slide.pick") {
-                t.label = ((to_string (index + 1)) + " / " + (to_string count))
-            }
             if (t.command == "edit.toggle") {
                 t.pressed = editOn
             }
@@ -273,6 +283,12 @@ class PptxApp {
     ; thumbnails have actually changed. Hosts that do not care keep asking for
     ; one list and get exactly what they always did.
     def framePanel:boolean true
+    ; Which families the Font dropdown was last filled with, joined. The list
+    ; is rebuilt only when that string changes — opening a deck in a typeface
+    ; nothing else uses adds one, and nothing else does — because rebuilding a
+    ; menu every frame would take it out from under the reader's hand while it
+    ; was open.
+    def fontsListed:string ""
     ; The deck as a STRIP ACROSS THE TOP rather than a column down the side,
     ; which is what a phone wants: a phone is narrow and tall, so a column
     ; spends the dimension there is least of. Nonzero height means the strip;
@@ -688,6 +704,7 @@ class PptxApp {
         commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
         commands.add("text.bullet" "Bulleted list" "Format" "")
         commands.add("text.number" "Numbered list" "Format" "")
+        commands.addArg("text.font" "Set the typeface" "Format" "")
         commands.add("text.indent" "Indent the list" "Format" "Tab")
         commands.add("text.outdent" "Outdent the list" "Format" "Shift+Tab")
         commands.addArg("edit.fill" "Fill colour" "Format" "")
@@ -795,6 +812,105 @@ class PptxApp {
         ; deck went to the top of a phone and the slide was still being fitted
         ; around a column that was no longer there.
         this.resize(W H)
+    }
+
+    ; Fill the Font dropdown, and put the selection's own typeface on its face.
+    ;
+    ; The entries are added once — the faces a page loads it loads at startup,
+    ; so the list does not change while the app runs, and rebuilding it every
+    ; frame would reset the open menu under the reader's hand. The LABEL is
+    ; settled every frame, because the selection changes constantly and the
+    ; whole point of putting the chooser on the strip is that it says what the
+    ; text in front of you is set in.
+    fn refreshFonts:void () {
+        def at:int (toolbar.indexOfLabel("Font"))
+        if (at < 0) {
+            return
+        }
+        def menu:ToolItem (toolbar.at(at))
+        def names:[string] (this.choosableFonts())
+        def sig:string ""
+        def si:int 0
+        while (si < (array_length names)) {
+            sig = (sig + ((itemAt names si) + ","))
+            si = (si + 1)
+        }
+        if (sig != fontsListed) {
+            fontsListed = sig
+            toolbar.clearUnderMenu(at)
+            def i:int 0
+            while (i < (array_length names)) {
+                def name:string (itemAt names i)
+                toolbar.addUnderMenu(at "text.font" name name (ToolIcon.textBox()))
+                i = (i + 1)
+            }
+        }
+        ; "Font" when the selection is in more than one typeface, or in none
+        ; this page can name — the honest answer, rather than whichever run
+        ; happened to come first.
+        def now:string (editor.selectionFamily())
+        if ((strlen now) > 0) {
+            menu.label = now
+        } {
+            menu.label = "Font"
+        }
+    }
+
+    ; What the Font chooser may offer: the faces this build can draw with,
+    ; and then whatever the OPEN DECK is already set in.
+    ;
+    ; The second half matters more than it looks. A deck from PowerPoint is in
+    ; Calibri, and this page has no Calibri — it measures and draws Calibri
+    ; text in Open Sans, which is what a viewer without a face is supposed to
+    ; do. But the FILE says Calibri, and a reader adding a line to that deck
+    ; wants the new line to say Calibri too, so that it matches everywhere
+    ; else the deck is opened. A chooser that offered only what this page can
+    ; draw would make it impossible to stay in the deck's own typeface.
+    fn choosableFonts:[string] () {
+        def out:[string] (view.ctx.tr.familyNames())
+        def si:int 0
+        while (si < (presentation.slideCount())) {
+            def sl:PptxSlide (itemAt presentation.slides si)
+            this.collectFamilies(sl.shapes out)
+            si = (si + 1)
+        }
+        return out
+    }
+
+    fn collectFamilies:void (shapes:[PptxShape] out:[string]) {
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if sh.hasText {
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    def ri:int 0
+                    while (ri < (array_length para.runs)) {
+                        def run:PptxTextRun (itemAt para.runs ri)
+                        PptxApp.pushOnce(out run.fontFamily)
+                        ri = (ri + 1)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            this.collectFamilies(sh.children out)
+            i = (i + 1)
+        }
+    }
+
+    sfn pushOnce:void (out:[string] name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length out)) {
+            if ((itemAt out i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push out name
     }
 
     fn addFontBytes:boolean (family:string data:buffer) {
@@ -1707,6 +1823,7 @@ class PptxApp {
         toolbarH = (toolbar.heightFor(W))
         toolbar.boldOn = (this.selectionBold())
         toolbar.italicOn = (this.selectionItalic())
+        this.refreshFonts()
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 
@@ -3577,6 +3694,12 @@ class PptxApp {
                 return (editor.setListKind("none"))
             }
             return (editor.setListKind("number"))
+        }
+        ; The typeface, by name. `arg` is a family the page has a face for —
+        ; the chooser only ever offers those — and an empty one is a no-op
+        ; rather than a run set to nothing.
+        if (id == "text.font") {
+            return (editor.setTextFamily(arg))
         }
         if (id == "text.indent") {
             return (editor.indentList(1))

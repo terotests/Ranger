@@ -2505,6 +2505,58 @@ class PptxEditor {
         return (this.applyRunStyle("size" false size ""))
     }
 
+    ; The typeface, for the caret's range or for everything in the selected
+    ; shapes — the same two-step every other run style takes.
+    fn setTextFamily:boolean (family:string) {
+        if ((strlen family) == 0) {
+            return false
+        }
+        if (this.styleTextRange("family" false 0.0 family)) {
+            return true
+        }
+        return (this.applyRunStyle("family" false 0.0 family))
+    }
+
+    ; What typeface the selection is in, or "" when it is in more than one —
+    ; which is what a chooser needs in order to show the current value rather
+    ; than a guess. The caret's own run first, then the first run of the first
+    ; selected shape.
+    fn selectionFamily:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            def shapes:[PptxShape] (this.selectedShapes())
+            if ((array_length shapes) == 0) {
+                return ""
+            }
+            hit = (itemAt shapes 0)
+        }
+        def sh:PptxShape (unwrap hit)
+        if (sh.hasText == false) {
+            return ""
+        }
+        def seen:string ""
+        def pi:int 0
+        while (pi < (array_length sh.text.paragraphs)) {
+            def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if ((strlen run.fontFamily) > 0) {
+                    if ((strlen seen) == 0) {
+                        seen = run.fontFamily
+                    } {
+                        if (seen != run.fontFamily) {
+                            return ""
+                        }
+                    }
+                }
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        return seen
+    }
+
     fn setTextColorHex:boolean (hex:string) {
         if (this.styleTextRange("color" false 0.0 hex)) {
             return true
@@ -2544,6 +2596,15 @@ class PptxEditor {
                         if (what == "color") {
                             run.color = (PptxColor.srgbOf(hex))
                             run.colorStated = true
+                        }
+                        ; The typeface travels in the same string slot the
+                        ; colour does — `applyStyle`, the version that works on
+                        ; a caret range rather than a whole shape, has read
+                        ; "family" out of it for some time and this one never
+                        ; did. So changing the font with a whole box selected
+                        ; and no caret in it did nothing at all.
+                        if (what == "family") {
+                            run.fontFamily = hex
                         }
                         ri = (ri + 1)
                     }

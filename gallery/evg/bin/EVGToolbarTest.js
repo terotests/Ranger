@@ -7819,6 +7819,7 @@ class ToolItem  {
     this.labelW = 0;
     this.isMenu = false;
     this.menuOwner = -1;
+    this.wasAt = -1;
     this.isLarge = false;
   }
 }
@@ -7963,6 +7964,109 @@ class EVGToolbar  {
     t.menuOwner = owner;
     t.showLabel = true;
     return t;
+  };
+  indexOfLabel (label) {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.isMenu ) {
+        if ( t.label == label ) {
+          return i;
+        }
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  clearUnderMenu (owner) {
+    this.tagPositions();
+    let keep = [];
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.menuOwner != owner ) {
+        keep.push(t);
+      }
+      i = i + 1;
+    };
+    if ( this.openMenu == owner ) {
+      this.openMenu = -1;
+    }
+    this.reindex(keep);
+  };
+  addUnderMenu (owner, command, arg, label, icon) {
+    this.tagPositions();
+    const t = new ToolItem();
+    t.command = command;
+    t.arg = arg;
+    t.label = label;
+    t.icon = icon;
+    t.showLabel = true;
+    t.wasAt = -1;
+    t.menuOwner = owner;
+    let at = owner + 1;
+    let k = owner + 1;
+    while (k < (this.items.length)) {
+      const other = this.items[k];
+      if ( other.menuOwner == owner ) {
+        at = k + 1;
+      }
+      k = k + 1;
+    };
+    let out = [];
+    let m = 0;
+    while (m < (this.items.length)) {
+      if ( m == at ) {
+        out.push(t);
+      }
+      out.push(this.items[m]);
+      m = m + 1;
+    };
+    if ( at >= (this.items.length) ) {
+      out.push(t);
+    }
+    this.reindex(out);
+    return t;
+  };
+  tagPositions () {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      t.wasAt = i;
+      i = i + 1;
+    };
+  };
+  reindex (next) {
+    let i = 0;
+    while (i < (next.length)) {
+      const t = next[i];
+      if ( t.menuOwner >= 0 ) {
+        let found = -1;
+        let j = 0;
+        while (j < (next.length)) {
+          const other = next[j];
+          if ( other.wasAt == t.menuOwner ) {
+            found = j;
+          }
+          j = j + 1;
+        };
+        t.menuOwner = found;
+      }
+      i = i + 1;
+    };
+    if ( this.openMenu >= 0 ) {
+      const wasOpen = this.openMenu;
+      this.openMenu = -1;
+      let k = 0;
+      while (k < (next.length)) {
+        const item = next[k];
+        if ( item.wasAt == wasOpen ) {
+          this.openMenu = k;
+        }
+        k = k + 1;
+      };
+    }
+    this.items = next;
   };
   lastMenuIndex () {
     let i = (this.items.length) - 1;
@@ -15742,6 +15846,7 @@ class UICachedLine  {
 class UITextRenderer  {
   constructor() {
     this.fm = new FontManager();
+    this.named = [];
     this.measurer = new EVGTextMeasurer();
     this.rt = new RasterText();
     this.fontFamily = "Open Sans";
@@ -15759,6 +15864,7 @@ class UITextRenderer  {
     const ok = this.fm.loadFont(relativePath);
     if ( ok ) {
       this.fontFamily = family;
+      this.rememberFamily(family);
       const ttf = this.fm.getFont(family);
       this.rt.setFont(ttf);
       this.rt.setFallbackManager(this.fm);
@@ -15781,6 +15887,7 @@ class UITextRenderer  {
     const ok = this.fm.loadFontBuffer(family, data);
     if ( ok ) {
       this.fontFamily = family;
+      this.rememberFamily(family);
       const ttf = this.fm.getFont(family);
       this.rt.setFont(ttf);
       this.rt.setFallbackManager(this.fm);
@@ -15793,6 +15900,22 @@ class UITextRenderer  {
   };
   addFaceBytes (data) {
     return this.fm.loadFontBuffer("", data);
+  };
+  familyNames () {
+    return this.named;
+  };
+  rememberFamily (family) {
+    if ( (family.length) == 0 ) {
+      return;
+    }
+    let i = 0;
+    while (i < (this.named.length)) {
+      if ( (this.named[i]) == family ) {
+        return;
+      }
+      i = i + 1;
+    };
+    this.named.push(family);
   };
   setDefaultSize (sz) {
     this.defaultSize = sz;

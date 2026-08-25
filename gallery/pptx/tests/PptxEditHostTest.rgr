@@ -365,6 +365,113 @@ class PptxEditHostTest {
         c.ok("the list button turns it off again" (lb.runCommand("text.number" "")))
         c.ok("and it is off" ((lb.editor.listKind()) == "none"))
 
+        print "-- the font chooser, where the slide counter used to be --"
+        ; The counter read "3 / 12" and opened a grid of numbered buttons.
+        ; Four nav buttons sit to its left and the whole deck is drawn down
+        ; the side as thumbnails, so it was the third way to do the same thing
+        ; and the worst of the three — while the typeface, which a reader
+        ; reaches for constantly, was nowhere on the strip at all.
+        def fa:PptxApp (PptxEditHostTest.build())
+        fa.buildFrame()
+        c.ok("the slide counter is gone from the strip" ((PptxEditHostTest.indexOfCommand(fa "slide.pick")) < 0))
+        c.ok("but it is still a command" (fa.commands.has("slide.pick")))
+        def fi:int (fa.toolbar.indexOfLabel("Font"))
+        c.ok("there is a Font chooser instead" (fi >= 0))
+
+        ; Its entries are the faces this build loaded, plus whatever the open
+        ; deck is already set in. The second half is the point: a deck from
+        ; PowerPoint is in Calibri and this build has no Calibri face, but the
+        ; FILE says Calibri and a reader adding a line wants it to go on
+        ; saying so.
+        def entries:int 0
+        def sawLoaded:boolean false
+        def ei:int 0
+        while (ei < (fa.toolbar.count())) {
+            def et:ToolItem (fa.toolbar.at(ei))
+            if (et.menuOwner == fi) {
+                entries = (entries + 1)
+                if (et.label == "Open Sans") {
+                    sawLoaded = true
+                }
+                c.ok("every entry runs text.font" (et.command == "text.font"))
+            }
+            ei = (ei + 1)
+        }
+        c.ok("it has some fonts in it" (entries > 0))
+        c.ok("including the one this build draws with" sawLoaded)
+
+        ; …and a typeface the deck names that this build has no face for. A
+        ; chooser offering only what it can DRAW would make it impossible to
+        ; stay in the deck's own font: PowerPoint decks are in Calibri, this
+        ; build draws Calibri in Open Sans, and the file still has to say
+        ; Calibri for every other reader.
+        def deckShape:PptxShape (PptxEditHostTest.firstShape(fa))
+        def dp:PptxParagraph (itemAt deckShape.text.paragraphs 0)
+        def dr:PptxTextRun (itemAt dp.runs 0)
+        dr.fontFamily = "Nothing This Build Has"
+        fa.buildFrame()
+        def sawDeck:boolean false
+        def di:int 0
+        while (di < (fa.toolbar.count())) {
+            def dt:ToolItem (fa.toolbar.at(di))
+            if (dt.menuOwner == (fa.toolbar.indexOfLabel("Nothing This Build Has"))) {
+                sawDeck = true
+            }
+            di = (di + 1)
+        }
+        def deckEntry:boolean false
+        def dj:int 0
+        while (dj < (fa.toolbar.count())) {
+            def dt2:ToolItem (fa.toolbar.at(dj))
+            if (dt2.command == "text.font") {
+                if (dt2.arg == "Nothing This Build Has") {
+                    deckEntry = true
+                }
+            }
+            dj = (dj + 1)
+        }
+        c.ok("a typeface only the deck names is offered too" deckEntry)
+
+        ; …and NOT the fallback faces. The emoji face and the Arabic one are
+        ; loaded so that `FontManager` can search them per codepoint when the
+        ; text face has no glyph — `addFace` says in as many words that they
+        ; are faces "the renderer will not switch to". Offering them here
+        ; would let a reader set a paragraph of English in an emoji font.
+        def sawFallback:boolean false
+        def fj:int 0
+        while (fj < (fa.toolbar.count())) {
+            def ft:ToolItem (fa.toolbar.at(fj))
+            if (ft.command == "text.font") {
+                if ((indexOf ft.arg "Emoji") >= 0) {
+                    sawFallback = true
+                }
+                if ((indexOf ft.arg "Messiri") >= 0) {
+                    sawFallback = true
+                }
+            }
+            fj = (fj + 1)
+        }
+        c.ok("the fallback faces are not offered as body text" (sawFallback == false))
+        dr.fontFamily = ""
+
+        ; And picking one changes the text. Through the COMMAND, because the
+        ; command is what a menu entry runs.
+        def fs:PptxShape (PptxEditHostTest.firstShape(fa))
+        fa.editor.select(fs.editId)
+        c.ok("a font can be chosen" (fa.runCommand("text.font" "Open Sans")))
+        def fp:PptxParagraph (itemAt fs.text.paragraphs 0)
+        def fr:PptxTextRun (itemAt fp.runs 0)
+        c.ok("and the run says so" (fr.fontFamily == "Open Sans"))
+        c.ok("the editor agrees" ((fa.editor.selectionFamily()) == "Open Sans"))
+        ; …and the chooser then shows it, which is the whole reason for
+        ; putting it on the strip rather than in a dialog.
+        fa.buildFrame()
+        def fmenu:ToolItem (fa.toolbar.at((fa.toolbar.indexOfLabel("Open Sans"))))
+        c.ok("the chooser shows the selection's typeface" (fmenu.isMenu))
+        ; An empty name is a no-op rather than a run set to nothing.
+        c.ok("an empty name changes nothing" ((fa.runCommand("text.font" "")) == false))
+        c.ok("and the run is untouched" (fr.fontFamily == "Open Sans"))
+
         print "-- Tab indents a list, and two empty Enters end it --"
         ; Through the KEYS, not through the commands. `text.indent` and
         ; `text.outdent` were reachable from the toolbar all along; what was

@@ -37,6 +37,8 @@ class UICachedLine {
 
 class UITextRenderer {
     def fm:FontManager (new FontManager)
+    ; The families a caller named — see `familyNames`.
+    def named:[string]
     ; Base measurer gives rough estimates until a real font is loaded.
     def measurer:EVGTextMeasurer (new EVGTextMeasurer)
     def rt:RasterText (new RasterText)
@@ -64,6 +66,7 @@ class UITextRenderer {
         def ok:boolean (fm.loadFont(relativePath))
         if ok {
             fontFamily = family
+            this.rememberFamily(family)
             def ttf:TrueTypeFont (fm.getFont(family))
             rt.setFont(ttf)
             ; The manager knows every face that has been loaded, and it is the
@@ -99,6 +102,7 @@ class UITextRenderer {
         def ok:boolean (fm.loadFontBuffer(family data))
         if ok {
             fontFamily = family
+            this.rememberFamily(family)
             def ttf:TrueTypeFont (fm.getFont(family))
             rt.setFont(ttf)
             rt.setFallbackManager(fm)
@@ -115,6 +119,34 @@ class UITextRenderer {
     ; default face bold.
     fn addFaceBytes:boolean (data:buffer) {
         return (fm.loadFontBuffer("" data))
+    }
+
+    ; The families a caller ASKED for by name, each once — the ones a font
+    ; chooser may offer.
+    ;
+    ; Not `fm.fontNames`, which is every face the manager has, fallbacks
+    ; included: the emoji face and the Arabic one are in that pool so that
+    ; `FontManager` can search them per codepoint, and `addFace` says in as
+    ; many words that they are faces "the renderer will not switch to".
+    ; Offering them in a chooser would let a reader set a paragraph of English
+    ; in an emoji font. Only `loadFont` and `loadFontBytes` name a family, and
+    ; only those two land here.
+    fn familyNames:[string] () {
+        return named
+    }
+
+    fn rememberFamily:void (family:string) {
+        if ((strlen family) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length named)) {
+            if ((itemAt named i) == family) {
+                return
+            }
+            i = (i + 1)
+        }
+        push named family
     }
 
     fn setDefaultSize:void (sz:double) {
