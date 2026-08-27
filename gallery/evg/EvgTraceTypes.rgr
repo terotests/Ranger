@@ -47,6 +47,17 @@ class EvgTraceRing {
     }
 }
 
+; One colored path layer after posterize / multi-color trace.
+class EvgTraceLayer {
+    def fillHex:string "#000000"
+    def pathData:string ""
+    def ringCount:int 0
+    def commandCount:int 0
+
+    Constructor () {
+    }
+}
+
 class EvgTraceOptions {
     ; Speckle filter: drop rings whose |area| is at most this (Potrace default 2).
     def turdsize:int 2
@@ -62,6 +73,14 @@ class EvgTraceOptions {
     def threshold:int 128
     ; Trace dark pixels as foreground (Potrace blackOnWhite).
     def blackOnWhite:boolean true
+    ; Mono fill for binary traces (SVG / EVG). Default black.
+    def fillHex:string "#000000"
+    ; 1 = mono (threshold). >1 = quantize ImageBuffer into this many colors
+    ; and trace each palette entry as its own evenodd path layer.
+    def colorCount:int 1
+    ; When posterizing, skip near-white / background swatches (luma >= this).
+    ; 250 keeps paper-white out of typical scans; set 256 to keep white.
+    def skipLuma:int 250
 
     Constructor () {
     }

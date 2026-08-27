@@ -11,6 +11,11 @@
 ;   4. alphamax corner/curve fit (+ optional optiCurve)
 ;   5. emit PathBuilder / EVGElement / SVG
 ;
+; Color:
+;   options.fillHex     — mono path fill (default #000000)
+;   options.colorCount  — 1 = mono threshold; >1 = posterize ImageBuffer into
+;                         N swatches and emit one evenodd <path> per layer
+;
 ;   bash gallery/evg/tools/run_trace_bench.sh
 ; ==============================================================================
 
@@ -30,6 +35,13 @@ class EvgBitmapTracer {
     def pathData:string ""
     def width:int 0
     def height:int 0
+    ; Multi-color posterize planes (populated by fromImageBuffer when colorCount > 1).
+    def hasColorPlanes:boolean false
+    def planeR:[int]
+    def planeG:[int]
+    def planeB:[int]
+    def planeA:[int]
+    def layers:[EvgTraceLayer]
 
     Constructor () {
         options = (EvgTraceOptions.defaults())
@@ -38,6 +50,16 @@ class EvgBitmapTracer {
         rings = r
         def c:[PathCommand]
         commands = c
+        def pr:[int]
+        planeR = pr
+        def pg:[int]
+        planeG = pg
+        def pb:[int]
+        planeB = pb
+        def pa:[int]
+        planeA = pa
+        def ly:[EvgTraceLayer]
+        layers = ly
     }
 
     sfn absD:double (v:double) {
@@ -81,18 +103,49 @@ class EvgBitmapTracer {
     }
 
     ; Threshold an RGBA ImageBuffer into a binary bitmap, then wrap a tracer.
+    ; When options.colorCount > 1, keep RGB planes and posterize in trace().
     sfn fromImageBuffer:EvgBitmapTracer (img:ImageBuffer opts:EvgTraceOptions) {
+        if (opts.colorCount > 1) {
+            def tCol (new EvgBitmapTracer())
+            tCol.options = opts
+            tCol.width = img.width
+            tCol.height = img.height
+            tCol.hasColorPlanes = true
+            tCol.bitmap = (EvgBinaryBitmap.create(img.width img.height))
+            def pr:[int]
+            def pg:[int]
+            def pb:[int]
+            def pa:[int]
+            def y:int 0
+            while (y < img.height) {
+                def x:int 0
+                while (x < img.width) {
+                    def c:Color (img.getPixel(x y))
+                    push pr c.r
+                    push pg c.g
+                    push pb c.b
+                    push pa c.a
+                    x = (x + 1)
+                }
+                y = (y + 1)
+            }
+            tCol.planeR = pr
+            tCol.planeG = pg
+            tCol.planeB = pb
+            tCol.planeA = pa
+            return tCol
+        }
         def thr:int opts.threshold
         if (thr < 0) {
             thr = (EvgBitmapTracer.otsuThreshold(img))
         }
         def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(img.width img.height))
-        def y:int 0
-        while (y < img.height) {
-            def x:int 0
-            while (x < img.width) {
-                def c:Color (img.getPixel(x y))
-                def g:int (c.grayscale())
+        def y2:int 0
+        while (y2 < img.height) {
+            def x2:int 0
+            while (x2 < img.width) {
+                def c2:Color (img.getPixel(x2 y2))
+                def g:int (c2.grayscale())
                 def on:boolean false
                 if opts.blackOnWhite {
                     if (g < thr) {
@@ -104,13 +157,13 @@ class EvgBitmapTracer {
                     }
                 }
                 ; Transparent pixels never count as foreground.
-                if (c.a < 16) {
+                if (c2.a < 16) {
                     on = false
                 }
-                bm.setBit(x y on)
-                x = (x + 1)
+                bm.setBit(x2 y2 on)
+                x2 = (x2 + 1)
             }
-            y = (y + 1)
+            y2 = (y2 + 1)
         }
         return (EvgBitmapTracer.fromBinary(bm opts))
     }
@@ -182,10 +235,23 @@ class EvgBitmapTracer {
         rings = emptyR
         def emptyC:[PathCommand]
         commands = emptyC
+        def emptyL:[EvgTraceLayer]
+        layers = emptyL
         pathData = ""
-        this.decompose()
-        this.emitCommands()
-        pathData = (VectorShapes.asPathData(commands))
+        if hasColorPlanes {
+            this.traceColorLayers()
+        } {
+            this.decompose()
+            this.emitCommands()
+            pathData = (VectorShapes.asPathData(commands))
+            ; Mono also exposes a single layer so callers can always use layers.
+            def layer (new EvgTraceLayer())
+            layer.fillHex = options.fillHex
+            layer.pathData = pathData
+            layer.ringCount = (array_length rings)
+            layer.commandCount = (array_length commands)
+            push layers layer
+        }
     }
 
     fn getCommands:[PathCommand] () {
@@ -204,6 +270,14 @@ class EvgBitmapTracer {
         return (array_length commands)
     }
 
+    fn layerCount:int () {
+        return (array_length layers)
+    }
+
+    fn getLayers:[EvgTraceLayer] () {
+        return layers
+    }
+
     fn toPathBuilder:PathBuilder () {
         def b (new PathBuilder())
         b.addCommands(commands)
@@ -215,21 +289,301 @@ class EvgBitmapTracer {
         el.svgPath = pathData
         el.fillRule = "evenodd"
         el.viewBox = ("0 0 " + (to_string width) + " " + (to_string height))
-        el.fillColor = (EVGColor.black())
+        el.fillColor = (EVGColor.parse(options.fillHex))
+        if ((array_length layers) > 0) {
+            def layer0:EvgTraceLayer (itemAt layers 0)
+            el.svgPath = layer0.pathData
+            el.fillColor = (EVGColor.parse(layer0.fillHex))
+        }
         el.width = (EVGUnit.px((to_double width)))
         el.height = (EVGUnit.px((to_double height)))
         return el
     }
 
+    ; One EVG path element per color layer (posterize / mono).
+    fn toEVGElements:[EVGElement] () {
+        def out:[EVGElement]
+        def i:int 0
+        while (i < (array_length layers)) {
+            def layer:EvgTraceLayer (itemAt layers i)
+            def el:EVGElement (EVGElement.createPath())
+            el.svgPath = layer.pathData
+            el.fillRule = "evenodd"
+            el.viewBox = ("0 0 " + (to_string width) + " " + (to_string height))
+            el.fillColor = (EVGColor.parse(layer.fillHex))
+            el.width = (EVGUnit.px((to_double width)))
+            el.height = (EVGUnit.px((to_double height)))
+            push out el
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn toSVG:string () {
-        def d:string pathData
         def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
         svg = (svg + "width=\"" + (to_string width) + "\" ")
         svg = (svg + "height=\"" + (to_string height) + "\" ")
         svg = (svg + "viewBox=\"0 0 " + (to_string width) + " " + (to_string height) + "\">")
-        svg = (svg + "<path fill=\"#000\" fill-rule=\"evenodd\" d=\"" + d + "\"/>")
+        if ((array_length layers) > 0) {
+            def i:int 0
+            while (i < (array_length layers)) {
+                def layer:EvgTraceLayer (itemAt layers i)
+                svg = (svg + "<path fill=\"" + layer.fillHex + "\" fill-rule=\"evenodd\" d=\"" + layer.pathData + "\"/>")
+                i = (i + 1)
+            }
+        } {
+            svg = (svg + "<path fill=\"" + options.fillHex + "\" fill-rule=\"evenodd\" d=\"" + pathData + "\"/>")
+        }
         svg = (svg + "</svg>")
         return svg
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Multi-color posterize (quantize → per-swatch binary trace)
+    ; ----------------------------------------------------------------------
+
+    sfn colorDist2:int (r0:int g0:int b0:int r1:int g1:int b1:int) {
+        def dr:int (r0 - r1)
+        def dg:int (g0 - g1)
+        def db:int (b0 - b1)
+        return (((dr * dr) + (dg * dg)) + (db * db))
+    }
+
+    sfn lumaOf:int (r:int g:int b:int) {
+        ; Integer approx of 0.299R+0.587G+0.114B
+        return (idiv (((r * 299) + (g * 587)) + (b * 114)) 1000)
+    }
+
+    ; Build up to `want` palette centers from opaque pixels (k-means style).
+    fn buildPalette:void (want:int outR:[int] outG:[int] outB:[int]) {
+        def n:int (array_length planeR)
+        ; Farthest-point seeding: each new center is the opaque pixel farthest
+        ; from all centers chosen so far (skips near-white via skipLuma).
+        def first:int (0 - 1)
+        def si:int 0
+        while ((first < 0) && (si < n)) {
+            def a0:int (itemAt planeA si)
+            if (a0 >= 16) {
+                def r0:int (itemAt planeR si)
+                def g0:int (itemAt planeG si)
+                def b0:int (itemAt planeB si)
+                if ((EvgBitmapTracer.lumaOf(r0 g0 b0)) < options.skipLuma) {
+                    first = si
+                }
+            }
+            si = (si + 1)
+        }
+        if (first < 0) {
+            return
+        }
+        push outR (itemAt planeR first)
+        push outG (itemAt planeG first)
+        push outB (itemAt planeB first)
+        while ((array_length outR) < want) {
+            def bestI:int (0 - 1)
+            def bestD:int (0 - 1)
+            def i:int 0
+            while (i < n) {
+                def a:int (itemAt planeA i)
+                if (a >= 16) {
+                    def pr:int (itemAt planeR i)
+                    def pg:int (itemAt planeG i)
+                    def pb:int (itemAt planeB i)
+                    if ((EvgBitmapTracer.lumaOf(pr pg pb)) < options.skipLuma) {
+                        def minD:int 2147483647
+                        def j:int 0
+                        def k0:int (array_length outR)
+                        while (j < k0) {
+                            def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
+                            if (d < minD) {
+                                minD = d
+                            }
+                            j = (j + 1)
+                        }
+                        if (minD > bestD) {
+                            bestD = minD
+                            bestI = i
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            if ((bestI < 0) || (bestD <= 0)) {
+                want = (array_length outR)
+            } {
+                push outR (itemAt planeR bestI)
+                push outG (itemAt planeG bestI)
+                push outB (itemAt planeB bestI)
+            }
+        }
+        ; A few assignment / mean update passes.
+        def pass:int 0
+        while (pass < 6) {
+            def k:int (array_length outR)
+            def sumR:[int]
+            def sumG:[int]
+            def sumB:[int]
+            def cnt:[int]
+            def ki:int 0
+            while (ki < k) {
+                push sumR 0
+                push sumG 0
+                push sumB 0
+                push cnt 0
+                ki = (ki + 1)
+            }
+            def i:int 0
+            while (i < n) {
+                def a2:int (itemAt planeA i)
+                if (a2 >= 16) {
+                    def pr:int (itemAt planeR i)
+                    def pg:int (itemAt planeG i)
+                    def pb:int (itemAt planeB i)
+                    def lum2:int (EvgBitmapTracer.lumaOf(pr pg pb))
+                    if (lum2 < options.skipLuma) {
+                        def best:int 0
+                        def bestD:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR 0) (itemAt outG 0) (itemAt outB 0)))
+                        def j:int 1
+                        while (j < k) {
+                            def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
+                            if (d < bestD) {
+                                bestD = d
+                                best = j
+                            }
+                            j = (j + 1)
+                        }
+                        set sumR best ((itemAt sumR best) + pr)
+                        set sumG best ((itemAt sumG best) + pg)
+                        set sumB best ((itemAt sumB best) + pb)
+                        set cnt best ((itemAt cnt best) + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            ki = 0
+            while (ki < k) {
+                def cN:int (itemAt cnt ki)
+                if (cN > 0) {
+                    set outR ki (idiv (itemAt sumR ki) cN)
+                    set outG ki (idiv (itemAt sumG ki) cN)
+                    set outB ki (idiv (itemAt sumB ki) cN)
+                }
+                ki = (ki + 1)
+            }
+            pass = (pass + 1)
+        }
+        ; Sort palette light → dark so SVG paints background-ish layers first.
+        def k2:int (array_length outR)
+        def a:int 0
+        while (a < k2) {
+            def bIdx:int (a + 1)
+            while (bIdx < k2) {
+                def la:int (EvgBitmapTracer.lumaOf((itemAt outR a) (itemAt outG a) (itemAt outB a)))
+                def lb:int (EvgBitmapTracer.lumaOf((itemAt outR bIdx) (itemAt outG bIdx) (itemAt outB bIdx)))
+                if (la > lb) {
+                    def tr:int (itemAt outR a)
+                    def tg:int (itemAt outG a)
+                    def tb:int (itemAt outB a)
+                    set outR a (itemAt outR bIdx)
+                    set outG a (itemAt outG bIdx)
+                    set outB a (itemAt outB bIdx)
+                    set outR bIdx tr
+                    set outG bIdx tg
+                    set outB bIdx tb
+                }
+                bIdx = (bIdx + 1)
+            }
+            a = (a + 1)
+        }
+    }
+
+    fn hexFromRgb:string (r:int g:int b:int) {
+        def c:EVGColor (EVGColor.rgb(r g b))
+        return (c.toHexString())
+    }
+
+    fn maskForColor:EvgBinaryBitmap (cr:int cg:int cb:int palR:[int] palG:[int] palB:[int] colorIndex:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+        def n:int (array_length planeR)
+        def k:int (array_length palR)
+        def i:int 0
+        while (i < n) {
+            def a:int (itemAt planeA i)
+            if (a >= 16) {
+                def pr:int (itemAt planeR i)
+                def pg:int (itemAt planeG i)
+                def pb:int (itemAt planeB i)
+                def lum:int (EvgBitmapTracer.lumaOf(pr pg pb))
+                if (lum < options.skipLuma) {
+                    def best:int 0
+                    def bestD:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR 0) (itemAt palG 0) (itemAt palB 0)))
+                    def j:int 1
+                    while (j < k) {
+                        def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR j) (itemAt palG j) (itemAt palB j)))
+                        if (d < bestD) {
+                            bestD = d
+                            best = j
+                        }
+                        j = (j + 1)
+                    }
+                    if (best == colorIndex) {
+                        def y:int (idiv i width)
+                        def x:int (i - (y * width))
+                        bm.setBit(x y true)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return bm
+    }
+
+    fn traceColorLayers:void () {
+        def want:int options.colorCount
+        if (want < 2) {
+            want = 2
+        }
+        def palR:[int]
+        def palG:[int]
+        def palB:[int]
+        this.buildPalette(want palR palG palB)
+        def k:int (array_length palR)
+        def li:int 0
+        def allCmds:[PathCommand]
+        while (li < k) {
+            def cr:int (itemAt palR li)
+            def cg:int (itemAt palG li)
+            def cb:int (itemAt palB li)
+            def mask:EvgBinaryBitmap (this.maskForColor(cr cg cb palR palG palB li))
+            def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            layerOpts.turdsize = options.turdsize
+            layerOpts.alphamax = options.alphamax
+            layerOpts.turnpolicy = options.turnpolicy
+            layerOpts.optcurve = options.optcurve
+            layerOpts.opttolerance = options.opttolerance
+            layerOpts.fillHex = (this.hexFromRgb(cr cg cb))
+            def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+            sub.trace()
+            if ((sub.ringCount()) > 0) {
+                def layer:EvgTraceLayer (itemAt sub.layers 0)
+                push layers layer
+                def cmds:[PathCommand] (sub.getCommands())
+                def ci:int 0
+                while (ci < (array_length cmds)) {
+                    push allCmds (itemAt cmds ci)
+                    ci = (ci + 1)
+                }
+                ; Keep mono-compatible aggregates: last non-empty path + total rings.
+                pathData = layer.pathData
+                rings = sub.rings
+            }
+            li = (li + 1)
+        }
+        commands = allCmds
+        if ((array_length layers) > 0) {
+            def first:EvgTraceLayer (itemAt layers 0)
+            pathData = first.pathData
+        }
     }
 
     ; ----------------------------------------------------------------------

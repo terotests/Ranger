@@ -25,6 +25,8 @@ class EvgBitmapTracerTest {
         test.testOptimalRectPolygon(t)
         test.testCurveModeRectCompact(t)
         test.testCheckerTopology(t)
+        test.testMonoFillHex(t)
+        test.testPosterizeTwoColors(t)
         t.summary()
     }
 
@@ -241,5 +243,67 @@ class EvgBitmapTracerTest {
         tr2.trace()
         t.eqInt("fine checker (cell 8) → 8 rings" (tr2.ringCount()) 8)
         t.ok("fine checker path stays under fair CLI budget" ((strlen (tr2.getPathData())) < 5500))
+    }
+
+    ; Mono traces honor options.fillHex in SVG / EVG output.
+    fn testMonoFillHex:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.filledRect(24 24 4 4 12 12))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.fillHex = "#CC3300"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        def svg:string (tr.toSVG())
+        t.ok("SVG uses the requested fill hex" ((indexOf svg "#CC3300") >= 0))
+        t.eqInt("mono still yields one layer" (tr.layerCount()) 1)
+        def el:EVGElement (tr.toEVGElement())
+        t.ok("EVG fill picks up fillHex" ((el.fillColor.toHexString()) == "#CC3300"))
+    }
+
+    ; Two solid colored blocks → posterize into separate colored path layers.
+    fn testPosterizeTwoColors:void (t:RgTest) {
+        def img (new ImageBuffer())
+        img.init(40 24)
+        def y:int 0
+        while (y < 24) {
+            def x:int 0
+            while (x < 40) {
+                img.setPixelRGB(x y 255 255 255)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        y = 4
+        while (y < 20) {
+            def x2:int 4
+            while (x2 < 18) {
+                img.setPixelRGB(x2 y 200 30 30)
+                x2 = (x2 + 1)
+            }
+            def x3:int 22
+            while (x3 < 36) {
+                img.setPixelRGB(x3 y 30 60 200)
+                x3 = (x3 + 1)
+            }
+            y = (y + 1)
+        }
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 2
+        opts.turdsize = 2
+        opts.skipLuma = 250
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img opts))
+        tr.trace()
+        t.eqInt("posterize yields two color layers" (tr.layerCount()) 2)
+        def svg:string (tr.toSVG())
+        t.ok("SVG has two path elements" ((indexOf svg "<path") >= 0))
+        ; Count <path occurrences roughly via split length.
+        def els:[EVGElement] (tr.toEVGElements())
+        t.eqInt("toEVGElements matches layer count" (array_length els) 2)
+        def layer0:EvgTraceLayer (itemAt tr.layers 0)
+        def layer1:EvgTraceLayer (itemAt tr.layers 1)
+        def h0:string layer0.fillHex
+        def h1:string layer1.fillHex
+        t.ok("layer fills differ" (h0 != h1))
+        t.ok("SVG embeds first layer fill" ((indexOf svg h0) >= 0))
+        t.ok("SVG embeds second layer fill" ((indexOf svg h1) >= 0))
     }
 }
