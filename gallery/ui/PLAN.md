@@ -15,7 +15,10 @@ is EVG, so one UI runs on WebGL, SDL+GL, SoftCanvas, PDF and HTML.
 - [x] XML → `RgElement` (`XmlCore`)
 - [x] Primitives: View, Text, Button, Image
 - [x] Minimal `useState`
-- [x] Unit tests + TypeScript dual-host stubs
+- [x] TypeScript dual-host stubs (`react/`)
+- [x] `RangerUI.renderToDisplayListJson` — WebGL / SDL painter seam
+- [x] React-shaped Node runtime (`runtime/ranger-ui-runtime.cjs`)
+- [x] Dual-host smoke (`npm run ui:runtime`)
 
 ### Phase 2 — interaction
 

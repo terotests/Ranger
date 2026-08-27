@@ -1,0 +1,105 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RangerUI — high-level mount: createElement tree → EVG → display list JSON
+; =============================================================================
+; The display list is the painter seam (gallery/evg/gl/README.md):
+;   WebGL 2  → evg-webgl.js
+;   SDL+GL   → EvgGlPainter / C++ host
+;   SoftCanvas / PDF / HTML → existing gallery painters
+; =============================================================================
+
+Import "RgElement.rgr"
+Import "ReactAPI.rgr"
+Import "Renderer.rgr"
+Import "Hooks.rgr"
+Import "components/Primitives.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class RangerUI {
+    def renderer:Renderer
+    def pageWidth:double 400.0
+    def pageHeight:double 300.0
+
+    Constructor () {
+        renderer = (new Renderer())
+        def api:ReactAPI (unwrap renderer.api)
+        Primitives.install(api)
+    }
+
+    fn getRenderer:Renderer () {
+        return (unwrap renderer)
+    }
+
+    fn getAPI:ReactAPI () {
+        def r:Renderer (unwrap renderer)
+        return (unwrap r.api)
+    }
+
+    fn getHooks:HookDispatcher () {
+        def r:Renderer (unwrap renderer)
+        return (unwrap r.hooks)
+    }
+
+    fn setPageSize:void (w:double h:double) {
+        pageWidth = w
+        pageHeight = h
+    }
+
+    ; Build props from parallel arrays (JS runtime fills these from a plain object).
+    fn propsFrom:RgProps (names:[string] values:[string]) {
+        return (RgProps.fromPairs(names values))
+    }
+
+    fn createElement:RgElement (typeName:string props:RgProps children:[RgElement]) {
+        def api:ReactAPI (this.getAPI())
+        return (api.createElement(typeName props children))
+    }
+
+    fn text:RgElement (value:string) {
+        return (RgElement.textNode(value))
+    }
+
+    fn renderToEVG:EVGElement (el:RgElement) {
+        def r:Renderer (unwrap renderer)
+        return (r.renderToEVG(el))
+    }
+
+    ; Layout + flatten to the wire format WebGL / SDL painters consume.
+    fn renderToDisplayList:EVGDisplayList (el:RgElement) {
+        def evg:EVGElement (this.renderToEVG(el))
+        def lay (new EVGLayout())
+        lay.setPageSize(pageWidth pageHeight)
+        lay.layout(evg)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(evg)
+        return dl
+    }
+
+    fn renderToDisplayListJson:string (el:RgElement) {
+        def dl:EVGDisplayList (this.renderToDisplayList(el))
+        def json:string "{\"width\":"
+        json = json + (EVGDisplayList.num(pageWidth))
+        json = json + ",\"height\":"
+        json = json + (EVGDisplayList.num(pageHeight))
+        json = json + ",\"list\":"
+        json = json + (dl.toJson())
+        json = json + "}"
+        return json
+    }
+
+    fn displayListCommandCount:int (el:RgElement) {
+        def dl:EVGDisplayList (this.renderToDisplayList(el))
+        return (dl.count())
+    }
+}
+
+; Entry for -nodemodule builds (classes are exported; main is unused).
+class RangerUIModule {
+    sfn main:void () {
+        print "gallery/ui RangerUI module"
+    }
+}

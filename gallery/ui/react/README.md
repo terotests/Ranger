@@ -26,11 +26,25 @@ Style props (`padding`, `backgroundColor`, …) map to inline CSS camelCase
 
 ## Usage with Ranger → EVG
 
-1. Compile the Ranger UI runtime (`npm run ui:test` builds the test bundle;
-   a dedicated `ui:runtime` script can emit a module).
-2. Point the component’s `createElement` / hooks import at that runtime
-   instead of `react`.
-3. Mount with `Renderer.renderToEVG` and paint through your EVG backend.
+```bash
+npm run ui:module
+```
 
-The component body stays the same; only the runtime import and the mount
-target change.
+```js
+const {
+  createElement, useState, View, Text, Button, renderToDisplayListJson,
+} = require("../runtime/ranger-ui-runtime.cjs");
+
+function CounterCard() {
+  // Same createElement shape as JSX → React.createElement
+  return createElement(View, { padding: "24px", backgroundColor: "#fff" },
+    createElement(Text, { fontSize: "18px" }, "count=0"),
+    createElement(Button, null, "Increment"));
+}
+
+const json = renderToDisplayListJson(CounterCard(), 360, 280);
+// json.list.cmds → gallery/evg/gl/evg-webgl.js or SDL EvgGlPainter
+```
+
+Mount with `Renderer` / `RangerUI` in Ranger, or the Node façade above. The
+display-list JSON is the same wire format `demo.html` already paints.

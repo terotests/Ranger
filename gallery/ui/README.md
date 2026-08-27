@@ -68,25 +68,29 @@ component module can swap:
 ```ts
 // Try under real React (DOM):
 import { createElement, useState } from "react";
-import { View, Text } from "@ranger/ui/react";
+import { View, Text } from "../react";
 
-// Try under Ranger → EVG (after compiling gallery/ui):
-import { createElement, useState, View, Text } from "./ranger-ui-runtime.js";
+// Try under Ranger → EVG (after `npm run ui:module`):
+const { createElement, useState, View, Text, renderToDisplayListJson } =
+  require("./runtime/ranger-ui-runtime.cjs");
 ```
 
-See `react/README.md` for the dual-host convention.
+`renderToDisplayListJson` emits the EVG display-list wire format that
+`gallery/evg/gl/evg-webgl.js` (Web) and the SDL+GL painter already consume.
+
+See `react/README.md` and `runtime/dual_host_test.cjs`.
 
 ## Quick start
 
 ```bash
-# Compile + run unit tests
+# Unit tests (createElement → EVG → layout → display list)
 npm run ui:test
 
-# Or manually:
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-  node bin/output.js -es6 ./gallery/ui/tests/ReactAPITest.rgr \
-  -d=./gallery/ui/bin -o=ReactAPITest.js -nodecli \
-  && node ./gallery/ui/bin/ReactAPITest.js
+# React-shaped Node runtime + dual-host smoke (writes display-list JSON)
+npm run ui:runtime
+
+# Tiny Ranger demo
+npm run ui:hello
 ```
 
 ## Example (Ranger)

@@ -10,9 +10,11 @@ Import "../src/Hooks.rgr"
 Import "../src/Renderer.rgr"
 Import "../src/EVGBridge.rgr"
 Import "../src/XmlToRg.rgr"
+Import "../src/RangerUI.rgr"
 Import "../src/components/Primitives.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
 
 class Check {
     def passed:int 0
@@ -87,6 +89,7 @@ class ReactAPITest {
         ReactAPITest.testPrimitives(t)
         ReactAPITest.testHooks(t)
         ReactAPITest.testLayout(t)
+        ReactAPITest.testDisplayList(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -222,5 +225,43 @@ class ReactAPITest {
         lay.layout(evg)
         t.ok("root width > 0" (evg.calculatedWidth > 0.0))
         t.ok("root height > 0" (evg.calculatedHeight > 0.0))
+    }
+
+    sfn testDisplayList:void (t:Check) {
+        print "--- display list (WebGL/SDL seam) ---"
+        def ui (new RangerUI())
+        ui.setPageSize(360.0 280.0)
+        def api:ReactAPI (ui.getAPI())
+        def titleKids:[RgElement]
+        push titleKids (RgElement.textNode("UI on EVG"))
+        def tNames:[string]
+        push tNames "fontSize"
+        push tNames "color"
+        def tVals:[string]
+        push tVals "20px"
+        push tVals "#0f172a"
+        def title:RgElement (api.createElement("Text" (RgProps.fromPairs(tNames tVals)) titleKids))
+        def btnKids:[RgElement]
+        push btnKids (RgElement.textNode("Go"))
+        def btn:RgElement (api.createElement("Button" (ReactAPI.emptyProps()) btnKids))
+        def kids:[RgElement]
+        push kids title
+        push kids btn
+        def names:[string]
+        push names "width"
+        push names "padding"
+        push names "backgroundColor"
+        push names "flexDirection"
+        def values:[string]
+        push values "320px"
+        push values "20px"
+        push values "#e2e8f0"
+        push values "column"
+        def root:RgElement (api.createElement("View" (RgProps.fromPairs(names values)) kids))
+        def n:int (ui.displayListCommandCount(root))
+        t.ok("has draw cmds" (n > 0))
+        def json:string (ui.renderToDisplayListJson(root))
+        t.ok("json width" ((strlen json) > 20))
+        t.ok("json has list key" ((indexOf json "\"list\"") >= 0))
     }
 }
