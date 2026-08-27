@@ -425,6 +425,13 @@ function indexHtml(entries, warnings) {
     the compiled <code>VlChart</code> API into the browser and dispatches the
     lines you type to it, method by method, drawing the answer as you edit.
   </div>
+  <div class="note">
+    <strong>Bitmap tracer, live.</strong>
+    <a href="tracer/">Upload a JPEG/PNG</a>, tweak Potrace-style parameters
+    (<code>turdsize</code>, <code>alphamax</code>, color posterize) and
+    vectorize in the browser with the compiled <code>EvgBitmapTracer</code>.
+    Nothing is uploaded — the image stays on the page.
+  </div>
 
   <nav class="toc" aria-label="Pages">
     <h2>Pages</h2>
@@ -592,6 +599,19 @@ fs.writeFileSync(path.join(OUT, "gl", "view.html"), viewerHtml(faceCss.join("\n 
     + " VlChartMark: VlChartMark, VlDataset: VlDataset, VlDataRow: VlDataRow, VlJson: VlJson };\n})();\n");
   fs.copyFileSync(path.join(ROOT, "gallery/vela/web/chart_api.html"), path.join(LIVE, "index.html"));
   process.stdout.write("  chart-api/ (live)\n");
+}
+
+// ---- live bitmap tracer ---------------------------------------------------
+// Same idea as chart-api/: a page that runs the compiled library in the
+// browser. Build logic lives in gallery/evg/web/tracer/build.mjs so it can
+// also be invoked alone during development.
+{
+  execFileSync(process.execPath, [
+    path.join(ROOT, "gallery/evg/web/tracer/build.mjs"),
+    "--out",
+    path.join(OUT, "tracer"),
+  ], { cwd: ROOT, stdio: "inherit" });
+  process.stdout.write("  tracer/ (live)\n");
 }
 
 const unique = [...new Set(allWarnings)];

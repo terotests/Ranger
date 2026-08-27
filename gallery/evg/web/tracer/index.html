@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVG Bitmap Tracer — bitmap → SVG</title>
+<meta name="description" content="Lataa JPEG/PNG, säädä Potrace-tyylisiä parametreja ja vektoroi kuva selaimessa. Ei palvelinta — käännetty Ranger EvgBitmapTracer.">
+<style>
+  :root {
+    --bg: #12151b; --panel: #171b23; --line: #2a3040; --ink: #e8ecf4;
+    --muted: #97a1b4; --accent: #7db3ff; --bad: #ff9a8f; --ok: #8fd39a;
+    --stage: #f4f1ea; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 28px 24px 12px; max-width: 1280px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 72ch; }
+  header a { color: var(--accent); }
+  .crumb { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  .crumb a { color: var(--muted); text-decoration: none; }
+  .crumb a:hover { color: var(--accent); }
+
+  main {
+    max-width: 1280px; margin: 0 auto; padding: 8px 24px 64px;
+    display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 18px;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); padding: 8px 14px 48px; }
+  }
+
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  }
+  .head .grow { flex: 1; }
+  .body { padding: 14px; }
+
+  label.row {
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 10px;
+    align-items: center; margin: 0 0 12px; font-size: 13px;
+  }
+  label.row span.hint { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; margin-top: -6px; }
+  label.row input[type="range"] { width: 100%; grid-column: 1 / -1; }
+  label.check { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 13px; }
+  select, input[type="number"], input[type="color"], input[type="text"] {
+    font: inherit; font-size: 13px; color: var(--ink); background: #202634;
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+  }
+  input[type="color"] { padding: 0; width: 42px; height: 28px; }
+  .val { font-family: var(--mono); font-size: 12px; color: var(--accent); min-width: 3.5ch; text-align: right; }
+
+  button, .filebtn {
+    font: inherit; font-size: 13px; color: var(--ink); background: #202634;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  button:hover, .filebtn:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.05); color: #10131a; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .filebtn { display: inline-block; }
+  .filebtn input { display: none; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+  .stage {
+    background: var(--stage); min-height: 280px; display: flex; align-items: center; justify-content: center;
+    padding: 16px; overflow: auto;
+  }
+  .stage img, .stage svg { max-width: 100%; height: auto; display: block; }
+  .stage.empty { color: #7a7268; font-size: 14px; }
+  .split {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
+  }
+  @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+  .pane { background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
+  .pane .stage { flex: 1; }
+
+  #status {
+    padding: 10px 14px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap;
+  }
+  #status.bad { color: var(--bad); }
+  #status.good b { color: var(--ok); font-weight: 600; }
+
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .sw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); }
+  .sw[title] { cursor: default; }
+
+  fieldset {
+    border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; padding: 10px 12px 2px;
+  }
+  legend { padding: 0 6px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .mono-only.hidden, .color-only.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <p class="crumb"><a href="../">EVG showcase</a> · <a href="../chart-api/">Chart API</a> · tracer</p>
+  <h1>Bitmap → SVG tracer</h1>
+  <p>
+    Lataa JPEG tai PNG, säädä parametreja ja vektoroi kuva selaimessa.
+    Moottori on repositorion <code>EvgBitmapTracer</code> (Potrace-tyylinen
+    clean-room), käännetty Rangerista ES6:ksi — ei palvelinta, kuva ei lähde minnekään.
+    <a href="https://github.com/terotests/Ranger/tree/master/gallery/evg">Lähdekoodi</a>
+  </p>
+</header>
+
+<main>
+  <section>
+    <div class="head"><span>Parametrit</span><span class="grow"></span></div>
+    <div class="body">
+      <div class="actions" style="margin-bottom:14px">
+        <label class="filebtn">Valitse kuva<input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp"></label>
+        <button type="button" id="sample">Esimerkki</button>
+      </div>
+      <p style="margin:0 0 14px;font-size:12px;color:var(--muted)">Esimerkki: PD-kopio Hokusain <i>Suuresta aallosta</i> (Wikimedia Commons).</p>
+
+      <fieldset>
+        <legend>Värit</legend>
+        <label class="row">Värimäärä <span class="val" id="v-colorCount">1</span>
+          <input id="colorCount" type="range" min="1" max="16" step="1" value="1">
+          <span class="hint">1 = mono (kynnys). &gt;1 = posterize N väriin.</span>
+        </label>
+        <label class="row mono-only">Kynnys <span class="val" id="v-threshold">128</span>
+          <input id="threshold" type="range" min="-1" max="255" step="1" value="128">
+          <span class="hint">−1 = Otsu. Muuten 0–255.</span>
+        </label>
+        <label class="row mono-only">Täyttöväri
+          <input id="fillHex" type="color" value="#000000">
+        </label>
+        <label class="check mono-only"><input id="blackOnWhite" type="checkbox" checked> Tumma on etuala</label>
+        <label class="row color-only hidden">skipLuma <span class="val" id="v-skipLuma">250</span>
+          <input id="skipLuma" type="range" min="0" max="256" step="1" value="250">
+          <span class="hint">Jätä pois pikselit joiden luma ≥ raja. 256 = pidä valkoinen vaahto.</span>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Jälki</legend>
+        <label class="row">turdsize <span class="val" id="v-turdsize">2</span>
+          <input id="turdsize" type="range" min="0" max="40" step="1" value="2">
+          <span class="hint">Pienet täplät pois (|area| ≤ raja).</span>
+        </label>
+        <label class="row">alphamax <span class="val" id="v-alphamax">1.00</span>
+          <input id="alphamax" type="range" min="0" max="1.34" step="0.01" value="1">
+          <span class="hint">Korkeampi → pehmeämpi, vähemmän kulmia.</span>
+        </label>
+        <label class="row">opttolerance <span class="val" id="v-opttolerance">0.20</span>
+          <input id="opttolerance" type="range" min="0" max="2" step="0.05" value="0.2">
+        </label>
+        <label class="check"><input id="optcurve" type="checkbox" checked> optcurve (kuutiot)</label>
+        <label class="row">turnpolicy
+          <select id="turnpolicy">
+            <option value="minority" selected>minority</option>
+            <option value="majority">majority</option>
+            <option value="black">black</option>
+            <option value="white">white</option>
+            <option value="left">left</option>
+            <option value="right">right</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Esikäsittely</legend>
+        <label class="row">Max leveys <span class="val" id="v-maxW">640</span>
+          <input id="maxW" type="range" min="160" max="1200" step="10" value="640">
+          <span class="hint">Suuret kuvat skaalataan ennen jäljitystä.</span>
+        </label>
+      </fieldset>
+
+      <div class="actions">
+        <button type="button" class="primary" id="run" disabled>Vektoroi</button>
+        <button type="button" id="dl" disabled>Lataa SVG</button>
+      </div>
+    </div>
+  </section>
+
+  <div>
+    <section>
+      <div class="split">
+        <div class="pane">
+          <div class="head">Lähde</div>
+          <div class="stage empty" id="srcStage">Ei kuvaa</div>
+        </div>
+        <div class="pane">
+          <div class="head">SVG<span class="grow"></span></div>
+          <div class="stage empty" id="outStage">—</div>
+        </div>
+      </div>
+      <div class="palette" id="palette" hidden></div>
+      <div id="status">Ladataan tracer-bundlea…</div>
+    </section>
+  </div>
+</main>
+
+<script src="evg_bitmap_tracer.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var file = $("file"), sample = $("sample"), runBtn = $("run"), dlBtn = $("dl");
+  var srcStage = $("srcStage"), outStage = $("outStage"), statusEl = $("status"), paletteEl = $("palette");
+  var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
+  var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
+  var optcurve = $("optcurve"), turnpolicy = $("turnpolicy"), blackOnWhite = $("blackOnWhite");
+  var fillHex = $("fillHex"), maxW = $("maxW");
+  var monoOnly = document.querySelectorAll(".mono-only");
+  var colorOnly = document.querySelectorAll(".color-only");
+
+  var sourceBitmap = null; // { w, h, rgba: Uint8ClampedArray }
+  var lastSvg = "";
+  var debounceTimer = null;
+  var busy = false;
+  var pending = false;
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = kind || "";
+  }
+
+  function bindRange(input, label, fmt) {
+    function sync() {
+      label.textContent = fmt ? fmt(+input.value) : String(input.value);
+    }
+    input.addEventListener("input", function () {
+      sync();
+      schedule();
+    });
+    sync();
+  }
+
+  bindRange(colorCount, $("v-colorCount"));
+  bindRange(threshold, $("v-threshold"), function (v) { return v < 0 ? "Otsu" : String(v); });
+  bindRange(skipLuma, $("v-skipLuma"));
+  bindRange(turdsize, $("v-turdsize"));
+  bindRange(alphamax, $("v-alphamax"), function (v) { return v.toFixed(2); });
+  bindRange(opttolerance, $("v-opttolerance"), function (v) { return v.toFixed(2); });
+  bindRange(maxW, $("v-maxW"));
+
+  function syncMode() {
+    var color = +colorCount.value > 1;
+    monoOnly.forEach(function (el) { el.classList.toggle("hidden", color); });
+    colorOnly.forEach(function (el) { el.classList.toggle("hidden", !color); });
+  }
+  colorCount.addEventListener("input", syncMode);
+  syncMode();
+
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex"].forEach(function (id) {
+    $(id).addEventListener("change", schedule);
+  });
+
+  if (typeof EvgBitmapTracer !== "function" || typeof ImageBuffer !== "function") {
+    setStatus("Tracer-bundlea ei ladattu (EvgBitmapTracer / ImageBuffer puuttuu).", "bad");
+    return;
+  }
+  setStatus("Valmis. Lataa kuva tai kokeile esimerkkiä.");
+  runBtn.disabled = false;
+
+  function schedule() {
+    if (!sourceBitmap) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function () { vectorize(); }, 280);
+  }
+
+  function loadFile(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var img = new Image();
+    img.onload = function () {
+      var lim = +maxW.value;
+      var w = img.naturalWidth, h = img.naturalHeight;
+      if (w > lim) { h = Math.round(h * lim / w); w = lim; }
+      var canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+      var data = ctx.getImageData(0, 0, w, h);
+      sourceBitmap = { w: w, h: h, rgba: data.data, name: name || "image" };
+      srcStage.classList.remove("empty");
+      srcStage.innerHTML = "";
+      var preview = document.createElement("img");
+      preview.alt = "Lähde";
+      preview.src = canvas.toDataURL("image/png");
+      srcStage.appendChild(preview);
+      URL.revokeObjectURL(url);
+      runBtn.disabled = false;
+      vectorize();
+    };
+    img.onerror = function () {
+      URL.revokeObjectURL(url);
+      setStatus("Kuvan lukeminen epäonnistui.", "bad");
+    };
+    img.src = url;
+  }
+
+  file.addEventListener("change", function () {
+    var f = file.files && file.files[0];
+    if (f) loadFile(f, f.name);
+  });
+
+  sample.addEventListener("click", function () {
+    fetch("sample.png").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.blob();
+    }).then(function (b) { loadFile(b, "sample.png"); })
+      .catch(function (e) { setStatus("Esimerkkikuvaa ei saatu: " + e.message, "bad"); });
+  });
+
+  runBtn.addEventListener("click", function () { vectorize(); });
+
+  dlBtn.addEventListener("click", function () {
+    if (!lastSvg) return;
+    var blob = new Blob([lastSvg], { type: "image/svg+xml;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (sourceBitmap && sourceBitmap.name ? sourceBitmap.name.replace(/\.[^.]+$/, "") : "trace") + ".svg";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  function vectorize() {
+    if (!sourceBitmap) return;
+    if (busy) { pending = true; return; }
+    busy = true;
+    pending = false;
+    runBtn.disabled = true;
+    setStatus("Jäljitetään…");
+
+    // Yield so the status paints before the sync trace work.
+    setTimeout(function () {
+      try {
+        var t0 = performance.now();
+        var opts = EvgTraceOptions.defaults();
+        opts.colorCount = +colorCount.value;
+        opts.threshold = +threshold.value;
+        opts.skipLuma = +skipLuma.value;
+        opts.turdsize = +turdsize.value;
+        opts.alphamax = +alphamax.value;
+        opts.opttolerance = +opttolerance.value;
+        opts.optcurve = !!optcurve.checked;
+        opts.turnpolicy = turnpolicy.value;
+        opts.blackOnWhite = !!blackOnWhite.checked;
+        opts.fillHex = fillHex.value;
+
+        var img = new ImageBuffer();
+        img.init(sourceBitmap.w, sourceBitmap.h);
+        var rgba = sourceBitmap.rgba;
+        var n = sourceBitmap.w * sourceBitmap.h;
+        for (var i = 0; i < n; i++) {
+          var o = i * 4;
+          var x = i % sourceBitmap.w;
+          var y = (i / sourceBitmap.w) | 0;
+          img.setPixelRGBA(x, y, rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3]);
+        }
+
+        var tr = EvgBitmapTracer.fromImageBuffer(img, opts);
+        tr.trace();
+        var svg = tr.toSVG();
+        var ms = Math.round(performance.now() - t0);
+        lastSvg = svg;
+
+        outStage.classList.remove("empty");
+        outStage.innerHTML = svg;
+        dlBtn.disabled = !svg;
+
+        var layers = tr.getLayers ? tr.getLayers() : [];
+        var layerN = tr.layerCount ? tr.layerCount() : (layers ? layers.length : 0);
+        paletteEl.innerHTML = "";
+        if (layers && layers.length > 1) {
+          paletteEl.hidden = false;
+          for (var li = 0; li < layers.length; li++) {
+            var sw = document.createElement("span");
+            sw.className = "sw";
+            sw.style.background = layers[li].fillHex || "#000";
+            sw.title = layers[li].fillHex || "";
+            paletteEl.appendChild(sw);
+          }
+        } else {
+          paletteEl.hidden = true;
+        }
+
+        var rings = tr.rings ? tr.rings.length : 0;
+        statusEl.innerHTML = "<b>OK</b> · " + sourceBitmap.w + "×" + sourceBitmap.h
+          + " · " + ms + " ms · layers=" + layerN
+          + (rings ? " · rings=" + rings : "")
+          + " · svg=" + svg.length + " B";
+        statusEl.className = "good";
+      } catch (e) {
+        console.error(e);
+        setStatus("Virhe: " + (e && e.message ? e.message : e), "bad");
+        outStage.classList.add("empty");
+        outStage.textContent = "—";
+        dlBtn.disabled = true;
+      } finally {
+        busy = false;
+        runBtn.disabled = !sourceBitmap;
+        if (pending) vectorize();
+      }
+    }, 16);
+  }
+})();
+</script>
+</body>
+</html>
