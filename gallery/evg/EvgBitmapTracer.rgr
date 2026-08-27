@@ -495,7 +495,8 @@ class EvgBitmapTracer {
             }
             pass = (pass + 1)
         }
-        ; Sort palette light → dark so SVG paints background-ish layers first.
+        ; Sort palette dark → light (ascending luma). Masks are disjoint so
+        ; paint order is mostly cosmetic; lightest (foam) ends up last.
         def k2:int (array_length outR)
         def a:int 0
         while (a < k2) {
