@@ -92,6 +92,10 @@ npm run ui:runtime
 # Interactive counter: useState + onClick → hitTest → re-render
 npm run ui:interact
 
+# Side-by-side: real React DOM vs Ranger→EVG WebGL
+npm run ui:compare
+# then open http://127.0.0.1:<port>/gallery/ui/compare/index.html
+
 # Tiny Ranger demo
 npm run ui:hello
 ```
