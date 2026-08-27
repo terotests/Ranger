@@ -1,0 +1,175 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; EVGBridge — RgElement host tree → EVGElement
+; =============================================================================
+; Render target is always EVG. Painters (WebGL, SDL+GL, SoftCanvas, PDF) consume
+; the display list after EVGLayout — this module only builds the element tree.
+; =============================================================================
+
+Import "RgElement.rgr"
+Import "../../evg/EVGElement.rgr"
+
+class EVGBridge {
+
+    Constructor () {
+    }
+
+    fn toEVG:EVGElement (el:RgElement) {
+        if (el.isText()) {
+            def t (new EVGElement())
+            t.tagName = "span"
+            t.elementType = 1
+            t.textContent = el.text
+            return t
+        }
+        if (el.isFragment()) {
+            ; Fragments flatten into a transparent div (EVG has no fragment node).
+            def wrap (new EVGElement())
+            wrap.tagName = "div"
+            wrap.elementType = 0
+            def fi:int 0
+            while (fi < (el.childCount())) {
+                def fc:EVGElement (this.toEVG((el.childAt(fi))))
+                if (fc.tagName != "") {
+                    wrap.addChild(fc)
+                }
+                fi = (fi + 1)
+            }
+            return wrap
+        }
+        def out (new EVGElement())
+        out.tagName = (this.mapTag(el.typeName))
+        out.elementType = (this.elementTypeFor(out.tagName))
+        def elProps:RgProps (unwrap el.props)
+        this.applyProps(out elProps)
+        ; Collect text children into textContent for span/button leaves.
+        def textBuf:string ""
+        def i:int 0
+        while (i < (el.childCount())) {
+            def child:RgElement (el.childAt(i))
+            if (child.isText()) {
+                if (textBuf == "") {
+                    textBuf = child.text
+                } {
+                    textBuf = textBuf + child.text
+                }
+            } {
+                def ce:EVGElement (this.toEVG(child))
+                if (ce.tagName != "") {
+                    out.addChild(ce)
+                }
+            }
+            i = (i + 1)
+        }
+        if (textBuf != "") {
+            if ((out.tagName == "span") || (out.tagName == "button") || (out.tagName == "text")) {
+                out.textContent = textBuf
+                out.elementType = 1
+            } {
+                def span (new EVGElement())
+                span.tagName = "span"
+                span.elementType = 1
+                span.textContent = textBuf
+                out.addChild(span)
+            }
+        }
+        return out
+    }
+
+    fn mapTag:string (name:string) {
+        if (name == "View") {
+            return "div"
+        }
+        if (name == "Text") {
+            return "span"
+        }
+        if (name == "Label") {
+            return "span"
+        }
+        if (name == "Button") {
+            return "button"
+        }
+        if (name == "Image") {
+            return "img"
+        }
+        if (name == "button") {
+            ; EVG layout treats unknown tags as containers; button → div+role.
+            return "div"
+        }
+        return name
+    }
+
+    fn elementTypeFor:int (tag:string) {
+        if (tag == "span") {
+            return 1
+        }
+        if (tag == "text") {
+            return 1
+        }
+        if (tag == "img") {
+            return 2
+        }
+        if (tag == "path") {
+            return 3
+        }
+        return 0
+    }
+
+    fn applyProps:void (el:EVGElement props:RgProps) {
+        def i:int 0
+        while (i < (props.count())) {
+            def p:RgProp (props.at(i))
+            def name:string (this.camelToKebab(p.name))
+            ; Skip React-only props that EVG does not understand.
+            if (name == "key") {
+            } {
+                if (name == "children") {
+                } {
+                    if (name == "ref") {
+                    } {
+                        if (name == "onClick") {
+                            ; Event handlers stay on the interactive layer; stash as id hint.
+                            if (el.id == "") {
+                                el.id = ("click:" + p.value)
+                            }
+                        } {
+                            el.setAttribute(name p.value)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; row/column helpers often set flexDirection via typeName aliases
+        if (el.tagName == "div") {
+            if (props.has("flexDirection") == false) {
+                if (props.has("direction")) {
+                    el.setAttribute("direction" (props.get("direction")))
+                }
+            }
+        }
+    }
+
+    fn camelToKebab:string (name:string) {
+        ; Pass through names that are already kebab-case or known EVG attrs.
+        def result:string ""
+        def i:int 0
+        def len:int (strlen name)
+        while (i < len) {
+            def code:char (charAt name i)
+            def codeInt:int code
+            if ((codeInt >= 65) && (codeInt <= 90)) {
+                if (i > 0) {
+                    result = result + "-"
+                }
+                def lowerCode:int (codeInt + 32)
+                result = result + (strfromcode lowerCode)
+            } {
+                result = result + (strfromcode codeInt)
+            }
+            i = (i + 1)
+        }
+        return result
+    }
+}

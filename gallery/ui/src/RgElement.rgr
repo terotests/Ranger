@@ -1,0 +1,207 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RgElement — React-shaped virtual element for Ranger UI
+; =============================================================================
+; Mirrors the public shape of a React element enough that compiled JS can share
+; component source with real React (swap the createElement import).
+;
+;   { $$typeof, type, key, props }   ← React
+;   RgElement { kind, typeName, key, props, children, text }  ← here
+;
+; Host tags use typeName ("div", "span", "View", …). Function components are
+; expanded by the renderer before the EVG bridge sees them.
+; =============================================================================
+
+class RgProp {
+    def name:string ""
+    def value:string ""
+
+    Constructor () {
+    }
+
+    sfn of:RgProp (n:string v:string) {
+        def p (new RgProp())
+        p.name = n
+        p.value = v
+        return p
+    }
+}
+
+class RgProps {
+    def items:[RgProp]
+
+    Constructor () {
+        def empty:[RgProp]
+        items = empty
+    }
+
+    fn set:void (name:string value:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:RgProp (itemAt items i)
+            if (it.name == name) {
+                it.value = value
+                return
+            }
+            i = (i + 1)
+        }
+        push items (RgProp.of(name value))
+    }
+
+    fn has:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:RgProp (itemAt items i)
+            if (it.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn get:string (name:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:RgProp (itemAt items i)
+            if (it.name == name) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn getOr:string (name:string fallback:string) {
+        if (this.has(name)) {
+            return (this.get(name))
+        }
+        return fallback
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn at:RgProp (i:int) {
+        return (itemAt items i)
+    }
+
+    ; Merge `other` on top of this (other wins on conflict).
+    fn merge:RgProps (other:RgProps) {
+        def out (new RgProps())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:RgProp (itemAt items i)
+            out.set(it.name it.value)
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length other.items)) {
+            def ot:RgProp (itemAt other.items j)
+            out.set(ot.name ot.value)
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn fromPairs:RgProps (names:[string] values:[string]) {
+        def p (new RgProps())
+        def n:int (array_length names)
+        def m:int (array_length values)
+        def lim:int n
+        if (m < lim) {
+            lim = m
+        }
+        def i:int 0
+        while (i < lim) {
+            p.set((itemAt names i) (itemAt values i))
+            i = (i + 1)
+        }
+        return p
+    }
+}
+
+; Element kinds
+; 0 = host (string tag)
+; 1 = text leaf
+; 2 = fragment
+; 3 = component (named; looked up in the component registry)
+
+class RgElement {
+    def kind:int 0
+    def typeName:string ""
+    def key:string ""
+    def props:RgProps
+    def children:[RgElement]
+    def text:string ""
+
+    Constructor () {
+        props = (new RgProps())
+        def c:[RgElement]
+        children = c
+    }
+
+    sfn host:RgElement (tag:string props:RgProps kids:[RgElement]) {
+        def el (new RgElement())
+        el.kind = 0
+        el.typeName = tag
+        el.props = props
+        el.children = kids
+        return el
+    }
+
+    sfn textNode:RgElement (value:string) {
+        def el (new RgElement())
+        el.kind = 1
+        el.typeName = "#text"
+        el.text = value
+        return el
+    }
+
+    sfn fragment:RgElement (kids:[RgElement]) {
+        def el (new RgElement())
+        el.kind = 2
+        el.typeName = "Fragment"
+        el.children = kids
+        return el
+    }
+
+    sfn component:RgElement (name:string props:RgProps kids:[RgElement]) {
+        def el (new RgElement())
+        el.kind = 3
+        el.typeName = name
+        el.props = props
+        el.children = kids
+        return el
+    }
+
+    fn isHost:boolean () {
+        return (kind == 0)
+    }
+
+    fn isText:boolean () {
+        return (kind == 1)
+    }
+
+    fn isFragment:boolean () {
+        return (kind == 2)
+    }
+
+    fn isComponent:boolean () {
+        return (kind == 3)
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    fn childAt:RgElement (i:int) {
+        return (itemAt children i)
+    }
+
+    fn addChild:void (child:RgElement) {
+        push children child
+    }
+}
