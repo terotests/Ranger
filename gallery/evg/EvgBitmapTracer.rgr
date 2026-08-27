@@ -342,11 +342,17 @@ class EvgBitmapTracer {
     ; Multi-color posterize (quantize → per-swatch binary trace)
     ; ----------------------------------------------------------------------
 
+    ; Distance that privileges luminance so foam / shadow steps stay separated
+    ; from similar-hue midtones (weighted Euclidean in RGB + strong luma term).
     sfn colorDist2:int (r0:int g0:int b0:int r1:int g1:int b1:int) {
         def dr:int (r0 - r1)
         def dg:int (g0 - g1)
         def db:int (b0 - b1)
-        return (((dr * dr) + (dg * dg)) + (db * db))
+        def l0:int (EvgBitmapTracer.lumaOf(r0 g0 b0))
+        def l1:int (EvgBitmapTracer.lumaOf(r1 g1 b1))
+        def dl:int (l0 - l1)
+        ; 12× on luma keeps bright foam from collapsing into gray-blue water.
+        return ((((dr * dr) + (dg * dg)) + (db * db)) + ((dl * dl) * 12))
     }
 
     sfn lumaOf:int (r:int g:int b:int) {
@@ -354,56 +360,73 @@ class EvgBitmapTracer {
         return (idiv (((r * 299) + (g * 587)) + (b * 114)) 1000)
     }
 
-    ; Build up to `want` palette centers from opaque pixels (k-means style).
+    ; True if this opaque pixel may join the palette / masks.
+    fn pixelAllowed:boolean (i:int) {
+        def a:int (itemAt planeA i)
+        if (a < 16) {
+            return false
+        }
+        def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
+        return (lum < options.skipLuma)
+    }
+
+    ; Build up to `want` palette centers. Seeds always include the darkest and
+    ; lightest allowed pixels so luminance extremes (wave foam, deep navy) survive.
     fn buildPalette:void (want:int outR:[int] outG:[int] outB:[int]) {
         def n:int (array_length planeR)
-        ; Farthest-point seeding: each new center is the opaque pixel farthest
-        ; from all centers chosen so far (skips near-white via skipLuma).
-        def first:int (0 - 1)
+        def darkI:int (0 - 1)
+        def lightI:int (0 - 1)
+        def darkL:int 256
+        def lightL:int (0 - 1)
         def si:int 0
-        while ((first < 0) && (si < n)) {
-            def a0:int (itemAt planeA si)
-            if (a0 >= 16) {
-                def r0:int (itemAt planeR si)
-                def g0:int (itemAt planeG si)
-                def b0:int (itemAt planeB si)
-                if ((EvgBitmapTracer.lumaOf(r0 g0 b0)) < options.skipLuma) {
-                    first = si
+        while (si < n) {
+            if (this.pixelAllowed(si)) {
+                def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR si) (itemAt planeG si) (itemAt planeB si)))
+                if (lum < darkL) {
+                    darkL = lum
+                    darkI = si
+                }
+                if (lum > lightL) {
+                    lightL = lum
+                    lightI = si
                 }
             }
             si = (si + 1)
         }
-        if (first < 0) {
+        if (darkI < 0) {
             return
         }
-        push outR (itemAt planeR first)
-        push outG (itemAt planeG first)
-        push outB (itemAt planeB first)
+        push outR (itemAt planeR darkI)
+        push outG (itemAt planeG darkI)
+        push outB (itemAt planeB darkI)
+        if ((lightI >= 0) && (lightI != darkI) && (want > 1)) {
+            push outR (itemAt planeR lightI)
+            push outG (itemAt planeG lightI)
+            push outB (itemAt planeB lightI)
+        }
+        ; Farthest-point fill for remaining slots (luma-weighted distance).
         while ((array_length outR) < want) {
             def bestI:int (0 - 1)
             def bestD:int (0 - 1)
             def i:int 0
             while (i < n) {
-                def a:int (itemAt planeA i)
-                if (a >= 16) {
+                if (this.pixelAllowed(i)) {
                     def pr:int (itemAt planeR i)
                     def pg:int (itemAt planeG i)
                     def pb:int (itemAt planeB i)
-                    if ((EvgBitmapTracer.lumaOf(pr pg pb)) < options.skipLuma) {
-                        def minD:int 2147483647
-                        def j:int 0
-                        def k0:int (array_length outR)
-                        while (j < k0) {
-                            def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
-                            if (d < minD) {
-                                minD = d
-                            }
-                            j = (j + 1)
+                    def minD:int 2147483647
+                    def j:int 0
+                    def k0:int (array_length outR)
+                    while (j < k0) {
+                        def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
+                        if (d < minD) {
+                            minD = d
                         }
-                        if (minD > bestD) {
-                            bestD = minD
-                            bestI = i
-                        }
+                        j = (j + 1)
+                    }
+                    if (minD > bestD) {
+                        bestD = minD
+                        bestI = i
                     }
                 }
                 i = (i + 1)
