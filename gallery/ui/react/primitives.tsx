@@ -55,6 +55,10 @@ function pickStyle(props: StyleProps): React.CSSProperties {
       style[key] = v as string | number;
     }
   }
+  // flexDirection alone does nothing without a flex formatting context
+  if (style.flexDirection && !style.display) {
+    style.display = "flex";
+  }
   return style as React.CSSProperties;
 }
 
