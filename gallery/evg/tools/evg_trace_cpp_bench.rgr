@@ -1,0 +1,83 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; Native wall-clock bench for EvgBitmapTracer (meant for -l=cpp).
+Import "../EvgBitmapTracer.rgr"
+
+class EvgTraceCppBench {
+    sfn makeChecker:EvgBinaryBitmap (n:int cell:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(n n))
+        def y:int 0
+        while (y < n) {
+            def x:int 0
+            while (x < n) {
+                def cellSum:int ((idiv x cell) + (idiv y cell))
+                if (((cellSum - ((idiv cellSum 2) * 2)) == 0)) {
+                    bm.setBit(x y true)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    sfn makeRect:EvgBinaryBitmap (n:int) {
+        def m:int (idiv n 8)
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(n n))
+        def y:int m
+        while (y < (n - m)) {
+            def x:int m
+            while (x < (n - m)) {
+                bm.setBit(x y true)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    sfn makeRing:EvgBinaryBitmap (n:int) {
+        def bm:EvgBinaryBitmap (EvgTraceCppBench.makeRect(n))
+        def m:int (idiv n 4)
+        def y:int m
+        while (y < (n - m)) {
+            def x:int m
+            while (x < (n - m)) {
+                bm.setBit(x y false)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    sfn run:void (name:string bm:EvgBinaryBitmap iters:int) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.turdsize = 2
+        opts.optcurve = true
+        opts.alphamax = 1.0
+        opts.opttolerance = 0.2
+        def warm:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        warm.trace()
+        def t0:double (wall_clock_ms)
+        def i:int 0
+        def last:EvgBitmapTracer warm
+        while (i < iters) {
+            def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+            tr.trace()
+            last = tr
+            i = (i + 1)
+        }
+        def t1:double (wall_clock_ms)
+        def total:double (t1 - t0)
+        def per:double (total / (to_double iters))
+        def d:string (last.getPathData())
+        print ("CPP_BENCH name=" + name + " iters=" + (to_string iters) + " total_ms=" + (to_string total) + " per_ms=" + (to_string per) + " rings=" + (to_string (last.ringCount())) + " pathChars=" + (to_string (strlen d)))
+    }
+
+    sfn m@(main):void () {
+        EvgTraceCppBench.run("rect_256" (EvgTraceCppBench.makeRect(256)) 80)
+        EvgTraceCppBench.run("checker_128" (EvgTraceCppBench.makeChecker(128 8)) 50)
+        EvgTraceCppBench.run("ring_128" (EvgTraceCppBench.makeRing(128)) 80)
+        print "CPP_BENCH_DONE"
+    }
+}

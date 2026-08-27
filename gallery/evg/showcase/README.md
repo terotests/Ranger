@@ -18,9 +18,10 @@ Each page is rendered under **two themes** — the generated chart pages under
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
-### One page is not rendered at all
+### Live pages (not pre-rendered)
 
 Everything else here is drawn ahead of time and published as a file.
+
 [`chart-api/`](../../vela/web/chart_api.html) **runs**: it loads Vela's chart
 API — compiled from `gallery/vela/tools/vela_chart_web.rgr` to a browser bundle
 — and calls it with what a reader types, redrawing as they edit. The page
@@ -31,6 +32,11 @@ second tab, through a small dispatcher, and the same chart in either language
 draws the same SVG byte for byte. A PDF proves the API built a chart once on a
 build machine; this is what proves the API still runs where the reader is.
 `npm run showcase:api` opens it in Chromium and checks all of it — 22 checks.
+
+[`tracer/`](../web/tracer/) is the other live page: upload a JPEG/PNG, tweak
+Potrace-style parameters, and vectorize with the compiled `EvgBitmapTracer`.
+Build alone with `npm run evg:trace:web`; the showcase build ships it to
+`/evg/tracer/` on Pages. `npm run evg:trace:web:smoke` opens it in Chromium.
 
 ### Eight pages are generated
 

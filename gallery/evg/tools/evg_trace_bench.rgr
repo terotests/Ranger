@@ -1,0 +1,114 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; evg_trace_bench.rgr — timing harness for EvgBitmapTracer
+; ==============================================================================
+; Prints JSON lines a Node bench can parse and compare against npm/CLI potrace.
+;
+;   npm run evg:trace:bench
+; ==============================================================================
+
+Import "../EvgBitmapTracer.rgr"
+
+class EvgTraceBench {
+
+    sfn m@(main):void () {
+        def b (new EvgTraceBench())
+        b.runCase("rect_64" 64 64 8 8 48 48 40)
+        b.runCase("rect_256" 256 256 32 32 192 192 20)
+        b.runCase("checker_128" 128 128 0 0 0 0 20)
+        b.runCase("ring_128" 128 128 16 16 96 96 30)
+        print "BENCH_DONE"
+    }
+
+    fn makeRect:EvgBinaryBitmap (w:int h:int x0:int y0:int rw:int rh:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(w h))
+        def y:int y0
+        while (y < (y0 + rh)) {
+            def x:int x0
+            while (x < (x0 + rw)) {
+                bm.setBit(x y true)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    fn makeChecker:EvgBinaryBitmap (w:int h:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(w h))
+        def y:int 0
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def cell:int ((idiv x 8) + (idiv y 8))
+                if (((cell - ((idiv cell 2) * 2)) == 0)) {
+                    bm.setBit(x y true)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    fn makeRing:EvgBinaryBitmap (w:int h:int x0:int y0:int rw:int rh:int) {
+        def bm:EvgBinaryBitmap (this.makeRect(w h x0 y0 rw rh))
+        def ix:int (x0 + (idiv rw 4))
+        def iy:int (y0 + (idiv rh 4))
+        def iw:int (idiv rw 2)
+        def ih:int (idiv rh 2)
+        def y:int iy
+        while (y < (iy + ih)) {
+            def x:int ix
+            while (x < (ix + iw)) {
+                bm.setBit(x y false)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    fn runCase:void (name:string w:int h:int x0:int y0:int rw:int rh:int iters:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(w h))
+        if (name == "checker_128") {
+            bm = (this.makeChecker(w h))
+        } {
+            if (name == "ring_128") {
+                bm = (this.makeRing(w h x0 y0 rw rh))
+            } {
+                bm = (this.makeRect(w h x0 y0 rw rh))
+            }
+        }
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.turdsize = 2
+        opts.alphamax = 1.0
+        opts.opttolerance = 0.2
+        opts.optcurve = true
+
+        ; Warmup
+        def warm:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        warm.trace()
+
+        def i:int 0
+        def last:EvgBitmapTracer warm
+        while (i < iters) {
+            def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+            tr.trace()
+            last = tr
+            i = (i + 1)
+        }
+        def d:string (last.getPathData())
+        def line:string ("BENCH_CASE {" )
+        line = (line + "\"name\":\"" + name + "\",")
+        line = (line + "\"w\":" + (to_string w) + ",")
+        line = (line + "\"h\":" + (to_string h) + ",")
+        line = (line + "\"iters\":" + (to_string iters) + ",")
+        line = (line + "\"rings\":" + (to_string (last.ringCount())) + ",")
+        line = (line + "\"commands\":" + (to_string (last.commandCount())) + ",")
+        line = (line + "\"pathChars\":" + (to_string (strlen d)) + ",")
+        line = (line + "\"svgChars\":" + (to_string (strlen (last.toSVG()))) + "}")
+        print line
+    }
+}

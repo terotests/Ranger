@@ -1,0 +1,648 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgTraceCurve.rgr — alphamax smooth + optiCurve (Potrace paper §2.3–2.4)
+; ==============================================================================
+;
+; After EvgTraceFit produces an optimal polygon, this stage:
+;   1. classifies each vertex as CORNER or CURVE via alphamax
+;   2. optionally joins consecutive CURVE spans (optiCurve / -O)
+;   3. emits PathCommands
+;
+; Corner-only rings (axis-aligned rects) emit the polygon vertices directly —
+; the same compact form the Potrace CLI SVG backend produces for those shapes.
+;
+; Clean-room from the published algorithm description, not a GPL port.
+; ==============================================================================
+
+Import "EvgTraceTypes.rgr"
+Import "VectorShapes.rgr"
+
+; One candidate join produced by opti_penalty.
+class EvgTraceOpti {
+    def pen:double 0.0
+    def c0:EvgTracePoint (EvgTracePoint.of(0.0 0.0))
+    def c1:EvgTracePoint (EvgTracePoint.of(0.0 0.0))
+    def t:double 0.0
+    def s:double 0.0
+    def alpha:double 0.0
+    def ok:boolean false
+
+    Constructor () {
+    }
+}
+
+class EvgTraceCurve {
+    def n:int 0
+    def tag:[string]
+    def vertex:[EvgTracePoint]
+    def c0:[EvgTracePoint]
+    def c1:[EvgTracePoint]
+    def c2:[EvgTracePoint]
+    def alpha:[double]
+    def alpha0:[double]
+    def beta:[double]
+
+    Constructor () {
+        def t:[string]
+        tag = t
+        def v:[EvgTracePoint]
+        vertex = v
+        def a:[EvgTracePoint]
+        c0 = a
+        def b:[EvgTracePoint]
+        c1 = b
+        def c:[EvgTracePoint]
+        c2 = c
+        def al:[double]
+        alpha = al
+        def a0:[double]
+        alpha0 = a0
+        def be:[double]
+        beta = be
+    }
+
+    sfn alloc:EvgTraceCurve (n:int) {
+        def curve (new EvgTraceCurve())
+        curve.n = n
+        def i:int 0
+        while (i < n) {
+            push curve.tag "CURVE"
+            push curve.vertex (EvgTracePoint.of(0.0 0.0))
+            push curve.c0 (EvgTracePoint.of(0.0 0.0))
+            push curve.c1 (EvgTracePoint.of(0.0 0.0))
+            push curve.c2 (EvgTracePoint.of(0.0 0.0))
+            push curve.alpha 0.0
+            push curve.alpha0 0.0
+            push curve.beta 0.5
+            i = (i + 1)
+        }
+        return curve
+    }
+
+    sfn modI:int (a:int n:int) {
+        if (n <= 0) {
+            return 0
+        }
+        def r:int (a - ((idiv a n) * n))
+        if (r < 0) {
+            r = (r + n)
+        }
+        return r
+    }
+
+    sfn absD:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn signD:int (v:double) {
+        if (v > 0.0) {
+            return 1
+        }
+        if (v < 0.0) {
+            return (0 - 1)
+        }
+        return 0
+    }
+
+    sfn interval:EvgTracePoint (lambda:double a:EvgTracePoint b:EvgTracePoint) {
+        return (EvgTracePoint.of(((a.x * (1.0 - lambda)) + (b.x * lambda)) ((a.y * (1.0 - lambda)) + (b.y * lambda))))
+    }
+
+    sfn dpara:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint) {
+        def x1:double (p1.x - p0.x)
+        def y1:double (p1.y - p0.y)
+        def x2:double (p2.x - p0.x)
+        def y2:double (p2.y - p0.y)
+        return ((x1 * y2) - (y1 * x2))
+    }
+
+    sfn cprod:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint p3:EvgTracePoint) {
+        def x1:double (p1.x - p0.x)
+        def y1:double (p1.y - p0.y)
+        def x2:double (p3.x - p2.x)
+        def y2:double (p3.y - p2.y)
+        return ((x1 * y2) - (y1 * x2))
+    }
+
+    sfn iprod:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint) {
+        def x1:double (p1.x - p0.x)
+        def y1:double (p1.y - p0.y)
+        def x2:double (p2.x - p0.x)
+        def y2:double (p2.y - p0.y)
+        return ((x1 * x2) + (y1 * y2))
+    }
+
+    sfn iprod1:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint p3:EvgTracePoint) {
+        def x1:double (p1.x - p0.x)
+        def y1:double (p1.y - p0.y)
+        def x2:double (p3.x - p2.x)
+        def y2:double (p3.y - p2.y)
+        return ((x1 * x2) + (y1 * y2))
+    }
+
+    sfn ddist:double (p:EvgTracePoint q:EvgTracePoint) {
+        def dx:double (p.x - q.x)
+        def dy:double (p.y - q.y)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    sfn ddenom:double (p0:EvgTracePoint p2:EvgTracePoint) {
+        def ax:double (EvgTraceCurve.absD((p0.x - p2.x)))
+        def ay:double (EvgTraceCurve.absD((p0.y - p2.y)))
+        return (ax + ay)
+    }
+
+    sfn bezierAt:EvgTracePoint (t:double p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint p3:EvgTracePoint) {
+        def s:double (1.0 - t)
+        def s2:double (s * s)
+        def t2:double (t * t)
+        def x:double ((((s2 * s) * p0.x) + (((3.0 * s2) * t) * p1.x)) + ((((3.0 * t2) * s) * p2.x) + ((t2 * t) * p3.x)))
+        def y:double ((((s2 * s) * p0.y) + (((3.0 * s2) * t) * p1.y)) + ((((3.0 * t2) * s) * p2.y) + ((t2 * t) * p3.y)))
+        return (EvgTracePoint.of(x y))
+    }
+
+    ; Parameter t in [0,1] where the cubic is tangent to line q0→q1, or -1.
+    sfn tangent:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint p3:EvgTracePoint q0:EvgTracePoint q1:EvgTracePoint) {
+        def A:double (EvgTraceCurve.cprod(p0 p1 q0 q1))
+        def B:double (EvgTraceCurve.cprod(p1 p2 q0 q1))
+        def C:double (EvgTraceCurve.cprod(p2 p3 q0 q1))
+        def a:double ((A - (2.0 * B)) + C)
+        def b:double ((0.0 - (2.0 * A)) + (2.0 * B))
+        def c:double A
+        def disc:double ((b * b) - ((4.0 * a) * c))
+        if (a == 0.0) {
+            return (0.0 - 1.0)
+        }
+        if (disc < 0.0) {
+            return (0.0 - 1.0)
+        }
+        def s:double (sqrt disc)
+        def r1:double (((0.0 - b) + s) / (2.0 * a))
+        def r2:double (((0.0 - b) - s) / (2.0 * a))
+        if ((r1 >= 0.0) && (r1 <= 1.0)) {
+            return r1
+        }
+        if ((r2 >= 0.0) && (r2 <= 1.0)) {
+            return r2
+        }
+        return (0.0 - 1.0)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Build a curve from an adjusted polygon (alphamax smooth).
+    ; ------------------------------------------------------------------
+    sfn fromPolygon:EvgTraceCurve (poly:[EvgTracePoint] alphamax:double) {
+        def m:int (array_length poly)
+        def curve:EvgTraceCurve (EvgTraceCurve.alloc(m))
+        if (m < 3) {
+            return curve
+        }
+        def i:int 0
+        while (i < m) {
+            set curve.vertex i (itemAt poly i)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < m) {
+            def j:int (EvgTraceCurve.modI((i + 1) m))
+            def k:int (EvgTraceCurve.modI((i + 2) m))
+            def vi:EvgTracePoint (itemAt curve.vertex i)
+            def vj:EvgTracePoint (itemAt curve.vertex j)
+            def vk:EvgTracePoint (itemAt curve.vertex k)
+            def p4:EvgTracePoint (EvgTraceCurve.interval(0.5 vk vj))
+            def denom:double (EvgTraceCurve.ddenom(vi vk))
+            def alpha:double (4.0 / 3.0)
+            if (denom != 0.0) {
+                def para:double (EvgTraceCurve.dpara(vi vj vk))
+                def ratio:double (para / denom)
+                def dd:double (EvgTraceCurve.absD(ratio))
+                if (dd > 1.0) {
+                    alpha = (1.0 - (1.0 / dd))
+                } {
+                    alpha = 0.0
+                }
+                alpha = (alpha / 0.75)
+            }
+            set curve.alpha0 j alpha
+            if (alpha >= alphamax) {
+                set curve.tag j "CORNER"
+                set curve.c1 j vj
+                set curve.c2 j p4
+                set curve.alpha j alpha
+            } {
+                def a2:double alpha
+                if (a2 < 0.55) {
+                    a2 = 0.55
+                }
+                if (a2 > 1.0) {
+                    a2 = 1.0
+                }
+                def p2:EvgTracePoint (EvgTraceCurve.interval((0.5 + (0.5 * a2)) vi vj))
+                def p3:EvgTracePoint (EvgTraceCurve.interval((0.5 + (0.5 * a2)) vk vj))
+                set curve.tag j "CURVE"
+                set curve.c0 j p2
+                set curve.c1 j p3
+                set curve.c2 j p4
+                set curve.alpha j a2
+            }
+            set curve.beta j 0.5
+            i = (i + 1)
+        }
+        return curve
+    }
+
+    fn curveCount:int () {
+        def nC:int 0
+        def i:int 0
+        while (i < n) {
+            if ((itemAt tag i) == "CURVE") {
+                nC = (nC + 1)
+            }
+            i = (i + 1)
+        }
+        return nC
+    }
+
+    fn cornerCount:int () {
+        def nC:int 0
+        def i:int 0
+        while (i < n) {
+            if ((itemAt tag i) == "CORNER") {
+                nC = (nC + 1)
+            }
+            i = (i + 1)
+        }
+        return nC
+    }
+
+    ; ------------------------------------------------------------------
+    ; optiCurve — join consecutive CURVE spans within opttolerance.
+    ; ------------------------------------------------------------------
+    fn optimize:EvgTraceCurve (opttolerance:double) {
+        if (n < 3) {
+            return this
+        }
+        if ((this.curveCount()) < 2) {
+            return this
+        }
+        def convc:[int]
+        def areac:[double]
+        def i:int 0
+        while (i < n) {
+            push convc 0
+            i = (i + 1)
+        }
+        push areac 0.0
+        i = 0
+        while (i < n) {
+            if ((itemAt tag i) == "CURVE") {
+                def iPrev:int (EvgTraceCurve.modI((i - 1) n))
+                def iNext:int (EvgTraceCurve.modI((i + 1) n))
+                def para:double (EvgTraceCurve.dpara((itemAt vertex iPrev) (itemAt vertex i) (itemAt vertex iNext)))
+                set convc i (EvgTraceCurve.signD(para))
+            } {
+                set convc i 0
+            }
+            i = (i + 1)
+        }
+        def area:double 0.0
+        def p0:EvgTracePoint (itemAt vertex 0)
+        i = 0
+        while (i < n) {
+            def i1:int (EvgTraceCurve.modI((i + 1) n))
+            if ((itemAt tag i1) == "CURVE") {
+                def al:double (itemAt alpha i1)
+                def d1:double (EvgTraceCurve.dpara((itemAt c2 i) (itemAt vertex i1) (itemAt c2 i1)))
+                area = (area + (((0.3 * al) * (4.0 - al)) * (d1 / 2.0)))
+                def d2:double (EvgTraceCurve.dpara(p0 (itemAt c2 i) (itemAt c2 i1)))
+                area = (area + (d2 / 2.0))
+            }
+            push areac area
+            i = (i + 1)
+        }
+
+        def pt:[int]
+        def pen:[double]
+        def lenArr:[int]
+        def optPen:[double]
+        def optC0:[EvgTracePoint]
+        def optC1:[EvgTracePoint]
+        def optT:[double]
+        def optS:[double]
+        def optAlpha:[double]
+        def optValid:[int]
+        i = 0
+        while (i <= n) {
+            push pt (0 - 1)
+            push pen 0.0
+            push lenArr 0
+            push optPen 0.0
+            push optC0 (EvgTracePoint.of(0.0 0.0))
+            push optC1 (EvgTracePoint.of(0.0 0.0))
+            push optT 0.0
+            push optS 0.0
+            push optAlpha 0.0
+            push optValid 0
+            i = (i + 1)
+        }
+        set pt 0 (0 - 1)
+        set pen 0 0.0
+        set lenArr 0 0
+
+        def j:int 1
+        while (j <= n) {
+            set pt j (j - 1)
+            set pen j (itemAt pen (j - 1))
+            set lenArr j ((itemAt lenArr (j - 1)) + 1)
+            def iBack:int (j - 2)
+            while (iBack >= 0) {
+                def res:EvgTraceOpti (this.optiPenalty(iBack (EvgTraceCurve.modI(j n)) opttolerance convc areac))
+                if (res.ok == false) {
+                    iBack = (0 - 1)
+                } {
+                    def lenJ:int (itemAt lenArr j)
+                    def lenI:int (itemAt lenArr iBack)
+                    def penJ:double (itemAt pen j)
+                    def penI:double (itemAt pen iBack)
+                    def better:boolean false
+                    if (lenJ > (lenI + 1)) {
+                        better = true
+                    }
+                    if ((lenJ == (lenI + 1)) && (penJ > (penI + res.pen))) {
+                        better = true
+                    }
+                    if better {
+                        set pt j iBack
+                        set pen j (penI + res.pen)
+                        set lenArr j (lenI + 1)
+                        set optPen j res.pen
+                        def jc0:EvgTracePoint res.c0
+                        def jc1:EvgTracePoint res.c1
+                        set optC0 j jc0
+                        set optC1 j jc1
+                        set optT j res.t
+                        set optS j res.s
+                        set optAlpha j res.alpha
+                        set optValid j 1
+                    }
+                    iBack = (iBack - 1)
+                }
+            }
+            j = (j + 1)
+        }
+
+        def om:int (itemAt lenArr n)
+        if (om >= n) {
+            ; No joins found — keep the original curve.
+            return this
+        }
+        if (om < 3) {
+            return this
+        }
+        def ocurve:EvgTraceCurve (EvgTraceCurve.alloc(om))
+        def sArr:[double]
+        def tArr:[double]
+        i = 0
+        while (i < om) {
+            push sArr 1.0
+            push tArr 1.0
+            i = (i + 1)
+        }
+        j = n
+        i = (om - 1)
+        while (i >= 0) {
+            def prevJ:int (itemAt pt j)
+            if (prevJ == (j - 1)) {
+                def idx:int (EvgTraceCurve.modI(j n))
+                set ocurve.tag i (itemAt tag idx)
+                set ocurve.c0 i (itemAt c0 idx)
+                set ocurve.c1 i (itemAt c1 idx)
+                set ocurve.c2 i (itemAt c2 idx)
+                set ocurve.vertex i (itemAt vertex idx)
+                set ocurve.alpha i (itemAt alpha idx)
+                set ocurve.alpha0 i (itemAt alpha0 idx)
+                set ocurve.beta i (itemAt beta idx)
+                set sArr i 1.0
+                set tArr i 1.0
+            } {
+                def idx2:int (EvgTraceCurve.modI(j n))
+                set ocurve.tag i "CURVE"
+                set ocurve.c0 i (itemAt optC0 j)
+                set ocurve.c1 i (itemAt optC1 j)
+                set ocurve.c2 i (itemAt c2 idx2)
+                def sVal:double (itemAt optS j)
+                def newV:EvgTracePoint (EvgTraceCurve.interval(sVal (itemAt c2 idx2) (itemAt vertex idx2)))
+                set ocurve.vertex i newV
+                set ocurve.alpha i (itemAt optAlpha j)
+                set ocurve.alpha0 i (itemAt optAlpha j)
+                set sArr i (itemAt optS j)
+                set tArr i (itemAt optT j)
+            }
+            j = prevJ
+            i = (i - 1)
+        }
+        i = 0
+        while (i < om) {
+            def i1:int (EvgTraceCurve.modI((i + 1) om))
+            def s0:double (itemAt sArr i)
+            def t1:double (itemAt tArr i1)
+            def denom:double (s0 + t1)
+            if (denom == 0.0) {
+                set ocurve.beta i 0.5
+            } {
+                set ocurve.beta i (s0 / denom)
+            }
+            i = (i + 1)
+        }
+        return ocurve
+    }
+
+    ; Returns res.ok=false when the span i..j cannot be joined.
+    fn optiPenalty:EvgTraceOpti (i:int j:int opttolerance:double convc:[int] areac:[double]) {
+        def res (new EvgTraceOpti())
+        res.ok = false
+        if (i == j) {
+            return res
+        }
+        def m:int n
+        def k:int i
+        def i1:int (EvgTraceCurve.modI((i + 1) m))
+        def k1:int (EvgTraceCurve.modI((k + 1) m))
+        def conv:int (itemAt convc k1)
+        if (conv == 0) {
+            return res
+        }
+        def d:double (EvgTraceCurve.ddist((itemAt vertex i) (itemAt vertex i1)))
+        k = k1
+        while (k != j) {
+            k1 = (EvgTraceCurve.modI((k + 1) m))
+            def k2:int (EvgTraceCurve.modI((k + 2) m))
+            if ((itemAt convc k1) != conv) {
+                return res
+            }
+            def cp:double (EvgTraceCurve.cprod((itemAt vertex i) (itemAt vertex i1) (itemAt vertex k1) (itemAt vertex k2)))
+            if ((EvgTraceCurve.signD(cp)) != conv) {
+                return res
+            }
+            def ip:double (EvgTraceCurve.iprod1((itemAt vertex i) (itemAt vertex i1) (itemAt vertex k1) (itemAt vertex k2)))
+            def d2:double (EvgTraceCurve.ddist((itemAt vertex k1) (itemAt vertex k2)))
+            if (ip < ((d * d2) * (0.0 - 0.999847695156))) {
+                return res
+            }
+            k = k1
+        }
+
+        def p0:EvgTracePoint (itemAt c2 (EvgTraceCurve.modI(i m)))
+        def p1:EvgTracePoint (itemAt vertex (EvgTraceCurve.modI((i + 1) m)))
+        def p2:EvgTracePoint (itemAt vertex (EvgTraceCurve.modI(j m)))
+        def p3:EvgTracePoint (itemAt c2 (EvgTraceCurve.modI(j m)))
+
+        def area:double ((itemAt areac j) - (itemAt areac i))
+        def areaAdj:double (EvgTraceCurve.dpara((itemAt vertex 0) (itemAt c2 i) (itemAt c2 j)))
+        area = (area - (areaAdj / 2.0))
+        if (i >= j) {
+            area = (area + (itemAt areac m))
+        }
+
+        def A1:double (EvgTraceCurve.dpara(p0 p1 p2))
+        def A2:double (EvgTraceCurve.dpara(p0 p1 p3))
+        def A3:double (EvgTraceCurve.dpara(p0 p2 p3))
+        def A4:double ((A1 + A3) - A2)
+        if (A2 == A1) {
+            return res
+        }
+        def t:double (A3 / (A3 - A4))
+        def s:double (A2 / (A2 - A1))
+        def A:double ((A2 * t) / 2.0)
+        if (A == 0.0) {
+            return res
+        }
+        def R:double (area / A)
+        def inner:double (4.0 - (R / 0.3))
+        if (inner < 0.0) {
+            return res
+        }
+        def joinAlpha:double (2.0 - (sqrt inner))
+        res.c0 = (EvgTraceCurve.interval((t * joinAlpha) p0 p1))
+        res.c1 = (EvgTraceCurve.interval((s * joinAlpha) p3 p2))
+        res.alpha = joinAlpha
+        res.t = t
+        res.s = s
+        res.pen = 0.0
+
+        def q0:EvgTracePoint p0
+        def q1:EvgTracePoint (EvgTracePoint.of(res.c0.x res.c0.y))
+        def q2:EvgTracePoint (EvgTracePoint.of(res.c1.x res.c1.y))
+        def q3:EvgTracePoint p3
+
+        k = (EvgTraceCurve.modI((i + 1) m))
+        while (k != j) {
+            k1 = (EvgTraceCurve.modI((k + 1) m))
+            def vk:EvgTracePoint (itemAt vertex k)
+            def vk1:EvgTracePoint (itemAt vertex k1)
+            def tv:double (EvgTraceCurve.tangent(q0 q1 q2 q3 vk vk1))
+            if (tv < (0.0 - 0.5)) {
+                return res
+            }
+            def bezPt:EvgTracePoint (EvgTraceCurve.bezierAt(tv q0 q1 q2 q3))
+            def dd:double (EvgTraceCurve.ddist(vk vk1))
+            if (dd == 0.0) {
+                return res
+            }
+            def d1:double (EvgTraceCurve.dpara(vk vk1 bezPt))
+            d1 = (d1 / dd)
+            if ((EvgTraceCurve.absD(d1)) > opttolerance) {
+                return res
+            }
+            if ((EvgTraceCurve.iprod(vk vk1 bezPt)) < 0.0) {
+                return res
+            }
+            if ((EvgTraceCurve.iprod(vk1 vk bezPt)) < 0.0) {
+                return res
+            }
+            res.pen = (res.pen + (d1 * d1))
+            k = k1
+        }
+
+        k = i
+        while (k != j) {
+            k1 = (EvgTraceCurve.modI((k + 1) m))
+            def ck:EvgTracePoint (itemAt c2 k)
+            def ck1:EvgTracePoint (itemAt c2 k1)
+            def tv2:double (EvgTraceCurve.tangent(q0 q1 q2 q3 ck ck1))
+            if (tv2 < (0.0 - 0.5)) {
+                return res
+            }
+            def bezPt2:EvgTracePoint (EvgTraceCurve.bezierAt(tv2 q0 q1 q2 q3))
+            def dd2:double (EvgTraceCurve.ddist(ck ck1))
+            if (dd2 == 0.0) {
+                return res
+            }
+            def d1b:double (EvgTraceCurve.dpara(ck ck1 bezPt2))
+            d1b = (d1b / dd2)
+            def vk1b:EvgTracePoint (itemAt vertex k1)
+            def d2b:double (EvgTraceCurve.dpara(ck ck1 vk1b))
+            d2b = (d2b / dd2)
+            def ak1:double (itemAt alpha k1)
+            d2b = (d2b * (0.75 * ak1))
+            if (d2b < 0.0) {
+                d1b = (0.0 - d1b)
+                d2b = (0.0 - d2b)
+            }
+            if (d1b < (d2b - opttolerance)) {
+                return res
+            }
+            if (d1b < d2b) {
+                def diff:double (d1b - d2b)
+                res.pen = (res.pen + (diff * diff))
+            }
+            k = k1
+        }
+        res.ok = true
+        return res
+    }
+
+    ; ------------------------------------------------------------------
+    ; Emit path commands.
+    ; ------------------------------------------------------------------
+    fn emit:void (out:[PathCommand]) {
+        if (n < 3) {
+            return
+        }
+        ; Corner-only ring → compact polygon through the vertices (CLI style).
+        if ((this.curveCount()) == 0) {
+            def v0:EvgTracePoint (itemAt vertex 0)
+            push out (VectorShapes.moveTo(v0.x v0.y))
+            def i:int 1
+            while (i < n) {
+                def v:EvgTracePoint (itemAt vertex i)
+                push out (VectorShapes.lineTo(v.x v.y))
+                i = (i + 1)
+            }
+            push out (VectorShapes.closePath())
+            return
+        }
+        def start:EvgTracePoint (itemAt c2 (n - 1))
+        push out (VectorShapes.moveTo(start.x start.y))
+        def i2:int 0
+        while (i2 < n) {
+            def tg:string (itemAt tag i2)
+            def endP:EvgTracePoint (itemAt c2 i2)
+            if (tg == "CORNER") {
+                def corner:EvgTracePoint (itemAt c1 i2)
+                push out (VectorShapes.lineTo(corner.x corner.y))
+                push out (VectorShapes.lineTo(endP.x endP.y))
+            } {
+                def a:EvgTracePoint (itemAt c0 i2)
+                def b:EvgTracePoint (itemAt c1 i2)
+                push out (VectorShapes.cubicTo(a.x a.y b.x b.y endP.x endP.y))
+            }
+            i2 = (i2 + 1)
+        }
+        push out (VectorShapes.closePath())
+    }
+}

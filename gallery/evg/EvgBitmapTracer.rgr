@@ -1,0 +1,857 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgBitmapTracer.rgr — bitmap → EVG path, potrace-style
+; ==============================================================================
+;
+; Pipeline (Potrace paper):
+;   1. decompose bitmap into closed edge paths
+;   2. turdsize despeckle
+;   3. optimal polygon (EvgTraceFit — calcLon / bestPolygon / adjustVertices)
+;   4. alphamax corner/curve fit (+ optional optiCurve)
+;   5. emit PathBuilder / EVGElement / SVG
+;
+; Color:
+;   options.fillHex     — mono path fill (default #000000)
+;   options.colorCount  — 1 = mono threshold; >1 = posterize ImageBuffer into
+;                         N swatches and emit one evenodd <path> per layer
+;
+;   bash gallery/evg/tools/run_trace_bench.sh
+; ==============================================================================
+
+Import "EvgTraceTypes.rgr"
+Import "EvgTraceFit.rgr"
+Import "EvgTraceCurve.rgr"
+Import "PathBuilder.rgr"
+Import "EVGElement.rgr"
+Import "EVGColor.rgr"
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class EvgBitmapTracer {
+    def options:EvgTraceOptions
+    def bitmap:EvgBinaryBitmap
+    def rings:[EvgTraceRing]
+    def commands:[PathCommand]
+    def pathData:string ""
+    def width:int 0
+    def height:int 0
+    ; Multi-color posterize planes (populated by fromImageBuffer when colorCount > 1).
+    def hasColorPlanes:boolean false
+    def planeR:[int]
+    def planeG:[int]
+    def planeB:[int]
+    def planeA:[int]
+    def layers:[EvgTraceLayer]
+
+    Constructor () {
+        options = (EvgTraceOptions.defaults())
+        bitmap = (EvgBinaryBitmap.create(0 0))
+        def r:[EvgTraceRing]
+        rings = r
+        def c:[PathCommand]
+        commands = c
+        def pr:[int]
+        planeR = pr
+        def pg:[int]
+        planeG = pg
+        def pb:[int]
+        planeB = pb
+        def pa:[int]
+        planeA = pa
+        def ly:[EvgTraceLayer]
+        layers = ly
+    }
+
+    sfn absD:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn absI:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; Truncating division toward zero for the half-cell neighbour lookups.
+    sfn idivTowardZero:int (a:int b:int) {
+        if (b == 0) {
+            return 0
+        }
+        if (a < 0) {
+            if (b > 0) {
+                return (0 - (idiv (0 - a) b))
+            }
+            return (idiv (0 - a) (0 - b))
+        }
+        if (b < 0) {
+            return (0 - (idiv a (0 - b)))
+        }
+        return (idiv a b)
+    }
+
+    sfn fromBinary:EvgBitmapTracer (bm:EvgBinaryBitmap opts:EvgTraceOptions) {
+        def t (new EvgBitmapTracer())
+        t.options = opts
+        t.bitmap = bm
+        t.width = bm.w
+        t.height = bm.h
+        return t
+    }
+
+    ; Threshold an RGBA ImageBuffer into a binary bitmap, then wrap a tracer.
+    ; When options.colorCount > 1, keep RGB planes and posterize in trace().
+    sfn fromImageBuffer:EvgBitmapTracer (img:ImageBuffer opts:EvgTraceOptions) {
+        if (opts.colorCount > 1) {
+            def tCol (new EvgBitmapTracer())
+            tCol.options = opts
+            tCol.width = img.width
+            tCol.height = img.height
+            tCol.hasColorPlanes = true
+            tCol.bitmap = (EvgBinaryBitmap.create(img.width img.height))
+            def pr:[int]
+            def pg:[int]
+            def pb:[int]
+            def pa:[int]
+            def y:int 0
+            while (y < img.height) {
+                def x:int 0
+                while (x < img.width) {
+                    def c:Color (img.getPixel(x y))
+                    push pr c.r
+                    push pg c.g
+                    push pb c.b
+                    push pa c.a
+                    x = (x + 1)
+                }
+                y = (y + 1)
+            }
+            tCol.planeR = pr
+            tCol.planeG = pg
+            tCol.planeB = pb
+            tCol.planeA = pa
+            return tCol
+        }
+        def thr:int opts.threshold
+        if (thr < 0) {
+            thr = (EvgBitmapTracer.otsuThreshold(img))
+        }
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(img.width img.height))
+        def y2:int 0
+        while (y2 < img.height) {
+            def x2:int 0
+            while (x2 < img.width) {
+                def c2:Color (img.getPixel(x2 y2))
+                def g:int (c2.grayscale())
+                def on:boolean false
+                if opts.blackOnWhite {
+                    if (g < thr) {
+                        on = true
+                    }
+                } {
+                    if (g >= thr) {
+                        on = true
+                    }
+                }
+                ; Transparent pixels never count as foreground.
+                if (c2.a < 16) {
+                    on = false
+                }
+                bm.setBit(x2 y2 on)
+                x2 = (x2 + 1)
+            }
+            y2 = (y2 + 1)
+        }
+        return (EvgBitmapTracer.fromBinary(bm opts))
+    }
+
+    ; Otsu threshold on luminance — used when options.threshold < 0.
+    sfn otsuThreshold:int (img:ImageBuffer) {
+        def hist:[int]
+        def i:int 0
+        while (i < 256) {
+            push hist 0
+            i = (i + 1)
+        }
+        def total:int (img.width * img.height)
+        if (total <= 0) {
+            return 128
+        }
+        def y:int 0
+        while (y < img.height) {
+            def x:int 0
+            while (x < img.width) {
+                def c:Color (img.getPixel(x y))
+                def g:int (c.grayscale())
+                def prev:int (itemAt hist g)
+                set hist g (prev + 1)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def sum:double 0.0
+        i = 0
+        while (i < 256) {
+            def cnt:int (itemAt hist i)
+            sum = (sum + ((to_double i) * (to_double cnt)))
+            i = (i + 1)
+        }
+        def sumB:double 0.0
+        def wB:int 0
+        def best:double (0.0 - 1.0)
+        def thr:int 128
+        i = 0
+        while (i < 256) {
+            def c2:int (itemAt hist i)
+            wB = (wB + c2)
+            if (wB > 0) {
+                def wF:int (total - wB)
+                if (wF > 0) {
+                    sumB = (sumB + ((to_double i) * (to_double c2)))
+                    def mB:double (sumB / (to_double wB))
+                    def mF:double ((sum - sumB) / (to_double wF))
+                    def diff:double (mB - mF)
+                    def between:double ((diff * diff) * (to_double wB) * (to_double wF))
+                    if (between > best) {
+                        best = between
+                        thr = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return thr
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Public entry
+    ; ----------------------------------------------------------------------
+
+    fn trace:void () {
+        def emptyR:[EvgTraceRing]
+        rings = emptyR
+        def emptyC:[PathCommand]
+        commands = emptyC
+        def emptyL:[EvgTraceLayer]
+        layers = emptyL
+        pathData = ""
+        if hasColorPlanes {
+            this.traceColorLayers()
+        } {
+            this.decompose()
+            this.emitCommands()
+            pathData = (VectorShapes.asPathData(commands))
+            ; Mono also exposes a single layer so callers can always use layers.
+            def layer (new EvgTraceLayer())
+            layer.fillHex = options.fillHex
+            layer.pathData = pathData
+            layer.ringCount = (array_length rings)
+            layer.commandCount = (array_length commands)
+            push layers layer
+        }
+    }
+
+    fn getCommands:[PathCommand] () {
+        return commands
+    }
+
+    fn getPathData:string () {
+        return pathData
+    }
+
+    fn ringCount:int () {
+        return (array_length rings)
+    }
+
+    fn commandCount:int () {
+        return (array_length commands)
+    }
+
+    fn layerCount:int () {
+        return (array_length layers)
+    }
+
+    fn getLayers:[EvgTraceLayer] () {
+        return layers
+    }
+
+    fn toPathBuilder:PathBuilder () {
+        def b (new PathBuilder())
+        b.addCommands(commands)
+        return b
+    }
+
+    fn toEVGElement:EVGElement () {
+        def el:EVGElement (EVGElement.createPath())
+        el.svgPath = pathData
+        el.fillRule = "evenodd"
+        el.viewBox = ("0 0 " + (to_string width) + " " + (to_string height))
+        el.fillColor = (EVGColor.parse(options.fillHex))
+        if ((array_length layers) > 0) {
+            def layer0:EvgTraceLayer (itemAt layers 0)
+            el.svgPath = layer0.pathData
+            el.fillColor = (EVGColor.parse(layer0.fillHex))
+        }
+        el.width = (EVGUnit.px((to_double width)))
+        el.height = (EVGUnit.px((to_double height)))
+        return el
+    }
+
+    ; One EVG path element per color layer (posterize / mono).
+    fn toEVGElements:[EVGElement] () {
+        def out:[EVGElement]
+        def i:int 0
+        while (i < (array_length layers)) {
+            def layer:EvgTraceLayer (itemAt layers i)
+            def el:EVGElement (EVGElement.createPath())
+            el.svgPath = layer.pathData
+            el.fillRule = "evenodd"
+            el.viewBox = ("0 0 " + (to_string width) + " " + (to_string height))
+            el.fillColor = (EVGColor.parse(layer.fillHex))
+            el.width = (EVGUnit.px((to_double width)))
+            el.height = (EVGUnit.px((to_double height)))
+            push out el
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn toSVG:string () {
+        def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+        svg = (svg + "width=\"" + (to_string width) + "\" ")
+        svg = (svg + "height=\"" + (to_string height) + "\" ")
+        svg = (svg + "viewBox=\"0 0 " + (to_string width) + " " + (to_string height) + "\">")
+        if ((array_length layers) > 0) {
+            def i:int 0
+            while (i < (array_length layers)) {
+                def layer:EvgTraceLayer (itemAt layers i)
+                svg = (svg + "<path fill=\"" + layer.fillHex + "\" fill-rule=\"evenodd\" d=\"" + layer.pathData + "\"/>")
+                i = (i + 1)
+            }
+        } {
+            svg = (svg + "<path fill=\"" + options.fillHex + "\" fill-rule=\"evenodd\" d=\"" + pathData + "\"/>")
+        }
+        svg = (svg + "</svg>")
+        return svg
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Multi-color posterize (quantize → per-swatch binary trace)
+    ; ----------------------------------------------------------------------
+
+    ; Distance that privileges luminance so foam / shadow steps stay separated
+    ; from similar-hue midtones (weighted Euclidean in RGB + strong luma term).
+    sfn colorDist2:int (r0:int g0:int b0:int r1:int g1:int b1:int) {
+        def dr:int (r0 - r1)
+        def dg:int (g0 - g1)
+        def db:int (b0 - b1)
+        def l0:int (EvgBitmapTracer.lumaOf(r0 g0 b0))
+        def l1:int (EvgBitmapTracer.lumaOf(r1 g1 b1))
+        def dl:int (l0 - l1)
+        ; 12× on luma keeps bright foam from collapsing into gray-blue water.
+        return ((((dr * dr) + (dg * dg)) + (db * db)) + ((dl * dl) * 12))
+    }
+
+    sfn lumaOf:int (r:int g:int b:int) {
+        ; Integer approx of 0.299R+0.587G+0.114B
+        return (idiv (((r * 299) + (g * 587)) + (b * 114)) 1000)
+    }
+
+    ; True if this opaque pixel may join the palette / masks.
+    fn pixelAllowed:boolean (i:int) {
+        def a:int (itemAt planeA i)
+        if (a < 16) {
+            return false
+        }
+        def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
+        return (lum < options.skipLuma)
+    }
+
+    ; Build up to `want` palette centers. Seeds always include the darkest and
+    ; lightest allowed pixels so luminance extremes (wave foam, deep navy) survive.
+    fn buildPalette:void (want:int outR:[int] outG:[int] outB:[int]) {
+        def n:int (array_length planeR)
+        def darkI:int (0 - 1)
+        def lightI:int (0 - 1)
+        def darkL:int 256
+        def lightL:int (0 - 1)
+        def si:int 0
+        while (si < n) {
+            if (this.pixelAllowed(si)) {
+                def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR si) (itemAt planeG si) (itemAt planeB si)))
+                if (lum < darkL) {
+                    darkL = lum
+                    darkI = si
+                }
+                if (lum > lightL) {
+                    lightL = lum
+                    lightI = si
+                }
+            }
+            si = (si + 1)
+        }
+        if (darkI < 0) {
+            return
+        }
+        push outR (itemAt planeR darkI)
+        push outG (itemAt planeG darkI)
+        push outB (itemAt planeB darkI)
+        if ((lightI >= 0) && (lightI != darkI) && (want > 1)) {
+            push outR (itemAt planeR lightI)
+            push outG (itemAt planeG lightI)
+            push outB (itemAt planeB lightI)
+        }
+        ; Farthest-point fill for remaining slots (luma-weighted distance).
+        while ((array_length outR) < want) {
+            def bestI:int (0 - 1)
+            def bestD:int (0 - 1)
+            def i:int 0
+            while (i < n) {
+                if (this.pixelAllowed(i)) {
+                    def pr:int (itemAt planeR i)
+                    def pg:int (itemAt planeG i)
+                    def pb:int (itemAt planeB i)
+                    def minD:int 2147483647
+                    def j:int 0
+                    def k0:int (array_length outR)
+                    while (j < k0) {
+                        def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
+                        if (d < minD) {
+                            minD = d
+                        }
+                        j = (j + 1)
+                    }
+                    if (minD > bestD) {
+                        bestD = minD
+                        bestI = i
+                    }
+                }
+                i = (i + 1)
+            }
+            if ((bestI < 0) || (bestD <= 0)) {
+                want = (array_length outR)
+            } {
+                push outR (itemAt planeR bestI)
+                push outG (itemAt planeG bestI)
+                push outB (itemAt planeB bestI)
+            }
+        }
+        ; A few assignment / mean update passes.
+        def pass:int 0
+        while (pass < 6) {
+            def k:int (array_length outR)
+            def sumR:[int]
+            def sumG:[int]
+            def sumB:[int]
+            def cnt:[int]
+            def ki:int 0
+            while (ki < k) {
+                push sumR 0
+                push sumG 0
+                push sumB 0
+                push cnt 0
+                ki = (ki + 1)
+            }
+            def i:int 0
+            while (i < n) {
+                def a2:int (itemAt planeA i)
+                if (a2 >= 16) {
+                    def pr:int (itemAt planeR i)
+                    def pg:int (itemAt planeG i)
+                    def pb:int (itemAt planeB i)
+                    def lum2:int (EvgBitmapTracer.lumaOf(pr pg pb))
+                    if (lum2 < options.skipLuma) {
+                        def best:int 0
+                        def bestD:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR 0) (itemAt outG 0) (itemAt outB 0)))
+                        def j:int 1
+                        while (j < k) {
+                            def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
+                            if (d < bestD) {
+                                bestD = d
+                                best = j
+                            }
+                            j = (j + 1)
+                        }
+                        set sumR best ((itemAt sumR best) + pr)
+                        set sumG best ((itemAt sumG best) + pg)
+                        set sumB best ((itemAt sumB best) + pb)
+                        set cnt best ((itemAt cnt best) + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            ki = 0
+            while (ki < k) {
+                def cN:int (itemAt cnt ki)
+                if (cN > 0) {
+                    set outR ki (idiv (itemAt sumR ki) cN)
+                    set outG ki (idiv (itemAt sumG ki) cN)
+                    set outB ki (idiv (itemAt sumB ki) cN)
+                }
+                ki = (ki + 1)
+            }
+            pass = (pass + 1)
+        }
+        ; Sort palette dark → light (ascending luma). Masks are disjoint so
+        ; paint order is mostly cosmetic; lightest (foam) ends up last.
+        def k2:int (array_length outR)
+        def a:int 0
+        while (a < k2) {
+            def bIdx:int (a + 1)
+            while (bIdx < k2) {
+                def la:int (EvgBitmapTracer.lumaOf((itemAt outR a) (itemAt outG a) (itemAt outB a)))
+                def lb:int (EvgBitmapTracer.lumaOf((itemAt outR bIdx) (itemAt outG bIdx) (itemAt outB bIdx)))
+                if (la > lb) {
+                    def tr:int (itemAt outR a)
+                    def tg:int (itemAt outG a)
+                    def tb:int (itemAt outB a)
+                    set outR a (itemAt outR bIdx)
+                    set outG a (itemAt outG bIdx)
+                    set outB a (itemAt outB bIdx)
+                    set outR bIdx tr
+                    set outG bIdx tg
+                    set outB bIdx tb
+                }
+                bIdx = (bIdx + 1)
+            }
+            a = (a + 1)
+        }
+    }
+
+    fn hexFromRgb:string (r:int g:int b:int) {
+        def c:EVGColor (EVGColor.rgb(r g b))
+        return (c.toHexString())
+    }
+
+    fn maskForColor:EvgBinaryBitmap (cr:int cg:int cb:int palR:[int] palG:[int] palB:[int] colorIndex:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+        def n:int (array_length planeR)
+        def k:int (array_length palR)
+        def i:int 0
+        while (i < n) {
+            def a:int (itemAt planeA i)
+            if (a >= 16) {
+                def pr:int (itemAt planeR i)
+                def pg:int (itemAt planeG i)
+                def pb:int (itemAt planeB i)
+                def lum:int (EvgBitmapTracer.lumaOf(pr pg pb))
+                if (lum < options.skipLuma) {
+                    def best:int 0
+                    def bestD:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR 0) (itemAt palG 0) (itemAt palB 0)))
+                    def j:int 1
+                    while (j < k) {
+                        def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR j) (itemAt palG j) (itemAt palB j)))
+                        if (d < bestD) {
+                            bestD = d
+                            best = j
+                        }
+                        j = (j + 1)
+                    }
+                    if (best == colorIndex) {
+                        def y:int (idiv i width)
+                        def x:int (i - (y * width))
+                        bm.setBit(x y true)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return bm
+    }
+
+    fn traceColorLayers:void () {
+        def want:int options.colorCount
+        if (want < 2) {
+            want = 2
+        }
+        def palR:[int]
+        def palG:[int]
+        def palB:[int]
+        this.buildPalette(want palR palG palB)
+        def k:int (array_length palR)
+        def li:int 0
+        def allCmds:[PathCommand]
+        while (li < k) {
+            def cr:int (itemAt palR li)
+            def cg:int (itemAt palG li)
+            def cb:int (itemAt palB li)
+            def mask:EvgBinaryBitmap (this.maskForColor(cr cg cb palR palG palB li))
+            def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            layerOpts.turdsize = options.turdsize
+            layerOpts.alphamax = options.alphamax
+            layerOpts.turnpolicy = options.turnpolicy
+            layerOpts.optcurve = options.optcurve
+            layerOpts.opttolerance = options.opttolerance
+            layerOpts.fillHex = (this.hexFromRgb(cr cg cb))
+            def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+            sub.trace()
+            if ((sub.ringCount()) > 0) {
+                def layer:EvgTraceLayer (itemAt sub.layers 0)
+                push layers layer
+                def cmds:[PathCommand] (sub.getCommands())
+                def ci:int 0
+                while (ci < (array_length cmds)) {
+                    push allCmds (itemAt cmds ci)
+                    ci = (ci + 1)
+                }
+                ; Keep mono-compatible aggregates: last non-empty path + total rings.
+                pathData = layer.pathData
+                rings = sub.rings
+            }
+            li = (li + 1)
+        }
+        commands = allCmds
+        if ((array_length layers) > 0) {
+            def first:EvgTraceLayer (itemAt layers 0)
+            pathData = first.pathData
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 1. Path decomposition (Potrace-style edge walk)
+    ; ----------------------------------------------------------------------
+
+    fn decompose:void () {
+        def work:EvgBinaryBitmap (bitmap.copy())
+        def start:int 0
+        while (start >= 0) {
+            def idx:int (work.findNext(start))
+            if (idx < 0) {
+                start = (0 - 1)
+            } {
+                def y0:int (idiv idx work.w)
+                def x0:int (idx - (y0 * work.w))
+                def ring:EvgTraceRing (this.findPath(work x0 y0))
+                this.xorPath(work ring)
+                def a:int (EvgBitmapTracer.absI(ring.area))
+                if (a > options.turdsize) {
+                    push rings ring
+                }
+                start = idx
+            }
+        }
+    }
+
+    fn majorityAt:boolean (bm:EvgBinaryBitmap x:int y:int) {
+        def i:int 2
+        while (i < 5) {
+            def ct:int 0
+            def a:int (0 - i + 1)
+            while (a <= (i - 1)) {
+                if (bm.at((x + a) (y + i - 1))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                if (bm.at((x + i - 1) (y + a - 1))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                if (bm.at((x + a - 1) (y - i))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                if (bm.at((x - i) (y + a))) {
+                    ct = (ct + 1)
+                } {
+                    ct = (ct - 1)
+                }
+                a = (a + 1)
+            }
+            if (ct > 0) {
+                return true
+            }
+            if (ct < 0) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn shouldTurnRight:boolean (bm:EvgBinaryBitmap path:EvgTraceRing x:int y:int) {
+        def pol:string options.turnpolicy
+        if (pol == "right") {
+            return true
+        }
+        if (pol == "left") {
+            return false
+        }
+        if (pol == "black") {
+            return (path.sign == "+")
+        }
+        if (pol == "white") {
+            return (path.sign == "-")
+        }
+        if (pol == "majority") {
+            return (this.majorityAt(bm x y))
+        }
+        ; minority (default): turn right when majority is false
+        def maj:boolean (this.majorityAt(bm x y))
+        return (maj == false)
+    }
+
+    fn findPath:EvgTraceRing (bm:EvgBinaryBitmap x0:int y0:int) {
+        def path (new EvgTraceRing())
+        path.minX = x0
+        path.maxX = x0
+        path.minY = y0
+        path.maxY = y0
+        if (bitmap.at(x0 y0)) {
+            path.sign = "+"
+        } {
+            path.sign = "-"
+        }
+        def x:int x0
+        def y:int y0
+        def dirx:int 0
+        def diry:int 1
+        def done:boolean false
+        def guard:int 0
+        def limit:int ((bm.w * bm.h) * 8)
+        if (limit < 64) {
+            limit = 64
+        }
+        while (done == false) {
+            if (guard >= limit) {
+                done = true
+            } {
+                push path.pts (EvgTracePoint.ofInt(x y))
+                if (x > path.maxX) {
+                    path.maxX = x
+                }
+                if (x < path.minX) {
+                    path.minX = x
+                }
+                if (y > path.maxY) {
+                    path.maxY = y
+                }
+                if (y < path.minY) {
+                    path.minY = y
+                }
+                x = (x + dirx)
+                y = (y + diry)
+                path.area = (path.area - (x * diry))
+                if ((x == x0) && (y == y0)) {
+                    done = true
+                } {
+                    ; Left / right samples in the half-cell neighbours of the step.
+                    def lx:int (EvgBitmapTracer.idivTowardZero(((dirx + diry) - 1) 2))
+                    def ly:int (EvgBitmapTracer.idivTowardZero(((diry - dirx) - 1) 2))
+                    def rx:int (EvgBitmapTracer.idivTowardZero(((dirx - diry) - 1) 2))
+                    def ry:int (EvgBitmapTracer.idivTowardZero(((diry + dirx) - 1) 2))
+                    def l:boolean (bm.at((x + lx) (y + ly)))
+                    def r:boolean (bm.at((x + rx) (y + ry)))
+                    if r {
+                        if (l == false) {
+                            if (this.shouldTurnRight(bm path x y)) {
+                                def tmp:int dirx
+                                dirx = (0 - diry)
+                                diry = tmp
+                            } {
+                                def tmp2:int dirx
+                                dirx = diry
+                                diry = (0 - tmp2)
+                            }
+                        } {
+                            def tmp3:int dirx
+                            dirx = (0 - diry)
+                            diry = tmp3
+                        }
+                    } {
+                        if (l == false) {
+                            def tmp4:int dirx
+                            dirx = diry
+                            diry = (0 - tmp4)
+                        }
+                    }
+                }
+                guard = (guard + 1)
+            }
+        }
+        return path
+    }
+
+    fn xorPath:void (bm:EvgBinaryBitmap path:EvgTraceRing) {
+        def n:int (path.len())
+        if (n < 2) {
+            return
+        }
+        def p0:EvgTracePoint (itemAt path.pts 0)
+        def y1:int (to_int p0.y)
+        def i:int 1
+        while (i < n) {
+            def p:EvgTracePoint (itemAt path.pts i)
+            def x:int (to_int p.x)
+            def y:int (to_int p.y)
+            if (y != y1) {
+                def minY:int y1
+                if (y < y1) {
+                    minY = y
+                }
+                def j:int x
+                while (j < path.maxX) {
+                    bm.flip(j minY)
+                    j = (j + 1)
+                }
+                y1 = y
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 2–4. Optimal polygon + alphamax smooth + optiCurve → path commands
+    ; ----------------------------------------------------------------------
+
+    ; When optcurve is false: emit the optimal polygon as straight edges.
+    ; When true: alphamax smooth followed by optiCurve (Potrace default).
+    fn emitCommands:void () {
+        def out:[PathCommand]
+        def ri:int 0
+        while (ri < (array_length rings)) {
+            def ring:EvgTraceRing (itemAt rings ri)
+            def poly:[EvgTracePoint] (EvgTraceFit.fitRing(ring))
+            def n:int (array_length poly)
+            if (n >= 3) {
+                ; Potrace reverses negative (hole) polygons so evenodd winding matches.
+                if (ring.sign == "-") {
+                    def rev:[EvgTracePoint]
+                    def ri2:int (n - 1)
+                    while (ri2 >= 0) {
+                        push rev (itemAt poly ri2)
+                        ri2 = (ri2 - 1)
+                    }
+                    poly = rev
+                }
+                if options.optcurve {
+                    def curve:EvgTraceCurve (EvgTraceCurve.fromPolygon(poly options.alphamax))
+                    def opt:EvgTraceCurve (curve.optimize(options.opttolerance))
+                    opt.emit(out)
+                } {
+                    this.appendPolygon(out poly)
+                }
+            }
+            ri = (ri + 1)
+        }
+        commands = out
+    }
+
+    fn appendPolygon:void (out:[PathCommand] poly:[EvgTracePoint]) {
+        def n:int (array_length poly)
+        def p0:EvgTracePoint (itemAt poly 0)
+        push out (VectorShapes.moveTo(p0.x p0.y))
+        def i:int 1
+        while (i < n) {
+            def p:EvgTracePoint (itemAt poly i)
+            push out (VectorShapes.lineTo(p.x p.y))
+            i = (i + 1)
+        }
+        push out (VectorShapes.closePath())
+    }
+}

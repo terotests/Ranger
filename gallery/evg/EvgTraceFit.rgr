@@ -1,0 +1,767 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgTraceFit.rgr — optimal polygon + vertex adjust (Potrace paper §2.2)
+; ==============================================================================
+;
+; Clean-room implementation of the polygon phase described in
+; Peter Selinger, "Potrace: a polygon-based tracing algorithm" (2003):
+;
+;   1. prefix sums over the closed edge path
+;   2. longest "straight" pivot from each vertex (lon[])
+;   3. dynamic-programming optimal polygon (minimum segment count, then penalty)
+;   4. least-squares vertex adjustment into the unit square around each pivot
+;
+; Curve smoothing / optiCurve live in EvgBitmapTracer (alphamax stage). This
+; file is the hard part that RDP was standing in for — without it, axis-aligned
+; rects do not collapse to four corners and the SVG stays noisy.
+;
+; Not a derivative of the GPL Potrace sources.
+; ==============================================================================
+
+Import "EvgTraceTypes.rgr"
+
+class EvgTraceSum {
+    def x:double 0.0
+    def y:double 0.0
+    def xy:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+
+    Constructor () {
+    }
+
+    sfn of:EvgTraceSum (x:double y:double xy:double x2:double y2:double) {
+        def s (new EvgTraceSum())
+        s.x = x
+        s.y = y
+        s.xy = xy
+        s.x2 = x2
+        s.y2 = y2
+        return s
+    }
+}
+
+class EvgTraceFit {
+    def pts:[EvgTracePoint]
+    def n:int 0
+    def x0:double 0.0
+    def y0:double 0.0
+    def sums:[EvgTraceSum]
+    def lon:[int]
+    def po:[int]
+    def m:int 0
+    def vertex:[EvgTracePoint]
+
+    Constructor () {
+        def p:[EvgTracePoint]
+        pts = p
+        def s:[EvgTraceSum]
+        sums = s
+        def l:[int]
+        lon = l
+        def o:[int]
+        po = o
+        def v:[EvgTracePoint]
+        vertex = v
+    }
+
+    sfn absD:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn signI:int (v:int) {
+        if (v > 0) {
+            return 1
+        }
+        if (v < 0) {
+            return (0 - 1)
+        }
+        return 0
+    }
+
+    sfn modI:int (a:int n:int) {
+        if (n <= 0) {
+            return 0
+        }
+        def r:int (a - ((idiv a n) * n))
+        if (r < 0) {
+            r = (r + n)
+        }
+        return r
+    }
+
+    sfn cyclic:boolean (a:int b:int c:int) {
+        if (a <= c) {
+            return ((a <= b) && (b < c))
+        }
+        return ((a <= b) || (b < c))
+    }
+
+    sfn xprod:int (ax:int ay:int bx:int by:int) {
+        return ((ax * by) - (ay * bx))
+    }
+
+    ; Fit one closed edge-walk to an adjusted polygon. Returns vertices in
+    ; order around the ring (at least 3, or empty on failure).
+    sfn fitRing:[EvgTracePoint] (ring:EvgTraceRing) {
+        def fit (new EvgTraceFit())
+        return (fit.run(ring))
+    }
+
+    fn run:[EvgTracePoint] (ring:EvgTraceRing) {
+        def empty:[EvgTracePoint]
+        def src:[EvgTracePoint] ring.pts
+        def rawN:int (array_length src)
+        if (rawN < 3) {
+            return empty
+        }
+        ; Dedup consecutive identical points; drop closing duplicate if present.
+        def cleaned:[EvgTracePoint]
+        def i:int 0
+        while (i < rawN) {
+            def p:EvgTracePoint (itemAt src i)
+            if ((array_length cleaned) == 0) {
+                push cleaned p
+            } {
+                def prev:EvgTracePoint (itemAt cleaned ((array_length cleaned) - 1))
+                if ((prev.x == p.x) && (prev.y == p.y)) {
+                } {
+                    push cleaned p
+                }
+            }
+            i = (i + 1)
+        }
+        def cn:int (array_length cleaned)
+        if (cn >= 2) {
+            def first:EvgTracePoint (itemAt cleaned 0)
+            def last:EvgTracePoint (itemAt cleaned (cn - 1))
+            if ((first.x == last.x) && (first.y == last.y)) {
+                def trimmed:[EvgTracePoint]
+                def k:int 0
+                while (k < (cn - 1)) {
+                    push trimmed (itemAt cleaned k)
+                    k = (k + 1)
+                }
+                cleaned = trimmed
+                cn = (array_length cleaned)
+            }
+        }
+        if (cn < 3) {
+            return empty
+        }
+        pts = cleaned
+        n = cn
+        def p0:EvgTracePoint (itemAt pts 0)
+        x0 = p0.x
+        y0 = p0.y
+        this.calcSums()
+        this.calcLon()
+        this.bestPolygon()
+        if (m < 3) {
+            return empty
+        }
+        this.adjustVertices()
+        return vertex
+    }
+
+    ; ------------------------------------------------------------------
+    fn calcSums:void () {
+        def s:[EvgTraceSum]
+        push s (EvgTraceSum.of(0.0 0.0 0.0 0.0 0.0))
+        def i:int 0
+        while (i < n) {
+            def p:EvgTracePoint (itemAt pts i)
+            def x:double (p.x - x0)
+            def y:double (p.y - y0)
+            def prev:EvgTraceSum (itemAt s i)
+            push s (EvgTraceSum.of((prev.x + x) (prev.y + y) (prev.xy + (x * y)) (prev.x2 + (x * x)) (prev.y2 + (y * y))))
+            i = (i + 1)
+        }
+        sums = s
+    }
+
+    ; Longest straight pivot from each vertex — paper §2.2.1–2.2.2.
+    ; A segment is straight if every point lies in a 1/2-neighbourhood of some
+    ; chord and the walk does not use all four compass directions.
+    fn calcLon:void () {
+        def pivk:[int]
+        def nc:[int]
+        def i:int 0
+        while (i < n) {
+            push pivk 0
+            push nc 0
+            i = (i + 1)
+        }
+        def k:int 0
+        i = (n - 1)
+        while (i >= 0) {
+            def pi:EvgTracePoint (itemAt pts i)
+            def pk:EvgTracePoint (itemAt pts k)
+            if ((pi.x != pk.x) && (pi.y != pk.y)) {
+                k = (i + 1)
+            }
+            set nc i k
+            i = (i - 1)
+        }
+
+        i = (n - 1)
+        while (i >= 0) {
+            def ct0:int 0
+            def ct1:int 0
+            def ct2:int 0
+            def ct3:int 0
+            def pi2:EvgTracePoint (itemAt pts i)
+            def piNext:EvgTracePoint (itemAt pts (EvgTraceFit.modI((i + 1) n)))
+            def dx0:int (to_int (piNext.x - pi2.x))
+            def dy0:int (to_int (piNext.y - pi2.y))
+            def dirNum0:int (3 + ((3 * dx0) + dy0))
+            def dir0:int (idiv dirNum0 2)
+            if (dir0 == 0) { ct0 = (ct0 + 1) }
+            if (dir0 == 1) { ct1 = (ct1 + 1) }
+            if (dir0 == 2) { ct2 = (ct2 + 1) }
+            if (dir0 == 3) { ct3 = (ct3 + 1) }
+
+            def c0x:int 0
+            def c0y:int 0
+            def c1x:int 0
+            def c1y:int 0
+            def kk:int (itemAt nc i)
+            def k1:int i
+            def found:boolean false
+            def guard:int 0
+            while ((found == false) && (guard < (n + 2))) {
+                def pk1:EvgTracePoint (itemAt pts kk)
+                def pk0:EvgTracePoint (itemAt pts k1)
+                def sdx:int (EvgTraceFit.signI((to_int (pk1.x - pk0.x))))
+                def sdy:int (EvgTraceFit.signI((to_int (pk1.y - pk0.y))))
+                def dirNum:int (3 + ((3 * sdx) + sdy))
+                def dir:int (idiv dirNum 2)
+                if (dir == 0) { ct0 = (ct0 + 1) }
+                if (dir == 1) { ct1 = (ct1 + 1) }
+                if (dir == 2) { ct2 = (ct2 + 1) }
+                if (dir == 3) { ct3 = (ct3 + 1) }
+                if ((((ct0 > 0) && (ct1 > 0)) && (ct2 > 0)) && (ct3 > 0)) {
+                    set pivk i k1
+                    found = true
+                } {
+                    def curx:int (to_int (pk1.x - pi2.x))
+                    def cury:int (to_int (pk1.y - pi2.y))
+                    if (((EvgTraceFit.xprod(c0x c0y curx cury)) < 0) || ((EvgTraceFit.xprod(c1x c1y curx cury)) > 0)) {
+                        guard = (n + 2)
+                    } {
+                        def ax:int (EvgTraceFit.absI(curx))
+                        def ay:int (EvgTraceFit.absI(cury))
+                        if ((ax > 1) || (ay > 1)) {
+                            def off0x:int curx
+                            def off0y:int cury
+                            if ((cury > 0) || ((cury == 0) && (curx < 0))) {
+                                off0x = (curx + 1)
+                            } {
+                                off0x = (curx - 1)
+                            }
+                            if ((curx < 0) || ((curx == 0) && (cury < 0))) {
+                                off0y = (cury + 1)
+                            } {
+                                off0y = (cury - 1)
+                            }
+                            ; constraint[0] update when xprod >= 0
+                            ; Recompute off0 with paper rules:
+                            off0x = curx
+                            off0y = cury
+                            if ((cury >= 0) && ((cury > 0) || (curx < 0))) {
+                                off0x = (curx + 1)
+                            } {
+                                off0x = (curx - 1)
+                            }
+                            if ((curx <= 0) && ((curx < 0) || (cury < 0))) {
+                                off0y = (cury + 1)
+                            } {
+                                off0y = (cury - 1)
+                            }
+                            if ((EvgTraceFit.xprod(c0x c0y off0x off0y)) >= 0) {
+                                c0x = off0x
+                                c0y = off0y
+                            }
+                            def off1x:int curx
+                            def off1y:int cury
+                            if ((cury <= 0) && ((cury < 0) || (curx < 0))) {
+                                off1x = (curx + 1)
+                            } {
+                                off1x = (curx - 1)
+                            }
+                            if ((curx >= 0) && ((curx > 0) || (cury < 0))) {
+                                off1y = (cury + 1)
+                            } {
+                                off1y = (cury - 1)
+                            }
+                            if ((EvgTraceFit.xprod(c1x c1y off1x off1y)) <= 0) {
+                                c1x = off1x
+                                c1y = off1y
+                            }
+                        }
+                        k1 = kk
+                        kk = (itemAt nc k1)
+                        if ((EvgTraceFit.cyclic(kk i k1)) == false) {
+                            guard = (n + 2)
+                        }
+                    }
+                }
+                guard = (guard + 1)
+            }
+            if (found == false) {
+                def pkA:EvgTracePoint (itemAt pts kk)
+                def pkB:EvgTracePoint (itemAt pts k1)
+                def dkx:int (EvgTraceFit.signI((to_int (pkA.x - pkB.x))))
+                def dky:int (EvgTraceFit.signI((to_int (pkA.y - pkB.y))))
+                def cur2x:int (to_int (pkB.x - pi2.x))
+                def cur2y:int (to_int (pkB.y - pi2.y))
+                def a:int (EvgTraceFit.xprod(c0x c0y cur2x cur2y))
+                def b:int (EvgTraceFit.xprod(c0x c0y dkx dky))
+                def c:int (EvgTraceFit.xprod(c1x c1y cur2x cur2y))
+                def d:int (EvgTraceFit.xprod(c1x c1y dkx dky))
+                def j:int 10000000
+                if (b < 0) {
+                    j = (idiv a (0 - b))
+                }
+                if (d > 0) {
+                    def j2:int (idiv (0 - c) d)
+                    if (j2 < j) {
+                        j = j2
+                    }
+                }
+                set pivk i (EvgTraceFit.modI((k1 + j) n))
+            }
+            i = (i - 1)
+        }
+
+        def lonOut:[int]
+        i = 0
+        while (i < n) {
+            push lonOut 0
+            i = (i + 1)
+        }
+        def jLon:int (itemAt pivk (n - 1))
+        set lonOut (n - 1) jLon
+        i = (n - 2)
+        while (i >= 0) {
+            if (EvgTraceFit.cyclic((i + 1) (itemAt pivk i) jLon)) {
+                jLon = (itemAt pivk i)
+            }
+            set lonOut i jLon
+            i = (i - 1)
+        }
+        i = (n - 1)
+        while (i >= 0) {
+            if (EvgTraceFit.cyclic((EvgTraceFit.modI((i + 1) n)) jLon (itemAt lonOut i))) {
+                set lonOut i jLon
+                i = (i - 1)
+            } {
+                i = (0 - 1)
+            }
+        }
+        lon = lonOut
+    }
+
+    sfn absI:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; Penalty for a candidate segment i→j (paper §2.2.3).
+    fn penalty3:double (i:int jIn:int) {
+        def j:int jIn
+        def r:int 0
+        if (j >= n) {
+            j = (j - n)
+            r = 1
+        }
+        def si:EvgTraceSum (itemAt sums i)
+        def sj:EvgTraceSum (itemAt sums (j + 1))
+        def sn:EvgTraceSum (itemAt sums n)
+        def x:double (sj.x - si.x)
+        def y:double (sj.y - si.y)
+        def x2:double (sj.x2 - si.x2)
+        def xy:double (sj.xy - si.xy)
+        def y2:double (sj.y2 - si.y2)
+        def k:double (to_double ((j + 1) - i))
+        if (r != 0) {
+            x = (x + sn.x)
+            y = (y + sn.y)
+            x2 = (x2 + sn.x2)
+            xy = (xy + sn.xy)
+            y2 = (y2 + sn.y2)
+            k = (k + (to_double n))
+        }
+        def pi:EvgTracePoint (itemAt pts i)
+        def pj:EvgTracePoint (itemAt pts j)
+        def pOrig:EvgTracePoint (itemAt pts 0)
+        def px:double ((((pi.x + pj.x) / 2.0) - pOrig.x))
+        def py:double ((((pi.y + pj.y) / 2.0) - pOrig.y))
+        def ey:double (pj.x - pi.x)
+        def ex:double (0.0 - (pj.y - pi.y))
+        def a:double ((((x2 - ((2.0 * x) * px)) / k) + (px * px)))
+        def b:double (((((xy - (x * py)) - (y * px)) / k) + (px * py)))
+        def c:double ((((y2 - ((2.0 * y) * py)) / k) + (py * py)))
+        def s:double ((((ex * ex) * a) + (((2.0 * ex) * ey) * b)) + ((ey * ey) * c))
+        if (s < 0.0) {
+            s = 0.0
+        }
+        return (sqrt s)
+    }
+
+    fn bestPolygon:void () {
+        def clip0:[int]
+        def clip1:[int]
+        def seg0:[int]
+        def seg1:[int]
+        def pen:[double]
+        def prev:[int]
+        def i:int 0
+        while (i < n) {
+            push clip0 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i <= n) {
+            push clip1 0
+            push seg0 0
+            push seg1 0
+            push pen (0.0 - 1.0)
+            push prev 0
+            i = (i + 1)
+        }
+        set pen 0 0.0
+
+        i = 0
+        while (i < n) {
+            def c:int (EvgTraceFit.modI(((itemAt lon (EvgTraceFit.modI((i - 1) n))) - 1) n))
+            if (c == i) {
+                c = (EvgTraceFit.modI((i + 1) n))
+            }
+            if (c < i) {
+                set clip0 i n
+            } {
+                set clip0 i c
+            }
+            i = (i + 1)
+        }
+
+        def j:int 1
+        i = 0
+        while (i < n) {
+            while (j <= (itemAt clip0 i)) {
+                set clip1 j i
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+
+        i = 0
+        j = 0
+        while (i < n) {
+            set seg0 j i
+            i = (itemAt clip0 i)
+            j = (j + 1)
+        }
+        set seg0 j n
+        m = j
+
+        i = n
+        j = m
+        while (j > 0) {
+            set seg1 j i
+            i = (itemAt clip1 i)
+            j = (j - 1)
+        }
+        set seg1 0 0
+
+        j = 1
+        while (j <= m) {
+            i = (itemAt seg1 j)
+            while (i <= (itemAt seg0 j)) {
+                def best:double (0.0 - 1.0)
+                def bestK:int 0
+                def k:int (itemAt seg0 (j - 1))
+                while (k >= (itemAt clip1 i)) {
+                    def thispen:double (this.penalty3(k i))
+                    def prevPen:double (itemAt pen k)
+                    def total:double (thispen + prevPen)
+                    if ((best < 0.0) || (total < best)) {
+                        best = total
+                        bestK = k
+                    }
+                    k = (k - 1)
+                }
+                set pen i best
+                set prev i bestK
+                i = (i + 1)
+            }
+            j = (j + 1)
+        }
+
+        def poOut:[int]
+        i = 0
+        while (i < m) {
+            push poOut 0
+            i = (i + 1)
+        }
+        i = n
+        j = (m - 1)
+        while (i > 0) {
+            i = (itemAt prev i)
+            set poOut j i
+            j = (j - 1)
+        }
+        po = poOut
+    }
+
+    ; Least-squares vertex placement inside the unit square of each pivot
+    ; (Potrace paper §2.2.4 / adjustVertices). For each polygon edge, fit a
+    ; line (centroid + direction) to the underlying path points; at each
+    ; vertex minimise the sum of squared distances to the two adjacent lines,
+    ; clamped to the 1×1 pixel square around the integer pivot.
+    fn adjustVertices:void () {
+        def ctr:[EvgTracePoint]
+        def dir:[EvgTracePoint]
+        def i:int 0
+        while (i < m) {
+            push ctr (EvgTracePoint.of(0.0 0.0))
+            push dir (EvgTracePoint.of(0.0 0.0))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < m) {
+            def j:int (itemAt po (EvgTraceFit.modI((i + 1) m)))
+            def jj:int ((EvgTraceFit.modI((j - (itemAt po i)) n)) + (itemAt po i))
+            def c:EvgTracePoint (EvgTracePoint.of(0.0 0.0))
+            def d:EvgTracePoint (EvgTracePoint.of(0.0 0.0))
+            this.pointslope((itemAt po i) jj c d)
+            set ctr i c
+            set dir i d
+            i = (i + 1)
+        }
+
+        ; Quadratic forms Q[i]: v^T Q v = squared distance to line i.
+        ; Stored as 9 doubles per edge: row-major 3×3.
+        def qdata:[double]
+        i = 0
+        while (i < (m * 9)) {
+            push qdata 0.0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < m) {
+            def di:EvgTracePoint (itemAt dir i)
+            def ci:EvgTracePoint (itemAt ctr i)
+            def d2:double ((di.x * di.x) + (di.y * di.y))
+            def base:int (i * 9)
+            if (d2 == 0.0) {
+                ; zero form already
+            } {
+                def v0:double di.y
+                def v1:double (0.0 - di.x)
+                def v2:double ((0.0 - (v1 * ci.y)) - (v0 * ci.x))
+                def l:int 0
+                while (l < 3) {
+                    def k:int 0
+                    while (k < 3) {
+                        def vl:double v0
+                        if (l == 1) { vl = v1 }
+                        if (l == 2) { vl = v2 }
+                        def vk:double v0
+                        if (k == 1) { vk = v1 }
+                        if (k == 2) { vk = v2 }
+                        set qdata ((base + (l * 3)) + k) ((vl * vk) / d2)
+                        k = (k + 1)
+                    }
+                    l = (l + 1)
+                }
+            }
+            i = (i + 1)
+        }
+
+        def out:[EvgTracePoint]
+        i = 0
+        while (i < m) {
+            def iPrev:int (EvgTraceFit.modI((i - 1) m))
+            def Q:[double]
+            def t:int 0
+            while (t < 9) {
+                push Q 0.0
+                t = (t + 1)
+            }
+            t = 0
+            while (t < 9) {
+                def a:double (itemAt qdata ((iPrev * 9) + t))
+                def b:double (itemAt qdata ((i * 9) + t))
+                set Q t (a + b)
+                t = (t + 1)
+            }
+            def pCur:EvgTracePoint (itemAt pts (itemAt po i))
+            def sx:double (pCur.x - x0)
+            def sy:double (pCur.y - y0)
+            def wx:double sx
+            def wy:double sy
+
+            ; Try to solve the 2×2 system from ∂Q/∂x = ∂Q/∂y = 0.
+            def q00:double (itemAt Q 0)
+            def q01:double (itemAt Q 1)
+            def q02:double (itemAt Q 2)
+            def q10:double (itemAt Q 3)
+            def q11:double (itemAt Q 4)
+            def q12:double (itemAt Q 5)
+            def det:double ((q00 * q11) - (q01 * q10))
+            def solved:boolean false
+            if (det != 0.0) {
+                wx = ((((0.0 - q02) * q11) + (q12 * q01)) / det)
+                wy = (((q02 * q10) - (q12 * q00)) / det)
+                solved = true
+            }
+            def dx:double (EvgTraceFit.absD((wx - sx)))
+            def dy:double (EvgTraceFit.absD((wy - sy)))
+            if ((solved == false) || (dx > 0.5) || (dy > 0.5)) {
+                ; Fall back: pick the minimum of Q over the unit square corners
+                ; and edge midpoints around the pivot.
+                def best:double (this.quadform(Q sx sy))
+                def bx:double sx
+                def by:double sy
+                def cand:[double]
+                ; edges
+                push cand (sx - 0.5)
+                push cand sy
+                push cand (sx + 0.5)
+                push cand sy
+                push cand sx
+                push cand (sy - 0.5)
+                push cand sx
+                push cand (sy + 0.5)
+                ; corners
+                push cand (sx - 0.5)
+                push cand (sy - 0.5)
+                push cand (sx + 0.5)
+                push cand (sy - 0.5)
+                push cand (sx - 0.5)
+                push cand (sy + 0.5)
+                push cand (sx + 0.5)
+                push cand (sy + 0.5)
+                def ci:int 0
+                while (ci < (array_length cand)) {
+                    def cx:double (itemAt cand ci)
+                    def cy:double (itemAt cand (ci + 1))
+                    def val:double (this.quadform(Q cx cy))
+                    if (val < best) {
+                        best = val
+                        bx = cx
+                        by = cy
+                    }
+                    ci = (ci + 2)
+                }
+                wx = bx
+                wy = by
+            }
+            if (wx < (sx - 0.5)) { wx = (sx - 0.5) }
+            if (wx > (sx + 0.5)) { wx = (sx + 0.5) }
+            if (wy < (sy - 0.5)) { wy = (sy - 0.5) }
+            if (wy > (sy + 0.5)) { wy = (sy + 0.5) }
+            push out (EvgTracePoint.of((wx + x0) (wy + y0)))
+            i = (i + 1)
+        }
+        vertex = out
+    }
+
+    fn quadform:double (Q:[double] x:double y:double) {
+        def v0:double x
+        def v1:double y
+        def v2:double 1.0
+        def sum:double 0.0
+        def i:int 0
+        while (i < 3) {
+            def vi:double v0
+            if (i == 1) { vi = v1 }
+            if (i == 2) { vi = v2 }
+            def j:int 0
+            while (j < 3) {
+                def vj:double v0
+                if (j == 1) { vj = v1 }
+                if (j == 2) { vj = v2 }
+                def qij:double (itemAt Q ((i * 3) + j))
+                sum = (sum + ((vi * qij) * vj))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    ; Fit centroid + unit direction of the path from i to j (inclusive wrap).
+    fn pointslope:void (iIn:int jIn:int ctr:EvgTracePoint dir:EvgTracePoint) {
+        def i:int iIn
+        def j:int jIn
+        def r:int 0
+        while (j >= n) {
+            j = (j - n)
+            r = (r + 1)
+        }
+        while (i >= n) {
+            i = (i - n)
+            r = (r - 1)
+        }
+        while (j < 0) {
+            j = (j + n)
+            r = (r - 1)
+        }
+        while (i < 0) {
+            i = (i + n)
+            r = (r + 1)
+        }
+        def si:EvgTraceSum (itemAt sums i)
+        def sj:EvgTraceSum (itemAt sums (j + 1))
+        def sn:EvgTraceSum (itemAt sums n)
+        def x:double ((sj.x - si.x) + ((to_double r) * sn.x))
+        def y:double ((sj.y - si.y) + ((to_double r) * sn.y))
+        def x2:double ((sj.x2 - si.x2) + ((to_double r) * sn.x2))
+        def xy:double ((sj.xy - si.xy) + ((to_double r) * sn.xy))
+        def y2:double ((sj.y2 - si.y2) + ((to_double r) * sn.y2))
+        def k:double (to_double (((j + 1) - i) + (r * n)))
+        if (k == 0.0) {
+            ctr.x = 0.0
+            ctr.y = 0.0
+            dir.x = 0.0
+            dir.y = 0.0
+            return
+        }
+        ctr.x = (x / k)
+        ctr.y = (y / k)
+        def a:double (((x2 - ((x * x) / k)) / k))
+        def b:double (((xy - ((x * y) / k)) / k))
+        def c:double (((y2 - ((y * y) / k)) / k))
+        def disc:double (((a - c) * (a - c)) + ((4.0 * b) * b))
+        def lambda2:double (((a + c) + (sqrt disc)) / 2.0)
+        a = (a - lambda2)
+        c = (c - lambda2)
+        def l:double 0.0
+        if ((EvgTraceFit.absD(a)) >= (EvgTraceFit.absD(c))) {
+            l = (sqrt ((a * a) + (b * b)))
+            if (l != 0.0) {
+                dir.x = ((0.0 - b) / l)
+                dir.y = (a / l)
+            }
+        } {
+            l = (sqrt ((c * c) + (b * b)))
+            if (l != 0.0) {
+                dir.x = ((0.0 - c) / l)
+                dir.y = (b / l)
+            }
+        }
+        if (l == 0.0) {
+            dir.x = 0.0
+            dir.y = 0.0
+        }
+    }
+}
