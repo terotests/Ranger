@@ -79,8 +79,13 @@
       /* React paints into the gray stage like EVG demo.html */
     }
     #evg-canvas {
-      background: #fff;
+      /* Transparent: stage gray shows through. A white canvas CSS fill made the
+         EVG panel look like a huge square card (page-sized) even when the
+         painted card was only 320×~196. */
+      background: transparent;
+      display: block;
       box-shadow: 0 2px 18px rgba(0,0,0,.35);
+      border-radius: 12px;
     }
     .err {
       color: #900;
@@ -169,6 +174,9 @@
         if (props[k] != null) style[k] = props[k];
       }
       if (style.flexDirection && !style.display) style.display = "flex";
+      // Match EVGText default lineHeight 1.2 so DOM card height tracks EVG.
+      if (style.fontSize && style.lineHeight == null) style.lineHeight = 1.2;
+      if (!style.fontFamily) style.fontFamily = '"Noto Sans", system-ui, sans-serif';
       return style;
     }
 
@@ -237,20 +245,34 @@
       errEl.textContent = "";
       try {
         const doc = await (await fetch(url)).json();
+        // Size the canvas to the painted card, not the page shell. The page is
+        // only an EVGLayout root so UI cards can shrink-wrap; drawing it as a
+        // white CSS rectangle made the container look much larger than React.
+        const cmds = (doc.list && doc.list.cmds) || [];
+        let cw = 0;
+        let ch = 0;
+        for (const c of cmds) {
+          const r = (c.x || 0) + (c.w || 0);
+          const b = (c.y || 0) + (c.h || 0);
+          if (r > cw) cw = r;
+          if (b > ch) ch = b;
+        }
+        if (cw <= 0) cw = doc.width;
+        if (ch <= 0) ch = doc.height;
+        const view = { ...doc, width: cw, height: ch };
+
         const dpr = Math.min(2, window.devicePixelRatio || 1);
-        canvas.style.width = doc.width + "px";
-        canvas.style.height = doc.height + "px";
-        canvas.width = Math.round(doc.width * dpr);
-        canvas.height = Math.round(doc.height * dpr);
+        canvas.style.width = cw + "px";
+        canvas.style.height = ch + "px";
+        canvas.width = Math.round(cw * dpr);
+        canvas.height = Math.round(ch * dpr);
         const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
         if (!gl) throw new Error("WebGL 2 not available");
         await document.fonts.ready;
         await Promise.all(
-          (doc.list.cmds || [])
-            .filter((c) => c.text)
-            .map((c) => document.fonts.load(`${c.size}px "${c.font}"`)),
+          cmds.filter((c) => c.text).map((c) => document.fonts.load(`${c.size}px "${c.font}"`)),
         );
-        renderDisplayList(gl, doc, { dpr });
+        renderDisplayList(gl, view, { dpr });
       } catch (e) {
         errEl.textContent = String(e && e.stack || e);
       }

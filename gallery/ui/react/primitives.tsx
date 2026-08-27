@@ -59,6 +59,9 @@ function pickStyle(props: StyleProps): React.CSSProperties {
   if (style.flexDirection && !style.display) {
     style.display = "flex";
   }
+  if (style.fontSize && style.lineHeight == null) {
+    style.lineHeight = 1.2;
+  }
   return style as React.CSSProperties;
 }
 
