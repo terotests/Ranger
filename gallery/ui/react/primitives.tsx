@@ -84,6 +84,7 @@ export function Button(props: ButtonProps): React.ReactElement {
   if (!style.color) style.color = "#ffffff";
   if (!style.borderRadius) style.borderRadius = "6px";
   if (!style.border) style.border = "none";
+  if (!style.alignSelf) style.alignSelf = "flex-start";
   if (!style.cursor) (style as React.CSSProperties).cursor = disabled ? "default" : "pointer";
   return React.createElement(
     "button",

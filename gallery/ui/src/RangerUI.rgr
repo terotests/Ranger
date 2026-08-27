@@ -18,6 +18,7 @@ Import "Hooks.rgr"
 Import "Events.rgr"
 Import "components/Primitives.rgr"
 Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
@@ -79,15 +80,23 @@ class RangerUI {
     }
 
     ; Layout after hooks were already begun (JS interactive render()).
+    ; User trees are wrapped in a page shell: EVGLayout forces an unset ROOT
+    ; height to pageHeight (document behaviour), which stretched UI cards to
+    ; the canvas. As a child, the card shrink-wraps to its content like DOM.
     fn layoutPrepared:EVGElement (el:RgElement) {
         def r:Renderer (unwrap renderer)
-        def evg:EVGElement (r.expandToEVG(el))
+        def card:EVGElement (r.expandToEVG(el))
+        def page (new EVGElement())
+        page.tagName = "div"
+        page.width = (EVGUnit.px(pageWidth))
+        page.height = (EVGUnit.px(pageHeight))
+        page.addChild(card)
         def lay (new EVGLayout())
         lay.setPageSize(pageWidth pageHeight)
-        lay.layout(evg)
-        lastRoot = evg
-        lastHits = (HitMap.fromTree(evg))
-        return evg
+        lay.layout(page)
+        lastRoot = page
+        lastHits = (HitMap.fromTree(page))
+        return page
     }
 
     ; Layout the tree, rebuild hit map, return the root (also kept for hitTest).

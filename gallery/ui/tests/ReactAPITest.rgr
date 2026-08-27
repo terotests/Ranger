@@ -178,8 +178,8 @@ class ReactAPITest {
         def btn:RgElement (api.createElement("Button" (ReactAPI.emptyProps()) kids))
         t.ok("Button is component" (btn.isComponent()))
         def evg:EVGElement (r.renderToEVG(btn))
-        t.eqStr("Button → div" evg.tagName "div")
-        t.ok("has text child or content" (((array_length evg.children) > 0) || (evg.textContent != "")))
+        t.eqStr("Button → button" evg.tagName "button")
+        t.ok("has text content" (evg.textContent != ""))
     }
 
     sfn testHooks:void (t:Check) {
@@ -291,13 +291,18 @@ class ReactAPITest {
         push values "#ffffff"
         def root:RgElement (api.createElement("View" (RgProps.fromPairs(names values)) kids))
         def evg:EVGElement (ui.layout(root))
+        t.ok("page shell" (evg.tagName == "div"))
         t.ok("has regions" ((ui.hitRegionCount()) > 0))
         def miss:string (ui.hitTest(0.0 0.0))
         t.eqStr("miss" miss "")
-        ; Click near padding origin inside the button — use first child's box.
-        def child:EVGElement (itemAt evg.children 0)
-        def cx:double (child.calculatedX + (child.calculatedWidth / 2.0))
-        def cy:double (child.calculatedY + (child.calculatedHeight / 2.0))
+        ; Use the hit map itself (absolute boxes) — more stable than walking
+        ; children after the page-shell wrap.
+        def hits:HitMap (unwrap ui.lastHits)
+        def n:int (hits.count())
+        t.ok("region count" (n > 0))
+        def region:HitRegion (itemAt hits.regions (n - 1))
+        def cx:double (region.x + (region.w / 2.0))
+        def cy:double (region.y + (region.h / 2.0))
         def hid:string (ui.hitTest(cx cy))
         t.eqStr("hit inc" hid "inc")
         def ev:SyntheticEvent (ui.dispatchClick(cx cy))

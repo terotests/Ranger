@@ -56,7 +56,10 @@ class ButtonComp extends RgComponent {
                 p.set("borderRadius" "6px")
             }
         }
-        return (RgElement.host("div" p children))
+        ; Host as `button` (not div): EVG shrink-wraps text leaves, matching
+        ; DOM <button> intrinsic width. A div with a nested span stretches to
+        ; the column content width under layout's default width=parentWidth.
+        return (RgElement.host("button" p children))
     }
 }
 

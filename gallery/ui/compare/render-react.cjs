@@ -40,6 +40,7 @@ function Button(props) {
   if (!style.color) style.color = "#ffffff";
   if (!style.borderRadius) style.borderRadius = "6px";
   if (!style.border) style.border = "none";
+  if (!style.alignSelf) style.alignSelf = "flex-start";
   return React.createElement("button", { type: "button", disabled, style, onClick }, children);
 }
 

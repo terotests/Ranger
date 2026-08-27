@@ -71,7 +71,7 @@
       background: #8a8a8a;
       min-height: 300px;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       padding: 24px;
     }
@@ -188,6 +188,7 @@
       if (!style.color) style.color = "#ffffff";
       if (!style.borderRadius) style.borderRadius = "6px";
       if (!style.border) style.border = "none";
+      if (!style.alignSelf) style.alignSelf = "flex-start";
       style.cursor = disabled ? "default" : "pointer";
       style.font = "14px Noto Sans, system-ui, sans-serif";
       return React.createElement("button", { type: "button", disabled, style, onClick }, children);

@@ -71,6 +71,24 @@ class EVGBridge {
                 span.tagName = "span"
                 span.elementType = 1
                 span.textContent = textBuf
+                ; Inherit color/font from the parent props when promoting text
+                ; into a nested span (div+label). Without this, label color on
+                ; a container never reaches the glyphs.
+                if (elProps.has("color")) {
+                    span.setAttribute("color" (elProps.get("color")))
+                }
+                if (elProps.has("fontSize")) {
+                    span.setAttribute("font-size" (elProps.get("fontSize")))
+                }
+                if (elProps.has("font-size")) {
+                    span.setAttribute("font-size" (elProps.get("font-size")))
+                }
+                if (elProps.has("fontFamily")) {
+                    span.setAttribute("font-family" (elProps.get("fontFamily")))
+                }
+                if (elProps.has("fontWeight")) {
+                    span.setAttribute("font-weight" (elProps.get("fontWeight")))
+                }
                 out.addChild(span)
             }
         }
@@ -94,8 +112,7 @@ class EVGBridge {
             return "img"
         }
         if (name == "button") {
-            ; EVG layout treats unknown tags as containers; button → div+role.
-            return "div"
+            return "button"
         }
         return name
     }
@@ -105,6 +122,10 @@ class EVGBridge {
             return 1
         }
         if (tag == "text") {
+            return 1
+        }
+        if (tag == "button") {
+            ; Text+chrome leaf: shrink-wrap via textContent in EVGLayout.
             return 1
         }
         if (tag == "img") {
