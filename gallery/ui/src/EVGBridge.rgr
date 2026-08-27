@@ -120,28 +120,21 @@ class EVGBridge {
         def i:int 0
         while (i < (props.count())) {
             def p:RgProp (props.at(i))
-            def name:string (this.camelToKebab(p.name))
-            ; Skip React-only props that EVG does not understand.
-            if (name == "key") {
+            def rawName:string p.name
+            ; Event props stay out of the layout attr surface; mark hit id.
+            if ((rawName == "onClick") || (rawName == "onclick")) {
+                if (p.value != "") {
+                    el.id = ("rgclick:" + p.value)
+                }
             } {
-                if (name == "children") {
+                if ((rawName == "key") || (rawName == "children") || (rawName == "ref")) {
                 } {
-                    if (name == "ref") {
-                    } {
-                        if (name == "onClick") {
-                            ; Event handlers stay on the interactive layer; stash as id hint.
-                            if (el.id == "") {
-                                el.id = ("click:" + p.value)
-                            }
-                        } {
-                            el.setAttribute(name p.value)
-                        }
-                    }
+                    def name:string (this.camelToKebab(rawName))
+                    el.setAttribute(name p.value)
                 }
             }
             i = (i + 1)
         }
-        ; row/column helpers often set flexDirection via typeName aliases
         if (el.tagName == "div") {
             if (props.has("flexDirection") == false) {
                 if (props.has("direction")) {

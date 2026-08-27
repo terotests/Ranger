@@ -83,11 +83,14 @@ See `react/README.md` and `runtime/dual_host_test.cjs`.
 ## Quick start
 
 ```bash
-# Unit tests (createElement → EVG → layout → display list)
+# Unit tests (createElement → EVG → layout → display list → hitTest)
 npm run ui:test
 
 # React-shaped Node runtime + dual-host smoke (writes display-list JSON)
 npm run ui:runtime
+
+# Interactive counter: useState + onClick → hitTest → re-render
+npm run ui:interact
 
 # Tiny Ranger demo
 npm run ui:hello

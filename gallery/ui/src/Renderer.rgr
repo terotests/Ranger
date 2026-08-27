@@ -87,9 +87,19 @@ class Renderer {
     fn renderToEVG:EVGElement (el:RgElement) {
         def h:HookDispatcher (unwrap hooks)
         h.beginRender()
+        return (this.expandToEVG(el))
+    }
+
+    ; Expand + bridge only — caller already ran hooks.beginRender() (interactive roots).
+    fn expandToEVG:EVGElement (el:RgElement) {
         def expanded:RgElement (this.expand(el))
         def b:EVGBridge (unwrap bridge)
         return (b.toEVG(expanded))
+    }
+
+    fn beginRender:void () {
+        def h:HookDispatcher (unwrap hooks)
+        h.beginRender()
     }
 
     ; Re-render while hooks are dirty (simple loop; host drives frames).

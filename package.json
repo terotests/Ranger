@@ -303,6 +303,7 @@
     "ui:hello": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/examples/hello_ui.rgr -d=./gallery/ui/bin -o=hello_ui.js -nodecli && node ./gallery/ui/bin/hello_ui.js",
     "ui:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/src/RangerUI.rgr -d=./gallery/ui/bin -o=ranger_ui_module.cjs",
     "ui:runtime": "npm run ui:module && node gallery/ui/runtime/dual_host_test.cjs",
+    "ui:interact": "npm run ui:module && node gallery/ui/runtime/interact_test.cjs",
     "rangerdbviewer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/DbViewerTest.rgr -d=./gallery/rangerdbviewer/bin -o=DbViewerTest.js -nodecli && node ./gallery/rangerdbviewer/bin/DbViewerTest.js",
     "rangerdbviewer:migrations:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/MigrationTest.rgr -d=./gallery/rangerdbviewer/bin -o=MigrationTest.js -nodecli && node ./gallery/rangerdbviewer/bin/MigrationTest.js",
     "rangerdbviewer:query:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/QueryTest.rgr -d=./gallery/rangerdbviewer/bin -o=QueryTest.js -nodecli && node ./gallery/rangerdbviewer/bin/QueryTest.js",

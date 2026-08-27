@@ -11,6 +11,7 @@ Import "../src/Renderer.rgr"
 Import "../src/EVGBridge.rgr"
 Import "../src/XmlToRg.rgr"
 Import "../src/RangerUI.rgr"
+Import "../src/Events.rgr"
 Import "../src/components/Primitives.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -90,6 +91,7 @@ class ReactAPITest {
         ReactAPITest.testHooks(t)
         ReactAPITest.testLayout(t)
         ReactAPITest.testDisplayList(t)
+        ReactAPITest.testHitTest(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -263,5 +265,43 @@ class ReactAPITest {
         def json:string (ui.renderToDisplayListJson(root))
         t.ok("json width" ((strlen json) > 20))
         t.ok("json has list key" ((indexOf json "\"list\"") >= 0))
+    }
+
+    sfn testHitTest:void (t:Check) {
+        print "--- hitTest / onClick ---"
+        def ui (new RangerUI())
+        ui.setPageSize(360.0 280.0)
+        def api:ReactAPI (ui.getAPI())
+        def btnKids:[RgElement]
+        push btnKids (RgElement.textNode("Inc"))
+        def bNames:[string]
+        push bNames "onClick"
+        def bVals:[string]
+        push bVals "inc"
+        def btn:RgElement (api.createElement("Button" (RgProps.fromPairs(bNames bVals)) btnKids))
+        def kids:[RgElement]
+        push kids btn
+        def names:[string]
+        push names "width"
+        push names "padding"
+        push names "backgroundColor"
+        def values:[string]
+        push values "320px"
+        push values "24px"
+        push values "#ffffff"
+        def root:RgElement (api.createElement("View" (RgProps.fromPairs(names values)) kids))
+        def evg:EVGElement (ui.layout(root))
+        t.ok("has regions" ((ui.hitRegionCount()) > 0))
+        def miss:string (ui.hitTest(0.0 0.0))
+        t.eqStr("miss" miss "")
+        ; Click near padding origin inside the button — use first child's box.
+        def child:EVGElement (itemAt evg.children 0)
+        def cx:double (child.calculatedX + (child.calculatedWidth / 2.0))
+        def cy:double (child.calculatedY + (child.calculatedHeight / 2.0))
+        def hid:string (ui.hitTest(cx cy))
+        t.eqStr("hit inc" hid "inc")
+        def ev:SyntheticEvent (ui.dispatchClick(cx cy))
+        t.ok("handled" ev.handled)
+        t.eqStr("handler" ev.handlerId "inc")
     }
 }

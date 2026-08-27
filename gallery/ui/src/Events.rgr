@@ -1,0 +1,122 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; Events — hit regions + pointer dispatch over a laid-out EVG tree
+; =============================================================================
+; Hosts (Web canvas, SDL, tests) feed pointer coordinates in page space.
+; Elements that carried an onClick prop are marked id="rgclick:<handlerId>"
+; by EVGBridge; hitTest returns that handlerId (topmost wins).
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+
+class HitRegion {
+    def handlerId:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+
+    Constructor () {
+    }
+
+    sfn of:HitRegion (handlerId:string x:double y:double w:double h:double) {
+        def r (new HitRegion())
+        r.handlerId = handlerId
+        r.x = x
+        r.y = y
+        r.w = w
+        r.h = h
+        return r
+    }
+
+    fn contains:boolean (px:double py:double) {
+        if (px < x) {
+            return false
+        }
+        if (py < y) {
+            return false
+        }
+        if (px >= (x + w)) {
+            return false
+        }
+        if (py >= (y + h)) {
+            return false
+        }
+        return true
+    }
+}
+
+class SyntheticEvent {
+    def typeName:string "click"
+    def handlerId:string ""
+    def clientX:double 0.0
+    def clientY:double 0.0
+    def handled:boolean false
+
+    Constructor () {
+    }
+}
+
+class HitMap {
+    def regions:[HitRegion]
+
+    Constructor () {
+        def empty:[HitRegion]
+        regions = empty
+    }
+
+    fn clear:void () {
+        def empty:[HitRegion]
+        regions = empty
+    }
+
+    fn count:int () {
+        return (array_length regions)
+    }
+
+    ; Depth-first: children first, then self — later entries are painted on top.
+    fn collect:void (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            this.collect(child)
+            i = (i + 1)
+        }
+        def hid:string (this.handlerIdOf(el))
+        if (hid != "") {
+            push regions (HitRegion.of(hid el.calculatedX el.calculatedY el.calculatedWidth el.calculatedHeight))
+        }
+    }
+
+    fn handlerIdOf:string (el:EVGElement) {
+        def id:string el.id
+        if ((strlen id) < 9) {
+            return ""
+        }
+        ; prefix "rgclick:"
+        if ((substring id 0 8) == "rgclick:") {
+            return (substring id 8 (strlen id))
+        }
+        return ""
+    }
+
+    ; Topmost hit (last matching region).
+    fn hitTest:string (px:double py:double) {
+        def i:int (array_length regions)
+        while (i > 0) {
+            i = (i - 1)
+            def r:HitRegion (itemAt regions i)
+            if (r.contains(px py)) {
+                return r.handlerId
+            }
+        }
+        return ""
+    }
+
+    sfn fromTree:HitMap (root:EVGElement) {
+        def m (new HitMap())
+        m.collect(root)
+        return m
+    }
+}

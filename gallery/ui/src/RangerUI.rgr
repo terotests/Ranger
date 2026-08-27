@@ -7,12 +7,15 @@
 ;   WebGL 2  → evg-webgl.js
 ;   SDL+GL   → EvgGlPainter / C++ host
 ;   SoftCanvas / PDF / HTML → existing gallery painters
+;
+; Pointer hosts call hitTest(x,y) after render; handler ids come from onClick.
 ; =============================================================================
 
 Import "RgElement.rgr"
 Import "ReactAPI.rgr"
 Import "Renderer.rgr"
 Import "Hooks.rgr"
+Import "Events.rgr"
 Import "components/Primitives.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -22,11 +25,14 @@ class RangerUI {
     def renderer:Renderer
     def pageWidth:double 400.0
     def pageHeight:double 300.0
+    def lastRoot@(optional):EVGElement
+    def lastHits:HitMap
 
     Constructor () {
         renderer = (new Renderer())
         def api:ReactAPI (unwrap renderer.api)
         Primitives.install(api)
+        lastHits = (new HitMap())
     }
 
     fn getRenderer:Renderer () {
@@ -67,20 +73,47 @@ class RangerUI {
         return (r.renderToEVG(el))
     }
 
-    ; Layout + flatten to the wire format WebGL / SDL painters consume.
-    fn renderToDisplayList:EVGDisplayList (el:RgElement) {
-        def evg:EVGElement (this.renderToEVG(el))
+    fn beginRender:void () {
+        def r:Renderer (unwrap renderer)
+        r.beginRender()
+    }
+
+    ; Layout after hooks were already begun (JS interactive render()).
+    fn layoutPrepared:EVGElement (el:RgElement) {
+        def r:Renderer (unwrap renderer)
+        def evg:EVGElement (r.expandToEVG(el))
         def lay (new EVGLayout())
         lay.setPageSize(pageWidth pageHeight)
         lay.layout(evg)
+        lastRoot = evg
+        lastHits = (HitMap.fromTree(evg))
+        return evg
+    }
+
+    ; Layout the tree, rebuild hit map, return the root (also kept for hitTest).
+    fn layout:EVGElement (el:RgElement) {
+        this.beginRender()
+        return (this.layoutPrepared(el))
+    }
+
+    ; Layout + flatten to the wire format WebGL / SDL painters consume.
+    fn renderToDisplayList:EVGDisplayList (el:RgElement) {
+        def evg:EVGElement (this.layout(el))
+        def engineLay (new EVGLayout())
+        engineLay.setPageSize(pageWidth pageHeight)
         def dl (new EVGDisplayList())
-        dl.setTextEngine((lay.getTextEngine()))
+        dl.setTextEngine((engineLay.getTextEngine()))
         dl.build(evg)
         return dl
     }
 
     fn renderToDisplayListJson:string (el:RgElement) {
-        def dl:EVGDisplayList (this.renderToDisplayList(el))
+        def evg:EVGElement (this.layout(el))
+        def engineLay (new EVGLayout())
+        engineLay.setPageSize(pageWidth pageHeight)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((engineLay.getTextEngine()))
+        dl.build(evg)
         def json:string "{\"width\":"
         json = json + (EVGDisplayList.num(pageWidth))
         json = json + ",\"height\":"
@@ -94,6 +127,30 @@ class RangerUI {
     fn displayListCommandCount:int (el:RgElement) {
         def dl:EVGDisplayList (this.renderToDisplayList(el))
         return (dl.count())
+    }
+
+    fn hitRegionCount:int () {
+        def hits:HitMap (unwrap lastHits)
+        return (hits.count())
+    }
+
+    ; Returns onClick handler id, or "" if nothing interactive was hit.
+    fn hitTest:string (px:double py:double) {
+        def hits:HitMap (unwrap lastHits)
+        return (hits.hitTest(px py))
+    }
+
+    fn dispatchClick:SyntheticEvent (px:double py:double) {
+        def ev (new SyntheticEvent())
+        ev.typeName = "click"
+        ev.clientX = px
+        ev.clientY = py
+        def hid:string (this.hitTest(px py))
+        ev.handlerId = hid
+        if (hid != "") {
+            ev.handled = true
+        }
+        return ev
     }
 }
 

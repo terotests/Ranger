@@ -22,11 +22,12 @@ is EVG, so one UI runs on WebGL, SDL+GL, SoftCanvas, PDF and HTML.
 
 ### Phase 2 — interaction
 
-- [ ] Pointer/keyboard → React-shaped synthetic events
-- [ ] Bridge to `UILayer` / `UIInput` for SDL and canvas hosts
-- [ ] `onClick` / `onChange` props that fire after hit-test
+- [x] Pointer → React-shaped synthetic events (`dispatchClick` / `SyntheticEvent`)
+- [x] Hit regions from laid-out EVG (`HitMap` / `rgclick:<id>`)
+- [x] `onClick` props fire after hit-test (JS runtime + Ranger handler ids)
+- [ ] Bridge to `UILayer` / `UIInput` for SDL and canvas hosts (thin adapter next)
 - [ ] Controlled `TextInput` primitive
-
+- [ ] Keyboard events
 ### Phase 3 — richer React surface
 
 - [ ] `useEffect`, `useRef`, `useMemo` (subset)

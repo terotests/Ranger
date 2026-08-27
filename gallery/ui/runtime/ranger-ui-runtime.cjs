@@ -1,12 +1,10 @@
 /**
  * React-shaped JS façade over the Ranger-compiled gallery/ui module.
  *
- *   const ui = require("./ranger-ui-runtime.cjs");
- *   const el = ui.createElement(ui.View, { padding: "20px" },
- *     ui.createElement(ui.Text, { fontSize: "18px" }, "Hello"));
- *   const json = ui.renderToDisplayListJson(el); // → WebGL / SDL painters
- *
- * Swap this import for `react` + `./primitives` to try the same tree on DOM.
+ *   const root = require("./ranger-ui-runtime.cjs").createRoot();
+ *   root.render(() => root.createElement(root.View, { onClick: () => ... }, ...));
+ *   root.dispatchClick(x, y);
+ *   const json = root.renderToDisplayListJson(tree);
  */
 
 "use strict";
@@ -18,6 +16,10 @@ function createRoot() {
   const ui = new Module.RangerUI();
   const api = ui.getAPI();
   const hooks = ui.getHooks();
+  const handlers = new Map();
+  let handlerSeq = 0;
+  let renderFn = null;
+  let currentTree = null;
 
   function makeProps(obj) {
     const names = [];
@@ -25,6 +27,13 @@ function createRoot() {
     if (obj && typeof obj === "object") {
       for (const [k, v] of Object.entries(obj)) {
         if (k === "children" || k === "key" || k === "ref") continue;
+        if (k === "onClick" && typeof v === "function") {
+          const id = "h" + String(++handlerSeq);
+          handlers.set(id, v);
+          names.push("onClick");
+          values.push(id);
+          continue;
+        }
         if (typeof v === "function") continue;
         if (v === undefined || v === null) continue;
         names.push(k);
@@ -104,6 +113,53 @@ function createRoot() {
     return [st.value, set];
   }
 
+  /**
+   * Run a render function: beginRender → component (hooks + createElement) → layout.
+   * Returns the virtual tree; hit regions are ready for dispatchClick.
+   */
+  function render(componentFn) {
+    renderFn = componentFn;
+    handlers.clear();
+    handlerSeq = 0;
+    ui.beginRender();
+    currentTree = componentFn();
+    ui.layoutPrepared(currentTree);
+    return currentTree;
+  }
+
+  function rerenderIfDirty() {
+    if (!renderFn) return false;
+    if (!hooks.isDirty()) return false;
+    handlers.clear();
+    handlerSeq = 0;
+    ui.beginRender();
+    currentTree = renderFn();
+    ui.layoutPrepared(currentTree);
+    return true;
+  }
+
+  function dispatchClick(x, y) {
+    const ev = ui.dispatchClick(x, y);
+    const out = {
+      type: "click",
+      clientX: x,
+      clientY: y,
+      handlerId: ev.handlerId,
+      handled: !!ev.handled,
+    };
+    if (ev.handled && handlers.has(ev.handlerId)) {
+      handlers.get(ev.handlerId)(out);
+      out.rerendered = rerenderIfDirty();
+    } else {
+      out.rerendered = false;
+    }
+    return out;
+  }
+
+  function hitTest(x, y) {
+    return ui.hitTest(x, y);
+  }
+
   function renderToEVG(element) {
     return ui.renderToEVG(element);
   }
@@ -112,6 +168,9 @@ function createRoot() {
     if (width != null && height != null) {
       ui.setPageSize(width, height);
     }
+    if (element == null) {
+      element = currentTree;
+    }
     return ui.renderToDisplayListJson(element);
   }
 
@@ -119,7 +178,18 @@ function createRoot() {
     if (width != null && height != null) {
       ui.setPageSize(width, height);
     }
+    if (element == null) {
+      element = currentTree;
+    }
     return ui.displayListCommandCount(element);
+  }
+
+  function hitRegionCount() {
+    return ui.hitRegionCount();
+  }
+
+  function setPageSize(w, h) {
+    ui.setPageSize(w, h);
   }
 
   return {
@@ -130,9 +200,17 @@ function createRoot() {
     Text,
     Button,
     Image,
+    render,
+    dispatchClick,
+    hitTest,
+    hitRegionCount,
+    setPageSize,
     renderToEVG,
     renderToDisplayListJson,
     displayListCommandCount,
+    get currentTree() {
+      return currentTree;
+    },
     /** @internal */
     _ui: ui,
     _api: api,
@@ -152,6 +230,11 @@ module.exports = {
   Text: defaultRoot.Text,
   Button: defaultRoot.Button,
   Image: defaultRoot.Image,
+  render: defaultRoot.render,
+  dispatchClick: defaultRoot.dispatchClick,
+  hitTest: defaultRoot.hitTest,
+  hitRegionCount: defaultRoot.hitRegionCount,
+  setPageSize: defaultRoot.setPageSize,
   renderToEVG: defaultRoot.renderToEVG,
   renderToDisplayListJson: defaultRoot.renderToDisplayListJson,
   displayListCommandCount: defaultRoot.displayListCommandCount,
