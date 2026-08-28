@@ -95,6 +95,21 @@ class EVGLayout {
         ; Layout the entire element tree
         this.log("EVGLayout: Starting layout")
         currentPage = 0
+
+        ; Start from a clean slate. `resolveUnits` refuses to run twice on the
+        ; same element — deliberately, so a percentage is not resolved against
+        ; an already-resolved parent — and it had no counterpart: nothing in the
+        ; engine called resetLayoutState(), so an element laid out ONCE kept its
+        ; resolved pixels forever, and a percentage written after that first
+        ; pass resolved to zero.
+        ;
+        ; Measured, not theorised: a slider whose thumb is placed with
+        ; `left: <n>%` sat correctly on first paint and then jumped to the far
+        ; left the moment it was dragged, because the fresh unit the controller
+        ; wrote was never resolved. Any retained tree that is laid out more than
+        ; once had the same bug; a document that is laid out once did not, which
+        ; is why it survived this long.
+        root.resetLayoutState()
         
         ; Resolve root dimensions
         if (root.width.isSet == false) {

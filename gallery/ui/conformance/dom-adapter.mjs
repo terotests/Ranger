@@ -116,6 +116,10 @@ export async function run(spec) {
       trace.push({ step: label, nodes: await page.evaluate(snapshotDom) });
     };
 
+    // The element a press started on, so a later dragto is measured against the
+    // same rectangle rather than whatever is under the cursor now.
+    let dragBox = null;
+
     await observe("initial");
     for (const step of spec.steps) {
       if ("click" in step) {
@@ -142,6 +146,30 @@ export async function run(spec) {
         // land outside the polygon without ever crossing its edge.
         await page.mouse.move(0, 0, { steps: 12 });
         await observe("unhover");
+      } else if ("press" in step) {
+        // A press that may become a drag, at a fraction of the named element's
+        // width. The fraction, not a pixel, because the two systems lay out
+        // differently on purpose — it is the only coordinate both can agree on.
+        const box = await page.locator(sel(step.press)).boundingBox();
+        dragBox = box;
+        if (box) {
+          await page.mouse.move(box.x + box.width * (step.at ?? 0.5), box.y + box.height / 2);
+          await page.mouse.down();
+        }
+        await observe("press " + step.press + " @" + (step.at ?? 0.5));
+      } else if ("dragto" in step) {
+        if (dragBox) {
+          await page.mouse.move(
+            dragBox.x + dragBox.width * step.dragto,
+            dragBox.y + dragBox.height / 2,
+            { steps: 8 },
+          );
+        }
+        await observe("dragto " + step.dragto);
+      } else if ("release" in step) {
+        await page.mouse.up();
+        dragBox = null;
+        await observe("release");
       } else if ("rightclick" in step) {
         await page.locator(sel(step.rightclick)).click({ button: "right", force: true }).catch(() => {});
         await observe("rightclick " + step.rightclick);

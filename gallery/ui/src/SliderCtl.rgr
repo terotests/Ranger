@@ -90,6 +90,11 @@ class SliderCtl extends UiCtl {
             UiTree.addClass(thumb "ui-slider-thumb-disabled")
         }
         UiTree.clearChildren(thumb)
+        ; Where the value IS, on the track. The sheet supplies the negative
+        ; margin that centres it and the `top` that lifts it onto the rail; the
+        ; controller only knows the position, which is the one thing the sheet
+        ; cannot know.
+        UiTree.inline(thumb "left" ((to_string (this.percent())) + "%"))
         root.addChild(thumb)
     }
 
@@ -141,6 +146,62 @@ class SliderCtl extends UiCtl {
             return ""
         }
         return ""
+    }
+
+    ; --- the pointer ---------------------------------------------------------
+    ; Pressing anywhere on the track jumps the value there and takes focus; a
+    ; drag keeps moving it. Both measured against the reference, which needed
+    ; a styled slider to measure at all — an unstyled track is 0x0 and there is
+    ; nothing to press.
+
+    fn dragBoundsTid:string (target:string) {
+        if disabled {
+            return ""
+        }
+        ; Whether the press landed on the rail or on the thumb, the geometry
+        ; that decides the value is the TRACK's.
+        if (target == (this.trackTid())) {
+            return (this.trackTid())
+        }
+        if (target == (this.thumbTid())) {
+            return (this.trackTid())
+        }
+        if (target == (this.rangeTid())) {
+            return (this.trackTid())
+        }
+        return ""
+    }
+
+    ; Snap to the step grid, the way the reference does: a slider with step 10
+    ; dragged to 83% of its track reports 80, not 83.
+    fn valueAtFraction:int (frac:double) {
+        def span:int (maxValue - minValue)
+        def raw:double ((to_double minValue) + (frac * (to_double span)))
+        if (step <= 0) {
+            return (to_int raw)
+        }
+        def offset:double (raw - (to_double minValue))
+        def steps:double (offset / (to_double step))
+        ; Round, not truncate: `to_int` drops the fraction, which would snap a
+        ; slider dragged to 89% of a 10-step range down to 80. Written out
+        ; because a drag past the left end is genuinely negative here, and
+        ; adding .5 to that rounds the wrong way.
+        def rounded:int 0
+        if (steps >= 0.0) {
+            rounded = (to_int (steps + 0.5))
+        } {
+            rounded = (to_int (steps - 0.5))
+        }
+        return (minValue + (rounded * step))
+    }
+
+    fn dragTo:string (frac:double) {
+        if disabled {
+            return ""
+        }
+        this.setValue((this.valueAtFraction(frac)))
+        ; A press on the rail focuses the thumb, not the rail.
+        return (this.thumbTid())
     }
 
     fn tids:[string] () {

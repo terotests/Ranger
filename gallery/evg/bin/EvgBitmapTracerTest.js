@@ -33,6 +33,14 @@ class EvgTraceRing  {
     return this.pts.length;
   };
 }
+class EvgTraceLayer  {
+  constructor() {
+    this.fillHex = "#000000";
+    this.pathData = "";
+    this.ringCount = 0;
+    this.commandCount = 0;
+  }
+}
 class EvgTraceOptions  {
   constructor() {
     this.turdsize = 2;
@@ -42,6 +50,9 @@ class EvgTraceOptions  {
     this.opttolerance = 0.2;
     this.threshold = 128;
     this.blackOnWhite = true;
+    this.fillHex = "#000000";
+    this.colorCount = 1;
+    this.skipLuma = 250;
   }
 }
 EvgTraceOptions.defaults = function() {
@@ -4424,6 +4435,26 @@ class EVGElement  {
       this.box.paddingBottom = EVGUnit.parse(value);
       return;
     }
+    if ( name == "border" ) {
+      const parts = EVGElement.splitWords(value);
+      let i = 0;
+      while (i < (parts.length)) {
+        const tok = parts[i];
+        if ( EVGElement.isBorderStyleWord(tok) ) {
+          if ( tok == "none" ) {
+            this.box.borderWidth = EVGUnit.px(0.0);
+          }
+        } else {
+          if ( EVGElement.looksLikeColor(tok) ) {
+            this.box.borderColor = EVGColor.parse(tok);
+          } else {
+            this.box.borderWidth = EVGUnit.parse(tok);
+          }
+        }
+        i = i + 1;
+      };
+      return;
+    }
     if ( (name == "border-width") || (name == "borderWidth") ) {
       this.box.borderWidth = EVGUnit.parse(value);
       return;
@@ -4782,6 +4813,78 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.splitWords = function(s) {
+  let out = [];
+  let cur = "";
+  let depth = 0;
+  let i = 0;
+  const __len = s.length;
+  while (i < __len) {
+    const c = s.charCodeAt(i );
+    if ( c == 40 ) {
+      depth = depth + 1;
+    }
+    if ( c == 41 ) {
+      depth = depth - 1;
+    }
+    let isSpace = false;
+    if ( depth == 0 ) {
+      if ( c == 32 ) {
+        isSpace = true;
+      }
+      if ( c == 9 ) {
+        isSpace = true;
+      }
+    }
+    if ( isSpace ) {
+      if ( (cur.length) > 0 ) {
+        out.push(cur);
+        cur = "";
+      }
+    } else {
+      cur = cur + (String.fromCharCode(c));
+    }
+    i = i + 1;
+  };
+  if ( (cur.length) > 0 ) {
+    out.push(cur);
+  }
+  return out;
+};
+EVGElement.isBorderStyleWord = function(tok) {
+  if ( tok == "solid" ) {
+    return true;
+  }
+  if ( tok == "dashed" ) {
+    return true;
+  }
+  if ( tok == "dotted" ) {
+    return true;
+  }
+  if ( tok == "double" ) {
+    return true;
+  }
+  if ( tok == "none" ) {
+    return true;
+  }
+  if ( tok == "hidden" ) {
+    return true;
+  }
+  return false;
+};
+EVGElement.looksLikeColor = function(tok) {
+  if ( (tok.length) == 0 ) {
+    return false;
+  }
+  const c = tok.charCodeAt(0 );
+  if ( (c >= 48) && (c <= 57) ) {
+    return false;
+  }
+  if ( c == 46 ) {
+    return false;
+  }
+  return true;
 };
 EVGElement.isPlainNumber = function(s) {
   const __len = s.length;
@@ -5564,22 +5667,50 @@ class EvgBitmapTracer  {
     this.pathData = "";
     this.width = 0;
     this.height = 0;
+    this.hasColorPlanes = false;
+    this.planeR = [];
+    this.planeG = [];
+    this.planeB = [];
+    this.planeA = [];
+    this.layers = [];
     this.options = EvgTraceOptions.defaults();
     this.bitmap = EvgBinaryBitmap.create(0, 0);
     let r = [];
     this.rings = r;
     let c_2 = [];
     this.commands = c_2;
+    let pr = [];
+    this.planeR = pr;
+    let pg = [];
+    this.planeG = pg;
+    let pb = [];
+    this.planeB = pb;
+    let pa = [];
+    this.planeA = pa;
+    let ly = [];
+    this.layers = ly;
   }
   trace () {
     let emptyR = [];
     this.rings = emptyR;
     let emptyC = [];
     this.commands = emptyC;
+    let emptyL = [];
+    this.layers = emptyL;
     this.pathData = "";
-    this.decompose();
-    this.emitCommands();
-    this.pathData = VectorShapes.asPathData(this.commands);
+    if ( this.hasColorPlanes ) {
+      this.traceColorLayers();
+    } else {
+      this.decompose();
+      this.emitCommands();
+      this.pathData = VectorShapes.asPathData(this.commands);
+      const layer = new EvgTraceLayer();
+      layer.fillHex = this.options.fillHex;
+      layer.pathData = this.pathData;
+      layer.ringCount = this.rings.length;
+      layer.commandCount = this.commands.length;
+      this.layers.push(layer);
+    }
   };
   getCommands () {
     return this.commands;
@@ -5593,6 +5724,12 @@ class EvgBitmapTracer  {
   commandCount () {
     return this.commands.length;
   };
+  layerCount () {
+    return this.layers.length;
+  };
+  getLayers () {
+    return this.layers;
+  };
   toPathBuilder () {
     const b = new PathBuilder();
     b.addCommands(this.commands);
@@ -5603,20 +5740,287 @@ class EvgBitmapTracer  {
     el.svgPath = this.pathData;
     el.fillRule = "evenodd";
     el.viewBox = (("0 0 " + ((this.width.toString()))) + " ") + ((this.height.toString()));
-    el.fillColor = EVGColor.black();
+    el.fillColor = EVGColor.parse(this.options.fillHex);
+    if ( (this.layers.length) > 0 ) {
+      const layer0 = this.layers[0];
+      el.svgPath = layer0.pathData;
+      el.fillColor = EVGColor.parse(layer0.fillHex);
+    }
     el.width = EVGUnit.px((this.width));
     el.height = EVGUnit.px((this.height));
     return el;
   };
+  toEVGElements () {
+    let out = [];
+    let i = 0;
+    while (i < (this.layers.length)) {
+      const layer = this.layers[i];
+      const el = EVGElement.createPath();
+      el.svgPath = layer.pathData;
+      el.fillRule = "evenodd";
+      el.viewBox = (("0 0 " + ((this.width.toString()))) + " ") + ((this.height.toString()));
+      el.fillColor = EVGColor.parse(layer.fillHex);
+      el.width = EVGUnit.px((this.width));
+      el.height = EVGUnit.px((this.height));
+      out.push(el);
+      i = i + 1;
+    };
+    return out;
+  };
   toSVG () {
-    const d = this.pathData;
     let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" ";
     svg = ((svg + "width=\"") + ((this.width.toString()))) + "\" ";
     svg = ((svg + "height=\"") + ((this.height.toString()))) + "\" ";
     svg = ((((svg + "viewBox=\"0 0 ") + ((this.width.toString()))) + " ") + ((this.height.toString()))) + "\">";
-    svg = ((svg + "<path fill=\"#000\" fill-rule=\"evenodd\" d=\"") + d) + "\"/>";
+    if ( (this.layers.length) > 0 ) {
+      let i = 0;
+      while (i < (this.layers.length)) {
+        const layer = this.layers[i];
+        svg = ((((svg + "<path fill=\"") + layer.fillHex) + "\" fill-rule=\"evenodd\" d=\"") + layer.pathData) + "\"/>";
+        i = i + 1;
+      };
+    } else {
+      svg = ((((svg + "<path fill=\"") + this.options.fillHex) + "\" fill-rule=\"evenodd\" d=\"") + this.pathData) + "\"/>";
+    }
     svg = svg + "</svg>";
     return svg;
+  };
+  pixelAllowed (i) {
+    const a = this.planeA[i];
+    if ( a < 16 ) {
+      return false;
+    }
+    const lum = EvgBitmapTracer.lumaOf((this.planeR[i]), (this.planeG[i]), (this.planeB[i]));
+    return lum < this.options.skipLuma;
+  };
+  buildPalette (want, outR, outG, outB) {
+    const n = this.planeR.length;
+    let darkI = 0 - 1;
+    let lightI = 0 - 1;
+    let darkL = 256;
+    let lightL = 0 - 1;
+    let si = 0;
+    while (si < n) {
+      if ( this.pixelAllowed(si) ) {
+        const lum = EvgBitmapTracer.lumaOf((this.planeR[si]), (this.planeG[si]), (this.planeB[si]));
+        if ( lum < darkL ) {
+          darkL = lum;
+          darkI = si;
+        }
+        if ( lum > lightL ) {
+          lightL = lum;
+          lightI = si;
+        }
+      }
+      si = si + 1;
+    };
+    if ( darkI < 0 ) {
+      return;
+    }
+    outR.push(this.planeR[darkI]);
+    outG.push(this.planeG[darkI]);
+    outB.push(this.planeB[darkI]);
+    if ( ((lightI >= 0) && (lightI != darkI)) && (want > 1) ) {
+      outR.push(this.planeR[lightI]);
+      outG.push(this.planeG[lightI]);
+      outB.push(this.planeB[lightI]);
+    }
+    while ((outR.length) < want) {
+      let bestI = 0 - 1;
+      let bestD = 0 - 1;
+      let i = 0;
+      while (i < n) {
+        if ( this.pixelAllowed(i) ) {
+          const pr = this.planeR[i];
+          const pg = this.planeG[i];
+          const pb = this.planeB[i];
+          let minD = 2147483647;
+          let j = 0;
+          const k0 = outR.length;
+          while (j < k0) {
+            const d = EvgBitmapTracer.colorDist2(pr, pg, pb, (outR[j]), (outG[j]), (outB[j]));
+            if ( d < minD ) {
+              minD = d;
+            }
+            j = j + 1;
+          };
+          if ( minD > bestD ) {
+            bestD = minD;
+            bestI = i;
+          }
+        }
+        i = i + 1;
+      };
+      if ( (bestI < 0) || (bestD <= 0) ) {
+        want = outR.length;
+      } else {
+        outR.push(this.planeR[bestI]);
+        outG.push(this.planeG[bestI]);
+        outB.push(this.planeB[bestI]);
+      }
+    };
+    let pass = 0;
+    while (pass < 6) {
+      const k = outR.length;
+      let sumR = [];
+      let sumG = [];
+      let sumB = [];
+      let cnt = [];
+      let ki = 0;
+      while (ki < k) {
+        sumR.push(0);
+        sumG.push(0);
+        sumB.push(0);
+        cnt.push(0);
+        ki = ki + 1;
+      };
+      let i_1 = 0;
+      while (i_1 < n) {
+        const a2 = this.planeA[i_1];
+        if ( a2 >= 16 ) {
+          const pr_1 = this.planeR[i_1];
+          const pg_1 = this.planeG[i_1];
+          const pb_1 = this.planeB[i_1];
+          const lum2 = EvgBitmapTracer.lumaOf(pr_1, pg_1, pb_1);
+          if ( lum2 < this.options.skipLuma ) {
+            let best = 0;
+            let bestD_1 = EvgBitmapTracer.colorDist2(pr_1, pg_1, pb_1, (outR[0]), (outG[0]), (outB[0]));
+            let j_1 = 1;
+            while (j_1 < k) {
+              const d_1 = EvgBitmapTracer.colorDist2(pr_1, pg_1, pb_1, (outR[j_1]), (outG[j_1]), (outB[j_1]));
+              if ( d_1 < bestD_1 ) {
+                bestD_1 = d_1;
+                best = j_1;
+              }
+              j_1 = j_1 + 1;
+            };
+            sumR[best] = (sumR[best]) + pr_1;
+            sumG[best] = (sumG[best]) + pg_1;
+            sumB[best] = (sumB[best]) + pb_1;
+            cnt[best] = (cnt[best]) + 1;
+          }
+        }
+        i_1 = i_1 + 1;
+      };
+      ki = 0;
+      while (ki < k) {
+        const cN = cnt[ki];
+        if ( cN > 0 ) {
+          outR[ki] = (((sumR[ki]) / cN) | 0);
+          outG[ki] = (((sumG[ki]) / cN) | 0);
+          outB[ki] = (((sumB[ki]) / cN) | 0);
+        }
+        ki = ki + 1;
+      };
+      pass = pass + 1;
+    };
+    const k2 = outR.length;
+    let a = 0;
+    while (a < k2) {
+      let bIdx = a + 1;
+      while (bIdx < k2) {
+        const la = EvgBitmapTracer.lumaOf((outR[a]), (outG[a]), (outB[a]));
+        const lb = EvgBitmapTracer.lumaOf((outR[bIdx]), (outG[bIdx]), (outB[bIdx]));
+        if ( la > lb ) {
+          const tr = outR[a];
+          const tg = outG[a];
+          const tb = outB[a];
+          outR[a] = outR[bIdx];
+          outG[a] = outG[bIdx];
+          outB[a] = outB[bIdx];
+          outR[bIdx] = tr;
+          outG[bIdx] = tg;
+          outB[bIdx] = tb;
+        }
+        bIdx = bIdx + 1;
+      };
+      a = a + 1;
+    };
+  };
+  hexFromRgb (r, g, b) {
+    const c = EVGColor.rgb(r, g, b);
+    return c.toHexString();
+  };
+  maskForColor (cr, cg, cb, palR, palG, palB, colorIndex) {
+    const bm = EvgBinaryBitmap.create(this.width, this.height);
+    const n = this.planeR.length;
+    const k = palR.length;
+    let i = 0;
+    while (i < n) {
+      const a = this.planeA[i];
+      if ( a >= 16 ) {
+        const pr = this.planeR[i];
+        const pg = this.planeG[i];
+        const pb = this.planeB[i];
+        const lum = EvgBitmapTracer.lumaOf(pr, pg, pb);
+        if ( lum < this.options.skipLuma ) {
+          let best = 0;
+          let bestD = EvgBitmapTracer.colorDist2(pr, pg, pb, (palR[0]), (palG[0]), (palB[0]));
+          let j = 1;
+          while (j < k) {
+            const d = EvgBitmapTracer.colorDist2(pr, pg, pb, (palR[j]), (palG[j]), (palB[j]));
+            if ( d < bestD ) {
+              bestD = d;
+              best = j;
+            }
+            j = j + 1;
+          };
+          if ( best == colorIndex ) {
+            const y = ((i / this.width) | 0);
+            const x = i - (y * this.width);
+            bm.setBit(x, y, true);
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return bm;
+  };
+  traceColorLayers () {
+    let want = this.options.colorCount;
+    if ( want < 2 ) {
+      want = 2;
+    }
+    let palR = [];
+    let palG = [];
+    let palB = [];
+    this.buildPalette(want, palR, palG, palB);
+    const k = palR.length;
+    let li = 0;
+    let allCmds = [];
+    while (li < k) {
+      const cr = palR[li];
+      const cg = palG[li];
+      const cb = palB[li];
+      const mask = this.maskForColor(cr, cg, cb, palR, palG, palB, li);
+      const layerOpts = EvgTraceOptions.defaults();
+      layerOpts.turdsize = this.options.turdsize;
+      layerOpts.alphamax = this.options.alphamax;
+      layerOpts.turnpolicy = this.options.turnpolicy;
+      layerOpts.optcurve = this.options.optcurve;
+      layerOpts.opttolerance = this.options.opttolerance;
+      layerOpts.fillHex = this.hexFromRgb(cr, cg, cb);
+      const sub = EvgBitmapTracer.fromBinary(mask, layerOpts);
+      sub.trace();
+      if ( sub.ringCount() > 0 ) {
+        const layer = sub.layers[0];
+        this.layers.push(layer);
+        const cmds = sub.getCommands();
+        let ci = 0;
+        while (ci < (cmds.length)) {
+          allCmds.push(cmds[ci]);
+          ci = ci + 1;
+        };
+        this.pathData = layer.pathData;
+        this.rings = sub.rings;
+      }
+      li = li + 1;
+    };
+    this.commands = allCmds;
+    if ( (this.layers.length) > 0 ) {
+      const first = this.layers[0];
+      this.pathData = first.pathData;
+    }
   };
   decompose () {
     const work = this.bitmap.copy();
@@ -5880,17 +6284,47 @@ EvgBitmapTracer.fromBinary = function(bm, opts) {
   return t;
 };
 EvgBitmapTracer.fromImageBuffer = function(img, opts) {
+  if ( opts.colorCount > 1 ) {
+    const tCol = new EvgBitmapTracer();
+    tCol.options = opts;
+    tCol.width = img.width;
+    tCol.height = img.height;
+    tCol.hasColorPlanes = true;
+    tCol.bitmap = EvgBinaryBitmap.create(img.width, img.height);
+    let pr = [];
+    let pg = [];
+    let pb = [];
+    let pa = [];
+    let y = 0;
+    while (y < img.height) {
+      let x = 0;
+      while (x < img.width) {
+        const c = img.getPixel(x, y);
+        pr.push(c.r);
+        pg.push(c.g);
+        pb.push(c.b);
+        pa.push(c.a);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    tCol.planeR = pr;
+    tCol.planeG = pg;
+    tCol.planeB = pb;
+    tCol.planeA = pa;
+    return tCol;
+  }
   let thr = opts.threshold;
   if ( thr < 0 ) {
     thr = EvgBitmapTracer.otsuThreshold(img);
   }
   const bm = EvgBinaryBitmap.create(img.width, img.height);
-  let y = 0;
-  while (y < img.height) {
-    let x = 0;
-    while (x < img.width) {
-      const c = img.getPixel(x, y);
-      const g = c.grayscale();
+  let y2 = 0;
+  while (y2 < img.height) {
+    let x2 = 0;
+    while (x2 < img.width) {
+      const c2 = img.getPixel(x2, y2);
+      const g = c2.grayscale();
       let on = false;
       if ( opts.blackOnWhite ) {
         if ( g < thr ) {
@@ -5901,13 +6335,13 @@ EvgBitmapTracer.fromImageBuffer = function(img, opts) {
           on = true;
         }
       }
-      if ( c.a < 16 ) {
+      if ( c2.a < 16 ) {
         on = false;
       }
-      bm.setBit(x, y, on);
-      x = x + 1;
+      bm.setBit(x2, y2, on);
+      x2 = x2 + 1;
     };
-    y = y + 1;
+    y2 = y2 + 1;
   };
   return EvgBitmapTracer.fromBinary(bm, opts);
 };
@@ -5966,6 +6400,18 @@ EvgBitmapTracer.otsuThreshold = function(img) {
     i = i + 1;
   };
   return thr;
+};
+EvgBitmapTracer.colorDist2 = function(r0, g0, b0, r1, g1, b1) {
+  const dr = r0 - r1;
+  const dg = g0 - g1;
+  const db = b0 - b1;
+  const l0 = EvgBitmapTracer.lumaOf(r0, g0, b0);
+  const l1 = EvgBitmapTracer.lumaOf(r1, g1, b1);
+  const dl = l0 - l1;
+  return (((dr * dr) + (dg * dg)) + (db * db)) + ((dl * dl) * 12);
+};
+EvgBitmapTracer.lumaOf = function(r, g, b) {
+  return (((((r * 299) + (g * 587)) + (b * 114)) / 1000) | 0);
 };
 class RgTest  {
   constructor() {
@@ -6044,6 +6490,24 @@ RgTest.forSuite = function(name) {
 class EvgBitmapTracerTest  {
   constructor() {
   }
+  makeChecker (n, cell) {
+    const bm = EvgBinaryBitmap.create(n, n);
+    let y = 0;
+    while (y < n) {
+      let x = 0;
+      while (x < n) {
+        const cx = ((x / cell) | 0);
+        const cy = ((y / cell) | 0);
+        const cellSum = cx + cy;
+        if ( (cellSum - ((((cellSum / 2) | 0)) * 2)) == 0 ) {
+          bm.setBit(x, y, true);
+        }
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return bm;
+  };
   filledRect (w, h, x0, y0, rw, rh) {
     const bm = EvgBinaryBitmap.create(w, h);
     let y = y0;
@@ -6199,6 +6663,77 @@ class EvgBitmapTracerTest  {
     t.eqInt("curve-mode rect: command budget", cmds.length, 5);
     t.ok("curve-mode path stays compact", (tr.getPathData().length) < 120);
   };
+  testCheckerTopology (t) {
+    const opts = EvgTraceOptions.defaults();
+    opts.turdsize = 2;
+    opts.optcurve = true;
+    const coarse = this.makeChecker(128, 32);
+    const tr1 = EvgBitmapTracer.fromBinary(coarse, opts);
+    tr1.trace();
+    t.eqInt("coarse checker (cell 32) → 2 rings", tr1.ringCount(), 2);
+    const fine = this.makeChecker(128, 8);
+    const tr2 = EvgBitmapTracer.fromBinary(fine, opts);
+    tr2.trace();
+    t.eqInt("fine checker (cell 8) → 8 rings", tr2.ringCount(), 8);
+    t.ok("fine checker path stays under fair CLI budget", (tr2.getPathData().length) < 5500);
+  };
+  testMonoFillHex (t) {
+    const bm = this.filledRect(24, 24, 4, 4, 12, 12);
+    const opts = EvgTraceOptions.defaults();
+    opts.fillHex = "#CC3300";
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    const svg = tr.toSVG();
+    t.ok("SVG uses the requested fill hex", (svg.indexOf("#CC3300")) >= 0);
+    t.eqInt("mono still yields one layer", tr.layerCount(), 1);
+    const el = tr.toEVGElement();
+    t.ok("EVG fill picks up fillHex", el.fillColor.toHexString() == "#CC3300");
+  };
+  testPosterizeTwoColors (t) {
+    const img = new ImageBuffer();
+    img.init(40, 24);
+    let y = 0;
+    while (y < 24) {
+      let x = 0;
+      while (x < 40) {
+        img.setPixelRGB(x, y, 255, 255, 255);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    y = 4;
+    while (y < 20) {
+      let x2 = 4;
+      while (x2 < 18) {
+        img.setPixelRGB(x2, y, 200, 30, 30);
+        x2 = x2 + 1;
+      };
+      let x3 = 22;
+      while (x3 < 36) {
+        img.setPixelRGB(x3, y, 30, 60, 200);
+        x3 = x3 + 1;
+      };
+      y = y + 1;
+    };
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 2;
+    opts.turdsize = 2;
+    opts.skipLuma = 250;
+    const tr = EvgBitmapTracer.fromImageBuffer(img, opts);
+    tr.trace();
+    t.eqInt("posterize yields two color layers", tr.layerCount(), 2);
+    const svg = tr.toSVG();
+    t.ok("SVG has two path elements", (svg.indexOf("<path")) >= 0);
+    const els = tr.toEVGElements();
+    t.eqInt("toEVGElements matches layer count", els.length, 2);
+    const layer0 = tr.layers[0];
+    const layer1 = tr.layers[1];
+    const h0 = layer0.fillHex;
+    const h1 = layer1.fillHex;
+    t.ok("layer fills differ", h0 != h1);
+    t.ok("SVG embeds first layer fill", (svg.indexOf(h0)) >= 0);
+    t.ok("SVG embeds second layer fill", (svg.indexOf(h1)) >= 0);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -6213,6 +6748,9 @@ function __js_main() {
   test.testEVGElement(t);
   test.testOptimalRectPolygon(t);
   test.testCurveModeRectCompact(t);
+  test.testCheckerTopology(t);
+  test.testMonoFillHex(t);
+  test.testPosterizeTwoColors(t);
   t.summary();
 }
 __js_main();
