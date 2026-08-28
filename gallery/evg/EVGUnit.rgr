@@ -18,6 +18,7 @@
 ; 3 = HEIGHT_PERCENT (% of parent height)
 ; 4 = FILL (expand to fill available space)
 ; 5 = REM (relative to the ROOT font size)
+; 6 = FIT_CONTENT (as wide as the children turn out to be)
 
 class EVGUnit {
     def value:double 0.0
@@ -126,6 +127,17 @@ class EVGUnit {
         
         ; Check for "auto" - return unset unit (auto sizing)
         if (trimmed == "auto") {
+            return unit
+        }
+
+        ; fit-content: the box is as wide as what it holds. Not the same as
+        ; leaving the width off, which in EVG means "as wide as the parent" —
+        ; that difference is why a row of containers stacked vertically instead
+        ; of sitting side by side, every one of them filling the row.
+        if (trimmed == "fit-content") {
+            unit.value = 0.0
+            unit.unitType = 6
+            unit.isSet = false
             return unit
         }
         

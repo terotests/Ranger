@@ -334,6 +334,40 @@ class EVGElement {
     def hasDefiniteHeight:boolean false
     def calculatedPage:int 0
     def isAbsolute:boolean false
+
+    ; --- overlays -------------------------------------------------------------
+    ; An overlay surface stays exactly where it is in the tree: still its
+    ; parent's child, still the owner of its subtree, still where an event or an
+    ; accessibility walk finds it. Only LAYOUT and PAINT treat it differently —
+    ; it takes no space in its parent's flow, and it is drawn after the whole
+    ; normal tree, above it.
+    ;
+    ; That is the difference between this and a portal. Moving the element into
+    ; some overlay root would move its ownership with it, and every question
+    ; that follows the tree — who handles this click, what does a reader read
+    ; next, when is this freed — would then have the wrong answer.
+    def isOverlay:boolean false
+    ; What it is positioned against. Left empty by the author: the layout pass
+    ; fills it from the surface's own parent, by finding the sibling that
+    ; declared itself the anchor.
+    def overlayAnchor@(weak optional):EVGElement
+    def isOverlayAnchor:boolean false
+    ; "bottom", "top", "right", "left", or "center" for a modal that has no
+    ; anchor. Words rather than an enum because a tree literal assigns these as
+    ; ordinary typed fields — `(overlaySide "bottom")` type-checks, and a code
+    ; would have been a magic number at every call site.
+    def overlaySide:string "bottom"
+    ; "start", "center" or "end", along the side's cross axis.
+    def overlayAlign:string "start"
+    def overlayGap:double 4.0
+    ; Where the overlay pass PUT it. Deliberately not written back into `left`
+    ; and `top`: those are the author's inputs, and a layout that writes its
+    ; output into its own input reads last frame's answer on the next pass.
+    ; That is not hypothetical — `resolveUnits` had exactly this shape and
+    ; froze every percentage after the first layout.
+    def overlayX:double 0.0
+    def overlayY:double 0.0
+
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
     
@@ -476,7 +510,32 @@ class EVGElement {
         return (elementType == 3)
     }
     
+    ; A tag's props arrive as strings from a stylesheet and as whatever the
+    ; author wrote from a tree literal, so "true", "1" and a bare word all mean
+    ; the same thing here.
+    sfn truthy:boolean (value:string) {
+        def v:string (trim value)
+        if (v == "true") {
+            return true
+        }
+        if (v == "1") {
+            return true
+        }
+        if (v == "yes") {
+            return true
+        }
+        return false
+    }
+
     fn hasAbsolutePosition:boolean () {
+        ; An overlay surface is out of flow by the same rule an absolutely
+        ; positioned element is, and saying so here rather than adding a second
+        ; condition to every size and space calculation in EVGLayout is the
+        ; whole reason the flow half of this feature is one line. The overlay
+        ; pass then MOVES it; until then it sits where layoutAbsolute put it.
+        if isOverlay {
+            return true
+        }
         ; Check if element has absolute positioning
         ; Layer elements are always absolute (overlay parent)
         if ((tagName == "layer") || (tagName == "Layer")) {
@@ -1062,6 +1121,31 @@ class EVGElement {
             return
         }
         
+        ; Overlays
+        if ((name == "overlay") || (name == "isOverlay")) {
+            isOverlay = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "overlay-anchor-role") || (name == "overlayAnchorRole")) {
+            isOverlayAnchor = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "overlay-side") || (name == "overlaySide")) {
+            overlaySide = (trim value)
+            return
+        }
+        if ((name == "overlay-align") || (name == "overlayAlign")) {
+            overlayAlign = (trim value)
+            return
+        }
+        if ((name == "overlay-gap") || (name == "overlayGap")) {
+            def g@(optional):double (to_double value)
+            if g {
+                overlayGap = (unwrap g)
+            }
+            return
+        }
+
         ; Position
         if (name == "left") {
             left = (EVGUnit.parse(value))

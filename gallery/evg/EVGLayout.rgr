@@ -18,6 +18,10 @@ class EVGLayout {
     def pageHeight:double 792.0
     def currentPage:int 0
     def debug:boolean false
+    ; Overlay surfaces the pass could not place, by id and reason. An overlay
+    ; with no anchor would otherwise land at the top-left corner and read as a
+    ; styling mistake; this is what makes it a reportable one.
+    def overlayErrors:[string]
     ; Grid track lists and placements that the engine could not honour.
     ;
     ; These used to go to this.log(), which is a no-op unless `debug` is on, so
@@ -138,7 +142,11 @@ class EVGLayout {
         
         ; Layout root at (0, 0)
         this.layoutElement(root 0.0 0.0 pageWidth pageHeight)
-        
+
+        ; Then the overlays, once everything they anchor to has a rectangle.
+        clear overlayErrors
+        this.placeOverlaysIn(root)
+
         this.log("EVGLayout: Layout complete")
     }
     
@@ -312,6 +320,31 @@ class EVGLayout {
             ; column rightmost. Anything added to either engine later is
             ; mirrored the day it lands, without knowing this exists.
             this.mirrorChildren(element)
+
+            ; fit-content, resolved now that there is content to fit.
+            ;
+            ; The children were placed against the parent's width, because that
+            ; is what a width-less box gets in EVG, so this measures what they
+            ; actually occupy and lays them out AGAIN inside the smaller box.
+            ; The second pass is not optional: justify-content, text-align and
+            ; every percentage below aligned against the wider box, and keeping
+            ; those positions while narrowing the box is how a "fixed" layout
+            ; ends up subtly wrong instead of obviously wrong.
+            if (element.width.unitType == 6) {
+                def fitW:double (this.contentExtent(element))
+                if ((fitW > 0.0) && (fitW < element.calculatedWidth)) {
+                    element.calculatedWidth = fitW
+                    element.calculatedInnerWidth = (element.box.getInnerWidth(fitW))
+                    def kr:int 0
+                    while (kr < childCount) {
+                        def kc:EVGElement (element.getChild(kr))
+                        kc.resetLayoutState()
+                        kr = (kr + 1)
+                    }
+                    contentHeight = (this.layoutChildren(element))
+                    this.mirrorChildren(element)
+                }
+            }
         } {
             ; No children - check if element has text content
             def textContent:string element.textContent
@@ -1459,6 +1492,139 @@ class EVGLayout {
         }
     }
     
+    ; How far the in-flow children reach. Out-of-flow children — absolutes and
+    ; overlay surfaces — are excluded on purpose: a menu is as wide as its
+    ; trigger, not as wide as the panel that hangs off it.
+    fn contentExtent:double (element:EVGElement) {
+        def right:double 0.0
+        def i:int 0
+        def n:int (element.getChildCount())
+        while (i < n) {
+            def c:EVGElement (element.getChild(i))
+            if (c.isAbsolute == false) {
+                def r:double ((c.calculatedX + c.calculatedWidth) + c.box.marginRightPx)
+                if (r > right) {
+                    right = r
+                }
+            }
+            i = (i + 1)
+        }
+        if (right <= 0.0) {
+            return 0.0
+        }
+        return (((right - element.calculatedX) + element.box.paddingRightPx) + element.box.borderWidthPx)
+    }
+
+    ; --- overlays --------------------------------------------------------------
+    ; Four phases, of which the first is everything above: normal layout, then
+    ; anchor rectangles (already computed, because the anchors are ordinary flow
+    ; elements), then the overlay placement below, then the display list.
+    ;
+    ; The walk is top-down and places a surface BEFORE descending into it, which
+    ; is what makes a submenu work without knowing it is one: by the time the
+    ; Share sub-surface asks where its trigger is, the File surface that
+    ; contains that trigger has already moved, so the rectangle it reads is the
+    ; real one. Anchor-dependency order falls out of the tree order; there is no
+    ; second mechanism for nesting.
+
+    fn placeOverlaysIn:void (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            if c.isOverlay {
+                this.placeOverlay(c el)
+            }
+            this.placeOverlaysIn(c)
+            i = (i + 1)
+        }
+    }
+
+    ; The anchor is not named by the author. A surface finds it among its own
+    ; siblings: the one that declared `overlayAnchorRole`. That is the whole
+    ; convention, and it is what lets a factory say `(Menu (Trigger …) (Content
+    ; …))` with nothing joining the two by hand.
+    fn findOverlayAnchor@(optional):EVGElement (surface:EVGElement parent:EVGElement) {
+        if surface.overlayAnchor {
+            return surface.overlayAnchor
+        }
+        def i:int 0
+        while (i < (array_length parent.children)) {
+            def c:EVGElement (itemAt parent.children i)
+            if c.isOverlayAnchor {
+                def hit@(optional):EVGElement c
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    fn placeOverlay:void (surface:EVGElement parent:EVGElement) {
+        def w:double surface.calculatedWidth
+        def h:double surface.calculatedHeight
+        def x:double 0.0
+        def y:double 0.0
+
+        if (surface.overlaySide == "center") {
+            ; Centred on the page: a modal, which has no anchor by definition.
+            x = ((pageWidth - w) / 2.0)
+            y = ((pageHeight - h) / 2.0)
+        } {
+            def maybe@(optional):EVGElement (this.findOverlayAnchor(surface parent))
+            if (null? maybe) {
+                ; Named, not silently at (0,0). An unanchored surface in the
+                ; corner looks like a stylesheet mistake and is not one.
+                push overlayErrors (surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`")
+                return
+            }
+            def a:EVGElement (unwrap maybe)
+            def ax:double a.calculatedX
+            def ay:double a.calculatedY
+            def aw:double a.calculatedWidth
+            def ah:double a.calculatedHeight
+
+            if (surface.overlaySide == "top") {
+                x = (this.overlayCross(ax aw w surface.overlayAlign))
+                y = ((ay - h) - surface.overlayGap)
+            }
+            if (surface.overlaySide == "bottom") {
+                x = (this.overlayCross(ax aw w surface.overlayAlign))
+                y = ((ay + ah) + surface.overlayGap)
+            }
+            if (surface.overlaySide == "right") {
+                x = ((ax + aw) + surface.overlayGap)
+                y = (this.overlayCross(ay ah h surface.overlayAlign))
+            }
+            if (surface.overlaySide == "left") {
+                x = ((ax - w) - surface.overlayGap)
+                y = (this.overlayCross(ay ah h surface.overlayAlign))
+            }
+        }
+
+        surface.overlayX = x
+        surface.overlayY = y
+        ; Move the surface AND everything under it — the same helper a page
+        ; break already uses. The subtree was laid out relative to wherever
+        ; layoutAbsolute left the surface, so the whole thing travels together.
+        this.translateSubtree(surface (x - surface.calculatedX) (y - surface.calculatedY))
+    }
+
+    ; Start, centre or end along the axis the side does not occupy.
+    fn overlayCross:double (anchorStart:double anchorSize:double size:double align:string) {
+        if (align == "center") {
+            return (anchorStart + ((anchorSize - size) / 2.0))
+        }
+        if (align == "end") {
+            return ((anchorStart + anchorSize) - size)
+        }
+        return anchorStart
+    }
+
+    fn getOverlayErrors:[string] () {
+        return overlayErrors
+    }
+
     fn printLayout:void (element:EVGElement indent:int) {
         ; Print layout tree for debugging
         def indentStr:string ""

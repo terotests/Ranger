@@ -2998,6 +2998,12 @@ EVGUnit.parse = function(str) {
   if ( trimmed == "auto" ) {
     return unit;
   }
+  if ( trimmed == "fit-content" ) {
+    unit.value = 0.0;
+    unit.unitType = 6;
+    unit.isSet = false;
+    return unit;
+  }
   const lastChar = trimmed.charCodeAt((__len - 1) );
   if ( lastChar == 37 ) {
     const numStr = trimmed.substring(0, (__len - 1) );
@@ -3972,6 +3978,13 @@ class EVGElement  {
     this.hasDefiniteHeight = false;
     this.calculatedPage = 0;     /** note: unused */
     this.isAbsolute = false;
+    this.isOverlay = false;
+    this.isOverlayAnchor = false;
+    this.overlaySide = "bottom";
+    this.overlayAlign = "start";
+    this.overlayGap = 4.0;
+    this.overlayX = 0.0;     /** note: unused */
+    this.overlayY = 0.0;     /** note: unused */
     this.isLayoutComplete = false;     /** note: unused */
     this.unitsResolved = false;
     this.hasReturn = false;     /** note: unused */
@@ -4056,6 +4069,9 @@ class EVGElement  {
     return this.elementType == 3;
   };
   hasAbsolutePosition () {
+    if ( this.isOverlay ) {
+      return true;
+    }
     if ( (this.tagName == "layer") || (this.tagName == "Layer") ) {
       return true;
     }
@@ -4377,6 +4393,29 @@ class EVGElement  {
     }
     if ( (name == "max-height") || (name == "maxHeight") ) {
       this.maxHeight = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "overlay") || (name == "isOverlay") ) {
+      this.isOverlay = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "overlay-anchor-role") || (name == "overlayAnchorRole") ) {
+      this.isOverlayAnchor = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "overlay-side") || (name == "overlaySide") ) {
+      this.overlaySide = value.trim();
+      return;
+    }
+    if ( (name == "overlay-align") || (name == "overlayAlign") ) {
+      this.overlayAlign = value.trim();
+      return;
+    }
+    if ( (name == "overlay-gap") || (name == "overlayGap") ) {
+      const g = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(g) != "undefined" ) {
+        this.overlayGap = g;
+      }
       return;
     }
     if ( name == "left" ) {
@@ -4803,6 +4842,19 @@ EVGElement.createPath = function() {
   el.tagName = "path";
   el.elementType = 3;
   return el;
+};
+EVGElement.truthy = function(value) {
+  const v = value.trim();
+  if ( v == "true" ) {
+    return true;
+  }
+  if ( v == "1" ) {
+    return true;
+  }
+  if ( v == "yes" ) {
+    return true;
+  }
+  return false;
 };
 EVGElement.toKebab = function(name) {
   let out = "";

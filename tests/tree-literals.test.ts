@@ -98,7 +98,9 @@ describe("tree literals", () => {
       expect(run.output).toContain("mb-label mb-label-disabled New Incognito Window");
       expect(run.output).toContain("mb-separator");
       expect(run.output).toContain("mb-item mb-item-sub");
-      // the checkbox and radio state the demo was given, and only that state
+      // the checkbox and radio state the demo was given, and only that state.
+      // A dropdown is an overlay and a closed menu has no surface in the tree,
+      // so these rows come from the View and Profiles dumps, not the File one.
       expect(run.output).toContain("mb-indicator ✓");
       expect(run.output).toContain("mb-indicator ●");
       expect(run.output.match(/mb-indicator ✓/g)).toHaveLength(1);

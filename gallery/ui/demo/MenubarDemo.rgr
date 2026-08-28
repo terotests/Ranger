@@ -4,30 +4,29 @@
 ; MenubarDemo — the Radix menubar example, written with Ranger tree literals
 ; =============================================================================
 ; The reference is https://www.radix-ui.com/primitives/docs/components/menubar,
-; roughly 200 lines of JSX. This is the same menu structure as a Ranger tree
-; literal over EVG elements: four menus, two submenus, checkbox items, a radio
-; group, separators, disabled items and right-hand shortcut slots.
+; roughly 200 lines of JSX. This is the same menu as a Ranger tree literal over
+; EVG elements: four menus, submenus, checkbox items, a radio group, separators,
+; disabled items and right-hand shortcut slots.
 ;
-; What this is FOR: seeing the ergonomics of the tree syntax on something that
-; is not a toy. It is a structure, not a component library — there is no
-; keyboard handling, no focus and no open/close state here. Those belong to a
-; MenubarCtl in gallery/ui/src, which does not exist yet; this is what its
-; `build()` would be able to look like.
+; It is a structure, not a component library — there is no keyboard handling and
+; no focus here. Those belong to a MenubarCtl in gallery/ui/src, which does not
+; exist yet; this is what its `build()` would be able to look like.
 ;
-; Three things the demo made obvious, all of them written down rather than
-; worked around:
+; What the demo settled about the syntax:
 ;
-;   * a tag carries defaults. `tag Text EVGElement (props (elementType 1))`
-;     means the factory knows a text leaf is an EVGElement in text mode, so no
+;   * a tag carries defaults, so the factory says once what a Trigger IS and no
 ;     call site repeats it. That option exists because writing this without it
 ;     read badly.
-;   * a component is a function. `item`, `checkItem` and `radioItem` below are
-;     ordinary Ranger functions returning EVGElement, spliced in with `(child
-;     …)`. No component type, no registration.
-;   * a literal cannot name a node inside itself, so anything that has to be
-;     mutated later is looked up by id afterwards. For a menu that is fine —
-;     the whole thing is rebuilt on a state change — and for a controller that
-;     keeps `thumbEl` it is the gap named in PLAN_TREE_LITERALS.md.
+;   * a component is a function. `item`, `checkItem` and `radioItem` are
+;     ordinary Ranger functions returning EVGElement, spliced in with `(child …)`.
+;   * a loop is an ordinary loop; there is no list form and none was wanted.
+;
+; And what the OVERLAY work settled: a dropdown is not composed by hand any
+; more. `Content` is still the `Menu`'s child — ownership, events and the
+; accessibility walk all still follow the tree — but the factory marks it an
+; overlay surface, and EVG takes it out of its parent's flow, anchors it to the
+; Trigger beside it and paints it above the page. A submenu is a Menu like any
+; other, so there is no submenu case anywhere in this file.
 ; =============================================================================
 
 Import "../../evg/EVGElement.rgr"
@@ -38,8 +37,8 @@ Import "../../evg/EVGStyleSheet.rgr"
 
 ; -----------------------------------------------------------------------------
 ; The factory. Every tag is an EVGElement — EVG has one element type and the
-; tags carry the INTENT, which is what the stylesheet then matches on. A
-; different factory over the same tags could build something else entirely.
+; tags carry the INTENT, which is what the stylesheet and now the overlay pass
+; match on. A different factory over the same tags could build something else.
 ; -----------------------------------------------------------------------------
 
 treefactory Menubar {
@@ -48,14 +47,21 @@ treefactory Menubar {
 
     tag Bar        EVGElement (props (className "mb-root"))
     tag Menu       EVGElement (props (className "mb-menu"))
-    tag Trigger    EVGElement (props (className "mb-trigger") (elementType 1))
-    tag Content    EVGElement (props (className "mb-content"))
+    ; A trigger is what its menu's surface hangs off. The surface finds it by
+    ; this flag among its own siblings — nothing joins the two by hand.
+    tag Trigger    EVGElement (props (className "mb-trigger") (elementType 1) (isOverlayAnchor true))
+    ; The surface. Still the Menu's child, and out of the Menu's flow: anchored
+    ; under the trigger and painted above the page.
+    tag Content    EVGElement (props (className "mb-content") (isOverlay true) (overlaySide "bottom") (overlayAlign "start"))
+    ; A submenu opens to the side of the row that owns it.
+    tag SubContent EVGElement (props (className "mb-content") (isOverlay true) (overlaySide "right") (overlayAlign "start"))
     tag Row        EVGElement (props (className "mb-item"))
+    ; A row that opens a submenu is itself an anchor.
+    tag SubRow     EVGElement (props (className "mb-item mb-item-sub") (isOverlayAnchor true))
     tag Label      EVGElement (props (className "mb-label") (elementType 1))
     tag Shortcut   EVGElement (props (className "mb-shortcut") (elementType 1))
     tag Indicator  EVGElement (props (className "mb-indicator") (elementType 1))
     tag Separator  EVGElement (props (className "mb-separator"))
-    tag SubContent EVGElement (props (className "mb-subcontent"))
 }
 
 class MenubarDemo {
@@ -80,11 +86,12 @@ class MenubarDemo {
                 (Shortcut shortcut)))
     }
 
-    ; A submenu trigger carries the chevron in the same right-hand slot the
-    ; shortcuts use, which is why there is no separate SubTrigger tag.
-    sfn subTrigger:EVGElement (label:string) {
+    ; The row a submenu hangs off. It carries the chevron in the same
+    ; right-hand slot the shortcuts use, which is why there is no separate
+    ; SubTrigger tag.
+    sfn subRow:EVGElement (label:string) {
         return (tree Menubar
-            (Row (props (className "mb-item mb-item-sub"))
+            (SubRow
                 (Label label)
                 (Shortcut ">")))
     }
@@ -114,53 +121,101 @@ class MenubarDemo {
                 (Label (props (className "mb-label mb-label-inset")) label)))
     }
 
-    ; --- the four menus --------------------------------------------------------
+    ; --- submenus --------------------------------------------------------------
+    ; A submenu is a Menu: an anchor row, and a surface beside it. Its surface
+    ; finds that row exactly the way a top-level surface finds its trigger, so
+    ; nothing here knows it is nested.
 
-    sfn fileMenu:EVGElement () {
+    sfn shareMenu:EVGElement (open:boolean) {
+        if (open == false) {
+            return (MenubarDemo.subRow("Share"))
+        }
+        return (tree Menubar
+            (Menu (props (id "menu-share"))
+                (child (MenubarDemo.subRow("Share")))
+                (SubContent (props (id "menu-share-content"))
+                    (child (MenubarDemo.item("Email Link" "")))
+                    (child (MenubarDemo.item("Messages" "")))
+                    (child (MenubarDemo.item("Notes" ""))))))
+    }
+
+    sfn findMenu:EVGElement (open:boolean) {
+        if (open == false) {
+            return (MenubarDemo.subRow("Find"))
+        }
+        return (tree Menubar
+            (Menu (props (id "menu-find"))
+                (child (MenubarDemo.subRow("Find")))
+                (SubContent (props (id "menu-find-content"))
+                    (child (MenubarDemo.item("Search the web…" "")))
+                    (Separator)
+                    (child (MenubarDemo.item("Find…" "")))
+                    (child (MenubarDemo.item("Find Next" "")))
+                    (child (MenubarDemo.item("Find Previous" ""))))))
+    }
+
+    ; --- the four menus --------------------------------------------------------
+    ; Each is a Trigger, plus a Content when it is the open one. A closed menu is
+    ; its trigger and nothing else, which is what the reference does too: the
+    ; surface is not in the tree at all until the menu opens.
+
+    sfn trigger:EVGElement (label:string open:boolean) {
+        if open {
+            return (tree Menubar
+                (Trigger (props (className "mb-trigger mb-trigger-open")) label))
+        }
+        return (tree Menubar (Trigger label))
+    }
+
+    sfn fileMenu:EVGElement (open:boolean submenu:boolean) {
+        if (open == false) {
+            return (tree Menubar
+                (Menu (props (id "menu-file"))
+                    (child (MenubarDemo.trigger("File" false)))))
+        }
         return (tree Menubar
             (Menu (props (id "menu-file"))
-                (Trigger (props (className "mb-trigger mb-trigger-open")) "File")
+                (child (MenubarDemo.trigger("File" true)))
                 (Content (props (id "menu-file-content"))
                     (child (MenubarDemo.item("New Tab" "⌘ T")))
                     (child (MenubarDemo.item("New Window" "⌘ N")))
                     (child (MenubarDemo.disabledItem("New Incognito Window" "")))
                     (Separator)
-                    (child (MenubarDemo.subTrigger("Share")))
+                    (child (MenubarDemo.shareMenu(submenu)))
                     (Separator)
                     (child (MenubarDemo.item("Print…" "⌘ P"))))))
     }
 
-    ; The Share submenu, which in the reference is a portal next to its trigger.
-    ; Nothing here paints it in the right place — an overlay layer is what
-    ; gallery/ui/PLAN.md calls out as the next piece of work — so it is built as
-    ; its own tree and the demo lays it out beside the menu.
-    sfn shareSubmenu:EVGElement () {
-        return (tree Menubar
-            (SubContent (props (id "menu-share"))
-                (child (MenubarDemo.item("Email Link" "")))
-                (child (MenubarDemo.item("Messages" "")))
-                (child (MenubarDemo.item("Notes" "")))))
-    }
-
-    sfn editMenu:EVGElement () {
+    sfn editMenu:EVGElement (open:boolean submenu:boolean) {
+        if (open == false) {
+            return (tree Menubar
+                (Menu (props (id "menu-edit"))
+                    (child (MenubarDemo.trigger("Edit" false)))))
+        }
         return (tree Menubar
             (Menu (props (id "menu-edit"))
-                (Trigger "Edit")
-                (child (MenubarDemo.editContent()))))
+                (child (MenubarDemo.trigger("Edit" true)))
+                (Content (props (id "menu-edit-content"))
+                    (child (MenubarDemo.item("Undo" "⌘ Z")))
+                    (child (MenubarDemo.item("Redo" "⇧ ⌘ Z")))
+                    (Separator)
+                    (child (MenubarDemo.findMenu(submenu)))
+                    (Separator)
+                    (child (MenubarDemo.item("Cut" "")))
+                    (child (MenubarDemo.item("Copy" "")))
+                    (child (MenubarDemo.item("Paste" ""))))))
     }
 
     ; The View menu is where the reference maps over an array, and the point of
-    ; this one is that a loop is an ordinary loop: build the children first,
-    ; then hand them to `(child …)`.
-    sfn viewMenu:EVGElement (checked:[string]) {
-        return (tree Menubar
-            (Menu (props (id "menu-view"))
-                (Trigger "View")
-                (child (MenubarDemo.viewContent(checked)))))
-    }
-
-    sfn viewContent:EVGElement (checked:[string]) {
-        def content (tree Menubar (Content (props (id "menu-view-content")) (props (className "mb-content mb-content-wide"))))
+    ; this one is that a loop is an ordinary loop: build the children, then hand
+    ; them to the parent.
+    sfn viewMenu:EVGElement (open:boolean checked:[string]) {
+        if (open == false) {
+            return (tree Menubar
+                (Menu (props (id "menu-view"))
+                    (child (MenubarDemo.trigger("View" false)))))
+        }
+        def content (tree Menubar (Content (props (id "menu-view-content"))))
         def labels:[string]
         push labels "Always Show Bookmarks Bar"
         push labels "Always Show Full URLs"
@@ -185,18 +240,19 @@ class MenubarDemo {
         content.addChild((MenubarDemo.item("Toggle Fullscreen" "")))
         content.addChild((tree Menubar (Separator)))
         content.addChild((MenubarDemo.item("Hide Sidebar" "")))
-        return content
-    }
-
-    sfn profilesMenu:EVGElement (selected:string) {
         return (tree Menubar
-            (Menu (props (id "menu-profiles"))
-                (Trigger "Profiles")
-                (child (MenubarDemo.profilesContent(selected)))))
+            (Menu (props (id "menu-view"))
+                (child (MenubarDemo.trigger("View" true)))
+                (child content)))
     }
 
-    sfn profilesContent:EVGElement (selected:string) {
-        def content (tree Menubar (Content (props (id "menu-profiles-content")) (props (className "mb-content mb-content-narrow"))))
+    sfn profilesMenu:EVGElement (open:boolean selected:string) {
+        if (open == false) {
+            return (tree Menubar
+                (Menu (props (id "menu-profiles"))
+                    (child (MenubarDemo.trigger("Profiles" false)))))
+        }
+        def content (tree Menubar (Content (props (id "menu-profiles-content"))))
         def names:[string]
         push names "Andy"
         push names "Benoît"
@@ -211,135 +267,32 @@ class MenubarDemo {
         content.addChild((MenubarDemo.item("Edit…" "")))
         content.addChild((tree Menubar (Separator)))
         content.addChild((MenubarDemo.item("Add Profile…" "")))
-        return content
+        return (tree Menubar
+            (Menu (props (id "menu-profiles"))
+                (child (MenubarDemo.trigger("Profiles" true)))
+                (child content)))
     }
 
     ; --- the whole thing -------------------------------------------------------
+    ; One structure, one state. There is no separate "picture" any more: what a
+    ; screen shows and what `describe()` prints are the same tree, because the
+    ; surfaces place themselves.
 
-    sfn build:EVGElement (checked:[string] profile:string) {
+    sfn bar:EVGElement (checked:[string] profile:string openMenu:string submenu:boolean) {
         return (tree Menubar
             (Bar (props (id "menubar"))
-                (child (MenubarDemo.fileMenu()))
-                (child (MenubarDemo.editMenu()))
-                (child (MenubarDemo.viewMenu(checked)))
-                (child (MenubarDemo.profilesMenu(profile)))))
+                (child (MenubarDemo.fileMenu((openMenu == "File") submenu)))
+                (child (MenubarDemo.editMenu((openMenu == "Edit") submenu)))
+                (child (MenubarDemo.viewMenu((openMenu == "View") checked)))
+                (child (MenubarDemo.profilesMenu((openMenu == "Profiles") profile)))))
     }
 
-    ; A flat description of what was built, so a test can assert on the shape
-    ; without a browser.
-    sfn describe:string (el:EVGElement depth:int) {
-        def pad:string ""
-        def i:int 0
-        while (i < depth) {
-            pad = pad + "  "
-            i = (i + 1)
-        }
-        def line:string ((pad + el.className))
-        if ((strlen el.textContent) > 0) {
-            line = ((line + " ") + el.textContent)
-        }
-        def out:string (line + "\n")
-        def j:int 0
-        while (j < (array_length el.children)) {
-            out = out + (MenubarDemo.describe((itemAt el.children j) (depth + 1)))
-            j = (j + 1)
-        }
-        return out
-    }
-
-    ; --- the picture -----------------------------------------------------------
-    ; `build()` above is the whole menubar as a structure, every menu with its
-    ; contents, and that is what `describe()` prints. It is NOT what a screen
-    ; shows: EVG has no overlay layer yet (gallery/ui/PLAN.md), so laying that
-    ; structure out in flow stacks all four dropdowns down the page instead of
-    ; floating one under its trigger. Until that layer exists, the picture is
-    ; composed by hand — a bar of triggers, then the panels that would be
-    ; portalled — which is exactly the gap, made visible rather than hidden.
-
-    ; One trigger, lit when it is the open one. Written as a function rather
-    ; than four literals so "which is open" stays a value.
-    sfn trigger:EVGElement (label:string openMenu:string) {
-        if (label == openMenu) {
-            return (tree Menubar
-                (Trigger (props (className "mb-trigger mb-trigger-open")) label))
-        }
-        return (tree Menubar (Trigger label))
-    }
-
-    sfn barRow:EVGElement (openMenu:string) {
-        return (tree Menubar
-            (Bar (props (id "menubar"))
-                (child (MenubarDemo.trigger("File" openMenu)))
-                (child (MenubarDemo.trigger("Edit" openMenu)))
-                (child (MenubarDemo.trigger("View" openMenu)))
-                (child (MenubarDemo.trigger("Profiles" openMenu)))))
-    }
-
-    ; The whole picture for one state. Every change — a different menu open, a
-    ; box ticked, another profile — calls this again and gets a fresh tree. That
-    ; is what a tree literal is for: it builds, it does not re-render.
     sfn page:EVGElement (checked:[string] profile:string openMenu:string submenu:boolean) {
-        def root (tree Menubar (Bar (props (id "page") (className "mb-page"))))
-        root.addChild((MenubarDemo.barRow(openMenu)))
-        def row (tree Menubar (Bar (props (id "panels") (className "mb-dropdown-row"))))
-        if (openMenu == "File") {
-            row.addChild((MenubarDemo.fileContent()))
-            if submenu {
-                row.addChild((MenubarDemo.shareSubmenu()))
-            }
-        }
-        if (openMenu == "Edit") {
-            row.addChild((MenubarDemo.editContent()))
-            if submenu {
-                row.addChild((MenubarDemo.findSubmenu()))
-            }
-        }
-        if (openMenu == "View") {
-            row.addChild((MenubarDemo.viewContent(checked)))
-        }
-        if (openMenu == "Profiles") {
-            row.addChild((MenubarDemo.profilesContent(profile)))
-        }
-        root.addChild(row)
-        return root
-    }
-
-    sfn editContent:EVGElement () {
         return (tree Menubar
-            (Content (props (id "menu-edit-content"))
-                (child (MenubarDemo.item("Undo" "⌘ Z")))
-                (child (MenubarDemo.item("Redo" "⇧ ⌘ Z")))
-                (Separator)
-                (child (MenubarDemo.subTrigger("Find")))
-                (Separator)
-                (child (MenubarDemo.item("Cut" "")))
-                (child (MenubarDemo.item("Copy" "")))
-                (child (MenubarDemo.item("Paste" "")))))
+            (Bar (props (id "page") (className "mb-page"))
+                (child (MenubarDemo.bar(checked profile openMenu submenu)))))
     }
 
-    sfn findSubmenu:EVGElement () {
-        return (tree Menubar
-            (SubContent (props (id "menu-find"))
-                (child (MenubarDemo.item("Search the web…" "")))
-                (Separator)
-                (child (MenubarDemo.item("Find…" "")))
-                (child (MenubarDemo.item("Find Next" "")))
-                (child (MenubarDemo.item("Find Previous" "")))))
-    }
-
-    sfn fileContent:EVGElement () {
-        return (tree Menubar
-            (Content (props (id "menu-file-content"))
-                (child (MenubarDemo.item("New Tab" "⌘ T")))
-                (child (MenubarDemo.item("New Window" "⌘ N")))
-                (child (MenubarDemo.disabledItem("New Incognito Window" "")))
-                (Separator)
-                (child (MenubarDemo.subTrigger("Share")))
-                (Separator)
-                (child (MenubarDemo.item("Print…" "⌘ P")))))
-    }
-
-    ; Style, lay out, and hand back the display list a painter can draw.
     sfn displayListJson:string (css:string checked:[string] profile:string openMenu:string submenu:boolean) {
         def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
         def sheet (new EVGStyleSheet())
@@ -355,16 +308,59 @@ class MenubarDemo {
         return (dl.toJson())
     }
 
+    ; Overlay surfaces the layout could not place. An unanchored surface would
+    ; otherwise sit in the corner and read as a styling mistake.
+    sfn overlayErrors:[string] (css:string checked:[string] profile:string openMenu:string submenu:boolean) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        sheet.setViewport(1240.0 560.0 false)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(1240.0 560.0)
+        lay.layout(root)
+        return (lay.getOverlayErrors())
+    }
+
     sfn styleErrors:int (css:string) {
         def sheet (new EVGStyleSheet())
         sheet.parse(css)
         return (sheet.getErrorCount())
     }
 
+    ; A flat description of what was built, so a test can assert on the shape
+    ; without a browser.
+    sfn describe:string (el:EVGElement depth:int) {
+        def pad:string ""
+        def i:int 0
+        while (i < depth) {
+            pad = pad + "  "
+            i = (i + 1)
+        }
+        def line:string (pad + el.className)
+        if ((strlen el.textContent) > 0) {
+            line = ((line + " ") + el.textContent)
+        }
+        def out:string (line + "\n")
+        def j:int 0
+        while (j < (array_length el.children)) {
+            out = out + (MenubarDemo.describe((itemAt el.children j) (depth + 1)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; A closed menu has no surface in the tree, so one dump cannot show the
+    ; checkbox and radio rows at the same time as the File menu. Three dumps,
+    ; one per open menu — which is also what a user sees, one at a time.
     sfn main:void () {
         def checked:[string]
         push checked "Always Show Full URLs"
-        def bar:EVGElement (MenubarDemo.build(checked "Luis"))
-        print (MenubarDemo.describe(bar 0))
+        print "--- File open, with the Share submenu ---"
+        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "File" true)) 0))
+        print "--- View open ---"
+        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "View" false)) 0))
+        print "--- Profiles open ---"
+        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "Profiles" false)) 0))
     }
 }
