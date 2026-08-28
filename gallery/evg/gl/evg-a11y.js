@@ -58,7 +58,8 @@ const HIDDEN_ROLES = new Set(["none", "presentation"]);
 // it. The rest get an aria-label and are containers for their children.
 const CONTENT_ROLES = new Set([
   "text", "heading", "button", "gridcell", "columnheader", "rowheader",
-  "checkbox", "radio", "tab", "menuitem", "listitem", "link",
+  "checkbox", "radio", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
+  "listitem", "link",
 ]);
 
 // A native <button> is better understood by every screen reader than a div with
@@ -154,6 +155,12 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
       el.dataset.a11yId = node.id;
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
+        // The elements are NESTED — a row is inside its menu is inside the
+        // bar — so a click that keeps bubbling reaches every ancestor's
+        // listener too, and each one presses the app at ITS OWN centre. One
+        // activation on a menu row then became three: the row, the menu
+        // behind it, and the page behind that.
+        ev.stopPropagation();
         const n = els.get(node.id);
         if (n) activate(n.node);
       });
@@ -191,6 +198,9 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     }
 
     setAttr(el, "aria-description", node.desc);
+    // Open or closed. A trigger that never says which is a trigger a reader
+    // cannot tell has already been pressed.
+    setAttr(el, "aria-expanded", node.expanded ? TRI[node.expanded] || null : null);
     setAttr(el, "aria-disabled", node.disabled ? "true" : null);
     setAttr(el, "aria-readonly", node.readonly ? "true" : null);
     setAttr(el, "aria-modal", node.modal ? "true" : null);

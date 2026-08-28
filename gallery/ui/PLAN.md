@@ -75,13 +75,14 @@ it landed.
 - [x] A surface with no anchor is **reported**, not silently drawn at (0,0),
       where it looks like a stylesheet mistake and is not one.
 - [x] `width: fit-content`, which a floating panel needs and EVG did not have.
-- [ ] **Paint order.** `EVGDisplayList` still paints in tree order, so a
-      surface is above the page only when it happens to come later. This needs
-      a z-order *stack* — the order surfaces opened in — not a z-index.
-- [ ] **Hit testing.** `UiHost.hitTest` still walks the tree, so a click in the
-      area a surface covers can land on what is underneath. Hit test topmost
-      surface first; *event propagation* then follows the logical tree, not the
-      paint stack.
+- [x] **Paint order.** `EVGDisplayList` defers every surface it meets and
+      draws them after the whole normal tree, in the order they were reached —
+      a stack, not a z-index, so there is no number to get wrong. Deferring is
+      also what takes a surface out of an ancestor's `overflow: hidden`.
+- [x] **Hit testing.** `EVGHitTest` builds the SAME list and scans it
+      backwards, so topmost wins because topmost is last and there is one rule
+      instead of two that can drift. Where the event then GOES is still the
+      tree's business: an overlay never left it.
 - [ ] **Collision handling:** flip and shift, so a surface near an edge is not
       drawn off the page.
 - [ ] **Modal:** the same mechanism plus a backdrop and an inert page behind.
@@ -89,9 +90,46 @@ it landed.
       `dialog.focus-trap` and disputed, because the harness has no Tab step to
       prove it with
 
-Proof: `npm run evg:overlay:test` — 15 checks, each one shown to fail under a
+Proof: `npm run evg:overlay:test` — 20 checks, each one shown to fail under a
 mutation of the code it covers. The visible result is
 `gallery/ui/demo/menubar.png`, rendered from `MenubarDemo.rgr`.
+
+## Accessibility for a canvas, from the tree that drew it
+
+A canvas contributes one empty graphic to the browser's accessibility tree no
+matter what was drawn into it, so an EVG app has to publish what the frame
+MEANS as well as what it looks like. The question is where that second
+description comes from, and there is only one answer that does not rot: the
+declaration that built the picture.
+
+- [x] `EVGElement` carries `role` and the ARIA states beside `className` —
+      the same element says what it looks like and what it is.
+- [x] `EVGA11yFromTree` walks a laid-out tree and emits the nodes: only
+      elements with a role, parented to the nearest ANCESTOR with a role, named
+      by `aria-label` or by the text of the roleless descendants (so a row of
+      Label + Shortcut announces as "New Tab ⌘ T"), placed at the rectangle
+      layout computed — surfaces included, at the position the overlay pass
+      moved them to.
+- [x] The demo page mounts `evg-a11y.js` over its canvas, and a reader
+      activating a node is answered by pressing the app at that node's
+      rectangle: the same path the mouse takes, so there is no second set of
+      commands to keep in step.
+- [x] `npm run ui:demo:a11y` — `EVGA11yTree.lint()` plus axe-core over the
+      mirror, in five states. Shown to fail: taking the label off the rows
+      produces both a lint failure and axe's `aria-command-name`.
+
+Two bugs in the shared mirror came out of wiring it to a real app, and both
+were invisible to the audit page that had no input:
+
+- a click on a mirrored node bubbled through the nested ancestors, and each
+  one's handler pressed the app at ITS OWN centre — one activation on a menu
+  row became three;
+- `aria-expanded` was never mirrored, so a trigger could not tell a reader
+  whether it was already open.
+
+`UiHost` still builds its accessible tree from controller rows, which is right
+for a controller: it knows things the tree does not, like what a key will do
+next. Everything else should derive.
 
 `EVGWindow` already implements a modal dialog with focus and key handling, and
 `EVGToolbar` already hand-rolls an overlay pass for its dropdown. Folding those

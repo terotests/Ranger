@@ -36,19 +36,30 @@ Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
 
 treefactory Toolbar {
     child addChild
     text  textContent
 
     tag Page      EVGElement (props (className "tb-page"))
-    tag Bar       EVGElement (props (className "tb-root"))
-    tag Group     EVGElement (props (className "tb-group"))
-    tag Button    EVGElement (props (className "tb-button") (elementType 1))
-    tag Separator EVGElement (props (className "tb-separator"))
+    ; The roles are on the tags, beside the classes: one declaration says what
+    ; a thing looks like and what it means, and `EVGA11yFromTree` reads the
+    ; second half off the same tree the painter walks.
+    tag Bar       EVGElement (props (className "tb-root") (role "toolbar") (a11yLabel "Formatting options"))
+    tag Group     EVGElement (props (className "tb-group") (role "group"))
+    ; A toggle button is a button that is PRESSED, not a checkbox: same state
+    ; in the tree, a different word on the way out, and a reader says
+    ; "pressed" rather than "checked".
+    tag Button    EVGElement (props (className "tb-button") (elementType 1) (role "button") (a11yFocusable true))
+    tag Separator EVGElement (props (className "tb-separator") (role "separator"))
     tag Left      EVGElement (props (className "tb-left"))
-    tag Status    EVGElement (props (className "tb-status") (elementType 1))
-    tag Share     EVGElement (props (className "tb-share") (elementType 1))
+    ; The status line is a live region: it changes without anyone pressing
+    ; anything, and a reader only announces it if it is told that.
+    tag Status    EVGElement (props (className "tb-status") (elementType 1) (role "status"))
+    tag Share     EVGElement (props (className "tb-share") (elementType 1) (role "button") (a11yFocusable true))
 }
 
 class ToolbarDemo {
@@ -56,30 +67,33 @@ class ToolbarDemo {
     ; One toggle. `on` is the whole difference between the two groups: the
     ; format group lets several be true, the alignment group exactly one, and
     ; neither fact is known here.
-    sfn toggle:EVGElement (glyph:string on:boolean cls:string) {
+    ; `name` is what a reader says, and it is not the glyph: "B" announced on
+    ; its own is a letter, and the letter is not the point. The glyph is drawn;
+    ; the name is spoken.
+    sfn toggle:EVGElement (glyph:string on:boolean cls:string id:string name:string) {
         if on {
             return (tree Toolbar
-                (Button (props (className (("tb-button " + cls) + " tb-button-on"))) glyph))
+                (Button (props (className (("tb-button " + cls) + " tb-button-on")) (id id) (a11yLabel name) (a11yChecked (EVGA11yTri.yes()))) glyph))
         }
         return (tree Toolbar
-            (Button (props (className ("tb-button " + cls))) glyph))
+            (Button (props (className ("tb-button " + cls)) (id id) (a11yLabel name) (a11yChecked (EVGA11yTri.no()))) glyph))
     }
 
     sfn formatGroup:EVGElement (bold:boolean italic:boolean underline:boolean) {
         return (tree Toolbar
-            (Group (props (id "format"))
-                (child (ToolbarDemo.toggle("B" bold "tb-button-bold")))
-                (child (ToolbarDemo.toggle("I" italic "tb-button-italic")))
-                (child (ToolbarDemo.toggle("U" underline "tb-button-underline")))))
+            (Group (props (id "format") (a11yLabel "Text formatting"))
+                (child (ToolbarDemo.toggle("B" bold "tb-button-bold" "tb-bold" "Bold")))
+                (child (ToolbarDemo.toggle("I" italic "tb-button-italic" "tb-italic" "Italic")))
+                (child (ToolbarDemo.toggle("U" underline "tb-button-underline" "tb-underline" "Underline")))))
     }
 
     ; The alignment set: one of "left", "center", "right" is on.
     sfn alignGroup:EVGElement (align:string) {
         return (tree Toolbar
-            (Group (props (id "align"))
-                (child (ToolbarDemo.toggle("≡" (align == "left") "tb-button-align")))
-                (child (ToolbarDemo.toggle("≡" (align == "center") "tb-button-align")))
-                (child (ToolbarDemo.toggle("≡" (align == "right") "tb-button-align")))))
+            (Group (props (id "align") (a11yLabel "Text alignment"))
+                (child (ToolbarDemo.toggle("≡" (align == "left") "tb-button-align" "tb-align-left" "Align left")))
+                (child (ToolbarDemo.toggle("≡" (align == "center") "tb-button-align" "tb-align-center" "Align center")))
+                (child (ToolbarDemo.toggle("≡" (align == "right") "tb-button-align" "tb-align-right" "Align right")))))
     }
 
     ; Two children and `space-between` on the bar, rather than a spacer element:
@@ -103,8 +117,10 @@ class ToolbarDemo {
                 (child (ToolbarDemo.bar(bold italic underline align status)))))
     }
 
-    sfn displayListJson:string (css:string bold:boolean italic:boolean underline:boolean align:string status:string) {
-        def root:EVGElement (ToolbarDemo.page(bold italic underline align status))
+    ; Build, style, lay out — once, so the pixels, the hit test and the
+    ; accessible tree are three readings of one tree instead of three
+    ; descriptions that can disagree.
+    sfn laidOut:EVGLayout (root:EVGElement css:string) {
         def sheet (new EVGStyleSheet())
         sheet.parse(css)
         sheet.setViewport(1240.0 320.0 false)
@@ -112,10 +128,39 @@ class ToolbarDemo {
         def lay (new EVGLayout())
         lay.setPageSize(1240.0 320.0)
         lay.layout(root)
+        return lay
+    }
+
+    sfn displayListJson:string (css:string bold:boolean italic:boolean underline:boolean align:string status:string) {
+        def root:EVGElement (ToolbarDemo.page(bold italic underline align status))
+        def lay:EVGLayout (ToolbarDemo.laidOut(root css))
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.build(root)
         return (dl.toJson())
+    }
+
+    sfn hitId:string (css:string bold:boolean italic:boolean underline:boolean align:string status:string px:double py:double) {
+        def root:EVGElement (ToolbarDemo.page(bold italic underline align status))
+        ToolbarDemo.laidOut(root css)
+        def hit (new EVGHitTest())
+        return (hit.idAt(root px py))
+    }
+
+    sfn a11yJson:string (css:string bold:boolean italic:boolean underline:boolean align:string status:string generation:int focusId:string) {
+        def root:EVGElement (ToolbarDemo.page(bold italic underline align status))
+        ToolbarDemo.laidOut(root css)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "Toolbar demo" generation focusId))
+        return (t.toJson())
+    }
+
+    sfn a11yProblems:[string] (css:string bold:boolean italic:boolean underline:boolean align:string status:string) {
+        def root:EVGElement (ToolbarDemo.page(bold italic underline align status))
+        ToolbarDemo.laidOut(root css)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "Toolbar demo" 1 ""))
+        return (t.lint())
     }
 
     sfn styleErrors:int (css:string) {

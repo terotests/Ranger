@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
+import { execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
 import {
   expectCompileError,
   expectGoOutput,
@@ -109,6 +113,110 @@ describe("tree literals", () => {
   });
 
   /**
+   * The demo is not only a picture. A canvas hands a screen reader one empty
+   * graphic, and a canvas has no elements to click, so the same laid-out tree
+   * has to answer three questions: what to draw, what is under the pointer,
+   * and what the thing there MEANS.
+   *
+   * The property worth asserting is that those are one tree and not three
+   * descriptions of it. A reader is told a row is at a rectangle; pressing the
+   * centre of that rectangle has to reach that row. If they ever disagree,
+   * a screen-reader user is pressing empty space and nobody sighted can see it.
+   */
+  describe("the demo answers the pointer and the reader from one tree", () => {
+    const CSS_FILE = "gallery/ui/demo/menubar.css";
+    const OUT = "gallery/ui/bin";
+    let Demo: any;
+    let css = "";
+    const checked = ["Always Show Full URLs"];
+
+    beforeAll(() => {
+      execSync(
+        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule " +
+          `./gallery/ui/demo/MenubarDemo.rgr -d=./${OUT} -o=MenubarDemo.cjs`,
+        { cwd: process.cwd(), stdio: "pipe" },
+      );
+      const req = createRequire(path.join(process.cwd(), "package.json"));
+      Demo = req(`./${OUT}/MenubarDemo.cjs`).MenubarDemo;
+      css = fs.readFileSync(CSS_FILE, "utf8");
+    }, 120_000);
+
+    const state = () => [css, checked, "Luis", "File", true] as const;
+
+    it("publishes an accessible tree that lints clean", () => {
+      // A focusable row with no name, or with no rectangle, is invisible on
+      // screen and total for someone using a reader. Nothing here was written
+      // twice: the roles are on the factory's tags.
+      expect(Demo.a11yProblems(...state())).toEqual([]);
+    });
+
+    it("names the rows by what they say, in ARIA's vocabulary", () => {
+      const tree = JSON.parse(Demo.a11yJson(...state(), 1, "trigger-File"));
+      const byId: Record<string, any> = Object.fromEntries(
+        tree.nodes.map((n: any) => [n.id, n]),
+      );
+      expect(byId["menubar"].role).toBe("menubar");
+      expect(byId["trigger-File"].role).toBe("menuitem");
+      // The trigger says the menu is open; the row's name is the whole row.
+      expect(byId["trigger-File"].expanded).toBe(2);
+      expect(byId["row-New Tab"].name).toBe("New Tab ⌘ T");
+      expect(byId["row-New Incognito Window"].disabled).toBe(true);
+      // A menu's surface is out of flow but not out of the tree, so it is
+      // still reachable — and it reports where the overlay pass MOVED it.
+      expect(byId["menu-file-content"].role).toBe("menu");
+      expect(byId["menu-file-content"].b[1]).toBeGreaterThan(
+        byId["trigger-File"].b[1],
+      );
+    });
+
+    it("puts the states on the roles that carry them", () => {
+      const tree = JSON.parse(
+        Demo.a11yJson(css, checked, "Luis", "View", true, 1, ""),
+      );
+      const byId: Record<string, any> = Object.fromEntries(
+        tree.nodes.map((n: any) => [n.id, n]),
+      );
+      // ARIA spells a checkable menu row as its own role rather than as a
+      // menuitem with a state, and a reader announces the two differently.
+      expect(byId["row-Always Show Full URLs"].role).toBe("menuitemcheckbox");
+      expect(byId["row-Always Show Full URLs"].checked).toBe(2);
+      expect(byId["row-Always Show Bookmarks Bar"].checked).toBe(1);
+      // and the menu that is not open is not in the tree at all, exactly as a
+      // closed dropdown is absent from a browser's.
+      expect(byId["menu-file-content"]).toBeUndefined();
+      expect(byId["trigger-File"].expanded).toBe(1);
+    });
+
+    it("hits what it says it drew", () => {
+      const tree = JSON.parse(Demo.a11yJson(...state(), 1, ""));
+      const byId: Record<string, any> = Object.fromEntries(
+        tree.nodes.map((n: any) => [n.id, n]),
+      );
+      const centre = (id: string) => {
+        const [x, y, w, h] = byId[id].b;
+        return Demo.hitId(...state(), x + w / 2, y + h / 2);
+      };
+      // Every leaf a reader can activate answers to a press in the middle of
+      // the rectangle the reader was given.
+      for (const id of [
+        "trigger-File",
+        "row-New Tab",
+        "row-Share",
+        "row-Notes",
+        "row-Print…",
+      ]) {
+        expect(centre(id)).toBe(id);
+      }
+      // Empty space answers the page itself, which is what "click outside
+      // closes the menu" is: there is no separate notion of a miss, only the
+      // outermost thing that was drawn there.
+      expect(Demo.hitId(...state(), 1200, 520)).toBe("page");
+      // Off the page entirely, nothing answers.
+      expect(Demo.hitId(...state(), 5000, 5000)).toBe("");
+    });
+  });
+
+  /**
    * The Radix toolbar, by a SECOND factory. `Bar`, `Group` and `Button` mean
    * something here that they do not mean in `Menubar` — where `Bar` is the
    * menu strip and `Button` is not declared at all — and both factories build
@@ -129,6 +237,35 @@ describe("tree literals", () => {
       expect(run.output).toContain("tb-status Edited 2 hours ago");
       expect(run.output).toContain("tb-share Share");
     });
+
+    it("says what a toggle is, in the word a reader uses for it", () => {
+      execSync(
+        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule " +
+          "./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs",
+        { cwd: process.cwd(), stdio: "pipe" },
+      );
+      const req = createRequire(path.join(process.cwd(), "package.json"));
+      const T = req("./gallery/ui/bin/ToolbarDemo.cjs").ToolbarDemo;
+      const css = fs.readFileSync("gallery/ui/demo/toolbar.css", "utf8");
+      const args = [css, true, false, false, "center", "Edited 2 hours ago"] as const;
+      expect(T.a11yProblems(...args)).toEqual([]);
+      const byId: Record<string, any> = Object.fromEntries(
+        JSON.parse(T.a11yJson(...args, 1, "")).nodes.map((n: any) => [n.id, n]),
+      );
+      // The glyph is drawn; the NAME is spoken. "B" on its own is a letter.
+      expect(byId["tb-bold"].name).toBe("Bold");
+      expect(byId["tb-bold"].role).toBe("button");
+      // Same field in the tree as a checkbox's, and the mirror turns it into
+      // aria-pressed because the role is button.
+      expect(byId["tb-bold"].checked).toBe(2);
+      expect(byId["tb-italic"].checked).toBe(1);
+      expect(byId["tb-align-center"].checked).toBe(2);
+      // The status line changes without anyone pressing anything.
+      expect(byId["status"].role).toBe("status");
+      // and the same rectangle answers the pointer
+      const b = byId["tb-italic"].b;
+      expect(T.hitId(...args, b[0] + b[2] / 2, b[1] + b[3] / 2)).toBe("tb-italic");
+    }, 120_000);
   });
 
   /**

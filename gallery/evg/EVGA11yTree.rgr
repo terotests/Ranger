@@ -88,6 +88,12 @@ class EVGA11yRole {
     sfn tooltip:int ()     { return 30 }
     sfn alertDialog:int () { return 31 }
     sfn slider:int ()      { return 32 }
+    ; A menu bar and the two menu rows that carry a state. ARIA spells these as
+    ; separate roles rather than a menuitem with aria-checked, and a reader
+    ; announces them differently, so they are separate here too.
+    sfn menuBar:int ()          { return 33 }
+    sfn menuItemCheckbox:int () { return 34 }
+    sfn menuItemRadio:int ()    { return 35 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -124,6 +130,9 @@ class EVGA11yRole {
         if (role == 30) { return "tooltip" }
         if (role == 31) { return "alertdialog" }
         if (role == 32) { return "slider" }
+        if (role == 33) { return "menubar" }
+        if (role == 34) { return "menuitemcheckbox" }
+        if (role == 35) { return "menuitemradio" }
         return "none"
     }
 }
