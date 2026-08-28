@@ -14,7 +14,9 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..", "..");
 const PORT = Number(process.env.PORT || 8173);
-const PAGE = "/gallery/ui/web/index.html";
+// The page "/" lands on. The demo server reuses this file with a different
+// one, because both pages need the repository root for gallery/evg's painter.
+const PAGE = process.env.PAGE || "/gallery/ui/web/index.html";
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -31,7 +33,16 @@ const TYPES = {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
-  const rel = decodeURIComponent(url.pathname === "/" ? PAGE : url.pathname);
+
+  // Redirect "/" rather than serving the page there. Serving it inline leaves
+  // the browser on "/", where the page's own `./bundle.js` resolves to the
+  // repository root and 404s — the page then loads, looks nearly right, and
+  // does nothing at all, which is how this was found.
+  if (url.pathname === "/") {
+    res.writeHead(302, { location: PAGE }).end();
+    return;
+  }
+  const rel = decodeURIComponent(url.pathname);
   const file = path.join(ROOT, rel);
 
   // Never serve outside the repository, whatever the path says.

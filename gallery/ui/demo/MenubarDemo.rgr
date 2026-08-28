@@ -146,15 +146,7 @@ class MenubarDemo {
         return (tree Menubar
             (Menu (props (id "menu-edit"))
                 (Trigger "Edit")
-                (Content (props (id "menu-edit-content"))
-                    (child (MenubarDemo.item("Undo" "⌘ Z")))
-                    (child (MenubarDemo.item("Redo" "⇧ ⌘ Z")))
-                    (Separator)
-                    (child (MenubarDemo.subTrigger("Find")))
-                    (Separator)
-                    (child (MenubarDemo.item("Cut" "")))
-                    (child (MenubarDemo.item("Copy" "")))
-                    (child (MenubarDemo.item("Paste" ""))))))
+                (child (MenubarDemo.editContent()))))
     }
 
     ; The View menu is where the reference maps over an array, and the point of
@@ -264,25 +256,75 @@ class MenubarDemo {
     ; composed by hand — a bar of triggers, then the panels that would be
     ; portalled — which is exactly the gap, made visible rather than hidden.
 
-    sfn barRow:EVGElement () {
-        return (tree Menubar
-            (Bar (props (id "menubar"))
-                (Trigger (props (className "mb-trigger mb-trigger-open")) "File")
-                (Trigger "Edit")
-                (Trigger "View")
-                (Trigger "Profiles")))
+    ; One trigger, lit when it is the open one. Written as a function rather
+    ; than four literals so "which is open" stays a value.
+    sfn trigger:EVGElement (label:string openMenu:string) {
+        if (label == openMenu) {
+            return (tree Menubar
+                (Trigger (props (className "mb-trigger mb-trigger-open")) label))
+        }
+        return (tree Menubar (Trigger label))
     }
 
-    sfn page:EVGElement (checked:[string] profile:string) {
+    sfn barRow:EVGElement (openMenu:string) {
+        return (tree Menubar
+            (Bar (props (id "menubar"))
+                (child (MenubarDemo.trigger("File" openMenu)))
+                (child (MenubarDemo.trigger("Edit" openMenu)))
+                (child (MenubarDemo.trigger("View" openMenu)))
+                (child (MenubarDemo.trigger("Profiles" openMenu)))))
+    }
+
+    ; The whole picture for one state. Every change — a different menu open, a
+    ; box ticked, another profile — calls this again and gets a fresh tree. That
+    ; is what a tree literal is for: it builds, it does not re-render.
+    sfn page:EVGElement (checked:[string] profile:string openMenu:string submenu:boolean) {
         def root (tree Menubar (Bar (props (id "page") (className "mb-page"))))
-        root.addChild((MenubarDemo.barRow()))
+        root.addChild((MenubarDemo.barRow(openMenu)))
         def row (tree Menubar (Bar (props (id "panels") (className "mb-dropdown-row"))))
-        row.addChild((MenubarDemo.fileContent()))
-        row.addChild((MenubarDemo.shareSubmenu()))
-        row.addChild((MenubarDemo.viewContent(checked)))
-        row.addChild((MenubarDemo.profilesContent(profile)))
+        if (openMenu == "File") {
+            row.addChild((MenubarDemo.fileContent()))
+            if submenu {
+                row.addChild((MenubarDemo.shareSubmenu()))
+            }
+        }
+        if (openMenu == "Edit") {
+            row.addChild((MenubarDemo.editContent()))
+            if submenu {
+                row.addChild((MenubarDemo.findSubmenu()))
+            }
+        }
+        if (openMenu == "View") {
+            row.addChild((MenubarDemo.viewContent(checked)))
+        }
+        if (openMenu == "Profiles") {
+            row.addChild((MenubarDemo.profilesContent(profile)))
+        }
         root.addChild(row)
         return root
+    }
+
+    sfn editContent:EVGElement () {
+        return (tree Menubar
+            (Content (props (id "menu-edit-content"))
+                (child (MenubarDemo.item("Undo" "⌘ Z")))
+                (child (MenubarDemo.item("Redo" "⇧ ⌘ Z")))
+                (Separator)
+                (child (MenubarDemo.subTrigger("Find")))
+                (Separator)
+                (child (MenubarDemo.item("Cut" "")))
+                (child (MenubarDemo.item("Copy" "")))
+                (child (MenubarDemo.item("Paste" "")))))
+    }
+
+    sfn findSubmenu:EVGElement () {
+        return (tree Menubar
+            (SubContent (props (id "menu-find"))
+                (child (MenubarDemo.item("Search the web…" "")))
+                (Separator)
+                (child (MenubarDemo.item("Find…" "")))
+                (child (MenubarDemo.item("Find Next" "")))
+                (child (MenubarDemo.item("Find Previous" "")))))
     }
 
     sfn fileContent:EVGElement () {
@@ -298,8 +340,8 @@ class MenubarDemo {
     }
 
     ; Style, lay out, and hand back the display list a painter can draw.
-    sfn displayListJson:string (css:string checked:[string] profile:string) {
-        def root:EVGElement (MenubarDemo.page(checked profile))
+    sfn displayListJson:string (css:string checked:[string] profile:string openMenu:string submenu:boolean) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
         def sheet (new EVGStyleSheet())
         sheet.parse(css)
         sheet.setViewport(1240.0 560.0 false)

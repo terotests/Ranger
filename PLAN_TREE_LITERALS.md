@@ -196,7 +196,26 @@ Three things it settled:
   `checkItem`, `radioItem` and `subTrigger` are five ordinary functions
   returning `EVGElement`, and the menus are built out of them with `(child …)`.
 
-Two EVG limits the demo exposed, neither of them about the syntax:
+`gallery/ui/demo/ToolbarDemo.rgr` is the Radix toolbar by a **second factory**,
+and that is why it is a separate file rather than more of the menubar: `Bar`,
+`Group` and `Button` mean something in `Toolbar` that they do not mean in
+`Menubar` — where `Bar` is the menu strip and `Button` is not declared at all —
+and both build plain `EVGElement`s. Tag resolution is the factory's business,
+demonstrated in one repository rather than argued for.
+
+It also walked into two more EVG gaps, both recorded in `toolbar.css`:
+
+- **A row child with no width takes the parent's full width**, so the first
+  child fills the row and every sibling wraps to the next line. The toolbar did
+  exactly that until each box was given a number. Same root cause as
+  `width: fill` below.
+- **No `font-style`, no `text-decoration`.** The display list carries an italic
+  flag that no element ever sets, and nothing draws an underline, so the
+  reference's italic *I* and underlined *U* cannot be drawn. `font-weight` works
+  but only for the literal word `bold` — a numeric `700` parses and does
+  nothing.
+
+Two EVG limits the menubar exposed, neither of them about the syntax:
 
 - **No overlay layer.** Laying the full structure out in flow stacks all four
   dropdowns down the page instead of floating one under its trigger, so the
