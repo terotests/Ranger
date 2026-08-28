@@ -1,154 +1,134 @@
-# gallery/ui — React-shaped UI on EVG
+# gallery/ui — EVG controllers, measured against Radix
 
-Reusable UI kit for Ranger Gallery applications. Components are authored against
-a **React-compatible API** (`createElement`, `Fragment`, `useState`, host tags
-`View` / `Text` / `Button` / `Image`). The **render target is always EVG** —
-WebGL, SDL+OpenGL, SoftCanvas, PDF and HTML painters stay unchanged.
+An **anchor for building native EVG components**: a small set of controllers
+that mutate an EVG display tree, plus a harness that checks their behaviour
+against real [Radix](https://www.radix-ui.com/) components running in a browser.
 
 **License: AGPL-3.0-or-later** (Gallery).
 
-## Why
+## Why this exists
 
-Ranger already has EVG layout, JSX→EVG for documents (`pdf_writer`), and an
-interactive game `UILayer`. What was missing is a **reusable component library**
-with a React-shaped surface so:
+The pptx chrome is 5 800 lines of hand-built widgets inside one class. Making
+that modern needs composable components — and building components with no
+reference is how you discover, two years later, that your menu never had
+keyboard support and your toggle never told a screen reader anything.
 
-1. The same component idea can be tried under **real React** (DOM) or under
-   **Ranger’s React API** (EVG).
-2. Apps (editors, forms, tools) share primitives instead of hand-building
-   `EVGElement` trees.
-3. EVG’s XML authoring path (`SPEC.md`) and the React tree meet at one IR.
+Radix is the reference. Not to copy: **to measure against**. It is the
+best-specified unstyled component set there is, and the questions it answers —
+what does focus do here, what does a disabled control do when you click it,
+what does the accessibility tree say when this is closed — are exactly the
+questions a native EVG kit has to answer too.
 
-## Architecture
+## What this is NOT
+
+Not a React clone. An earlier draft of this module reimplemented
+`createElement`, `Fragment` and `useState` over a virtual tree so components
+could be shared with React DOM. That was dropped: the DOM bridge it implies is
+large, slow and beside the point. Ranger and React have nothing in common
+underneath, and pretending otherwise buys an API surface nobody needs.
+
+EVG is a **display list**. Controllers own a subtree of it and mutate it in
+place. There is no virtual DOM, no reconciler, no hooks, and no render pass.
 
 ```
-  TSX / createElement / EVG XML
-           │
-           ▼
-     RgElement tree          ← React-shaped virtual DOM
-           │
-           ▼
-     Renderer.expand()       ← function components + hooks
-           │
-           ▼
-     EVGBridge.toEVG()       ← EVGElement tree
-           │
-           ▼
-     EVGLayout → EVGDisplayList
-           │
-     ┌─────┼──────────────┐
-     ▼     ▼              ▼
-  WebGL   SDL+GL     SoftCanvas / PDF / HTML
+   ToggleCtl / CollapsibleCtl        ← state lives in the controller
+            │  mutates
+            ▼
+      EVGElement tree                ← retained; classes carry state
+            │
+      EVGStyleSheet.applyTree()      ← class-first theming
+            │
+      EVGLayout → EVGDisplayList
+            │
+   WebGL · SDL+GL · SoftCanvas · PDF · HTML
 ```
 
-| Module | Role |
-| --- | --- |
-| `src/RgElement.rgr` | Virtual element + props |
-| `src/ReactAPI.rgr` | `createElement`, `Fragment`, component registry |
-| `src/Hooks.rgr` | Minimal `useState` / dispatcher |
-| `src/Renderer.rgr` | Expand components → `renderToEVG` |
-| `src/EVGBridge.rgr` | `RgElement` → `EVGElement` |
-| `src/XmlToRg.rgr` | EVG XML (`XmlCore`) → `RgElement` |
-| `src/components/Primitives.rgr` | `View`, `Text`, `Button`, `Image` |
-| `react/` | TypeScript types + DOM dual-host adapters |
+## Behaviour parity, not pixel parity
 
-## React API compatibility
-
-| React | Ranger `gallery/ui` |
-| --- | --- |
-| `createElement(type, props, ...children)` | `ReactAPI.createElement(typeName, props, children)` |
-| `Fragment` | `ReactAPI.Fragment(children)` / type `"Fragment"` |
-| `useState(init)` | `HookDispatcher.useState(init)` (string MVP) |
-| `<div>` / `<span>` | host tags `"div"` / `"span"` (also `View` / `Text`) |
-| Function components | `RgComponent` subclasses registered by name |
-
-Compiled JS keeps the same names (`createElement`, `View`, `Text`, …) so a
-component module can swap:
-
-```ts
-// Try under real React (DOM):
-import { createElement, useState } from "react";
-import { View, Text } from "../react";
-
-// Try under Ranger → EVG (after `npm run ui:module`):
-const { createElement, useState, View, Text, renderToDisplayListJson } =
-  require("./runtime/ranger-ui-runtime.cjs");
-```
-
-`renderToDisplayListJson` emits the EVG display-list wire format that
-`gallery/evg/gl/evg-webgl.js` (Web) and the SDL+GL painter already consume.
-
-See `react/README.md` and `runtime/dual_host_test.cjs`.
-
-## Quick start
+The two systems lay out differently on purpose, so comparing pixels would only
+measure the font rasteriser. What they *must* agree on is what a user can
+observe. After every input step both sides report the same nine fields per test
+id — role, name, state, expanded, pressed, disabled, focused, visible — and the
+harness diffs the traces.
 
 ```bash
-# Unit tests (createElement → EVG → layout → display list → hitTest)
-npm run ui:test
-
-# React-shaped Node runtime + dual-host smoke (writes display-list JSON)
-npm run ui:runtime
-
-# Interactive counter: useState + onClick → hitTest → re-render
-npm run ui:interact
-
-# Side-by-side: real React DOM vs Ranger→EVG WebGL
-npm run ui:compare
-# then open http://127.0.0.1:<port>/gallery/ui/compare/index.html
-
-# Tiny Ranger demo
-npm run ui:hello
+npm run ui:test          # controllers + cascade, no browser, runs in CI
+npm run ui:trace         # print the Ranger behaviour trace for a spec
+npm run ui:conformance   # diff Ranger against real Radix in Chromium
 ```
 
-## Example (Ranger)
+`ui:conformance` needs the reference host installed once:
+
+```bash
+npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
+```
+
+A passing run looks like:
+
+```
+PASS toggle_collapsible  (7 steps, 35 observations)
+RESULT OK
+```
+
+and a regression names itself:
+
+```
+FAIL toggle_collapsible  (1 divergences)
+  click toggle-disabled :: collapsible-trigger.focused  ranger=true radix=false
+```
+
+See [`conformance/SPEC.md`](conformance/SPEC.md) for the trace contract and the
+handful of places where the two systems are deliberately spelled differently.
+
+## Class-first styling, inline still allowed
+
+A controller never names a colour. It writes class names, and an
+`EVGStyleSheet` decides what they mean — including a `.theme-dark` scope:
+
+```css
+.ui-toggle          { background-color: #e2e8f0; color: #0f172a }
+.ui-toggle-state-on { background-color: #2563eb; color: #ffffff }
+
+.theme-dark .ui-toggle { background-color: #1e293b; color: #e2e8f0 }
+```
+
+Interaction state travels as a `state-<value>` class — this system's spelling
+of Radix's `data-state="<value>"`, and the hook a theme styles.
+
+Inline attributes stay legal for the one-offs a sheet cannot express. They go
+through `UiTree.inline()`, which writes the attribute **and** calls
+`markInline()`, so the cascade ranks them above every sheet rule — the same
+contract `JSXToEVG` and `ComponentEngine` already use.
 
 ```ranger
-def r (new Renderer())
-Primitives.install(r.api)
-
-def titleKids:[RgElement]
-push titleKids (RgElement.textNode("Hello"))
-def title (r.api.createElement("Text" (ReactAPI.emptyProps()) titleKids))
-
-def kids:[RgElement]
-push kids title
-def names:[string]
-push names "padding"
-push names "backgroundColor"
-def values:[string]
-push values "20px"
-push values "#3498db"
-def root (r.api.createElement("View" (RgProps.fromPairs(names values)) kids))
-
-def evg:EVGElement (r.renderToEVG(root))
-; then EVGLayout + your painter (WebGL / SDL / SoftCanvas)
+UiTree.inline(el "background-color" "#ff0000")   ; wins over any rule
 ```
 
-## XML path
+### Known limit, and the first thing Tailwind theming would have to lift
 
-```xml
-<div width="400" height="300" background-color="#ffffff">
-  <span font-size="24" color="#111111">Hello, EVG!</span>
-</div>
-```
+`EVGStyleSheet` matches **one class token per selector** — `.a`, or
+`.theme-x .a`. There is no `.ui-toggle.state-on`, so state variants are scoped
+class names (`.ui-toggle-state-on`) instead of compound selectors. A real
+utility-class theme needs compound and attribute selectors; `gallery/css`'s
+`CssCore` already has selector specificity and would be the place to start.
 
-```ranger
-def tree:RgElement ((new XmlToRg()).parse(xml))
-def evg:EVGElement ((new EVGBridge()).toEVG(tree))
-```
+## Modules
 
-## What this is not (yet)
-
-- Full React Fiber / concurrent features / `useEffect` / context
-- Event system wired to SDL/WebGL (use `UILayer` / host hit-testing; `onClick`
-  is stored as a hint today)
-- CSS-in-JS or a design-token theme package
-
-Roadmap: [`PLAN.md`](PLAN.md).
+| File | Role |
+| --- | --- |
+| `src/UiTree.rgr` | Class helpers, `state-*` classes, inline+markInline, subtree edits |
+| `src/UiCtl.rgr` | The controller convention, and the ARIA row a controller reports |
+| `src/ToggleCtl.rgr` | Two-state button — parity target `@radix-ui/react-toggle` |
+| `src/CollapsibleCtl.rgr` | Trigger + content — parity target `@radix-ui/react-collapsible` |
+| `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
+| `conformance/` | Specs, both adapters, the diff |
+| `theme/base.css` | The class-first theme |
 
 ## Related
 
-- [`gallery/evg/`](../evg/) — layout + display list
-- [`gallery/pdf_writer/src/jsx/`](../pdf_writer/src/jsx/) — TSX interpreter for documents
-- [`gallery/game_engine/ui/`](../game_engine/ui/) — interactive HUD widgets
-- [`gallery/rangerforms/`](../rangerforms/) — form engine (can consume this kit later)
+- [`gallery/evg/`](../evg/) — layout, display list, `EVGStyleSheet`, `EVGA11yTree`
+- [`gallery/evg/EVGWindow.rgr`](../evg/EVGWindow.rgr) — the controller shape this follows
+- [`gallery/css/CssCore.rgr`](../css/CssCore.rgr) — selector specificity, for the theme work
+- [`gallery/game_engine/ui/`](../game_engine/ui/) — focus and keyboard, still SoftCanvas-bound
+
+Roadmap: [`PLAN.md`](PLAN.md).

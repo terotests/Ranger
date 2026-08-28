@@ -2,52 +2,56 @@
 
 ## Goal
 
-A reusable, React-API-compatible component library whose **only** paint target
-is EVG, so one UI runs on WebGL, SDL+GL, SoftCanvas, PDF and HTML.
+Native EVG components good enough to replace the hand-built chrome in
+`PptxApp`, with a Radix-measured definition of "good enough".
 
-## Phases
+## Done
 
-### Phase 1 — foundation (this PR)
+- [x] Controller convention: own a subtree of the display tree, mutate it,
+      report ARIA rows (`UiCtl`)
+- [x] Class-first styling with `state-*` classes; inline attributes still legal
+      and still winning (`UiTree.inline` + `markInline`)
+- [x] Theme scoping through `EVGStyleSheet` (`.theme-dark .ui-toggle`)
+- [x] `ToggleCtl` at parity with `@radix-ui/react-toggle`
+- [x] `CollapsibleCtl` at parity with `@radix-ui/react-collapsible`
+- [x] Conformance harness: one spec, two adapters, a trace diff
+- [x] Offline suite in CI (`ui:test`, wired into `gallery:editors:test`)
 
-- [x] `RgElement` / `RgProps` virtual tree
-- [x] `createElement` + `Fragment` + component registry
-- [x] `renderToEVG` via `EVGBridge`
-- [x] XML → `RgElement` (`XmlCore`)
-- [x] Primitives: View, Text, Button, Image
-- [x] Minimal `useState`
-- [x] TypeScript dual-host stubs (`react/`)
-- [x] `RangerUI.renderToDisplayListJson` — WebGL / SDL painter seam
-- [x] React-shaped Node runtime (`runtime/ranger-ui-runtime.cjs`)
-- [x] Dual-host smoke (`npm run ui:runtime`)
+## Next — more surface, same method
 
-### Phase 2 — interaction
+Each of these lands with a spec, or it does not land.
 
-- [x] Pointer → React-shaped synthetic events (`dispatchClick` / `SyntheticEvent`)
-- [x] Hit regions from laid-out EVG (`HitMap` / `rgclick:<id>`)
-- [x] `onClick` props fire after hit-test (JS runtime + Ranger handler ids)
-- [ ] Bridge to `UILayer` / `UIInput` for SDL and canvas hosts (thin adapter next)
-- [ ] Controlled `TextInput` primitive
-- [ ] Keyboard events
-### Phase 3 — richer React surface
+- [ ] `TabsCtl` — roving focus, arrow keys, `aria-selected`
+- [ ] `DialogCtl` — modal, focus trap, restore focus on close, Escape
+- [ ] `DropdownCtl` — an overlay layer with z-order, dismiss-on-outside
+- [ ] `CheckboxCtl` / `RadioGroupCtl` — the tri-state `checked` path
+- [ ] Composition: a Slot/`asChild` equivalent, so a controller can merge its
+      props and classes into a caller's element instead of wrapping it
 
-- [ ] `useEffect`, `useRef`, `useMemo` (subset)
-- [ ] Context API (theme / locale)
-- [ ] Keys + list reconciliation (diff host tree before EVG)
-- [ ] Number/boolean prop values (not only strings)
+## Next — the styling engine
 
-### Phase 4 — kit
+The harness already names the limit: `EVGStyleSheet` matches one class token
+per selector, so there are no compound or attribute selectors, and no real
+utility-class theme.
 
-- [ ] Layout helpers (Stack, Row, Spacer)
-- [ ] Form controls aligned with `rangerforms`
-- [ ] Shared theme tokens
-- [ ] Showcase page in `gallery/evg/showcase` or `office/docs`
+- [ ] Move the cascade onto `gallery/css/CssCore`, which already has selector
+      specificity
+- [ ] Compound selectors (`.ui-toggle.state-on`), then attribute selectors
+- [ ] A generated Tailwind-subset utility sheet + theme tokens on top of that
 
-## Dual-host rule
+## Next — the actual point
 
-Component **source** should depend only on:
+- [ ] Port one `PptxApp` surface (the dialogs first: modal + focus trap +
+      keyboard is where hand-built chrome hurts most) onto these controllers
+- [ ] Fold `EVGToolbar`'s hand-rolled `openMenu` overlay into the layer the
+      dropdown work introduces, rather than leaving two of them
+- [ ] Lift focus and key routing out of `game_engine/ui/UILayer`, which is
+      SoftCanvas-bound, so games and documents share one focus model
 
-- `createElement` / hooks from the chosen runtime import
-- Primitives (`View`, `Text`, …) with the same prop names
+## Deliberately not doing
 
-Never import `EVGElement` from a shared component file if that file must also
-run under real React.
+- A React-compatible API. It was tried in the first draft of this module and
+  removed: the DOM bridge is large and slow, and the two systems share nothing
+  underneath. React is the measuring stick, not the model.
+- Pixel comparison. The layout engines differ by design; only behaviour is
+  meaningfully comparable.

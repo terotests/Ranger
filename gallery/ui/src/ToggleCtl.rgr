@@ -1,0 +1,87 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ToggleCtl — a two-state button, measured against @radix-ui/react-toggle
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   role      button
+;   state     "off" | "on"        (Radix data-state)
+;   pressed   no | yes            (Radix aria-pressed)
+;   disabled  never activates, and a click on it takes focus away
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ToggleCtl extends UiCtl {
+    def on:boolean false
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-toggle"
+        if disabled {
+            UiTree.addClass(el "ui-toggle-disabled")
+        }
+        if on {
+            UiTree.setState(el "ui-toggle" "on")
+        } {
+            UiTree.setState(el "ui-toggle" "off")
+        }
+        UiTree.clearChildren(el)
+        def text:EVGElement (UiTree.label((tid + "__label") "ui-toggle-label" name))
+        el.addChild(text)
+    }
+
+    fn activate:void (target:string) {
+        if disabled {
+            return
+        }
+        if (target != tid) {
+            return
+        }
+        if on {
+            on = false
+        } {
+            on = true
+        }
+        this.build()
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (target != tid) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        return true
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.button()) name))
+        def el:EVGElement (unwrap rootEl)
+        r.state = (UiTree.stateOf(el))
+        r.disabled = disabled
+        if disabled {
+            r.focusable = false
+        } {
+            r.focusable = true
+        }
+        if on {
+            r.pressed = (EVGA11yTri.yes())
+        } {
+            r.pressed = (EVGA11yTri.no())
+        }
+        push out r
+        return out
+    }
+}

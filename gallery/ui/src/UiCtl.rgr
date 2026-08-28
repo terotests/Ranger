@@ -1,0 +1,101 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiCtl — the controller convention, and the row a controller reports
+; =============================================================================
+; A controller owns a subtree of the EVG display tree and mutates it in place
+; when its state changes. It is not a component in the React sense: nothing
+; re-renders it, nothing diffs it, and it keeps its state in its own fields.
+; This is the same shape EVGWindow already uses (handle input, then emit
+; accessibility nodes) — generalised so a conformance harness can drive it.
+;
+; `rows()` is the observable surface: one record per test id, in ARIA terms.
+; The host fills in `focused` and `visible`, which it alone knows.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "UiTree.rgr"
+
+; Tri-state, spelled as EVGA11yTri: 0 = not applicable, 1 = no, 2 = yes.
+class UiRow {
+    def tid:string ""
+    def role:int 0
+    def name:string ""
+    ; The `state-<value>` class, reported bare: "on", "off", "open", "closed".
+    def state:string ""
+    def expanded:int 0
+    def pressed:int 0
+    def disabled:boolean false
+    def focusable:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:UiRow (tid:string role:int name:string) {
+        def r (new UiRow())
+        r.tid = tid
+        r.role = role
+        r.name = name
+        return r
+    }
+}
+
+class UiCtl {
+    def tid:string ""
+    def name:string ""
+    def disabled:boolean false
+    def rootEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    ; Build (or rebuild) the owned subtree from current state.
+    fn build:void () {
+    }
+
+    ; Pointer activation, or Enter/Space while focused.
+    fn activate:void (target:string) {
+    }
+
+    ; Test ids this controller answers for, outermost first.
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        return a
+    }
+
+    ; Is `target` a focusable node of this controller?
+    fn isFocusable:boolean (target:string) {
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def a:[UiRow]
+        return a
+    }
+
+    ; Does this controller own `target`?
+    fn owns:boolean (target:string) {
+        def ids:[string] (this.tids())
+        def i:int 0
+        while (i < (array_length ids)) {
+            if ((itemAt ids i) == target) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn activatesOn:boolean (key:string) {
+        if (key == "Enter") {
+            return true
+        }
+        if (key == " ") {
+            return true
+        }
+        return false
+    }
+}

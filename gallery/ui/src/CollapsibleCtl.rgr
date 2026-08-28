@@ -1,0 +1,142 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CollapsibleCtl — trigger + content, measured against
+; @radix-ui/react-collapsible
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   root      no ARIA role of its own (a wrapper, like Radix's Root div),
+;             state "open" | "closed", not focusable, no accessible name
+;   trigger   role button, state mirrors the root, expanded no | yes
+;   content   state mirrors the root; when closed it is NOT in the display tree
+;             (Radix marks it hidden, which takes it out of the browser's
+;             accessibility tree and paints nothing — same observable)
+;
+; Closing detaches the content element instead of hiding it, because EVG has
+; no `display:none` that also removes a node from the accessibility surface.
+; The trace records what a user can reach, so the two spellings agree.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class CollapsibleCtl extends UiCtl {
+    def open:boolean false
+    def triggerTid:string ""
+    def contentTid:string ""
+    def contentText:string ""
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+    }
+
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-collapsible"
+        UiTree.setState(root "ui-collapsible" word)
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = triggerTid
+        trig.className = "ui-collapsible-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-collapsible-trigger-disabled")
+        }
+        UiTree.setState(trig "ui-collapsible-trigger" word)
+        UiTree.clearChildren(trig)
+        def tlabel:EVGElement (UiTree.label((triggerTid + "__label") "ui-collapsible-label" name))
+        trig.addChild(tlabel)
+        root.addChild(trig)
+
+        def body:EVGElement (unwrap contentEl)
+        body.id = contentTid
+        body.className = "ui-collapsible-content"
+        UiTree.setState(body "ui-collapsible-content" word)
+        UiTree.clearChildren(body)
+        def blabel:EVGElement (UiTree.label((contentTid + "__label") "ui-collapsible-body" contentText))
+        body.addChild(blabel)
+        ; Closed content leaves the display tree entirely.
+        if open {
+            root.addChild(body)
+        }
+    }
+
+    fn activate:void (target:string) {
+        if disabled {
+            return
+        }
+        if (target != triggerTid) {
+            return
+        }
+        if open {
+            open = false
+        } {
+            open = true
+        }
+        this.build()
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a triggerTid
+        push a contentTid
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (target != triggerTid) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        return true
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        rootRow.state = word
+        push out rootRow
+
+        def trigRow:UiRow (UiRow.of(triggerTid (EVGA11yRole.button()) name))
+        trigRow.state = word
+        trigRow.disabled = disabled
+        if disabled {
+            trigRow.focusable = false
+        } {
+            trigRow.focusable = true
+        }
+        if open {
+            trigRow.expanded = (EVGA11yTri.yes())
+        } {
+            trigRow.expanded = (EVGA11yTri.no())
+        }
+        push out trigRow
+
+        def bodyRow:UiRow (UiRow.of(contentTid (EVGA11yRole.none()) ""))
+        bodyRow.state = word
+        push out bodyRow
+
+        return out
+    }
+}

@@ -1,0 +1,209 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiTree — class-first helpers over the retained EVG element tree
+; =============================================================================
+; EVG is a display list. Controllers own a subtree of EVGElement and mutate it
+; in place; nothing here rebuilds a virtual tree or diffs one.
+;
+; Styling is class-first: a controller writes CLASS NAMES and lets an
+; EVGStyleSheet decide what they look like. Inline attributes stay legal for
+; the cases a sheet cannot express — they are written through `inline()`, which
+; also calls markInline() so the cascade ranks them above every sheet rule,
+; the same contract JSXToEVG and ComponentEngine already use.
+;
+; Interaction state travels as a `state-<value>` class. That is this system's
+; spelling of Radix's `data-state="<value>"`: same role (a hook a theme can
+; style and a test can read), spelled the way a class-first engine reads it.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+
+class UiTree {
+
+    Constructor () {
+    }
+
+    sfn splitWs:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def len:int (strlen s)
+        while (i < len) {
+            def code:int (charAt s i)
+            def isSpace:boolean false
+            if (code == 32) {
+                isSpace = true
+            }
+            if (code == 9) {
+                isSpace = true
+            }
+            if (code == 10) {
+                isSpace = true
+            }
+            if isSpace {
+                if ((strlen cur) > 0) {
+                    push out cur
+                    cur = ""
+                }
+            } {
+                cur = cur + (strfromcode code)
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    sfn joinWs:string (parts:[string]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = out + " "
+            }
+            out = out + (itemAt parts i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn beginsWith:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) {
+            return false
+        }
+        def head:string (substring s 0 n)
+        return (head == prefix)
+    }
+
+    sfn hasClass:boolean (el:EVGElement name:string) {
+        def parts:[string] (UiTree.splitWs(el.className))
+        def i:int 0
+        while (i < (array_length parts)) {
+            if ((itemAt parts i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn addClass:void (el:EVGElement name:string) {
+        if (UiTree.hasClass(el name)) {
+            return
+        }
+        if ((strlen el.className) == 0) {
+            el.className = name
+            return
+        }
+        el.className = el.className + " " + name
+    }
+
+    sfn removeClass:void (el:EVGElement name:string) {
+        def parts:[string] (UiTree.splitWs(el.className))
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            if (p != name) {
+                push keep p
+            }
+            i = (i + 1)
+        }
+        el.className = (UiTree.joinWs(keep))
+    }
+
+    ; `state-<value>`, this system's spelling of Radix `data-state`, plus a
+    ; component-scoped twin `<base>-state-<value>`.
+    ;
+    ; The twin exists because EVGStyleSheet matches ONE class token per
+    ; selector — it has no `.ui-toggle.state-on`. Without a scoped class a
+    ; theme could only write `.state-on`, which would mean "on" for every
+    ; component in the tree at once. The bare `state-*` class stays because it
+    ; is what the conformance trace reads.
+    sfn setState:void (el:EVGElement base:string value:string) {
+        def scopedPrefix:string (base + "-state-")
+        def parts:[string] (UiTree.splitWs(el.className))
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            def drop:boolean false
+            if (UiTree.beginsWith(p "state-")) {
+                drop = true
+            }
+            if (UiTree.beginsWith(p scopedPrefix)) {
+                drop = true
+            }
+            if (drop == false) {
+                push keep p
+            }
+            i = (i + 1)
+        }
+        push keep ("state-" + value)
+        push keep (scopedPrefix + value)
+        el.className = (UiTree.joinWs(keep))
+    }
+
+    sfn stateOf:string (el:EVGElement) {
+        def parts:[string] (UiTree.splitWs(el.className))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            if (UiTree.beginsWith(p "state-")) {
+                return (substring p 6 (strlen p))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; An inline attribute: written AND marked, so the cascade puts it above
+    ; every stylesheet rule. Never call setAttribute directly from a controller.
+    sfn inline:void (el:EVGElement name:string value:string) {
+        el.setAttribute(name value)
+        el.markInline(name)
+    }
+
+    sfn clearChildren:void (el:EVGElement) {
+        def empty:[EVGElement]
+        el.children = empty
+    }
+
+    sfn div:EVGElement (id:string cls:string) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.className = cls
+        return el
+    }
+
+    sfn label:EVGElement (id:string cls:string text:string) {
+        def el (EVGElement.createSpan())
+        el.id = id
+        el.className = cls
+        el.textContent = text
+        el.elementType = 1
+        return el
+    }
+
+    ; Is `id` reachable from `root`? The trace calls this "visible": a node the
+    ; display tree no longer carries paints nothing and reaches no screen
+    ; reader, which is what a closed Radix Content is too.
+    sfn reachable:boolean (root:EVGElement id:string) {
+        if (root.id == id) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def c:EVGElement (itemAt root.children i)
+            if (UiTree.reachable(c id)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

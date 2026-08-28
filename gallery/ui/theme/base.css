@@ -1,0 +1,44 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * Class-first theme for gallery/ui. Controllers never name a colour; they
+ * write class names and this sheet decides. Inline attributes written through
+ * UiTree.inline() still outrank every rule here, so a one-off stays possible.
+ *
+ * EVGStyleSheet matches ONE class token per selector (`.a`, or `.theme-x .a`),
+ * so state variants are scoped class names rather than `.ui-toggle.state-on`.
+ * That limit is the first thing a Tailwind-style theme would have to lift.
+ */
+
+.ui-root { padding: 16px; gap: 12px; direction: column; }
+
+.ui-toggle {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-toggle-state-on { background-color: #2563eb; color: #ffffff; }
+.ui-toggle-disabled { opacity: 0.5; }
+
+.ui-collapsible { gap: 8px; direction: column; }
+
+.ui-collapsible-trigger {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-collapsible-trigger-state-open { background-color: #cbd5e1; }
+
+.ui-collapsible-content {
+  padding: 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #334155;
+}
+
+/* Dark theme, in the only descendant form the engine supports. */
+.theme-dark .ui-toggle { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-toggle-state-on { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-collapsible-trigger { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-collapsible-content { background-color: #0f172a; color: #cbd5e1; }
