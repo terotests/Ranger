@@ -26,6 +26,8 @@ Run `npm run ui:report` for the current number; `baseline.json` is checked in.
 - [x] A browser playground (`npm run ui:web`) running both hosts side by side
 - [x] `opacity` honoured in `EVGDisplayList` — it was documented, set by
       rangerflow and book, and read by nothing
+- [x] The `border` shorthand parsed in `EVGElement` — it used to vanish
+      without a stylesheet error
 
 ## Next — the last catalogued component
 

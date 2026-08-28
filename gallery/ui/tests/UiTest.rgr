@@ -19,6 +19,7 @@ Import "../src/AccordionCtl.rgr"
 Import "../src/UiHost.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
 class Check {
@@ -78,6 +79,7 @@ class UiTest {
         UiTest.testTabs(t)
         UiTest.testAccordion(t)
         UiTest.testDisabledFade(t)
+        UiTest.testBorderShorthand(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -331,6 +333,48 @@ class UiTest {
         }
         def half:boolean ((firstFade > 0.49) && (firstFade < 0.51))
         t.ok("faded exactly by the declared opacity" half)
+    }
+
+    ; The `border` shorthand used to be dropped in silence — no stylesheet
+    ; error, no border. A theme writes it far more often than the longhands.
+    sfn testBorderShorthand:void (t:Check) {
+        print "--- border shorthand ---"
+        def h (new UiHost())
+        h.addStyleSheet(".ui-toggle { border: 2px solid #ff0000 }")
+        t.eqInt("sheet parses cleanly" (h.styleErrorCount()) 0)
+        def tog:ToggleCtl (h.addToggle("t" "T"))
+        def el:EVGElement (unwrap tog.rootEl)
+        h.layout()
+        def w:int (to_int (el.effectiveBorderWidthPx()))
+        t.eqInt("width came from the shorthand" w 2)
+        def col:EVGColor (el.effectiveBorderColor())
+        def r:int (col.red())
+        def g:int (col.green())
+        t.eqInt("colour came from the shorthand" r 255)
+        t.eqInt("and only the red channel" g 0)
+        def dl:EVGDisplayList (h.displayList())
+        def strokes:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 1) {
+                strokes = (strokes + 1)
+            }
+            i = (i + 1)
+        }
+        t.ok("and it reaches the display list" (strokes > 0))
+
+        ; `rgb(203, 213, 225)` has spaces in it and is still one token.
+        def h2 (new UiHost())
+        h2.addStyleSheet(".ui-toggle { border: 2px solid rgb(203, 213, 225) }")
+        def tog2:ToggleCtl (h2.addToggle("t" "T"))
+        def el2:EVGElement (unwrap tog2.rootEl)
+        h2.layout()
+        def w2:int (to_int (el2.effectiveBorderWidthPx()))
+        t.eqInt("a functional colour does not split the shorthand" w2 2)
+        def col2:EVGColor (el2.effectiveBorderColor())
+        def b2:int (col2.blue())
+        t.eqInt("and its channels survive" b2 225)
     }
 
     sfn testFocusAndKeys:void (t:Check) {

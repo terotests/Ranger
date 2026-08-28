@@ -170,9 +170,19 @@ that would not sit on one line:
   it, so the emitted alpha was always 1. `EVGDisplayList` now scales the alpha
   of everything an element and its subtree emit, so every painter gets it: it
   is only numbers in the display list. Nested fades multiply.
+- **`border`**, the shorthand, was dropped in silence — the stylesheet
+  reported no error and no border appeared, while `border-width` plus
+  `border-color` worked fine. `EVGElement` now parses it in any order
+  (`1px solid #cbd5e1`, `#cbd5e1 solid 2px`), takes `none` as a clear, and
+  accepts-and-ignores the style keyword, since EVG strokes one way.
 - **`inline`** is still inert: parsed into `isInline`, never read by
   `EVGLayout`. Use `display: flex` with `flex-direction`, which EVG does
   support in full (gap, wrapping, `justify-content`, `align-items`).
+
+The pattern is worth naming: a CSS property that parses, stores, and does
+nothing is the most expensive kind of bug, because everything looks right
+until you compare against a reference. Three of them turned up in one
+afternoon of putting EVG next to Radix.
 
 ### Known limit, and the first thing Tailwind theming would have to lift
 

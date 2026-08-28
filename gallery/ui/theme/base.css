@@ -37,12 +37,13 @@
 /* --- toggle --------------------------------------------------------------- */
 
 .ui-toggle {
+  border: 1px solid #cbd5e1;
   padding: 8px 14px;
   border-radius: 6px;
   background-color: #e2e8f0;
   color: #0f172a;
 }
-.ui-toggle-state-on { background-color: #2563eb; color: #ffffff; }
+.ui-toggle-state-on { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
 .ui-toggle-disabled { opacity: 0.45; }
 
 /* --- collapsible ---------------------------------------------------------- */
@@ -50,6 +51,7 @@
 .ui-collapsible { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 
 .ui-collapsible-trigger {
+  border: 1px solid #cbd5e1;
   padding: 8px 14px;
   border-radius: 6px;
   background-color: #f1f5f9;
@@ -59,6 +61,7 @@
 .ui-collapsible-trigger-disabled { opacity: 0.45; }
 
 .ui-collapsible-content {
+  border: 1px solid #e2e8f0;
   padding: 12px;
   border-radius: 6px;
   background-color: #f8fafc;
@@ -71,22 +74,24 @@
 /* --- checkbox and switch -------------------------------------------------- */
 
 .ui-checkbox {
+  border: 1px solid #cbd5e1;
   padding: 8px 14px;
   border-radius: 6px;
   background-color: #e2e8f0;
   color: #0f172a;
 }
-.ui-checkbox-state-checked { background-color: #2563eb; color: #ffffff; }
+.ui-checkbox-state-checked { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
 .ui-checkbox-state-indeterminate { background-color: #fbbf24; color: #422006; }
 .ui-checkbox-disabled { opacity: 0.45; }
 
 .ui-switch {
+  border: 1px solid #cbd5e1;
   padding: 8px 14px;
   border-radius: 999px;
   background-color: #e2e8f0;
   color: #0f172a;
 }
-.ui-switch-state-checked { background-color: #16a34a; color: #ffffff; }
+.ui-switch-state-checked { background-color: #16a34a; color: #ffffff; border-color: #16a34a; }
 .ui-switch-disabled { opacity: 0.45; }
 
 /* --- radio group ---------------------------------------------------------- */
@@ -94,12 +99,13 @@
 .ui-radiogroup { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 
 .ui-radio {
+  border: 1px solid #cbd5e1;
   padding: 7px 14px;
   border-radius: 999px;
   background-color: #f1f5f9;
   color: #0f172a;
 }
-.ui-radio-state-checked { background-color: #2563eb; color: #ffffff; }
+.ui-radio-state-checked { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
 .ui-radio-disabled { opacity: 0.45; }
 
 /* --- tabs ----------------------------------------------------------------- */
@@ -108,15 +114,17 @@
 .ui-tablist { display: flex; flex-direction: row; align-items: center; gap: 6px; }
 
 .ui-tab {
+  border: 1px solid #cbd5e1;
   padding: 7px 14px;
   border-radius: 6px;
   background-color: #f1f5f9;
   color: #334155;
 }
-.ui-tab-state-active { background-color: #2563eb; color: #ffffff; }
+.ui-tab-state-active { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
 .ui-tab-disabled { opacity: 0.45; }
 
 .ui-tabpanel {
+  border: 1px solid #e2e8f0;
   padding: 12px;
   border-radius: 6px;
   background-color: #f8fafc;
@@ -130,6 +138,7 @@
 .ui-accordion-item { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 
 .ui-accordion-trigger {
+  border: 1px solid #cbd5e1;
   padding: 8px 14px;
   border-radius: 6px;
   background-color: #f1f5f9;
@@ -139,6 +148,7 @@
 .ui-accordion-trigger-disabled { opacity: 0.45; }
 
 .ui-accordion-content {
+  border: 1px solid #e2e8f0;
   padding: 12px;
   border-radius: 6px;
   background-color: #f8fafc;
