@@ -1,0 +1,2 @@
+{ "name":"label_basic","component":"label","behaviours":["no-role","renders-text"],
+  "fixture":{"controls":[{"type":"label","tid":"lb","name":"Email"}]},"steps":[] }

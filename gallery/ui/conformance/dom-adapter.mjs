@@ -57,12 +57,12 @@ export function assertDomInstalled() {
   }
 }
 
-function requireDom(name) {
+export function requireDom(name) {
   assertDomInstalled();
   return domRequire(name);
 }
 
-function findChromium() {
+export function findChromium() {
   if (process.env.RANGER_CHROMIUM) return process.env.RANGER_CHROMIUM;
   const base = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (base && fs.existsSync(base)) {
@@ -129,6 +129,22 @@ export async function run(spec) {
       } else if ("focus" in step) {
         await page.locator(sel(step.focus)).focus().catch(() => {});
         await observe("focus " + step.focus);
+      } else if ("hover" in step) {
+        // Tooltip and hover-card open on a real pointer entering the trigger;
+        // there is no click to stand in for it, so the harness moves the mouse.
+        await page.locator(sel(step.hover)).hover().catch(() => {});
+        await observe("hover " + step.hover);
+      } else if ("unhover" in step) {
+        // Park the pointer in the corner, away from every control, so a
+        // hover-driven surface sees the pointer leave. In steps, because a
+        // tooltip keeps itself open over a "grace area" between trigger and
+        // content and decides with `pointermove`: one teleporting move can
+        // land outside the polygon without ever crossing its edge.
+        await page.mouse.move(0, 0, { steps: 12 });
+        await observe("unhover");
+      } else if ("rightclick" in step) {
+        await page.locator(sel(step.rightclick)).click({ button: "right", force: true }).catch(() => {});
+        await observe("rightclick " + step.rightclick);
       } else {
         throw new Error("unknown step: " + JSON.stringify(step));
       }

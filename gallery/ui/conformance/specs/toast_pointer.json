@@ -1,0 +1,5 @@
+{ "name":"toast_pointer","component":"toast",
+  "behaviours":["raise","no-focus-steal","tab-reachable","close-button","focus-viewport","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"toast","tid":"ts","name":"Show","title":"Saved","body":"All good"}]},
+  "steps":[{"click":"ts-trigger"},{"click":"ts-close"}] }

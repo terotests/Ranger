@@ -47,9 +47,9 @@ place. There is no virtual DOM, no reconciler, no hooks, and no render pass.
 
 The two systems lay out differently on purpose, so comparing pixels would only
 measure the font rasteriser. What they *must* agree on is what a user can
-observe. After every input step both sides report the same eleven fields per
+observe. After every input step both sides report the same twelve fields per
 test id — role, name, state, expanded, pressed, checked, selected, disabled,
-tabstop, focused, visible — and the harness diffs the traces.
+hidden, tabstop, focused, visible — and the harness diffs the traces.
 
 ```bash
 npm run ui:test          # controllers + cascade, no browser, runs in CI
@@ -72,8 +72,10 @@ npm run ui:web                   # builds, serves, prints the URL
 ```
 
 Radix on the left, Ranger's EVG controllers painted by `gallery/evg/gl` on the
-right, and the live trace below with every divergence highlighted. Pick any
-fixture, click or type on either side, or replay a spec's own steps.
+right, and the live trace below with every divergence highlighted. A tree down
+the left side groups the specs under the component they exercise, with a count
+per component and a dot that turns green or red once you have looked at one —
+which is what 31 specs in a flat dropdown could not tell you.
 
 Clicking the canvas runs the **real EVG hit test** — coordinates to a test id,
 innermost control wins — which is the one part of a host the headless gate
@@ -84,6 +86,59 @@ event, both sides handle it), but the pointer has to be *mirrored* between two
 independent hosts, and a mirrored click is a simulation of a click. Treat what
 you see here as a lead and confirm it with `npm run ui:report`.
 
+## How much of Radix is missing
+
+```bash
+npm run ui:inventory            # offline, from a cached npm listing
+npm run ui:inventory:refresh    # re-read npm, then review the diff
+```
+
+```
+  @radix-ui/react-* packages    64
+  internal plumbing             33  (not components)
+  components                    31
+  implemented                   16  51.6%
+  MISSING                       15
+```
+
+The denominator comes from the npm org listing, not from memory. The numerator
+comes from `build-host.cjs`'s `SUPPORTED_TYPES` — the list the code actually
+builds from — so "implemented" cannot drift from what exists. Whether
+`react-menu` is a component or plumbing is a judgement, so it lives in
+`radix-inventory.json` as reviewable data.
+
+**A package in neither bucket fails the run.** That is the whole point: Radix
+ships something new, the next refresh stops, and a human decides what it is.
+The first version of this check derived components as "everything that is not a
+utility", which made it a tautology that could never fail — a new package slid
+in unnoticed until a deliberately broken run caught it.
+
+The report groups what is missing by what it needs, and the grouping says where
+the leverage is: **11 of the 15 that remain are waiting on one overlay layer.**
+
+## Accessibility
+
+```bash
+npm run ui:a11y     # axe-core over both systems, plus contrast and lint
+```
+
+Three checks, because no one of them covers the ground:
+
+| Check | What it can see |
+| --- | --- |
+| **axe-core on Radix** | whether the reference is itself clean, before we blame ourselves |
+| **axe-core on EVG** | the same rule set over `evg-a11y.js`'s DOM mirror — literally what a screen reader walks when the frame is a canvas |
+| **display-list contrast** | what axe cannot: the mirror's ink is transparent by design, so contrast is measured where the colour is, text command against the rect behind it, at WCAG 2.1 ratios |
+| **`EVGA11yTree.lint()`** | structure, with no browser — so CI gets it through `ui:test` |
+
+Text inside a **disabled** control is reported but not failed: WCAG 1.4.3
+exempts "inactive user interface components", and a checker that cries wolf on
+every greyed-out button is one people learn to ignore. The exemptions are
+counted so the decision stays visible.
+
+Auditing the canvas itself would be auditing one empty graphic — which is the
+reason `evg-a11y.js` exists at all.
+
 ## The score
 
 `behaviours.json` is the catalogue: every behaviour this kit intends to match,
@@ -93,17 +148,24 @@ stays honest.
 
 ```
 component      specs  behaviours   coverage    parity  observations
+toggle            3        8/ 8  100.0%  100.0%       180/180
+collapsible       3        7/ 7  100.0%  100.0%       360/360
+checkbox          4        7/ 7  100.0%  100.0%       216/216
+radiogroup        3        8/ 9   88.9%   88.9%       444/444
+tabs              2        8/ 8  100.0%  100.0%       696/696
+accordion         2        6/ 6  100.0%  100.0%       672/672
+switch            2        5/ 5  100.0%  100.0%       144/144
+dialog            2        8/ 9   88.9%   88.9%       216/216
+label             1        2/ 2  100.0%  100.0%         12/12
+separator         1        3/ 3  100.0%  100.0%         36/36
+progress          1        5/ 5  100.0%  100.0%         72/72
+aspect-ratio      1        2/ 2  100.0%  100.0%         36/36
+accessible-icon   1        3/ 3  100.0%  100.0%         48/48
+avatar            1        2/ 2  100.0%  100.0%         24/24
+toggle-group      2        8/ 8  100.0%  100.0%       300/300
+toolbar           2        6/ 6  100.0%  100.0%       300/300
 ────────────────────────────────────────────────────────────────────────
-toggle            3        8/ 8  100.0%  100.0%       165/165
-collapsible       3        7/ 7  100.0%  100.0%       330/330
-checkbox          4        7/ 7  100.0%  100.0%       198/198
-radiogroup        3        8/ 9   88.9%   88.9%       407/407
-tabs              2        8/ 8  100.0%  100.0%       638/638
-accordion         2        6/ 6  100.0%  100.0%       616/616
-switch            2        5/ 5  100.0%  100.0%       132/132
-dialog            0        0/ 6    0.0%    0.0%             —
-────────────────────────────────────────────────────────────────────────
-TOTAL            19       49/56   87.5%   87.5%     2486/2486
+TOTAL            31       88/90   97.8%   97.8%     3756/3756
 ```
 
 Three numbers, because one hides too much. **Coverage** is how much of the
@@ -205,8 +267,11 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/RadioGroupCtl.rgr` | Roving focus, arrow keys, disabled items skipped |
 | `src/TabsCtl.rgr` | Tab strip and panels — only the active panel is in the tree |
 | `src/AccordionCtl.rgr` | Single-open sections — `@radix-ui/react-accordion` |
+| `src/ToolbarCtl.rgr` | Roving focus over a row of buttons, no selection |
+| `src/DialogCtl.rgr` | Modal: opens, takes focus, Escape closes and gives it back |
+| `src/PresentationCtl.rgr` | Label, separator, progress, aspect ratio, icon button, avatar |
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
-| `conformance/` | The catalogue, specs, both adapters, the diff and the scorecard |
+| `conformance/` | The catalogue, specs, both adapters, the diff, the scorecard, the inventory and the audit |
 | `web/` | The browser playground (`npm run ui:web`) |
 | `theme/base.css` | The class-first theme |
 

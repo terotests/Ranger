@@ -97,16 +97,16 @@ class AccordionCtl extends UiCtl {
         }
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         def i:int 0
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             if ((this.triggerTid(it.value)) == target) {
                 if it.disabled {
-                    return
+                    return ""
                 }
                 ; single + collapsible: the open one closes, anything else
                 ; becomes the only open one.
@@ -116,10 +116,11 @@ class AccordionCtl extends UiCtl {
                     openValue = it.value
                 }
                 this.build()
-                return
+                return ""
             }
             i = (i + 1)
         }
+        return ""
     }
 
     fn tids:[string] () {
@@ -172,10 +173,12 @@ class AccordionCtl extends UiCtl {
             }
 
             def secRow:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.none()) ""))
+            secRow.parentTid = tid
             secRow.state = word
             push out secRow
 
             def trigRow:UiRow (UiRow.of((this.triggerTid(it.value)) (EVGA11yRole.button()) it.name))
+            trigRow.parentTid = (this.itemTid(it.value))
             trigRow.state = word
             trigRow.disabled = it.disabled
             if isOpen {
@@ -185,10 +188,12 @@ class AccordionCtl extends UiCtl {
             }
             if (it.disabled == false) {
                 trigRow.tabStop = true
+                trigRow.focusable = true
             }
             push out trigRow
 
             def bodyRow:UiRow (UiRow.of((this.contentTid(it.value)) (EVGA11yRole.region()) ""))
+            bodyRow.parentTid = (this.itemTid(it.value))
             bodyRow.state = word
             push out bodyRow
 

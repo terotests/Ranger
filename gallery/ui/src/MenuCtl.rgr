@@ -1,0 +1,387 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MenuCtl — measured against @radix-ui/react-dropdown-menu and
+;           @radix-ui/react-context-menu
+; =============================================================================
+; One controller for both, because the reference gives them the same surface
+; and the same keyboard. Only the trigger differs, and `contextMode` is that
+; difference:
+;
+;   dropdown  trigger role button, named, a tab stop, opened by activation and
+;             carrying aria-expanded.
+;   context   trigger role none, unnamed, NOT focusable, opened by the
+;             secondary button, and with no aria-expanded at all — a reader is
+;             told nothing about a menu it cannot summon from the keyboard.
+;
+; Shared, and all measured rather than assumed:
+;   open      content role menu, MODAL; focus lands on the CONTENT, not on the
+;             first item, so nothing is announced until the user arrows in.
+;   ArrowDown from the content focuses the first enabled item; ArrowUp focuses
+;             the last. Thereafter they step, skipping disabled items.
+;   ends      the menu does NOT wrap. ArrowDown on the last item stays on the
+;             last item. This is why UiCtl.stepIndex is not used here: that one
+;             wraps, which is right for a radio group and wrong for a menu.
+;   item      activating one closes the menu and returns focus to the trigger.
+;   Escape    closes. Focus returns to the trigger when there is one to return
+;             to — a context menu's trigger is not focusable, so focus is lost
+;             exactly as it is in the browser.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class MenuCtl extends UiCtl {
+    def open:boolean false
+    def contextMode:boolean false
+    def items:[UiItem]
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+    ; The item focus sits on; "" means focus is on the content itself, which is
+    ; where it starts every time the menu opens.
+    def activeValue:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn baseClass:string () {
+        if contextMode {
+            return "ui-contextmenu"
+        }
+        return "ui-dropdownmenu"
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return (tid + "-item-" + itemValue)
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def base:string (this.baseClass())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = base
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = (base + "-trigger")
+        if disabled {
+            UiTree.addClass(trig (base + "-trigger-disabled"))
+        }
+        UiTree.setState(trig (base + "-trigger") word)
+        UiTree.leafText(trig name)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = (base + "-content")
+        UiTree.setState(content (base + "-content") word)
+        UiTree.clearChildren(content)
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = (base + "-item")
+            if it.disabled {
+                UiTree.addClass(el (base + "-item-disabled"))
+            }
+            UiTree.leafText(el it.name)
+            content.addChild(el)
+            i = (i + 1)
+        }
+        root.addChild(content)
+    }
+
+    fn indexOfValue:int (itemValue:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (it.value == itemValue) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The first enabled item at or after `from`, walking by `delta`, WITHOUT
+    ; wrapping — -1 when the run of items ends first.
+    fn scan:int (from:int delta:int) {
+        def i:int from
+        while (i >= 0) {
+            if (i >= (array_length items)) {
+                return -1
+            }
+            def it:UiItem (itemAt items i)
+            if (it.disabled == false) {
+                return i
+            }
+            i = (i + delta)
+        }
+        return -1
+    }
+
+    fn openMenu:string () {
+        open = true
+        activeValue = ""
+        this.build()
+        return (this.contentTid())
+    }
+
+    ; Closing a dropdown hands focus back to its trigger. A context menu has no
+    ; focusable trigger, so it hands back nothing and UiHost drops focus — the
+    ; same thing the browser does when the focused node goes away.
+    fn closeMenu:string () {
+        open = false
+        activeValue = ""
+        this.build()
+        if contextMode {
+            return ""
+        }
+        return (this.triggerTid())
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if contextMode {
+                return ""
+            }
+            if open {
+                return (this.closeMenu())
+            }
+            return (this.openMenu())
+        }
+        if (open == false) {
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                if it.disabled {
+                    return ""
+                }
+                return (this.closeMenu())
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn contextClick:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (contextMode == false) {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            return (this.openMenu())
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                return (this.closeMenu())
+            }
+            return ""
+        }
+        if (open == false) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+        def delta:int 0
+        if (UiCtl.isNextKey(key)) {
+            delta = 1
+        }
+        if (UiCtl.isPrevKey(key)) {
+            delta = -1
+        }
+        if (delta == 0) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+        def landed:int -1
+        if (target == (this.contentTid())) {
+            ; Entering the menu: down takes the first item, up takes the last.
+            if (delta > 0) {
+                landed = (this.scan(0 1))
+            } {
+                landed = (this.scan(((array_length items) - 1) -1))
+            }
+        } {
+            def from:int (this.indexOfValue(activeValue))
+            if (from < 0) {
+                return ""
+            }
+            landed = (this.scan((from + delta) delta))
+        }
+        if (landed < 0) {
+            ; Off the end. The reference stays put rather than wrapping.
+            return ""
+        }
+        def it:UiItem (itemAt items landed)
+        activeValue = it.value
+        return (this.itemTid(it.value))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.contentTid())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            if contextMode {
+                return false
+            }
+            return true
+        }
+        if (open == false) {
+            return false
+        }
+        if (target == (this.contentTid())) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                return (it.disabled == false)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn onFocus:void (target:string) {
+        if (target == (this.contentTid())) {
+            activeValue = ""
+            return
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                activeValue = it.value
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRole:int (EVGA11yRole.button())
+        def trigName:string name
+        if contextMode {
+            trigRole = (EVGA11yRole.none())
+            trigName = ""
+        }
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) trigRole trigName))
+        trigRow.state = word
+        trigRow.disabled = disabled
+        if (contextMode == false) {
+            if open {
+                trigRow.expanded = (EVGA11yTri.yes())
+            } {
+                trigRow.expanded = (EVGA11yTri.no())
+            }
+            if (disabled == false) {
+                trigRow.tabStop = true
+                trigRow.focusable = true
+            }
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.menu()) ""))
+        contentRow.state = word
+        contentRow.modal = true
+        contentRow.focusable = true
+        push out contentRow
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.menuItem()) it.name))
+            row.parentTid = (this.contentTid())
+            row.disabled = it.disabled
+            if (it.disabled == false) {
+                row.focusable = true
+                if (it.value == activeValue) {
+                    row.tabStop = true
+                }
+            }
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

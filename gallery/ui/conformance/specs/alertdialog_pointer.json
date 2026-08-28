@@ -1,0 +1,6 @@
+{ "name":"alertdialog_pointer","component":"alert-dialog",
+  "behaviours":["pointer-open","alertdialog-role","focus-cancel","cancel-closes","background-hidden","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"alertdialog","tid":"ad","name":"Delete","title":"Sure?","body":"No undo."},
+    {"type":"toggle","tid":"out","name":"Outside"}]},
+  "steps":[{"click":"ad-trigger"},{"click":"ad-cancel"}] }

@@ -1,0 +1,230 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; PopoverCtl — measured against @radix-ui/react-popover
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   closed    only the trigger exists; content, its inner button and the close
+;             button are not in the tree at all.
+;   open      trigger state "open", aria-expanded true, still a tab stop;
+;             content role dialog; focus lands on the FIRST focusable node
+;             inside the content, not on the content itself.
+;   Escape    closes, and focus returns to the trigger.
+;
+; A popover is NOT modal, and that is the whole difference from DialogCtl: the
+; rest of the page keeps its rows, its tab stops and its reachability. Measured
+; against the reference, which leaves everything outside the popover free of
+; aria-hidden.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class PopoverCtl extends UiCtl {
+    def open:boolean false
+    def bodyText:string ""
+    def innerLabel:string "Inner"
+    def closeLabel:string "Close"
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+    def bodyEl:EVGElement
+    def innerEl:EVGElement
+    def closeEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        bodyEl = (EVGElement.createDiv())
+        innerEl = (EVGElement.createDiv())
+        closeEl = (EVGElement.createDiv())
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn innerTid:string () {
+        return (tid + "-inner")
+    }
+
+    fn closeTid:string () {
+        return (tid + "-close")
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-popover"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-popover-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-popover-trigger-disabled")
+        }
+        UiTree.setState(trig "ui-popover-trigger" word)
+        UiTree.leafText(trig name)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-popover-content"
+        UiTree.setState(content "ui-popover-content" word)
+        UiTree.clearChildren(content)
+
+        def body:EVGElement (unwrap bodyEl)
+        body.className = "ui-popover-body"
+        UiTree.leafText(body bodyText)
+        content.addChild(body)
+
+        def inner:EVGElement (unwrap innerEl)
+        inner.id = (this.innerTid())
+        inner.className = "ui-popover-inner"
+        UiTree.leafText(inner innerLabel)
+        content.addChild(inner)
+
+        def closeNode:EVGElement (unwrap closeEl)
+        closeNode.id = (this.closeTid())
+        closeNode.className = "ui-popover-close"
+        UiTree.leafText(closeNode closeLabel)
+        content.addChild(closeNode)
+
+        root.addChild(content)
+    }
+
+    fn openAndFocus:string () {
+        open = true
+        this.build()
+        return (this.innerTid())
+    }
+
+    fn closeAndRestore:string () {
+        open = false
+        this.build()
+        return (this.triggerTid())
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if open {
+                return (this.closeAndRestore())
+            }
+            return (this.openAndFocus())
+        }
+        if (target == (this.closeTid())) {
+            if open {
+                return (this.closeAndRestore())
+            }
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                return (this.closeAndRestore())
+            }
+            return ""
+        }
+        if ((UiCtl.activatesOn(key)) == false) {
+            return ""
+        }
+        return (this.activate(target))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.contentTid())
+        push a (this.innerTid())
+        push a (this.closeTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (target == (this.innerTid())) {
+            return open
+        }
+        if (target == (this.closeTid())) {
+            return open
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
+        trigRow.state = word
+        trigRow.disabled = disabled
+        if open {
+            trigRow.expanded = (EVGA11yTri.yes())
+        } {
+            trigRow.expanded = (EVGA11yTri.no())
+        }
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        ; Radix gives the surface role dialog but does NOT make it a tab stop:
+        ; it is focused programmatically on open and then left out of the tab
+        ; ring, so Tab moves between the things inside it.
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.dialog()) ""))
+        contentRow.state = word
+        push out contentRow
+
+        def innerRow:UiRow (UiRow.of((this.innerTid()) (EVGA11yRole.button()) innerLabel))
+        innerRow.parentTid = (this.contentTid())
+        innerRow.tabStop = true
+        innerRow.focusable = true
+        push out innerRow
+
+        def closeRow:UiRow (UiRow.of((this.closeTid()) (EVGA11yRole.button()) closeLabel))
+        closeRow.parentTid = (this.contentTid())
+        closeRow.tabStop = true
+        closeRow.focusable = true
+        push out closeRow
+
+        return out
+    }
+}

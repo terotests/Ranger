@@ -1,0 +1,7 @@
+{ "name":"dropdownmenu_pointer","component":"dropdown-menu",
+  "behaviours":["pointer-open","menu-role","focus-content","item-closes","background-hidden","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"dropdownmenu","tid":"dm","name":"Menu","items":[
+      {"value":"a","name":"Alpha"},{"value":"b","name":"Beta","disabled":true},{"value":"c","name":"Gamma"}]},
+    {"type":"toggle","tid":"out","name":"Outside"}]},
+  "steps":[{"click":"dm-trigger"},{"key":"ArrowDown"},{"click":"dm-item-a"}] }

@@ -21,6 +21,9 @@ Import "UiTree.rgr"
 ; 3 = mixed.
 class UiRow {
     def tid:string ""
+    ; The row this one hangs under, "" for a control the host parents to the
+    ; page. The accessibility tree needs the shape, not just the list.
+    def parentTid:string ""
     def role:int 0
     def name:string ""
     ; The `state-<value>` class, reported bare: "on", "off", "open", "closed".
@@ -30,10 +33,32 @@ class UiRow {
     def checked:int 0
     def selected:int 0
     def disabled:boolean false
+    ; Does this node make everything outside it unreachable? Not compared with
+    ; the DOM — Radix masks with aria-hidden rather than aria-modal — but the
+    ; EVG mirror needs it to do the masking, and the host needs it to mark the
+    ; rest hidden.
+    def modal:boolean false
+    ; Decoration, kept out of the accessibility tree the way `aria-hidden`
+    ; keeps a glyph out of the name of the button around it.
+    def hidden:boolean false
     ; Would Tab land here? A composite with roving focus keeps exactly one of
     ; its items true, which is the whole observable difference between roving
     ; focus and a row of ordinary buttons.
     def tabStop:boolean false
+    ; CAN focus reach it at all? Every enabled radio item is focusable; only
+    ; one of them is a tab stop. A screen reader cares about the first, Tab
+    ; about the second, and conflating them loses the arrow-key surface.
+    def focusable:boolean false
+    ; A number a reader announces: where a slider sits, how far a progress bar
+    ; has got. Ranger has no null, so the flags say "this row has one" — and
+    ; the difference matters, because an indeterminate progress bar reports a
+    ; range with no position in it, which is exactly how a reader knows to say
+    ; "busy" instead of "40 percent".
+    def hasValueNow:boolean false
+    def valueNow:int 0
+    def hasRange:boolean false
+    def valueMin:int 0
+    def valueMax:int 0
 
     Constructor () {
     }
@@ -77,7 +102,8 @@ class UiCtl {
     }
 
     ; Pointer activation, or Enter/Space while focused.
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
+        return ""
     }
 
     ; A key arrived while `target` held focus. Returns the test id that should
@@ -105,6 +131,26 @@ class UiCtl {
 
     ; Focus landed on `target` — a composite records its roving tab stop here.
     fn onFocus:void (target:string) {
+    }
+
+    ; --- the pointer, without a button ---------------------------------------
+    ; A tooltip and a hover card have no activation at all: the pointer arriving
+    ; IS the input. Like activate(), these return the test id focus should land
+    ; on, or "" to leave focus where it is.
+
+    fn hover:string (target:string) {
+        return ""
+    }
+
+    ; The pointer left everything this controller owns. No target, because the
+    ; interesting case is the pointer going somewhere else entirely.
+    fn unhover:string () {
+        return ""
+    }
+
+    ; The secondary button. Only a context menu reads it.
+    fn contextClick:string (target:string) {
+        return ""
     }
 
     fn rows:[UiRow] () {

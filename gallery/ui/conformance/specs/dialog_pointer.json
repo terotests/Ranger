@@ -1,0 +1,6 @@
+{ "name":"dialog_pointer","component":"dialog",
+  "behaviours":["pointer-open","focus-into","aria-expanded","background-hidden","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"toggle","tid":"behind","name":"Behind"},
+    {"type":"dialog","tid":"dl","name":"Open","title":"Settings"}]},
+  "steps":[{"click":"dl-trigger"},{"click":"dl-close"}] }

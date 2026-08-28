@@ -1,0 +1,6 @@
+{ "name":"separator_roles","component":"separator",
+  "behaviours":["separator-role","decorative-drops-role","orientation"],
+  "fixture":{"controls":[
+    {"type":"separator","tid":"sep"},
+    {"type":"separator","tid":"sepv","orientation":"vertical"},
+    {"type":"separator","tid":"sepd","decorative":true}]},"steps":[] }

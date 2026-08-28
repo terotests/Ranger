@@ -1,0 +1,193 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ToolbarCtl — measured against @radix-ui/react-toolbar
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   root      role toolbar, always a tab stop
+;   items     role button, roving tab stop (none until the bar is touched)
+;   arrows    move focus and the roving tab stop, skip disabled, wrap
+;
+; A toolbar has no selection: the arrows move focus and nothing else, which is
+; the whole difference between it and a tab strip.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ToolbarCtl extends UiCtl {
+    def items:[UiItem]
+    def rovingValue:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return (tid + "-" + itemValue)
+    }
+
+    fn valueAtIndex:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length items)) {
+            return ""
+        }
+        def it:UiItem (itemAt items i)
+        return it.value
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-toolbar"
+        UiTree.clearChildren(root)
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-toolbar-button"
+            if it.disabled {
+                UiTree.addClass(el "ui-toolbar-button-disabled")
+            }
+            UiTree.leafText(el it.name)
+            root.addChild(el)
+            i = (i + 1)
+        }
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                if (it.disabled == false) {
+                    rovingValue = it.value
+                }
+                return ""
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def from:int -1
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                from = i
+            }
+            i = (i + 1)
+        }
+        if (from < 0) {
+            return ""
+        }
+        def delta:int 0
+        if (UiCtl.isNextKey(key)) {
+            delta = 1
+        }
+        if (UiCtl.isPrevKey(key)) {
+            delta = -1
+        }
+        if (delta == 0) {
+            return ""
+        }
+        def landed:int (UiCtl.stepIndex(items from delta))
+        def nextValue:string (this.valueAtIndex(landed))
+        if (nextValue == "") {
+            return ""
+        }
+        rovingValue = nextValue
+        this.build()
+        return (this.itemTid(nextValue))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                if it.disabled {
+                    return false
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn onFocus:void (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                rovingValue = it.value
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.toolbar()) name))
+        rootRow.tabStop = true
+        push out rootRow
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.button()) it.name))
+            row.parentTid = tid
+            row.disabled = it.disabled
+            if (it.value == rovingValue) {
+                row.tabStop = true
+            }
+            if it.disabled {
+                row.tabStop = false
+            } {
+                row.focusable = true
+            }
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

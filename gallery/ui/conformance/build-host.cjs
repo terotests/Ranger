@@ -45,6 +45,101 @@ function buildHost(M, fixture, css) {
         ctl.value = c.value || "";
         break;
 
+      case "togglegroup":
+        // A single-select toggle group IS a radio group; Radix says so with
+        // role=radiogroup, so the same controller serves both.
+        ctl = host.addRadioGroup(c.tid, c.name);
+        ctl.toggleMode = true;
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        ctl.value = c.value || "";
+        break;
+
+      case "toolbar":
+        ctl = host.addToolbar(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "dialog":
+        ctl = host.addDialog(c.tid, c.name, c.title || c.name);
+        break;
+
+      case "alertdialog":
+        ctl = host.addAlertDialog(c.tid, c.name, c.title || c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "popover":
+        ctl = host.addPopover(c.tid, c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "tooltip":
+        ctl = host.addTooltip(c.tid, c.name);
+        ctl.bodyText = c.body || c.name;
+        break;
+
+      case "hovercard":
+        ctl = host.addHoverCard(c.tid, c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "dropdownmenu":
+        ctl = host.addDropdownMenu(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "contextmenu":
+        ctl = host.addContextMenu(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "slider":
+        ctl = host.addSlider(c.tid, c.name);
+        ctl.minValue = c.min ?? 0;
+        ctl.maxValue = c.max ?? 100;
+        ctl.step = c.step ?? 1;
+        ctl.value = c.value ?? 50;
+        break;
+
+      case "toast":
+        ctl = host.addToast(c.tid, c.name);
+        ctl.title = c.title || c.name;
+        ctl.bodyText = c.body || "";
+        ctl.actionLabel = c.actionName || "Undo";
+        break;
+
+      case "label":
+        ctl = host.addLabel(c.tid, c.name);
+        break;
+
+      case "separator":
+        ctl = host.addSeparator(c.tid);
+        ctl.decorative = !!c.decorative;
+        ctl.vertical = c.orientation === "vertical";
+        break;
+
+      case "progress":
+        ctl = host.addProgress(c.tid, c.name);
+        ctl.indeterminate = c.value == null;
+        ctl.value = c.value || 0;
+        ctl.maxValue = c.max || 100;
+        break;
+
+      case "aspectratio":
+        ctl = host.addAspectRatio(c.tid, c.name || "");
+        ctl.boxWidth = c.width || 120;
+        ctl.ratioW = c.ratio || 1;
+        ctl.ratioH = 1;
+        break;
+
+      case "accessibleicon":
+        ctl = host.addAccessibleIcon(c.tid, c.name, c.glyph || "*");
+        break;
+
+      case "avatar":
+        ctl = host.addAvatar(c.tid, c.name, c.fallback || "?");
+        break;
+
       case "accordion":
         ctl = host.addAccordion(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, it.body || "", !!it.disabled);
@@ -52,7 +147,9 @@ function buildHost(M, fixture, css) {
         break;
 
       default:
-        throw new Error("unknown control type: " + c.type);
+        throw new Error(
+          "unknown control type: " + c.type + " (known: " + SUPPORTED_TYPES.join(", ") + ")",
+        );
     }
     if (c.disabled) ctl.disabled = true;
     // Every field above is initial state, so the subtree is built once here
@@ -62,4 +159,35 @@ function buildHost(M, fixture, css) {
   return host;
 }
 
-module.exports = { buildHost };
+/**
+ * The control types the kit can actually build. The inventory reads this rather
+ * than a hand-kept list, so "implemented" cannot drift from what the code does.
+ */
+const SUPPORTED_TYPES = [
+  "toggle",
+  "collapsible",
+  "checkbox",
+  "switch",
+  "radiogroup",
+  "tabs",
+  "accordion",
+  "togglegroup",
+  "toolbar",
+  "dialog",
+  "label",
+  "separator",
+  "progress",
+  "aspectratio",
+  "accessibleicon",
+  "avatar",
+  "alertdialog",
+  "popover",
+  "tooltip",
+  "hovercard",
+  "dropdownmenu",
+  "contextmenu",
+  "slider",
+  "toast",
+];
+
+module.exports = { buildHost, SUPPORTED_TYPES };

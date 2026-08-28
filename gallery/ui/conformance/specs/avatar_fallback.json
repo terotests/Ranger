@@ -1,0 +1,2 @@
+{ "name":"avatar_fallback","component":"avatar","behaviours":["no-role","fallback-shown"],
+  "fixture":{"controls":[{"type":"avatar","tid":"av","name":"Tero","fallback":"TT"}]},"steps":[] }

@@ -45,6 +45,15 @@ function run(spec, css) {
     } else if ("focus" in step) {
       host.focus(step.focus);
       observe("focus " + step.focus);
+    } else if ("hover" in step) {
+      host.hover(step.hover);
+      observe("hover " + step.hover);
+    } else if ("unhover" in step) {
+      host.unhover();
+      observe("unhover");
+    } else if ("rightclick" in step) {
+      host.rightClick(step.rightclick);
+      observe("rightclick " + step.rightclick);
     } else {
       throw new Error("unknown step: " + JSON.stringify(step));
     }

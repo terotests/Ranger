@@ -1,0 +1,5 @@
+{ "name":"slider_disabled","component":"slider",
+  "behaviours":["disabled-inert"],
+  "fixture":{"controls":[
+    {"type":"slider","tid":"sl","name":"Volume","value":50,"min":0,"max":100,"step":10,"disabled":true}]},
+  "steps":[{"click":"sl-thumb"},{"key":"ArrowRight"}] }

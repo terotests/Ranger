@@ -1,0 +1,198 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SliderCtl — measured against @radix-ui/react-slider
+; =============================================================================
+; The control that forced the trace to grow. Every field the harness compared
+; before this one — role, name, state, expanded, checked, focused, visible —
+; is IDENTICAL at every position of a slider, so the first captured oracle
+; showed five steps of a slider being dragged from 0 to 100 with not one
+; observable difference. `valuenow`, `valuemin` and `valuemax` exist because of
+; that run; they are what a reader announces and the only thing that moves.
+;
+; Parity contract (see conformance/SPEC.md):
+;   root      no role, but carries the label — the reference puts aria-label on
+;             the root AND on the thumb, so both report the same name.
+;   track     no role. range no role. Neither is focusable.
+;   thumb     role slider, the tab stop, and where the value lives.
+;   keys      Right/Up add a step, Left/Down subtract one, Home goes to the
+;             minimum and End to the maximum. Clamped at both ends.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class SliderCtl extends UiCtl {
+    def value:int 50
+    def minValue:int 0
+    def maxValue:int 100
+    def step:int 1
+    def trackEl:EVGElement
+    def rangeEl:EVGElement
+    def thumbEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        trackEl = (EVGElement.createDiv())
+        rangeEl = (EVGElement.createDiv())
+        thumbEl = (EVGElement.createDiv())
+    }
+
+    fn trackTid:string () {
+        return (tid + "-track")
+    }
+
+    fn rangeTid:string () {
+        return (tid + "-range")
+    }
+
+    fn thumbTid:string () {
+        return (tid + "-thumb")
+    }
+
+    ; Where the thumb sits, 0..100, for the width of the range and the offset
+    ; of the thumb. Integer percent: EVG lays out in percentages and a slider
+    ; that is one pixel out is not a parity failure.
+    fn percent:int () {
+        def span:int (maxValue - minValue)
+        if (span <= 0) {
+            return 0
+        }
+        def scaled:int ((value - minValue) * 100)
+        return (idiv scaled span)
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-slider"
+        UiTree.clearChildren(root)
+
+        def track:EVGElement (unwrap trackEl)
+        track.id = (this.trackTid())
+        track.className = "ui-slider-track"
+        UiTree.clearChildren(track)
+
+        def range:EVGElement (unwrap rangeEl)
+        range.id = (this.rangeTid())
+        range.className = "ui-slider-range"
+        UiTree.clearChildren(range)
+        UiTree.inline(range "width" ((to_string (this.percent())) + "%"))
+        track.addChild(range)
+        root.addChild(track)
+
+        def thumb:EVGElement (unwrap thumbEl)
+        thumb.id = (this.thumbTid())
+        thumb.className = "ui-slider-thumb"
+        if disabled {
+            UiTree.addClass(thumb "ui-slider-thumb-disabled")
+        }
+        UiTree.clearChildren(thumb)
+        root.addChild(thumb)
+    }
+
+    fn setValue:void (v:int) {
+        def next:int v
+        if (next < minValue) {
+            next = minValue
+        }
+        if (next > maxValue) {
+            next = maxValue
+        }
+        value = next
+        this.build()
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (target != (this.thumbTid())) {
+            return ""
+        }
+        if (key == "Home") {
+            this.setValue(minValue)
+            return ""
+        }
+        if (key == "End") {
+            this.setValue(maxValue)
+            return ""
+        }
+        ; NOT UiCtl.isNextKey/isPrevKey. Those two answer "later in the list"
+        ; and "earlier in the list", where ArrowUp means earlier — right for a
+        ; menu, wrong for a slider, where Up means MORE. Measured: the harness
+        ; caught this on the first run, with the reference at 60 and this at 40.
+        if (key == "ArrowRight") {
+            this.setValue((value + step))
+            return ""
+        }
+        if (key == "ArrowUp") {
+            this.setValue((value + step))
+            return ""
+        }
+        if (key == "ArrowLeft") {
+            this.setValue((value - step))
+            return ""
+        }
+        if (key == "ArrowDown") {
+            this.setValue((value - step))
+            return ""
+        }
+        return ""
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.trackTid())
+        push a (this.rangeTid())
+        push a (this.thumbTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return (target == (this.thumbTid()))
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        ; No role, but named: the label is on the root as well as the thumb.
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) name))
+        rootRow.disabled = disabled
+        push out rootRow
+
+        def trackRow:UiRow (UiRow.of((this.trackTid()) (EVGA11yRole.none()) ""))
+        trackRow.parentTid = tid
+        push out trackRow
+
+        def rangeRow:UiRow (UiRow.of((this.rangeTid()) (EVGA11yRole.none()) ""))
+        rangeRow.parentTid = (this.trackTid())
+        push out rangeRow
+
+        ; The thumb does NOT report itself disabled, even when the slider is:
+        ; the reference marks only the root and takes the thumb out of the tab
+        ; order. Measured, and left as measured — a slider role with no
+        ; aria-disabled is arguable, but parity means matching the reference,
+        ; and `ui:a11y` is where that argument gets settled if axe minds.
+        def thumbRow:UiRow (UiRow.of((this.thumbTid()) (EVGA11yRole.slider()) name))
+        thumbRow.parentTid = tid
+        thumbRow.hasValueNow = true
+        thumbRow.valueNow = value
+        thumbRow.hasRange = true
+        thumbRow.valueMin = minValue
+        thumbRow.valueMax = maxValue
+        if (disabled == false) {
+            thumbRow.tabStop = true
+            thumbRow.focusable = true
+        }
+        push out thumbRow
+
+        return out
+    }
+}

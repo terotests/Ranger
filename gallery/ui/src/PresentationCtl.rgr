@@ -1,0 +1,348 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; The controls that carry semantics but no interaction
+; =============================================================================
+; Label, Separator, Progress, AspectRatio, AccessibleIcon and Avatar. None of
+; them handles a click, and that is the point: a component library is mostly
+; these, and getting their ROLES right is what a screen reader lives on.
+;
+; Each parity contract below was captured from its @radix-ui counterpart, not
+; assumed — `separator` losing its role when decorative, and `progress`
+; distinguishing "loading" from "indeterminate", are both things a guess would
+; have missed.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; --- label -------------------------------------------------------------------
+; Radix's Label.Root is a <label>: no ARIA role of its own, and its text names
+; the control it points at rather than itself.
+class LabelCtl extends UiCtl {
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-label"
+        UiTree.leafText(el name)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        push out r
+        return out
+    }
+}
+
+; --- separator ---------------------------------------------------------------
+; A decorative separator reports NO role. Radix drops it deliberately: a rule
+; that is only a rule announces nothing worth hearing.
+class SeparatorCtl extends UiCtl {
+    def decorative:boolean false
+    def vertical:boolean false
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-separator"
+        if vertical {
+            UiTree.addClass(el "ui-separator-vertical")
+        }
+        UiTree.clearChildren(el)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def role:int (EVGA11yRole.separator())
+        if decorative {
+            role = (EVGA11yRole.none())
+        }
+        def r:UiRow (UiRow.of(tid role ""))
+        push out r
+        return out
+    }
+}
+
+; --- progress ----------------------------------------------------------------
+; state is "indeterminate" when there is no value at all, "complete" at the
+; maximum, "loading" otherwise — three words, and a bar that only knows two of
+; them tells a reader the wrong thing while it waits.
+class ProgressCtl extends UiCtl {
+    def value:int 0
+    def maxValue:int 100
+    def indeterminate:boolean false
+    def indicatorEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        indicatorEl = (EVGElement.createDiv())
+    }
+
+    fn indicatorTid:string () {
+        return (tid + "-indicator")
+    }
+
+    fn stateWord:string () {
+        if indeterminate {
+            return "indeterminate"
+        }
+        if (value >= maxValue) {
+            return "complete"
+        }
+        return "loading"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-progress"
+        UiTree.setState(el "ui-progress" word)
+        UiTree.clearChildren(el)
+
+        def ind:EVGElement (unwrap indicatorEl)
+        ind.id = (this.indicatorTid())
+        ind.className = "ui-progress-indicator"
+        UiTree.setState(ind "ui-progress-indicator" word)
+        UiTree.clearChildren(ind)
+        def pct:int 0
+        if (indeterminate == false) {
+            if (maxValue > 0) {
+                def scaled:int (value * 100)
+                pct = (idiv scaled maxValue)
+            }
+        }
+        def wide:string ((to_string pct) + "%")
+        UiTree.inline(ind "width" wide)
+        el.addChild(ind)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.indicatorTid())
+        return a
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.progressBar()) name))
+        r.state = word
+        ; The range is always announced; the position only when there is one.
+        ; An indeterminate bar reports min and max with NO valuenow, and that
+        ; absence is what makes a reader say "busy" rather than "0 percent".
+        r.hasRange = true
+        r.valueMin = 0
+        r.valueMax = maxValue
+        if (indeterminate == false) {
+            r.hasValueNow = true
+            r.valueNow = value
+        }
+        push out r
+        def ind:UiRow (UiRow.of((this.indicatorTid()) (EVGA11yRole.none()) ""))
+        ind.parentTid = tid
+        ind.state = word
+        push out ind
+        return out
+    }
+}
+
+; --- aspect ratio ------------------------------------------------------------
+; Pure layout: an outer box of a known width and an inner box holding the
+; ratio. No roles at all, which is exactly what has to be reported.
+class AspectRatioCtl extends UiCtl {
+    def ratioW:int 1
+    def ratioH:int 1
+    def boxWidth:int 120
+    def innerEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        innerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+    }
+
+    fn outerTid:string () {
+        return (tid + "-outer")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn build:void () {
+        def outer:EVGElement (unwrap rootEl)
+        outer.id = (this.outerTid())
+        outer.className = "ui-aspectratio-outer"
+        UiTree.clearChildren(outer)
+        def wide:string ((to_string boxWidth) + "px")
+        UiTree.inline(outer "width" wide)
+
+        def inner:EVGElement (unwrap innerEl)
+        inner.id = tid
+        inner.className = "ui-aspectratio"
+        UiTree.clearChildren(inner)
+        UiTree.inline(inner "width" wide)
+        def h:int boxWidth
+        if (ratioW > 0) {
+            def scaled:int (boxWidth * ratioH)
+            h = (idiv scaled ratioW)
+        }
+        def tall:string ((to_string h) + "px")
+        UiTree.inline(inner "height" tall)
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-aspectratio-content"
+        UiTree.leafText(content name)
+        inner.addChild(content)
+        outer.addChild(inner)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a (this.outerTid())
+        push a tid
+        push a (this.contentTid())
+        return a
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        push out (UiRow.of((this.outerTid()) (EVGA11yRole.none()) ""))
+        def inner:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        inner.parentTid = (this.outerTid())
+        push out inner
+        def content:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.none()) ""))
+        content.parentTid = tid
+        push out content
+        return out
+    }
+}
+
+; --- accessible icon ---------------------------------------------------------
+; A button whose visible content is a glyph and whose NAME comes from a label
+; the eye never sees. The glyph is hidden from the accessibility tree, so it
+; must not reach the name — "★Favourite" is what happens when it does.
+class AccessibleIconCtl extends UiCtl {
+    def glyph:string "*"
+    def glyphEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        glyphEl = (EVGElement.createDiv())
+    }
+
+    fn glyphTid:string () {
+        return (tid + "-glyph")
+    }
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-iconbutton"
+        if disabled {
+            UiTree.addClass(el "ui-iconbutton-disabled")
+        }
+        UiTree.clearChildren(el)
+        def g:EVGElement (unwrap glyphEl)
+        g.id = (this.glyphTid())
+        g.className = "ui-iconbutton-glyph"
+        UiTree.leafText(g glyph)
+        el.addChild(g)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.glyphTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (target != tid) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        return true
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.button()) name))
+        r.disabled = disabled
+        if (disabled == false) {
+            r.tabStop = true
+            r.focusable = true
+        }
+        push out r
+        ; Decoration: reported so the trace can say it exists, with no role and
+        ; no name, which is how it stays out of the reader's way.
+        def g:UiRow (UiRow.of((this.glyphTid()) (EVGA11yRole.none()) ""))
+        g.parentTid = tid
+        g.hidden = true
+        push out g
+        return out
+    }
+}
+
+; --- avatar ------------------------------------------------------------------
+; No image loading here: with no `src` Radix shows the fallback and neither the
+; root nor the fallback carries a role. That is the whole observable surface.
+class AvatarCtl extends UiCtl {
+    def fallback:string "?"
+    def fallbackEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        fallbackEl = (EVGElement.createDiv())
+    }
+
+    fn fallbackTid:string () {
+        return (tid + "-fallback")
+    }
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-avatar"
+        UiTree.clearChildren(el)
+        def f:EVGElement (unwrap fallbackEl)
+        f.id = (this.fallbackTid())
+        f.className = "ui-avatar-fallback"
+        UiTree.leafText(f fallback)
+        el.addChild(f)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.fallbackTid())
+        return a
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        push out (UiRow.of(tid (EVGA11yRole.none()) ""))
+        def f:UiRow (UiRow.of((this.fallbackTid()) (EVGA11yRole.none()) ""))
+        f.parentTid = tid
+        push out f
+        return out
+    }
+}

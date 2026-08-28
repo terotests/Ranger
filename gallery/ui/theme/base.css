@@ -177,3 +177,229 @@
 .theme-dark .ui-collapsible-body { color: #cbd5e1; }
 .theme-dark .ui-tabpanel-body { color: #cbd5e1; }
 .theme-dark .ui-accordion-body { color: #cbd5e1; }
+
+/* --- toolbar, toggle group, dialog and the presentational set -------------- */
+
+.ui-togglegroup { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.ui-togglegroup-item {
+  border: 1px solid #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-togglegroup-item-state-on { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-togglegroup-item-disabled { opacity: 0.45; }
+
+.ui-toolbar { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.ui-toolbar-button {
+  border: 1px solid #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+.ui-toolbar-button-disabled { opacity: 0.45; }
+
+.ui-dialog { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ui-dialog-trigger {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-dialog-overlay { background-color: rgba(15, 23, 42, 0.45); width: 100%; height: 120px; }
+.ui-dialog-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #ffffff;
+}
+.ui-dialog-title { color: #0f172a; font-size: 16px; }
+.ui-dialog-close {
+  border: 1px solid #2563eb;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
+.ui-label { color: #334155; }
+.ui-separator { background-color: #cbd5e1; height: 1px; width: 200px; }
+.ui-separator-vertical { width: 1px; height: 24px; }
+
+.ui-progress {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  width: 200px;
+  height: 10px;
+}
+.ui-progress-indicator { background-color: #2563eb; height: 10px; border-radius: 999px; }
+.ui-progress-indicator-state-indeterminate { background-color: #94a3b8; }
+
+.ui-aspectratio-outer { display: flex; flex-direction: column; }
+.ui-aspectratio { border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f1f5f9; }
+.ui-aspectratio-content { color: #334155; padding: 6px; }
+
+.ui-iconbutton {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+}
+.ui-iconbutton-glyph { color: #0f172a; }
+.ui-iconbutton-disabled { opacity: 0.45; }
+
+.ui-avatar {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  width: 40px;
+  height: 40px;
+}
+.ui-avatar-fallback { color: #334155; padding: 10px; }
+
+/* --- the overlay family ---------------------------------------------------
+   Popover, alert dialog and the two menus all paint the same surface: a card
+   over the page. One set of rules, differing only where the semantics do —
+   the alert dialog is the only one that dims what is behind it. */
+
+.ui-popover-trigger,
+.ui-alertdialog-trigger,
+.ui-dropdownmenu-trigger,
+.ui-toast-trigger,
+.ui-tooltip-trigger {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-popover-trigger-disabled,
+.ui-alertdialog-trigger-disabled,
+.ui-dropdownmenu-trigger-disabled,
+.ui-toast-trigger-disabled,
+.ui-tooltip-trigger-disabled { opacity: 0.45; }
+
+.ui-popover-content,
+.ui-alertdialog-content,
+.ui-dropdownmenu-content,
+.ui-contextmenu-content,
+.ui-hovercard-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background-color: #ffffff;
+}
+.ui-popover-body, .ui-hovercard-content { color: #334155; }
+.ui-popover-inner, .ui-popover-close {
+  border: 1px solid #cbd5e1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.ui-alertdialog-overlay { background-color: rgba(15, 23, 42, 0.45); width: 100%; height: 120px; }
+.ui-alertdialog-title { color: #0f172a; font-size: 16px; }
+.ui-alertdialog-description { color: #475569; }
+.ui-alertdialog-cancel {
+  border: 1px solid #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-alertdialog-action {
+  border: 1px solid #b91c1c;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #b91c1c;
+  color: #ffffff;
+}
+
+.ui-dropdownmenu-item, .ui-contextmenu-item {
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: #0f172a;
+  width: 160px;
+}
+.ui-dropdownmenu-item-disabled, .ui-contextmenu-item-disabled { opacity: 0.45; }
+/* The border colour has to clear contrast against the label too: the display
+   list check samples whatever rect is painted under each glyph, and a dashed
+   frame drawn round the text is one of them. #94a3b8 here read 4.04:1. */
+.ui-contextmenu-trigger {
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  padding: 14px;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* --- tooltip and hover card ---------------------------------------------- */
+
+.ui-tooltip-content {
+  border-radius: 6px;
+  padding: 6px 10px;
+  background-color: #0f172a;
+  color: #ffffff;
+}
+.ui-hovercard-trigger { color: #1d4ed8; padding: 4px 0; }
+
+/* --- slider ---------------------------------------------------------------
+   The thumb needs a rectangle of its own: it is the focusable node, and a
+   focusable node with no height is a lint failure — you cannot click what has
+   no area, however correct its ARIA is. */
+
+.ui-slider { display: flex; flex-direction: column; width: 200px; gap: 6px; }
+.ui-slider-track {
+  background-color: #e2e8f0;
+  border-radius: 999px;
+  width: 200px;
+  height: 6px;
+}
+.ui-slider-range { background-color: #2563eb; height: 6px; border-radius: 999px; }
+.ui-slider-thumb {
+  border: 1px solid #2563eb;
+  border-radius: 999px;
+  background-color: #ffffff;
+  width: 18px;
+  height: 18px;
+}
+.ui-slider-thumb-disabled { opacity: 0.45; }
+
+/* --- toast ----------------------------------------------------------------
+   The region is the named landmark a reader finds; the viewport is the list
+   inside it. Both are real in the reference, and both are here. */
+
+.ui-toast-region { display: flex; flex-direction: column; width: 260px; }
+.ui-toast-viewport { display: flex; flex-direction: column; gap: 8px; width: 260px; }
+.ui-toast-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background-color: #ffffff;
+}
+.ui-toast-title { color: #0f172a; font-size: 15px; }
+.ui-toast-description { color: #475569; }
+.ui-toast-action, .ui-toast-close {
+  border: 1px solid #cbd5e1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}

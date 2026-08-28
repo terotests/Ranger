@@ -1,0 +1,4 @@
+{ "name":"dialog_keyboard","component":"dialog",
+  "behaviours":["keyboard-open","escape-closes","focus-restore"],
+  "fixture":{"controls":[{"type":"dialog","tid":"dl","name":"Open","title":"Settings"}]},
+  "steps":[{"focus":"dl-trigger"},{"key":"Enter"},{"key":"Escape"}] }

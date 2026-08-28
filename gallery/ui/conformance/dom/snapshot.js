@@ -30,7 +30,30 @@ export function snapshotDom() {
     let role = explicit;
     if (!role) role = tag === "button" ? "button" : tag === "a" ? "link" : "none";
     const label = el.getAttribute("aria-label");
-    const name = label != null ? label : NAMED_ROLES.has(role) ? (el.textContent || "").trim() : "";
+    // Accessible name from text: aria-hidden subtrees do not contribute. An
+    // icon button is glyph + visually-hidden label, and counting the glyph
+    // would make its name "*Favourite" — which is what the naive version said.
+    const visibleText = (node) => {
+      let out = "";
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) out += child.nodeValue;
+        else if (child.nodeType === 1 && child.getAttribute("aria-hidden") !== "true") {
+          out += visibleText(child);
+        }
+      }
+      return out;
+    };
+    const name = label != null ? label : NAMED_ROLES.has(role) ? visibleText(el).trim() : "";
+    // A slider's position and a progress bar's fill are announced as numbers
+    // and are the only thing about them that changes. Without these the trace
+    // cannot tell a slider at 0 from one at 100 — measured: every step of the
+    // first slider spec observed identical.
+    const num = (a) => {
+      const v = el.getAttribute(a);
+      if (v == null || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
     const expanded = el.getAttribute("aria-expanded");
     const pressed = el.getAttribute("aria-pressed");
     const disabled = el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
@@ -47,6 +70,15 @@ export function snapshotDom() {
       // Would Tab land here? Roving focus is exactly this going false on the
       // items a composite does not want in the tab order.
       tabstop: el.tabIndex >= 0 && !disabled,
+      valuenow: num("aria-valuenow"),
+      valuemin: num("aria-valuemin"),
+      valuemax: num("aria-valuemax"),
+      // A modal takes the rest of the page out of the accessibility tree; a
+      // reader that can still walk what a dialog covers will walk it. Radix
+      // does that with aria-hidden on everything else rather than aria-modal
+      // on the dialog, so THIS is the observable, and `aria-modal` is not
+      // compared at all.
+      hidden: !!el.closest('[aria-hidden="true"]'),
       focused: document.activeElement === el,
       visible: el.getClientRects().length > 0,
     });

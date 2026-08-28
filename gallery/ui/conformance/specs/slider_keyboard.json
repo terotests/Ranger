@@ -1,0 +1,5 @@
+{ "name":"slider_keyboard","component":"slider",
+  "behaviours":["slider-role","value-reported","arrow-increment","arrow-decrement","home-end","clamped"],
+  "fixture":{"controls":[
+    {"type":"slider","tid":"sl","name":"Volume","value":50,"min":0,"max":100,"step":10}]},
+  "steps":[{"focus":"sl-thumb"},{"key":"ArrowRight"},{"key":"ArrowLeft"},{"key":"ArrowUp"},{"key":"ArrowDown"},{"key":"Home"},{"key":"ArrowLeft"},{"key":"End"},{"key":"ArrowRight"}] }

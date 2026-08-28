@@ -3,7 +3,7 @@
     "The Radix surface this kit intends to match, one entry per behaviour.",
     "A behaviour counts as MATCHED only when a spec exercises it and every",
     "observation in that spec agrees with Radix. Behaviours with no spec are",
-    "reported as UNCOVERED \u2014 the catalogue is the denominator, so adding a",
+    "reported as UNCOVERED — the catalogue is the denominator, so adding a",
     "component here lowers the score until the work is actually done."
   ],
   "components": {
@@ -98,12 +98,196 @@
     "dialog": {
       "radix": "@radix-ui/react-dialog",
       "behaviours": {
-        "pointer-open": "the trigger opens the dialog",
+        "pointer-open": "the trigger opens it",
+        "keyboard-open": "Enter on the trigger opens it",
+        "escape-closes": "Escape closes it from inside",
+        "focus-into": "opening moves focus into the dialog",
+        "focus-restore": "closing returns focus to the trigger",
+        "aria-expanded": "the trigger says whether it is showing",
+        "background-hidden": "everything outside is out of the accessibility tree",
+        "content-unmounted": "closed content is not in the tree at all",
+        "focus-trap": {
+          "note": "Tab and Shift+Tab cycle inside the open dialog",
+          "disputed": "No spec can prove this yet: the harness has no Tab step, and UiHost has no document-order focus model to answer one with. Catalogued so the gap is counted rather than assumed away — see PLAN.md."
+        }
+      }
+    },
+    "label": {
+      "radix": "@radix-ui/react-label",
+      "behaviours": {
+        "no-role": "a label carries no ARIA role of its own",
+        "renders-text": "its text is present and visible"
+      }
+    },
+    "separator": {
+      "radix": "@radix-ui/react-separator",
+      "behaviours": {
+        "separator-role": "exposes the separator role",
+        "decorative-drops-role": "a decorative separator reports no role at all",
+        "orientation": "vertical and horizontal both lay out"
+      }
+    },
+    "progress": {
+      "radix": "@radix-ui/react-progress",
+      "behaviours": {
+        "progressbar-role": "exposes the progressbar role",
+        "state-loading": "a value below the maximum reads as loading",
+        "state-indeterminate": "no value at all reads as indeterminate",
+        "state-complete": "the maximum reads as complete",
+        "indicator": "the indicator carries the same state"
+      }
+    },
+    "aspect-ratio": {
+      "radix": "@radix-ui/react-aspect-ratio",
+      "behaviours": {
+        "no-role": "pure layout: nothing in it carries a role",
+        "ratio-applied": "the inner box takes the declared ratio"
+      }
+    },
+    "accessible-icon": {
+      "radix": "@radix-ui/react-accessible-icon",
+      "behaviours": {
+        "button-role": "the control around the icon is a button",
+        "label-names-it": "the hidden label is its accessible name",
+        "glyph-hidden": "the glyph is decoration and does not reach the name"
+      }
+    },
+    "avatar": {
+      "radix": "@radix-ui/react-avatar",
+      "behaviours": {
+        "no-role": "neither the root nor the fallback carries a role",
+        "fallback-shown": "with no image the fallback is what is there"
+      }
+    },
+    "toggle-group": {
+      "radix": "@radix-ui/react-toggle-group",
+      "behaviours": {
+        "radiogroup-role": "a single-select group IS a radio group",
+        "pointer-select": "clicking an item selects it and deselects the rest",
+        "aria-checked": "items expose aria-checked",
+        "roving-focus": "exactly one item is a tab stop",
+        "arrow-next": "arrows move focus to the next item",
+        "arrow-wraps": "arrow movement wraps at the ends",
+        "disabled-skipped": "a disabled item is skipped",
+        "state-attr": "state is exposed for styling"
+      }
+    },
+    "toolbar": {
+      "radix": "@radix-ui/react-toolbar",
+      "behaviours": {
+        "toolbar-role": "the root exposes the toolbar role",
+        "roving-focus": "exactly one button is a tab stop",
+        "arrow-next": "ArrowRight moves focus to the next button",
+        "arrow-prev": "ArrowLeft moves focus back",
+        "arrow-wraps": "arrow movement wraps at the ends",
+        "disabled-skipped": "a disabled button is skipped"
+      }
+    },
+    "alert-dialog": {
+      "radix": "@radix-ui/react-alert-dialog",
+      "behaviours": {
+        "pointer-open": "the trigger opens it",
+        "alertdialog-role": "the content is an alertdialog, not a dialog",
+        "focus-cancel": "opening moves focus to Cancel, not to the destructive action",
         "escape-closes": "Escape closes it",
-        "focus-trap": "focus stays inside while open",
-        "focus-restore": "focus returns to the trigger on close",
-        "modal-flag": "the dialog is exposed as modal",
-        "content-hidden": "closed content is unreachable"
+        "focus-restore": "closing returns focus to the trigger",
+        "cancel-closes": "the cancel button closes it",
+        "action-closes": "the action button closes it",
+        "background-hidden": "everything outside is out of the accessibility tree",
+        "content-unmounted": "closed content is not in the tree at all"
+      }
+    },
+    "popover": {
+      "radix": "@radix-ui/react-popover",
+      "behaviours": {
+        "pointer-open": "the trigger opens it",
+        "pointer-close": "clicking the open trigger closes it again",
+        "dialog-role": "the surface is a dialog",
+        "not-modal": "the page behind stays in the accessibility tree",
+        "focus-into": "opening moves focus to the first focusable node inside",
+        "escape-closes": "Escape closes it",
+        "focus-restore": "closing returns focus to the trigger",
+        "aria-expanded": "the trigger says whether it is showing",
+        "content-unmounted": "closed content is not in the tree at all"
+      }
+    },
+    "tooltip": {
+      "radix": "@radix-ui/react-tooltip",
+      "behaviours": {
+        "hover-opens": "the pointer arriving on the trigger opens it",
+        "hover-closes": "the pointer leaving closes it",
+        "focus-opens": "focusing the trigger opens it",
+        "state-delayed-open": "a pointer-opened tip says delayed-open",
+        "state-instant-open": "a focus-opened tip says instant-open",
+        "tooltip-role": "the content carries the tooltip role",
+        "escape-closes": "Escape closes it and leaves focus alone",
+        "content-unmounted": "a closed tip is not in the tree at all"
+      }
+    },
+    "hover-card": {
+      "radix": "@radix-ui/react-hover-card",
+      "behaviours": {
+        "hover-opens": "the pointer arriving on the trigger opens it",
+        "hover-closes": "the pointer leaving closes it",
+        "link-trigger": "the trigger is a link, not a button",
+        "content-no-role": "the card itself carries no role",
+        "content-unmounted": "a closed card is not in the tree at all"
+      }
+    },
+    "dropdown-menu": {
+      "radix": "@radix-ui/react-dropdown-menu",
+      "behaviours": {
+        "pointer-open": "the trigger opens it",
+        "menu-role": "the surface is a menu and its children are menuitems",
+        "focus-content": "opening focuses the surface, not the first item",
+        "arrow-first": "ArrowDown from the surface focuses the first item",
+        "arrow-last": "ArrowUp from the surface focuses the last item",
+        "arrow-steps": "arrows step between items",
+        "disabled-skipped": "arrows skip a disabled item",
+        "no-wrap": "arrows stop at the ends rather than wrapping",
+        "item-closes": "activating an item closes the menu",
+        "escape-closes": "Escape closes it",
+        "focus-restore": "closing returns focus to the trigger",
+        "background-hidden": "everything outside is out of the accessibility tree",
+        "content-unmounted": "a closed menu is not in the tree at all"
+      }
+    },
+    "context-menu": {
+      "radix": "@radix-ui/react-context-menu",
+      "behaviours": {
+        "secondary-open": "the secondary pointer button opens it",
+        "trigger-no-role": "the trigger has no role and no name",
+        "menu-role": "the surface is a menu and its children are menuitems",
+        "focus-content": "opening focuses the surface, not the first item",
+        "arrow-steps": "arrows step between items, skipping disabled ones",
+        "escape-closes": "Escape closes it",
+        "focus-lost": "closing leaves focus nowhere, because the trigger cannot take it",
+        "background-hidden": "everything outside is out of the accessibility tree"
+      }
+    },
+    "slider": {
+      "radix": "@radix-ui/react-slider",
+      "behaviours": {
+        "slider-role": "the thumb is the slider, and the only tab stop",
+        "value-reported": "the position and the range are announced as numbers",
+        "arrow-increment": "Right and Up add a step",
+        "arrow-decrement": "Left and Down subtract a step",
+        "home-end": "Home goes to the minimum and End to the maximum",
+        "clamped": "the value never leaves the range",
+        "disabled-inert": "a disabled slider takes neither focus nor keys"
+      }
+    },
+    "toast": {
+      "radix": "@radix-ui/react-toast",
+      "behaviours": {
+        "raise": "an action raises the toast",
+        "no-focus-steal": "raising one does not move focus",
+        "tab-reachable": "the raised toast is a tab stop",
+        "close-button": "the close button dismisses it",
+        "action-button": "the action button dismisses it",
+        "focus-viewport": "dismissing moves focus to the viewport",
+        "escape-closes": "Escape dismisses it",
+        "content-unmounted": "an unraised toast is not in the tree at all"
       }
     }
   }
