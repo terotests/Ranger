@@ -63,6 +63,26 @@ The browser side needs the reference host installed once:
 npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
 ```
 
+## Trying it in a browser
+
+```bash
+npm run ui:conformance:install   # once
+npm run ui:web                   # builds, serves, prints the URL
+```
+
+Radix on the left, Ranger's EVG controllers painted by `gallery/evg/gl` on the
+right, and the live trace below with every divergence highlighted. Pick any
+fixture, click or type on either side, or replay a spec's own steps.
+
+Clicking the canvas runs the **real EVG hit test** — coordinates to a test id,
+innermost control wins — which is the one part of a host the headless gate
+cannot exercise, because it drives controllers by id.
+
+It is a playground, not the gate. The keyboard is genuinely shared (one key
+event, both sides handle it), but the pointer has to be *mirrored* between two
+independent hosts, and a mirrored click is a simulation of a click. Treat what
+you see here as a lead and confirm it with `npm run ui:report`.
+
 ## The score
 
 `behaviours.json` is the catalogue: every behaviour this kit intends to match,
@@ -139,6 +159,21 @@ contract `JSXToEVG` and `ComponentEngine` already use.
 UiTree.inline(el "background-color" "#ff0000")   ; wins over any rule
 ```
 
+### What the playground pushed back into EVG
+
+Two documented EVG attributes turned out to be inert, and the playground is
+what made that visible — a disabled control that would not dim, and a tab strip
+that would not sit on one line:
+
+- **`opacity`** was stored on `EVGElement`, listed in `evg/SPEC.md`, and set by
+  `rangerflow`'s fade highlighter and `book`'s slabs — but nothing ever read
+  it, so the emitted alpha was always 1. `EVGDisplayList` now scales the alpha
+  of everything an element and its subtree emit, so every painter gets it: it
+  is only numbers in the display list. Nested fades multiply.
+- **`inline`** is still inert: parsed into `isInline`, never read by
+  `EVGLayout`. Use `display: flex` with `flex-direction`, which EVG does
+  support in full (gap, wrapping, `justify-content`, `align-items`).
+
 ### Known limit, and the first thing Tailwind theming would have to lift
 
 `EVGStyleSheet` matches **one class token per selector** — `.a`, or
@@ -161,6 +196,7 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/AccordionCtl.rgr` | Single-open sections — `@radix-ui/react-accordion` |
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
 | `conformance/` | The catalogue, specs, both adapters, the diff and the scorecard |
+| `web/` | The browser playground (`npm run ui:web`) |
 | `theme/base.css` | The class-first theme |
 
 ## Related

@@ -20,7 +20,7 @@ import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Toggle from "@radix-ui/react-toggle";
 
-function Control({ spec }) {
+export function Control({ spec }) {
   const tid = spec.tid;
 
   switch (spec.type) {
@@ -126,7 +126,7 @@ function Control({ spec }) {
   }
 }
 
-function App({ fixture }) {
+export function App({ fixture }) {
   return (
     <div>
       {fixture.controls.map((c) => (
@@ -136,6 +136,9 @@ function App({ fixture }) {
   );
 }
 
-const fixture = window.__FIXTURE__;
-createRoot(document.getElementById("root")).render(<App fixture={fixture} />);
-window.__READY__ = true;
+// Auto-mount only when the headless harness injected a fixture. The playground
+// imports Control/App instead, so both hosts render the same Radix tree.
+if (typeof window !== "undefined" && window.__FIXTURE__) {
+  createRoot(document.getElementById("root")).render(<App fixture={window.__FIXTURE__} />);
+  window.__READY__ = true;
+}

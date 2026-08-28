@@ -78,8 +78,7 @@ class AccordionCtl extends UiCtl {
                 UiTree.addClass(trig "ui-accordion-trigger-disabled")
             }
             UiTree.setState(trig "ui-accordion-trigger" word)
-            def tlabel:EVGElement (UiTree.label((trig.id + "__label") "ui-accordion-label" it.name))
-            trig.addChild(tlabel)
+            UiTree.leafText(trig it.name)
             section.addChild(trig)
 
             def body:EVGElement (unwrap it.contentEl)

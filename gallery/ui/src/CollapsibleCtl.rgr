@@ -59,9 +59,7 @@ class CollapsibleCtl extends UiCtl {
             UiTree.addClass(trig "ui-collapsible-trigger-disabled")
         }
         UiTree.setState(trig "ui-collapsible-trigger" word)
-        UiTree.clearChildren(trig)
-        def tlabel:EVGElement (UiTree.label((triggerTid + "__label") "ui-collapsible-label" name))
-        trig.addChild(tlabel)
+        UiTree.leafText(trig name)
         root.addChild(trig)
 
         def body:EVGElement (unwrap contentEl)

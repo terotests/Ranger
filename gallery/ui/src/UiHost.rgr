@@ -36,6 +36,8 @@ class UiHost {
     def sheet:EVGStyleSheet
     def theme:string ""
     def focusId:string ""
+    ; The last laid-out page, kept so a pointer can be turned into a test id.
+    def lastPage@(optional):EVGElement
     def pageWidth:double 480.0
     def pageHeight:double 320.0
 
@@ -220,10 +222,85 @@ class UiHost {
         def lay (new EVGLayout())
         lay.setPageSize(pageWidth pageHeight)
         lay.layout(page)
+        lastPage = page
         return page
     }
 
-    fn displayListJson:string () {
+    ; --- pointer -------------------------------------------------------------
+    ; A real host has coordinates, not test ids. Hit testing walks the laid-out
+    ; display tree deepest-first and takes the LAST child before the first, so
+    ; the innermost, latest-painted node wins — a button inside a clickable
+    ; card dispatches to the button, the way a browser does.
+
+    fn containsPoint:boolean (el:EVGElement px:double py:double) {
+        if (px < el.calculatedX) {
+            return false
+        }
+        if (py < el.calculatedY) {
+            return false
+        }
+        def right:double (el.calculatedX + el.calculatedWidth)
+        if (px >= right) {
+            return false
+        }
+        def bottom:double (el.calculatedY + el.calculatedHeight)
+        if (py >= bottom) {
+            return false
+        }
+        return true
+    }
+
+    fn ownsTid:boolean (candidate:string) {
+        if ((strlen candidate) == 0) {
+            return false
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(candidate))
+        if maybe {
+            return true
+        }
+        return false
+    }
+
+    fn hitIn:string (el:EVGElement px:double py:double) {
+        def i:int (array_length el.children)
+        while (i > 0) {
+            i = (i - 1)
+            def c:EVGElement (itemAt el.children i)
+            def got:string (this.hitIn(c px py))
+            if ((strlen got) > 0) {
+                return got
+            }
+        }
+        ; Self last: a label that is not a test id falls through to the control
+        ; that owns it.
+        if (this.containsPoint(el px py)) {
+            if (this.ownsTid(el.id)) {
+                return el.id
+            }
+        }
+        return ""
+    }
+
+    ; The test id under the pointer, or "" for empty space.
+    fn hitTest:string (px:double py:double) {
+        if lastPage {
+            def page:EVGElement (unwrap lastPage)
+            return (this.hitIn(page px py))
+        }
+        return ""
+    }
+
+    ; Press at a point: same rules as click(), including the blur that follows
+    ; a press on empty space or on a disabled control.
+    fn pointerDown:string (px:double py:double) {
+        def target:string (this.hitTest(px py))
+        this.click(target)
+        return target
+    }
+
+    ; The display list itself. A native host (SDL, the C++ painter) wants the
+    ; commands, not a string it has to parse back.
+    fn displayList:EVGDisplayList () {
         def page:EVGElement (this.layout())
         def engineLay (new EVGLayout())
         engineLay.setPageSize(pageWidth pageHeight)
@@ -231,6 +308,11 @@ class UiHost {
         def te (engineLay.getTextEngine())
         dl.setTextEngine(te)
         dl.build(page)
+        return dl
+    }
+
+    fn displayListJson:string () {
+        def dl:EVGDisplayList (this.displayList())
         return (dl.toJson())
     }
 

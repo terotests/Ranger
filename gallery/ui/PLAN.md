@@ -22,6 +22,10 @@ Run `npm run ui:report` for the current number; `baseline.json` is checked in.
 - [x] Toggle, Collapsible, Checkbox, Switch, RadioGroup, Tabs, Accordion at
       parity with their `@radix-ui` counterparts
 - [x] Offline suite in CI (`ui:test`, wired into `gallery:editors:test`)
+- [x] Coordinate hit testing (`UiHost.hitTest` / `pointerDown`), innermost wins
+- [x] A browser playground (`npm run ui:web`) running both hosts side by side
+- [x] `opacity` honoured in `EVGDisplayList` — it was documented, set by
+      rangerflow and book, and read by nothing
 
 ## Next — the last catalogued component
 
@@ -38,6 +42,13 @@ nothing here has yet:
 `EVGToolbar` already hand-rolls an overlay pass for its dropdown. The dialog
 work should fold those together rather than adding a third.
 
+## Next — the playground
+
+- [ ] Drive the pointer on the Radix side through real events instead of
+      `focus()` + `click()`, so the page stops simulating in that direction
+- [ ] Keep a divergence history, so a transient disagreement is not lost on the
+      next interaction
+
 ## Next — Tab itself
 
 `tabstop` is reported and scored, but nothing yet *presses* Tab: the harness
@@ -46,6 +57,11 @@ tab stop sits, not by where Tab lands. Adding the step would also need a
 document-order focus model in `UiHost`.
 
 ## Next — the styling engine
+
+`inline` is still parsed into `EVGElement.isInline` and never read by
+`EVGLayout`. Either make it work or take it out of `evg/SPEC.md`; a documented
+attribute that does nothing costs an afternoon every time someone believes it.
+
 
 The harness already names the limit: `EVGStyleSheet` matches one class token
 per selector, so there are no compound or attribute selectors, and no real

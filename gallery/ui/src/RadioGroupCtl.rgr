@@ -6,7 +6,8 @@
 ; Parity contract (see conformance/SPEC.md):
 ;   root      role radiogroup, always a tab stop, never focused itself
 ;   items     role radio, checked no | yes, state "checked" | "unchecked"
-;   arrows    move focus AND selection, skip disabled items, wrap at the ends
+;   arrows    move focus and the roving tab stop, skip disabled items, wrap at
+;             the ends — but NOT the selection; see the note in keyDown
 ;   roving    exactly one item is a tab stop — the last one focus reached, and
 ;             NONE before the group has been touched. That "none yet" start is
 ;             not an oversight: Radix hands the tab stop to the group until an
@@ -73,9 +74,7 @@ class RadioGroupCtl extends UiCtl {
                 word = "checked"
             }
             UiTree.setState(el "ui-radio" word)
-            UiTree.clearChildren(el)
-            def text:EVGElement (UiTree.label((el.id + "__label") "ui-radio-label" it.name))
-            el.addChild(text)
+            UiTree.leafText(el it.name)
             root.addChild(el)
             i = (i + 1)
         }
@@ -124,7 +123,6 @@ class RadioGroupCtl extends UiCtl {
         }
     }
 
-    ; An arrow moves selection with focus — the radio pattern, not a listbox.
     fn keyDown:string (target:string key:string) {
         if disabled {
             return ""

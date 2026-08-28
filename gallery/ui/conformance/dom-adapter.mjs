@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { snapshotDom } from "./dom/snapshot.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOM_DIR = path.join(HERE, "dom");
@@ -58,45 +59,6 @@ async function bundle() {
   });
 }
 
-/**
- * Canonical observation. The Ranger side reports the same fields off its
- * display tree; see SPEC.md for what each one means on each side.
- */
-const SNAPSHOT = () => {
-  const NAMED_ROLES = new Set(["button", "link", "heading", "tab", "menuitem", "checkbox", "radio", "switch"]);
-  // aria-checked and aria-selected are tri-state: "mixed" is a real value.
-  const tri = (v) => (v == null ? null : v === "mixed" ? "mixed" : v === "true");
-  const out = [];
-  for (const el of document.querySelectorAll("[data-tid]")) {
-    const explicit = el.getAttribute("role");
-    const tag = el.tagName.toLowerCase();
-    let role = explicit;
-    if (!role) role = tag === "button" ? "button" : tag === "a" ? "link" : "none";
-    const label = el.getAttribute("aria-label");
-    const name = label != null ? label : NAMED_ROLES.has(role) ? (el.textContent || "").trim() : "";
-    const expanded = el.getAttribute("aria-expanded");
-    const pressed = el.getAttribute("aria-pressed");
-    const disabled = el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
-    out.push({
-      tid: el.getAttribute("data-tid"),
-      role,
-      name,
-      state: el.getAttribute("data-state") || "",
-      expanded: expanded == null ? null : expanded === "true",
-      pressed: pressed == null ? null : pressed === "true",
-      checked: tri(el.getAttribute("aria-checked")),
-      selected: tri(el.getAttribute("aria-selected")),
-      disabled,
-      // Would Tab land here? Roving focus is exactly this going false on the
-      // items a composite does not want in the tab order.
-      tabstop: el.tabIndex >= 0 && !disabled,
-      focused: document.activeElement === el,
-      visible: el.getClientRects().length > 0,
-    });
-  }
-  return out;
-};
-
 export async function run(spec) {
   const { chromium } = requireDom("playwright-core");
   await bundle();
@@ -123,7 +85,7 @@ export async function run(spec) {
 
     const observe = async (label) => {
       await settle();
-      trace.push({ step: label, nodes: await page.evaluate(SNAPSHOT) });
+      trace.push({ step: label, nodes: await page.evaluate(snapshotDom) });
     };
 
     await observe("initial");

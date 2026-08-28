@@ -66,9 +66,7 @@ class CheckboxCtl extends UiCtl {
             UiTree.addClass(el (base + "-disabled"))
         }
         UiTree.setState(el base word)
-        UiTree.clearChildren(el)
-        def text:EVGElement (UiTree.label((tid + "__label") (base + "-label") name))
-        el.addChild(text)
+        UiTree.leafText(el name)
     }
 
     fn activate:void (target:string) {

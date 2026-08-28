@@ -35,9 +35,7 @@ class ToggleCtl extends UiCtl {
         } {
             UiTree.setState(el "ui-toggle" "off")
         }
-        UiTree.clearChildren(el)
-        def text:EVGElement (UiTree.label((tid + "__label") "ui-toggle-label" name))
-        el.addChild(text)
+        UiTree.leafText(el name)
     }
 
     fn activate:void (target:string) {

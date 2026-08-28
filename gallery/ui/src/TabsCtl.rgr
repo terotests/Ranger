@@ -92,9 +92,7 @@ class TabsCtl extends UiCtl {
                 word = "active"
             }
             UiTree.setState(el "ui-tab" word)
-            UiTree.clearChildren(el)
-            def text:EVGElement (UiTree.label((el.id + "__label") "ui-tab-label" it.name))
-            el.addChild(text)
+            UiTree.leafText(el it.name)
             list.addChild(el)
             i = (i + 1)
         }

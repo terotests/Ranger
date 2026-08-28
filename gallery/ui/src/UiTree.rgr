@@ -180,6 +180,19 @@ class UiTree {
         return el
     }
 
+    ; Put the text ON the control instead of in a child span.
+    ;
+    ; EVG shrink-wraps a TEXT leaf and gives a div the full width of its
+    ; parent, so a control built as div+span fills the row whatever its label
+    ; says — a strip of tabs then stacks vertically no matter what `direction`
+    ; the sheet asks for. Every control whose whole content is its label is
+    ; therefore a leaf.
+    sfn leafText:void (el:EVGElement text:string) {
+        UiTree.clearChildren(el)
+        el.textContent = text
+        el.elementType = 1
+    }
+
     sfn label:EVGElement (id:string cls:string text:string) {
         def el (EVGElement.createSpan())
         el.id = id
