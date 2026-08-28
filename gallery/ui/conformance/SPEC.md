@@ -36,6 +36,12 @@ input steps live in the spec, and both adapters build from it.
 }
 ```
 
+A step is one of `{"click": tid}`, `{"key": name}`, `{"focus": tid}`,
+`{"hover": tid}`, `{"unhover": true}` or `{"rightclick": tid}`. The last three
+exist because three components have no other input at all: a tooltip and a
+hover card open on the pointer arriving, and a context menu only on the
+secondary button.
+
 `behaviours` must name entries from `behaviours.json`; `report.mjs` refuses a
 spec that invents one, so the catalogue cannot rot quietly. Specs are kept
 small — one behaviour group each — because a failure marks exactly the
@@ -61,10 +67,18 @@ Both adapters derive these identically. A control `x`:
 | `aspectratio` | `x-outer` (the sized box), `x` (the ratio), `x-content` |
 | `accessibleicon` | `x-glyph` |
 | `avatar` | `x-fallback` |
+| `alertdialog` | `x-trigger`, `x-overlay`, `x-content`, `x-title`, `x-description`, `x-cancel`, `x-action` |
+| `popover` | `x-trigger`, `x-content`, `x-inner`, `x-close` |
+| `tooltip` | `x-trigger`, `x-content` |
+| `hovercard` | `x-trigger`, `x-content` |
+| `dropdownmenu` | `x-trigger`, `x-content`, `x-item-<value>` per item |
+| `contextmenu` | `x-trigger`, `x-content`, `x-item-<value>` per item |
+| `slider` | `x-track`, `x-range`, `x-thumb` |
+| `toast` | `x-trigger`, `x-region`, `x-viewport`, `x` (the toast), `x-title`, `x-description`, `x-action`, `x-close` |
 
 ## The observation
 
-Per test id, twelve fields:
+Per test id, fifteen fields:
 
 | Field | Ranger (EVG) | Radix (DOM) |
 | --- | --- | --- |
@@ -80,6 +94,19 @@ Per test id, twelve fields:
 | `hidden` | inside no open modal, and not decoration | inside no `[aria-hidden="true"]` |
 | `focused` | `UiHost.focusId` | `document.activeElement` |
 | `visible` | reachable from the laid-out display tree | `getClientRects().length > 0` |
+| `valuenow` | `UiRow.valueNow`, or null | `aria-valuenow` |
+| `valuemin` | `UiRow.valueMin`, or null | `aria-valuemin` |
+| `valuemax` | `UiRow.valueMax`, or null | `aria-valuemax` |
+
+The three numbers were added when `slider` was: none of the other twelve fields
+changes as a slider moves, so the first captured trace showed five steps of a
+thumb travelling from 0 to 100 with **not one observable difference**. They also
+tightened `progress`, which had been compared on its state word alone.
+
+`valuenow` is null on an indeterminate progress bar, which reports a range with
+no position in it. That absence is the contract: it is how every platform spells
+"busy, length unknown", and a reader handed 0 instead says the work has not
+started.
 
 Tri-states carry `true`, `false`, `"mixed"` or `null`. `null` means "not
 applicable" — `aria-checked="false"` on something that is not checkable makes a
@@ -100,6 +127,12 @@ radio-group spec disagreed about which item was selected. An unsettled oracle
 turns the whole benchmark into a race detector.
 
 The Ranger side has no async, so it is settled by construction.
+
+`unhover` moves the mouse to the corner **in steps**, for a related reason. A
+tooltip keeps itself up over a "grace area" between the trigger and its content
+and decides with `pointermove`, so a single teleporting move can land outside
+the polygon without ever reporting a point beyond its edge — measured: the tip
+stayed open through the whole spec.
 
 ## Where the two are deliberately spelled differently
 
@@ -130,6 +163,42 @@ new one should be argued for in a pull request rather than added quietly.
    records what a user can reach, not how the node is stored. The row is still
    reported either way, so "exists but is unreachable" stays distinguishable
    from "does not exist".
+
+5. **A slider's disabled thumb.** The reference marks the slider's ROOT
+   disabled and leaves the thumb — the node that carries `role="slider"` —
+   without `aria-disabled`, taking it out of the tab order instead. Measured,
+   and matched: parity means matching the reference as it behaves. Whether a
+   slider role should say so is an argument for `ui:a11y`, which audits both
+   sides with axe and currently minds neither.
+
+## What had to be measured, not guessed
+
+Every one of these came out of capturing the reference before writing the
+controller, and each contradicts what the obvious implementation would do.
+
+- **A tooltip has three state words.** Opened by the pointer it reports
+  `delayed-open`; opened by focus, `instant-open`. Two words for "open",
+  because a reader is told how the tip was summoned.
+- **A menu does not wrap.** ArrowDown on the last item stays on the last item.
+  `UiCtl.stepIndex` wraps, which is right for a radio group and wrong here, so
+  `MenuCtl` has its own non-wrapping scan.
+- **A menu opens focused on its surface**, not on its first item, and ArrowUp
+  from there takes the LAST item.
+- **ArrowUp on a slider means more.** `UiCtl.isNextKey`/`isPrevKey` answer
+  "later in the list" and "earlier in the list", where ArrowUp is earlier. The
+  harness caught the difference on the first run: the reference at 60, Ranger
+  at 40.
+- **A context menu's trigger has no role, no name and no `aria-expanded`**, and
+  closing the menu leaves focus nowhere, because that trigger cannot take it.
+- **A toast does not steal focus when it is raised**, and dismissing it with a
+  button moves focus to the VIEWPORT rather than back to the trigger — but
+  dismissing it with Escape leaves focus exactly where it was.
+- **A toast's named landmark is a separate element** from the list inside it.
+  The reference wraps its viewport in a `region` with an `aria-label`, and
+  tagging only the list would have dropped the landmark from the comparison
+  entirely.
+- **A popover is not modal.** It has `role="dialog"` and takes focus, but
+  everything behind it keeps its rows and its tab stops.
 
 ## Disputed: `radiogroup.arrow-selects`
 

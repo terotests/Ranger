@@ -153,30 +153,129 @@ function Playground() {
 
   useEffect(() => {
     observe();
-    const mo = new MutationObserver(schedule);
-    mo.observe(radixRef.current, { attributes: true, childList: true, subtree: true });
-    document.addEventListener("focusin", schedule);
+    // Watch the panel AND the portals — an overlay's content is a child of
+    // <body>, not of #radix, so a panel-scoped observer shows a stale dialog.
+    // But not the playground's own chrome: rendering the trace table is itself
+    // a mutation of <body>, so an unfiltered observer re-observes because it
+    // just observed, forever. Anything inside #app that is not the panel is
+    // this page's own furniture; anything outside #app is a portal.
+    const app = document.getElementById("app");
+    const mo = new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        if (!el) continue;
+        if (radixRef.current.contains(el) || !app.contains(el)) {
+          schedule();
+          return;
+        }
+      }
+    });
+    mo.observe(document.body, { attributes: true, childList: true, subtree: true });
+    const onFocusIn = (e) => {
+      if (tabbing.current && !driving.current) {
+        tabbing.current = false;
+        const hit = e.target.closest && e.target.closest("[data-tid]");
+        if (hit) host.focus(hit.getAttribute("data-tid"));
+      }
+      schedule();
+    };
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", schedule);
     return () => {
       mo.disconnect();
-      document.removeEventListener("focusin", schedule);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", schedule);
+      // Clear the id as well as the frame. `schedule()` treats a non-zero
+      // pending as "an observation is already on its way", so leaving the id
+      // behind after cancelling it wedges the live view shut: every later
+      // change returns early and the panel keeps showing — and scoring — the
+      // trace from before the spec was switched. Measured: opening a menu
+      // added five nodes to the DOM and the table still showed one, under a
+      // green "traces agree".
       if (pending.current) cancelAnimationFrame(pending.current);
+      pending.current = 0;
     };
-  }, [observe, schedule]);
+  }, [observe, schedule, host]);
 
   /**
-   * Radix → Ranger. The DOM side gets a real user event, so its focus and
-   * state are genuine; the id under the pointer is all Ranger needs.
+   * Radix → Ranger, listened for on the DOCUMENT rather than on the panel.
+   *
+   * Every overlay — dialog, popover, menu, tooltip — is rendered through a
+   * portal, so its content is a child of <body>, not of #radix. A listener on
+   * the panel therefore never sees a click on a dialog's Cancel button, and
+   * the two sides silently stop agreeing the moment anything opens. Measured:
+   * replaying the alert-dialog spec through the panel-scoped handler produced
+   * eleven divergences that the headless gate does not have.
+   *
+   * Only elements the fixture tagged are acted on, so the sidebar and the
+   * header are not mistaken for the page under test. A click inside #radix
+   * that lands on nothing still blurs, which is what a browser does.
    */
-  const onRadixPointer = useCallback(
-    (e) => {
-      const hit = e.target.closest("[data-tid]");
-      host.click(hit ? hit.getAttribute("data-tid") : "");
+  /**
+   * Set while the page is driving the DOM side itself — the canvas mirror and
+   * the spec replay both synthesise real events, and a real event reaches the
+   * document listeners below. Without this the EVG side gets the input twice:
+   * measured as a dialog that closed and then immediately blurred its own
+   * trigger, because the second dispatch found the close button gone.
+   */
+  const driving = useRef(false);
+  /** Set between a Tab keydown and the focusin it causes. */
+  const tabbing = useRef(false);
+  const drive = useCallback((fn) => {
+    driving.current = true;
+    try {
+      fn();
+    } finally {
+      driving.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const fromCanvas = (e) =>
+      driving.current || (canvasRef.current && canvasRef.current.contains(e.target));
+    const tidOf = (e) => {
+      const hit = e.target.closest && e.target.closest("[data-tid]");
+      return hit ? hit.getAttribute("data-tid") : null;
+    };
+
+    // POINTERDOWN, not click. A menu opens on pointer down and portals its
+    // surface directly under the cursor, so by the time the click event fires
+    // the target is the menu, not the trigger — the EVG side was told about a
+    // press on a node that had not existed a moment earlier, and never opened
+    // at all. Measured: five nodes on the Radix side, one on this one.
+    // It is also the more faithful event: UiHost's own entry point is
+    // pointerDown(), and both sides are observed once everything has settled.
+    const onDown = (e) => {
+      if (fromCanvas(e)) return;
+      const tid = tidOf(e);
+      if (tid === null && !radixRef.current.contains(e.target)) return;
+      host.click(tid || "");
       schedule();
-    },
-    [host, schedule],
-  );
+    };
+    // A tooltip and a hover card have no other input than this.
+    const onOver = (e) => {
+      if (fromCanvas(e)) return;
+      const tid = tidOf(e);
+      if (tid) host.hover(tid);
+      else host.unhover();
+      schedule();
+    };
+    const onContext = (e) => {
+      if (fromCanvas(e)) return;
+      const tid = tidOf(e);
+      if (tid) host.rightClick(tid);
+      schedule();
+    };
+
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("pointerover", onOver, true);
+    document.addEventListener("contextmenu", onContext, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("pointerover", onOver, true);
+      document.removeEventListener("contextmenu", onContext, true);
+    };
+  }, [host, schedule]);
 
   /**
    * Ranger → Radix. The canvas has coordinates, so this is the one place the
@@ -188,13 +287,71 @@ function Playground() {
     (e) => {
       const r = canvasRef.current.getBoundingClientRect();
       const tid = host.pointerDown(e.clientX - r.left, e.clientY - r.top);
-      const el = tid ? radixRef.current.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
-      if (el && !el.disabled) {
-        el.focus();
-        el.click();
-      } else if (document.activeElement && document.activeElement !== document.body) {
-        document.activeElement.blur();
+      const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
+      drive(() => {
+        if (el && !el.disabled) {
+          el.focus();
+          el.click();
+        } else if (document.activeElement && document.activeElement !== document.body) {
+          document.activeElement.blur();
+        }
+      });
+      canvasRef.current.focus();
+      schedule();
+    },
+    [host, schedule, drive],
+  );
+
+  /**
+   * Ranger → Radix for the pointer without a button. Same simulation caveat as
+   * onCanvasPointer, and a little worse: React reconstructs enter/leave from
+   * the bubbling `pointerover` / `pointerout` pair, so those are what get
+   * dispatched. The EVG side is driven by its own hit test either way.
+   */
+  const hoveredTid = useRef("");
+  const onCanvasMove = useCallback(
+    (e) => {
+      const r = canvasRef.current.getBoundingClientRect();
+      const tid = host.hitTest(e.clientX - r.left, e.clientY - r.top);
+      if (tid === hoveredTid.current) return;
+      const find = (id) => (id ? document.querySelector(`[data-tid="${CSS.escape(id)}"]`) : null);
+      const was = find(hoveredTid.current);
+      if (was) {
+        was.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }));
       }
+      hoveredTid.current = tid;
+      if (tid) {
+        host.hover(tid);
+        const el = find(tid);
+        if (el) {
+          el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+          el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse" }));
+        }
+      } else {
+        host.unhover();
+      }
+      schedule();
+    },
+    [host, schedule],
+  );
+
+  const onCanvasLeave = useCallback(() => {
+    hoveredTid.current = "";
+    host.unhover();
+    radixRef.current.dispatchEvent(
+      new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }),
+    );
+    schedule();
+  }, [host, schedule]);
+
+  const onCanvasContext = useCallback(
+    (e) => {
+      e.preventDefault();
+      const r = canvasRef.current.getBoundingClientRect();
+      const tid = host.hitTest(e.clientX - r.left, e.clientY - r.top);
+      host.rightClick(tid);
+      const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
+      if (el) el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
       canvasRef.current.focus();
       schedule();
     },
@@ -204,7 +361,20 @@ function Playground() {
   /** Keyboard is genuinely shared: one real key event, both sides handle it. */
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Tab") return; // the browser owns Tab; see PLAN.md
+      if (e.key === "Tab") {
+        // The browser owns Tab (see PLAN.md), so the DOM side moves focus on
+        // its own and the EVG side would otherwise be left behind — every
+        // later key would then go to the wrong control. This is the ONE place
+        // the page copies focus across rather than deriving it from input:
+        // the focusin handler below reads the flag and does it.
+        tabbing.current = true;
+        return;
+      }
+      // The replay synthesises its own keydown and tells the host separately,
+      // and a synthetic keydown bubbles to window like any other. Without this
+      // the EVG side takes every replayed arrow twice: measured as a tab strip
+      // that ended two steps past where the reference left it.
+      if (driving.current) return;
       host.key(e.key === "Spacebar" ? " " : e.key);
       schedule();
     };
@@ -216,8 +386,11 @@ function Playground() {
   const replay = useCallback(async () => {
     setBusy(true);
     for (const step of spec.steps) {
+      // Every branch below synthesises the DOM event itself and then tells the
+      // EVG host separately, so the document listeners must stay out of it.
+      driving.current = true;
       if ("click" in step) {
-        const el = radixRef.current.querySelector(`[data-tid="${CSS.escape(step.click)}"]`);
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.click)}"]`);
         if (el && !el.disabled) {
           el.focus();
           el.click();
@@ -234,7 +407,67 @@ function Playground() {
           if (step.key === " " || step.key === "Enter") el.click();
         }
         host.key(step.key);
+      } else if ("focus" in step) {
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.focus)}"]`);
+        if (el) el.focus();
+        host.focus(step.focus);
+      } else if ("hover" in step) {
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.hover)}"]`);
+        if (el) {
+          el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+          el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse" }));
+        }
+        host.hover(step.hover);
+      } else if ("unhover" in step) {
+        // A tooltip stays up over a "grace area" between trigger and content,
+        // and decides with a DOCUMENT pointermove carrying real coordinates —
+        // a pointerout on the panel leaves it open. Measured: the replay
+        // reported the tip still delayed-open after the step said it had left.
+        // React derives pointerleave from a BUBBLING pointerout whose
+        // relatedTarget is outside the element, so a bare pointerleave never
+        // reaches the handler. Leave first, then move: the grace area is only
+        // created on leave, and the document pointermove is what tells the
+        // tooltip the pointer is no longer inside it.
+        // The coordinates matter: a tooltip builds its grace polygon from the
+        // point the pointer left at, so leaving at (0,0) and then moving to
+        // (0,0) puts the pointer on a vertex of its own grace area and the tip
+        // never closes. Leave from the middle of the control, as a hand would.
+        for (const el of document.querySelectorAll("[data-tid]")) {
+          const r = el.getBoundingClientRect();
+          el.dispatchEvent(
+            new PointerEvent("pointerout", {
+              bubbles: true,
+              pointerType: "mouse",
+              relatedTarget: document.body,
+              clientX: r.left + r.width / 2,
+              clientY: r.top + r.height / 2,
+            }),
+          );
+        }
+        // Then WALK away, rather than teleport. A grace area is left by
+        // crossing its edge, and the headless adapter needed the same thing:
+        // one jump can land outside the polygon without a pointermove ever
+        // reporting a point beyond it. Twelve steps to the far corner, which
+        // is the direction nothing is portalled into.
+        const toX = window.innerWidth - 2;
+        const toY = window.innerHeight - 2;
+        for (let i = 1; i <= 12; i += 1) {
+          document.dispatchEvent(
+            new PointerEvent("pointermove", {
+              bubbles: true,
+              pointerType: "mouse",
+              clientX: (toX * i) / 12,
+              clientY: (toY * i) / 12,
+            }),
+          );
+        }
+        host.unhover();
+      } else if ("rightclick" in step) {
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.rightclick)}"]`);
+        if (el) el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+        host.rightClick(step.rightclick);
       }
+      driving.current = false;
       await observe();
       await new Promise((r) => setTimeout(r, 260));
     }
@@ -301,8 +534,17 @@ function Playground() {
         <section>
           <h2>Radix — React DOM</h2>
           <p className="sub">Real @radix-ui components. Click and type here; both sides follow.</p>
-          <div id="radix" ref={radixRef} onClickCapture={onRadixPointer}>
-            <RadixApp fixture={spec.fixture} />
+          {/*
+            key=specName so React REMOUNTS the reference host on every spec
+            change. Radix's controls are uncontrolled — a checkbox holds its own
+            checked state — so an update in place leaves the previous spec's
+            state behind while the EVG host is rebuilt from scratch, and the two
+            sides start out of sync. Measured: replaying every spec in order
+            reported seven divergences that the headless gate, which gets a
+            fresh page each time, does not have.
+          */}
+          <div id="radix" ref={radixRef}>
+            <RadixApp key={specName} fixture={spec.fixture} />
           </div>
         </section>
 
@@ -312,7 +554,14 @@ function Playground() {
             Controllers mutating a display list, painted by <code>evg-webgl.js</code>. Clicking here
             runs the real EVG hit test.
           </p>
-          <canvas ref={canvasRef} tabIndex={0} onPointerDown={onCanvasPointer} />
+          <canvas
+            ref={canvasRef}
+            tabIndex={0}
+            onPointerDown={onCanvasPointer}
+            onPointerMove={onCanvasMove}
+            onPointerLeave={onCanvasLeave}
+            onContextMenu={onCanvasContext}
+          />
           {err ? <p className="note">painter: {err}</p> : null}
         </section>
       </main>
@@ -353,6 +602,15 @@ function Playground() {
           simulation of a click; the keyboard is shared for real. Confirm anything you see with{" "}
           <code>npm run ui:report</code>, which drives both sides with real input.
         </p>
+        {spec.steps.some((st) => "unhover" in st) ? (
+          <p className="note">
+            <strong>Replaying an <code>unhover</code> step is not reliable.</strong> A Radix tooltip
+            stays up over a grace area between the trigger and its content and leaves it only on a
+            real pointer move, which no synthetic event reproduces — so the replay can leave the tip
+            open and report a divergence the gate does not have. Hover the trigger with the mouse
+            and move away: that path is real input on both sides, and it agrees.
+          </p>
+        ) : null}
           </div>
         </div>
       </div>

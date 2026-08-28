@@ -156,7 +156,15 @@
     "avatar": "avatar",
     "toggle-group": "togglegroup",
     "toolbar": "toolbar",
-    "dialog": "dialog"
+    "dialog": "dialog",
+    "alert-dialog": "alertdialog",
+    "popover": "popover",
+    "tooltip": "tooltip",
+    "hover-card": "hovercard",
+    "dropdown-menu": "dropdownmenu",
+    "context-menu": "contextmenu",
+    "slider": "slider",
+    "toast": "toast"
   },
   "machinery": {
     "overlay layer": [

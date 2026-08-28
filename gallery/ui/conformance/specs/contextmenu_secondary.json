@@ -1,0 +1,6 @@
+{ "name":"contextmenu_secondary","component":"context-menu",
+  "behaviours":["secondary-open","trigger-no-role","menu-role","focus-content","arrow-steps","escape-closes","focus-lost","background-hidden"],
+  "fixture":{"controls":[
+    {"type":"contextmenu","tid":"cm","name":"Right-click here","items":[
+      {"value":"a","name":"Alpha"},{"value":"b","name":"Beta","disabled":true},{"value":"c","name":"Gamma"}]}]},
+  "steps":[{"rightclick":"cm-trigger"},{"key":"ArrowDown"},{"key":"ArrowDown"},{"key":"Escape"}] }

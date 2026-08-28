@@ -210,6 +210,13 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
       setAttr(el, "aria-pressed", null);
       setAttr(el, "aria-checked", null);
     }
+    // A number the reader announces. `now` is deliberately absent on an
+    // indeterminate progress bar: a range with no position in it is how every
+    // platform spells "busy, length unknown", and writing 0 there instead
+    // would have the reader say the work has not started.
+    setAttr(el, "aria-valuenow", node.now == null ? null : node.now);
+    setAttr(el, "aria-valuemin", node.min == null ? null : node.min);
+    setAttr(el, "aria-valuemax", node.max == null ? null : node.max);
     // Virtualization: the counts are the whole sheet, the indices say where the
     // emitted rows sit in it.
     setAttr(el, "aria-rowcount", node.rows || null);

@@ -82,6 +82,12 @@ class EVGA11yRole {
     sfn tabPanel:int ()    { return 26 }
     sfn region:int ()      { return 27 }
     sfn progressBar:int () { return 28 }
+    ; The overlay family: a menu and its surface, a tooltip, the dialog
+    ; variant a reader must interrupt for, and a value a user drags.
+    sfn menu:int ()        { return 29 }
+    sfn tooltip:int ()     { return 30 }
+    sfn alertDialog:int () { return 31 }
+    sfn slider:int ()      { return 32 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -114,6 +120,10 @@ class EVGA11yRole {
         if (role == 26) { return "tabpanel" }
         if (role == 27) { return "region" }
         if (role == 28) { return "progressbar" }
+        if (role == 29) { return "menu" }
+        if (role == 30) { return "tooltip" }
+        if (role == 31) { return "alertdialog" }
+        if (role == 32) { return "slider" }
         return "none"
     }
 }
@@ -169,6 +179,16 @@ class EVGA11yNode {
     def modal:boolean false
     def checked:int 0
     def expanded:int 0
+
+    ; A number the platform announces: where a slider sits, how far a progress
+    ; bar has got. `hasValueNow` is not decoration — a progress bar with a range
+    ; and NO position is how every platform spells "busy, length unknown", and
+    ; a reader that is handed 0 instead says the work has not started.
+    def hasValueNow:boolean false
+    def valueNow:int 0
+    def hasValueRange:boolean false
+    def valueMin:int 0
+    def valueMax:int 0
 
     ; Position in a set the tree does not fully contain — the whole point of
     ; virtualization. A 10,000 row sheet emits the ~40 rows on screen; "row
@@ -365,6 +385,13 @@ class EVGA11yTree {
         }
         if ((strlen n.description) > 0) {
             out = (out + ",\"desc\":" + (EVGA11yTree.jsonString(n.description)))
+        }
+        if n.hasValueNow {
+            out = (out + ",\"now\":" + (to_string n.valueNow))
+        }
+        if n.hasValueRange {
+            out = (out + ",\"min\":" + (to_string n.valueMin))
+            out = (out + ",\"max\":" + (to_string n.valueMax))
         }
         out = (out + ",\"b\":[" + (to_string n.x) + "," + (to_string n.y))
         out = (out + "," + (to_string n.w) + "," + (to_string n.h) + "]")

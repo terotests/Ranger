@@ -63,6 +63,51 @@ function buildHost(M, fixture, css) {
         ctl = host.addDialog(c.tid, c.name, c.title || c.name);
         break;
 
+      case "alertdialog":
+        ctl = host.addAlertDialog(c.tid, c.name, c.title || c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "popover":
+        ctl = host.addPopover(c.tid, c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "tooltip":
+        ctl = host.addTooltip(c.tid, c.name);
+        ctl.bodyText = c.body || c.name;
+        break;
+
+      case "hovercard":
+        ctl = host.addHoverCard(c.tid, c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "dropdownmenu":
+        ctl = host.addDropdownMenu(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "contextmenu":
+        ctl = host.addContextMenu(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "slider":
+        ctl = host.addSlider(c.tid, c.name);
+        ctl.minValue = c.min ?? 0;
+        ctl.maxValue = c.max ?? 100;
+        ctl.step = c.step ?? 1;
+        ctl.value = c.value ?? 50;
+        break;
+
+      case "toast":
+        ctl = host.addToast(c.tid, c.name);
+        ctl.title = c.title || c.name;
+        ctl.bodyText = c.body || "";
+        ctl.actionLabel = c.actionName || "Undo";
+        break;
+
       case "label":
         ctl = host.addLabel(c.tid, c.name);
         break;
@@ -135,6 +180,14 @@ const SUPPORTED_TYPES = [
   "aspectratio",
   "accessibleicon",
   "avatar",
+  "alertdialog",
+  "popover",
+  "tooltip",
+  "hovercard",
+  "dropdownmenu",
+  "contextmenu",
+  "slider",
+  "toast",
 ];
 
 module.exports = { buildHost, SUPPORTED_TYPES };

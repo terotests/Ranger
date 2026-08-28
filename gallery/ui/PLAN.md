@@ -7,8 +7,8 @@ Native EVG components good enough to replace the hand-built chrome in
 
 ## Where it stands
 
-**16 of 31 Radix components (51.6%)**, and **88 of 90 catalogued behaviours
-(97.8%)** — 3756 observations, no divergences. Run `npm run ui:inventory` for
+**24 of 31 Radix components (77.4%)**, and **155 of 157 catalogued behaviours
+(98.7%)** — 7860 observations, no divergences. Run `npm run ui:inventory` for
 the first number and `npm run ui:report` for the second.
 
 - [x] Controller convention: own a subtree of the display tree, mutate it,
@@ -20,10 +20,18 @@ the first number and `npm run ui:report` for the second.
 - [x] Metrics: a behaviour catalogue as the denominator, coverage / parity /
       observation scores, a divergence profile, and a baseline that fails the
       run on a regression
-- [x] Sixteen components at parity with their `@radix-ui` counterparts: toggle,
-      collapsible, checkbox, switch, radio-group, tabs, accordion, toggle-group,
-      toolbar, dialog, label, separator, progress, aspect-ratio,
-      accessible-icon, avatar
+- [x] Twenty-four components at parity with their `@radix-ui` counterparts:
+      toggle, collapsible, checkbox, switch, radio-group, tabs, accordion,
+      toggle-group, toolbar, dialog, alert-dialog, popover, tooltip, hover-card,
+      dropdown-menu, context-menu, slider, toast, label, separator, progress,
+      aspect-ratio, accessible-icon, avatar
+- [x] A pointer with no button: `hover`, `unhover` and `rightclick` steps in
+      both adapters and in `UiHost`, without which a tooltip, a hover card and
+      a context menu have no input at all
+- [x] `valuenow` / `valuemin` / `valuemax` in the trace. The slider forced it:
+      none of the other twelve fields changes as one moves, so the first
+      captured oracle showed a thumb travelling from 0 to 100 with no
+      observable difference at any step
 - [x] A modal that takes focus, restores it on Escape, and hides the page
       behind it from the accessibility tree
 - [x] Offline suite in CI (`ui:test`, wired into `gallery:editors:test`)
@@ -40,31 +48,51 @@ the first number and `npm run ui:report` for the second.
 - [x] `ui:inventory`: the Radix denominator derived from npm, with an
       unclassified package failing the run
 
-## Next — the overlay layer
+## Next — the overlay layer, for real this time
 
-The inventory says where the leverage is: **11 of the 24 missing components are
-waiting on one overlay layer** — dialog, alert-dialog, popover, tooltip,
-hover-card, dropdown-menu, context-menu, menubar, navigation-menu, select,
-toast. Four of those additionally need typeahead and submenus, seven need a
-focus trap.
+Nine overlay components now behave correctly — they open, take focus, restore
+it, hide the page behind them and close on Escape — but they are still painted
+*in flow*, as ordinary children of their trigger's subtree. Behaviour is at
+parity; presentation is not.
 
-`dialog` is the smallest of them and the one already catalogued, so it is the
-way in:
-
-- [ ] An overlay layer with z-order, so a dialog paints above the page
-- [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog
-- [ ] Focus restore: closing returns focus to the trigger
-- [ ] Escape closes
-- [ ] `modal` on the accessibility row
+- [ ] An overlay layer with z-order, so a dialog, a menu and a tooltip paint
+      **above** the page instead of pushing it down
+- [ ] Positioning: anchor a surface to its trigger rather than to the document
+- [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog. Catalogued as
+      `dialog.focus-trap` and disputed, because the harness has no Tab step to
+      prove it with
 
 `EVGWindow` already implements a modal dialog with focus and key handling, and
-`EVGToolbar` already hand-rolls an overlay pass for its dropdown. The dialog
-work should fold those together rather than adding a third.
+`EVGToolbar` already hand-rolls an overlay pass for its dropdown. This work
+should fold those together rather than adding a third.
+
+The seven components still missing are `form`,
+`one-time-password-field`, `password-toggle-field`, `menubar`, `select`,
+`navigation-menu` and `scroll-area`. Three of those need a text field, two need
+typeahead and submenus, and one needs pointer drag — so the next component is
+cheapest after a `textfield` primitive, not after more overlay work.
 
 ## Next — the playground
 
-- [ ] Drive the pointer on the Radix side through real events instead of
-      `focus()` + `click()`, so the page stops simulating in that direction
+Driving all 45 specs through the page found four bugs in the page itself, none
+of which the headless gate could see, and each of which made it report
+agreement that was not there:
+
+- the live view wedged shut after the first spec change, so the panel scored a
+  trace from before the switch — under a green "traces agree";
+- the DOM→EVG bridge listened for `click`, but a menu opens on `pointerdown`
+  and portals its surface under the cursor, so the click landed on the menu and
+  the EVG side never opened at all;
+- Radix's controls are uncontrolled, so switching specs left the previous
+  spec's state on the reference side while the EVG host was rebuilt fresh;
+- the replay had no `focus` branch, so specs that begin by focusing something
+  passed by mutual inaction.
+
+What is left:
+
+- [ ] Replaying an `unhover` step cannot close a tooltip: the grace area is
+      left by a real pointer move, and no synthetic event reproduces it. The
+      page says so where it matters; hovering by hand works and agrees
 - [ ] Keep a divergence history, so a transient disagreement is not lost on the
       next interaction
 

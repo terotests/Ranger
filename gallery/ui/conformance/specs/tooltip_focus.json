@@ -1,0 +1,5 @@
+{ "name":"tooltip_focus","component":"tooltip",
+  "behaviours":["focus-opens","state-instant-open","escape-closes"],
+  "fixture":{"controls":[
+    {"type":"tooltip","tid":"tip","name":"Hover me","body":"Tip text"}]},
+  "steps":[{"focus":"tip-trigger"},{"key":"Escape"}] }

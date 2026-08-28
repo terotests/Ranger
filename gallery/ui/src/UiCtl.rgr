@@ -49,6 +49,16 @@ class UiRow {
     ; one of them is a tab stop. A screen reader cares about the first, Tab
     ; about the second, and conflating them loses the arrow-key surface.
     def focusable:boolean false
+    ; A number a reader announces: where a slider sits, how far a progress bar
+    ; has got. Ranger has no null, so the flags say "this row has one" — and
+    ; the difference matters, because an indeterminate progress bar reports a
+    ; range with no position in it, which is exactly how a reader knows to say
+    ; "busy" instead of "40 percent".
+    def hasValueNow:boolean false
+    def valueNow:int 0
+    def hasRange:boolean false
+    def valueMin:int 0
+    def valueMax:int 0
 
     Constructor () {
     }
@@ -121,6 +131,26 @@ class UiCtl {
 
     ; Focus landed on `target` — a composite records its roving tab stop here.
     fn onFocus:void (target:string) {
+    }
+
+    ; --- the pointer, without a button ---------------------------------------
+    ; A tooltip and a hover card have no activation at all: the pointer arriving
+    ; IS the input. Like activate(), these return the test id focus should land
+    ; on, or "" to leave focus where it is.
+
+    fn hover:string (target:string) {
+        return ""
+    }
+
+    ; The pointer left everything this controller owns. No target, because the
+    ; interesting case is the pointer going somewhere else entirely.
+    fn unhover:string () {
+        return ""
+    }
+
+    ; The secondary button. Only a context menu reads it.
+    fn contextClick:string (target:string) {
+        return ""
     }
 
     fn rows:[UiRow] () {

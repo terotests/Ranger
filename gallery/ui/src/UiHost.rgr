@@ -26,6 +26,12 @@ Import "AccordionCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
+Import "AlertDialogCtl.rgr"
+Import "PopoverCtl.rgr"
+Import "MenuCtl.rgr"
+Import "HoverCtl.rgr"
+Import "SliderCtl.rgr"
+Import "ToastCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -170,6 +176,80 @@ class UiHost {
         return c
     }
 
+    fn addAlertDialog:AlertDialogCtl (tid:string name:string title:string) {
+        def c (new AlertDialogCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addPopover:PopoverCtl (tid:string name:string) {
+        def c (new PopoverCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addDropdownMenu:MenuCtl (tid:string name:string) {
+        def c (new MenuCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addContextMenu:MenuCtl (tid:string name:string) {
+        def c (new MenuCtl())
+        c.tid = tid
+        c.name = name
+        c.contextMode = true
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addTooltip:TooltipCtl (tid:string name:string) {
+        def c (new TooltipCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addHoverCard:HoverCardCtl (tid:string name:string) {
+        def c (new HoverCardCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSlider:SliderCtl (tid:string name:string) {
+        def c (new SliderCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addToast:ToastCtl (tid:string name:string) {
+        def c (new ToastCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
     fn addLabel:LabelCtl (tid:string name:string) {
         def c (new LabelCtl())
         c.tid = tid
@@ -277,6 +357,65 @@ class UiHost {
         focusId = ""
     }
 
+    ; The pointer arriving over a node, with no button pressed. A tooltip and a
+    ; hover card have no other input, so without this there is nothing to test
+    ; them with.
+    fn hover:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.hover(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+        }
+    }
+
+    ; The pointer left everything. Broadcast, because the controller that has to
+    ; react is the one the pointer is no longer over — asking the new target
+    ; would never reach it.
+    fn unhover:void () {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            def next:string (c.unhover())
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The secondary button. Only a context menu reads it, and it does not focus
+    ; what it was pressed on — a context menu's trigger is not focusable.
+    fn rightClick:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.contextClick(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+        }
+    }
+
+    ; Focus cannot survive the node it was on going away. A browser drops it to
+    ; the document; so does this. Without it, closing a context menu with
+    ; Escape would leave focus on a menu item that no longer exists.
+    fn settleFocus:void () {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            if (c.isFocusable(focusId)) {
+                return
+            }
+        }
+        focusId = ""
+    }
+
     ; Keys go to whatever holds focus, like every real host. A controller that
     ; moves focus itself (arrow keys in a composite) says so by returning the
     ; test id focus should land on.
@@ -292,6 +431,7 @@ class UiHost {
                 focusId = next
             }
         }
+        this.settleFocus()
     }
 
     ; Style, then lay out. Inline attributes written through UiTree.inline()
@@ -420,6 +560,16 @@ class UiHost {
         return "null"
     }
 
+    ; A number a reader announces, or null when the row does not have one.
+    ; "absent" is a real value here: an indeterminate progress bar reports a
+    ; range and no position, and a reader says "busy" because of it.
+    sfn numJson:string (has:boolean v:int) {
+        if has {
+            return (to_string v)
+        }
+        return "null"
+    }
+
     sfn boolJson:string (v:boolean) {
         if v {
             return "true"
@@ -495,7 +645,20 @@ class UiHost {
                     parent = row.parentTid
                 }
                 def n:EVGA11yNode (t.node(row.tid parent row.role))
-                n.name = row.name
+                ; Decoration carries no name. The reference puts aria-label on
+                ; a div with no role, where a browser ignores it — so the TRACE
+                ; reports it (the attribute is there) and the accessibility
+                ; tree does not (nothing announces it). The structural lint
+                ; caught the difference; copying it blindly would have handed a
+                ; reader a named node with nothing to say about it.
+                if (row.role != (EVGA11yRole.none())) {
+                    n.name = row.name
+                }
+                n.hasValueNow = row.hasValueNow
+                n.valueNow = row.valueNow
+                n.hasValueRange = row.hasRange
+                n.valueMin = row.valueMin
+                n.valueMax = row.valueMax
                 n.disabled = row.disabled
                 n.focusable = row.focusable
                 n.modal = row.modal
@@ -612,6 +775,9 @@ class UiHost {
             out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
             out = out + ",\"hidden\":" + (UiHost.boolJson(isHidden))
             out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
+            out = out + ",\"valuenow\":" + (UiHost.numJson(row.hasValueNow row.valueNow))
+            out = out + ",\"valuemin\":" + (UiHost.numJson(row.hasRange row.valueMin))
+            out = out + ",\"valuemax\":" + (UiHost.numJson(row.hasRange row.valueMax))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
             out = out + "}"

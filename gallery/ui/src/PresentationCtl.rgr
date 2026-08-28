@@ -141,6 +141,16 @@ class ProgressCtl extends UiCtl {
         def word:string (this.stateWord())
         def r:UiRow (UiRow.of(tid (EVGA11yRole.progressBar()) name))
         r.state = word
+        ; The range is always announced; the position only when there is one.
+        ; An indeterminate bar reports min and max with NO valuenow, and that
+        ; absence is what makes a reader say "busy" rather than "0 percent".
+        r.hasRange = true
+        r.valueMin = 0
+        r.valueMax = maxValue
+        if (indeterminate == false) {
+            r.hasValueNow = true
+            r.valueNow = value
+        }
         push out r
         def ind:UiRow (UiRow.of((this.indicatorTid()) (EVGA11yRole.none()) ""))
         ind.parentTid = tid

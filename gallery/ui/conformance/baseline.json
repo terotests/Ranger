@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 90,
-    "covered": 88,
-    "matchedBehaviours": 88,
-    "observations": 3756,
-    "matchedObservations": 3756
+    "catalogued": 157,
+    "covered": 155,
+    "matchedBehaviours": 155,
+    "observations": 7980,
+    "matchedObservations": 7980
   },
   "components": {
     "toggle": {
@@ -70,6 +70,38 @@
     "toolbar": {
       "covered": 6,
       "matchedBehaviours": 6
+    },
+    "alert-dialog": {
+      "covered": 9,
+      "matchedBehaviours": 9
+    },
+    "popover": {
+      "covered": 9,
+      "matchedBehaviours": 9
+    },
+    "tooltip": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "hover-card": {
+      "covered": 5,
+      "matchedBehaviours": 5
+    },
+    "dropdown-menu": {
+      "covered": 13,
+      "matchedBehaviours": 13
+    },
+    "context-menu": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "slider": {
+      "covered": 7,
+      "matchedBehaviours": 7
+    },
+    "toast": {
+      "covered": 8,
+      "matchedBehaviours": 8
     }
   }
 }
