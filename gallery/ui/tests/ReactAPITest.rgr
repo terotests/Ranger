@@ -1,0 +1,312 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ReactAPITest — createElement → EVG, XML → Rg → EVG, hooks, components
+; =============================================================================
+
+Import "../src/RgElement.rgr"
+Import "../src/ReactAPI.rgr"
+Import "../src/Hooks.rgr"
+Import "../src/Renderer.rgr"
+Import "../src/EVGBridge.rgr"
+Import "../src/XmlToRg.rgr"
+Import "../src/RangerUI.rgr"
+Import "../src/Events.rgr"
+Import "../src/components/Primitives.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class Check {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+; Sample counter component used with hooks
+class CounterComp extends RgComponent {
+    def hooks@(optional):HookDispatcher
+
+    Constructor () {
+        name = "Counter"
+    }
+
+    fn setHooks:void (h:HookDispatcher) {
+        hooks = h
+    }
+
+    fn render:RgElement (props:RgProps children:[RgElement]) {
+        def h:HookDispatcher (unwrap hooks)
+        def st:HookState (h.useState("0"))
+        def label:string ("count=" + st.value)
+        def names:[string]
+        push names "fontSize"
+        push names "color"
+        def values:[string]
+        push values "18px"
+        push values "#111111"
+        def p:RgProps (RgProps.fromPairs(names values))
+        def kids:[RgElement]
+        push kids (RgElement.textNode(label))
+        return (RgElement.host("span" p kids))
+    }
+}
+
+class ReactAPITest {
+
+    sfn main:void () {
+        def t (new Check())
+        print "=== gallery/ui React API tests ==="
+        ReactAPITest.testCreateElement(t)
+        ReactAPITest.testRenderToEVG(t)
+        ReactAPITest.testXmlPath(t)
+        ReactAPITest.testPrimitives(t)
+        ReactAPITest.testHooks(t)
+        ReactAPITest.testLayout(t)
+        ReactAPITest.testDisplayList(t)
+        ReactAPITest.testHitTest(t)
+        print ""
+        print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
+        if (t.failed > 0) {
+            print "RESULT FAIL"
+        } {
+            print "RESULT OK"
+        }
+    }
+
+    sfn testCreateElement:void (t:Check) {
+        print "--- createElement ---"
+        def api (new ReactAPI())
+        def names:[string]
+        push names "width"
+        push names "backgroundColor"
+        def values:[string]
+        push values "200px"
+        push values "#ffffff"
+        def props:RgProps (RgProps.fromPairs(names values))
+        def kids:[RgElement]
+        push kids (RgElement.textNode("Hi"))
+        def el:RgElement (api.createElement("View" props kids))
+        t.ok("host kind" (el.isHost()))
+        t.eqStr("View maps to div" el.typeName "div")
+        t.eqStr("width prop" (el.props.get("width")) "200px")
+        t.eqInt("one child" (el.childCount()) 1)
+        t.ok("valid" (api.isValidElement(el)))
+    }
+
+    sfn testRenderToEVG:void (t:Check) {
+        print "--- renderToEVG ---"
+        def r (new Renderer())
+        def api:ReactAPI (unwrap r.api)
+        def names:[string]
+        push names "padding"
+        push names "backgroundColor"
+        def values:[string]
+        push values "20px"
+        push values "#3498db"
+        def props:RgProps (RgProps.fromPairs(names values))
+        def kids:[RgElement]
+        def textNames:[string]
+        push textNames "fontSize"
+        push textNames "color"
+        def textValues:[string]
+        push textValues "24px"
+        push textValues "#ffffff"
+        def tp:RgProps (RgProps.fromPairs(textNames textValues))
+        def textKids:[RgElement]
+        push textKids (RgElement.textNode("Hello, EVG!"))
+        push kids (api.createElement("Text" tp textKids))
+        def tree:RgElement (api.createElement("View" props kids))
+        def evg:EVGElement (r.renderToEVG(tree))
+        t.eqStr("root tag" evg.tagName "div")
+        t.eqInt("has child" (array_length evg.children) 1)
+        def child:EVGElement (itemAt evg.children 0)
+        t.eqStr("child tag" child.tagName "span")
+        t.eqStr("text" child.textContent "Hello, EVG!")
+    }
+
+    sfn testXmlPath:void (t:Check) {
+        print "--- XML → Rg → EVG ---"
+        def xml:string "<div width=\"400\" height=\"300\" background-color=\"#ffffff\"><span font-size=\"24\" color=\"#ffffff\">Hello, EVG!</span></div>"
+        def x (new XmlToRg())
+        def tree:RgElement (x.parse(xml))
+        t.ok("xml host" (tree.isHost()))
+        t.eqStr("xml tag" tree.typeName "div")
+        t.eqStr("xml width" (tree.props.get("width")) "400")
+        t.eqInt("xml kids" (tree.childCount()) 1)
+        def bridge (new EVGBridge())
+        def evg:EVGElement (bridge.toEVG(tree))
+        t.eqStr("evg tag" evg.tagName "div")
+        def span:EVGElement (itemAt evg.children 0)
+        t.eqStr("span text" span.textContent "Hello, EVG!")
+    }
+
+    sfn testPrimitives:void (t:Check) {
+        print "--- primitives ---"
+        def r (new Renderer())
+        def api:ReactAPI (unwrap r.api)
+        Primitives.install(api)
+        def kids:[RgElement]
+        push kids (RgElement.textNode("Save"))
+        def btn:RgElement (api.createElement("Button" (ReactAPI.emptyProps()) kids))
+        t.ok("Button is component" (btn.isComponent()))
+        def evg:EVGElement (r.renderToEVG(btn))
+        t.eqStr("Button → button" evg.tagName "button")
+        t.ok("has text content" (evg.textContent != ""))
+    }
+
+    sfn testHooks:void (t:Check) {
+        print "--- hooks ---"
+        def r (new Renderer())
+        def hooks:HookDispatcher (unwrap r.hooks)
+        def api:ReactAPI (unwrap r.api)
+        def c (new CounterComp())
+        c.setHooks(hooks)
+        api.register(c)
+        def noKids:[RgElement]
+        def el:RgElement (api.createElement("Counter" (ReactAPI.emptyProps()) noKids))
+        def evg1:EVGElement (r.renderToEVG(el))
+        t.eqStr("initial" evg1.textContent "count=0")
+        ; bump state and re-render
+        hooks.setState(0 "1")
+        t.ok("dirty after setState" (hooks.isDirty()))
+        def evg2:EVGElement (r.renderToEVG(el))
+        t.eqStr("after set" evg2.textContent "count=1")
+    }
+
+    sfn testLayout:void (t:Check) {
+        print "--- layout ---"
+        def r (new Renderer())
+        def api:ReactAPI (unwrap r.api)
+        def names:[string]
+        push names "width"
+        push names "height"
+        push names "padding"
+        push names "backgroundColor"
+        def values:[string]
+        push values "400px"
+        push values "300px"
+        push values "20px"
+        push values "#ffffff"
+        def props:RgProps (RgProps.fromPairs(names values))
+        def kids:[RgElement]
+        def tk:[RgElement]
+        push tk (RgElement.textNode("Laid out"))
+        push kids (api.createElement("Text" (ReactAPI.emptyProps()) tk))
+        def tree:RgElement (api.createElement("View" props kids))
+        def evg:EVGElement (r.renderToEVG(tree))
+        def lay (new EVGLayout())
+        lay.setPageSize(400.0 300.0)
+        lay.layout(evg)
+        t.ok("root width > 0" (evg.calculatedWidth > 0.0))
+        t.ok("root height > 0" (evg.calculatedHeight > 0.0))
+    }
+
+    sfn testDisplayList:void (t:Check) {
+        print "--- display list (WebGL/SDL seam) ---"
+        def ui (new RangerUI())
+        ui.setPageSize(360.0 280.0)
+        def api:ReactAPI (ui.getAPI())
+        def titleKids:[RgElement]
+        push titleKids (RgElement.textNode("UI on EVG"))
+        def tNames:[string]
+        push tNames "fontSize"
+        push tNames "color"
+        def tVals:[string]
+        push tVals "20px"
+        push tVals "#0f172a"
+        def title:RgElement (api.createElement("Text" (RgProps.fromPairs(tNames tVals)) titleKids))
+        def btnKids:[RgElement]
+        push btnKids (RgElement.textNode("Go"))
+        def btn:RgElement (api.createElement("Button" (ReactAPI.emptyProps()) btnKids))
+        def kids:[RgElement]
+        push kids title
+        push kids btn
+        def names:[string]
+        push names "width"
+        push names "padding"
+        push names "backgroundColor"
+        push names "flexDirection"
+        def values:[string]
+        push values "320px"
+        push values "20px"
+        push values "#e2e8f0"
+        push values "column"
+        def root:RgElement (api.createElement("View" (RgProps.fromPairs(names values)) kids))
+        def n:int (ui.displayListCommandCount(root))
+        t.ok("has draw cmds" (n > 0))
+        def json:string (ui.renderToDisplayListJson(root))
+        t.ok("json width" ((strlen json) > 20))
+        t.ok("json has list key" ((indexOf json "\"list\"") >= 0))
+    }
+
+    sfn testHitTest:void (t:Check) {
+        print "--- hitTest / onClick ---"
+        def ui (new RangerUI())
+        ui.setPageSize(360.0 280.0)
+        def api:ReactAPI (ui.getAPI())
+        def btnKids:[RgElement]
+        push btnKids (RgElement.textNode("Inc"))
+        def bNames:[string]
+        push bNames "onClick"
+        def bVals:[string]
+        push bVals "inc"
+        def btn:RgElement (api.createElement("Button" (RgProps.fromPairs(bNames bVals)) btnKids))
+        def kids:[RgElement]
+        push kids btn
+        def names:[string]
+        push names "width"
+        push names "padding"
+        push names "backgroundColor"
+        def values:[string]
+        push values "320px"
+        push values "24px"
+        push values "#ffffff"
+        def root:RgElement (api.createElement("View" (RgProps.fromPairs(names values)) kids))
+        def evg:EVGElement (ui.layout(root))
+        t.ok("page shell" (evg.tagName == "div"))
+        t.ok("has regions" ((ui.hitRegionCount()) > 0))
+        def miss:string (ui.hitTest(0.0 0.0))
+        t.eqStr("miss" miss "")
+        ; Use the hit map itself (absolute boxes) — more stable than walking
+        ; children after the page-shell wrap.
+        def hits:HitMap (unwrap ui.lastHits)
+        def n:int (hits.count())
+        t.ok("region count" (n > 0))
+        def region:HitRegion (itemAt hits.regions (n - 1))
+        def cx:double (region.x + (region.w / 2.0))
+        def cy:double (region.y + (region.h / 2.0))
+        def hid:string (ui.hitTest(cx cy))
+        t.eqStr("hit inc" hid "inc")
+        def ev:SyntheticEvent (ui.dispatchClick(cx cy))
+        t.ok("handled" ev.handled)
+        t.eqStr("handler" ev.handlerId "inc")
+    }
+}

@@ -48,6 +48,7 @@ compiler — the long-form writeups live here.
 | [`xml`](xml/XmlCore.rgr) | One XML reader for the document formats — spans, so a writer can copy through what it does not understand, and two namespace policies, because ODF cannot afford OOXML's |
 | [`ooxml`](ooxml/README.md) | What the three OOXML editors share: one OPC package reader (parts, content types, relationships) and the XML text rules — plus the roadmap for what moves there next |
 | [`office`](office/README.md) | The rest of what they share: which font face draws a run, offset↔x measurement, a style property that knows it was not stated, and the DrawingML theme palette |
+| [`ui`](ui/README.md) | React-shaped reusable UI (`createElement` / hooks) that renders to **EVG** — same component surface for real React (DOM) or Ranger→EVG (WebGL / SDL / SoftCanvas) |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---

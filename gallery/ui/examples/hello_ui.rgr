@@ -1,0 +1,67 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; hello_ui.rgr — tiny createElement → EVG demo (layout + print)
+
+Import "../src/RgElement.rgr"
+Import "../src/ReactAPI.rgr"
+Import "../src/Renderer.rgr"
+Import "../src/components/Primitives.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+
+class HelloUI {
+    sfn main:void () {
+        def r (new Renderer())
+        def api:ReactAPI (unwrap r.api)
+        Primitives.install(api)
+
+        def titleKids:[RgElement]
+        push titleKids (RgElement.textNode("Hello from gallery/ui"))
+        def tNames:[string]
+        push tNames "fontSize"
+        push tNames "color"
+        def tVals:[string]
+        push tVals "22px"
+        push tVals "#0f172a"
+        def title:RgElement (api.createElement("Text" (RgProps.fromPairs(tNames tVals)) titleKids))
+
+        def bodyKids:[RgElement]
+        push bodyKids (RgElement.textNode("React-shaped createElement → EVGElement → layout"))
+        def body:RgElement (api.createElement("Text" (ReactAPI.emptyProps()) bodyKids))
+
+        def btnKids:[RgElement]
+        push btnKids (RgElement.textNode("OK"))
+        def btn:RgElement (api.createElement("Button" (ReactAPI.emptyProps()) btnKids))
+
+        def kids:[RgElement]
+        push kids title
+        push kids body
+        push kids btn
+
+        def names:[string]
+        push names "width"
+        push names "padding"
+        push names "backgroundColor"
+        push names "flexDirection"
+        push names "gap"
+        def values:[string]
+        push values "360px"
+        push values "24px"
+        push values "#e2e8f0"
+        push values "column"
+        push values "10px"
+        def root:RgElement (api.createElement("View" (RgProps.fromPairs(names values)) kids))
+
+        def evg:EVGElement (r.renderToEVG(root))
+        def lay (new EVGLayout())
+        lay.setPageSize(400.0 300.0)
+        lay.layout(evg)
+
+        print "=== hello_ui ==="
+        print ("root=" + evg.tagName)
+        print ("children=" + (to_string (array_length evg.children)))
+        print ("calculatedWidth=" + (to_string evg.calculatedWidth))
+        print ("calculatedHeight=" + (to_string evg.calculatedHeight))
+        print "OK"
+    }
+}

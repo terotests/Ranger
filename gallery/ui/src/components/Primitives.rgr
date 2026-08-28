@@ -1,0 +1,83 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; Primitives — View / Text / Button / Image as registered RgComponents
+; =============================================================================
+; Same prop surface as gallery/ui/react/ primitives. Real React hosts map these
+; to div/span/button/img; Ranger expands them to host tags → EVG.
+; =============================================================================
+
+Import "../RgElement.rgr"
+Import "../ReactAPI.rgr"
+
+class ViewComp extends RgComponent {
+    Constructor () {
+        name = "View"
+    }
+
+    fn render:RgElement (props:RgProps children:[RgElement]) {
+        return (RgElement.host("div" props children))
+    }
+}
+
+class TextComp extends RgComponent {
+    Constructor () {
+        name = "Text"
+    }
+
+    fn render:RgElement (props:RgProps children:[RgElement]) {
+        return (RgElement.host("span" props children))
+    }
+}
+
+class ButtonComp extends RgComponent {
+    Constructor () {
+        name = "Button"
+    }
+
+    fn render:RgElement (props:RgProps children:[RgElement]) {
+        def p:RgProps (props.merge((new RgProps())))
+        if (p.has("role") == false) {
+            p.set("role" "button")
+        }
+        if (p.has("padding") == false) {
+            p.set("padding" "8px 14px")
+        }
+        if (p.has("backgroundColor") == false) {
+            if (p.has("background-color") == false) {
+                p.set("backgroundColor" "#2563eb")
+            }
+        }
+        if (p.has("color") == false) {
+            p.set("color" "#ffffff")
+        }
+        if (p.has("borderRadius") == false) {
+            if (p.has("border-radius") == false) {
+                p.set("borderRadius" "6px")
+            }
+        }
+        ; Host as `button` (not div): EVG shrink-wraps text leaves, matching
+        ; DOM <button> intrinsic width. A div with a nested span stretches to
+        ; the column content width under layout's default width=parentWidth.
+        return (RgElement.host("button" p children))
+    }
+}
+
+class ImageComp extends RgComponent {
+    Constructor () {
+        name = "Image"
+    }
+
+    fn render:RgElement (props:RgProps children:[RgElement]) {
+        return (RgElement.host("img" props children))
+    }
+}
+
+class Primitives {
+    sfn install:void (api:ReactAPI) {
+        api.register((new ViewComp()))
+        api.register((new TextComp()))
+        api.register((new ButtonComp()))
+        api.register((new ImageComp()))
+    }
+}
