@@ -1170,6 +1170,15 @@ class EVGElement  {
     this.overlayGap = 4.0;
     this.overlayX = 0.0;
     this.overlayY = 0.0;
+    this.role = "";
+    this.a11yLabel = "";
+    this.a11yChecked = 0;
+    this.a11yExpanded = 0;
+    this.a11ySelected = 0;
+    this.a11yDisabled = false;
+    this.a11yFocusable = false;
+    this.a11yPosInSet = 0;     /** note: unused */
+    this.a11ySetSize = 0;     /** note: unused */
     this.isLayoutComplete = false;
     this.unitsResolved = false;
     this.hasReturn = false;     /** note: unused */
@@ -1601,6 +1610,34 @@ class EVGElement  {
       if ( typeof(g) != "undefined" ) {
         this.overlayGap = g;
       }
+      return;
+    }
+    if ( (name == "role") || (name == "a11yRole") ) {
+      this.role = value.trim();
+      return;
+    }
+    if ( (name == "aria-label") || (name == "a11yLabel") ) {
+      this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-checked") || (name == "a11yChecked") ) {
+      this.a11yChecked = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-expanded") || (name == "a11yExpanded") ) {
+      this.a11yExpanded = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-selected") || (name == "a11ySelected") ) {
+      this.a11ySelected = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-disabled") || (name == "a11yDisabled") ) {
+      this.a11yDisabled = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "aria-focusable") || (name == "a11yFocusable") ) {
+      this.a11yFocusable = EVGElement.truthy(value);
       return;
     }
     if ( name == "left" ) {
@@ -2040,6 +2077,19 @@ EVGElement.truthy = function(value) {
     return true;
   }
   return false;
+};
+EVGElement.triState = function(value) {
+  const v = value.trim();
+  if ( v == "true" ) {
+    return 2;
+  }
+  if ( v == "false" ) {
+    return 1;
+  }
+  if ( v == "mixed" ) {
+    return 3;
+  }
+  return 0;
 };
 EVGElement.toKebab = function(name) {
   let out = "";
@@ -5298,6 +5348,3792 @@ class EVGLayout  {
     return maxInnerWidth;
   };
 }
+class PathCommand  {
+  constructor() {
+    this.type = "";
+    this.x = 0.0;
+    this.y = 0.0;
+    this.x1 = 0.0;
+    this.y1 = 0.0;
+    this.x2 = 0.0;
+    this.y2 = 0.0;
+    this.rx = 0.0;     /** note: unused */
+    this.ry = 0.0;     /** note: unused */
+    this.rotation = 0.0;     /** note: unused */
+    this.largeArc = false;     /** note: unused */
+    this.sweep = false;     /** note: unused */
+  }
+}
+class PathRing  {
+  constructor() {
+    this.pts = [];
+    let p = [];
+    this.pts = p;
+  }
+  pointCount () {
+    return (((this.pts.length) / 2) | 0);
+  };
+}
+class PathBounds  {
+  constructor() {
+    this.minX = 0.0;
+    this.minY = 0.0;
+    this.maxX = 0.0;
+    this.maxY = 0.0;
+    this.width = 0.0;
+    this.height = 0.0;
+  }
+}
+class SVGPathParser  {
+  constructor() {
+    this.pathData = "";
+    this.i = 0;
+    this.__len = 0;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    this.commands = [];
+    this.lastCtrlX = 0.0;
+    this.lastCtrlY = 0.0;
+    this.lastCtrlKind = "";
+    this.errors = [];
+    this.truncated = false;
+    this.numFail = false;
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    let emptyErrors = [];
+    this.errors = emptyErrors;
+    this.bounds = new PathBounds();
+  }
+  getErrors () {
+    return this.errors;
+  };
+  hasErrors () {
+    return (this.errors.length) > 0;
+  };
+  errorSummary () {
+    const n = this.errors.length;
+    if ( n == 0 ) {
+      return "";
+    }
+    let out = this.errors[0];
+    let k = 1;
+    while (k < n) {
+      out = (out + "; ") + (this.errors[k]);
+      k = k + 1;
+    };
+    return out;
+  };
+  addError (msg) {
+    this.errors.push((msg + " at offset ") + ((this.i.toString())));
+  };
+  parse (data) {
+    this.pathData = data;
+    this.i = 0;
+    this.__len = data.length;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    let emptyErrors = [];
+    this.errors = emptyErrors;
+    this.truncated = false;
+    this.lastCtrlKind = "";
+    let pending = 0;
+    while (this.i < this.__len) {
+      this.skipWhitespace();
+      if ( this.i >= this.__len ) {
+        break;
+      }
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      let isLetter = false;
+      if ( (chInt >= 65) && (chInt <= 90) ) {
+        isLetter = true;
+      }
+      if ( (chInt >= 97) && (chInt <= 122) ) {
+        isLetter = true;
+      }
+      if ( isLetter ) {
+        pending = chInt;
+        this.i = this.i + 1;
+      } else {
+        if ( pending == 0 ) {
+          this.addError("path data must begin with a command letter");
+          this.truncated = true;
+          break;
+        }
+        if ( pending == 77 ) {
+          pending = 76;
+        }
+        if ( pending == 109 ) {
+          pending = 108;
+        }
+        if ( pending == 90 ) {
+          this.addError("unexpected number after closepath");
+          this.truncated = true;
+          break;
+        }
+        if ( pending == 122 ) {
+          this.addError("unexpected number after closepath");
+          this.truncated = true;
+          break;
+        }
+      }
+      const ok = this.parseCommand(pending);
+      if ( ok == false ) {
+        this.truncated = true;
+        break;
+      }
+    };
+    this.calculateBounds();
+  };
+  hasNumberAhead () {
+    this.skipWhitespace();
+    if ( this.i >= this.__len ) {
+      return false;
+    }
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( (chInt >= 48) && (chInt <= 57) ) {
+      return true;
+    }
+    if ( chInt == 46 ) {
+      return true;
+    }
+    if ( chInt == 45 ) {
+      return true;
+    }
+    if ( chInt == 43 ) {
+      return true;
+    }
+    return false;
+  };
+  parseFlag () {
+    this.skipWhitespace();
+    if ( this.i >= this.__len ) {
+      this.numFail = true;
+      this.addError("arc flag expected");
+      return false;
+    }
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( chInt == 48 ) {
+      this.i = this.i + 1;
+      return false;
+    }
+    if ( chInt == 49 ) {
+      this.i = this.i + 1;
+      return true;
+    }
+    this.numFail = true;
+    this.addError("arc flag must be 0 or 1");
+    return false;
+  };
+  skipWhitespace () {
+    while (this.i < this.__len) {
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      if ( ((((chInt == 32) || (chInt == 9)) || (chInt == 10)) || (chInt == 13)) || (chInt == 44) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+  };
+  parseNumber () {
+    this.skipWhitespace();
+    const start = this.i;
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( (chInt == 45) || (chInt == 43) ) {
+      this.i = this.i + 1;
+    }
+    while (this.i < this.__len) {
+      const ch2 = this.pathData.charCodeAt(this.i );
+      const chInt2 = ch2;
+      if ( (chInt2 >= 48) && (chInt2 <= 57) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+    if ( this.i < this.__len ) {
+      const ch3 = this.pathData.charCodeAt(this.i );
+      const chInt3 = ch3;
+      if ( chInt3 == 46 ) {
+        this.i = this.i + 1;
+        while (this.i < this.__len) {
+          const ch4 = this.pathData.charCodeAt(this.i );
+          const chInt4 = ch4;
+          if ( (chInt4 >= 48) && (chInt4 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    if ( this.i < this.__len ) {
+      const ch5 = this.pathData.charCodeAt(this.i );
+      const chInt5 = ch5;
+      if ( (chInt5 == 101) || (chInt5 == 69) ) {
+        this.i = this.i + 1;
+        if ( this.i < this.__len ) {
+          const ch6 = this.pathData.charCodeAt(this.i );
+          const chInt6 = ch6;
+          if ( (chInt6 == 45) || (chInt6 == 43) ) {
+            this.i = this.i + 1;
+          }
+        }
+        while (this.i < this.__len) {
+          const ch7 = this.pathData.charCodeAt(this.i );
+          const chInt7 = ch7;
+          if ( (chInt7 >= 48) && (chInt7 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    const numStr = this.pathData.substring(start, this.i );
+    const parsed = isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr);
+    if ( typeof(parsed) != "undefined" ) {
+      return parsed;
+    }
+    this.numFail = true;
+    this.addError("expected a number");
+    return 0.0;
+  };
+  parseCommand (cmdInt) {
+    this.numFail = false;
+    if ( (cmdInt == 77) || (cmdInt == 109) ) {
+      let x = this.parseNumber();
+      let y = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 109 ) {
+        x = this.currentX + x;
+        y = this.currentY + y;
+      }
+      const pathCmd = new PathCommand();
+      pathCmd.type = "M";
+      pathCmd.x = x;
+      pathCmd.y = y;
+      this.commands.push(pathCmd);
+      this.currentX = x;
+      this.currentY = y;
+      this.startX = x;
+      this.startY = y;
+      this.lastCtrlKind = "";
+      return true;
+    }
+    if ( (cmdInt == 76) || (cmdInt == 108) ) {
+      let x_1 = this.parseNumber();
+      let y_1 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 108 ) {
+        x_1 = this.currentX + x_1;
+        y_1 = this.currentY + y_1;
+      }
+      this.emitLine(x_1, y_1);
+      return true;
+    }
+    if ( (cmdInt == 72) || (cmdInt == 104) ) {
+      let x_2 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 104 ) {
+        x_2 = this.currentX + x_2;
+      }
+      this.emitLine(x_2, this.currentY);
+      return true;
+    }
+    if ( (cmdInt == 86) || (cmdInt == 118) ) {
+      let y_2 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 118 ) {
+        y_2 = this.currentY + y_2;
+      }
+      this.emitLine(this.currentX, y_2);
+      return true;
+    }
+    if ( (cmdInt == 67) || (cmdInt == 99) ) {
+      let x1 = this.parseNumber();
+      let y1 = this.parseNumber();
+      let x2 = this.parseNumber();
+      let y2 = this.parseNumber();
+      let x_3 = this.parseNumber();
+      let y_3 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 99 ) {
+        x1 = this.currentX + x1;
+        y1 = this.currentY + y1;
+        x2 = this.currentX + x2;
+        y2 = this.currentY + y2;
+        x_3 = this.currentX + x_3;
+        y_3 = this.currentY + y_3;
+      }
+      this.emitCubic(x1, y1, x2, y2, x_3, y_3);
+      return true;
+    }
+    if ( (cmdInt == 83) || (cmdInt == 115) ) {
+      let x2_1 = this.parseNumber();
+      let y2_1 = this.parseNumber();
+      let x_4 = this.parseNumber();
+      let y_4 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 115 ) {
+        x2_1 = this.currentX + x2_1;
+        y2_1 = this.currentY + y2_1;
+        x_4 = this.currentX + x_4;
+        y_4 = this.currentY + y_4;
+      }
+      let x1_1 = this.currentX;
+      let y1_1 = this.currentY;
+      if ( this.lastCtrlKind == "C" ) {
+        x1_1 = (2.0 * this.currentX) - this.lastCtrlX;
+        y1_1 = (2.0 * this.currentY) - this.lastCtrlY;
+      }
+      this.emitCubic(x1_1, y1_1, x2_1, y2_1, x_4, y_4);
+      return true;
+    }
+    if ( (cmdInt == 81) || (cmdInt == 113) ) {
+      let x1_2 = this.parseNumber();
+      let y1_2 = this.parseNumber();
+      let x_5 = this.parseNumber();
+      let y_5 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 113 ) {
+        x1_2 = this.currentX + x1_2;
+        y1_2 = this.currentY + y1_2;
+        x_5 = this.currentX + x_5;
+        y_5 = this.currentY + y_5;
+      }
+      this.emitQuad(x1_2, y1_2, x_5, y_5);
+      return true;
+    }
+    if ( (cmdInt == 84) || (cmdInt == 116) ) {
+      let x_6 = this.parseNumber();
+      let y_6 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 116 ) {
+        x_6 = this.currentX + x_6;
+        y_6 = this.currentY + y_6;
+      }
+      let x1_3 = this.currentX;
+      let y1_3 = this.currentY;
+      if ( this.lastCtrlKind == "Q" ) {
+        x1_3 = (2.0 * this.currentX) - this.lastCtrlX;
+        y1_3 = (2.0 * this.currentY) - this.lastCtrlY;
+      }
+      this.emitQuad(x1_3, y1_3, x_6, y_6);
+      return true;
+    }
+    if ( (cmdInt == 65) || (cmdInt == 97) ) {
+      const rx = this.parseNumber();
+      const ry = this.parseNumber();
+      const rot = this.parseNumber();
+      const largeArc = this.parseFlag();
+      const sweep = this.parseFlag();
+      let x_7 = this.parseNumber();
+      let y_7 = this.parseNumber();
+      if ( this.numFail ) {
+        return false;
+      }
+      if ( cmdInt == 97 ) {
+        x_7 = this.currentX + x_7;
+        y_7 = this.currentY + y_7;
+      }
+      this.emitArc(rx, ry, rot, largeArc, sweep, x_7, y_7);
+      return true;
+    }
+    if ( (cmdInt == 90) || (cmdInt == 122) ) {
+      const pathCmd_1 = new PathCommand();
+      pathCmd_1.type = "Z";
+      this.commands.push(pathCmd_1);
+      this.currentX = this.startX;
+      this.currentY = this.startY;
+      this.lastCtrlKind = "";
+      return true;
+    }
+    this.addError(("unsupported path command '" + (String.fromCharCode(cmdInt))) + "'");
+    return false;
+  };
+  emitLine (x, y) {
+    const pathCmd = new PathCommand();
+    pathCmd.type = "L";
+    pathCmd.x = x;
+    pathCmd.y = y;
+    this.commands.push(pathCmd);
+    this.currentX = x;
+    this.currentY = y;
+    this.lastCtrlKind = "";
+  };
+  emitCubic (x1, y1, x2, y2, x, y) {
+    const pathCmd = new PathCommand();
+    pathCmd.type = "C";
+    pathCmd.x1 = x1;
+    pathCmd.y1 = y1;
+    pathCmd.x2 = x2;
+    pathCmd.y2 = y2;
+    pathCmd.x = x;
+    pathCmd.y = y;
+    this.commands.push(pathCmd);
+    this.currentX = x;
+    this.currentY = y;
+    this.lastCtrlX = x2;
+    this.lastCtrlY = y2;
+    this.lastCtrlKind = "C";
+  };
+  emitQuad (x1, y1, x, y) {
+    const pathCmd = new PathCommand();
+    pathCmd.type = "Q";
+    pathCmd.x1 = x1;
+    pathCmd.y1 = y1;
+    pathCmd.x = x;
+    pathCmd.y = y;
+    this.commands.push(pathCmd);
+    this.currentX = x;
+    this.currentY = y;
+    this.lastCtrlX = x1;
+    this.lastCtrlY = y1;
+    this.lastCtrlKind = "Q";
+  };
+  emitArc (rxIn, ryIn, rotDeg, largeArc, sweep, x, y) {
+    const x1 = this.currentX;
+    const y1 = this.currentY;
+    const x2 = x;
+    const y2 = y;
+    let rx = Math.abs(rxIn);
+    let ry = Math.abs(ryIn);
+    const dx = x1 - x2;
+    const dy = y1 - y2;
+    const d = Math.sqrt(((dx * dx) + (dy * dy)));
+    if ( d < 0.00001 ) {
+      this.emitLine(x2, y2);
+      return;
+    }
+    if ( rx < 0.00001 ) {
+      this.emitLine(x2, y2);
+      return;
+    }
+    if ( ry < 0.00001 ) {
+      this.emitLine(x2, y2);
+      return;
+    }
+    const PI = Math.PI;
+    const rot = (rotDeg / 180.0) * PI;
+    const sinrot = Math.sin(rot);
+    const cosrot = Math.cos(rot);
+    const x1p = ((cosrot * dx) / 2.0) + ((sinrot * dy) / 2.0);
+    const y1p = (((0.0 - sinrot) * dx) / 2.0) + ((cosrot * dy) / 2.0);
+    const lambda = ((x1p * x1p) / (rx * rx)) + ((y1p * y1p) / (ry * ry));
+    if ( lambda > 1.0 ) {
+      const k = Math.sqrt(lambda);
+      rx = rx * k;
+      ry = ry * k;
+    }
+    let sa = (((rx * rx) * (ry * ry)) - ((rx * rx) * (y1p * y1p))) - ((ry * ry) * (x1p * x1p));
+    const sb = ((rx * rx) * (y1p * y1p)) + ((ry * ry) * (x1p * x1p));
+    if ( sa < 0.0 ) {
+      sa = 0.0;
+    }
+    let s = 0.0;
+    if ( sb > 0.0 ) {
+      s = Math.sqrt((sa / sb));
+    }
+    if ( largeArc == sweep ) {
+      s = 0.0 - s;
+    }
+    const cxp = ((s * rx) * y1p) / ry;
+    const cyp = (((0.0 - s) * ry) * x1p) / rx;
+    const cx = ((x1 + x2) / 2.0) + ((cosrot * cxp) - (sinrot * cyp));
+    const cy = ((y1 + y2) / 2.0) + ((sinrot * cxp) + (cosrot * cyp));
+    const ux = (x1p - cxp) / rx;
+    const uy = (y1p - cyp) / ry;
+    const vx = ((0.0 - x1p) - cxp) / rx;
+    const vy = ((0.0 - y1p) - cyp) / ry;
+    const a1 = this.vecAngle(1.0, 0.0, ux, uy);
+    let da = this.vecAngle(ux, uy, vx, vy);
+    if ( sweep == false ) {
+      if ( da > 0.0 ) {
+        da = da - (2.0 * PI);
+      }
+    } else {
+      if ( da < 0.0 ) {
+        da = (2.0 * PI) + da;
+      }
+    }
+    const ndivs = Math.floor( (((Math.abs(da)) / (PI * 0.5)) + 1.0));
+    const hda = (da / (ndivs)) / 2.0;
+    let kappa = Math.abs((((4.0 / 3.0) * (1.0 - (Math.cos(hda)))) / (Math.sin(hda))));
+    if ( da < 0.0 ) {
+      kappa = 0.0 - kappa;
+    }
+    let px = 0.0;
+    let py = 0.0;
+    let ptanx = 0.0;
+    let ptany = 0.0;
+    let k_1 = 0;
+    while (k_1 <= ndivs) {
+      const a = a1 + ((da * (k_1)) / (ndivs));
+      const cosa = Math.cos(a);
+      const sina = Math.sin(a);
+      const ex = ((cosrot * (cosa * rx)) - (sinrot * (sina * ry))) + cx;
+      const ey = ((sinrot * (cosa * rx)) + (cosrot * (sina * ry))) + cy;
+      const tvx = (0.0 - sina) * (rx * kappa);
+      const tvy = cosa * (ry * kappa);
+      const tanx = (cosrot * tvx) - (sinrot * tvy);
+      const tany = (sinrot * tvx) + (cosrot * tvy);
+      if ( k_1 > 0 ) {
+        this.emitCubic(px + ptanx, py + ptany, ex - tanx, ey - tany, ex, ey);
+      }
+      px = ex;
+      py = ey;
+      ptanx = tanx;
+      ptany = tany;
+      k_1 = k_1 + 1;
+    };
+    this.currentX = x2;
+    this.currentY = y2;
+    this.lastCtrlKind = "";
+  };
+  vecAngle (ux, uy, vx, vy) {
+    const magU = Math.sqrt(((ux * ux) + (uy * uy)));
+    const magV = Math.sqrt(((vx * vx) + (vy * vy)));
+    const denom = magU * magV;
+    if ( denom < 1e-10 ) {
+      return 0.0;
+    }
+    let r = ((ux * vx) + (uy * vy)) / denom;
+    if ( r < (0.0 - 1.0) ) {
+      r = 0.0 - 1.0;
+    }
+    if ( r > 1.0 ) {
+      r = 1.0;
+    }
+    let sign = 1.0;
+    if ( (ux * vy) < (uy * vx) ) {
+      sign = 0.0 - 1.0;
+    }
+    return sign * (Math.acos(r));
+  };
+  calculateBounds () {
+    if ( (this.commands.length) == 0 ) {
+      return;
+    }
+    let minX = 999999.0;
+    let minY = 999999.0;
+    let maxX = -999999.0;
+    let maxY = -999999.0;
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "C" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x2 < minX ) {
+          minX = cmd.x2;
+        }
+        if ( cmd.x2 > maxX ) {
+          maxX = cmd.x2;
+        }
+        if ( cmd.y2 < minY ) {
+          minY = cmd.y2;
+        }
+        if ( cmd.y2 > maxY ) {
+          maxY = cmd.y2;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "Q" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      i_1 = i_1 + 1;
+    };
+    this.bounds.minX = minX;
+    this.bounds.minY = minY;
+    this.bounds.maxX = maxX;
+    this.bounds.maxY = maxY;
+    this.bounds.width = maxX - minX;
+    this.bounds.height = maxY - minY;
+  };
+  getBounds () {
+    const result = this.bounds;
+    return result;
+  };
+  getCommands () {
+    return this.commands;
+  };
+  getScaledCommands (targetWidth, targetHeight) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    if ( this.bounds.width > 0.0 ) {
+      scaleX = targetWidth / this.bounds.width;
+    }
+    if ( this.bounds.height > 0.0 ) {
+      scaleY = targetHeight / this.bounds.height;
+    }
+    let scaled = [];
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      const newCmd = new PathCommand();
+      newCmd.type = cmd.type;
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "C" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x2 = (cmd.x2 - this.bounds.minX) * scaleX;
+        newCmd.y2 = (cmd.y2 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "Q" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      scaled.push(newCmd);
+      i_1 = i_1 + 1;
+    };
+    return scaled;
+  };
+  flattenRings (steps, ma, mb, mc, md, me, mf) {
+    let rings = [];
+    let current = new PathRing();
+    let started = false;
+    let cx = 0.0;
+    let cy = 0.0;
+    let sx = 0.0;
+    let sy = 0.0;
+    const n = this.commands.length;
+    let k = 0;
+    while (k < n) {
+      const cmd = this.commands[k];
+      if ( cmd.type == "M" ) {
+        if ( started ) {
+          if ( current.pointCount() >= 2 ) {
+            rings.push(current);
+          }
+        }
+        current = new PathRing();
+        started = true;
+        cx = cmd.x;
+        cy = cmd.y;
+        sx = cmd.x;
+        sy = cmd.y;
+        current.pts.push((ma * cx) + ((mc * cy) + me));
+        current.pts.push((mb * cx) + ((md * cy) + mf));
+      }
+      if ( cmd.type == "L" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        current.pts.push((ma * cx) + ((mc * cy) + me));
+        current.pts.push((mb * cx) + ((md * cy) + mf));
+      }
+      if ( cmd.type == "C" ) {
+        let s = 1;
+        while (s <= steps) {
+          const tt = (s) / (steps);
+          const u = 1.0 - tt;
+          const b0 = (u * u) * u;
+          const b1 = ((3.0 * u) * u) * tt;
+          const b2 = ((3.0 * u) * tt) * tt;
+          const b3 = (tt * tt) * tt;
+          const px = (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x);
+          const py = (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y);
+          current.pts.push((ma * px) + ((mc * py) + me));
+          current.pts.push((mb * px) + ((md * py) + mf));
+          s = s + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "Q" ) {
+        let s_1 = 1;
+        while (s_1 <= steps) {
+          const tt_1 = (s_1) / (steps);
+          const u_1 = 1.0 - tt_1;
+          const b0_1 = u_1 * u_1;
+          const b1_1 = (2.0 * u_1) * tt_1;
+          const b2_1 = tt_1 * tt_1;
+          const px_1 = ((b0_1 * cx) + (b1_1 * cmd.x1)) + (b2_1 * cmd.x);
+          const py_1 = ((b0_1 * cy) + (b1_1 * cmd.y1)) + (b2_1 * cmd.y);
+          current.pts.push((ma * px_1) + ((mc * py_1) + me));
+          current.pts.push((mb * px_1) + ((md * py_1) + mf));
+          s_1 = s_1 + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "Z" ) {
+        if ( started ) {
+          if ( current.pointCount() >= 2 ) {
+            rings.push(current);
+          }
+        }
+        current = new PathRing();
+        started = false;
+        cx = sx;
+        cy = sy;
+      }
+      k = k + 1;
+    };
+    if ( started ) {
+      if ( current.pointCount() >= 2 ) {
+        rings.push(current);
+      }
+    }
+    return rings;
+  };
+  flattenRingsPlain (steps) {
+    return this.flattenRings(steps, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+  };
+  flatten (steps) {
+    let pts = [];
+    let cx = 0.0;
+    let cy = 0.0;
+    const n = this.commands.length;
+    let i_1 = 0;
+    while (i_1 < n) {
+      const cmd = this.commands[i_1];
+      if ( cmd.type == "M" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        pts.push(cx);
+        pts.push(cy);
+      }
+      if ( cmd.type == "L" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        pts.push(cx);
+        pts.push(cy);
+      }
+      if ( cmd.type == "C" ) {
+        let s = 1;
+        while (s <= steps) {
+          const tt = (s) / (steps);
+          const u = 1.0 - tt;
+          const b0 = (u * u) * u;
+          const b1 = ((3.0 * u) * u) * tt;
+          const b2 = ((3.0 * u) * tt) * tt;
+          const b3 = (tt * tt) * tt;
+          const px = (((b0 * cx) + (b1 * cmd.x1)) + (b2 * cmd.x2)) + (b3 * cmd.x);
+          const py = (((b0 * cy) + (b1 * cmd.y1)) + (b2 * cmd.y2)) + (b3 * cmd.y);
+          pts.push(px);
+          pts.push(py);
+          s = s + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "Q" ) {
+        let s_1 = 1;
+        while (s_1 <= steps) {
+          const tt_1 = (s_1) / (steps);
+          const u_1 = 1.0 - tt_1;
+          const b0_1 = u_1 * u_1;
+          const b1_1 = (2.0 * u_1) * tt_1;
+          const b2_1 = tt_1 * tt_1;
+          const px_1 = ((b0_1 * cx) + (b1_1 * cmd.x1)) + (b2_1 * cmd.x);
+          const py_1 = ((b0_1 * cy) + (b1_1 * cmd.y1)) + (b2_1 * cmd.y);
+          pts.push(px_1);
+          pts.push(py_1);
+          s_1 = s_1 + 1;
+        };
+        cx = cmd.x;
+        cy = cmd.y;
+      }
+      if ( cmd.type == "A" ) {
+        cx = cmd.x;
+        cy = cmd.y;
+        pts.push(cx);
+        pts.push(cy);
+      }
+      i_1 = i_1 + 1;
+    };
+    return pts;
+  };
+}
+SVGPathParser.fromCommands = function(cmds) {
+  const p = new SVGPathParser();
+  p.commands = cmds;
+  p.calculateBounds();
+  return p;
+};
+class Matrix2D  {
+  constructor() {
+    this.a = 1.0;
+    this.b = 0.0;
+    this.c = 0.0;
+    this.d = 1.0;
+    this.e = 0.0;
+    this.f = 0.0;
+  }
+  applyX (x, y) {
+    const v = ((this.a * x) + (this.c * y)) + this.e;
+    return v;
+  };
+  applyY (x, y) {
+    const v = ((this.b * x) + (this.d * y)) + this.f;
+    return v;
+  };
+  multiply (o) {
+    const na = (this.a * o.a) + (this.c * o.b);
+    const nb = (this.b * o.a) + (this.d * o.b);
+    const nc = (this.a * o.c) + (this.c * o.d);
+    const nd = (this.b * o.c) + (this.d * o.d);
+    const ne = ((this.a * o.e) + (this.c * o.f)) + this.e;
+    const nf = ((this.b * o.e) + (this.d * o.f)) + this.f;
+    return Matrix2D.create(na, nb, nc, nd, ne, nf);
+  };
+  isIdentity () {
+    let flat = true;
+    if ( (this.a == 1.0) == false ) {
+      flat = false;
+    }
+    if ( (this.b == 0.0) == false ) {
+      flat = false;
+    }
+    if ( (this.c == 0.0) == false ) {
+      flat = false;
+    }
+    if ( (this.d == 1.0) == false ) {
+      flat = false;
+    }
+    if ( (this.e == 0.0) == false ) {
+      flat = false;
+    }
+    if ( (this.f == 0.0) == false ) {
+      flat = false;
+    }
+    return flat;
+  };
+}
+Matrix2D.identity = function() {
+  const m = new Matrix2D();
+  return m;
+};
+Matrix2D.create = function(ma, mb, mc, md, me, mf) {
+  const m = new Matrix2D();
+  m.a = ma;
+  m.b = mb;
+  m.c = mc;
+  m.d = md;
+  m.e = me;
+  m.f = mf;
+  return m;
+};
+Matrix2D.translate = function(tx, ty) {
+  return Matrix2D.create(1.0, 0.0, 0.0, 1.0, tx, ty);
+};
+Matrix2D.scale = function(sx, sy) {
+  return Matrix2D.create(sx, 0.0, 0.0, sy, 0.0, 0.0);
+};
+class ViewBoxRect  {
+  constructor() {
+    this.minX = 0.0;
+    this.minY = 0.0;
+    this.width = 0.0;
+    this.height = 0.0;
+    this.isSet = false;
+  }
+  asAttribute () {
+    let s = (((this.minX.toString())) + " ") + ((this.minY.toString()));
+    s = (((s + " ") + ((this.width.toString()))) + " ") + ((this.height.toString()));
+    return s;
+  };
+}
+ViewBoxRect.create = function(x, y, w, h) {
+  const r = new ViewBoxRect();
+  r.minX = x;
+  r.minY = y;
+  r.width = w;
+  r.height = h;
+  r.isSet = true;
+  return r;
+};
+class VectorViewBox  {
+  constructor() {
+  }
+}
+VectorViewBox.splitTokens = function(s) {
+  let parts = [];
+  let current = "";
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const ch = s.charCodeAt(i );
+    let isSep = false;
+    if ( ch == 32 ) {
+      isSep = true;
+    }
+    if ( ch == 9 ) {
+      isSep = true;
+    }
+    if ( ch == 10 ) {
+      isSep = true;
+    }
+    if ( ch == 13 ) {
+      isSep = true;
+    }
+    if ( ch == 44 ) {
+      isSep = true;
+    }
+    if ( isSep ) {
+      if ( (current.length) > 0 ) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + (String.fromCharCode(ch));
+    }
+    i = i + 1;
+  };
+  if ( (current.length) > 0 ) {
+    parts.push(current);
+  }
+  return parts;
+};
+VectorViewBox.parseViewBox = function(s) {
+  const out = new ViewBoxRect();
+  const parts = VectorViewBox.splitTokens(s);
+  if ( (parts.length) != 4 ) {
+    return out;
+  }
+  let vals = [];
+  let i = 0;
+  while (i < 4) {
+    const tok = parts[i];
+    const num = isNaN( parseFloat(tok) ) ? undefined : parseFloat(tok);
+    if ( typeof(num) != "undefined" ) {
+      vals.push(num);
+    } else {
+      return out;
+    }
+    i = i + 1;
+  };
+  const w = vals[2];
+  const h = vals[3];
+  if ( w <= 0.0 ) {
+    return out;
+  }
+  if ( h <= 0.0 ) {
+    return out;
+  }
+  out.minX = vals[0];
+  out.minY = vals[1];
+  out.width = w;
+  out.height = h;
+  out.isSet = true;
+  return out;
+};
+VectorViewBox.alignX = function(par) {
+  const parts = VectorViewBox.splitTokens(par);
+  let i = 0;
+  while (i < (parts.length)) {
+    const tok = parts[i];
+    if ( (tok.indexOf("xMin")) == 0 ) {
+      return 0;
+    }
+    if ( (tok.indexOf("xMid")) == 0 ) {
+      return 1;
+    }
+    if ( (tok.indexOf("xMax")) == 0 ) {
+      return 2;
+    }
+    i = i + 1;
+  };
+  return 1;
+};
+VectorViewBox.alignY = function(par) {
+  const parts = VectorViewBox.splitTokens(par);
+  let i = 0;
+  while (i < (parts.length)) {
+    const tok = parts[i];
+    if ( (tok.indexOf("YMin")) > 0 ) {
+      return 0;
+    }
+    if ( (tok.indexOf("YMid")) > 0 ) {
+      return 1;
+    }
+    if ( (tok.indexOf("YMax")) > 0 ) {
+      return 2;
+    }
+    i = i + 1;
+  };
+  return 1;
+};
+VectorViewBox.isNone = function(par) {
+  const parts = VectorViewBox.splitTokens(par);
+  let i = 0;
+  while (i < (parts.length)) {
+    const tok = parts[i];
+    if ( tok == "none" ) {
+      return true;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+VectorViewBox.isSlice = function(par) {
+  const parts = VectorViewBox.splitTokens(par);
+  let i = 0;
+  while (i < (parts.length)) {
+    const tok = parts[i];
+    if ( tok == "slice" ) {
+      return true;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+VectorViewBox.resolve = function(vb, viewW, viewH, par) {
+  if ( vb.isSet == false ) {
+    return Matrix2D.identity();
+  }
+  if ( viewW <= 0.0 ) {
+    return Matrix2D.identity();
+  }
+  if ( viewH <= 0.0 ) {
+    return Matrix2D.identity();
+  }
+  let scaleX = viewW / vb.width;
+  let scaleY = viewH / vb.height;
+  if ( VectorViewBox.isNone(par) == false ) {
+    let uniform = scaleX;
+    if ( VectorViewBox.isSlice(par) ) {
+      if ( scaleY > uniform ) {
+        uniform = scaleY;
+      }
+    } else {
+      if ( scaleY < uniform ) {
+        uniform = scaleY;
+      }
+    }
+    scaleX = uniform;
+    scaleY = uniform;
+  }
+  let tx = 0.0 - (vb.minX * scaleX);
+  let ty = 0.0 - (vb.minY * scaleY);
+  const slackX = viewW - (vb.width * scaleX);
+  const slackY = viewH - (vb.height * scaleY);
+  const ax = VectorViewBox.alignX(par);
+  const ay = VectorViewBox.alignY(par);
+  if ( ax == 1 ) {
+    tx = tx + (slackX / 2.0);
+  }
+  if ( ax == 2 ) {
+    tx = tx + slackX;
+  }
+  if ( ay == 1 ) {
+    ty = ty + (slackY / 2.0);
+  }
+  if ( ay == 2 ) {
+    ty = ty + slackY;
+  }
+  return Matrix2D.create(scaleX, 0.0, 0.0, scaleY, tx, ty);
+};
+VectorViewBox.effectiveViewBox = function(declared, boundsX, boundsY, boundsW, boundsH) {
+  const explicit = VectorViewBox.parseViewBox(declared);
+  if ( explicit.isSet ) {
+    return explicit;
+  }
+  const synth = new ViewBoxRect();
+  if ( boundsW <= 0.0 ) {
+    return synth;
+  }
+  if ( boundsH <= 0.0 ) {
+    return synth;
+  }
+  return ViewBoxRect.create(boundsX, boundsY, boundsW, boundsH);
+};
+VectorViewBox.resolveString = function(viewBox, viewW, viewH, par) {
+  let effective = par;
+  if ( (effective.length) == 0 ) {
+    effective = "xMidYMid meet";
+  }
+  const vb = VectorViewBox.parseViewBox(viewBox);
+  return VectorViewBox.resolve(vb, viewW, viewH, effective);
+};
+class VectorShapes  {
+  constructor() {
+  }
+}
+VectorShapes.kappa = function() {
+  return 0.5522847498307936;
+};
+VectorShapes.moveTo = function(x, y) {
+  const c = new PathCommand();
+  c.type = "M";
+  c.x = x;
+  c.y = y;
+  return c;
+};
+VectorShapes.lineTo = function(x, y) {
+  const c = new PathCommand();
+  c.type = "L";
+  c.x = x;
+  c.y = y;
+  return c;
+};
+VectorShapes.cubicTo = function(x1, y1, x2, y2, x, y) {
+  const c = new PathCommand();
+  c.type = "C";
+  c.x1 = x1;
+  c.y1 = y1;
+  c.x2 = x2;
+  c.y2 = y2;
+  c.x = x;
+  c.y = y;
+  return c;
+};
+VectorShapes.closePath = function() {
+  const c = new PathCommand();
+  c.type = "Z";
+  return c;
+};
+VectorShapes.line = function(x1, y1, x2, y2) {
+  let out = [];
+  out.push(VectorShapes.moveTo(x1, y1));
+  out.push(VectorShapes.lineTo(x2, y2));
+  return out;
+};
+VectorShapes.polyline = function(pts) {
+  return VectorShapes.pointsToPath(pts, false);
+};
+VectorShapes.polygon = function(pts) {
+  return VectorShapes.pointsToPath(pts, true);
+};
+VectorShapes.pointsToPath = function(pts, closed) {
+  let out = [];
+  const n = (((pts.length) / 2) | 0);
+  if ( n < 2 ) {
+    return out;
+  }
+  out.push(VectorShapes.moveTo((pts[0]), (pts[1])));
+  let k = 1;
+  while (k < n) {
+    out.push(VectorShapes.lineTo((pts[(k * 2)]), (pts[((k * 2) + 1)])));
+    k = k + 1;
+  };
+  if ( closed ) {
+    out.push(VectorShapes.closePath());
+  }
+  return out;
+};
+VectorShapes.ellipse = function(cx, cy, rx, ry) {
+  let out = [];
+  if ( rx <= 0.0 ) {
+    return out;
+  }
+  if ( ry <= 0.0 ) {
+    return out;
+  }
+  const k = VectorShapes.kappa();
+  const ox = rx * k;
+  const oy = ry * k;
+  out.push(VectorShapes.moveTo((cx + rx), cy));
+  out.push(VectorShapes.cubicTo((cx + rx), (cy + oy), (cx + ox), (cy + ry), cx, (cy + ry)));
+  out.push(VectorShapes.cubicTo((cx - ox), (cy + ry), (cx - rx), (cy + oy), (cx - rx), cy));
+  out.push(VectorShapes.cubicTo((cx - rx), (cy - oy), (cx - ox), (cy - ry), cx, (cy - ry)));
+  out.push(VectorShapes.cubicTo((cx + ox), (cy - ry), (cx + rx), (cy - oy), (cx + rx), cy));
+  out.push(VectorShapes.closePath());
+  return out;
+};
+VectorShapes.circle = function(cx, cy, r) {
+  return VectorShapes.ellipse(cx, cy, r, r);
+};
+VectorShapes.rect = function(x, y, w, h, rxIn, ryIn) {
+  let out = [];
+  if ( w <= 0.0 ) {
+    return out;
+  }
+  if ( h <= 0.0 ) {
+    return out;
+  }
+  let rx = rxIn;
+  let ry = ryIn;
+  if ( rx < 0.0 ) {
+    rx = ry;
+  }
+  if ( ry < 0.0 ) {
+    ry = rx;
+  }
+  if ( rx < 0.0 ) {
+    rx = 0.0;
+  }
+  if ( ry < 0.0 ) {
+    ry = 0.0;
+  }
+  if ( rx > (w / 2.0) ) {
+    rx = w / 2.0;
+  }
+  if ( ry > (h / 2.0) ) {
+    ry = h / 2.0;
+  }
+  let rounded = true;
+  if ( rx <= 0.0 ) {
+    rounded = false;
+  }
+  if ( ry <= 0.0 ) {
+    rounded = false;
+  }
+  if ( rounded == false ) {
+    out.push(VectorShapes.moveTo(x, y));
+    out.push(VectorShapes.lineTo((x + w), y));
+    out.push(VectorShapes.lineTo((x + w), (y + h)));
+    out.push(VectorShapes.lineTo(x, (y + h)));
+    out.push(VectorShapes.closePath());
+    return out;
+  }
+  const k = VectorShapes.kappa();
+  const ox = rx * k;
+  const oy = ry * k;
+  const x1 = x + w;
+  const y1 = y + h;
+  out.push(VectorShapes.moveTo((x + rx), y));
+  out.push(VectorShapes.lineTo((x1 - rx), y));
+  out.push(VectorShapes.cubicTo(((x1 - rx) + ox), y, x1, ((y + ry) - oy), x1, (y + ry)));
+  out.push(VectorShapes.lineTo(x1, (y1 - ry)));
+  out.push(VectorShapes.cubicTo(x1, ((y1 - ry) + oy), ((x1 - rx) + ox), y1, (x1 - rx), y1));
+  out.push(VectorShapes.lineTo((x + rx), y1));
+  out.push(VectorShapes.cubicTo(((x + rx) - ox), y1, x, ((y1 - ry) + oy), x, (y1 - ry)));
+  out.push(VectorShapes.lineTo(x, (y + ry)));
+  out.push(VectorShapes.cubicTo(x, ((y + ry) - oy), ((x + rx) - ox), y, (x + rx), y));
+  out.push(VectorShapes.closePath());
+  return out;
+};
+VectorShapes.asPathData = function(cmds) {
+  let out = "";
+  const n = cmds.length;
+  let k = 0;
+  while (k < n) {
+    const c = cmds[k];
+    if ( k > 0 ) {
+      out = out + " ";
+    }
+    if ( c.type == "M" ) {
+      out = (((out + "M") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "L" ) {
+      out = (((out + "L") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "C" ) {
+      out = (((out + "C") + VectorShapes.num(c.x1)) + ",") + VectorShapes.num(c.y1);
+      out = (((out + " ") + VectorShapes.num(c.x2)) + ",") + VectorShapes.num(c.y2);
+      out = (((out + " ") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "Q" ) {
+      out = (((out + "Q") + VectorShapes.num(c.x1)) + ",") + VectorShapes.num(c.y1);
+      out = (((out + " ") + VectorShapes.num(c.x)) + ",") + VectorShapes.num(c.y);
+    }
+    if ( c.type == "Z" ) {
+      out = out + "Z";
+    }
+    k = k + 1;
+  };
+  return out;
+};
+VectorShapes.num = function(v) {
+  let neg = false;
+  let a = v;
+  if ( a < 0.0 ) {
+    neg = true;
+    a = 0.0 - a;
+  }
+  const scaled = Math.floor( ((a * 10000.0) + 0.5));
+  const whole = ((scaled / 10000) | 0);
+  let fracPart = scaled - (whole * 10000);
+  let out = (whole.toString());
+  if ( fracPart > 0 ) {
+    let digits = 4;
+    while ((fracPart - ((((fracPart / 10) | 0)) * 10)) == 0) {
+      fracPart = ((fracPart / 10) | 0);
+      digits = digits - 1;
+    };
+    let frac = (fracPart.toString());
+    let pad = digits - (frac.length);
+    while (pad > 0) {
+      frac = "0" + frac;
+      pad = pad - 1;
+    };
+    out = (out + ".") + frac;
+  }
+  if ( neg ) {
+    if ( scaled > 0 ) {
+      out = "-" + out;
+    }
+  }
+  return out;
+};
+class SvgVectorItem  {
+  constructor() {
+    this.commands = [];
+    this.strokeWidth = 1.0;
+    this.fillRule = "nonzero";
+    this.dashArray = "";
+    this.dashOffset = 0.0;
+    let c = [];
+    this.commands = c;
+    this.fillColor = EVGColor.noColor();
+    this.strokeColor = EVGColor.noColor();
+    this.strokeWidth = 1.0;
+    this.fillRule = "nonzero";
+    this.dashArray = "";
+    this.dashOffset = 0.0;
+  }
+  hasFill () {
+    return this.fillColor.isSet;
+  };
+  hasStroke () {
+    if ( this.strokeColor.isSet == false ) {
+      return false;
+    }
+    return this.strokeWidth > 0.0;
+  };
+  pathData () {
+    return VectorShapes.asPathData(this.commands);
+  };
+}
+class SvgStyleState  {
+  constructor() {
+    this.strokeWidth = 1.0;
+    this.fillRule = "nonzero";
+    this.dashArray = "";
+    this.dashOffset = 0.0;
+    this.fillOpacity = 1.0;
+    this.strokeOpacity = 1.0;
+    this.groupOpacity = 1.0;
+    this.ctm = Matrix2D.identity();
+    this.fill = EVGColor.black();
+    this.stroke = EVGColor.noColor();
+    this.strokeWidth = 1.0;
+    this.fillRule = "nonzero";
+    this.dashArray = "";
+    this.dashOffset = 0.0;
+    this.fillOpacity = 1.0;
+    this.strokeOpacity = 1.0;
+    this.groupOpacity = 1.0;
+  }
+  copy () {
+    const s = new SvgStyleState();
+    s.ctm = this.ctm;
+    s.fill = this.fill;
+    s.stroke = this.stroke;
+    s.strokeWidth = this.strokeWidth;
+    s.fillRule = this.fillRule;
+    s.dashArray = this.dashArray;
+    s.dashOffset = this.dashOffset;
+    s.fillOpacity = this.fillOpacity;
+    s.strokeOpacity = this.strokeOpacity;
+    s.groupOpacity = this.groupOpacity;
+    return s;
+  };
+}
+class SvgDocument  {
+  constructor() {
+    this.items = [];
+    this.width = 0.0;
+    this.height = 0.0;
+    this.warnings = [];
+    this.errors = [];
+    this.truncated = false;
+    let it = [];
+    this.items = it;
+    let w = [];
+    this.warnings = w;
+    let e = [];
+    this.errors = e;
+    this.viewBox = new ViewBoxRect();
+    this.width = 0.0;
+    this.height = 0.0;
+    this.truncated = false;
+  }
+  itemCount () {
+    return this.items.length;
+  };
+  hasErrors () {
+    return (this.errors.length) > 0;
+  };
+  hasWarnings () {
+    return (this.warnings.length) > 0;
+  };
+  commandCount () {
+    let total = 0;
+    let k = 0;
+    while (k < (this.items.length)) {
+      const it = this.items[k];
+      total = total + (it.commands.length);
+      k = k + 1;
+    };
+    return total;
+  };
+  joinLines (lines) {
+    const n = lines.length;
+    if ( n == 0 ) {
+      return "";
+    }
+    let out = lines[0];
+    let k = 1;
+    while (k < n) {
+      out = (out + "; ") + (lines[k]);
+      k = k + 1;
+    };
+    return out;
+  };
+  errorSummary () {
+    return this.joinLines(this.errors);
+  };
+  warningSummary () {
+    return this.joinLines(this.warnings);
+  };
+  bounds () {
+    const b = new PathBounds();
+    let minX = 999999.0;
+    let minY = 999999.0;
+    let maxX = -999999.0;
+    let maxY = -999999.0;
+    let any = false;
+    let k = 0;
+    while (k < (this.items.length)) {
+      const it = this.items[k];
+      let j = 0;
+      while (j < (it.commands.length)) {
+        const c = it.commands[j];
+        if ( (c.type == "Z") == false ) {
+          any = true;
+          if ( c.x < minX ) {
+            minX = c.x;
+          }
+          if ( c.x > maxX ) {
+            maxX = c.x;
+          }
+          if ( c.y < minY ) {
+            minY = c.y;
+          }
+          if ( c.y > maxY ) {
+            maxY = c.y;
+          }
+        }
+        if ( (c.type == "C") || (c.type == "Q") ) {
+          if ( c.x1 < minX ) {
+            minX = c.x1;
+          }
+          if ( c.x1 > maxX ) {
+            maxX = c.x1;
+          }
+          if ( c.y1 < minY ) {
+            minY = c.y1;
+          }
+          if ( c.y1 > maxY ) {
+            maxY = c.y1;
+          }
+        }
+        if ( c.type == "C" ) {
+          if ( c.x2 < minX ) {
+            minX = c.x2;
+          }
+          if ( c.x2 > maxX ) {
+            maxX = c.x2;
+          }
+          if ( c.y2 < minY ) {
+            minY = c.y2;
+          }
+          if ( c.y2 > maxY ) {
+            maxY = c.y2;
+          }
+        }
+        j = j + 1;
+      };
+      k = k + 1;
+    };
+    if ( any == false ) {
+      return b;
+    }
+    b.minX = minX;
+    b.minY = minY;
+    b.maxX = maxX;
+    b.maxY = maxY;
+    b.width = maxX - minX;
+    b.height = maxY - minY;
+    return b;
+  };
+  effectiveViewBox () {
+    if ( this.viewBox.isSet ) {
+      return this.viewBox;
+    }
+    if ( (this.width > 0.0) && (this.height > 0.0) ) {
+      return ViewBoxRect.create(0.0, 0.0, this.width, this.height);
+    }
+    const b = this.bounds();
+    return VectorViewBox.effectiveViewBox("", b.minX, b.minY, b.width, b.height);
+  };
+}
+class SvgAttr  {
+  constructor() {
+    this.name = "";
+    this.value = "";
+  }
+}
+class SvgTag  {
+  constructor() {
+    this.name = "";
+    this.isEnd = false;
+    this.selfClose = false;
+    this.attrs = [];
+    this.valid = false;
+    let a = [];
+    this.attrs = a;
+    this.name = "";
+    this.isEnd = false;
+    this.selfClose = false;
+    this.valid = false;
+  }
+  has (n) {
+    let k = 0;
+    while (k < (this.attrs.length)) {
+      const a = this.attrs[k];
+      if ( a.name == n ) {
+        return true;
+      }
+      k = k + 1;
+    };
+    return false;
+  };
+  attr (n) {
+    let k = 0;
+    while (k < (this.attrs.length)) {
+      const a = this.attrs[k];
+      if ( a.name == n ) {
+        return a.value;
+      }
+      k = k + 1;
+    };
+    return "";
+  };
+}
+class SvgParser  {
+  constructor() {
+    this.src = "";
+    this.pos = 0;
+    this.__len = 0;
+    this.maxNodes = 50000;
+    this.maxDepth = 64;
+    this.maxCommands = 500000;
+    this.maxUseDepth = 8;
+    this.nodeCount = 0;
+    this.emittedCommands = 0;
+    this.useDepth = 0;
+    this.aborted = false;
+    this.spans = {};
+    this.warnedKeys = {};
+    this.doc = new SvgDocument();
+    this.initialFill = EVGColor.black();
+  }
+  setInitialFill (c) {
+    this.initialFill = c;
+  };
+  warn (key, msg) {
+    const seen = ( Object.prototype.hasOwnProperty.call(this.warnedKeys, key) ? this.warnedKeys[key] : undefined );
+    if ( (typeof(seen) !== "undefined" && seen != null )  ) {
+      return;
+    }
+    this.warnedKeys[key] = true;
+    this.doc.warnings.push(msg);
+  };
+  fail (msg) {
+    this.doc.errors.push(msg);
+    this.doc.truncated = true;
+    this.aborted = true;
+  };
+  parse (source) {
+    this.doc = new SvgDocument();
+    let emptySpans = {};
+    this.spans = emptySpans;
+    let emptyWarned = {};
+    this.warnedKeys = emptyWarned;
+    this.nodeCount = 0;
+    this.emittedCommands = 0;
+    this.useDepth = 0;
+    this.aborted = false;
+    this.src = source;
+    this.__len = source.length;
+    this.pos = 0;
+    this.indexIds();
+    if ( this.aborted ) {
+      return this.doc;
+    }
+    this.src = source;
+    this.__len = source.length;
+    this.pos = 0;
+    const root = new SvgStyleState();
+    root.fill = this.initialFill;
+    this.parseChildren(root, 0, "");
+    return this.doc;
+  };
+  indexIds () {
+    let openNames = [];
+    let openIds = [];
+    let openStarts = [];
+    while (this.aborted == false) {
+      const tagStart = this.findTagStart();
+      if ( tagStart < 0 ) {
+        return;
+      }
+      const tag = this.readTag();
+      if ( tag.valid == false ) {
+        return;
+      }
+      if ( tag.isEnd ) {
+        const depth = openNames.length;
+        if ( depth > 0 ) {
+          const openName = openNames[(depth - 1)];
+          if ( openName == tag.name ) {
+            const id = openIds[(depth - 1)];
+            if ( (id.length) > 0 ) {
+              const from = openStarts[(depth - 1)];
+              this.spans[id] = this.src.substring(from, this.pos );
+            }
+            openNames.pop();
+            openIds.pop();
+            openStarts.pop();
+          }
+        }
+      } else {
+        const id2 = tag.attr("id");
+        if ( tag.selfClose ) {
+          if ( (id2.length) > 0 ) {
+            this.spans[id2] = this.src.substring(tagStart, this.pos );
+          }
+        } else {
+          openNames.push(tag.name);
+          openIds.push(id2);
+          openStarts.push(tagStart);
+          if ( (openNames.length) > this.maxDepth ) {
+            this.fail(("nesting deeper than " + ((this.maxDepth.toString()))) + " levels");
+            return;
+          }
+        }
+      }
+    };
+  };
+  parseChildren (inherited, depth, endName) {
+    if ( depth > this.maxDepth ) {
+      this.fail(("nesting deeper than " + ((this.maxDepth.toString()))) + " levels");
+      return;
+    }
+    while (this.aborted == false) {
+      const tagStart = this.findTagStart();
+      if ( tagStart < 0 ) {
+        return;
+      }
+      const tag = this.readTag();
+      if ( tag.valid == false ) {
+        return;
+      }
+      if ( tag.isEnd ) {
+        return;
+      }
+      this.nodeCount = this.nodeCount + 1;
+      if ( this.nodeCount > this.maxNodes ) {
+        this.fail(("more than " + ((this.maxNodes.toString()))) + " elements");
+        return;
+      }
+      this.handleElement(tag, inherited, depth);
+    };
+  };
+  handleElement (tag, inherited, depth) {
+    const name = tag.name;
+    if ( this.isRefused(name) ) {
+      this.refuse(name);
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    if ( ((name == "title") || (name == "desc")) || (name == "metadata") ) {
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    if ( name == "defs" ) {
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    if ( name == "svg" ) {
+      if ( depth == 0 ) {
+        this.readRootAttributes(tag);
+        const rootState = this.applyPresentation(inherited, tag, depth);
+        if ( tag.selfClose == false ) {
+          this.parseChildren(rootState, depth + 1, name);
+        }
+        return;
+      }
+      this.warn("nested-svg", "a nested <svg> element establishes its own viewport and is not supported; its contents are not drawn");
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    if ( (name == "g") || (name == "a") ) {
+      const groupState = this.applyPresentation(inherited, tag, depth);
+      if ( tag.selfClose == false ) {
+        this.parseChildren(groupState, depth + 1, name);
+      }
+      return;
+    }
+    if ( name == "switch" ) {
+      this.warn("switch", "<switch> conditional processing is not supported; its contents are not drawn");
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    if ( name == "use" ) {
+      this.handleUse(tag, inherited, depth);
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    if ( this.isShape(name) ) {
+      const shapeState = this.applyPresentation(inherited, tag, depth);
+      this.emitShape(tag, shapeState);
+      if ( tag.selfClose == false ) {
+        this.skipSubtree(name);
+      }
+      return;
+    }
+    this.warn("unknown-" + name, ("<" + name) + "> is not part of the supported SVG profile and was skipped");
+    if ( tag.selfClose == false ) {
+      this.skipSubtree(name);
+    }
+  };
+  isRefused (name) {
+    if ( name == "script" ) {
+      return true;
+    }
+    if ( name == "foreignObject" ) {
+      return true;
+    }
+    if ( name == "filter" ) {
+      return true;
+    }
+    if ( name == "mask" ) {
+      return true;
+    }
+    if ( name == "clipPath" ) {
+      return true;
+    }
+    if ( name == "pattern" ) {
+      return true;
+    }
+    if ( name == "marker" ) {
+      return true;
+    }
+    if ( name == "symbol" ) {
+      return true;
+    }
+    if ( name == "style" ) {
+      return true;
+    }
+    if ( name == "text" ) {
+      return true;
+    }
+    if ( name == "image" ) {
+      return true;
+    }
+    if ( name == "linearGradient" ) {
+      return true;
+    }
+    if ( name == "radialGradient" ) {
+      return true;
+    }
+    if ( name == "animate" ) {
+      return true;
+    }
+    if ( name == "animateTransform" ) {
+      return true;
+    }
+    if ( name == "animateMotion" ) {
+      return true;
+    }
+    if ( name == "set" ) {
+      return true;
+    }
+    return false;
+  };
+  refuse (name) {
+    if ( name == "text" ) {
+      this.warn("text", "<text> is not supported; convert text to outlines before export, or the wordmark will be missing");
+      return;
+    }
+    if ( name == "image" ) {
+      this.warn("image", "<image> references an external resource, which the importer does not fetch; it was skipped");
+      return;
+    }
+    if ( name == "style" ) {
+      this.warn("style", "a <style> element is not applied; CSS in the document is outside the profile, so use presentation attributes instead");
+      return;
+    }
+    if ( (name == "linearGradient") || (name == "radialGradient") ) {
+      this.warn("gradient", "gradient paint is deferred (PLAN_VECTOR_IR.md §6): the three renderers do not agree on gradients yet, so a gradient fill is dropped rather than rendered differently in each output");
+      return;
+    }
+    if ( (name == "clipPath") || (name == "mask") ) {
+      this.warn("clip-" + name, ("<" + name) + "> is not supported; the shapes it would have cut are drawn whole");
+      return;
+    }
+    this.warn("refused-" + name, ("<" + name) + "> is outside the supported SVG profile and was skipped");
+  };
+  isShape (name) {
+    if ( name == "path" ) {
+      return true;
+    }
+    if ( name == "rect" ) {
+      return true;
+    }
+    if ( name == "circle" ) {
+      return true;
+    }
+    if ( name == "ellipse" ) {
+      return true;
+    }
+    if ( name == "line" ) {
+      return true;
+    }
+    if ( name == "polyline" ) {
+      return true;
+    }
+    if ( name == "polygon" ) {
+      return true;
+    }
+    return false;
+  };
+  handleUse (tag, inherited, depth) {
+    let href = tag.attr("href");
+    if ( (href.length) == 0 ) {
+      href = tag.attr("xlink:href");
+    }
+    if ( (href.length) == 0 ) {
+      this.warn("use-nohref", "<use> without an href draws nothing");
+      return;
+    }
+    if ( (href.charCodeAt(0 )) != 35 ) {
+      this.warn("use-external", "<use> may only reference a fragment in the same document; an external reference was dropped");
+      return;
+    }
+    const id = href.substring(1, (href.length) );
+    const target = ( Object.prototype.hasOwnProperty.call(this.spans, id) ? this.spans[id] : undefined );
+    let fragment = "";
+    if ( (typeof(target) !== "undefined" && target != null )  ) {
+      fragment = target;
+    } else {
+      this.warn("use-missing-" + id, ("<use href=\"#" + id) + "\"> refers to an id that is not in this document");
+      return;
+    }
+    if ( this.useDepth >= this.maxUseDepth ) {
+      this.warn("use-depth", ("<use> references nested more than " + ((this.maxUseDepth.toString()))) + " deep, which is either a cycle or deeper than this profile expands");
+      return;
+    }
+    const state = this.applyPresentation(inherited, tag, depth);
+    const ux = this.numAttr(tag, "x", 0.0);
+    const uy = this.numAttr(tag, "y", 0.0);
+    if ( ((ux == 0.0) && (uy == 0.0)) == false ) {
+      state.ctm = state.ctm.multiply(Matrix2D.translate(ux, uy));
+    }
+    const savedSrc = this.src;
+    const savedPos = this.pos;
+    const savedLen = this.__len;
+    this.src = fragment;
+    this.__len = this.src.length;
+    this.pos = 0;
+    this.useDepth = this.useDepth + 1;
+    this.parseChildren(state, depth + 1, "");
+    this.useDepth = this.useDepth - 1;
+    this.src = savedSrc;
+    this.pos = savedPos;
+    this.__len = savedLen;
+  };
+  applyPresentation (inherited, tag, depth) {
+    const s = inherited.copy();
+    let k = 0;
+    while (k < (tag.attrs.length)) {
+      const a = tag.attrs[k];
+      this.applyProperty(s, a.name, a.value);
+      k = k + 1;
+    };
+    const styleAttr = tag.attr("style");
+    if ( (styleAttr.length) > 0 ) {
+      this.applyStyleAttribute(s, styleAttr);
+    }
+    const tf = tag.attr("transform");
+    if ( (tf.length) > 0 ) {
+      const m = this.parseTransform(tf);
+      s.ctm = s.ctm.multiply(m);
+    }
+    return s;
+  };
+  applyStyleAttribute (s, style) {
+    const decls = this.splitOn(style, 59);
+    let k = 0;
+    while (k < (decls.length)) {
+      const decl = decls[k];
+      const colon = decl.indexOf(":");
+      if ( colon > 0 ) {
+        const n = (decl.substring(0, colon )).trim();
+        const v = (decl.substring((colon + 1), (decl.length) )).trim();
+        this.applyProperty(s, n, v);
+      }
+      k = k + 1;
+    };
+  };
+  applyProperty (s, name, value) {
+    const v = value.trim();
+    if ( name == "fill" ) {
+      s.fill = this.parsePaint(v, (s.fill));
+      return;
+    }
+    if ( name == "stroke" ) {
+      s.stroke = this.parsePaint(v, (s.stroke));
+      return;
+    }
+    if ( name == "stroke-width" ) {
+      const w = isNaN( parseFloat(v) ) ? undefined : parseFloat(v);
+      if ( typeof(w) != "undefined" ) {
+        s.strokeWidth = w;
+      }
+      return;
+    }
+    if ( name == "fill-rule" ) {
+      if ( v == "evenodd" ) {
+        s.fillRule = "evenodd";
+      }
+      if ( v == "nonzero" ) {
+        s.fillRule = "nonzero";
+      }
+      return;
+    }
+    if ( name == "stroke-dasharray" ) {
+      if ( v == "none" ) {
+        s.dashArray = "";
+      } else {
+        s.dashArray = v;
+      }
+      return;
+    }
+    if ( name == "stroke-dashoffset" ) {
+      const o = isNaN( parseFloat(v) ) ? undefined : parseFloat(v);
+      if ( typeof(o) != "undefined" ) {
+        s.dashOffset = o;
+      }
+      return;
+    }
+    if ( name == "fill-opacity" ) {
+      s.fillOpacity = this.parseOpacity(v, s.fillOpacity);
+      return;
+    }
+    if ( name == "stroke-opacity" ) {
+      s.strokeOpacity = this.parseOpacity(v, s.strokeOpacity);
+      return;
+    }
+    if ( name == "opacity" ) {
+      const o2 = this.parseOpacity(v, 1.0);
+      s.groupOpacity = s.groupOpacity * o2;
+      return;
+    }
+    if ( ((name == "stroke-linecap") || (name == "stroke-linejoin")) || (name == "stroke-miterlimit") ) {
+      this.warn("stroke-joins", "stroke-linecap/linejoin/miterlimit are not represented; strokes are drawn with butt caps and round joins");
+      return;
+    }
+    if ( name == "class" ) {
+      this.warn("class", "class attributes have no effect because the profile applies no CSS");
+      return;
+    }
+  };
+  parsePaint (v, inheritedPaint) {
+    if ( v == "none" ) {
+      return EVGColor.noColor();
+    }
+    if ( v == "inherit" ) {
+      return inheritedPaint;
+    }
+    if ( v == "currentColor" ) {
+      return this.initialFill;
+    }
+    if ( (v.indexOf("url(")) == 0 ) {
+      this.warn("gradient", "gradient paint is deferred (PLAN_VECTOR_IR.md §6): the three renderers do not agree on gradients yet, so a gradient fill is dropped rather than rendered differently in each output");
+      return EVGColor.noColor();
+    }
+    const c = EVGColor.parse(v);
+    if ( c.isSet == false ) {
+      this.warn("color-" + v, ("could not read the colour \"" + v) + "\"; the inherited paint was used instead");
+      return inheritedPaint;
+    }
+    return c;
+  };
+  parseOpacity (v, fallback) {
+    let pct = false;
+    let s = v;
+    if ( (s.length) > 0 ) {
+      if ( (s.charCodeAt(((s.length) - 1) )) == 37 ) {
+        pct = true;
+        s = s.substring(0, ((s.length) - 1) );
+      }
+    }
+    const d = isNaN( parseFloat(s) ) ? undefined : parseFloat(s);
+    let out = fallback;
+    if ( typeof(d) != "undefined" ) {
+      out = d;
+    } else {
+      return fallback;
+    }
+    if ( pct ) {
+      out = out / 100.0;
+    }
+    if ( out < 0.0 ) {
+      out = 0.0;
+    }
+    if ( out > 1.0 ) {
+      out = 1.0;
+    }
+    return out;
+  };
+  parseTransform (s) {
+    let m = Matrix2D.identity();
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      const open = this.findFrom(s, i, 40);
+      if ( open < 0 ) {
+        return m;
+      }
+      const fname = (s.substring(i, open )).trim();
+      const close = this.findFrom(s, (open + 1), 41);
+      if ( close < 0 ) {
+        this.warn("transform-unclosed", "a transform is missing its closing parenthesis: " + s);
+        return m;
+      }
+      const args = this.parseNumberList((s.substring((open + 1), close )));
+      const na = args.length;
+      i = close + 1;
+      let part = Matrix2D.identity();
+      let known = true;
+      if ( fname == "matrix" ) {
+        if ( na == 6 ) {
+          part = Matrix2D.create((args[0]), (args[1]), (args[2]), (args[3]), (args[4]), (args[5]));
+        } else {
+          known = false;
+        }
+      } else {
+        if ( fname == "translate" ) {
+          if ( na == 1 ) {
+            part = Matrix2D.translate((args[0]), 0.0);
+          } else {
+            if ( na == 2 ) {
+              part = Matrix2D.translate((args[0]), (args[1]));
+            } else {
+              known = false;
+            }
+          }
+        } else {
+          if ( fname == "scale" ) {
+            if ( na == 1 ) {
+              part = Matrix2D.scale((args[0]), (args[0]));
+            } else {
+              if ( na == 2 ) {
+                part = Matrix2D.scale((args[0]), (args[1]));
+              } else {
+                known = false;
+              }
+            }
+          } else {
+            if ( fname == "rotate" ) {
+              if ( na == 1 ) {
+                part = this.rotation((args[0]));
+              } else {
+                if ( na == 3 ) {
+                  const cx = args[1];
+                  const cy = args[2];
+                  const r = this.rotation((args[0]));
+                  part = Matrix2D.translate(cx, cy);
+                  part = part.multiply(r);
+                  part = part.multiply(Matrix2D.translate((0.0 - cx), (0.0 - cy)));
+                } else {
+                  known = false;
+                }
+              }
+            } else {
+              if ( fname == "skewX" ) {
+                if ( na == 1 ) {
+                  part = Matrix2D.create(1.0, 0.0, this.tanDeg((args[0])), 1.0, 0.0, 0.0);
+                } else {
+                  known = false;
+                }
+              } else {
+                if ( fname == "skewY" ) {
+                  if ( na == 1 ) {
+                    part = Matrix2D.create(1.0, this.tanDeg((args[0])), 0.0, 1.0, 0.0, 0.0);
+                  } else {
+                    known = false;
+                  }
+                } else {
+                  known = false;
+                }
+              }
+            }
+          }
+        }
+      }
+      if ( known == false ) {
+        this.warn("transform-" + fname, ("the transform \"" + fname) + "\" was not applied: unknown, or given the wrong number of arguments");
+      } else {
+        m = m.multiply(part);
+      }
+    };
+    return m;
+  };
+  rotation (deg) {
+    const rad = (deg * 3.141592653589793) / 180.0;
+    const cs = Math.cos(rad);
+    const sn = Math.sin(rad);
+    return Matrix2D.create(cs, sn, (0.0 - sn), cs, 0.0, 0.0);
+  };
+  tanDeg (deg) {
+    const rad = (deg * 3.141592653589793) / 180.0;
+    return (Math.sin(rad)) / (Math.cos(rad));
+  };
+  emitShape (tag, s) {
+    const name = tag.name;
+    let cmds = [];
+    if ( name == "path" ) {
+      const d = tag.attr("d");
+      if ( (d.length) == 0 ) {
+        return;
+      }
+      const p = new SVGPathParser();
+      p.parse(d);
+      if ( p.hasErrors() ) {
+        this.warn("pathdata-" + p.errorSummary(), "path data was not fully read: " + p.errorSummary());
+      }
+      cmds = p.getCommands();
+    } else {
+      if ( name == "rect" ) {
+        const rx = this.numAttr(tag, "rx", -1.0);
+        const ry = this.numAttr(tag, "ry", -1.0);
+        cmds = VectorShapes.rect(this.numAttr(tag, "x", 0.0), this.numAttr(tag, "y", 0.0), this.numAttr(tag, "width", 0.0), this.numAttr(tag, "height", 0.0), rx, ry);
+      } else {
+        if ( name == "circle" ) {
+          cmds = VectorShapes.circle(this.numAttr(tag, "cx", 0.0), this.numAttr(tag, "cy", 0.0), this.numAttr(tag, "r", 0.0));
+        } else {
+          if ( name == "ellipse" ) {
+            cmds = VectorShapes.ellipse(this.numAttr(tag, "cx", 0.0), this.numAttr(tag, "cy", 0.0), this.numAttr(tag, "rx", 0.0), this.numAttr(tag, "ry", 0.0));
+          } else {
+            if ( name == "line" ) {
+              cmds = VectorShapes.line(this.numAttr(tag, "x1", 0.0), this.numAttr(tag, "y1", 0.0), this.numAttr(tag, "x2", 0.0), this.numAttr(tag, "y2", 0.0));
+            } else {
+              if ( name == "polyline" ) {
+                cmds = VectorShapes.polyline(this.parseNumberList(tag.attr("points")));
+              } else {
+                if ( name == "polygon" ) {
+                  cmds = VectorShapes.polygon(this.parseNumberList(tag.attr("points")));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    const count = cmds.length;
+    if ( count == 0 ) {
+      return;
+    }
+    this.emittedCommands = this.emittedCommands + count;
+    if ( this.emittedCommands > this.maxCommands ) {
+      this.fail(("more than " + ((this.maxCommands.toString()))) + " path commands");
+      return;
+    }
+    const item = new SvgVectorItem();
+    item.commands = this.transformCommands(cmds, (s.ctm));
+    item.fillRule = s.fillRule;
+    item.dashArray = s.dashArray;
+    item.dashOffset = s.dashOffset;
+    if ( s.fill.isSet ) {
+      item.fillColor = this.withAlpha((s.fill), (s.fillOpacity * s.groupOpacity));
+    }
+    if ( s.stroke.isSet ) {
+      item.strokeColor = this.withAlpha((s.stroke), (s.strokeOpacity * s.groupOpacity));
+      item.strokeWidth = s.strokeWidth * this.scaleOf((s.ctm));
+    }
+    if ( (item.hasFill() == false) && (item.hasStroke() == false) ) {
+      return;
+    }
+    this.doc.items.push(item);
+  };
+  withAlpha (c, mul) {
+    if ( mul >= 1.0 ) {
+      return c;
+    }
+    return EVGColor.create(c.r, c.g, c.b, (c.a * mul));
+  };
+  scaleOf (m) {
+    let det = (m.a * m.d) - (m.b * m.c);
+    if ( det < 0.0 ) {
+      det = 0.0 - det;
+    }
+    if ( det == 0.0 ) {
+      return 0.0;
+    }
+    return Math.sqrt(det);
+  };
+  transformCommands (cmds, m) {
+    let out = [];
+    if ( m.isIdentity() ) {
+      return cmds;
+    }
+    let k = 0;
+    while (k < (cmds.length)) {
+      const c = cmds[k];
+      const n = new PathCommand();
+      n.type = c.type;
+      n.x = m.applyX(c.x, c.y);
+      n.y = m.applyY(c.x, c.y);
+      n.x1 = m.applyX(c.x1, c.y1);
+      n.y1 = m.applyY(c.x1, c.y1);
+      n.x2 = m.applyX(c.x2, c.y2);
+      n.y2 = m.applyY(c.x2, c.y2);
+      out.push(n);
+      k = k + 1;
+    };
+    return out;
+  };
+  readRootAttributes (tag) {
+    const vb = tag.attr("viewBox");
+    if ( (vb.length) > 0 ) {
+      const parsed = VectorViewBox.parseViewBox(vb);
+      if ( parsed.isSet ) {
+        this.doc.viewBox = parsed;
+      } else {
+        this.warn("viewbox", ("the root viewBox \"" + vb) + "\" is not four numbers with a positive width and height, and was ignored");
+      }
+    }
+    this.doc.width = this.lengthAttr(tag, "width");
+    this.doc.height = this.lengthAttr(tag, "height");
+    const par = tag.attr("preserveAspectRatio");
+    if ( (par.length) > 0 ) {
+      this.warn("par", "preserveAspectRatio on the imported root is ignored; the element that hosts the drawing decides how it is fitted");
+    }
+  };
+  lengthAttr (tag, name) {
+    const raw = tag.attr(name).trim();
+    if ( (raw.length) == 0 ) {
+      return 0.0;
+    }
+    let s = raw;
+    if ( (s.indexOf("px")) > 0 ) {
+      s = s.substring(0, (s.indexOf("px")) );
+    }
+    if ( this.isPlainNumber((s.trim())) == false ) {
+      return 0.0;
+    }
+    const d = isNaN( parseFloat((s.trim())) ) ? undefined : parseFloat((s.trim()));
+    let out = 0.0;
+    if ( typeof(d) != "undefined" ) {
+      out = d;
+    } else {
+      return 0.0;
+    }
+    if ( out < 0.0 ) {
+      return 0.0;
+    }
+    return out;
+  };
+  isPlainNumber (s) {
+    const n = s.length;
+    if ( n == 0 ) {
+      return false;
+    }
+    let k = 0;
+    while (k < n) {
+      const c = s.charCodeAt(k );
+      let ok = false;
+      if ( (c >= 48) && (c <= 57) ) {
+        ok = true;
+      }
+      if ( c == 46 ) {
+        ok = true;
+      }
+      if ( c == 45 ) {
+        ok = true;
+      }
+      if ( c == 43 ) {
+        ok = true;
+      }
+      if ( c == 101 ) {
+        ok = true;
+      }
+      if ( c == 69 ) {
+        ok = true;
+      }
+      if ( ok == false ) {
+        return false;
+      }
+      k = k + 1;
+    };
+    return true;
+  };
+  numAttr (tag, name, fallback) {
+    const raw = tag.attr(name).trim();
+    if ( (raw.length) == 0 ) {
+      return fallback;
+    }
+    let s = raw;
+    if ( (s.indexOf("px")) > 0 ) {
+      s = s.substring(0, (s.indexOf("px")) );
+    }
+    if ( this.isPlainNumber((s.trim())) ) {
+      const d = isNaN( parseFloat((s.trim())) ) ? undefined : parseFloat((s.trim()));
+      if ( typeof(d) != "undefined" ) {
+        return d;
+      }
+    }
+    this.warn("num-" + name, ((("the value \"" + raw) + "\" on ") + name) + " is not a plain number, and this profile resolves no units; it was treated as unspecified");
+    return fallback;
+  };
+  findTagStart () {
+    while (this.pos < this.__len) {
+      const c = this.src.charCodeAt(this.pos );
+      if ( c != 60 ) {
+        this.pos = this.pos + 1;
+      } else {
+        if ( this.matchesAt((this.pos + 1), "!--") ) {
+          const end = this.findString((this.pos + 4), "-->");
+          if ( end < 0 ) {
+            this.pos = this.__len;
+            return -1;
+          }
+          this.pos = end + 3;
+        } else {
+          if ( this.matchesAt((this.pos + 1), "![CDATA[") ) {
+            const cend = this.findString((this.pos + 9), "]]>");
+            if ( cend < 0 ) {
+              this.pos = this.__len;
+              return -1;
+            }
+            this.pos = cend + 3;
+          } else {
+            if ( this.matchesAt((this.pos + 1), "?") ) {
+              const pend = this.findString((this.pos + 2), "?>");
+              if ( pend < 0 ) {
+                this.pos = this.__len;
+                return -1;
+              }
+              this.pos = pend + 2;
+            } else {
+              if ( this.matchesAt((this.pos + 1), "!") ) {
+                this.skipDeclaration();
+                if ( this.aborted ) {
+                  return -1;
+                }
+              } else {
+                return this.pos;
+              }
+            }
+          }
+        }
+      }
+    };
+    return -1;
+  };
+  skipDeclaration () {
+    let i = this.pos + 2;
+    while (i < this.__len) {
+      const c = this.src.charCodeAt(i );
+      if ( c == 91 ) {
+        this.fail("this document has a DOCTYPE internal subset, which is where entity declarations live; the importer implements no entities and will not guess at one");
+        this.pos = this.__len;
+        return;
+      }
+      if ( c == 62 ) {
+        this.pos = i + 1;
+        return;
+      }
+      i = i + 1;
+    };
+    this.pos = this.__len;
+  };
+  readTag () {
+    const tag = new SvgTag();
+    if ( this.pos >= this.__len ) {
+      return tag;
+    }
+    let i = this.pos + 1;
+    if ( i < this.__len ) {
+      if ( (this.src.charCodeAt(i )) == 47 ) {
+        tag.isEnd = true;
+        i = i + 1;
+      }
+    }
+    const nameStart = i;
+    while (i < this.__len) {
+      const c = this.src.charCodeAt(i );
+      if ( this.isNameChar(c) ) {
+        i = i + 1;
+      } else {
+        break;
+      }
+    };
+    tag.name = this.localName((this.src.substring(nameStart, i )));
+    if ( (tag.name.length) == 0 ) {
+      this.pos = this.pos + 1;
+      return tag;
+    }
+    while (i < this.__len) {
+      i = this.skipSpaceFrom(i);
+      if ( i >= this.__len ) {
+        break;
+      }
+      const c2 = this.src.charCodeAt(i );
+      if ( c2 == 62 ) {
+        i = i + 1;
+        tag.valid = true;
+        this.pos = i;
+        return tag;
+      }
+      if ( c2 == 47 ) {
+        tag.selfClose = true;
+        i = i + 1;
+        if ( i < this.__len ) {
+          if ( (this.src.charCodeAt(i )) == 62 ) {
+            i = i + 1;
+          }
+        }
+        tag.valid = true;
+        this.pos = i;
+        return tag;
+      }
+      const attrStart = i;
+      while (i < this.__len) {
+        const c3 = this.src.charCodeAt(i );
+        if ( this.isNameChar(c3) ) {
+          i = i + 1;
+        } else {
+          break;
+        }
+      };
+      if ( i == attrStart ) {
+        i = i + 1;
+      } else {
+        const attrName = this.src.substring(attrStart, i );
+        i = this.skipSpaceFrom(i);
+        let value = "";
+        if ( i < this.__len ) {
+          if ( (this.src.charCodeAt(i )) == 61 ) {
+            i = i + 1;
+            i = this.skipSpaceFrom(i);
+            if ( i < this.__len ) {
+              const q = this.src.charCodeAt(i );
+              if ( (q == 34) || (q == 39) ) {
+                const vstart = i + 1;
+                const vend = this.findFrom(this.src, vstart, q);
+                if ( vend < 0 ) {
+                  this.warn("unquoted", ("an attribute value on <" + tag.name) + "> is missing its closing quote");
+                  this.pos = this.__len;
+                  return tag;
+                }
+                value = this.decodeEntities((this.src.substring(vstart, vend )));
+                i = vend + 1;
+              } else {
+                this.warn("unquoted", ("an attribute value on <" + tag.name) + "> is not quoted; XML requires quotes, so it was skipped");
+                while (i < this.__len) {
+                  const c4 = this.src.charCodeAt(i );
+                  if ( (c4 == 62) || this.isSpace(c4) ) {
+                    break;
+                  }
+                  i = i + 1;
+                };
+              }
+            }
+          }
+        }
+        const a = new SvgAttr();
+        a.name = this.attrName(attrName);
+        a.value = value;
+        tag.attrs.push(a);
+      }
+    };
+    this.pos = this.__len;
+    return tag;
+  };
+  skipSubtree (name) {
+    let depth = 1;
+    while ((depth > 0) && (this.aborted == false)) {
+      const start = this.findTagStart();
+      if ( start < 0 ) {
+        return;
+      }
+      const tag = this.readTag();
+      if ( tag.valid == false ) {
+        return;
+      }
+      if ( tag.selfClose == false ) {
+        if ( tag.name == name ) {
+          if ( tag.isEnd ) {
+            depth = depth - 1;
+          } else {
+            depth = depth + 1;
+          }
+        }
+      }
+    };
+  };
+  decodeEntities (s) {
+    if ( (s.indexOf("&")) < 0 ) {
+      return s;
+    }
+    let out = "";
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      const c = s.charCodeAt(i );
+      if ( c != 38 ) {
+        out = out + (String.fromCharCode(c));
+        i = i + 1;
+      } else {
+        const semi = this.findFrom(s, i, 59);
+        let handled = false;
+        if ( semi > i ) {
+          const ent = s.substring(i, (semi + 1) );
+          if ( ent == "&amp;" ) {
+            out = out + "&";
+            handled = true;
+          }
+          if ( ent == "&lt;" ) {
+            out = out + "<";
+            handled = true;
+          }
+          if ( ent == "&gt;" ) {
+            out = out + ">";
+            handled = true;
+          }
+          if ( ent == "&quot;" ) {
+            out = out + "\"";
+            handled = true;
+          }
+          if ( ent == "&apos;" ) {
+            out = out + "'";
+            handled = true;
+          }
+          if ( handled ) {
+            i = semi + 1;
+          } else {
+            this.warn("entity", "only the five predefined XML entities are expanded; any other reference is left as written");
+            out = out + "&";
+            i = i + 1;
+          }
+        } else {
+          out = out + "&";
+          i = i + 1;
+        }
+      }
+    };
+    return out;
+  };
+  localName (raw) {
+    const colon = raw.indexOf(":");
+    if ( colon < 0 ) {
+      return raw;
+    }
+    return raw.substring((colon + 1), (raw.length) );
+  };
+  attrName (raw) {
+    if ( (raw.indexOf("xlink:")) == 0 ) {
+      return raw;
+    }
+    const colon = raw.indexOf(":");
+    if ( colon < 0 ) {
+      return raw;
+    }
+    return raw.substring((colon + 1), (raw.length) );
+  };
+  isSpace (c) {
+    if ( c == 32 ) {
+      return true;
+    }
+    if ( c == 9 ) {
+      return true;
+    }
+    if ( c == 10 ) {
+      return true;
+    }
+    if ( c == 13 ) {
+      return true;
+    }
+    return false;
+  };
+  isNameChar (c) {
+    if ( (c >= 65) && (c <= 90) ) {
+      return true;
+    }
+    if ( (c >= 97) && (c <= 122) ) {
+      return true;
+    }
+    if ( (c >= 48) && (c <= 57) ) {
+      return true;
+    }
+    if ( c == 58 ) {
+      return true;
+    }
+    if ( c == 45 ) {
+      return true;
+    }
+    if ( c == 95 ) {
+      return true;
+    }
+    if ( c == 46 ) {
+      return true;
+    }
+    return false;
+  };
+  skipSpaceFrom (from) {
+    let i = from;
+    while (i < this.__len) {
+      if ( this.isSpace((this.src.charCodeAt(i ))) ) {
+        i = i + 1;
+      } else {
+        break;
+      }
+    };
+    return i;
+  };
+  findFrom (s, from, ch) {
+    let i = from;
+    const n = s.length;
+    while (i < n) {
+      if ( (s.charCodeAt(i )) == ch ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  findString (from, needle) {
+    const nl = needle.length;
+    let i = from;
+    while ((i + nl) <= this.__len) {
+      if ( this.matchesAt(i, needle) ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  matchesAt (at, needle) {
+    const nl = needle.length;
+    if ( (at + nl) > this.__len ) {
+      return false;
+    }
+    return (this.src.substring(at, (at + nl) )) == needle;
+  };
+  splitOn (s, sep) {
+    let out = [];
+    const n = s.length;
+    let start = 0;
+    let i = 0;
+    while (i < n) {
+      if ( (s.charCodeAt(i )) == sep ) {
+        out.push(s.substring(start, i ));
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+    out.push(s.substring(start, n ));
+    return out;
+  };
+  parseNumberList (s) {
+    let out = [];
+    const toks = VectorViewBox.splitTokens(s);
+    let k = 0;
+    while (k < (toks.length)) {
+      const d = isNaN( parseFloat((toks[k])) ) ? undefined : parseFloat((toks[k]));
+      if ( typeof(d) != "undefined" ) {
+        out.push(d);
+      } else {
+        this.warn("numlist-" + (toks[k]), ("\"" + (toks[k])) + "\" is not a number; the rest of that list was not read");
+        return out;
+      }
+      k = k + 1;
+    };
+    return out;
+  };
+}
+class EVGDrawCmd  {
+  constructor() {
+    this.kind = 0;
+    this.x = 0.0;
+    this.y = 0.0;
+    this.w = 0.0;
+    this.h = 0.0;
+    this.radius = 0.0;
+    this.thickness = 0.0;
+    this.r = 0;
+    this.g = 0;
+    this.b = 0;
+    this.a = 1.0;
+    this.text = "";
+    this.fontFamily = "";
+    this.fontSize = 0.0;
+    this.textAlign = "";
+    this.fontWeight = "";
+    this.maxWidth = 0.0;     /** note: unused */
+    this.hasGrad = false;
+    this.gradDir = 0;
+    this.r2 = 0;
+    this.g2 = 0;
+    this.b2 = 0;
+    this.a2 = 1.0;
+    this.hasShadow = false;     /** note: unused */
+    this.shadowX = 0.0;     /** note: unused */
+    this.shadowY = 0.0;     /** note: unused */
+    this.shadowBlur = 0.0;     /** note: unused */
+    this.shadowR = 0;     /** note: unused */
+    this.shadowG = 0;     /** note: unused */
+    this.shadowB = 0;     /** note: unused */
+    this.shadowA = 0.35;     /** note: unused */
+    this.src = "";
+    this.flipH = false;
+    this.flipV = false;
+    this.pts = [];
+    this.ringEnds = [];
+    this.evenOdd = false;
+    this.rotate = 0.0;
+  }
+  kindName () {
+    if ( this.kind == 0 ) {
+      return "RECT";
+    }
+    if ( this.kind == 1 ) {
+      return "BORDER";
+    }
+    if ( this.kind == 2 ) {
+      return "IMAGE";
+    }
+    if ( this.kind == 3 ) {
+      return "TEXT";
+    }
+    if ( this.kind == 4 ) {
+      return "PUSH_CLIP";
+    }
+    if ( this.kind == 5 ) {
+      return "POP_CLIP";
+    }
+    if ( this.kind == 6 ) {
+      return "PATH";
+    }
+    return "STROKE";
+  };
+}
+class EVGSceneBinary  {
+  constructor() {
+    this.cmds = new Int32Array(0);
+    this.pts = new Int32Array(0);
+    this.ends = new Int32Array(0);
+    this.strings = [];
+    this.count = 0;
+    this.width = 0.0;     /** note: unused */
+    this.height = 0.0;     /** note: unused */
+    let s_1 = [];
+    this.strings = s_1;
+  }
+}
+class EVGDisplayList  {
+  constructor() {
+    this.cmds = [];
+    this.deferredOverlays = [];
+    this.textEngine = new EVGTextEngine();
+  }
+  setTextEngine (e) {
+    this.textEngine = e;
+  };
+  count () {
+    return this.cmds.length;
+  };
+  at (i) {
+    return this.cmds[i];
+  };
+  addRect (x, y, w, h, col) {
+    const c = new EVGDrawCmd();
+    c.kind = 0;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    this.cmds.push(c);
+  };
+  addFrame (x, y, w, h, thickness, col) {
+    const c = new EVGDrawCmd();
+    c.kind = 1;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.thickness = thickness;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    this.cmds.push(c);
+  };
+  addImage (src, x, y, w, h, flipH, flipV, rotate) {
+    if ( (src.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 2;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.src = src;
+    c.a = 1.0;
+    c.flipH = flipH;
+    c.flipV = flipV;
+    c.rotate = rotate;
+    this.cmds.push(c);
+  };
+  addText (text, x, y, size, col, family, bold, italic, width, height) {
+    if ( (text.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 3;
+    c.x = x;
+    c.y = y;
+    c.w = width;
+    c.h = height;
+    c.text = text;
+    c.fontFamily = family;
+    c.fontSize = size;
+    if ( bold ) {
+      c.fontWeight = "bold";
+    }
+    if ( italic ) {
+      c.textAlign = "italic";
+    }
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    this.cmds.push(c);
+  };
+  addClip (x, y, w, h) {
+    const c = new EVGDrawCmd();
+    c.kind = 4;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    this.cmds.push(c);
+  };
+  addPolyline (pts, thickness, col) {
+    if ( (pts.length) < 4 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 7;
+    c.thickness = thickness;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (pts.length)) {
+      c.pts.push(pts[i]);
+      i = i + 1;
+    };
+    c.ringEnds.push(c.pts.length);
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
+  addPolyRings (rings, col, evenOddFill) {
+    if ( (rings.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 6;
+    c.evenOdd = evenOddFill;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (rings.length)) {
+      const ring = rings[i];
+      let j = 0;
+      while (j < (ring.pts.length)) {
+        c.pts.push(ring.pts[j]);
+        j = j + 1;
+      };
+      c.ringEnds.push(c.pts.length);
+      i = i + 1;
+    };
+    if ( (c.pts.length) < 6 ) {
+      return;
+    }
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
+  addPolygon (pts, col) {
+    if ( (pts.length) < 6 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 6;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (pts.length)) {
+      c.pts.push(pts[i]);
+      i = i + 1;
+    };
+    c.ringEnds.push(c.pts.length);
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
+  setPolyBounds (c) {
+    let minX = 0.0;
+    let minY = 0.0;
+    let maxX = 0.0;
+    let maxY = 0.0;
+    const n = (((c.pts.length) / 2) | 0);
+    let i = 0;
+    while (i < n) {
+      const x = c.pts[(i * 2)];
+      const yat = (i * 2) + 1;
+      const y = c.pts[yat];
+      if ( i == 0 ) {
+        minX = x;
+        maxX = x;
+        minY = y;
+        maxY = y;
+      } else {
+        if ( x < minX ) {
+          minX = x;
+        }
+        if ( x > maxX ) {
+          maxX = x;
+        }
+        if ( y < minY ) {
+          minY = y;
+        }
+        if ( y > maxY ) {
+          maxY = y;
+        }
+      }
+      i = i + 1;
+    };
+    c.x = minX;
+    c.y = minY;
+    c.w = maxX - minX;
+    c.h = maxY - minY;
+  };
+  addClipEnd () {
+    const c = new EVGDrawCmd();
+    c.kind = 5;
+    this.cmds.push(c);
+  };
+  walkSvgDocument (el, x, y, w, h) {
+    const sp = new SvgParser();
+    if ( el.fillColor.isSet ) {
+      sp.setInitialFill(el.fillColor);
+    }
+    const doc = sp.parse(el.svgSource);
+    if ( doc.itemCount() == 0 ) {
+      return;
+    }
+    const vb = doc.effectiveViewBox();
+    const m = VectorViewBox.resolve(vb, w, h, "xMidYMid meet");
+    const steps = this.flattenSteps(w, h);
+    let scale = m.a;
+    if ( scale < 0.0 ) {
+      scale = 0.0 - scale;
+    }
+    if ( scale <= 0.0 ) {
+      scale = 1.0;
+    }
+    let k = 0;
+    while (k < doc.itemCount()) {
+      const item = doc.items[k];
+      const parser = SVGPathParser.fromCommands(item.commands);
+      const rings = parser.flattenRings(steps, m.a, m.b, m.c, m.d, (m.e + x), (m.f + y));
+      if ( (rings.length) > 0 ) {
+        if ( item.hasFill() ) {
+          const cf = new EVGDrawCmd();
+          cf.kind = 6;
+          cf.x = x;
+          cf.y = y;
+          cf.w = w;
+          cf.h = h;
+          cf.evenOdd = item.fillRule == "evenodd";
+          cf.r = item.fillColor.red();
+          cf.g = item.fillColor.green();
+          cf.b = item.fillColor.blue();
+          cf.a = item.fillColor.alpha();
+          this.copyRings(cf, rings);
+          this.cmds.push(cf);
+        }
+        if ( item.hasStroke() ) {
+          const cs = new EVGDrawCmd();
+          cs.kind = 7;
+          cs.x = x;
+          cs.y = y;
+          cs.w = w;
+          cs.h = h;
+          cs.thickness = item.strokeWidth * scale;
+          cs.r = item.strokeColor.red();
+          cs.g = item.strokeColor.green();
+          cs.b = item.strokeColor.blue();
+          cs.a = item.strokeColor.alpha();
+          this.copyRings(cs, rings);
+          this.cmds.push(cs);
+        }
+      }
+      k = k + 1;
+    };
+  };
+  flattenSteps (w, h) {
+    let span = w;
+    if ( h > span ) {
+      span = h;
+    }
+    let steps = Math.floor( (span / 6.0));
+    if ( steps < 4 ) {
+      steps = 4;
+    }
+    if ( steps > 48 ) {
+      steps = 48;
+    }
+    return steps;
+  };
+  walkPath (el, x, y, w, h) {
+    if ( (el.svgSource.length) > 0 ) {
+      this.walkSvgDocument(el, x, y, w, h);
+      return;
+    }
+    const pathData = el.svgPath;
+    if ( (pathData.length) == 0 ) {
+      return;
+    }
+    const parser = new SVGPathParser();
+    parser.parse(pathData);
+    const b = parser.getBounds();
+    const vb = VectorViewBox.effectiveViewBox(el.viewBox, b.minX, b.minY, b.width, b.height);
+    const m = VectorViewBox.resolve(vb, w, h, "xMidYMid meet");
+    const steps = this.flattenSteps(w, h);
+    const rings = parser.flattenRings(steps, m.a, m.b, m.c, m.d, (m.e + x), (m.f + y));
+    if ( (rings.length) == 0 ) {
+      return;
+    }
+    let fillColor = el.fillColor;
+    if ( fillColor.isSet == false ) {
+      fillColor = el.backgroundColor;
+    }
+    if ( fillColor.isSet ) {
+      const cf = new EVGDrawCmd();
+      cf.kind = 6;
+      cf.x = x;
+      cf.y = y;
+      cf.w = w;
+      cf.h = h;
+      cf.evenOdd = el.fillRule == "evenodd";
+      cf.r = fillColor.red();
+      cf.g = fillColor.green();
+      cf.b = fillColor.blue();
+      cf.a = fillColor.alpha();
+      this.copyRings(cf, rings);
+      this.cmds.push(cf);
+    }
+    if ( el.strokeColor.isSet ) {
+      if ( el.strokeWidth > 0.0 ) {
+        const sc = el.strokeColor;
+        const cs = new EVGDrawCmd();
+        cs.kind = 7;
+        cs.x = x;
+        cs.y = y;
+        cs.w = w;
+        cs.h = h;
+        let scale = m.a;
+        if ( scale < 0.0 ) {
+          scale = 0.0 - scale;
+        }
+        if ( scale <= 0.0 ) {
+          scale = 1.0;
+        }
+        cs.thickness = el.strokeWidth * scale;
+        cs.r = sc.red();
+        cs.g = sc.green();
+        cs.b = sc.blue();
+        cs.a = sc.alpha();
+        this.copyRings(cs, rings);
+        this.cmds.push(cs);
+      }
+    }
+  };
+  copyRings (c, rings) {
+    let i = 0;
+    while (i < (rings.length)) {
+      const ring = rings[i];
+      let k = 0;
+      while (k < (ring.pts.length)) {
+        c.pts.push(ring.pts[k]);
+        k = k + 1;
+      };
+      c.ringEnds.push(c.pts.length);
+      i = i + 1;
+    };
+  };
+  build (root) {
+    this.cmds.length = 0;
+    this.deferredOverlays.length = 0;
+    this.walk(root);
+    let i = 0;
+    while (i < (this.deferredOverlays.length)) {
+      this.walk(this.deferredOverlays[i]);
+      i = i + 1;
+    };
+  };
+  fadeFrom (start, factor) {
+    if ( factor >= 1.0 ) {
+      return;
+    }
+    let i = start;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      c.a = c.a * factor;
+      i = i + 1;
+    };
+  };
+  walk (el) {
+    const emitStart = this.cmds.length;
+    this.walkOpaque(el);
+    this.fadeFrom(emitStart, el.opacity);
+  };
+  walkOpaque (el) {
+    const x = el.calculatedX;
+    const y = el.calculatedY;
+    const w = el.calculatedWidth;
+    const h = el.calculatedHeight;
+    const radius = el.box.borderRadiusPx;
+    if ( typeof(el.backgroundColor) != "undefined" ) {
+      const bg = el.backgroundColor;
+      if ( bg.isSet ) {
+        const c = new EVGDrawCmd();
+        c.kind = 0;
+        c.x = x;
+        c.y = y;
+        c.w = w;
+        c.h = h;
+        c.radius = radius;
+        c.r = bg.red();
+        c.g = bg.green();
+        c.b = bg.blue();
+        c.a = bg.alpha();
+        this.cmds.push(c);
+      }
+    }
+    const bw = el.effectiveBorderWidthPx();
+    if ( bw > 0.0 ) {
+      const bc = el.effectiveBorderColor();
+      const c2 = new EVGDrawCmd();
+      c2.kind = 1;
+      c2.x = x;
+      c2.y = y;
+      c2.w = w;
+      c2.h = h;
+      c2.radius = radius;
+      c2.thickness = bw;
+      c2.r = bc.red();
+      c2.g = bc.green();
+      c2.b = bc.blue();
+      c2.a = bc.alpha();
+      this.cmds.push(c2);
+    }
+    if ( el.tagName == "path" ) {
+      this.walkPath(el, x, y, w, h);
+    }
+    if ( (el.src.length) > 0 ) {
+      const c3 = new EVGDrawCmd();
+      c3.kind = 2;
+      c3.x = x;
+      c3.y = y;
+      c3.w = w;
+      c3.h = h;
+      c3.radius = radius;
+      c3.src = el.src;
+      this.cmds.push(c3);
+    }
+    if ( (el.textContent.length) > 0 ) {
+      const face = el.effectiveFontFamily();
+      let fs = el.inheritedFontSize;
+      if ( el.fontSize.isSet ) {
+        fs = el.fontSize.pixels;
+      }
+      if ( fs <= 0.0 ) {
+        fs = 14.0;
+      }
+      let lh = el.lineHeight;
+      if ( lh <= 0.0 ) {
+        lh = 1.2;
+      }
+      const avail = el.box.getInnerWidth(w);
+      const lines = this.textEngine.breakToStrings(el.textContent, face, fs, avail);
+      let tr = 0;
+      let tg = 0;
+      let tb = 0;
+      let ta = 1.0;
+      if ( typeof(el.color) != "undefined" ) {
+        const tc = el.color;
+        tr = tc.red();
+        tg = tc.green();
+        tb = tc.blue();
+        ta = tc.alpha();
+      }
+      let li = 0;
+      while (li < (lines.length)) {
+        const c4 = new EVGDrawCmd();
+        c4.kind = 3;
+        c4.x = x + el.box.paddingLeftPx;
+        c4.y = (y + el.box.paddingTopPx) + ((li) * (fs * lh));
+        c4.w = avail;
+        c4.h = fs * lh;
+        c4.text = lines[li];
+        c4.fontFamily = face;
+        c4.fontSize = fs;
+        c4.rotate = el.rotate;
+        c4.r = tr;
+        c4.g = tg;
+        c4.b = tb;
+        c4.a = ta;
+        this.cmds.push(c4);
+        li = li + 1;
+      };
+    }
+    const clips = el.overflow == "hidden";
+    if ( clips ) {
+      const cp = new EVGDrawCmd();
+      cp.kind = 4;
+      cp.x = x;
+      cp.y = y;
+      cp.w = w;
+      cp.h = h;
+      this.cmds.push(cp);
+    }
+    let i = 0;
+    while (i < el.getChildCount()) {
+      const kid = el.getChild(i);
+      if ( kid.isOverlay ) {
+        this.deferredOverlays.push(kid);
+      } else {
+        this.walk(kid);
+      }
+      i = i + 1;
+    };
+    if ( clips ) {
+      const pp = new EVGDrawCmd();
+      pp.kind = 5;
+      this.cmds.push(pp);
+    }
+  };
+  toBinary () {
+    const out = new EVGSceneBinary();
+    const n = this.cmds.length;
+    out.count = n;
+    const stride = EVGDisplayList.stride();
+    let totalPts = 0;
+    let totalEnds = 0;
+    let i = 0;
+    while (i < n) {
+      const c = this.cmds[i];
+      const pc = c.pts.length;
+      totalPts = totalPts + pc;
+      if ( pc > 0 ) {
+        const ec = c.ringEnds.length;
+        if ( ec == 0 ) {
+          totalEnds = totalEnds + 1;
+        } else {
+          totalEnds = totalEnds + ec;
+        }
+      }
+      i = i + 1;
+    };
+    let recs = new Int32Array((n * stride));
+    let pbuf = new Int32Array(totalPts);
+    let ebuf = new Int32Array(totalEnds);
+    let pool = [];
+    let poolIndex = {};
+    let pAt = 0;
+    let eAt = 0;
+    let k = 0;
+    while (k < n) {
+      const c2 = this.cmds[k];
+      const base = k * stride;
+      recs[base] = c2.kind;
+      recs[base + 1] = EVGDisplayList.fixed(c2.x);
+      recs[base + 2] = EVGDisplayList.fixed(c2.y);
+      recs[base + 3] = EVGDisplayList.fixed(c2.w);
+      recs[base + 4] = EVGDisplayList.fixed(c2.h);
+      recs[base + 5] = EVGDisplayList.fixed(c2.radius);
+      recs[base + 6] = EVGDisplayList.fixed(c2.thickness);
+      recs[base + 7] = EVGDisplayList.packRgb(c2.r, c2.g, c2.b);
+      recs[base + 8] = EVGDisplayList.fixed(c2.a);
+      let flags = 0;
+      if ( c2.hasGrad ) {
+        flags = flags + 1;
+      }
+      if ( c2.textAlign == "italic" ) {
+        flags = flags + 2;
+      }
+      if ( c2.flipH ) {
+        flags = flags + 4;
+      }
+      if ( c2.flipV ) {
+        flags = flags + 8;
+      }
+      if ( c2.evenOdd ) {
+        flags = flags + 16;
+      }
+      recs[base + 9] = flags;
+      recs[base + 10] = c2.gradDir;
+      recs[base + 11] = EVGDisplayList.packRgb(c2.r2, c2.g2, c2.b2);
+      recs[base + 12] = EVGDisplayList.fixed(c2.a2);
+      recs[base + 13] = EVGDisplayList.fixed(c2.fontSize);
+      recs[base + 14] = EVGDisplayList.fixed(c2.rotate);
+      let textIdx = 0 - 1;
+      let fontIdx = 0 - 1;
+      let weightIdx = 0 - 1;
+      if ( (c2.text.length) > 0 ) {
+        textIdx = EVGDisplayList.intern(pool, poolIndex, c2.text);
+        fontIdx = EVGDisplayList.intern(pool, poolIndex, c2.fontFamily);
+        if ( (c2.fontWeight.length) > 0 ) {
+          weightIdx = EVGDisplayList.intern(pool, poolIndex, c2.fontWeight);
+        }
+      }
+      recs[base + 15] = textIdx;
+      recs[base + 16] = fontIdx;
+      recs[base + 17] = weightIdx;
+      let srcIdx = 0 - 1;
+      if ( (c2.src.length) > 0 ) {
+        srcIdx = EVGDisplayList.intern(pool, poolIndex, c2.src);
+      }
+      recs[base + 18] = srcIdx;
+      const pc2 = c2.pts.length;
+      recs[base + 19] = pAt;
+      recs[base + 20] = pc2;
+      const eStart = eAt;
+      if ( pc2 > 0 ) {
+        let pi = 0;
+        while (pi < pc2) {
+          pbuf[pAt + pi] = EVGDisplayList.fixed((c2.pts[pi]));
+          pi = pi + 1;
+        };
+        pAt = pAt + pc2;
+        const ec2 = c2.ringEnds.length;
+        if ( ec2 == 0 ) {
+          ebuf[eAt] = pc2;
+          eAt = eAt + 1;
+        } else {
+          let ei = 0;
+          while (ei < ec2) {
+            ebuf[eAt + ei] = c2.ringEnds[ei];
+            ei = ei + 1;
+          };
+          eAt = eAt + ec2;
+        }
+      }
+      recs[base + 21] = eStart;
+      recs[base + 22] = eAt - eStart;
+      k = k + 1;
+    };
+    out.cmds = recs;
+    out.pts = pbuf;
+    out.ends = ebuf;
+    out.strings = pool;
+    return out;
+  };
+  toJson () {
+    let out = "{\"cmds\":[";
+    let i = 0;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      out = (out + "{\"k\":") + ((c.kind.toString()));
+      out = (out + ",\"x\":") + EVGDisplayList.num(c.x);
+      out = (out + ",\"y\":") + EVGDisplayList.num(c.y);
+      out = (out + ",\"w\":") + EVGDisplayList.num(c.w);
+      out = (out + ",\"h\":") + EVGDisplayList.num(c.h);
+      if ( c.radius > 0.0 ) {
+        out = (out + ",\"r\":") + EVGDisplayList.num(c.radius);
+      }
+      if ( c.thickness > 0.0 ) {
+        out = (out + ",\"t\":") + EVGDisplayList.num(c.thickness);
+      }
+      out = (((out + ",\"c\":[") + ((c.r.toString()))) + ",") + ((c.g.toString()));
+      out = ((((out + ",") + ((c.b.toString()))) + ",") + EVGDisplayList.num(c.a)) + "]";
+      if ( c.hasGrad ) {
+        out = (out + ",\"gd\":") + ((c.gradDir.toString()));
+        out = (((out + ",\"c2\":[") + ((c.r2.toString()))) + ",") + ((c.g2.toString()));
+        out = ((((out + ",") + ((c.b2.toString()))) + ",") + EVGDisplayList.num(c.a2)) + "]";
+      }
+      if ( (c.text.length) > 0 ) {
+        out = (out + ",\"text\":") + EVGDisplayList.jsonString(c.text);
+        out = (out + ",\"font\":") + EVGDisplayList.jsonString(c.fontFamily);
+        out = (out + ",\"size\":") + EVGDisplayList.num(c.fontSize);
+        if ( (c.fontWeight.length) > 0 ) {
+          out = (out + ",\"weight\":") + EVGDisplayList.jsonString(c.fontWeight);
+        }
+        if ( c.textAlign == "italic" ) {
+          out = out + ",\"italic\":true";
+        }
+      }
+      if ( (c.src.length) > 0 ) {
+        out = (out + ",\"src\":") + EVGDisplayList.jsonString(c.src);
+      }
+      if ( c.flipH ) {
+        out = out + ",\"fx\":true";
+      }
+      if ( c.flipV ) {
+        out = out + ",\"fy\":true";
+      }
+      if ( c.rotate != 0.0 ) {
+        out = (out + ",\"rot\":") + EVGDisplayList.num(c.rotate);
+      }
+      if ( (c.pts.length) > 0 ) {
+        out = out + ",\"pts\":[";
+        let pi = 0;
+        while (pi < (c.pts.length)) {
+          if ( pi > 0 ) {
+            out = out + ",";
+          }
+          out = out + EVGDisplayList.num((c.pts[pi]));
+          pi = pi + 1;
+        };
+        out = out + "],\"ends\":[";
+        if ( (c.ringEnds.length) == 0 ) {
+          out = out + (((c.pts.length).toString()));
+        } else {
+          let ei = 0;
+          while (ei < (c.ringEnds.length)) {
+            if ( ei > 0 ) {
+              out = out + ",";
+            }
+            out = out + (((c.ringEnds[ei]).toString()));
+            ei = ei + 1;
+          };
+        }
+        out = out + "]";
+        if ( c.evenOdd ) {
+          out = out + ",\"eo\":1";
+        }
+      }
+      out = out + "}";
+      i = i + 1;
+    };
+    out = out + "]}";
+    return out;
+  };
+  offsetBy (dx, dy) {
+    let i = 0;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      if ( c.kind != 5 ) {
+        c.x = c.x + dx;
+        c.y = c.y + dy;
+        let pi = 0;
+        while (pi < (c.pts.length)) {
+          const even = (pi % 2) == 0;
+          if ( even ) {
+            c.pts[pi] = (c.pts[pi]) + dx;
+          } else {
+            c.pts[pi] = (c.pts[pi]) + dy;
+          }
+          pi = pi + 1;
+        };
+      }
+      i = i + 1;
+    };
+  };
+  appendFrom (src) {
+    let i = 0;
+    while (i < (src.cmds.length)) {
+      this.cmds.push(src.cmds[i]);
+      i = i + 1;
+    };
+  };
+  summary () {
+    let rects = 0;
+    let borders = 0;
+    let images = 0;
+    let texts = 0;
+    let clips = 0;
+    let i = 0;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      if ( c.kind == 0 ) {
+        rects = rects + 1;
+      }
+      if ( c.kind == 1 ) {
+        borders = borders + 1;
+      }
+      if ( c.kind == 2 ) {
+        images = images + 1;
+      }
+      if ( c.kind == 3 ) {
+        texts = texts + 1;
+      }
+      if ( c.kind == 4 ) {
+        clips = clips + 1;
+      }
+      i = i + 1;
+    };
+    let s = "rects=" + ((rects.toString()));
+    s = (s + " borders=") + ((borders.toString()));
+    s = (s + " images=") + ((images.toString()));
+    s = (s + " text=") + ((texts.toString()));
+    s = (s + " clips=") + ((clips.toString()));
+    return s;
+  };
+}
+EVGDisplayList.stride = function() {
+  return 24;
+};
+EVGDisplayList.fixed = function(v) {
+  if ( v < 0.0 ) {
+    return 0 - (Math.floor( (((0.0 - v) * 100.0) + 0.5)));
+  }
+  return Math.floor( ((v * 100.0) + 0.5));
+};
+EVGDisplayList.packRgb = function(r, g, b) {
+  return ((r * 65536) + (g * 256)) + b;
+};
+EVGDisplayList.intern = function(pool, index, value) {
+  if ( ( typeof(index[value] ) != "undefined" && Object.prototype.hasOwnProperty.call(index, value) ) ) {
+    return (( Object.prototype.hasOwnProperty.call(index, value) ? index[value] : undefined ));
+  }
+  const at = pool.length;
+  pool.push(value);
+  index[value] = at;
+  return at;
+};
+EVGDisplayList.num = function(v) {
+  const neg = v < 0.0;
+  let av = v;
+  if ( neg ) {
+    av = 0.0 - v;
+  }
+  const scaled = Math.floor( ((av * 100.0) + 0.5));
+  const whole = ((scaled / 100) | 0);
+  const frac = scaled - (whole * 100);
+  let fs = (frac.toString());
+  if ( frac < 10 ) {
+    fs = "0" + fs;
+  }
+  let out = (((whole.toString())) + ".") + fs;
+  if ( neg ) {
+    if ( scaled > 0 ) {
+      out = "-" + out;
+    }
+  }
+  return out;
+};
+EVGDisplayList.jsonString = function(v) {
+  let out = "\"";
+  let i = 0;
+  while (i < (v.length)) {
+    const c = v.charCodeAt(i );
+    if ( c == 34 ) {
+      out = out + "\\\"";
+    } else {
+      if ( c == 92 ) {
+        out = out + "\\\\";
+      } else {
+        if ( c < 32 ) {
+          out = out + " ";
+        } else {
+          out = out + (String.fromCharCode(c));
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return out + "\"";
+};
+class EVGHitTest  {
+  constructor() {
+    this.order = [];
+    this.deferred = [];
+  }
+  collect (el) {
+    this.order.push(el);
+    let i = 0;
+    while (i < (el.children.length)) {
+      const kid = el.children[i];
+      if ( kid.isOverlay ) {
+        this.deferred.push(kid);
+      } else {
+        this.collect(kid);
+      }
+      i = i + 1;
+    };
+  };
+  paintOrder (root) {
+    this.order.length = 0;
+    this.deferred.length = 0;
+    this.collect(root);
+    let i = 0;
+    while (i < (this.deferred.length)) {
+      this.collect(this.deferred[i]);
+      i = i + 1;
+    };
+    return this.order;
+  };
+  idAt (root, px, py) {
+    const list = this.paintOrder(root);
+    let i = (list.length) - 1;
+    while (i >= 0) {
+      const el = list[i];
+      if ( (el.id.length) > 0 ) {
+        if ( EVGHitTest.containsPoint(el, px, py) ) {
+          return el.id;
+        }
+      }
+      i = i - 1;
+    };
+    return "";
+  };
+  classAt (root, px, py) {
+    const list = this.paintOrder(root);
+    let i = (list.length) - 1;
+    while (i >= 0) {
+      const el = list[i];
+      if ( (el.id.length) > 0 ) {
+        if ( EVGHitTest.containsPoint(el, px, py) ) {
+          return el.className;
+        }
+      }
+      i = i - 1;
+    };
+    return "";
+  };
+}
+EVGHitTest.containsPoint = function(el, px, py) {
+  if ( px < el.calculatedX ) {
+    return false;
+  }
+  if ( py < el.calculatedY ) {
+    return false;
+  }
+  if ( px > (el.calculatedX + el.calculatedWidth) ) {
+    return false;
+  }
+  if ( py > (el.calculatedY + el.calculatedHeight) ) {
+    return false;
+  }
+  return true;
+};
 class OverlayCheck  {
   constructor() {
     this.passed = 0;
@@ -5463,6 +9299,84 @@ EVGOverlayTest.testCentered = function(c) {
   c.eqInt("and down", Math.floor( m.calculatedY), 250);
   c.eqInt("with nothing reported", lay.getOverlayErrors().length, 0);
 };
+EVGOverlayTest.buildTwoMenus = function() {
+  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
+  const row = EVGOverlayTest.box("row", "row", 400.0, 40.0);
+  row.setAttribute("display", "flex");
+  row.setAttribute("flex-direction", "row");
+  row.setAttribute("flex-wrap", "nowrap");
+  const first = EVGElement.createDiv();
+  first.id = "first";
+  first.setAttribute("display", "flex");
+  first.setAttribute("flex-direction", "column");
+  first.setAttribute("width", "fit-content");
+  const t1 = EVGOverlayTest.box("t1", "trigger", 60.0, 30.0);
+  t1.setAttribute("overlay-anchor-role", "true");
+  const panel = EVGOverlayTest.box("panel", "surface", 200.0, 120.0);
+  panel.setAttribute("overlay", "true");
+  panel.setAttribute("overlay-side", "bottom");
+  panel.setAttribute("overlay-align", "start");
+  panel.setAttribute("overlay-gap", "4");
+  panel.setAttribute("background-color", "#ffffff");
+  first.addChild(t1);
+  first.addChild(panel);
+  const second = EVGElement.createDiv();
+  second.id = "second";
+  second.setAttribute("display", "flex");
+  second.setAttribute("flex-direction", "column");
+  second.setAttribute("width", "fit-content");
+  const t2 = EVGOverlayTest.box("t2", "trigger", 60.0, 30.0);
+  t2.setAttribute("background-color", "#ff0000");
+  t2.setAttribute("height", "300px");
+  second.addChild(t2);
+  row.addChild(first);
+  row.addChild(second);
+  page.addChild(row);
+  return page;
+};
+EVGOverlayTest.rectIndex = function(dl, el) {
+  let i = 0;
+  while (i < (dl.cmds.length)) {
+    const c = dl.cmds[i];
+    if ( c.kind == 0 ) {
+      const sameX = (Math.floor( c.x)) == (Math.floor( el.calculatedX));
+      const sameY = (Math.floor( c.y)) == (Math.floor( el.calculatedY));
+      const sameW = (Math.floor( c.w)) == (Math.floor( el.calculatedWidth));
+      if ( sameX && (sameY && sameW) ) {
+        return i;
+      }
+    }
+    i = i + 1;
+  };
+  return -1;
+};
+EVGOverlayTest.testPaintOrder = function(c) {
+  console.log("--- a surface paints above the page, not in tree order ---");
+  const page = EVGOverlayTest.buildTwoMenus();
+  const lay = EVGOverlayTest.laidOut(page);
+  const dl = new EVGDisplayList();
+  dl.setTextEngine(lay.getTextEngine());
+  dl.build(page);
+  const panel = EVGOverlayTest.nodeById(page, "panel");
+  const t2 = EVGOverlayTest.nodeById(page, "t2");
+  const pi = EVGOverlayTest.rectIndex(dl, panel);
+  const ti = EVGOverlayTest.rectIndex(dl, t2);
+  c.ok("both were drawn", (pi >= 0) && (ti >= 0));
+  c.ok("the panel is drawn after the trigger it overhangs", pi > ti);
+};
+EVGOverlayTest.testHitTopmost = function(c) {
+  console.log("--- a click in the panel hits the panel ---");
+  const page = EVGOverlayTest.buildTwoMenus();
+  EVGOverlayTest.laidOut(page);
+  const panel = EVGOverlayTest.nodeById(page, "panel");
+  const hit = new EVGHitTest();
+  const px = panel.calculatedX + 150.0;
+  const py = panel.calculatedY + 10.0;
+  const t2 = EVGOverlayTest.nodeById(page, "t2");
+  c.ok("the point really is over both", (px > t2.calculatedX) && (py < (t2.calculatedY + t2.calculatedHeight)));
+  c.ok("and the panel answers", hit.idAt(page, px, py) == "panel");
+  c.ok("a point outside answers the element under it", hit.idAt(page, (t2.calculatedX + 10.0), (t2.calculatedY + 200.0)) == "t2");
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new OverlayCheck();
@@ -5473,6 +9387,8 @@ function __js_main() {
   EVGOverlayTest.testNested(c);
   EVGOverlayTest.testUnanchored(c);
   EVGOverlayTest.testCentered(c);
+  EVGOverlayTest.testPaintOrder(c);
+  EVGOverlayTest.testHitTopmost(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {

@@ -368,6 +368,37 @@ class EVGElement {
     def overlayX:double 0.0
     def overlayY:double 0.0
 
+    ; --- accessibility ---------------------------------------------------------
+    ; What this element MEANS, next to what it looks like. A canvas contributes
+    ; one empty graphic to the browser's accessibility tree no matter what was
+    ; drawn into it, so an EVG app has to publish the meaning separately —
+    ; and the only place that will not drift out of step with the picture is
+    ; the declaration that built the picture.
+    ;
+    ; The role is the ARIA spelling ("menuitem", "toolbar", "separator"),
+    ; because that is the vocabulary the platform mirrors speak and inventing a
+    ; second one buys nothing. Empty means "not in the accessibility tree",
+    ; which is the right default: most elements in a UI are boxes.
+    def role:string ""
+    ; The accessible name, when it is not simply what the element says. Left
+    ; empty, the name is taken from the text of the descendants that have no
+    ; role of their own — the same rule the HTML name calculation uses, and the
+    ; reason a row of Label + Shortcut announces as one thing.
+    def a11yLabel:string ""
+    ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
+    ; booleans — `aria-checked="false"` on something that is not checkable makes
+    ; a reader announce a checkbox that does not exist.
+    def a11yChecked:int 0
+    def a11yExpanded:int 0
+    def a11ySelected:int 0
+    def a11yDisabled:boolean false
+    def a11yFocusable:boolean false
+    ; Where this row sits in a set the tree does not fully contain. A submenu
+    ; that is closed is not in the tree, so its parent still has to say how many
+    ; rows there are.
+    def a11yPosInSet:int 0
+    def a11ySetSize:int 0
+
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
     
@@ -525,6 +556,22 @@ class EVGElement {
             return true
         }
         return false
+    }
+
+    ; "true"/"false"/"mixed" as EVGA11yTri, which is 0 for anything else —
+    ; including the empty string, i.e. "this element has no such state".
+    sfn triState:int (value:string) {
+        def v:string (trim value)
+        if (v == "true") {
+            return 2
+        }
+        if (v == "false") {
+            return 1
+        }
+        if (v == "mixed") {
+            return 3
+        }
+        return 0
     }
 
     fn hasAbsolutePosition:boolean () {
@@ -1143,6 +1190,37 @@ class EVGElement {
             if g {
                 overlayGap = (unwrap g)
             }
+            return
+        }
+
+        ; Accessibility. The ARIA spellings, so a tree literal and a stylesheet
+        ; and a hand-written element all say it the same way.
+        if ((name == "role") || (name == "a11yRole")) {
+            role = (trim value)
+            return
+        }
+        if ((name == "aria-label") || (name == "a11yLabel")) {
+            a11yLabel = value
+            return
+        }
+        if ((name == "aria-checked") || (name == "a11yChecked")) {
+            a11yChecked = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-expanded") || (name == "a11yExpanded")) {
+            a11yExpanded = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-selected") || (name == "a11ySelected")) {
+            a11ySelected = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-disabled") || (name == "a11yDisabled")) {
+            a11yDisabled = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "aria-focusable") || (name == "a11yFocusable")) {
+            a11yFocusable = (EVGElement.truthy(value))
             return
         }
 

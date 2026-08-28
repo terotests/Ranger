@@ -229,6 +229,13 @@ Two EVG limits the menubar exposed, neither of them about the syntax:
   change: no new syntax. The factory says `(isOverlay true)` on a tag and the
   call sites are untouched, which is the strongest evidence so far that the
   tree/factory split is in the right place.
+
+  The same held for accessibility, which is the harder test. The demo is now
+  clickable and readable — EVG hit testing answers the pointer, and an
+  accessible tree is derived from the elements and mirrored into DOM over the
+  canvas — and the syntax again did not change. The roles are `(role
+  "menuitem")` on a TAG, beside the class, so one declaration says what a thing
+  looks like and what it means, and no call site says either twice.
 - **`width: fill` is not "the remaining space".** It resolves to the parent's
   full width, so a filled label pushes its shortcut onto the next line. The
   demo's columns are therefore numbers.

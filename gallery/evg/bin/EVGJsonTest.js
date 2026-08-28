@@ -1170,6 +1170,15 @@ class EVGElement  {
     this.overlayGap = 4.0;
     this.overlayX = 0.0;     /** note: unused */
     this.overlayY = 0.0;     /** note: unused */
+    this.role = "";
+    this.a11yLabel = "";
+    this.a11yChecked = 0;
+    this.a11yExpanded = 0;
+    this.a11ySelected = 0;
+    this.a11yDisabled = false;
+    this.a11yFocusable = false;
+    this.a11yPosInSet = 0;     /** note: unused */
+    this.a11ySetSize = 0;     /** note: unused */
     this.isLayoutComplete = false;     /** note: unused */
     this.unitsResolved = false;
     this.hasReturn = false;     /** note: unused */
@@ -1601,6 +1610,34 @@ class EVGElement  {
       if ( typeof(g) != "undefined" ) {
         this.overlayGap = g;
       }
+      return;
+    }
+    if ( (name == "role") || (name == "a11yRole") ) {
+      this.role = value.trim();
+      return;
+    }
+    if ( (name == "aria-label") || (name == "a11yLabel") ) {
+      this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-checked") || (name == "a11yChecked") ) {
+      this.a11yChecked = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-expanded") || (name == "a11yExpanded") ) {
+      this.a11yExpanded = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-selected") || (name == "a11ySelected") ) {
+      this.a11ySelected = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-disabled") || (name == "a11yDisabled") ) {
+      this.a11yDisabled = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "aria-focusable") || (name == "a11yFocusable") ) {
+      this.a11yFocusable = EVGElement.truthy(value);
       return;
     }
     if ( name == "left" ) {
@@ -2040,6 +2077,19 @@ EVGElement.truthy = function(value) {
     return true;
   }
   return false;
+};
+EVGElement.triState = function(value) {
+  const v = value.trim();
+  if ( v == "true" ) {
+    return 2;
+  }
+  if ( v == "false" ) {
+    return 1;
+  }
+  if ( v == "mixed" ) {
+    return 3;
+  }
+  return 0;
 };
 EVGElement.toKebab = function(name) {
   let out = "";
@@ -5615,6 +5665,7 @@ class EVGSceneBinary  {
 class EVGDisplayList  {
   constructor() {
     this.cmds = [];
+    this.deferredOverlays = [];
     this.textEngine = new EVGTextEngine();
   }
   setTextEngine (e) {
@@ -5965,7 +6016,13 @@ class EVGDisplayList  {
   };
   build (root) {
     this.cmds.length = 0;
+    this.deferredOverlays.length = 0;
     this.walk(root);
+    let i = 0;
+    while (i < (this.deferredOverlays.length)) {
+      this.walk(this.deferredOverlays[i]);
+      i = i + 1;
+    };
   };
   fadeFrom (start, factor) {
     if ( factor >= 1.0 ) {
@@ -6096,7 +6153,11 @@ class EVGDisplayList  {
     let i = 0;
     while (i < el.getChildCount()) {
       const kid = el.getChild(i);
-      this.walk(kid);
+      if ( kid.isOverlay ) {
+        this.deferredOverlays.push(kid);
+      } else {
+        this.walk(kid);
+      }
       i = i + 1;
     };
     if ( clips ) {

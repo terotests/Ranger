@@ -50,6 +50,7 @@ const list = JSON.parse(demo.list(M, css));
 const doc = { width: 1240, height: demo.height, list };
 
 const html = `<!doctype html><meta charset="utf-8">
+<link rel="icon" href="data:,">
 <style>html,body{margin:0;background:#fff}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script type="module">

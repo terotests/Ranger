@@ -181,6 +181,9 @@ class EVGSceneBinary {
 
 class EVGDisplayList {
     def cmds:[EVGDrawCmd]
+    ; Overlay surfaces met during the first pass, drawn by the second. See
+    ; `build`.
+    def deferredOverlays:[EVGElement]
     ; The same engine layout measured with. A paragraph is emitted one command
     ; per LINE, broken exactly where layout broke it — a backend that got the
     ; whole string would draw one long run straight out of its box, which is
@@ -603,9 +606,31 @@ class EVGDisplayList {
     }
 
     ; Walk a LAID-OUT tree. Call after EVGLayout.layout(root).
+    ;
+    ; Two passes, because an overlay surface has to be drawn ABOVE the page and
+    ; not merely later in the tree. The first pass draws everything that is in
+    ; flow and puts each surface it meets aside; the second draws those, in the
+    ; order they were reached. A surface met INSIDE a surface is appended while
+    ; that loop is running, so a submenu lands after the menu that opened it.
+    ;
+    ; That order is a STACK — the order things opened in — not a z-index. There
+    ; is no number to get wrong and nothing for two components to disagree
+    ; about, and `EVGHitTest` builds the same list so that what is clicked is
+    ; what is seen.
+    ;
+    ; Deferring is also what takes a surface out of an ancestor's clip: the
+    ; second pass runs after the clip was popped, which is what a dropdown
+    ; inside a scrolling panel needs and what `overflow: hidden` would
+    ; otherwise forbid.
     fn build:void (root:EVGElement) {
         clear cmds
+        clear deferredOverlays
         this.walk(root)
+        def i:int 0
+        while (i < (array_length deferredOverlays)) {
+            this.walk((itemAt deferredOverlays i))
+            i = (i + 1)
+        }
     }
 
     ; Apply `opacity` to everything this element and its subtree just emitted.
@@ -777,7 +802,13 @@ class EVGDisplayList {
         def i:int 0
         while (i < (el.getChildCount())) {
             def kid:EVGElement (el.getChild(i))
-            this.walk(kid)
+            ; A surface is not drawn here. `build` comes back to it once the
+            ; whole normal tree is down — see the note there.
+            if kid.isOverlay {
+                push deferredOverlays kid
+            } {
+                this.walk(kid)
+            }
             i = (i + 1)
         }
         if clips {

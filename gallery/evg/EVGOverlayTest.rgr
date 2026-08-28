@@ -19,12 +19,18 @@
 ;   * an overlay INSIDE another overlay anchors to the moved rectangle, which
 ;     is what makes a submenu work with no submenu case anywhere;
 ;   * a surface with no anchor is REPORTED. Silently at (0,0) it looks like a
-;     stylesheet mistake and is not one.
+;     stylesheet mistake and is not one;
+;   * it PAINTS above the page, not merely later in the tree — a menu whose
+;     trigger comes first must still cover the menu next to it;
+;   * and a click in the area it covers HITS IT, not what is underneath, which
+;     is the same rule as painting and is therefore the same list.
 ; ==============================================================================
 
 Import "EVGElement.rgr"
 Import "EVGUnit.rgr"
 Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGHitTest.rgr"
 
 class OverlayCheck {
     def passed:int 0
@@ -232,6 +238,110 @@ class EVGOverlayTest {
         c.eqInt("with nothing reported" (array_length (lay.getOverlayErrors())) 0)
     }
 
+    ; ---- paint order and hit testing -----------------------------------------
+    ; Being placed correctly is not enough. A surface that paints in tree order
+    ; is above the page only by luck of where its menu sits, and a click that
+    ; walks the tree lands on whatever is UNDER the panel. Both follow from one
+    ; list: the normal tree, then the surfaces, in the order they opened.
+
+    ; A bar with two menus where the FIRST one is open. Its panel overhangs the
+    ; second menu's trigger, so tree order paints the trigger on top of the
+    ; panel and a tree-order hit test answers "trigger" for a point inside the
+    ; panel. Both are wrong, and both are wrong in the same place.
+    sfn buildTwoMenus:EVGElement () {
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def row:EVGElement (EVGOverlayTest.box("row" "row" 400.0 40.0))
+        row.setAttribute("display" "flex")
+        row.setAttribute("flex-direction" "row")
+        row.setAttribute("flex-wrap" "nowrap")
+
+        def first:EVGElement (EVGElement.createDiv())
+        first.id = "first"
+        first.setAttribute("display" "flex")
+        first.setAttribute("flex-direction" "column")
+        first.setAttribute("width" "fit-content")
+        def t1:EVGElement (EVGOverlayTest.box("t1" "trigger" 60.0 30.0))
+        t1.setAttribute("overlay-anchor-role" "true")
+        def panel:EVGElement (EVGOverlayTest.box("panel" "surface" 200.0 120.0))
+        panel.setAttribute("overlay" "true")
+        panel.setAttribute("overlay-side" "bottom")
+        panel.setAttribute("overlay-align" "start")
+        panel.setAttribute("overlay-gap" "4")
+        panel.setAttribute("background-color" "#ffffff")
+        first.addChild(t1)
+        first.addChild(panel)
+
+        ; The second menu is closed — a trigger and nothing else — and it sits
+        ; beside the first, so the open panel hangs over it.
+        def second:EVGElement (EVGElement.createDiv())
+        second.id = "second"
+        second.setAttribute("display" "flex")
+        second.setAttribute("flex-direction" "column")
+        second.setAttribute("width" "fit-content")
+        def t2:EVGElement (EVGOverlayTest.box("t2" "trigger" 60.0 30.0))
+        t2.setAttribute("background-color" "#ff0000")
+        t2.setAttribute("height" "300px")
+        second.addChild(t2)
+
+        row.addChild(first)
+        row.addChild(second)
+        page.addChild(row)
+        return page
+    }
+
+    ; Where in the display list this element's own background was drawn, or -1.
+    sfn rectIndex:int (dl:EVGDisplayList el:EVGElement) {
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 0) {
+                def sameX:boolean ((to_int c.x) == (to_int el.calculatedX))
+                def sameY:boolean ((to_int c.y) == (to_int el.calculatedY))
+                def sameW:boolean ((to_int c.w) == (to_int el.calculatedWidth))
+                if (sameX && (sameY && sameW)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn testPaintOrder:void (c:OverlayCheck) {
+        print "--- a surface paints above the page, not in tree order ---"
+        def page:EVGElement (EVGOverlayTest.buildTwoMenus())
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(page)
+        def panel:EVGElement (EVGOverlayTest.nodeById(page "panel"))
+        def t2:EVGElement (EVGOverlayTest.nodeById(page "t2"))
+        def pi:int (EVGOverlayTest.rectIndex(dl panel))
+        def ti:int (EVGOverlayTest.rectIndex(dl t2))
+        c.ok("both were drawn" ((pi >= 0) && (ti >= 0)))
+        ; The panel's menu comes FIRST in the bar, so tree order draws the
+        ; second menu's trigger over it.
+        c.ok("the panel is drawn after the trigger it overhangs" (pi > ti))
+    }
+
+    sfn testHitTopmost:void (c:OverlayCheck) {
+        print "--- a click in the panel hits the panel ---"
+        def page:EVGElement (EVGOverlayTest.buildTwoMenus())
+        EVGOverlayTest.laidOut(page)
+        def panel:EVGElement (EVGOverlayTest.nodeById(page "panel"))
+        def hit (new EVGHitTest())
+        ; A point inside the panel AND inside the trigger beside it: the whole
+        ; question is which one answers.
+        def px:double (panel.calculatedX + 150.0)
+        def py:double (panel.calculatedY + 10.0)
+        def t2:EVGElement (EVGOverlayTest.nodeById(page "t2"))
+        c.ok("the point really is over both" ((px > t2.calculatedX) && (py < (t2.calculatedY + t2.calculatedHeight))))
+        c.ok("and the panel answers" ((hit.idAt(page px py)) == "panel"))
+        ; Outside every surface, the page still answers normally.
+        c.ok("a point outside answers the element under it"
+            ((hit.idAt(page (t2.calculatedX + 10.0) (t2.calculatedY + 200.0))) == "t2"))
+    }
+
     sfn main:void () {
         def c (new OverlayCheck())
         print "=== EVG overlay surfaces ==="
@@ -241,6 +351,8 @@ class EVGOverlayTest {
         EVGOverlayTest.testNested(c)
         EVGOverlayTest.testUnanchored(c)
         EVGOverlayTest.testCentered(c)
+        EVGOverlayTest.testPaintOrder(c)
+        EVGOverlayTest.testHitTopmost(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

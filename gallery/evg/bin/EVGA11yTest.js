@@ -102,6 +102,15 @@ EVGA11yRole.alertDialog = function() {
 EVGA11yRole.slider = function() {
   return 32;
 };
+EVGA11yRole.menuBar = function() {
+  return 33;
+};
+EVGA11yRole.menuItemCheckbox = function() {
+  return 34;
+};
+EVGA11yRole.menuItemRadio = function() {
+  return 35;
+};
 EVGA11yRole.ariaName = function(role) {
   if ( role == 1 ) {
     return "group";
@@ -198,6 +207,15 @@ EVGA11yRole.ariaName = function(role) {
   }
   if ( role == 32 ) {
     return "slider";
+  }
+  if ( role == 33 ) {
+    return "menubar";
+  }
+  if ( role == 34 ) {
+    return "menuitemcheckbox";
+  }
+  if ( role == 35 ) {
+    return "menuitemradio";
   }
   return "none";
 };
@@ -1784,10 +1802,10 @@ class EVGElement  {
     this.flexWrap = "wrap";
     this.gridTemplateColumns = "";
     this.gridTemplateRows = "";
-    this.subgridColumnSizes = [];     /** note: unused */
-    this.subgridRowSizes = [];     /** note: unused */
-    this.computedRowSizes = [];     /** note: unused */
-    this.subgridPending = false;     /** note: unused */
+    this.subgridColumnSizes = [];
+    this.subgridRowSizes = [];
+    this.computedRowSizes = [];
+    this.subgridPending = false;
     this.gridTemplateAreas = "";
     this.gridAutoFlow = "row";
     this.fullBleed = false;
@@ -1804,8 +1822,8 @@ class EVGElement  {
     this.imageViewBoxH = 1.0;     /** note: unused */
     this.imageViewBoxSet = false;     /** note: unused */
     this.objectFit = "cover";
-    this.sourceWidth = 0.0;     /** note: unused */
-    this.sourceHeight = 0.0;     /** note: unused */
+    this.sourceWidth = 0.0;
+    this.sourceHeight = 0.0;
     this.svgPath = "";
     this.svgSource = "";
     this.viewBox = "";
@@ -1827,24 +1845,33 @@ class EVGElement  {
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
-    this.calculatedInnerWidth = 0.0;     /** note: unused */
-    this.calculatedInnerHeight = 0.0;     /** note: unused */
-    this.calculatedFlexWidth = 0.0;     /** note: unused */
-    this.calculatedFlexHeight = 0.0;     /** note: unused */
+    this.calculatedInnerWidth = 0.0;
+    this.calculatedInnerHeight = 0.0;
+    this.calculatedFlexWidth = 0.0;
+    this.calculatedFlexHeight = 0.0;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
     this.hasBaseline = false;
     this.hasDefiniteHeight = false;
-    this.calculatedPage = 0;     /** note: unused */
+    this.calculatedPage = 0;
     this.isAbsolute = false;
     this.isOverlay = false;
     this.isOverlayAnchor = false;
     this.overlaySide = "bottom";
     this.overlayAlign = "start";
     this.overlayGap = 4.0;
-    this.overlayX = 0.0;     /** note: unused */
-    this.overlayY = 0.0;     /** note: unused */
-    this.isLayoutComplete = false;     /** note: unused */
+    this.overlayX = 0.0;
+    this.overlayY = 0.0;
+    this.role = "";
+    this.a11yLabel = "";
+    this.a11yChecked = 0;
+    this.a11yExpanded = 0;
+    this.a11ySelected = 0;
+    this.a11yDisabled = false;
+    this.a11yFocusable = false;
+    this.a11yPosInSet = 0;
+    this.a11ySetSize = 0;
+    this.isLayoutComplete = false;
     this.unitsResolved = false;
     this.hasReturn = false;     /** note: unused */
     this.hasBreak = false;     /** note: unused */
@@ -2275,6 +2302,34 @@ class EVGElement  {
       if ( typeof(g) != "undefined" ) {
         this.overlayGap = g;
       }
+      return;
+    }
+    if ( (name == "role") || (name == "a11yRole") ) {
+      this.role = value.trim();
+      return;
+    }
+    if ( (name == "aria-label") || (name == "a11yLabel") ) {
+      this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-checked") || (name == "a11yChecked") ) {
+      this.a11yChecked = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-expanded") || (name == "a11yExpanded") ) {
+      this.a11yExpanded = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-selected") || (name == "a11ySelected") ) {
+      this.a11ySelected = EVGElement.triState(value);
+      return;
+    }
+    if ( (name == "aria-disabled") || (name == "a11yDisabled") ) {
+      this.a11yDisabled = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "aria-focusable") || (name == "a11yFocusable") ) {
+      this.a11yFocusable = EVGElement.truthy(value);
       return;
     }
     if ( name == "left" ) {
@@ -2714,6 +2769,19 @@ EVGElement.truthy = function(value) {
     return true;
   }
   return false;
+};
+EVGElement.triState = function(value) {
+  const v = value.trim();
+  if ( v == "true" ) {
+    return 2;
+  }
+  if ( v == "false" ) {
+    return 1;
+  }
+  if ( v == "mixed" ) {
+    return 3;
+  }
+  return 0;
 };
 EVGElement.toKebab = function(name) {
   let out = "";
@@ -6289,6 +6357,7 @@ class EVGSceneBinary  {
 class EVGDisplayList  {
   constructor() {
     this.cmds = [];
+    this.deferredOverlays = [];
     this.textEngine = new EVGTextEngine();
   }
   setTextEngine (e) {
@@ -6639,7 +6708,13 @@ class EVGDisplayList  {
   };
   build (root) {
     this.cmds.length = 0;
+    this.deferredOverlays.length = 0;
     this.walk(root);
+    let i = 0;
+    while (i < (this.deferredOverlays.length)) {
+      this.walk(this.deferredOverlays[i]);
+      i = i + 1;
+    };
   };
   fadeFrom (start, factor) {
     if ( factor >= 1.0 ) {
@@ -6770,7 +6845,11 @@ class EVGDisplayList  {
     let i = 0;
     while (i < el.getChildCount()) {
       const kid = el.getChild(i);
-      this.walk(kid);
+      if ( kid.isOverlay ) {
+        this.deferredOverlays.push(kid);
+      } else {
+        this.walk(kid);
+      }
       i = i + 1;
     };
     if ( clips ) {
@@ -16564,6 +16643,2758 @@ class EVGWindowManager  {
     };
   };
 }
+class EVGA11yFromTree  {
+  constructor() {
+    this.unnamed = 0;
+    this.tree = new EVGA11yTree();
+  }
+  contentText (el) {
+    let out = "";
+    let i = 0;
+    while (i < (el.children.length)) {
+      const kid = el.children[i];
+      if ( (kid.role.length) == 0 ) {
+        const t = kid.textContent.trim();
+        if ( (t.length) > 0 ) {
+          if ( (out.length) > 0 ) {
+            out = out + " ";
+          }
+          out = out + t;
+        }
+        const below = this.contentText(kid);
+        if ( (below.length) > 0 ) {
+          if ( (out.length) > 0 ) {
+            out = out + " ";
+          }
+          out = out + below;
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  nameOf (el) {
+    if ( (el.a11yLabel.length) > 0 ) {
+      return el.a11yLabel;
+    }
+    const own = el.textContent.trim();
+    if ( (own.length) > 0 ) {
+      return own;
+    }
+    return this.contentText(el);
+  };
+  idOf (el, parentId, index) {
+    if ( (el.id.length) > 0 ) {
+      return el.id;
+    }
+    this.unnamed = this.unnamed + 1;
+    return (((parentId + "/") + el.role) + "@") + ((index.toString()));
+  };
+  walk (el, parentId, index) {
+    let nextParent = parentId;
+    const code = EVGA11yFromTree.roleCode(el.role);
+    if ( code != EVGA11yRole.none() ) {
+      const id = this.idOf(el, parentId, index);
+      const t = this.tree;
+      const n = t.node(id, parentId, code);
+      n.name = this.nameOf(el);
+      n.disabled = el.a11yDisabled;
+      n.checked = el.a11yChecked;
+      n.expanded = el.a11yExpanded;
+      if ( el.a11ySelected == 2 ) {
+        n.selected = true;
+      }
+      n.focusable = el.a11yFocusable;
+      if ( el.a11yFocusable ) {
+        n.actActivate = true;
+      }
+      if ( el.a11yExpanded > 0 ) {
+        n.actExpand = true;
+      }
+      n.posInSet = el.a11yPosInSet;
+      n.setSize = el.a11ySetSize;
+      t.place(n, Math.floor( el.calculatedX), Math.floor( el.calculatedY), Math.floor( el.calculatedWidth), Math.floor( el.calculatedHeight));
+      nextParent = id;
+    }
+    let i = 0;
+    while (i < (el.children.length)) {
+      this.walk(el.children[i], nextParent, i);
+      i = i + 1;
+    };
+  };
+  build (root, appName, generation, focusId) {
+    this.tree = new EVGA11yTree();
+    this.unnamed = 0;
+    const t = this.tree;
+    t.generation = generation;
+    const rootNode = t.node("root", "", EVGA11yRole.group());
+    rootNode.name = appName;
+    t.place(rootNode, Math.floor( root.calculatedX), Math.floor( root.calculatedY), Math.floor( root.calculatedWidth), Math.floor( root.calculatedHeight));
+    this.walk(root, "root", 0);
+    t.setFocus(focusId);
+    return t;
+  };
+}
+EVGA11yFromTree.roleCode = function(name) {
+  if ( name == "group" ) {
+    return EVGA11yRole.group();
+  }
+  if ( name == "text" ) {
+    return EVGA11yRole.text();
+  }
+  if ( name == "heading" ) {
+    return EVGA11yRole.heading();
+  }
+  if ( name == "button" ) {
+    return EVGA11yRole.button();
+  }
+  if ( name == "checkbox" ) {
+    return EVGA11yRole.checkbox();
+  }
+  if ( name == "radio" ) {
+    return EVGA11yRole.radio();
+  }
+  if ( name == "textbox" ) {
+    return EVGA11yRole.textField();
+  }
+  if ( name == "img" ) {
+    return EVGA11yRole.image();
+  }
+  if ( name == "link" ) {
+    return EVGA11yRole.link();
+  }
+  if ( name == "tablist" ) {
+    return EVGA11yRole.tabList();
+  }
+  if ( name == "tab" ) {
+    return EVGA11yRole.tab();
+  }
+  if ( name == "toolbar" ) {
+    return EVGA11yRole.toolbar();
+  }
+  if ( name == "menu" ) {
+    return EVGA11yRole.menu();
+  }
+  if ( name == "menubar" ) {
+    return EVGA11yRole.menuBar();
+  }
+  if ( name == "menuitem" ) {
+    return EVGA11yRole.menuItem();
+  }
+  if ( name == "menuitemcheckbox" ) {
+    return EVGA11yRole.menuItemCheckbox();
+  }
+  if ( name == "menuitemradio" ) {
+    return EVGA11yRole.menuItemRadio();
+  }
+  if ( name == "separator" ) {
+    return EVGA11yRole.separator();
+  }
+  if ( name == "dialog" ) {
+    return EVGA11yRole.dialog();
+  }
+  if ( name == "alertdialog" ) {
+    return EVGA11yRole.alertDialog();
+  }
+  if ( name == "tooltip" ) {
+    return EVGA11yRole.tooltip();
+  }
+  if ( name == "status" ) {
+    return EVGA11yRole.status();
+  }
+  if ( name == "region" ) {
+    return EVGA11yRole.region();
+  }
+  if ( name == "list" ) {
+    return EVGA11yRole.list();
+  }
+  if ( name == "listitem" ) {
+    return EVGA11yRole.listItem();
+  }
+  if ( name == "switch" ) {
+    return EVGA11yRole.switchControl();
+  }
+  if ( name == "radiogroup" ) {
+    return EVGA11yRole.radioGroup();
+  }
+  if ( name == "slider" ) {
+    return EVGA11yRole.slider();
+  }
+  if ( name == "progressbar" ) {
+    return EVGA11yRole.progressBar();
+  }
+  return EVGA11yRole.none();
+};
+class EVGImageDimensions  {
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+  }
+}
+EVGImageDimensions.create = function(w, h) {
+  const d = new EVGImageDimensions();
+  d.width = w;
+  d.height = h;
+  if ( h > 0 ) {
+    d.aspectRatio = (w) / (h);
+  }
+  d.isValid = true;
+  return d;
+};
+class EVGImageMeasurer  {
+  constructor() {
+  }
+  getImageDimensions (src) {
+    const dims = new EVGImageDimensions();
+    return dims;
+  };
+  calculateHeightForWidth (src, targetWidth) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  };
+  calculateWidthForHeight (src, targetHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  };
+  calculateFitDimensions (src, maxWidth, maxHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid == false ) {
+      return EVGImageDimensions.create((Math.floor( maxWidth)), (Math.floor( maxHeight)));
+    }
+    const scaleW = maxWidth / (dims.width);
+    const scaleH = maxHeight / (dims.height);
+    let scale = scaleW;
+    if ( scaleH < scaleW ) {
+      scale = scaleH;
+    }
+    const newW = Math.floor( ((dims.width) * scale));
+    const newH = Math.floor( ((dims.height) * scale));
+    return EVGImageDimensions.create(newW, newH);
+  };
+}
+class SimpleImageMeasurer  extends EVGImageMeasurer {
+  constructor() {
+    super()
+  }
+}
+class EVGGridTrack  {
+  constructor() {
+    this.kind = 0;
+    this.value = 0.0;
+    this.hasFitLimit = false;
+    this.sizePx = 0.0;
+    this.hasMin = false;
+    this.hasMax = false;
+    this.frozen = false;
+    this.kind = 0;
+    this.value = 0.0;
+    this.sizePx = 0.0;
+    this.hasMin = false;
+    this.hasMax = false;
+    this.frozen = false;
+    this.hasFitLimit = false;
+    this.minUnit = EVGUnit.unset();
+    this.maxUnit = EVGUnit.unset();
+    this.fitLimit = EVGUnit.unset();
+  }
+}
+class EVGGridTemplate  {
+  constructor() {
+    this.tracks = [];
+    this.lineNames = [];
+    this.lineNumbers = [];
+    this.hadError = false;
+    this.errorText = "";
+    this.hadError = false;
+    this.errorText = "";
+  }
+  lineNumberNamed (name) {
+    let i = 0;
+    while (i < (this.lineNames.length)) {
+      if ( (this.lineNames[i]) == name ) {
+        return this.lineNumbers[i];
+      }
+      i = i + 1;
+    };
+    return 0;
+  };
+  addLineNames (tok) {
+    const inner = (tok.substring(1, ((tok.length) - 1) )).trim();
+    const line = (this.tracks.length) + 1;
+    const parts = EVGGridTemplate.tokenize(inner);
+    let i = 0;
+    while (i < (parts.length)) {
+      const nm = parts[i];
+      if ( (nm.length) > 0 ) {
+        if ( this.lineNumberNamed(nm) == 0 ) {
+          this.lineNames.push(nm);
+          this.lineNumbers.push(line);
+        }
+      }
+      i = i + 1;
+    };
+  };
+  count () {
+    return this.tracks.length;
+  };
+  trackAt (i) {
+    return this.tracks[i];
+  };
+  expandRepeat (tok) {
+    const __len = tok.length;
+    const close = __len - 1;
+    if ( (tok.charCodeAt(close )) != 41 ) {
+      this.hadError = true;
+      this.errorText = "Malformed repeat(): " + tok;
+      return;
+    }
+    const inner = tok.substring(7, close );
+    let comma = 0 - 1;
+    let j = 0;
+    while (j < (inner.length)) {
+      if ( (inner.charCodeAt(j )) == 44 ) {
+        comma = j;
+        j = inner.length;
+      } else {
+        j = j + 1;
+      }
+    };
+    if ( comma < 0 ) {
+      this.hadError = true;
+      this.errorText = "repeat() needs a count and a track list: " + tok;
+      return;
+    }
+    const countStr = (inner.substring(0, comma )).trim();
+    const listStr = (inner.substring((comma + 1), (inner.length) )).trim();
+    const countVal = isNaN( parseFloat(countStr) ) ? undefined : parseFloat(countStr);
+    let n = 0;
+    if ( typeof(countVal) != "undefined" ) {
+      n = Math.floor( (countVal));
+    } else {
+      this.hadError = true;
+      this.errorText = "repeat() count is not a number: " + tok;
+      return;
+    }
+    if ( n < 1 ) {
+      this.hadError = true;
+      this.errorText = "repeat() count must be at least 1: " + tok;
+      return;
+    }
+    const inner2 = EVGGridTemplate.tokenize(listStr);
+    let r = 0;
+    while (r < n) {
+      let k = 0;
+      while (k < (inner2.length)) {
+        const innerTok = inner2[k];
+        if ( EVGGridTemplate.isMinmax(innerTok) ) {
+          this.addMinmax(innerTok);
+        } else {
+          this.addTrack(innerTok);
+        }
+        k = k + 1;
+      };
+      r = r + 1;
+    };
+  };
+  addMinmax (tok) {
+    const __len = tok.length;
+    const close = __len - 1;
+    if ( (tok.charCodeAt(close )) != 41 ) {
+      this.hadError = true;
+      this.errorText = "Malformed minmax(): " + tok;
+      return;
+    }
+    const inner = tok.substring(7, close );
+    let comma = 0 - 1;
+    let j = 0;
+    while (j < (inner.length)) {
+      if ( (inner.charCodeAt(j )) == 44 ) {
+        comma = j;
+        j = inner.length;
+      } else {
+        j = j + 1;
+      }
+    };
+    if ( comma < 0 ) {
+      this.hadError = true;
+      this.errorText = "minmax() needs two values: " + tok;
+      return;
+    }
+    const minStr = (inner.substring(0, comma )).trim();
+    const maxStr = (inner.substring((comma + 1), (inner.length) )).trim();
+    const before = this.tracks.length;
+    this.addTrack(maxStr);
+    if ( (this.tracks.length) == before ) {
+      return;
+    }
+    const track = this.tracks[((this.tracks.length) - 1)];
+    if ( EVGGridTemplate.isFrToken(minStr) == false ) {
+      track.minUnit = EVGUnit.parse(minStr);
+      track.hasMin = track.minUnit.isSet;
+    }
+    if ( EVGGridTemplate.isFrToken(maxStr) == false ) {
+      track.maxUnit = EVGUnit.parse(maxStr);
+      track.hasMax = track.maxUnit.isSet;
+    }
+  };
+  addTrack (tok) {
+    const t = tok.trim();
+    const __len = t.length;
+    if ( __len == 0 ) {
+      return;
+    }
+    const track = new EVGGridTrack();
+    if ( t == "auto" ) {
+      track.kind = 3;
+      this.tracks.push(track);
+      return;
+    }
+    if ( EVGGridTemplate.isFitContent(t) ) {
+      const inner = (t.substring(12, (__len - 1) )).trim();
+      const lim = EVGUnit.parse(inner);
+      if ( lim.isSet == false ) {
+        this.hadError = true;
+        this.errorText = "Unsupported fit-content() limit: " + inner;
+        return;
+      }
+      track.kind = 3;
+      track.hasFitLimit = true;
+      track.fitLimit = lim;
+      this.tracks.push(track);
+      return;
+    }
+    if ( __len > 2 ) {
+      if ( (t.substring((__len - 2), __len )) == "fr" ) {
+        const numStr = t.substring(0, (__len - 2) );
+        const frVal = isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr);
+        if ( typeof(frVal) != "undefined" ) {
+          track.kind = 2;
+          track.value = frVal;
+          this.tracks.push(track);
+          return;
+        }
+      }
+    }
+    if ( t == "fr" ) {
+      track.kind = 2;
+      track.value = 1.0;
+      this.tracks.push(track);
+      return;
+    }
+    const unit = EVGUnit.parse(t);
+    if ( unit.isSet == false ) {
+      this.hadError = true;
+      this.errorText = "Unsupported track size: " + t;
+      return;
+    }
+    if ( unit.unitType == 1 ) {
+      track.kind = 1;
+      track.value = unit.value;
+    } else {
+      track.kind = 0;
+      track.value = unit.value;
+    }
+    this.tracks.push(track);
+  };
+  hasIntrinsicTrack () {
+    let i = 0;
+    while (i < (this.tracks.length)) {
+      const t = this.tracks[i];
+      if ( t.kind == 3 ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  resolve (available) {
+    let empty = [];
+    let empty2 = [];
+    this.resolveWithContent(available, empty, empty2);
+  };
+  resolveWithContent (available, content, minContent) {
+    const n = this.tracks.length;
+    let used = 0.0;
+    let totalFr = 0.0;
+    let i = 0;
+    while (i < n) {
+      const t = this.tracks[i];
+      t.frozen = false;
+      if ( t.hasMin ) {
+        t.minUnit.resolve(available, 16.0);
+      }
+      if ( t.hasMax ) {
+        t.maxUnit.resolve(available, 16.0);
+      }
+      if ( t.kind == 0 ) {
+        t.sizePx = t.value;
+        used = used + t.sizePx;
+        t.frozen = true;
+      }
+      if ( t.kind == 1 ) {
+        t.sizePx = (available * t.value) / 100.0;
+        used = used + t.sizePx;
+        t.frozen = true;
+      }
+      if ( t.kind == 2 ) {
+        totalFr = totalFr + t.value;
+      }
+      if ( t.kind == 3 ) {
+        let c = 0.0;
+        if ( i < (content.length) ) {
+          c = content[i];
+        }
+        if ( t.hasFitLimit ) {
+          t.fitLimit.resolve(available, 16.0);
+          if ( c > t.fitLimit.pixels ) {
+            c = t.fitLimit.pixels;
+          }
+          if ( i < (minContent.length) ) {
+            const floorPx = minContent[i];
+            if ( c < floorPx ) {
+              c = floorPx;
+            }
+          }
+        }
+        t.sizePx = c;
+        used = used + c;
+        t.frozen = true;
+      }
+      i = i + 1;
+    };
+    let poolSpace = available - used;
+    if ( poolSpace < 0.0 ) {
+      poolSpace = 0.0;
+    }
+    let poolFr = totalFr;
+    let pass = 0;
+    let settled = false;
+    while ((pass <= n) && (settled == false)) {
+      settled = true;
+      let j = 0;
+      while (j < n) {
+        const t2 = this.tracks[j];
+        if ( (t2.kind == 2) && (t2.frozen == false) ) {
+          let size = 0.0;
+          if ( poolFr > 0.0 ) {
+            size = (poolSpace * t2.value) / poolFr;
+          }
+          let clamped = size;
+          if ( t2.hasMin ) {
+            if ( clamped < t2.minUnit.pixels ) {
+              clamped = t2.minUnit.pixels;
+            }
+          }
+          if ( t2.hasMax ) {
+            if ( clamped > t2.maxUnit.pixels ) {
+              clamped = t2.maxUnit.pixels;
+            }
+          }
+          t2.sizePx = clamped;
+          if ( clamped != size ) {
+            t2.frozen = true;
+            poolSpace = poolSpace - clamped;
+            poolFr = poolFr - t2.value;
+            if ( poolSpace < 0.0 ) {
+              poolSpace = 0.0;
+            }
+            settled = false;
+          }
+        }
+        j = j + 1;
+      };
+      pass = pass + 1;
+    };
+    let k = 0;
+    while (k < n) {
+      const t3 = this.tracks[k];
+      if ( t3.kind != 2 ) {
+        if ( t3.hasMin ) {
+          if ( t3.sizePx < t3.minUnit.pixels ) {
+            t3.sizePx = t3.minUnit.pixels;
+          }
+        }
+        if ( t3.hasMax ) {
+          if ( t3.sizePx > t3.maxUnit.pixels ) {
+            t3.sizePx = t3.maxUnit.pixels;
+          }
+        }
+      }
+      k = k + 1;
+    };
+  };
+  extentOf (from, span, gap) {
+    let total = 0.0;
+    const n = this.tracks.length;
+    let i = from;
+    let placed = 0;
+    while ((i < n) && (placed < span)) {
+      const tk = this.tracks[i];
+      total = total + tk.sizePx;
+      placed = placed + 1;
+      i = i + 1;
+    };
+    if ( placed > 1 ) {
+      total = total + (((placed - 1)) * gap);
+    }
+    return total;
+  };
+  offsetOf (index, gap) {
+    let total = 0.0;
+    let i = 0;
+    while (i < index) {
+      const tk = this.tracks[i];
+      total = total + tk.sizePx;
+      total = total + gap;
+      i = i + 1;
+    };
+    return total;
+  };
+}
+EVGGridTemplate.isLineNameToken = function(tok) {
+  const __len = tok.length;
+  if ( __len < 2 ) {
+    return false;
+  }
+  if ( (tok.charCodeAt(0 )) != 91 ) {
+    return false;
+  }
+  return (tok.charCodeAt((__len - 1) )) == 93;
+};
+EVGGridTemplate.parse = function(spec) {
+  const tpl = new EVGGridTemplate();
+  const tokens = EVGGridTemplate.tokenize(spec);
+  let i = 0;
+  while (i < (tokens.length)) {
+    const tok = tokens[i];
+    if ( EVGGridTemplate.isLineNameToken(tok) ) {
+      tpl.addLineNames(tok);
+    } else {
+      if ( EVGGridTemplate.isRepeat(tok) ) {
+        tpl.expandRepeat(tok);
+      } else {
+        if ( EVGGridTemplate.isMinmax(tok) ) {
+          tpl.addMinmax(tok);
+        } else {
+          tpl.addTrack(tok);
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return tpl;
+};
+EVGGridTemplate.tokenize = function(spec) {
+  let out = [];
+  const __len = spec.length;
+  let depth = 0;
+  let start = 0;
+  let inTok = false;
+  let i = 0;
+  while (i < __len) {
+    const c = spec.charCodeAt(i );
+    if ( (c == 40) || (c == 91) ) {
+      depth = depth + 1;
+    }
+    if ( (c == 41) || (c == 93) ) {
+      depth = depth - 1;
+    }
+    const isSpace = ((c == 32) || (c == 9)) || ((c == 10) || (c == 13));
+    if ( isSpace && (depth == 0) ) {
+      if ( inTok ) {
+        out.push(spec.substring(start, i ));
+        inTok = false;
+      }
+    } else {
+      if ( inTok == false ) {
+        start = i;
+        inTok = true;
+      }
+    }
+    i = i + 1;
+  };
+  if ( inTok ) {
+    out.push(spec.substring(start, __len ));
+  }
+  return out;
+};
+EVGGridTemplate.isRepeat = function(tok) {
+  if ( (tok.length) < 8 ) {
+    return false;
+  }
+  return (tok.substring(0, 7 )) == "repeat(";
+};
+EVGGridTemplate.isMinmax = function(tok) {
+  if ( (tok.length) < 8 ) {
+    return false;
+  }
+  return (tok.substring(0, 7 )) == "minmax(";
+};
+EVGGridTemplate.isFrToken = function(tok) {
+  const __len = tok.length;
+  if ( __len < 2 ) {
+    return false;
+  }
+  return (tok.substring((__len - 2), __len )) == "fr";
+};
+EVGGridTemplate.isFitContent = function(tok) {
+  if ( (tok.length) < 14 ) {
+    return false;
+  }
+  if ( (tok.substring(0, 12 )) != "fit-content(" ) {
+    return false;
+  }
+  return (tok.charCodeAt(((tok.length) - 1) )) == 41;
+};
+class EVGGridAreas  {
+  constructor() {
+    this.names = [];
+    this.rowStart = [];
+    this.colStart = [];
+    this.rowSpan = [];
+    this.colSpan = [];
+    this.columns = 0;
+    this.rows = 0;
+    this.hadError = false;
+    this.errorText = "";
+    this.columns = 0;
+    this.rows = 0;
+    this.hadError = false;
+    this.errorText = "";
+  }
+  count () {
+    return this.names.length;
+  };
+  indexOfName (name) {
+    let i = 0;
+    while (i < (this.names.length)) {
+      if ( (this.names[i]) == name ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  build (rowsOut) {
+    this.rows = rowsOut.length;
+    let cells = [];
+    let r = 0;
+    while (r < this.rows) {
+      const toks = EVGGridTemplate.tokenize((rowsOut[r]));
+      if ( r == 0 ) {
+        this.columns = toks.length;
+      } else {
+        if ( (toks.length) != this.columns ) {
+          this.hadError = true;
+          this.errorText = "grid-template-areas rows must all have the same number of columns";
+          return;
+        }
+      }
+      let c = 0;
+      while (c < (toks.length)) {
+        cells.push(toks[c]);
+        c = c + 1;
+      };
+      r = r + 1;
+    };
+    if ( this.columns == 0 ) {
+      this.hadError = true;
+      this.errorText = "grid-template-areas has no columns";
+      return;
+    }
+    let rr = 0;
+    while (rr < this.rows) {
+      let cc = 0;
+      while (cc < this.columns) {
+        const name = cells[((rr * this.columns) + cc)];
+        if ( name != "." ) {
+          const at = this.indexOfName(name);
+          if ( at < 0 ) {
+            this.names.push(name);
+            this.rowStart.push(rr);
+            this.colStart.push(cc);
+            this.rowSpan.push(1);
+            this.colSpan.push(1);
+          } else {
+            const r0 = this.rowStart[at];
+            const c0 = this.colStart[at];
+            const rs = this.rowSpan[at];
+            const cs = this.colSpan[at];
+            if ( (rr + 1) > (r0 + rs) ) {
+              this.rowSpan[at] = (rr + 1) - r0;
+            }
+            if ( (cc + 1) > (c0 + cs) ) {
+              this.colSpan[at] = (cc + 1) - c0;
+            }
+          }
+        }
+        cc = cc + 1;
+      };
+      rr = rr + 1;
+    };
+    const n = this.names.length;
+    let k = 0;
+    while (k < n) {
+      const nm = this.names[k];
+      const r0_1 = this.rowStart[k];
+      const c0_1 = this.colStart[k];
+      const rs_1 = this.rowSpan[k];
+      const cs_1 = this.colSpan[k];
+      let a = 0;
+      while (a < rs_1) {
+        let b = 0;
+        while (b < cs_1) {
+          const idx = ((r0_1 + a) * this.columns) + (c0_1 + b);
+          if ( (cells[idx]) != nm ) {
+            this.hadError = true;
+            this.errorText = ("Area \"" + nm) + "\" is not a rectangle in grid-template-areas";
+            return;
+          }
+          b = b + 1;
+        };
+        a = a + 1;
+      };
+      k = k + 1;
+    };
+  };
+}
+EVGGridAreas.parse = function(spec) {
+  const areas = new EVGGridAreas();
+  let rowsOut = [];
+  let cur = "";
+  let inQuote = false;
+  let quoteCh = 0;
+  let i = 0;
+  const __len = spec.length;
+  while (i < __len) {
+    const c = spec.charCodeAt(i );
+    if ( inQuote ) {
+      if ( c == quoteCh ) {
+        rowsOut.push(cur);
+        cur = "";
+        inQuote = false;
+      } else {
+        cur = cur + (String.fromCharCode(c));
+      }
+    } else {
+      if ( (c == 34) || (c == 39) ) {
+        inQuote = true;
+        quoteCh = c;
+      }
+    }
+    i = i + 1;
+  };
+  if ( inQuote ) {
+    areas.hadError = true;
+    areas.errorText = "Unterminated row in grid-template-areas: " + spec;
+    return areas;
+  }
+  if ( (rowsOut.length) == 0 ) {
+    areas.hadError = true;
+    areas.errorText = "grid-template-areas needs quoted rows: " + spec;
+    return areas;
+  }
+  areas.build(rowsOut);
+  return areas;
+};
+class EVGGridPlacement  {
+  constructor() {
+    this.start = 0;
+    this.span = 1;
+    this.hadError = false;
+    this.errorText = "";
+    this.startName = "";
+    this.endName = "";
+    this.endLine = 0;
+    this.spanExplicit = false;
+    this.start = 0;
+    this.span = 1;
+    this.hadError = false;
+    this.errorText = "";
+    this.startName = "";
+    this.endName = "";
+    this.endLine = 0;
+    this.spanExplicit = false;
+  }
+  takeStart (token) {
+    if ( EVGGridPlacement.isNumericToken(token) ) {
+      this.start = EVGGridPlacement.lineNumber(token);
+      if ( this.start == 0 ) {
+        this.reject(token);
+      }
+    } else {
+      this.startName = token;
+    }
+  };
+  takeEnd (token) {
+    if ( EVGGridPlacement.isNumericToken(token) ) {
+      this.endLine = EVGGridPlacement.lineNumber(token);
+      if ( this.endLine == 0 ) {
+        this.reject(token);
+      }
+    } else {
+      this.endName = token;
+    }
+  };
+  applyEndLine () {
+    if ( this.spanExplicit ) {
+      return;
+    }
+    if ( this.start < 1 ) {
+      return;
+    }
+    if ( this.endLine > this.start ) {
+      this.span = this.endLine - this.start;
+    }
+  };
+  resolveNames (tpl) {
+    if ( (this.startName.length) > 0 ) {
+      const n = tpl.lineNumberNamed(this.startName);
+      if ( n > 0 ) {
+        this.start = n;
+        this.startName = "";
+      } else {
+        this.rejectName(this.startName);
+      }
+    }
+    if ( (this.endName.length) > 0 ) {
+      const e = tpl.lineNumberNamed(this.endName);
+      if ( e > 0 ) {
+        this.endLine = e;
+        this.endName = "";
+      } else {
+        this.rejectName(this.endName);
+      }
+    }
+    this.applyEndLine();
+  };
+  rejectName (name) {
+    if ( this.hadError ) {
+      return;
+    }
+    this.hadError = true;
+    this.errorText = ("no line named \"" + name) + "\"; the item was auto-placed";
+  };
+  reject (token) {
+    if ( this.hadError ) {
+      return;
+    }
+    this.hadError = true;
+    this.errorText = ("unsupported line \"" + token) + "\" (negative line numbers are not supported); the item was auto-placed";
+  };
+}
+EVGGridPlacement.parse = function(spec) {
+  const p = new EVGGridPlacement();
+  const s = spec.trim();
+  if ( (s.length) == 0 ) {
+    return p;
+  }
+  let slash = 0 - 1;
+  let i = 0;
+  while (i < (s.length)) {
+    if ( (s.charCodeAt(i )) == 47 ) {
+      slash = i;
+      i = s.length;
+    } else {
+      i = i + 1;
+    }
+  };
+  if ( slash < 0 ) {
+    if ( EVGGridPlacement.isSpan(s) ) {
+      p.span = EVGGridPlacement.spanCount(s);
+      p.spanExplicit = true;
+    } else {
+      p.takeStart(s);
+    }
+    return p;
+  }
+  const lhs = (s.substring(0, slash )).trim();
+  const rhs = (s.substring((slash + 1), (s.length) )).trim();
+  p.takeStart(lhs);
+  if ( EVGGridPlacement.isSpan(rhs) ) {
+    p.span = EVGGridPlacement.spanCount(rhs);
+    p.spanExplicit = true;
+  } else {
+    p.takeEnd(rhs);
+  }
+  p.applyEndLine();
+  return p;
+};
+EVGGridPlacement.isNumericToken = function(s) {
+  if ( (s.length) == 0 ) {
+    return false;
+  }
+  const c = s.charCodeAt(0 );
+  if ( (c >= 48) && (c <= 57) ) {
+    return true;
+  }
+  return (c == 45) || (c == 43);
+};
+EVGGridPlacement.isSpan = function(s) {
+  if ( (s.length) < 4 ) {
+    return false;
+  }
+  return (s.substring(0, 4 )) == "span";
+};
+EVGGridPlacement.spanCount = function(s) {
+  const rest = (s.substring(4, (s.length) )).trim();
+  const v = isNaN( parseFloat(rest) ) ? undefined : parseFloat(rest);
+  if ( typeof(v) != "undefined" ) {
+    const n = Math.floor( (v));
+    if ( n >= 1 ) {
+      return n;
+    }
+  }
+  return 1;
+};
+EVGGridPlacement.lineNumber = function(s) {
+  const v = isNaN( parseFloat(s) ) ? undefined : parseFloat(s);
+  if ( typeof(v) != "undefined" ) {
+    const n = Math.floor( (v));
+    if ( n >= 1 ) {
+      return n;
+    }
+  }
+  return 0;
+};
+class EVGLayout  {
+  constructor() {
+    this.textEngine = new EVGTextEngine();
+    this.pageWidth = 612.0;
+    this.pageHeight = 792.0;
+    this.currentPage = 0;
+    this.debug = false;
+    this.overlayErrors = [];
+    this.warnings = [];
+    const m_1 = new SimpleTextMeasurer();
+    this.measurer = m_1;
+    this.textEngine.setMeasurer(m_1);
+    const im = new SimpleImageMeasurer();
+    this.imageMeasurer = im;
+  }
+  setMeasurer (m) {
+    this.measurer = m;
+    this.textEngine.setMeasurer(m);
+  };
+  getTextEngine () {
+    return this.textEngine;
+  };
+  setStrictFonts (s) {
+    this.textEngine.setStrict(s);
+  };
+  setImageMeasurer (m) {
+    this.imageMeasurer = m;
+  };
+  setPageSize (w, h) {
+    this.pageWidth = w;
+    this.pageHeight = h;
+  };
+  setDebug (d) {
+    this.debug = d;
+  };
+  log (msg) {
+    if ( this.debug ) {
+      console.log(msg);
+    }
+  };
+  warn (msg) {
+    let i = 0;
+    while (i < (this.warnings.length)) {
+      if ( (this.warnings[i]) == msg ) {
+        return;
+      }
+      i = i + 1;
+    };
+    this.warnings.push(msg);
+    this.log("  " + msg);
+  };
+  warningCount () {
+    return this.warnings.length;
+  };
+  warningAt (i) {
+    return this.warnings[i];
+  };
+  layout (root) {
+    this.log("EVGLayout: Starting layout");
+    this.currentPage = 0;
+    root.resetLayoutState();
+    if ( root.width.isSet == false ) {
+      root.width = EVGUnit.px(this.pageWidth);
+    }
+    if ( root.height.isSet == false ) {
+      root.height = EVGUnit.px(this.pageHeight);
+    }
+    root.applyOwnFontSize();
+    root.rootFontSize = root.inheritedFontSize;
+    root.applyOwnDirection(false);
+    root.calculatedX = 0.0;
+    root.calculatedY = 0.0;
+    this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
+    this.overlayErrors.length = 0;
+    this.placeOverlaysIn(root);
+    this.log("EVGLayout: Layout complete");
+  };
+  layoutElement (element, parentX, parentY, parentWidth, parentHeight) {
+    element.resolveUnits(parentWidth, parentHeight);
+    let width = parentWidth;
+    if ( element.width.isSet ) {
+      width = element.width.pixels;
+    }
+    if ( element.width.isSet == false ) {
+      const textContent = element.textContent;
+      if ( (textContent.length) > 0 ) {
+        if ( element.getChildCount() == 0 ) {
+          let fontSize = element.inheritedFontSize;
+          if ( element.fontSize.isSet ) {
+            fontSize = element.fontSize.pixels;
+          }
+          if ( fontSize <= 0.0 ) {
+            fontSize = 14.0;
+          }
+          const contentW = this.textEngine.maxLineWidth(textContent, element.effectiveFontFamily(), fontSize);
+          const measuredW = ((contentW + element.box.paddingLeftPx) + element.box.paddingRightPx) + (element.box.borderWidthPx * 2.0);
+          if ( measuredW < parentWidth ) {
+            width = measuredW;
+          }
+        }
+      }
+    }
+    let height = 0.0;
+    let autoHeight = true;
+    if ( (element.tagName == "Page") || (element.tagName == "page") ) {
+      if ( element.width.isSet == false ) {
+        width = this.pageWidth;
+      }
+      if ( element.height.isSet == false ) {
+        height = this.pageHeight;
+        autoHeight = false;
+      }
+    }
+    if ( element.height.isSet ) {
+      height = element.height.pixels;
+      autoHeight = false;
+    }
+    if ( element.height.isSet == false ) {
+      if ( element.calculatedFlexHeight > 0.0 ) {
+        height = element.calculatedFlexHeight;
+        autoHeight = false;
+      }
+    }
+    if ( ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") ) {
+      const imgSrc = element.src;
+      if ( (imgSrc.length) > 0 ) {
+        const dims = this.imageMeasurer.getImageDimensions(imgSrc);
+        if ( dims.isValid ) {
+          element.sourceWidth = dims.width;
+          element.sourceHeight = dims.height;
+          if ( element.width.isSet && (element.height.isSet == false) ) {
+            if ( parentHeight > 0.0 ) {
+              height = parentHeight;
+              this.log((("  Image container using parent height: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              height = width / dims.aspectRatio;
+              this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> height=") + ((height.toString())));
+            }
+            autoHeight = false;
+          }
+          if ( (element.width.isSet == false) && element.height.isSet ) {
+            if ( parentWidth > 0.0 ) {
+              width = parentWidth;
+              this.log((("  Image container using parent width: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              width = height * dims.aspectRatio;
+              this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> width=") + ((width.toString())));
+            }
+          }
+          if ( (element.width.isSet == false) && (element.height.isSet == false) ) {
+            if ( (parentWidth > 0.0) && (parentHeight > 0.0) ) {
+              width = parentWidth;
+              height = parentHeight;
+              this.log((("  Image filling parent: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              width = dims.width;
+              height = dims.height;
+              if ( width > parentWidth ) {
+                if ( parentWidth > 0.0 ) {
+                  const scale = parentWidth / width;
+                  width = parentWidth;
+                  height = height * scale;
+                }
+              }
+              this.log((("  Image natural size: " + ((width.toString()))) + "x") + ((height.toString())));
+            }
+            autoHeight = false;
+          }
+        }
+      }
+    }
+    if ( element.minWidth.isSet ) {
+      if ( width < element.minWidth.pixels ) {
+        width = element.minWidth.pixels;
+      }
+    }
+    if ( element.maxWidth.isSet ) {
+      if ( width > element.maxWidth.pixels ) {
+        width = element.maxWidth.pixels;
+      }
+    }
+    element.calculatedWidth = width;
+    element.calculatedInnerWidth = element.box.getInnerWidth(width);
+    element.hasDefiniteHeight = autoHeight == false;
+    if ( autoHeight == false ) {
+      element.calculatedHeight = height;
+      element.calculatedInnerHeight = element.box.getInnerHeight(height);
+    }
+    if ( element.isAbsolute ) {
+      this.layoutAbsolute(element, parentWidth, parentHeight);
+    }
+    const childCount = element.getChildCount();
+    let contentHeight = 0.0;
+    if ( childCount > 0 ) {
+      contentHeight = this.layoutChildren(element);
+      this.mirrorChildren(element);
+      if ( element.width.unitType == 6 ) {
+        const fitW = this.contentExtent(element);
+        if ( (fitW > 0.0) && (fitW < element.calculatedWidth) ) {
+          element.calculatedWidth = fitW;
+          element.calculatedInnerWidth = element.box.getInnerWidth(fitW);
+          let kr = 0;
+          while (kr < childCount) {
+            const kc = element.getChild(kr);
+            kc.resetLayoutState();
+            kr = kr + 1;
+          };
+          contentHeight = this.layoutChildren(element);
+          this.mirrorChildren(element);
+        }
+      }
+    } else {
+      const textContent_1 = element.textContent;
+      if ( (textContent_1.length) > 0 ) {
+        let fontSize_1 = element.inheritedFontSize;
+        if ( element.fontSize.isSet ) {
+          fontSize_1 = element.fontSize.pixels;
+        }
+        if ( fontSize_1 <= 0.0 ) {
+          fontSize_1 = 14.0;
+        }
+        let lineHeightFactor = element.lineHeight;
+        if ( lineHeightFactor <= 0.0 ) {
+          lineHeightFactor = 1.2;
+        }
+        const lineSpacing = fontSize_1 * lineHeightFactor;
+        const availableWidth = (width - element.box.paddingLeftPx) - element.box.paddingRightPx;
+        const lineCount = this.textEngine.lineCount(textContent_1, element.effectiveFontFamily(), fontSize_1, availableWidth);
+        contentHeight = lineSpacing * (lineCount);
+        const metrics = this.textEngine.measureRun(textContent_1, element.effectiveFontFamily(), fontSize_1);
+        let leading = (lineSpacing - (metrics.ascent + metrics.descent)) / 2.0;
+        if ( leading < 0.0 ) {
+          leading = 0.0;
+        }
+        element.calculatedBaseline = ((element.box.paddingTopPx + element.box.borderWidthPx) + leading) + metrics.ascent;
+        element.calculatedDescent = metrics.descent;
+        element.hasBaseline = true;
+      }
+    }
+    if ( autoHeight ) {
+      height = ((contentHeight + element.box.paddingTopPx) + element.box.paddingBottomPx) + (element.box.borderWidthPx * 2.0);
+    }
+    const vChrome = element.box.getVerticalChrome();
+    if ( height < vChrome ) {
+      height = vChrome;
+    }
+    const hChrome = element.box.getHorizontalChrome();
+    if ( width < hChrome ) {
+      width = hChrome;
+    }
+    if ( element.minHeight.isSet ) {
+      if ( height < element.minHeight.pixels ) {
+        height = element.minHeight.pixels;
+      }
+    }
+    if ( element.maxHeight.isSet ) {
+      if ( height > element.maxHeight.pixels ) {
+        height = element.maxHeight.pixels;
+      }
+    }
+    element.calculatedHeight = height;
+    element.calculatedInnerHeight = element.box.getInnerHeight(height);
+    element.calculatedPage = this.currentPage;
+    element.isLayoutComplete = true;
+    if ( (element.hasBaseline == false) && (childCount > 0) ) {
+      this.inheritBaselineFromFirstChild(element);
+    }
+    this.log((((((((((("  Laid out " + element.tagName) + " id=") + element.id) + " at (") + ((element.calculatedX.toString()))) + ",") + ((element.calculatedY.toString()))) + ") size=") + ((width.toString()))) + "x") + ((height.toString())));
+  };
+  layoutChildren (parent) {
+    const childCount = parent.getChildCount();
+    if ( childCount == 0 ) {
+      return 0.0;
+    }
+    if ( parent.display == "grid" ) {
+      return this.layoutGrid(parent);
+    }
+    const innerWidth = parent.calculatedInnerWidth;
+    const innerHeight = parent.calculatedInnerHeight;
+    const startX = (parent.calculatedX + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
+    const startY = (parent.calculatedY + parent.box.borderWidthPx) + parent.box.paddingTopPx;
+    let currentX = startX;
+    let currentY = startY;
+    let rowHeight = 0.0;
+    let rowElements = [];
+    let totalHeight = 0.0;
+    let lineMembers = [];
+    let lineCounts = [];
+    let lineHeights = [];
+    let placedInFlow = 0;
+    const isColumn = parent.flexDirection == "column";
+    let gapPx = 0.0;
+    if ( parent.gap.isSet ) {
+      if ( isColumn ) {
+        parent.gap.rootFontSize = parent.rootFontSize;
+        parent.gap.resolve(innerHeight, parent.inheritedFontSize);
+      } else {
+        parent.gap.rootFontSize = parent.rootFontSize;
+        parent.gap.resolve(innerWidth, parent.inheritedFontSize);
+      }
+      gapPx = parent.gap.pixels;
+    }
+    if ( isColumn == false ) {
+      let fixedWidth = 0.0;
+      let totalFlex = 0.0;
+      let j = 0;
+      while (j < childCount) {
+        const c = parent.getChild(j);
+        c.inheritProperties(parent);
+        c.resolveUnits(innerWidth, innerHeight);
+        const hasBasis = c.flexBasis.isSet;
+        if ( (c.flex > 0.0) && hasBasis ) {
+          totalFlex = totalFlex + c.flex;
+          fixedWidth = ((fixedWidth + c.flexBasis.pixels) + c.box.marginLeftPx) + c.box.marginRightPx;
+        } else {
+          if ( c.width.isSet ) {
+            fixedWidth = ((fixedWidth + c.width.pixels) + c.box.marginLeftPx) + c.box.marginRightPx;
+          } else {
+            if ( c.flex > 0.0 ) {
+              totalFlex = totalFlex + c.flex;
+              fixedWidth = (fixedWidth + c.box.marginLeftPx) + c.box.marginRightPx;
+            } else {
+              const avail = (innerWidth - c.box.marginLeftPx) - c.box.marginRightPx;
+              const estW = this.estimateChildWidth(c, avail);
+              fixedWidth = ((fixedWidth + estW) + c.box.marginLeftPx) + c.box.marginRightPx;
+            }
+          }
+        }
+        j = j + 1;
+      };
+      let totalGap = 0.0;
+      if ( childCount > 1 ) {
+        totalGap = ((childCount - 1)) * gapPx;
+      }
+      let availableForFlex = (innerWidth - fixedWidth) - totalGap;
+      if ( availableForFlex < 0.0 ) {
+        availableForFlex = 0.0;
+      }
+      if ( totalFlex > 0.0 ) {
+        let frozen = [];
+        let jf = 0;
+        while (jf < childCount) {
+          frozen.push(false);
+          jf = jf + 1;
+        };
+        let poolSpace = availableForFlex;
+        let poolFlex = totalFlex;
+        let pass = 0;
+        let settled = false;
+        while ((pass < childCount) && (settled == false)) {
+          settled = true;
+          j = 0;
+          while (j < childCount) {
+            const c_1 = parent.getChild(j);
+            let isFlexItem = false;
+            if ( c_1.flex > 0.0 ) {
+              if ( c_1.flexBasis.isSet || (c_1.width.isSet == false) ) {
+                isFlexItem = true;
+              }
+            }
+            if ( isFlexItem && ((frozen[j]) == false) ) {
+              let basisW = 0.0;
+              if ( c_1.flexBasis.isSet ) {
+                basisW = c_1.flexBasis.pixels;
+              }
+              let sizeW = basisW;
+              if ( poolFlex > 0.0 ) {
+                sizeW = basisW + ((poolSpace * c_1.flex) / poolFlex);
+              }
+              let clampedW = sizeW;
+              if ( c_1.minWidth.isSet ) {
+                if ( clampedW < c_1.minWidth.pixels ) {
+                  clampedW = c_1.minWidth.pixels;
+                }
+              }
+              if ( c_1.maxWidth.isSet ) {
+                if ( clampedW > c_1.maxWidth.pixels ) {
+                  clampedW = c_1.maxWidth.pixels;
+                }
+              }
+              if ( clampedW != sizeW ) {
+                frozen[j] = true;
+                poolSpace = (poolSpace - clampedW) + basisW;
+                poolFlex = poolFlex - c_1.flex;
+                if ( poolSpace < 0.0 ) {
+                  poolSpace = 0.0;
+                }
+                settled = false;
+              }
+              c_1.calculatedFlexWidth = clampedW;
+              c_1.width.isSet = false;
+            }
+            j = j + 1;
+          };
+          pass = pass + 1;
+        };
+      }
+    }
+    if ( isColumn && parent.hasDefiniteHeight ) {
+      let fixedHeight = 0.0;
+      let totalFlexC = 0.0;
+      let flowCountC = 0;
+      let jc = 0;
+      while (jc < childCount) {
+        const c_2 = parent.getChild(jc);
+        c_2.inheritProperties(parent);
+        c_2.resolveUnits(innerWidth, innerHeight);
+        if ( c_2.isAbsolute == false ) {
+          flowCountC = flowCountC + 1;
+          const mAxis = c_2.box.marginTopPx + c_2.box.marginBottomPx;
+          if ( c_2.height.isSet ) {
+            fixedHeight = (fixedHeight + c_2.height.pixels) + mAxis;
+          } else {
+            if ( c_2.flex > 0.0 ) {
+              totalFlexC = totalFlexC + c_2.flex;
+              fixedHeight = fixedHeight + mAxis;
+            } else {
+              fixedHeight = fixedHeight + mAxis;
+            }
+          }
+        }
+        jc = jc + 1;
+      };
+      let gapTotalC = 0.0;
+      if ( flowCountC > 1 ) {
+        gapTotalC = ((flowCountC - 1)) * gapPx;
+      }
+      if ( totalFlexC > 0.0 ) {
+        let availC = (innerHeight - fixedHeight) - gapTotalC;
+        if ( availC < 0.0 ) {
+          availC = 0.0;
+        }
+        let jg = 0;
+        while (jg < childCount) {
+          const c_3 = parent.getChild(jg);
+          if ( c_3.isAbsolute == false ) {
+            if ( (c_3.height.isSet == false) && (c_3.flex > 0.0) ) {
+              c_3.calculatedFlexHeight = (availC * c_3.flex) / totalFlexC;
+            }
+          }
+          jg = jg + 1;
+        };
+      } else {
+        const contentH = fixedHeight + gapTotalC;
+        const overflowH = contentH - innerHeight;
+        if ( (overflowH > 0.0) && (fixedHeight > 0.0) ) {
+          let weightedH = 0.0;
+          let jq = 0;
+          while (jq < childCount) {
+            const c_4 = parent.getChild(jq);
+            if ( (c_4.isAbsolute == false) && c_4.height.isSet ) {
+              weightedH = weightedH + (c_4.flexShrink * c_4.height.pixels);
+            }
+            jq = jq + 1;
+          };
+          if ( weightedH > 0.0 ) {
+            let js = 0;
+            while (js < childCount) {
+              const c_5 = parent.getChild(js);
+              if ( (c_5.isAbsolute == false) && c_5.height.isSet ) {
+                const cut = (overflowH * (c_5.flexShrink * c_5.height.pixels)) / weightedH;
+                let finalH = c_5.height.pixels - cut;
+                if ( finalH < 0.0 ) {
+                  finalH = 0.0;
+                }
+                c_5.calculatedFlexHeight = finalH;
+                c_5.height.isSet = false;
+              }
+              js = js + 1;
+            };
+          }
+        }
+      }
+    }
+    if ( isColumn == false ) {
+      if ( parent.flexWrap == "nowrap" ) {
+        let fixedW2 = 0.0;
+        let totalFlex2 = 0.0;
+        let flowCount2 = 0;
+        let jr = 0;
+        while (jr < childCount) {
+          const c_6 = parent.getChild(jr);
+          if ( c_6.isAbsolute == false ) {
+            flowCount2 = flowCount2 + 1;
+            if ( c_6.width.isSet ) {
+              fixedW2 = ((fixedW2 + c_6.width.pixels) + c_6.box.marginLeftPx) + c_6.box.marginRightPx;
+            } else {
+              if ( c_6.flex > 0.0 ) {
+                totalFlex2 = totalFlex2 + c_6.flex;
+              }
+            }
+          }
+          jr = jr + 1;
+        };
+        let gapTotal2 = 0.0;
+        if ( flowCount2 > 1 ) {
+          gapTotal2 = ((flowCount2 - 1)) * gapPx;
+        }
+        const contentW2 = fixedW2 + gapTotal2;
+        const overflowW = contentW2 - innerWidth;
+        if ( ((totalFlex2 == 0.0) && (overflowW > 0.0)) && (fixedW2 > 0.0) ) {
+          let weightedW = 0.0;
+          let jz = 0;
+          while (jz < childCount) {
+            const c_7 = parent.getChild(jz);
+            if ( (c_7.isAbsolute == false) && c_7.width.isSet ) {
+              weightedW = weightedW + (c_7.flexShrink * c_7.width.pixels);
+            }
+            jz = jz + 1;
+          };
+          if ( weightedW > 0.0 ) {
+            let jw = 0;
+            while (jw < childCount) {
+              const c_8 = parent.getChild(jw);
+              if ( (c_8.isAbsolute == false) && c_8.width.isSet ) {
+                const cutW = (overflowW * (c_8.flexShrink * c_8.width.pixels)) / weightedW;
+                let finalW = c_8.width.pixels - cutW;
+                if ( finalW < 0.0 ) {
+                  finalW = 0.0;
+                }
+                c_8.calculatedFlexWidth = finalW;
+                c_8.width.isSet = false;
+              }
+              jw = jw + 1;
+            };
+          }
+        }
+      }
+    }
+    let i = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      child.inheritProperties(parent);
+      child.resolveUnits(innerWidth, innerHeight);
+      if ( child.isAbsolute ) {
+        if ( (child.tagName == "layer") || (child.tagName == "Layer") ) {
+          child.unitsResolved = false;
+          child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedWidth = parent.calculatedWidth;
+          child.calculatedHeight = parent.calculatedHeight;
+          child.calculatedInnerWidth = child.box.getInnerWidth(child.calculatedWidth);
+          child.calculatedInnerHeight = child.box.getInnerHeight(child.calculatedHeight);
+          child.height.isSet = true;
+          child.height.pixels = child.calculatedHeight;
+          this.layoutAbsolute(child, parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedX = child.calculatedX + parent.calculatedX;
+          child.calculatedY = child.calculatedY + parent.calculatedY;
+        } else {
+          this.layoutElement(child, 0.0, 0.0, innerWidth, innerHeight);
+          this.translateSubtree(child, startX, startY);
+        }
+        i = i + 1;
+        continue;
+      }
+      const availableForChild = (innerWidth - child.box.marginLeftPx) - child.box.marginRightPx;
+      let childWidth = this.estimateChildWidth(child, availableForChild);
+      if ( child.width.isSet ) {
+        if ( child.width.pixels >= innerWidth ) {
+          childWidth = availableForChild;
+        } else {
+          childWidth = child.width.pixels;
+        }
+      } else {
+        if ( child.calculatedFlexWidth > 0.0 ) {
+          childWidth = child.calculatedFlexWidth;
+        }
+      }
+      if ( isColumn == false ) {
+        if ( parent.alignItems == "stretch" ) {
+          if ( child.height.isSet == false ) {
+            child.calculatedFlexHeight = innerHeight;
+          }
+        }
+      }
+      const childTotalWidth = (childWidth + child.box.marginLeftPx) + child.box.marginRightPx;
+      if ( gapPx > 0.0 ) {
+        if ( isColumn == false ) {
+          if ( (rowElements.length) > 0 ) {
+            currentX = currentX + gapPx;
+          }
+        } else {
+          if ( placedInFlow > 0 ) {
+            currentY = currentY + gapPx;
+            totalHeight = totalHeight + gapPx;
+          }
+        }
+      }
+      if ( isColumn == false ) {
+        const availableWidth = (startX + innerWidth) - currentX;
+        if ( ((childTotalWidth > availableWidth) && ((rowElements.length) > 0)) && (parent.flexWrap != "nowrap") ) {
+          this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
+          this.recordLine(lineMembers, lineCounts, lineHeights, rowElements, rowHeight);
+          currentY = currentY + rowHeight;
+          totalHeight = totalHeight + rowHeight;
+          currentX = startX;
+          rowHeight = 0.0;
+          rowElements.length = 0;
+        }
+      }
+      child.calculatedX = currentX + child.box.marginLeftPx;
+      child.calculatedY = currentY + child.box.marginTopPx;
+      this.layoutElement(child, child.calculatedX, child.calculatedY, childWidth, innerHeight);
+      const childHeight = child.calculatedHeight;
+      const childTotalHeight = (childHeight + child.box.marginTopPx) + child.box.marginBottomPx;
+      const placedWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
+      if ( isColumn ) {
+        currentY = currentY + childTotalHeight;
+        totalHeight = totalHeight + childTotalHeight;
+      } else {
+        currentX = currentX + placedWidth;
+        rowElements.push(child);
+        if ( childTotalHeight > rowHeight ) {
+          rowHeight = childTotalHeight;
+        }
+      }
+      placedInFlow = placedInFlow + 1;
+      if ( child.lineBreak ) {
+        if ( isColumn == false ) {
+          this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
+          this.recordLine(lineMembers, lineCounts, lineHeights, rowElements, rowHeight);
+          currentY = currentY + rowHeight;
+          totalHeight = totalHeight + rowHeight;
+          currentX = startX;
+          rowHeight = 0.0;
+          rowElements.length = 0;
+        }
+      }
+      i = i + 1;
+    };
+    if ( (isColumn == false) && ((rowElements.length) > 0) ) {
+      this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
+      this.recordLine(lineMembers, lineCounts, lineHeights, rowElements, rowHeight);
+      totalHeight = totalHeight + rowHeight;
+    }
+    if ( isColumn == false ) {
+      this.applyWrapReverse(parent, lineMembers, lineCounts, lineHeights, totalHeight);
+      this.applyAlignContent(parent, lineMembers, lineCounts, lineHeights, totalHeight, innerHeight);
+    }
+    if ( isColumn ) {
+      this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
+    }
+    return totalHeight;
+  };
+  recordLine (members, counts, heights, rowElements, rowHeight) {
+    const n = rowElements.length;
+    if ( n == 0 ) {
+      return;
+    }
+    let i = 0;
+    while (i < n) {
+      members.push(rowElements[i]);
+      i = i + 1;
+    };
+    counts.push(n);
+    heights.push(rowHeight);
+  };
+  applyWrapReverse (parent, members, counts, heights, contentHeight) {
+    if ( parent.flexWrap != "wrap-reverse" ) {
+      return;
+    }
+    const lineCount = counts.length;
+    if ( lineCount < 2 ) {
+      return;
+    }
+    let idx = 0;
+    let offset = 0.0;
+    let li = 0;
+    while (li < lineCount) {
+      const h = heights[li];
+      const newOffset = (contentHeight - offset) - h;
+      const shift = newOffset - offset;
+      const n = counts[li];
+      let k = 0;
+      while (k < n) {
+        const el = members[(idx + k)];
+        if ( shift != 0.0 ) {
+          el.calculatedY = el.calculatedY + shift;
+          this.propagateOffsetToChildren(el, 0.0, shift);
+        }
+        k = k + 1;
+      };
+      idx = idx + n;
+      offset = offset + h;
+      li = li + 1;
+    };
+  };
+  applyAlignContentStretch (parent, members, counts, heights, contentHeight, innerHeight) {
+    const lineCount = counts.length;
+    const free = innerHeight - contentHeight;
+    if ( free <= 0.0 ) {
+      return;
+    }
+    const extra = free / (lineCount);
+    let idx = 0;
+    let li = 0;
+    while (li < lineCount) {
+      const shift = extra * (li);
+      const grown = (heights[li]) + extra;
+      const n = counts[li];
+      let k = 0;
+      while (k < n) {
+        const el = members[(idx + k)];
+        if ( shift != 0.0 ) {
+          el.calculatedY = el.calculatedY + shift;
+          this.propagateOffsetToChildren(el, 0.0, shift);
+        }
+        if ( (el.height.isSet == false) && (el.isAbsolute == false) ) {
+          const target = (grown - el.box.marginTopPx) - el.box.marginBottomPx;
+          if ( target > el.calculatedHeight ) {
+            el.calculatedHeight = target;
+            el.calculatedInnerHeight = el.box.getInnerHeight(target);
+            el.hasDefiniteHeight = true;
+            if ( el.getChildCount() > 0 ) {
+              this.layoutChildren(el);
+            }
+          }
+        }
+        k = k + 1;
+      };
+      idx = idx + n;
+      li = li + 1;
+    };
+  };
+  applyAlignContent (parent, members, counts, heights, contentHeight, innerHeight) {
+    const lineCount = counts.length;
+    if ( lineCount < 2 ) {
+      return;
+    }
+    if ( parent.hasDefiniteHeight == false ) {
+      return;
+    }
+    const mode = parent.alignContent;
+    if ( mode == "flex-start" ) {
+      return;
+    }
+    if ( mode == "start" ) {
+      return;
+    }
+    if ( mode == "stretch" ) {
+      this.applyAlignContentStretch(parent, members, counts, heights, contentHeight, innerHeight);
+      return;
+    }
+    const free = innerHeight - contentHeight;
+    if ( free <= 0.0 ) {
+      return;
+    }
+    let first = 0.0;
+    let between = 0.0;
+    if ( (mode == "flex-end") || (mode == "end") ) {
+      first = free;
+    }
+    if ( mode == "center" ) {
+      first = free / 2.0;
+    }
+    if ( mode == "space-between" ) {
+      between = free / ((lineCount - 1));
+    }
+    if ( mode == "space-around" ) {
+      between = free / (lineCount);
+      first = between / 2.0;
+    }
+    if ( mode == "space-evenly" ) {
+      between = free / ((lineCount + 1));
+      first = between;
+    }
+    let idx = 0;
+    let li = 0;
+    while (li < lineCount) {
+      const shift = first + (between * (li));
+      const n = counts[li];
+      let k = 0;
+      while (k < n) {
+        const el = members[(idx + k)];
+        if ( shift != 0.0 ) {
+          el.calculatedY = el.calculatedY + shift;
+          this.propagateOffsetToChildren(el, 0.0, shift);
+        }
+        k = k + 1;
+      };
+      idx = idx + n;
+      li = li + 1;
+    };
+  };
+  alignColumn (parent, contentHeight, startX, startY, innerWidth, innerHeight) {
+    const childCount = parent.getChildCount();
+    if ( childCount == 0 ) {
+      return;
+    }
+    const verticalAlign = parent.justifyContent;
+    let horizontalAlign = parent.alignItems;
+    if ( (parent.align.length) > 0 ) {
+      if ( parent.align != "left" ) {
+        horizontalAlign = parent.align;
+      }
+    }
+    let availableHeight = innerHeight;
+    if ( parent.height.isSet ) {
+      availableHeight = parent.calculatedInnerHeight;
+    }
+    let offsetY = 0.0;
+    if ( verticalAlign == "center" ) {
+      offsetY = (availableHeight - contentHeight) / 2.0;
+    }
+    if ( (verticalAlign == "flex-end") || (verticalAlign == "end") ) {
+      offsetY = availableHeight - contentHeight;
+    }
+    let flowCount = 0;
+    let fc = 0;
+    while (fc < childCount) {
+      const fchild = parent.getChild(fc);
+      if ( fchild.isAbsolute == false ) {
+        flowCount = flowCount + 1;
+      }
+      fc = fc + 1;
+    };
+    let freeSpaceY = availableHeight - contentHeight;
+    if ( freeSpaceY < 0.0 ) {
+      freeSpaceY = 0.0;
+    }
+    let distributeGapY = 0.0;
+    let distributeFirstY = 0.0;
+    if ( verticalAlign == "space-between" ) {
+      if ( flowCount > 1 ) {
+        distributeGapY = freeSpaceY / ((flowCount - 1));
+      }
+    }
+    if ( verticalAlign == "space-around" ) {
+      if ( flowCount > 0 ) {
+        distributeGapY = freeSpaceY / (flowCount);
+        distributeFirstY = distributeGapY / 2.0;
+      }
+    }
+    if ( verticalAlign == "space-evenly" ) {
+      distributeGapY = freeSpaceY / ((flowCount + 1));
+      distributeFirstY = distributeGapY;
+    }
+    const usesDistributeY = (distributeGapY > 0.0) || (distributeFirstY > 0.0);
+    let i = 0;
+    let flowIndex = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      if ( child.isAbsolute == false ) {
+        let elemOffsetY = offsetY;
+        if ( usesDistributeY ) {
+          elemOffsetY = distributeFirstY + (distributeGapY * (flowIndex));
+        }
+        if ( elemOffsetY != 0.0 ) {
+          child.calculatedY = child.calculatedY + elemOffsetY;
+          this.propagateOffsetToChildren(child, 0.0, elemOffsetY);
+        }
+        flowIndex = flowIndex + 1;
+        const childTotalWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
+        let offsetX = 0.0;
+        if ( horizontalAlign == "center" ) {
+          offsetX = (innerWidth - childTotalWidth) / 2.0;
+        }
+        if ( (horizontalAlign == "flex-end") || (horizontalAlign == "end") ) {
+          offsetX = innerWidth - childTotalWidth;
+        }
+        if ( offsetX != 0.0 ) {
+          child.calculatedX = child.calculatedX + offsetX;
+          this.propagateOffsetToChildren(child, offsetX, 0.0);
+        }
+      }
+      i = i + 1;
+    };
+  };
+  inheritBaselineFromFirstChild (element) {
+    let i = 0;
+    const n = element.getChildCount();
+    while (i < n) {
+      const c = element.getChild(i);
+      if ( c.isAbsolute == false ) {
+        if ( c.hasBaseline ) {
+          element.calculatedBaseline = (c.calculatedY - element.calculatedY) + c.calculatedBaseline;
+          element.calculatedDescent = c.calculatedDescent;
+          element.hasBaseline = true;
+          return;
+        }
+      }
+      i = i + 1;
+    };
+  };
+  baselineOffsetOf (el) {
+    if ( el.hasBaseline ) {
+      return el.box.marginTopPx + el.calculatedBaseline;
+    }
+    return (el.box.marginTopPx + el.calculatedHeight) + el.box.marginBottomPx;
+  };
+  alignRow (rowElements, parent, rowHeight, startX, innerWidth) {
+    const elementCount = rowElements.length;
+    if ( elementCount == 0 ) {
+      return;
+    }
+    let rowWidth = 0.0;
+    let i = 0;
+    while (i < elementCount) {
+      const el = rowElements[i];
+      rowWidth = ((rowWidth + el.calculatedWidth) + el.box.marginLeftPx) + el.box.marginRightPx;
+      i = i + 1;
+    };
+    const isColumn = parent.flexDirection == "column";
+    const mainAxisAlign = parent.justifyContent;
+    const crossAxisAlign = parent.alignItems;
+    let horizontalAlign = mainAxisAlign;
+    if ( isColumn ) {
+      horizontalAlign = crossAxisAlign;
+    }
+    if ( (parent.align.length) > 0 ) {
+      if ( parent.align != "left" ) {
+        horizontalAlign = parent.align;
+      }
+    }
+    let offsetX = 0.0;
+    if ( horizontalAlign == "center" ) {
+      offsetX = (innerWidth - rowWidth) / 2.0;
+    }
+    if ( (horizontalAlign == "flex-end") || (horizontalAlign == "right") ) {
+      offsetX = innerWidth - rowWidth;
+    }
+    let freeSpace = innerWidth - rowWidth;
+    if ( freeSpace < 0.0 ) {
+      freeSpace = 0.0;
+    }
+    let distributeGap = 0.0;
+    let distributeFirst = 0.0;
+    if ( horizontalAlign == "space-between" ) {
+      if ( elementCount > 1 ) {
+        distributeGap = freeSpace / ((elementCount - 1));
+      }
+    }
+    if ( horizontalAlign == "space-around" ) {
+      distributeGap = freeSpace / (elementCount);
+      distributeFirst = distributeGap / 2.0;
+    }
+    if ( horizontalAlign == "space-evenly" ) {
+      distributeGap = freeSpace / ((elementCount + 1));
+      distributeFirst = distributeGap;
+    }
+    const usesDistribute = (distributeGap > 0.0) || (distributeFirst > 0.0);
+    let verticalAlignVal = crossAxisAlign;
+    if ( isColumn ) {
+      verticalAlignVal = mainAxisAlign;
+    }
+    if ( (parent.verticalAlign.length) > 0 ) {
+      if ( parent.verticalAlign != "top" ) {
+        verticalAlignVal = parent.verticalAlign;
+      }
+    }
+    let effectiveRowHeight = rowHeight;
+    if ( parent.height.isSet ) {
+      const parentInnerHeight = parent.calculatedInnerHeight;
+      if ( parentInnerHeight > rowHeight ) {
+        effectiveRowHeight = parentInnerHeight;
+      }
+    }
+    const useBaseline = verticalAlignVal == "baseline";
+    let maxBaseline = 0.0;
+    if ( useBaseline ) {
+      let b = 0;
+      while (b < elementCount) {
+        const bel = rowElements[b];
+        const bo = this.baselineOffsetOf(bel);
+        if ( bo > maxBaseline ) {
+          maxBaseline = bo;
+        }
+        b = b + 1;
+      };
+    }
+    i = 0;
+    while (i < elementCount) {
+      const el_1 = rowElements[i];
+      let elemOffsetX = offsetX;
+      if ( usesDistribute ) {
+        elemOffsetX = distributeFirst + (distributeGap * (i));
+      }
+      if ( elemOffsetX != 0.0 ) {
+        el_1.calculatedX = el_1.calculatedX + elemOffsetX;
+        this.propagateOffsetToChildren(el_1, elemOffsetX, 0.0);
+      }
+      const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
+      let offsetY = 0.0;
+      if ( verticalAlignVal == "center" ) {
+        offsetY = (effectiveRowHeight - childTotalHeight) / 2.0;
+      }
+      if ( (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") ) {
+        offsetY = effectiveRowHeight - childTotalHeight;
+      }
+      if ( useBaseline ) {
+        offsetY = maxBaseline - this.baselineOffsetOf(el_1);
+      }
+      if ( offsetY != 0.0 ) {
+        el_1.calculatedY = el_1.calculatedY + offsetY;
+        this.propagateOffsetToChildren(el_1, 0.0, offsetY);
+      }
+      i = i + 1;
+    };
+  };
+  propagateOffsetToChildren (parent, offsetX, offsetY) {
+    const childCount = parent.getChildCount();
+    let i = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      if ( offsetX != 0.0 ) {
+        child.calculatedX = child.calculatedX + offsetX;
+      }
+      if ( offsetY != 0.0 ) {
+        child.calculatedY = child.calculatedY + offsetY;
+      }
+      this.propagateOffsetToChildren(child, offsetX, offsetY);
+      i = i + 1;
+    };
+  };
+  mirrorChildren (parent) {
+    if ( parent.resolvedRtl == false ) {
+      return;
+    }
+    const left = (parent.calculatedX + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
+    const right = left + parent.calculatedInnerWidth;
+    const span = left + right;
+    const n = parent.getChildCount();
+    let i = 0;
+    while (i < n) {
+      const ch = parent.getChild(i);
+      if ( ch.isAbsolute == false ) {
+        const mL = ch.box.marginLeftPx;
+        const mR = ch.box.marginRightPx;
+        const marginRightEdge = (ch.calculatedX + ch.calculatedWidth) + mR;
+        const nx = (span - marginRightEdge) + mL;
+        this.translateSubtree(ch, nx - ch.calculatedX, 0.0);
+      }
+      i = i + 1;
+    };
+  };
+  translateSubtree (element, dx, dy) {
+    element.calculatedX = element.calculatedX + dx;
+    element.calculatedY = element.calculatedY + dy;
+    const count = element.getChildCount();
+    let i = 0;
+    while (i < count) {
+      this.translateSubtree(element.getChild(i), dx, dy);
+      i = i + 1;
+    };
+  };
+  layoutAbsolute (element, parentWidth, parentHeight) {
+    if ( element.left.isSet ) {
+      element.calculatedX = element.left.pixels + element.box.marginLeftPx;
+    } else {
+      if ( element.x.isSet ) {
+        element.calculatedX = element.x.pixels + element.box.marginLeftPx;
+      } else {
+        if ( element.right.isSet ) {
+          let width = element.calculatedWidth;
+          if ( width == 0.0 ) {
+            if ( element.width.isSet ) {
+              width = element.width.pixels;
+            }
+          }
+          element.calculatedX = ((parentWidth - element.right.pixels) - width) - element.box.marginRightPx;
+        }
+      }
+    }
+    if ( element.top.isSet ) {
+      element.calculatedY = element.top.pixels + element.box.marginTopPx;
+    } else {
+      if ( element.y.isSet ) {
+        element.calculatedY = element.y.pixels + element.box.marginTopPx;
+      } else {
+        if ( element.bottom.isSet ) {
+          let height = element.calculatedHeight;
+          if ( height == 0.0 ) {
+            if ( element.height.isSet ) {
+              height = element.height.pixels;
+            }
+          }
+          element.calculatedY = ((parentHeight - element.bottom.pixels) - height) - element.box.marginBottomPx;
+        }
+      }
+    }
+  };
+  contentExtent (element) {
+    let right = 0.0;
+    let i = 0;
+    const n = element.getChildCount();
+    while (i < n) {
+      const c = element.getChild(i);
+      if ( c.isAbsolute == false ) {
+        const r = (c.calculatedX + c.calculatedWidth) + c.box.marginRightPx;
+        if ( r > right ) {
+          right = r;
+        }
+      }
+      i = i + 1;
+    };
+    if ( right <= 0.0 ) {
+      return 0.0;
+    }
+    return ((right - element.calculatedX) + element.box.paddingRightPx) + element.box.borderWidthPx;
+  };
+  placeOverlaysIn (el) {
+    let i = 0;
+    while (i < (el.children.length)) {
+      const c = el.children[i];
+      if ( c.isOverlay ) {
+        this.placeOverlay(c, el);
+      }
+      this.placeOverlaysIn(c);
+      i = i + 1;
+    };
+  };
+  findOverlayAnchor (surface, parent) {
+    if ( typeof(surface.overlayAnchor) != "undefined" ) {
+      return surface.overlayAnchor;
+    }
+    let i = 0;
+    while (i < (parent.children.length)) {
+      const c = parent.children[i];
+      if ( c.isOverlayAnchor ) {
+        const hit = c;
+        return hit;
+      }
+      i = i + 1;
+    };
+    let miss;
+    return miss;
+  };
+  placeOverlay (surface, parent) {
+    const w = surface.calculatedWidth;
+    const h = surface.calculatedHeight;
+    let x = 0.0;
+    let y = 0.0;
+    if ( surface.overlaySide == "center" ) {
+      x = (this.pageWidth - w) / 2.0;
+      y = (this.pageHeight - h) / 2.0;
+    } else {
+      const maybe = this.findOverlayAnchor(surface, parent);
+      if ( typeof(maybe) === "undefined" ) {
+        this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
+        return;
+      }
+      const a = maybe;
+      const ax = a.calculatedX;
+      const ay = a.calculatedY;
+      const aw = a.calculatedWidth;
+      const ah = a.calculatedHeight;
+      if ( surface.overlaySide == "top" ) {
+        x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+        y = (ay - h) - surface.overlayGap;
+      }
+      if ( surface.overlaySide == "bottom" ) {
+        x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+        y = (ay + ah) + surface.overlayGap;
+      }
+      if ( surface.overlaySide == "right" ) {
+        x = (ax + aw) + surface.overlayGap;
+        y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+      }
+      if ( surface.overlaySide == "left" ) {
+        x = (ax - w) - surface.overlayGap;
+        y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+      }
+    }
+    surface.overlayX = x;
+    surface.overlayY = y;
+    this.translateSubtree(surface, x - surface.calculatedX, y - surface.calculatedY);
+  };
+  overlayCross (anchorStart, anchorSize, size, align) {
+    if ( align == "center" ) {
+      return anchorStart + ((anchorSize - size) / 2.0);
+    }
+    if ( align == "end" ) {
+      return (anchorStart + anchorSize) - size;
+    }
+    return anchorStart;
+  };
+  getOverlayErrors () {
+    return this.overlayErrors;
+  };
+  printLayout (element, indent) {
+    let indentStr = "";
+    let i = 0;
+    while (i < indent) {
+      indentStr = indentStr + "  ";
+      i = i + 1;
+    };
+    console.log(((((((((((indentStr + element.tagName) + " id=\"") + element.id) + "\" (") + ((element.calculatedX.toString()))) + ", ") + ((element.calculatedY.toString()))) + ") ") + ((element.calculatedWidth.toString()))) + "x") + ((element.calculatedHeight.toString())));
+    const childCount = element.getChildCount();
+    i = 0;
+    while (i < childCount) {
+      const child = element.getChild(i);
+      this.printLayout(child, indent + 1);
+      i = i + 1;
+    };
+  };
+  intrinsicWidthOf (el) {
+    return this.intrinsicWidth(el, false);
+  };
+  minIntrinsicWidthOf (el) {
+    return this.intrinsicWidth(el, true);
+  };
+  intrinsicWidth (el, wantMin) {
+    let outer = 0.0;
+    if ( el.width.isSet ) {
+      outer = el.width.pixels;
+    } else {
+      const textContent = el.textContent;
+      if ( (textContent.length) > 0 ) {
+        if ( el.getChildCount() == 0 ) {
+          let fs = el.inheritedFontSize;
+          if ( el.fontSize.isSet ) {
+            fs = el.fontSize.pixels;
+          }
+          if ( fs <= 0.0 ) {
+            fs = 14.0;
+          }
+          let contentW = 0.0;
+          if ( wantMin ) {
+            contentW = this.textEngine.minLineWidth(textContent, el.effectiveFontFamily(), fs);
+          } else {
+            contentW = this.textEngine.maxLineWidth(textContent, el.effectiveFontFamily(), fs);
+          }
+          outer = contentW + el.box.getHorizontalChrome();
+        }
+      }
+    }
+    if ( outer <= 0.0 ) {
+      return 0.0;
+    }
+    return (outer + el.box.marginLeftPx) + el.box.marginRightPx;
+  };
+  layoutGrid (parent) {
+    const innerWidth = parent.calculatedInnerWidth;
+    const innerHeight = parent.calculatedInnerHeight;
+    const startX = (parent.calculatedX + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
+    const startY = (parent.calculatedY + parent.box.borderWidthPx) + parent.box.paddingTopPx;
+    let colGapPx = 0.0;
+    let rowGapPx = 0.0;
+    if ( parent.gap.isSet ) {
+      parent.gap.rootFontSize = parent.rootFontSize;
+      parent.gap.resolve(innerWidth, parent.inheritedFontSize);
+      colGapPx = parent.gap.pixels;
+      rowGapPx = parent.gap.pixels;
+    }
+    if ( parent.columnGap.isSet ) {
+      parent.columnGap.rootFontSize = parent.rootFontSize;
+      parent.columnGap.resolve(innerWidth, parent.inheritedFontSize);
+      colGapPx = parent.columnGap.pixels;
+    }
+    if ( parent.rowGap.isSet ) {
+      parent.rowGap.rootFontSize = parent.rootFontSize;
+      parent.rowGap.resolve(innerHeight, parent.inheritedFontSize);
+      rowGapPx = parent.rowGap.pixels;
+    }
+    let colSpec = parent.gridTemplateColumns;
+    if ( (colSpec.length) == 0 ) {
+      colSpec = "1fr";
+    }
+    let usingSubgrid = false;
+    if ( colSpec == "subgrid" ) {
+      if ( (parent.subgridColumnSizes.length) > 0 ) {
+        usingSubgrid = true;
+        let sgSpec = "";
+        let sg = 0;
+        while (sg < (parent.subgridColumnSizes.length)) {
+          if ( sg > 0 ) {
+            sgSpec = sgSpec + " ";
+          }
+          sgSpec = (sgSpec + (((parent.subgridColumnSizes[sg]).toString()))) + "px";
+          sg = sg + 1;
+        };
+        colSpec = sgSpec;
+      } else {
+        if ( parent.subgridPending == false ) {
+          this.warn("grid-template-columns: subgrid has no enclosing grid to inherit tracks from; falling back to 1fr");
+        }
+        colSpec = "1fr";
+      }
+    }
+    const areas = EVGGridAreas.parse(parent.gridTemplateAreas);
+    let hasAreas = false;
+    if ( (parent.gridTemplateAreas.length) > 0 ) {
+      if ( areas.hadError ) {
+        this.warn("grid-template-areas: " + areas.errorText);
+      } else {
+        hasAreas = true;
+        if ( (parent.gridTemplateColumns.length) == 0 ) {
+          let derived = "";
+          let dc = 0;
+          while (dc < areas.columns) {
+            if ( dc > 0 ) {
+              derived = derived + " ";
+            }
+            derived = derived + "1fr";
+            dc = dc + 1;
+          };
+          colSpec = derived;
+        }
+      }
+    }
+    const cols = EVGGridTemplate.parse(colSpec);
+    if ( cols.hadError ) {
+      this.warn("grid-template-columns: " + cols.errorText);
+    }
+    const colCount = (cols).count();
+    if ( colCount < 1 ) {
+      return 0.0;
+    }
+    const colGapTotal = ((colCount - 1)) * colGapPx;
+    let rowTemplateSpec = parent.gridTemplateRows;
+    if ( rowTemplateSpec == "subgrid" ) {
+      rowTemplateSpec = "";
+    }
+    const rowTemplate = EVGGridTemplate.parse(rowTemplateSpec);
+    let items = [];
+    let colStarts = [];
+    let colSpans = [];
+    let rowStarts = [];
+    let rowSpans = [];
+    let i = 0;
+    const childCount = parent.getChildCount();
+    while (i < childCount) {
+      const c = parent.getChild(i);
+      c.inheritProperties(parent);
+      c.resolveUnits(innerWidth, innerHeight);
+      if ( (c.gridTemplateColumns == "subgrid") || (c.gridTemplateRows == "subgrid") ) {
+        c.subgridPending = true;
+      }
+      if ( c.isAbsolute == false ) {
+        const cp = EVGGridPlacement.parse(c.gridColumn);
+        cp.resolveNames(cols);
+        if ( cp.hadError ) {
+          this.warn("grid-column: " + cp.errorText);
+        }
+        const rp = EVGGridPlacement.parse(c.gridRow);
+        rp.resolveNames(rowTemplate);
+        if ( rp.hadError ) {
+          this.warn("grid-row: " + rp.errorText);
+        }
+        if ( hasAreas ) {
+          if ( (c.gridArea.length) > 0 ) {
+            const at = areas.indexOfName(c.gridArea);
+            if ( at >= 0 ) {
+              cp.start = (areas.colStart[at]) + 1;
+              cp.span = areas.colSpan[at];
+              rp.start = (areas.rowStart[at]) + 1;
+              rp.span = areas.rowSpan[at];
+            } else {
+              this.warn(("grid-area: no area named \"" + c.gridArea) + "\" in grid-template-areas");
+            }
+          }
+        }
+        let cspan = cp.span;
+        if ( cspan > colCount ) {
+          cspan = colCount;
+        }
+        items.push(c);
+        colStarts.push(cp.start);
+        colSpans.push(cspan);
+        rowStarts.push(rp.start);
+        rowSpans.push(rp.span);
+      }
+      i = i + 1;
+    };
+    const itemCount = items.length;
+    if ( itemCount == 0 ) {
+      return 0.0;
+    }
+    const isDense = (parent.gridAutoFlow.indexOf("dense")) >= 0;
+    let occupied = [];
+    let rowsUsed = 0;
+    let placedRow = [];
+    let placedCol = [];
+    let cursorRow = 0;
+    let cursorCol = 0;
+    let k = 0;
+    while (k < itemCount) {
+      const wantCol = colStarts[k];
+      const wantRow = rowStarts[k];
+      const span = colSpans[k];
+      const rspan = rowSpans[k];
+      let col = 0;
+      let row = 0;
+      if ( wantCol > 0 ) {
+        col = wantCol - 1;
+        if ( col > (colCount - span) ) {
+          col = colCount - span;
+        }
+        if ( col < 0 ) {
+          col = 0;
+        }
+      }
+      if ( wantRow > 0 ) {
+        row = wantRow - 1;
+      }
+      if ( (wantCol > 0) && (wantRow > 0) ) {
+      } else {
+        if ( wantRow > 0 ) {
+          cursorRow = row;
+          cursorCol = 0;
+        }
+        if ( wantCol > 0 ) {
+          row = cursorRow;
+          while (this.gridOccupied(occupied, colCount, row, col, span, rspan)) {
+            row = row + 1;
+          };
+        } else {
+          if ( isDense ) {
+            row = 0;
+            col = 0;
+          } else {
+            row = cursorRow;
+            col = cursorCol;
+          }
+          let searching = true;
+          while (searching) {
+            if ( (col + span) > colCount ) {
+              row = row + 1;
+              col = 0;
+            } else {
+              if ( this.gridOccupied(occupied, colCount, row, col, span, rspan) ) {
+                col = col + 1;
+              } else {
+                searching = false;
+              }
+            }
+          };
+          if ( isDense == false ) {
+            cursorRow = row;
+            cursorCol = col + span;
+          }
+        }
+      }
+      const needRows = row + rspan;
+      while (rowsUsed < needRows) {
+        let g = 0;
+        while (g < colCount) {
+          occupied.push(false);
+          g = g + 1;
+        };
+        rowsUsed = rowsUsed + 1;
+      };
+      let rr = 0;
+      while (rr < rspan) {
+        let cc = 0;
+        while (cc < span) {
+          const idx = (((row + rr) * colCount) + col) + cc;
+          occupied[idx] = true;
+          cc = cc + 1;
+        };
+        rr = rr + 1;
+      };
+      placedRow.push(row);
+      placedCol.push(col);
+      k = k + 1;
+    };
+    let colContent = [];
+    let colMinContent = [];
+    let ci = 0;
+    while (ci < colCount) {
+      colContent.push(0.0);
+      colMinContent.push(0.0);
+      ci = ci + 1;
+    };
+    if ( cols.hasIntrinsicTrack() ) {
+      let ic = 0;
+      while (ic < (items.length)) {
+        if ( (colSpans[ic]) == 1 ) {
+          const col2 = placedCol[ic];
+          if ( col2 < colCount ) {
+            const it = items[ic];
+            const w2 = this.intrinsicWidthOf(it);
+            if ( w2 > (colContent[col2]) ) {
+              colContent[col2] = w2;
+            }
+            const m2 = this.minIntrinsicWidthOf(it);
+            if ( m2 > (colMinContent[col2]) ) {
+              colMinContent[col2] = m2;
+            }
+          }
+        }
+        ic = ic + 1;
+      };
+    }
+    cols.resolveWithContent(innerWidth - colGapTotal, colContent, colMinContent);
+    let rowSpec = parent.gridTemplateRows;
+    let rowSizes = [];
+    let rowGapTotal = 0.0;
+    if ( rowsUsed > 1 ) {
+      rowGapTotal = ((rowsUsed - 1)) * rowGapPx;
+    }
+    let usingRowSubgrid = false;
+    if ( rowSpec == "subgrid" ) {
+      if ( (parent.subgridRowSizes.length) > 0 ) {
+        usingRowSubgrid = true;
+        let sgrSpec = "";
+        let sgr = 0;
+        while (sgr < (parent.subgridRowSizes.length)) {
+          if ( sgr > 0 ) {
+            sgrSpec = sgrSpec + " ";
+          }
+          sgrSpec = (sgrSpec + (((parent.subgridRowSizes[sgr]).toString()))) + "px";
+          sgr = sgr + 1;
+        };
+        rowSpec = sgrSpec;
+      } else {
+        if ( parent.subgridPending == false ) {
+          this.warn("grid-template-rows: subgrid has no enclosing grid to inherit tracks from; falling back to content-sized rows");
+        }
+        rowSpec = "";
+      }
+    }
+    let haveTemplateRows = false;
+    if ( (rowSpec.length) > 0 ) {
+      if ( parent.hasDefiniteHeight || usingRowSubgrid ) {
+        haveTemplateRows = true;
+      }
+    }
+    if ( haveTemplateRows ) {
+      const rows = EVGGridTemplate.parse(rowSpec);
+      if ( rows.hadError ) {
+        this.warn("grid-template-rows: " + rows.errorText);
+      }
+      rows.resolve(innerHeight - rowGapTotal);
+      let r2 = 0;
+      while (r2 < rowsUsed) {
+        if ( r2 < (rows).count() ) {
+          const tk = rows.trackAt(r2);
+          rowSizes.push(tk.sizePx);
+        } else {
+          if ( (rows).count() > 0 ) {
+            const lastTk = rows.trackAt(((rows).count() - 1));
+            rowSizes.push(lastTk.sizePx);
+          } else {
+            rowSizes.push(0.0);
+          }
+        }
+        r2 = r2 + 1;
+      };
+    } else {
+      let r3 = 0;
+      while (r3 < rowsUsed) {
+        rowSizes.push(0.0);
+        r3 = r3 + 1;
+      };
+      let m = 0;
+      while (m < itemCount) {
+        const it_1 = items[m];
+        const rspanM = rowSpans[m];
+        const ri = placedRow[m];
+        const isRowSubgrid = it_1.gridTemplateRows == "subgrid";
+        if ( (rspanM == 1) || isRowSubgrid ) {
+          const cw = cols.extentOf((placedCol[m]), (colSpans[m]), colGapPx);
+          const avail = (cw - it_1.box.marginLeftPx) - it_1.box.marginRightPx;
+          it_1.calculatedFlexHeight = 0.0;
+          this.layoutElement(it_1, 0.0, 0.0, avail, 0.0);
+          if ( isRowSubgrid ) {
+            let sub = 0;
+            while (sub < rspanM) {
+              if ( sub < (it_1.computedRowSizes.length) ) {
+                const sh = it_1.computedRowSizes[sub];
+                if ( sh > (rowSizes[(ri + sub)]) ) {
+                  rowSizes[ri + sub] = sh;
+                }
+              }
+              sub = sub + 1;
+            };
+          } else {
+            const h = (it_1.calculatedHeight + it_1.box.marginTopPx) + it_1.box.marginBottomPx;
+            if ( h > (rowSizes[ri]) ) {
+              rowSizes[ri] = h;
+            }
+          }
+        }
+        m = m + 1;
+      };
+      if ( (rowSpec.length) > 0 ) {
+        const declared = EVGGridTemplate.parse(rowSpec);
+        if ( declared.hadError ) {
+          this.warn("grid-template-rows: " + declared.errorText);
+        }
+        let dr = 0;
+        while (dr < rowsUsed) {
+          if ( dr < (declared).count() ) {
+            const dt = declared.trackAt(dr);
+            if ( dt.kind == 0 ) {
+              rowSizes[dr] = dt.value;
+            }
+          }
+          dr = dr + 1;
+        };
+      }
+    }
+    let p = 0;
+    while (p < itemCount) {
+      const el = items[p];
+      const cIdx = placedCol[p];
+      const rIdx = placedRow[p];
+      const cSpan = colSpans[p];
+      const rSpan = rowSpans[p];
+      const cellW = cols.extentOf(cIdx, cSpan, colGapPx);
+      const cellH = this.gridRowExtent(rowSizes, rIdx, rSpan, rowGapPx);
+      const offX = cols.offsetOf(cIdx, colGapPx);
+      const offY = this.gridRowOffset(rowSizes, rIdx, rowGapPx);
+      el.calculatedX = (startX + offX) + el.box.marginLeftPx;
+      el.calculatedY = (startY + offY) + el.box.marginTopPx;
+      let boxW = (cellW - el.box.marginLeftPx) - el.box.marginRightPx;
+      let boxH = (cellH - el.box.marginTopPx) - el.box.marginBottomPx;
+      if ( boxW < 0.0 ) {
+        boxW = 0.0;
+      }
+      if ( boxH < 0.0 ) {
+        boxH = 0.0;
+      }
+      if ( boxH > 0.0 ) {
+        el.calculatedFlexHeight = boxH;
+      }
+      if ( el.gridTemplateColumns == "subgrid" ) {
+        el.subgridColumnSizes.length = 0;
+        let sgi = 0;
+        while (sgi < cSpan) {
+          const tk_1 = cols.trackAt((cIdx + sgi));
+          el.subgridColumnSizes.push(tk_1.sizePx);
+          sgi = sgi + 1;
+        };
+      }
+      if ( el.gridTemplateRows == "subgrid" ) {
+        el.subgridRowSizes.length = 0;
+        let sgj = 0;
+        while (sgj < rSpan) {
+          const rIdx2 = rIdx + sgj;
+          if ( rIdx2 < (rowSizes.length) ) {
+            el.subgridRowSizes.push(rowSizes[rIdx2]);
+          }
+          sgj = sgj + 1;
+        };
+      }
+      el.unitsResolved = false;
+      el.resolveUnits(boxW, boxH);
+      this.layoutElement(el, el.calculatedX, el.calculatedY, boxW, boxH);
+      p = p + 1;
+    };
+    parent.computedRowSizes.length = 0;
+    let cr = 0;
+    while (cr < rowsUsed) {
+      parent.computedRowSizes.push(rowSizes[cr]);
+      cr = cr + 1;
+    };
+    let total = 0.0;
+    let s = 0;
+    while (s < rowsUsed) {
+      total = total + (rowSizes[s]);
+      s = s + 1;
+    };
+    total = total + rowGapTotal;
+    return total;
+  };
+  gridOccupied (occupied, colCount, row, col, span, rspan) {
+    const total = occupied.length;
+    let rr = 0;
+    while (rr < rspan) {
+      let cc = 0;
+      while (cc < span) {
+        const idx = (((row + rr) * colCount) + col) + cc;
+        if ( idx < total ) {
+          if ( occupied[idx] ) {
+            return true;
+          }
+        }
+        cc = cc + 1;
+      };
+      rr = rr + 1;
+    };
+    return false;
+  };
+  gridRowExtent (rowSizes, from, span, gap) {
+    let total = 0.0;
+    const n = rowSizes.length;
+    let i = from;
+    let placed = 0;
+    while ((i < n) && (placed < span)) {
+      total = total + (rowSizes[i]);
+      placed = placed + 1;
+      i = i + 1;
+    };
+    if ( placed > 1 ) {
+      total = total + (((placed - 1)) * gap);
+    }
+    return total;
+  };
+  gridRowOffset (rowSizes, index, gap) {
+    let total = 0.0;
+    let i = 0;
+    while (i < index) {
+      total = total + (rowSizes[i]);
+      total = total + gap;
+      i = i + 1;
+    };
+    return total;
+  };
+  estimateChildWidth (child, maxInnerWidth) {
+    if ( child.width.isSet ) {
+      return child.width.pixels;
+    }
+    if ( child.calculatedFlexWidth > 0.0 ) {
+      return child.calculatedFlexWidth;
+    }
+    const textContent = child.textContent;
+    if ( (textContent.length) > 0 ) {
+      if ( child.getChildCount() == 0 ) {
+        let fontSize = child.inheritedFontSize;
+        if ( child.fontSize.isSet ) {
+          fontSize = child.fontSize.pixels;
+        }
+        if ( fontSize <= 0.0 ) {
+          fontSize = 14.0;
+        }
+        const contentW = this.textEngine.maxLineWidth(textContent, child.effectiveFontFamily(), fontSize);
+        const measuredW = ((contentW + child.box.paddingLeftPx) + child.box.paddingRightPx) + (child.box.borderWidthPx * 2.0);
+        if ( measuredW < maxInnerWidth ) {
+          return measuredW;
+        }
+      }
+    }
+    return maxInnerWidth;
+  };
+}
 class A11yCheck  {
   constructor() {
     this.passed = 0;
@@ -16613,6 +19444,89 @@ EVGA11yTest.dialog = function(wm) {
   w.addButtonRow(ids, labels, 4);
   w.finish();
   return w;
+};
+EVGA11yTest.menubarTree = function() {
+  const page = EVGElement.createDiv();
+  page.id = "page";
+  page.setAttribute("width", "800px");
+  page.setAttribute("height", "600px");
+  const bar = EVGElement.createDiv();
+  bar.id = "bar";
+  bar.setAttribute("role", "menubar");
+  bar.setAttribute("aria-label", "Main");
+  bar.setAttribute("display", "flex");
+  bar.setAttribute("flex-direction", "row");
+  bar.setAttribute("flex-wrap", "nowrap");
+  bar.setAttribute("height", "40px");
+  const menu = EVGElement.createDiv();
+  menu.id = "menu-file";
+  menu.setAttribute("display", "flex");
+  menu.setAttribute("flex-direction", "column");
+  menu.setAttribute("width", "fit-content");
+  const trigger = EVGElement.createDiv();
+  trigger.id = "trigger-file";
+  trigger.setAttribute("role", "menuitem");
+  trigger.setAttribute("aria-expanded", "true");
+  trigger.setAttribute("aria-focusable", "true");
+  trigger.setAttribute("overlay-anchor-role", "true");
+  trigger.setAttribute("width", "60px");
+  trigger.setAttribute("height", "30px");
+  trigger.textContent = "File";
+  const content = EVGElement.createDiv();
+  content.id = "menu-file-content";
+  content.setAttribute("role", "menu");
+  content.setAttribute("aria-label", "File");
+  content.setAttribute("overlay", "true");
+  content.setAttribute("overlay-side", "bottom");
+  content.setAttribute("width", "200px");
+  content.setAttribute("height", "80px");
+  const row = EVGElement.createDiv();
+  row.id = "row-new-tab";
+  row.setAttribute("role", "menuitem");
+  row.setAttribute("aria-focusable", "true");
+  row.setAttribute("height", "30px");
+  const label = EVGElement.createDiv();
+  label.textContent = "New Tab";
+  const shortcut = EVGElement.createDiv();
+  shortcut.textContent = "⌘ T";
+  row.addChild(label);
+  row.addChild(shortcut);
+  const check = EVGElement.createDiv();
+  check.id = "row-urls";
+  check.setAttribute("role", "menuitemcheckbox");
+  check.setAttribute("aria-checked", "true");
+  check.setAttribute("aria-focusable", "true");
+  check.setAttribute("height", "30px");
+  check.textContent = "Always Show Full URLs";
+  content.addChild(row);
+  content.addChild(check);
+  menu.addChild(trigger);
+  menu.addChild(content);
+  bar.addChild(menu);
+  page.addChild(bar);
+  return page;
+};
+EVGA11yTest.nodeById = function(t, id) {
+  let i = 0;
+  while (i < (t).count()) {
+    const n = (t).at(i);
+    if ( n.id == id ) {
+      return n;
+    }
+    i = i + 1;
+  };
+  return new EVGA11yNode();
+};
+EVGA11yTest.focusedCount = function(t) {
+  let n = 0;
+  let i = 0;
+  while (i < (t).count()) {
+    if ( ((t).at(i)).focused ) {
+      n = n + 1;
+    }
+    i = i + 1;
+  };
+  return n;
 };
 EVGA11yTest.hasSub = function(hay, needle) {
   const n = needle.length;
@@ -16732,6 +19646,29 @@ function __js_main() {
   c.ok("carries a generation", EVGA11yTest.hasSub(js, "\"gen\":"));
   c.ok("spells roles in ARIA", EVGA11yTest.hasSub(js, "\"role\":\"textbox\""));
   c.ok("says nothing about unchecked things", EVGA11yTest.hasSub(js, "\"checked\"") == false);
+  console.log("== an accessible tree derived from the element tree ==");
+  const page = EVGA11yTest.menubarTree();
+  const lay = new EVGLayout();
+  lay.setPageSize(800.0, 600.0);
+  lay.layout(page);
+  const b_2 = new EVGA11yFromTree();
+  const dt = b_2.build(page, "Ranger UI", 7, "trigger-file");
+  const bar = EVGA11yTest.nodeById(dt, "bar");
+  c.eqStr("the bar is a menubar", EVGA11yRole.ariaName(bar.role), "menubar");
+  c.eqStr("named by its label", bar.name, "Main");
+  const trig = EVGA11yTest.nodeById(dt, "trigger-file");
+  c.eqStr("the trigger hangs off the menubar, not off the layout box", trig.parentId, "bar");
+  c.eqInt("and says it is open", trig.expanded, 2);
+  c.ok("and can be focused", trig.focusable);
+  const row = EVGA11yTest.nodeById(dt, "row-new-tab");
+  c.eqStr("a row is named by what it contains", row.name, "New Tab ⌘ T");
+  const chk = EVGA11yTest.nodeById(dt, "row-urls");
+  c.eqStr("a checkbox row is a menuitemcheckbox", EVGA11yRole.ariaName(chk.role), "menuitemcheckbox");
+  c.eqInt("and it is ticked", chk.checked, 2);
+  const menuNode = EVGA11yTest.nodeById(dt, "menu-file-content");
+  c.ok("the surface reports the rectangle it was moved to", menuNode.y > 30);
+  c.eqInt("focus is where the caller put it", EVGA11yTest.focusedCount(dt), 1);
+  c.lintsClean("a derived tree", dt);
   console.log("");
   console.log((("passed " + ((c.passed.toString()))) + ", failed ") + ((c.failed.toString())));
   if ( c.failed > 0 ) {
