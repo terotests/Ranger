@@ -49,6 +49,9 @@
   }
   label.row span.hint { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; margin-top: -6px; }
   label.row input[type="range"] { width: 100%; grid-column: 1 / -1; }
+  /* A select sized by its widest option pushes out of the 300px panel and the
+     text is then clipped, so give it the full row like the sliders have. */
+  label.row select { grid-column: 1 / -1; width: 100%; min-width: 0; box-sizing: border-box; }
   label.check { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 13px; }
   select, input[type="number"], input[type="color"], input[type="text"] {
     font: inherit; font-size: 13px; color: var(--ink); background: #202634;
@@ -102,6 +105,15 @@
   }
   .pal-add { padding: 6px 10px; }
   .pal-empty { color: var(--muted); font-size: 12px; }
+  /* Both id-level, but the .hidden rule is more specific, so it wins in mono
+     mode. An inline display on the element would beat the class and leave the
+     editor on screen in a mode that ignores it. */
+  #row-palEdit { display: block; }
+  #row-palEdit.hidden { display: none; }
+  /* Shown but not in use: the colors are still editable, and touching one is
+     what switches the palette over to them. */
+  #row-palEdit.pal-inactive .pal-edit, #row-palEdit.pal-inactive .actions { opacity: 0.45; }
+  .pal-note { color: var(--muted); font-size: 11.5px; margin: 0 0 8px; }
 
   fieldset {
     border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; padding: 10px 12px 2px;
@@ -130,6 +142,7 @@
         <label class="filebtn">Valitse kuva<input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp"></label>
         <button type="button" id="sample">Esimerkki</button>
       </div>
+      <p style="margin:0 0 10px;font-size:12px;color:var(--muted)">Voit myös liittää kuvan leikepöydältä (⌘/Ctrl + V).</p>
       <p style="margin:0 0 14px;font-size:12px;color:var(--muted)">Esimerkki: PD-kopio Hokusain <i>Suuresta aallosta</i> (Wikimedia Commons).</p>
 
       <fieldset>
@@ -148,22 +161,23 @@
         <label class="check mono-only"><input id="blackOnWhite" type="checkbox" checked> Tumma on etuala</label>
         <label class="row color-only hidden">Paletti
           <select id="paletteMode">
-            <option value="auto" selected>auto — poimitaan kuvasta</option>
-            <option value="seeded">omat + auto — omat kiinnitetään</option>
-            <option value="fixed">omat — vain alla olevat värit</option>
+            <option value="auto" selected>auto — kuvasta</option>
+            <option value="seeded">omat + auto</option>
+            <option value="fixed">vain omat värit</option>
           </select>
           <span class="hint">auto on oletus, ja tuottaa saman murretun sävyskaalan kuin ennenkin.</span>
         </label>
         <label class="row color-only hidden" id="row-bias">Painotus
           <select id="paletteBias">
-            <option value="area" selected>pinta-ala — suurimmat alueet voittavat</option>
-            <option value="balanced">tasapaino — pieni kirkas kohde pärjää</option>
-            <option value="distinct">erottuvuus — pelkkä väriero ratkaisee</option>
+            <option value="area" selected>pinta-ala</option>
+            <option value="balanced">tasapaino</option>
+            <option value="distinct">erottuvuus</option>
           </select>
-          <span class="hint">Mihin uusi sävy käytetään. Valokuvassa pinta-ala antaa aina ensimmäiset sävyt taustalle.</span>
+          <span class="hint">Mihin uusi sävy käytetään: pinta-ala = suurimmat alueet voittavat (valokuvassa siis tausta), tasapaino = pieni kirkas kohde pärjää, erottuvuus = pelkkä väriero ratkaisee.</span>
         </label>
-        <div class="row color-only hidden" id="row-palEdit" style="display:block">
+        <div class="row color-only hidden" id="row-palEdit">
           <div style="margin-bottom:6px">Omat värit</div>
+          <p class="pal-note" id="palNote" hidden>Eivät ole nyt käytössä — Paletti on <b>auto</b>. Poimi tuloksesta tai muokkaa väriä, niin ne otetaan käyttöön.</p>
           <div class="pal-edit" id="palEdit"></div>
           <div class="actions" style="margin:0 0 10px">
             <button type="button" id="palAdd" class="pal-add">+ väri</button>
@@ -180,8 +194,8 @@
         </div>
         <label class="row color-only hidden">Tausta
           <select id="bgMode">
-            <option value="auto" selected>auto — täytetään reunoilta</option>
-            <option value="luma">luma — kirkkaat pois</option>
+            <option value="auto" selected>auto — reunoilta</option>
+            <option value="luma">luma</option>
             <option value="none">ei mitään</option>
           </select>
           <span class="hint">auto poistaa vain reunaan yhtenäisen taustan, joten kuvion sisällä oleva vaalea alue säilyy.</span>
@@ -309,6 +323,15 @@
   bindRange(opttolerance, $("v-opttolerance"), function (v) { return v.toFixed(2); });
   bindRange(maxW, $("v-maxW"));
 
+  // Editing a color while the palette is on "auto" is the user asking for that
+  // color, not a no-op: switch the mode over rather than silently ignoring it.
+  function activatePalette() {
+    if (paletteMode.value === "auto") {
+      paletteMode.value = "fixed";
+      syncMode();
+    }
+  }
+
   // The editable list of colors for the "omat" / "omat + auto" palette modes.
   function renderPalEdit() {
     palEdit.innerHTML = "";
@@ -329,6 +352,7 @@
       inp.addEventListener("input", function () {
         userPalette[i] = inp.value;
         inp.title = inp.value;
+        activatePalette();
         schedule();
       });
       var del = document.createElement("button");
@@ -349,24 +373,23 @@
   $("palAdd").addEventListener("click", function () {
     userPalette.push("#808080");
     renderPalEdit();
+    activatePalette();
     schedule();
   });
   $("palPreset").addEventListener("change", function (e) {
     if (!e.target.value) return;
     userPalette = e.target.value.split(",");
     e.target.value = "";
-    if (paletteMode.value === "auto") paletteMode.value = "fixed";
     renderPalEdit();
-    syncMode();
+    activatePalette();
     schedule();
   });
   // Take the palette the quantizer just produced and make it editable.
   function adoptPalette(hexes) {
     if (!hexes || !hexes.length) return;
     userPalette = hexes.slice();
-    if (paletteMode.value === "auto") paletteMode.value = "fixed";
     renderPalEdit();
-    syncMode();
+    activatePalette();
     schedule();
   }
   $("palPick").addEventListener("click", function () { adoptPalette(lastPalette); });
@@ -379,7 +402,11 @@
     skipLuma.closest("label").classList.toggle("hidden", !color || bgMode.value !== "luma");
     var mode = paletteMode.value;
     rowBias.classList.toggle("hidden", !color || mode === "fixed");
-    rowPalEdit.classList.toggle("hidden", !color || mode === "auto");
+    // Kept on screen even on "auto" — it is how you reach "Poimi tuloksesta",
+    // and hiding it is what made the controls look inert.
+    rowPalEdit.classList.toggle("hidden", !color);
+    rowPalEdit.classList.toggle("pal-inactive", mode === "auto");
+    $("palNote").hidden = mode !== "auto";
     // "omat" replaces the count; "omat + auto" still fills up to it.
     colorCount.closest("label").classList.toggle("hidden", color && mode === "fixed");
   }
@@ -439,6 +466,57 @@
   file.addEventListener("change", function () {
     var f = file.files && file.files[0];
     if (f) loadFile(f, f.name);
+  });
+
+  // Paste an image straight onto the page — a screenshot, or a copy from
+  // another tab. Chrome and Safari put a File on the clipboard; Firefox may
+  // offer only an image/* string, which is a data: or blob: URL we can fetch.
+  function imageFromClipboard(data) {
+    if (!data) return null;
+    var items = data.items || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === "file" && /^image\//.test(items[i].type)) {
+        var f = items[i].getAsFile();
+        if (f) return { blob: f, name: f.name || "leikepöytä.png" };
+      }
+    }
+    var files = data.files || [];
+    for (var j = 0; j < files.length; j++) {
+      if (/^image\//.test(files[j].type)) {
+        return { blob: files[j], name: files[j].name || "leikepöytä.png" };
+      }
+    }
+    return null;
+  }
+
+  document.addEventListener("paste", function (e) {
+    // Never steal a paste that belongs to a field the user is typing in.
+    var el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA") &&
+        el.type !== "color" && el.type !== "range" && el.type !== "checkbox") {
+      return;
+    }
+    var found = imageFromClipboard(e.clipboardData);
+    if (found) {
+      e.preventDefault();
+      setStatus("Luetaan leikepöydältä…");
+      loadFile(found.blob, found.name);
+      return;
+    }
+    // Firefox path: an image/* entry that is a URL rather than a File.
+    var items = e.clipboardData ? e.clipboardData.items || [] : [];
+    for (var k = 0; k < items.length; k++) {
+      if (items[k].kind === "string" && /^image\//.test(items[k].type)) {
+        e.preventDefault();
+        items[k].getAsString(function (str) {
+          setStatus("Luetaan leikepöydältä…");
+          fetch(str).then(function (r) { return r.blob(); })
+            .then(function (b) { loadFile(b, "leikepöytä.png"); })
+            .catch(function () { setStatus("Leikepöydän kuvaa ei saatu luettua.", "bad"); });
+        });
+        return;
+      }
+    }
   });
 
   sample.addEventListener("click", function () {

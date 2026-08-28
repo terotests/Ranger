@@ -19,7 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   On the page the palette strip under the output is now clickable: one click adopts the palette the quantizer just produced into an editable row of color wells, where a color can be nudged, removed, or added to, with a few ready-made lists (black + white, black/white/yellow, grayscale, sepia). The color-count slider hides itself in `"fixed"` mode, where the list *is* the count, and the status line says how many chosen colors found nothing to paint.
 
+### Added
+
+- **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
+
 ### Fixed
+
+- **The tracer's palette controls looked inert** — reported from the live page: switching the palette or the weighting seemed to change nothing. Three things stacked up. The editable color list carried an inline `display:block`, which beats the `.hidden` class it was toggled with, so it stayed on screen in `"auto"` mode — a mode that ignores it. A color edited there therefore did nothing, which is exactly what "the options don't work" looks like. Hiding it properly would have been the wrong fix: `Poimi tuloksesta` lives in that block and is the whole path from an automatic palette to an edited one. It now stays visible in every color mode, is dimmed and labelled as idle under `"auto"`, and **touching any color there switches the palette over to it** rather than swallowing the edit. Separately, a `<select>` sized by its widest option pushed 49px out of a 300px panel and its label was clipped mid-word; selects now take the full row like the sliders do. `npm run evg:trace:web:smoke` asserts all three — the editor is visible and marked idle on `"auto"`, no select is clipped, and an edit made under `"auto"` reaches the output — and each assertion was checked against the bug reintroduced.
+
+  Worth recording, because it was the other half of the confusion: the quantizer was fine. On a muted photograph `"balanced"` and `"distinct"` genuinely agree, and only `"area"` differs, so two of the three settings really do produce the same picture. That is the weighting doing its job, not a control failing to fire.
 
 - **Adding colors to the bitmap tracer deleted the picture's features** — reported against the live page at `/evg/tracer/` with a tiger: at a low colorCount the drawing came through, and every extra color took something away, the eye first and the black linework worst, while the painted area stayed the same or *shrank*. Three separate causes, all of them in the posterize path, and none of them in the curve fitting.
 
