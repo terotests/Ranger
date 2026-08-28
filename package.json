@@ -230,6 +230,7 @@
     "pptx:web:serve": "bash gallery/pptx/web/standalone/build.sh && python3 -m http.server -d gallery/pptx/web/standalone/dist 8001",
     "pptx:web:test": "bash gallery/pptx/web/standalone/build.sh && node gallery/pptx/web/standalone/smoke.mjs",
     "pptx:web:touch:test": "bash gallery/pptx/web/standalone/build.sh && node gallery/pptx/web/standalone/touch.mjs",
+    "pptx:cpp:check": "bash gallery/pptx/web/wasm/cpp-check.sh",
     "pptx:wasm": "bash gallery/pptx/web/wasm/build.sh",
     "pptx:wasm:rust": "bash gallery/pptx/web/wasm-rust/build.sh",
     "pptx:wasm:rust:serve": "bash gallery/pptx/web/wasm-rust/build.sh && python3 -m http.server -d gallery/pptx/web/wasm-rust/dist 8005",
