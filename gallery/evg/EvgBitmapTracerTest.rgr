@@ -33,6 +33,7 @@ class EvgBitmapTracerTest {
         test.testFixedPalette(t)
         test.testSeededPaletteKeepsThePin(t)
         test.testPaletteBiasDefaultIsUnchanged(t)
+        test.testSmoothRemovesSpeckle(t)
         t.summary()
     }
 
@@ -576,5 +577,72 @@ class EvgBitmapTracerTest {
         def trB:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeGradientWithSpot()) optB))
         trB.trace()
         t.ok("balanced keeps the small vivid patch" ((this.vividCount(trB)) >= 1))
+    }
+
+    ; Two flat halves with salt-and-pepper sprayed over them. Quantizing this
+    ; without smoothing turns every speck into its own ring, which is what a
+    ; photograph does at a high colorCount.
+    fn makeSpeckled:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(60 40)
+        def seed:int 12345
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 60) {
+                def left:boolean (x < 30)
+                ; A small LCG — every target can hold these numbers.
+                seed = (((seed * 75) + 74) % 65537)
+                if ((seed % 100) < 15) {
+                    left = (left == false)
+                }
+                if left {
+                    img.setPixelRGB(x y 60 90 160)
+                } {
+                    img.setPixelRGB(x y 200 180 120)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn totalRings:int (tr:EvgBitmapTracer) {
+        def n:int 0
+        def i:int 0
+        while (i < (tr.layerCount())) {
+            def layer:EvgTraceLayer (itemAt tr.layers i)
+            n = (n + layer.ringCount)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testSmoothRemovesSpeckle:void (t:RgTest) {
+        def a:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("smoothing is off by default" (a.smooth) 0)
+
+        def rawOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+        rawOpts.colorCount = 2
+        rawOpts.bgMode = "none"
+        rawOpts.minRegion = 0
+        def raw:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeSpeckled()) rawOpts))
+        raw.trace()
+        def rawRings:int (this.totalRings(raw))
+
+        def smOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+        smOpts.colorCount = 2
+        smOpts.bgMode = "none"
+        smOpts.minRegion = 0
+        smOpts.smooth = 2
+        def sm:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeSpeckled()) smOpts))
+        sm.trace()
+        def smRings:int (this.totalRings(sm))
+
+        t.ok("the speckle really is there without smoothing" (rawRings > 40))
+        t.ok("smoothing collapses it" (smRings < (idiv rawRings 4)))
+        ; The edge between the halves must survive: both colors still painted.
+        t.eqInt("both regions survive the median" (sm.layerCount()) 2)
     }
 }
