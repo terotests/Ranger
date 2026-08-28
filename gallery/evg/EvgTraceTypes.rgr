@@ -81,6 +81,36 @@ class EvgTraceOptions {
     ; When posterizing, skip near-white / background swatches (luma >= this).
     ; 250 keeps paper-white out of typical scans; set 256 to keep white.
     def skipLuma:int 250
+    ; Posterize: a pixel counts as a region interior when every 4-neighbour is
+    ; within this per-channel distance. Anti-aliased boundary pixels fail the
+    ; test and are kept out of the palette vote.
+    def flatTolerance:int 12
+    ; Let a boundary pixel join a region that actually touches it instead of a
+    ; swatch it only resembles — see assignLabels.
+    def edgeSnap:boolean true
+    ; How much worse a touching region may fit before the snap is refused.
+    ; 1.0 = only when it fits at least as well; larger = snap more eagerly.
+    def snapRatio:double 1.5
+    ; Extra weight on the luma term of the palette distance (1 = plain RGB).
+    def lumaWeight:int 3
+    ; Swatches closer than this (largest per-channel difference) are merged
+    ; after quantization. Asking for more colors than the image actually holds
+    ; otherwise splits one region between two near-identical swatches, and each
+    ; half then falls under turdsize — which is how outlines turn into dashes.
+    def minColorDelta:int 10
+    ; Posterize: a connected run of pixels smaller than this joins the region
+    ; around it instead of being traced. Without it turdsize simply deletes
+    ; those rings and leaves holes, so coverage falls as colorCount rises.
+    def minRegion:int 6
+    ; Background handling for posterize:
+    ;   "auto" — flood the page color in from the border and drop only that,
+    ;            so a white belly or highlight inside the subject survives.
+    ;            Falls back to "luma" when the border is not one flat color.
+    ;   "luma" — the old rule: drop every pixel with luma >= skipLuma.
+    ;   "none" — paint everything opaque.
+    def bgMode:string "auto"
+    ; Per-channel tolerance for the "auto" background flood.
+    def bgTolerance:int 24
 
     Constructor () {
     }

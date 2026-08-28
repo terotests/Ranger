@@ -16,6 +16,15 @@
 ;   options.colorCount  — 1 = mono threshold; >1 = posterize ImageBuffer into
 ;                         N swatches and emit one evenodd <path> per layer
 ;
+; Posterize (see the block comment above colorDist2 for why each step exists):
+;   detectBackground  — flood the page in from the border (options.bgMode)
+;   buildFlatMask     — region interior vs. anti-aliased transition
+;   buildPalette      — count-weighted k-means++ over a 5-bit histogram of the
+;                       interiors only, then merge indistinguishable swatches
+;   assignLabels      — nearest swatch, with a guarded snap for transitions
+;   mergeTinyRegions  — absorb runs below options.minRegion into their surround
+;   maskForLabel      — one binary mask per swatch, traced like the mono path
+;
 ;   bash gallery/evg/tools/run_trace_bench.sh
 ; ==============================================================================
 
@@ -41,6 +50,13 @@ class EvgBitmapTracer {
     def planeG:[int]
     def planeB:[int]
     def planeA:[int]
+    ; 1 = region interior, 0 = anti-aliased transition (buildFlatMask).
+    def flat:[int]
+    ; Palette index per pixel, -1 = not painted (assignLabels).
+    def labels:[int]
+    ; 1 = page background flooded in from the border (detectBackground).
+    def bgMask:[int]
+    def bgActive:boolean false
     def layers:[EvgTraceLayer]
 
     Constructor () {
@@ -58,6 +74,12 @@ class EvgBitmapTracer {
         planeB = pb
         def pa:[int]
         planeA = pa
+        def fl:[int]
+        flat = fl
+        def lb:[int]
+        labels = lb
+        def bg:[int]
+        bgMask = bg
         def ly:[EvgTraceLayer]
         layers = ly
     }
@@ -340,24 +362,37 @@ class EvgBitmapTracer {
 
     ; ----------------------------------------------------------------------
     ; Multi-color posterize (quantize → per-swatch binary trace)
+    ;
+    ; The palette is built from *plateau* pixels only. Anti-aliased boundary
+    ; pixels are blends of two real colors: if they are allowed to vote, the
+    ; extra swatches are spent on halo tones instead of new regions, and every
+    ; ink stroke is then eaten from both sides until turdsize deletes what is
+    ; left. Transitional pixels are instead snapped to a neighbouring region.
     ; ----------------------------------------------------------------------
 
-    ; Distance that privileges luminance so foam / shadow steps stay separated
-    ; from similar-hue midtones (weighted Euclidean in RGB + strong luma term).
-    sfn colorDist2:int (r0:int g0:int b0:int r1:int g1:int b1:int) {
-        def dr:int (r0 - r1)
-        def dg:int (g0 - g1)
-        def db:int (b0 - b1)
+    ; Weighted Euclidean distance in RGB with an extra luma term, so a dark
+    ; ink line never collapses into a mid-tone of the same hue.
+    sfn colorDist2:double (r0:int g0:int b0:int r1:int g1:int b1:int lw:int) {
+        def dr:double (to_double (r0 - r1))
+        def dg:double (to_double (g0 - g1))
+        def db:double (to_double (b0 - b1))
         def l0:int (EvgBitmapTracer.lumaOf(r0 g0 b0))
         def l1:int (EvgBitmapTracer.lumaOf(r1 g1 b1))
-        def dl:int (l0 - l1)
-        ; 12× on luma keeps bright foam from collapsing into gray-blue water.
-        return ((((dr * dr) + (dg * dg)) + (db * db)) + ((dl * dl) * 12))
+        def dl:double (to_double (l0 - l1))
+        return ((((dr * dr) + (dg * dg)) + (db * db)) + ((dl * dl) * (to_double lw)))
     }
 
     sfn lumaOf:int (r:int g:int b:int) {
         ; Integer approx of 0.299R+0.587G+0.114B
         return (idiv (((r * 299) + (g * 587)) + (b * 114)) 1000)
+    }
+
+    fn lumaWeight:int () {
+        def lw:int options.lumaWeight
+        if (lw < 1) {
+            return 1
+        }
+        return lw
     }
 
     ; True if this opaque pixel may join the palette / masks.
@@ -366,137 +401,482 @@ class EvgBitmapTracer {
         if (a < 16) {
             return false
         }
+        if bgActive {
+            return ((itemAt bgMask i) == 0)
+        }
+        if (options.bgMode == "none") {
+            return true
+        }
         def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
         return (lum < options.skipLuma)
     }
 
-    ; Build up to `want` palette centers. Seeds always include the darkest and
-    ; lightest allowed pixels so luminance extremes (wave foam, deep navy) survive.
-    fn buildPalette:void (want:int outR:[int] outG:[int] outB:[int]) {
-        def n:int (array_length planeR)
-        def darkI:int (0 - 1)
-        def lightI:int (0 - 1)
-        def darkL:int 256
-        def lightL:int (0 - 1)
-        def si:int 0
-        while (si < n) {
-            if (this.pixelAllowed(si)) {
-                def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR si) (itemAt planeG si) (itemAt planeB si)))
-                if (lum < darkL) {
-                    darkL = lum
-                    darkI = si
-                }
-                if (lum > lightL) {
-                    lightL = lum
-                    lightI = si
-                }
-            }
-            si = (si + 1)
-        }
-        if (darkI < 0) {
+    ; ----------------------------------------------------------------------
+    ; Background detection
+    ;
+    ; skipLuma is a blunt instrument: it deletes every bright pixel, so a white
+    ; belly or a highlight inside the subject is thrown away along with the
+    ; page. Instead, flood the border color inwards and drop only what is
+    ; actually connected to the edge of the image. Bail out (and leave the
+    ; skipLuma rule in charge) unless the border really is one flat color —
+    ; a photograph has no page to remove.
+    ; ----------------------------------------------------------------------
+
+    fn detectBackground:void () {
+        bgActive = false
+        if ((options.bgMode) != "auto") {
             return
         }
-        push outR (itemAt planeR darkI)
-        push outG (itemAt planeG darkI)
-        push outB (itemAt planeB darkI)
-        if ((lightI >= 0) && (lightI != darkI) && (want > 1)) {
-            push outR (itemAt planeR lightI)
-            push outG (itemAt planeG lightI)
-            push outB (itemAt planeB lightI)
+        def n:int (width * height)
+        if (n < 4) {
+            return
         }
-        ; Farthest-point fill for remaining slots (luma-weighted distance).
+        ; Modal border color, via the same 5-bit histogram as the palette.
+        def bins:int 32768
+        def cnt:[int]
+        def sr:[int]
+        def sg:[int]
+        def sb:[int]
+        def i:int 0
+        while (i < bins) {
+            push cnt 0
+            push sr 0
+            push sg 0
+            push sb 0
+            i = (i + 1)
+        }
+        def border:[int]
+        def x:int 0
+        while (x < width) {
+            push border x
+            push border (((height - 1) * width) + x)
+            x = (x + 1)
+        }
+        def y:int 1
+        while (y < (height - 1)) {
+            push border (y * width)
+            push border ((y * width) + (width - 1))
+            y = (y + 1)
+        }
+        def bn:int (array_length border)
+        if (bn == 0) {
+            return
+        }
+        def opaqueBorder:int 0
+        i = 0
+        while (i < bn) {
+            def idx:int (itemAt border i)
+            if ((itemAt planeA idx) >= 16) {
+                def r:int (itemAt planeR idx)
+                def g:int (itemAt planeG idx)
+                def b:int (itemAt planeB idx)
+                def key:int (((((idiv r 8) * 32) + (idiv g 8)) * 32) + (idiv b 8))
+                set cnt key ((itemAt cnt key) + 1)
+                set sr key ((itemAt sr key) + r)
+                set sg key ((itemAt sg key) + g)
+                set sb key ((itemAt sb key) + b)
+                opaqueBorder = (opaqueBorder + 1)
+            }
+            i = (i + 1)
+        }
+        ; A fully transparent border is a cut-out: alpha already removed it.
+        if (opaqueBorder == 0) {
+            return
+        }
+        def topI:int (0 - 1)
+        def topC:int 0
+        i = 0
+        while (i < bins) {
+            if ((itemAt cnt i) > topC) {
+                topC = (itemAt cnt i)
+                topI = i
+            }
+            i = (i + 1)
+        }
+        if (topI < 0) {
+            return
+        }
+        def bgR:int (idiv (itemAt sr topI) topC)
+        def bgG:int (idiv (itemAt sg topI) topC)
+        def bgB:int (idiv (itemAt sb topI) topC)
+        def tol:int options.bgTolerance
+        if (tol < 0) {
+            tol = 0
+        }
+        ; How much of the border actually is that color?
+        def within:int 0
+        i = 0
+        while (i < bn) {
+            def idx2:int (itemAt border i)
+            if ((itemAt planeA idx2) >= 16) {
+                if (this.nearBg(idx2 bgR bgG bgB tol)) {
+                    within = (within + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((idiv (within * 100) opaqueBorder) < 80) {
+            return
+        }
+        ; Flood the page in from every matching border pixel.
+        def mask:[int]
+        i = 0
+        while (i < n) {
+            push mask 0
+            i = (i + 1)
+        }
+        def stack:[int]
+        i = 0
+        while (i < bn) {
+            def s0:int (itemAt border i)
+            if ((itemAt mask s0) == 0) {
+                if (this.nearBg(s0 bgR bgG bgB tol)) {
+                    set mask s0 1
+                    push stack s0
+                }
+            }
+            i = (i + 1)
+        }
+        def head:int 0
+        while (head < (array_length stack)) {
+            def cur:int (itemAt stack head)
+            head = (head + 1)
+            def cy:int (idiv cur width)
+            def cx:int (cur - (cy * width))
+            if (cx > 0) {
+                this.floodStep((cur - 1) mask stack bgR bgG bgB tol)
+            }
+            if (cx < (width - 1)) {
+                this.floodStep((cur + 1) mask stack bgR bgG bgB tol)
+            }
+            if (cy > 0) {
+                this.floodStep((cur - width) mask stack bgR bgG bgB tol)
+            }
+            if (cy < (height - 1)) {
+                this.floodStep((cur + width) mask stack bgR bgG bgB tol)
+            }
+        }
+        bgMask = mask
+        bgActive = true
+    }
+
+    fn nearBg:boolean (i:int bgR:int bgG:int bgB:int tol:int) {
+        if ((itemAt planeA i) < 16) {
+            return true
+        }
+        if ((EvgBitmapTracer.absI((itemAt planeR i) - bgR)) > tol) {
+            return false
+        }
+        if ((EvgBitmapTracer.absI((itemAt planeG i) - bgG)) > tol) {
+            return false
+        }
+        if ((EvgBitmapTracer.absI((itemAt planeB i) - bgB)) > tol) {
+            return false
+        }
+        return true
+    }
+
+    fn floodStep:void (i:int mask:[int] stack:[int] bgR:int bgG:int bgB:int tol:int) {
+        if ((itemAt mask i) != 0) {
+            return
+        }
+        if (this.nearBg(i bgR bgG bgB tol)) {
+            set mask i 1
+            push stack i
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Plateau / edge classification
+    ; ----------------------------------------------------------------------
+
+    ; Largest per-channel difference between two pixels (alpha included, so the
+    ; feathered rim of a cut-out counts as a transition too).
+    fn pixelDelta:int (i:int j:int) {
+        def d:int (EvgBitmapTracer.absI((itemAt planeR i) - (itemAt planeR j)))
+        def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - (itemAt planeG j)))
+        if (dg > d) {
+            d = dg
+        }
+        def db:int (EvgBitmapTracer.absI((itemAt planeB i) - (itemAt planeB j)))
+        if (db > d) {
+            d = db
+        }
+        def da:int (EvgBitmapTracer.absI((itemAt planeA i) - (itemAt planeA j)))
+        if (da > d) {
+            d = da
+        }
+        return d
+    }
+
+    ; flat[i] = 1 when every 4-neighbour is within flatTolerance, i.e. the pixel
+    ; sits inside a region rather than on an anti-aliased boundary.
+    fn buildFlatMask:void () {
+        def n:int (width * height)
+        def f:[int]
+        def i:int 0
+        while (i < n) {
+            push f 1
+            i = (i + 1)
+        }
+        def tol:int options.flatTolerance
+        if (tol < 0) {
+            tol = 0
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def idx:int ((y * width) + x)
+                def isFlat:boolean true
+                if (x > 0) {
+                    if ((this.pixelDelta(idx (idx - 1))) > tol) {
+                        isFlat = false
+                    }
+                }
+                if (x < (width - 1)) {
+                    if ((this.pixelDelta(idx (idx + 1))) > tol) {
+                        isFlat = false
+                    }
+                }
+                if (y > 0) {
+                    if ((this.pixelDelta(idx (idx - width))) > tol) {
+                        isFlat = false
+                    }
+                }
+                if (y < (height - 1)) {
+                    if ((this.pixelDelta(idx (idx + width))) > tol) {
+                        isFlat = false
+                    }
+                }
+                if isFlat {
+                    set f idx 1
+                } {
+                    set f idx 0
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        flat = f
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Color histogram (5 bits per channel) over the pixels that may vote
+    ; ----------------------------------------------------------------------
+
+    fn buildHistogram:void (flatOnly:boolean binR:[int] binG:[int] binB:[int] binW:[int]) {
+        def bins:int 32768
+        def cnt:[int]
+        def sumR:[int]
+        def sumG:[int]
+        def sumB:[int]
+        def i:int 0
+        while (i < bins) {
+            push cnt 0
+            push sumR 0
+            push sumG 0
+            push sumB 0
+            i = (i + 1)
+        }
+        def n:int (array_length planeR)
+        def hasFlat:boolean ((array_length flat) == n)
+        i = 0
+        while (i < n) {
+            def take:boolean (this.pixelAllowed(i))
+            if (take && flatOnly && hasFlat) {
+                if ((itemAt flat i) == 0) {
+                    take = false
+                }
+            }
+            if take {
+                def r:int (itemAt planeR i)
+                def g:int (itemAt planeG i)
+                def b:int (itemAt planeB i)
+                def key:int (((((idiv r 8) * 32) + (idiv g 8)) * 32) + (idiv b 8))
+                set cnt key ((itemAt cnt key) + 1)
+                set sumR key ((itemAt sumR key) + r)
+                set sumG key ((itemAt sumG key) + g)
+                set sumB key ((itemAt sumB key) + b)
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < bins) {
+            def c:int (itemAt cnt i)
+            if (c > 0) {
+                push binR (idiv (itemAt sumR i) c)
+                push binG (idiv (itemAt sumG i) c)
+                push binB (idiv (itemAt sumB i) c)
+                push binW c
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Palette: weighted k-means++ seeding + Lloyd passes over the histogram.
+    ; Weighting by pixel count is what stops a handful of outlier pixels from
+    ; claiming a swatch that then paints nothing — the old farthest-point seed
+    ; was drawn to exactly those outliers.
+    ; ----------------------------------------------------------------------
+
+    fn buildPalette:void (want:int outR:[int] outG:[int] outB:[int]) {
+        def binR:[int]
+        def binG:[int]
+        def binB:[int]
+        def binW:[int]
+        this.buildHistogram(true binR binG binB binW)
+        ; Line art can be thin enough to have no plateau at all — then let every
+        ; allowed pixel vote rather than emitting nothing.
+        if ((array_length binR) < 2) {
+            def allR:[int]
+            def allG:[int]
+            def allB:[int]
+            def allW:[int]
+            this.buildHistogram(false allR allG allB allW)
+            binR = allR
+            binG = allG
+            binB = allB
+            binW = allW
+        }
+        def m:int (array_length binR)
+        if (m == 0) {
+            return
+        }
+        def lw:int (this.lumaWeight())
+        ; Seed 1: the heaviest bin.
+        def bestI:int 0
+        def bestW:int (itemAt binW 0)
+        def i:int 1
+        while (i < m) {
+            if ((itemAt binW i) > bestW) {
+                bestW = (itemAt binW i)
+                bestI = i
+            }
+            i = (i + 1)
+        }
+        push outR (itemAt binR bestI)
+        push outG (itemAt binG bestI)
+        push outB (itemAt binB bestI)
+        ; Remaining seeds: maximize weight × distance² to the closest center.
+        def dist:[double]
+        i = 0
+        while (i < m) {
+            push dist (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR 0) (itemAt outG 0) (itemAt outB 0) lw))
+            i = (i + 1)
+        }
         while ((array_length outR) < want) {
-            def bestI:int (0 - 1)
-            def bestD:int (0 - 1)
-            def i:int 0
-            while (i < n) {
-                if (this.pixelAllowed(i)) {
-                    def pr:int (itemAt planeR i)
-                    def pg:int (itemAt planeG i)
-                    def pb:int (itemAt planeB i)
-                    def minD:int 2147483647
-                    def j:int 0
-                    def k0:int (array_length outR)
-                    while (j < k0) {
-                        def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
-                        if (d < minD) {
-                            minD = d
-                        }
-                        j = (j + 1)
-                    }
-                    if (minD > bestD) {
-                        bestD = minD
-                        bestI = i
-                    }
+            def pickI:int (0 - 1)
+            def pickScore:double 0.0
+            i = 0
+            while (i < m) {
+                def score:double ((itemAt dist i) * (to_double (itemAt binW i)))
+                if (score > pickScore) {
+                    pickScore = score
+                    pickI = i
                 }
                 i = (i + 1)
             }
-            if ((bestI < 0) || (bestD <= 0)) {
+            if (pickI < 0) {
                 want = (array_length outR)
             } {
-                push outR (itemAt planeR bestI)
-                push outG (itemAt planeG bestI)
-                push outB (itemAt planeB bestI)
+                def cr:int (itemAt binR pickI)
+                def cg:int (itemAt binG pickI)
+                def cb:int (itemAt binB pickI)
+                push outR cr
+                push outG cg
+                push outB cb
+                i = 0
+                while (i < m) {
+                    def d:double (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) cr cg cb lw))
+                    if (d < (itemAt dist i)) {
+                        set dist i d
+                    }
+                    i = (i + 1)
+                }
             }
         }
-        ; A few assignment / mean update passes.
+        ; Lloyd passes, weighted by bin population.
+        def k:int (array_length outR)
         def pass:int 0
-        while (pass < 6) {
-            def k:int (array_length outR)
-            def sumR:[int]
-            def sumG:[int]
-            def sumB:[int]
-            def cnt:[int]
+        while (pass < 12) {
+            def sumR:[double]
+            def sumG:[double]
+            def sumB:[double]
+            def wgt:[double]
             def ki:int 0
             while (ki < k) {
-                push sumR 0
-                push sumG 0
-                push sumB 0
-                push cnt 0
+                push sumR 0.0
+                push sumG 0.0
+                push sumB 0.0
+                push wgt 0.0
                 ki = (ki + 1)
             }
-            def i:int 0
-            while (i < n) {
-                def a2:int (itemAt planeA i)
-                if (a2 >= 16) {
-                    def pr:int (itemAt planeR i)
-                    def pg:int (itemAt planeG i)
-                    def pb:int (itemAt planeB i)
-                    def lum2:int (EvgBitmapTracer.lumaOf(pr pg pb))
-                    if (lum2 < options.skipLuma) {
-                        def best:int 0
-                        def bestD:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR 0) (itemAt outG 0) (itemAt outB 0)))
-                        def j:int 1
-                        while (j < k) {
-                            def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt outR j) (itemAt outG j) (itemAt outB j)))
-                            if (d < bestD) {
-                                bestD = d
-                                best = j
-                            }
-                            j = (j + 1)
-                        }
-                        set sumR best ((itemAt sumR best) + pr)
-                        set sumG best ((itemAt sumG best) + pg)
-                        set sumB best ((itemAt sumB best) + pb)
-                        set cnt best ((itemAt cnt best) + 1)
-                    }
-                }
+            i = 0
+            while (i < m) {
+                def br:int (itemAt binR i)
+                def bg:int (itemAt binG i)
+                def bb:int (itemAt binB i)
+                def best:int (this.nearestIndex(br bg bb outR outG outB))
+                def w:double (to_double (itemAt binW i))
+                set sumR best ((itemAt sumR best) + ((to_double br) * w))
+                set sumG best ((itemAt sumG best) + ((to_double bg) * w))
+                set sumB best ((itemAt sumB best) + ((to_double bb) * w))
+                set wgt best ((itemAt wgt best) + w)
+                set dist i 0.0
                 i = (i + 1)
             }
+            def moved:boolean false
             ki = 0
             while (ki < k) {
-                def cN:int (itemAt cnt ki)
-                if (cN > 0) {
-                    set outR ki (idiv (itemAt sumR ki) cN)
-                    set outG ki (idiv (itemAt sumG ki) cN)
-                    set outB ki (idiv (itemAt sumB ki) cN)
+                def wk:double (itemAt wgt ki)
+                if (wk > 0.0) {
+                    def nr:int (to_int ((itemAt sumR ki) / wk))
+                    def ng:int (to_int ((itemAt sumG ki) / wk))
+                    def nb:int (to_int ((itemAt sumB ki) / wk))
+                    if ((nr != (itemAt outR ki)) || (ng != (itemAt outG ki)) || (nb != (itemAt outB ki))) {
+                        moved = true
+                    }
+                    set outR ki nr
+                    set outG ki ng
+                    set outB ki nb
+                } {
+                    ; An empty swatch paints nothing — move it onto the bin that
+                    ; is worst served right now instead of leaving it stranded.
+                    def farI:int (0 - 1)
+                    def farScore:double 0.0
+                    i = 0
+                    while (i < m) {
+                        def dd:double (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outG (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outB (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) lw))
+                        def sc:double (dd * (to_double (itemAt binW i)))
+                        if (sc > farScore) {
+                            farScore = sc
+                            farI = i
+                        }
+                        i = (i + 1)
+                    }
+                    if (farI >= 0) {
+                        set outR ki (itemAt binR farI)
+                        set outG ki (itemAt binG farI)
+                        set outB ki (itemAt binB farI)
+                        moved = true
+                    }
                 }
                 ki = (ki + 1)
             }
-            pass = (pass + 1)
+            if (moved) {
+                pass = (pass + 1)
+            } {
+                pass = 12
+            }
         }
+        ; Collapse swatches the eye cannot tell apart. Without this, asking for
+        ; more colors than the image holds splits one region between two
+        ; near-identical swatches and turdsize eats both halves.
+        this.mergeCloseSwatches(outR outG outB binR binG binB binW)
         ; Sort palette dark → light (ascending luma). Masks are disjoint so
-        ; paint order is mostly cosmetic; lightest (foam) ends up last.
+        ; paint order is mostly cosmetic; lightest ends up last.
         def k2:int (array_length outR)
         def a:int 0
         while (a < k2) {
@@ -521,41 +901,356 @@ class EvgBitmapTracer {
         }
     }
 
+    ; Merge palette entries closer than options.minColorDelta, keeping whichever
+    ; of the pair paints more pixels.
+    fn mergeCloseSwatches:void (outR:[int] outG:[int] outB:[int] binR:[int] binG:[int] binB:[int] binW:[int]) {
+        def delta:int options.minColorDelta
+        if (delta <= 0) {
+            return
+        }
+        def lw:int (this.lumaWeight())
+        ; Same metric the assignment uses, scaled so `delta` still reads as a
+        ; per-channel difference.
+        def limit:double ((to_double (delta * delta)) * (to_double (3 + lw)))
+        def merged:boolean true
+        while merged {
+            merged = false
+            def k:int (array_length outR)
+            if (k < 2) {
+                return
+            }
+            ; Population of each swatch, so the survivor is the one that paints.
+            def wgt:[int]
+            def ki:int 0
+            while (ki < k) {
+                push wgt 0
+                ki = (ki + 1)
+            }
+            def m:int (array_length binR)
+            def i:int 0
+            while (i < m) {
+                def idx:int (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))
+                set wgt idx ((itemAt wgt idx) + (itemAt binW i))
+                i = (i + 1)
+            }
+            def dropAt:int (0 - 1)
+            def a:int 0
+            while ((a < k) && (dropAt < 0)) {
+                def b:int (a + 1)
+                while ((b < k) && (dropAt < 0)) {
+                    def d:double (EvgBitmapTracer.colorDist2((itemAt outR a) (itemAt outG a) (itemAt outB a) (itemAt outR b) (itemAt outG b) (itemAt outB b) lw))
+                    if (d <= limit) {
+                        if ((itemAt wgt a) >= (itemAt wgt b)) {
+                            dropAt = b
+                        } {
+                            dropAt = a
+                        }
+                    }
+                    b = (b + 1)
+                }
+                a = (a + 1)
+            }
+            if (dropAt >= 0) {
+                remove outR dropAt
+                remove outG dropAt
+                remove outB dropAt
+                merged = true
+            }
+        }
+    }
+
+    fn nearestIndex:int (r:int g:int b:int palR:[int] palG:[int] palB:[int]) {
+        def k:int (array_length palR)
+        if (k == 0) {
+            return 0
+        }
+        def lw:int (this.lumaWeight())
+        def best:int 0
+        def bestD:double (EvgBitmapTracer.colorDist2(r g b (itemAt palR 0) (itemAt palG 0) (itemAt palB 0) lw))
+        def j:int 1
+        while (j < k) {
+            def d:double (EvgBitmapTracer.colorDist2(r g b (itemAt palR j) (itemAt palG j) (itemAt palB j) lw))
+            if (d < bestD) {
+                bestD = d
+                best = j
+            }
+            j = (j + 1)
+        }
+        return best
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Pixel → swatch assignment
+    ; ----------------------------------------------------------------------
+
+    ; Every allowed pixel takes its nearest swatch. A transitional pixel is
+    ; then re-checked against the regions actually touching it: it only moves
+    ; there when the neighbouring swatch fits about as well as the global best
+    ; (snapRatio). That guard matters — the one-pixel ink core of a thin
+    ; anti-aliased outline is transitional too, and an unguarded snap hands it
+    ; to the big region beside it, which is what turns outlines into dashes.
+    fn assignLabels:void (palR:[int] palG:[int] palB:[int]) {
+        def n:int (width * height)
+        def base:[int]
+        def dists:[double]
+        def i:int 0
+        while (i < n) {
+            push base (0 - 1)
+            push dists 0.0
+            i = (i + 1)
+        }
+        def lw:int (this.lumaWeight())
+        i = 0
+        while (i < n) {
+            if (this.pixelAllowed(i)) {
+                def lab:int (this.nearestIndex((itemAt planeR i) (itemAt planeG i) (itemAt planeB i) palR palG palB))
+                set base i lab
+                set dists i (EvgBitmapTracer.colorDist2((itemAt planeR i) (itemAt planeG i) (itemAt planeB i) (itemAt palR lab) (itemAt palG lab) (itemAt palB lab) lw))
+            }
+            i = (i + 1)
+        }
+        def outL:[int]
+        i = 0
+        while (i < n) {
+            push outL (itemAt base i)
+            i = (i + 1)
+        }
+        def hasFlat:boolean ((array_length flat) == n)
+        if (options.edgeSnap && hasFlat) {
+            def ratio:double options.snapRatio
+            def y:int 0
+            while (y < height) {
+                def x:int 0
+                while (x < width) {
+                    def idx:int ((y * width) + x)
+                    def gLab:int (itemAt base idx)
+                    if ((gLab >= 0) && ((itemAt flat idx) == 0)) {
+                        def gD:double (itemAt dists idx)
+                        def pr:int (itemAt planeR idx)
+                        def pg:int (itemAt planeG idx)
+                        def pb:int (itemAt planeB idx)
+                        def nLab:int (0 - 1)
+                        def nD:double 0.0
+                        def dy:int (0 - 1)
+                        while (dy <= 1) {
+                            def yy:int (y + dy)
+                            if ((yy >= 0) && (yy < height)) {
+                                def dx:int (0 - 1)
+                                while (dx <= 1) {
+                                    def xx:int (x + dx)
+                                    if ((xx >= 0) && (xx < width)) {
+                                        def nIdx:int ((yy * width) + xx)
+                                        if ((itemAt flat nIdx) == 1) {
+                                            def lab2:int (itemAt base nIdx)
+                                            if (lab2 >= 0) {
+                                                def d:double (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR lab2) (itemAt palG lab2) (itemAt palB lab2) lw))
+                                                if ((nLab < 0) || (d < nD)) {
+                                                    nLab = lab2
+                                                    nD = d
+                                                }
+                                            }
+                                        }
+                                    }
+                                    dx = (dx + 1)
+                                }
+                            }
+                            dy = (dy + 1)
+                        }
+                        if ((nLab >= 0) && (nLab != gLab)) {
+                            if (nD <= ((gD * ratio) + 1.0)) {
+                                set outL idx nLab
+                            }
+                        }
+                    }
+                    x = (x + 1)
+                }
+                y = (y + 1)
+            }
+        }
+        labels = outL
+        this.despeckleLabels()
+        this.mergeTinyRegions((array_length palR))
+    }
+
+    ; Absorb connected runs below options.minRegion into the region that
+    ; surrounds them. turdsize would otherwise drop those rings outright, which
+    ; is why the painted area used to shrink every time colorCount went up.
+    fn mergeTinyRegions:void (k:int) {
+        def minPx:int options.minRegion
+        if (minPx < 2) {
+            return
+        }
+        def n:int (width * height)
+        def seen:[int]
+        def i:int 0
+        while (i < n) {
+            push seen 0
+            i = (i + 1)
+        }
+        def touch:[int]
+        def ki:int 0
+        while (ki < k) {
+            push touch 0
+            ki = (ki + 1)
+        }
+        def start:int 0
+        while (start < n) {
+            def lab:int (itemAt labels start)
+            if ((lab >= 0) && ((itemAt seen start) == 0)) {
+                def comp:[int]
+                def stack:[int]
+                def c:int 0
+                ki = 0
+                while (ki < k) {
+                    set touch ki 0
+                    ki = (ki + 1)
+                }
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.compStep((cur - 1) lab seen stack touch)
+                    }
+                    if (cx < (width - 1)) {
+                        this.compStep((cur + 1) lab seen stack touch)
+                    }
+                    if (cy > 0) {
+                        this.compStep((cur - width) lab seen stack touch)
+                    }
+                    if (cy < (height - 1)) {
+                        this.compStep((cur + width) lab seen stack touch)
+                    }
+                }
+                if ((array_length comp) < minPx) {
+                    def bestLab:int (0 - 1)
+                    def bestN:int 0
+                    ki = 0
+                    while (ki < k) {
+                        if ((itemAt touch ki) > bestN) {
+                            bestN = (itemAt touch ki)
+                            bestLab = ki
+                        }
+                        ki = (ki + 1)
+                    }
+                    if (bestLab >= 0) {
+                        c = 0
+                        while (c < (array_length comp)) {
+                            set labels (itemAt comp c) bestLab
+                            c = (c + 1)
+                        }
+                    }
+                }
+            }
+            start = (start + 1)
+        }
+    }
+
+    ; Flood one step of the component walk; a differently-labelled neighbour is
+    ; recorded as a merge candidate instead.
+    fn compStep:void (i:int lab:int seen:[int] stack:[int] touch:[int]) {
+        def other:int (itemAt labels i)
+        if (other == lab) {
+            if ((itemAt seen i) == 0) {
+                set seen i 1
+                push stack i
+            }
+            return
+        }
+        if (other >= 0) {
+            set touch other ((itemAt touch other) + 1)
+        }
+    }
+
+    ; Drop single-pixel islands whose whole 4-neighbourhood agrees on another
+    ; swatch. Those specks only add rings that turdsize would delete anyway.
+    fn despeckleLabels:void () {
+        def n:int (width * height)
+        def src:[int]
+        def i:int 0
+        while (i < n) {
+            push src (itemAt labels i)
+            i = (i + 1)
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def idx:int ((y * width) + x)
+                def me:int (itemAt src idx)
+                if (me >= 0) {
+                    def agree:int (0 - 2)
+                    def same:boolean true
+                    def cnt:int 0
+                    if (x > 0) {
+                        def l:int (itemAt src (idx - 1))
+                        if (agree == (0 - 2)) {
+                            agree = l
+                        }
+                        if (l != agree) {
+                            same = false
+                        }
+                        cnt = (cnt + 1)
+                    }
+                    if (x < (width - 1)) {
+                        def r:int (itemAt src (idx + 1))
+                        if (agree == (0 - 2)) {
+                            agree = r
+                        }
+                        if (r != agree) {
+                            same = false
+                        }
+                        cnt = (cnt + 1)
+                    }
+                    if (y > 0) {
+                        def u:int (itemAt src (idx - width))
+                        if (agree == (0 - 2)) {
+                            agree = u
+                        }
+                        if (u != agree) {
+                            same = false
+                        }
+                        cnt = (cnt + 1)
+                    }
+                    if (y < (height - 1)) {
+                        def dn:int (itemAt src (idx + width))
+                        if (agree == (0 - 2)) {
+                            agree = dn
+                        }
+                        if (dn != agree) {
+                            same = false
+                        }
+                        cnt = (cnt + 1)
+                    }
+                    if (same && (cnt >= 3) && (agree != me)) {
+                        set labels idx agree
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
     fn hexFromRgb:string (r:int g:int b:int) {
         def c:EVGColor (EVGColor.rgb(r g b))
         return (c.toHexString())
     }
 
-    fn maskForColor:EvgBinaryBitmap (cr:int cg:int cb:int palR:[int] palG:[int] palB:[int] colorIndex:int) {
+    fn maskForLabel:EvgBinaryBitmap (colorIndex:int) {
         def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
-        def n:int (array_length planeR)
-        def k:int (array_length palR)
+        def n:int (array_length labels)
         def i:int 0
         while (i < n) {
-            def a:int (itemAt planeA i)
-            if (a >= 16) {
-                def pr:int (itemAt planeR i)
-                def pg:int (itemAt planeG i)
-                def pb:int (itemAt planeB i)
-                def lum:int (EvgBitmapTracer.lumaOf(pr pg pb))
-                if (lum < options.skipLuma) {
-                    def best:int 0
-                    def bestD:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR 0) (itemAt palG 0) (itemAt palB 0)))
-                    def j:int 1
-                    while (j < k) {
-                        def d:int (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR j) (itemAt palG j) (itemAt palB j)))
-                        if (d < bestD) {
-                            bestD = d
-                            best = j
-                        }
-                        j = (j + 1)
-                    }
-                    if (best == colorIndex) {
-                        def y:int (idiv i width)
-                        def x:int (i - (y * width))
-                        bm.setBit(x y true)
-                    }
-                }
+            if ((itemAt labels i) == colorIndex) {
+                def y:int (idiv i width)
+                def x:int (i - (y * width))
+                bm.setBit(x y true)
             }
             i = (i + 1)
         }
@@ -567,18 +1262,24 @@ class EvgBitmapTracer {
         if (want < 2) {
             want = 2
         }
+        this.detectBackground()
+        this.buildFlatMask()
         def palR:[int]
         def palG:[int]
         def palB:[int]
         this.buildPalette(want palR palG palB)
         def k:int (array_length palR)
+        if (k == 0) {
+            return
+        }
+        this.assignLabels(palR palG palB)
         def li:int 0
         def allCmds:[PathCommand]
         while (li < k) {
             def cr:int (itemAt palR li)
             def cg:int (itemAt palG li)
             def cb:int (itemAt palB li)
-            def mask:EvgBinaryBitmap (this.maskForColor(cr cg cb palR palG palB li))
+            def mask:EvgBinaryBitmap (this.maskForLabel(li))
             def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
             layerOpts.turdsize = options.turdsize
             layerOpts.alphamax = options.alphamax

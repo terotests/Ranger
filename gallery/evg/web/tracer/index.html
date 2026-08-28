@@ -136,9 +136,25 @@
           <input id="fillHex" type="color" value="#000000">
         </label>
         <label class="check mono-only"><input id="blackOnWhite" type="checkbox" checked> Tumma on etuala</label>
+        <label class="row color-only hidden">Tausta
+          <select id="bgMode">
+            <option value="auto" selected>auto — täytetään reunoilta</option>
+            <option value="luma">luma — kirkkaat pois</option>
+            <option value="none">ei mitään</option>
+          </select>
+          <span class="hint">auto poistaa vain reunaan yhtenäisen taustan, joten kuvion sisällä oleva vaalea alue säilyy.</span>
+        </label>
         <label class="row color-only hidden">skipLuma <span class="val" id="v-skipLuma">250</span>
           <input id="skipLuma" type="range" min="0" max="256" step="1" value="250">
-          <span class="hint">Jätä pois pikselit joiden luma ≥ raja. 256 = pidä valkoinen vaahto.</span>
+          <span class="hint">Vain luma-tilassa: jätä pois pikselit joiden luma ≥ raja.</span>
+        </label>
+        <label class="row color-only hidden">Sävyjen yhdistäminen <span class="val" id="v-minColorDelta">10</span>
+          <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
+          <span class="hint">Tätä lähempänä olevat sävyt yhdistetään. Estää saman alueen halkeamisen kahdeksi lähes samaksi tasoksi.</span>
+        </label>
+        <label class="row color-only hidden">Pienin alue <span class="val" id="v-minRegion">6</span>
+          <input id="minRegion" type="range" min="0" max="40" step="1" value="6">
+          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäröivään alueeseen sen sijaan että jäisivät reiäksi.</span>
         </label>
       </fieldset>
 
@@ -208,6 +224,7 @@
   var file = $("file"), sample = $("sample"), runBtn = $("run"), dlBtn = $("dl");
   var srcStage = $("srcStage"), outStage = $("outStage"), statusEl = $("status"), paletteEl = $("palette");
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
+  var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
   var optcurve = $("optcurve"), turnpolicy = $("turnpolicy"), blackOnWhite = $("blackOnWhite");
   var fillHex = $("fillHex"), maxW = $("maxW");
@@ -239,6 +256,8 @@
   bindRange(colorCount, $("v-colorCount"));
   bindRange(threshold, $("v-threshold"), function (v) { return v < 0 ? "Otsu" : String(v); });
   bindRange(skipLuma, $("v-skipLuma"));
+  bindRange(minColorDelta, $("v-minColorDelta"));
+  bindRange(minRegion, $("v-minRegion"));
   bindRange(turdsize, $("v-turdsize"));
   bindRange(alphamax, $("v-alphamax"), function (v) { return v.toFixed(2); });
   bindRange(opttolerance, $("v-opttolerance"), function (v) { return v.toFixed(2); });
@@ -248,11 +267,14 @@
     var color = +colorCount.value > 1;
     monoOnly.forEach(function (el) { el.classList.toggle("hidden", color); });
     colorOnly.forEach(function (el) { el.classList.toggle("hidden", !color); });
+    // skipLuma only does anything in luma mode.
+    skipLuma.closest("label").classList.toggle("hidden", !color || bgMode.value !== "luma");
   }
   colorCount.addEventListener("input", syncMode);
+  bgMode.addEventListener("change", syncMode);
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -340,6 +362,9 @@
         opts.colorCount = +colorCount.value;
         opts.threshold = +threshold.value;
         opts.skipLuma = +skipLuma.value;
+        opts.bgMode = bgMode.value;
+        opts.minColorDelta = +minColorDelta.value;
+        opts.minRegion = +minRegion.value;
         opts.turdsize = +turdsize.value;
         opts.alphamax = +alphamax.value;
         opts.opttolerance = +opttolerance.value;
@@ -386,8 +411,12 @@
         }
 
         var rings = tr.rings ? tr.rings.length : 0;
+        var asked = +colorCount.value;
+        var collapsed = asked > 1 && layerN < asked
+          ? " (kuvassa ei ole " + asked + " erottuvaa sävyä)"
+          : "";
         statusEl.innerHTML = "<b>OK</b> · " + sourceBitmap.w + "×" + sourceBitmap.h
-          + " · " + ms + " ms · layers=" + layerN
+          + " · " + ms + " ms · layers=" + layerN + collapsed
           + (rings ? " · rings=" + rings : "")
           + " · svg=" + svg.length + " B";
         statusEl.className = "good";
