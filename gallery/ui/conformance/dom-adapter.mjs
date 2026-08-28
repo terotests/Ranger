@@ -23,15 +23,43 @@ const domRequire = createRequire(path.join(DOM_DIR, "package.json"));
 
 export class MissingDomDeps extends Error {}
 
-function requireDom(name) {
-  try {
-    return domRequire(name);
-  } catch {
+/**
+ * Is the reference host installed?
+ *
+ * Checking one package is not enough, and checking the wrong one is worse than
+ * not checking: `esbuild` and `playwright-core` are also devDependencies of the
+ * REPOSITORY, so on a machine with a root `npm install` they resolve from
+ * there, the check passes, and the failure surfaces later as a wall of
+ * "Could not resolve react" from the bundler instead of one line saying what
+ * to run. So ask about everything dom/package.json declares.
+ *
+ * Resolution, not directory existence, because a package manager is allowed to
+ * hoist — a dependency satisfied from the repository root is genuinely usable.
+ */
+export function assertDomInstalled() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(DOM_DIR, "package.json"), "utf8"));
+  const needed = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
+  const missing = needed.filter((name) => {
+    try {
+      domRequire.resolve(name);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if (missing.length) {
     throw new MissingDomDeps(
       "the Radix reference host is not installed — run:\n" +
-        "  npm --prefix gallery/ui/conformance/dom install",
+        "  npm run ui:conformance:install\n" +
+        "missing: " +
+        missing.join(", "),
     );
   }
+}
+
+function requireDom(name) {
+  assertDomInstalled();
+  return domRequire(name);
 }
 
 function findChromium() {
