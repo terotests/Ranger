@@ -217,10 +217,18 @@ It also walked into two more EVG gaps, both recorded in `toolbar.css`:
 
 Two EVG limits the menubar exposed, neither of them about the syntax:
 
-- **No overlay layer.** Laying the full structure out in flow stacks all four
-  dropdowns down the page instead of floating one under its trigger, so the
-  picture is composed by hand from a trigger bar and the panels that would be
-  portalled. This is the next piece of work in `gallery/ui/PLAN.md`.
+- **No overlay layer** — *fixed since, and the demo now shows it.* Laying the
+  full structure out in flow stacked all four dropdowns down the page, so the
+  first version of the picture was composed by hand from a trigger bar and the
+  panels that would be portalled. EVG has overlay surfaces now
+  (`gallery/evg/EVGLayout.rgr`, `npm run evg:overlay:test`): `Content` is
+  still the `Menu`'s child, and layout takes it out of the parent's flow,
+  finds its anchor among its own siblings and moves it and its subtree there.
+  The hand composition is gone from `MenubarDemo.rgr` and a submenu is a `Menu`
+  like any other — there is no submenu case in the file. Note what did *not*
+  change: no new syntax. The factory says `(isOverlay true)` on a tag and the
+  call sites are untouched, which is the strongest evidence so far that the
+  tree/factory split is in the right place.
 - **`width: fill` is not "the remaining space".** It resolves to the parent's
   full width, so a filled label pushes its shortcut onto the next line. The
   demo's columns are therefore numbers.

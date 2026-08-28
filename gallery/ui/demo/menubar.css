@@ -23,6 +23,11 @@
 .mb-root {
   display: flex;
   flex-direction: row;
+  /* EVG's default is `wrap`, and it decides whether to wrap from the child's
+     width BEFORE that child's own fit-content shrink has happened — so every
+     menu still looked full-width at the moment the row was deciding, and each
+     one wrapped onto its own line. */
+  flex-wrap: nowrap;
   background-color: #ffffff;
   border-radius: 8px;
   padding: 4px;
@@ -30,7 +35,11 @@
   height: 44px;
 }
 
-.mb-menu { display: flex; flex-direction: column; }
+/* fit-content, so a menu is as wide as its trigger and the four sit side by
+   side. Without it every one of them is as wide as the whole bar, the first
+   fills the row, and the rest wrap underneath — which is exactly what the bar
+   did before this existed. */
+.mb-menu { display: flex; flex-direction: column; width: fit-content; }
 .mb-dropdown-row { display: flex; flex-direction: row; gap: 14px; margin-top: 10px; }
 
 .mb-trigger {

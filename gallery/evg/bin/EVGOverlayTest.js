@@ -5298,7 +5298,7 @@ class EVGLayout  {
     return maxInnerWidth;
   };
 }
-class RtlCheck  {
+class OverlayCheck  {
   constructor() {
     this.passed = 0;
     this.failed = 0;
@@ -5306,214 +5306,179 @@ class RtlCheck  {
   ok (name, cond) {
     if ( cond ) {
       this.passed = this.passed + 1;
-      console.log("  PASS  " + name);
+      console.log("  PASS " + name);
     } else {
       this.failed = this.failed + 1;
-      console.log("  FAIL  " + name);
+      console.log("  FAIL " + name);
     }
   };
-  eqNum (name, got, want) {
-    let d = got - want;
-    if ( d < 0.0 ) {
-      d = 0.0 - d;
+  eqInt (name, got, want) {
+    const good = got == want;
+    if ( good == false ) {
+      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
     }
-    this.ok((((name + " (got ") + ((got.toString()))) + " want ") + (((want.toString())) + ")"), d < 0.5);
+    this.ok(name, good);
   };
 }
-class EVGRtlLayoutTest  {
+class EVGOverlayTest  {
   constructor() {
-    this.c = new RtlCheck();
   }
-  laidOut (root) {
-    const lay = new EVGLayout();
-    lay.setPageSize(300.0, 200.0);
-    lay.layout(root);
-    return root;
-  };
-  run () {
-    console.log("=== EVGRtlLayoutTest ===");
-    this.testOrder();
-    this.testGrid();
-    this.testInheritance();
-    this.testIsland();
-    this.testAbsolute();
-    this.testMargins();
-    this.testLegacyDirection();
-    console.log("");
-    console.log(("passed = " + ((this.c.passed.toString()))) + ("  failed = " + ((this.c.failed.toString()))));
-    if ( this.c.failed == 0 ) {
-      console.log("ALL PASS");
-    } else {
-      console.log("SOME FAILED");
-    }
-  };
-  testOrder () {
-    console.log("--- the order, and which end it packs against ---");
-    const ltr = this.laidOut(EVGRtlLayoutTest.strip(false));
-    this.c.eqNum("a starts at the left edge", EVGRtlLayoutTest.childX(ltr, 0), 0.0);
-    this.c.eqNum("b follows it", EVGRtlLayoutTest.childX(ltr, 1), 40.0);
-    this.c.eqNum("and c follows b", EVGRtlLayoutTest.childX(ltr, 2), 100.0);
-    const rtl = this.laidOut(EVGRtlLayoutTest.strip(true));
-    this.c.eqNum("a is now against the RIGHT edge", EVGRtlLayoutTest.childX(rtl, 0), 260.0);
-    this.c.eqNum("b sits to its left", EVGRtlLayoutTest.childX(rtl, 1), 200.0);
-    this.c.eqNum("and c to the left of b", EVGRtlLayoutTest.childX(rtl, 2), 180.0);
-    this.c.ok("the tree order is untouched", (ltr.getChild(0)).id == "a");
-    this.c.ok("in the mirrored one too", (rtl.getChild(0)).id == "a");
-    this.c.ok("nothing was pushed off the left edge", EVGRtlLayoutTest.childX(rtl, 2) >= 0.0);
-  };
-  testGrid () {
-    console.log("--- and the grid turns with it ---");
-    const g = new EVGElement();
-    g.id = "grid";
-    g.width = EVGUnit.px(300.0);
-    g.height = EVGUnit.px(60.0);
-    g.display = "grid";
-    g.setAttribute("grid-template-columns", "100px 200px");
-    g.setAttribute("direction", "rtl");
-    const one = EVGRtlLayoutTest.box("one", 100.0, 20.0);
-    const two = EVGRtlLayoutTest.box("two", 200.0, 20.0);
-    g.addChild(one);
-    g.addChild(two);
-    this.laidOut(g);
-    this.c.eqNum("the first column is on the right", one.calculatedX, 200.0);
-    this.c.eqNum("and the second beside it", two.calculatedX, 0.0);
-    const g2 = new EVGElement();
-    g2.id = "grid2";
-    g2.width = EVGUnit.px(300.0);
-    g2.height = EVGUnit.px(60.0);
-    g2.display = "grid";
-    g2.setAttribute("grid-template-columns", "100px 200px");
-    const one2 = EVGRtlLayoutTest.box("one", 100.0, 20.0);
-    const two2 = EVGRtlLayoutTest.box("two", 200.0, 20.0);
-    g2.addChild(one2);
-    g2.addChild(two2);
-    this.laidOut(g2);
-    this.c.eqNum("left to right, the first column is on the left", one2.calculatedX, 0.0);
-    this.c.eqNum("and the second follows it", two2.calculatedX, 100.0);
-  };
-  testInheritance () {
-    console.log("--- one switch, not one per panel ---");
-    const page = new EVGElement();
-    page.id = "page";
-    page.width = EVGUnit.px(300.0);
-    page.height = EVGUnit.px(200.0);
-    page.display = "flex";
-    page.flexDirection = "column";
-    page.setAttribute("direction", "rtl");
-    const strip = new EVGElement();
-    strip.id = "strip";
-    strip.width = EVGUnit.px(300.0);
-    strip.height = EVGUnit.px(50.0);
-    strip.display = "flex";
-    strip.flexDirection = "row";
-    strip.addChild(EVGRtlLayoutTest.box("a", 40.0, 20.0));
-    strip.addChild(EVGRtlLayoutTest.box("b", 60.0, 20.0));
-    page.addChild(strip);
-    this.laidOut(page);
-    this.c.ok("the nested strip inherited the direction", strip.resolvedRtl);
-    this.c.eqNum("so its first button is on the right", EVGRtlLayoutTest.childX(strip, 0), 260.0);
-    this.c.eqNum("and its second is beside it", EVGRtlLayoutTest.childX(strip, 1), 200.0);
-  };
-  testIsland () {
-    console.log("--- and an island can opt back out ---");
-    const page = new EVGElement();
-    page.id = "page";
-    page.width = EVGUnit.px(300.0);
-    page.height = EVGUnit.px(200.0);
-    page.display = "flex";
-    page.flexDirection = "column";
-    page.setAttribute("direction", "rtl");
-    const code = new EVGElement();
-    code.id = "code";
-    code.width = EVGUnit.px(300.0);
-    code.height = EVGUnit.px(50.0);
-    code.display = "flex";
-    code.flexDirection = "row";
-    code.setAttribute("direction", "ltr");
-    code.addChild(EVGRtlLayoutTest.box("a", 40.0, 20.0));
-    code.addChild(EVGRtlLayoutTest.box("b", 60.0, 20.0));
-    page.addChild(code);
-    this.laidOut(page);
-    this.c.ok("the island is left to right", code.resolvedRtl == false);
-    this.c.eqNum("so its first box is on the left", EVGRtlLayoutTest.childX(code, 0), 0.0);
-    this.c.eqNum("and the second follows it", EVGRtlLayoutTest.childX(code, 1), 40.0);
-  };
-  testAbsolute () {
-    console.log("--- what must NOT move ---");
-    const page = new EVGElement();
-    page.id = "page";
-    page.width = EVGUnit.px(300.0);
-    page.height = EVGUnit.px(200.0);
-    page.display = "flex";
-    page.flexDirection = "row";
-    page.setAttribute("direction", "rtl");
-    const pinned = EVGRtlLayoutTest.box("pinned", 30.0, 30.0);
-    pinned.isAbsolute = true;
-    pinned.left = EVGUnit.px(0.0);
-    pinned.top = EVGUnit.px(0.0);
-    page.addChild(pinned);
-    this.laidOut(page);
-    this.c.eqNum("an absolute child stays where it was pinned", pinned.calculatedX, 0.0);
-  };
-  testMargins () {
-    console.log("--- margins stay physical ---");
-    const root = new EVGElement();
-    root.id = "root";
-    root.width = EVGUnit.px(300.0);
-    root.height = EVGUnit.px(50.0);
-    root.display = "flex";
-    root.flexDirection = "row";
-    root.setAttribute("direction", "rtl");
-    const only = EVGRtlLayoutTest.box("only", 40.0, 20.0);
-    only.box.marginLeft = EVGUnit.px(10.0);
-    root.addChild(only);
-    this.laidOut(root);
-    this.c.eqNum("the left margin is still on the left of the box", only.calculatedX, 260.0);
-  };
-  testLegacyDirection () {
-    console.log("--- and the property that already had the name ---");
-    const e = new EVGElement();
-    e.setAttribute("direction", "row");
-    this.c.ok("row is still the axis", e.direction == "row");
-    this.c.ok("and says nothing about handedness", e.textDir == "");
-    const e2 = new EVGElement();
-    e2.setAttribute("direction", "column");
-    this.c.ok("so is column", e2.direction == "column");
-    const e3 = new EVGElement();
-    e3.setAttribute("direction", "rtl");
-    this.c.ok("rtl is the handedness", e3.textDir == "rtl");
-    this.c.ok("and leaves the axis alone", e3.direction == "row");
-  };
 }
-EVGRtlLayoutTest.box = function(id, w, h) {
-  const e = new EVGElement();
-  e.id = id;
-  e.width = EVGUnit.px(w);
-  e.height = EVGUnit.px(h);
-  return e;
+EVGOverlayTest.box = function(id, cls, w, h) {
+  const el = EVGElement.createDiv();
+  el.id = id;
+  el.className = cls;
+  el.setAttribute("width", (((Math.floor( w)).toString())) + "px");
+  el.setAttribute("height", (((Math.floor( h)).toString())) + "px");
+  return el;
 };
-EVGRtlLayoutTest.strip = function(rtl) {
-  const root = new EVGElement();
-  root.id = "root";
-  root.width = EVGUnit.px(300.0);
-  root.height = EVGUnit.px(50.0);
-  root.display = "flex";
-  root.flexDirection = "row";
-  if ( rtl ) {
-    root.setAttribute("direction", "rtl");
+EVGOverlayTest.laidOut = function(root) {
+  const lay = new EVGLayout();
+  lay.setPageSize(800.0, 600.0);
+  lay.layout(root);
+  return lay;
+};
+EVGOverlayTest.buildMenu = function(withAnchor) {
+  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
+  const row = EVGOverlayTest.box("row", "row", 400.0, 40.0);
+  row.setAttribute("display", "flex");
+  row.setAttribute("flex-direction", "row");
+  row.setAttribute("flex-wrap", "nowrap");
+  const menu = EVGElement.createDiv();
+  menu.id = "menu";
+  menu.setAttribute("display", "flex");
+  menu.setAttribute("flex-direction", "column");
+  menu.setAttribute("width", "fit-content");
+  const trigger = EVGOverlayTest.box("trigger", "trigger", 60.0, 30.0);
+  if ( withAnchor ) {
+    trigger.setAttribute("overlay-anchor-role", "true");
   }
-  root.addChild(EVGRtlLayoutTest.box("a", 40.0, 20.0));
-  root.addChild(EVGRtlLayoutTest.box("b", 60.0, 20.0));
-  root.addChild(EVGRtlLayoutTest.box("c", 20.0, 20.0));
-  return root;
+  const surface = EVGOverlayTest.box("surface", "surface", 200.0, 120.0);
+  surface.setAttribute("overlay", "true");
+  surface.setAttribute("overlay-side", "bottom");
+  surface.setAttribute("overlay-align", "start");
+  surface.setAttribute("overlay-gap", "4");
+  menu.addChild(trigger);
+  menu.addChild(surface);
+  row.addChild(menu);
+  page.addChild(row);
+  return page;
 };
-EVGRtlLayoutTest.childX = function(parent, i) {
-  const ch = parent.getChild(i);
-  return ch.calculatedX;
+EVGOverlayTest.nodeById = function(root, id) {
+  let work = [];
+  work.push(root);
+  let i = 0;
+  while (i < (work.length)) {
+    const el = work[i];
+    if ( el.id == id ) {
+      return el;
+    }
+    let j = 0;
+    while (j < (el.children.length)) {
+      work.push(el.children[j]);
+      j = j + 1;
+    };
+    i = i + 1;
+  };
+  return EVGElement.createDiv();
+};
+EVGOverlayTest.testOutOfFlow = function(c) {
+  console.log("--- an overlay takes no space in its parent's flow ---");
+  const page = EVGOverlayTest.buildMenu(true);
+  EVGOverlayTest.laidOut(page);
+  const menu = EVGOverlayTest.nodeById(page, "menu");
+  c.eqInt("the menu is as wide as its trigger", Math.floor( menu.calculatedWidth), 60);
+  c.eqInt("and as tall", Math.floor( menu.calculatedHeight), 30);
+};
+EVGOverlayTest.testPlacement = function(c) {
+  console.log("--- a surface is placed against its anchor ---");
+  const page = EVGOverlayTest.buildMenu(true);
+  EVGOverlayTest.laidOut(page);
+  const trigger = EVGOverlayTest.nodeById(page, "trigger");
+  const surface = EVGOverlayTest.nodeById(page, "surface");
+  c.eqInt("left edges line up", Math.floor( surface.calculatedX), Math.floor( trigger.calculatedX));
+  c.eqInt("and it sits under the trigger, past the gap", Math.floor( surface.calculatedY), Math.floor( ((trigger.calculatedY + trigger.calculatedHeight) + 4.0)));
+};
+EVGOverlayTest.testSubtreeTravels = function(c) {
+  console.log("--- the surface's children travel with it ---");
+  const page = EVGOverlayTest.buildMenu(true);
+  const surface = EVGOverlayTest.nodeById(page, "surface");
+  surface.setAttribute("overlay-side", "right");
+  const kid = EVGOverlayTest.box("kid", "kid", 100.0, 20.0);
+  surface.addChild(kid);
+  EVGOverlayTest.laidOut(page);
+  const s2 = EVGOverlayTest.nodeById(page, "surface");
+  const k2 = EVGOverlayTest.nodeById(page, "kid");
+  c.ok("the child is inside its surface", k2.calculatedY >= s2.calculatedY);
+  c.eqInt("and moved sideways with it too", Math.floor( k2.calculatedX), Math.floor( s2.calculatedX));
+};
+EVGOverlayTest.testNested = function(c) {
+  console.log("--- a surface inside a surface anchors to the moved rectangle ---");
+  const page = EVGOverlayTest.buildMenu(true);
+  const surface = EVGOverlayTest.nodeById(page, "surface");
+  const sub = EVGElement.createDiv();
+  sub.id = "submenu";
+  sub.setAttribute("display", "flex");
+  sub.setAttribute("flex-direction", "column");
+  sub.setAttribute("width", "fit-content");
+  const subRow = EVGOverlayTest.box("subrow", "subrow", 80.0, 20.0);
+  subRow.setAttribute("overlay-anchor-role", "true");
+  const subSurface = EVGOverlayTest.box("subsurface", "subsurface", 150.0, 60.0);
+  subSurface.setAttribute("overlay", "true");
+  subSurface.setAttribute("overlay-side", "right");
+  subSurface.setAttribute("overlay-align", "start");
+  subSurface.setAttribute("overlay-gap", "4");
+  sub.addChild(subRow);
+  sub.addChild(subSurface);
+  surface.addChild(sub);
+  EVGOverlayTest.laidOut(page);
+  const row2 = EVGOverlayTest.nodeById(page, "subrow");
+  const surf2 = EVGOverlayTest.nodeById(page, "subsurface");
+  c.eqInt("it opens to the right of its row, past the gap", Math.floor( surf2.calculatedX), Math.floor( ((row2.calculatedX + row2.calculatedWidth) + 4.0)));
+  c.eqInt("and lines up with it", Math.floor( surf2.calculatedY), Math.floor( row2.calculatedY));
+  c.ok("which is BELOW the menu bar, not at the top of the page", surf2.calculatedY > 30.0);
+};
+EVGOverlayTest.testUnanchored = function(c) {
+  console.log("--- a surface with no anchor is reported ---");
+  const page = EVGOverlayTest.buildMenu(false);
+  const lay = EVGOverlayTest.laidOut(page);
+  const errs = lay.getOverlayErrors();
+  c.eqInt("one error", errs.length, 1);
+  if ( (errs.length) > 0 ) {
+    const msg = errs[0];
+    c.ok("naming the surface", (msg.indexOf("surface")) >= 0);
+    c.ok("and saying what to do", (msg.indexOf("overlay-anchor-role")) >= 0);
+  }
+};
+EVGOverlayTest.testCentered = function(c) {
+  console.log("--- a centred surface needs no anchor ---");
+  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
+  const modal = EVGOverlayTest.box("modal", "modal", 200.0, 100.0);
+  modal.setAttribute("overlay", "true");
+  modal.setAttribute("overlay-side", "center");
+  page.addChild(modal);
+  const lay = EVGOverlayTest.laidOut(page);
+  const m = EVGOverlayTest.nodeById(page, "modal");
+  c.eqInt("centred across", Math.floor( m.calculatedX), 300);
+  c.eqInt("and down", Math.floor( m.calculatedY), 250);
+  c.eqInt("with nothing reported", lay.getOverlayErrors().length, 0);
 };
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
-  const t = new EVGRtlLayoutTest();
-  t.run();
+  const c = new OverlayCheck();
+  console.log("=== EVG overlay surfaces ===");
+  EVGOverlayTest.testOutOfFlow(c);
+  EVGOverlayTest.testPlacement(c);
+  EVGOverlayTest.testSubtreeTravels(c);
+  EVGOverlayTest.testNested(c);
+  EVGOverlayTest.testUnanchored(c);
+  EVGOverlayTest.testCentered(c);
+  console.log("");
+  console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
+  if ( c.failed > 0 ) {
+    console.log("FAILURES");
+  } else {
+    console.log("ALL PASS");
+  }
 }
 __js_main();

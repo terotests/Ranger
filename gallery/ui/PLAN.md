@@ -48,23 +48,54 @@ the first number and `npm run ui:report` for the second.
 - [x] `ui:inventory`: the Radix denominator derived from npm, with an
       unclassified package failing the run
 
-## Next — the overlay layer, for real this time
+## The overlay layer — half landed
 
-Nine overlay components now behave correctly — they open, take focus, restore
-it, hide the page behind them and close on Escape — but they are still painted
-*in flow*, as ordinary children of their trigger's subtree. Behaviour is at
-parity; presentation is not.
+Nine overlay components already behaved correctly — they open, take focus,
+restore it, hide the page behind them and close on Escape — but they were
+painted *in flow*, as ordinary children of their trigger's subtree. Behaviour
+was at parity; presentation was not.
 
-- [ ] An overlay layer with z-order, so a dialog, a menu and a tooltip paint
-      **above** the page instead of pushing it down
-- [ ] Positioning: anchor a surface to its trigger rather than to the document
+An overlay surface is **not a new element and not a portal**. It stays exactly
+where it was put: still its parent's child, still the owner of its subtree, so
+events, ownership and the accessibility walk keep working unchanged. Only
+layout treats it differently. That is one flag on `EVGElement` and one pass in
+`EVGLayout`, and it is why the menubar demo's *call sites* did not change when
+it landed.
+
+- [x] Out of flow: `isOverlay` makes `hasAbsolutePosition()` true, which reuses
+      every size and spacing exclusion EVG already had. A menu is as wide as
+      its trigger, not as wide as the panel hanging off it.
+- [x] Positioning: a surface is anchored to a sibling carrying
+      `overlay-anchor-role`, by `overlay-side` (top/bottom/left/right/center)
+      and `overlay-align` (start/center/end) with an `overlay-gap`. Nothing
+      joins the two by hand and no id is involved.
+- [x] The subtree travels with the surface, so a surface **inside** a surface
+      anchors to the moved rectangle — which is the whole reason a submenu
+      needs no submenu case.
+- [x] A surface with no anchor is **reported**, not silently drawn at (0,0),
+      where it looks like a stylesheet mistake and is not one.
+- [x] `width: fit-content`, which a floating panel needs and EVG did not have.
+- [ ] **Paint order.** `EVGDisplayList` still paints in tree order, so a
+      surface is above the page only when it happens to come later. This needs
+      a z-order *stack* — the order surfaces opened in — not a z-index.
+- [ ] **Hit testing.** `UiHost.hitTest` still walks the tree, so a click in the
+      area a surface covers can land on what is underneath. Hit test topmost
+      surface first; *event propagation* then follows the logical tree, not the
+      paint stack.
+- [ ] **Collision handling:** flip and shift, so a surface near an edge is not
+      drawn off the page.
+- [ ] **Modal:** the same mechanism plus a backdrop and an inert page behind.
 - [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog. Catalogued as
       `dialog.focus-trap` and disputed, because the harness has no Tab step to
       prove it with
 
+Proof: `npm run evg:overlay:test` — 15 checks, each one shown to fail under a
+mutation of the code it covers. The visible result is
+`gallery/ui/demo/menubar.png`, rendered from `MenubarDemo.rgr`.
+
 `EVGWindow` already implements a modal dialog with focus and key handling, and
-`EVGToolbar` already hand-rolls an overlay pass for its dropdown. This work
-should fold those together rather than adding a third.
+`EVGToolbar` already hand-rolls an overlay pass for its dropdown. Folding those
+into this layer is the work, rather than adding a third.
 
 The seven components still missing are `form`,
 `one-time-password-field`, `password-toggle-field`, `menubar`, `select`,

@@ -19,6 +19,7 @@
   display: flex;
   flex-direction: row;
   justify-content: space-between;
+  flex-wrap: nowrap;
   background-color: #ffffff;
   border-radius: 8px;
   padding: 10px;
@@ -26,13 +27,15 @@
   height: 60px;
 }
 
-/* Every child of a row needs a width. EVG gives a width-less child the parent's
- * full width rather than shrinking it to its content, so the first child fills
- * the row and everything after it wraps onto the next line — which is what this
- * toolbar did until each box below was given a number. Same root cause as
- * `width: fill` resolving to the parent's width; see PLAN_TREE_LITERALS.md. */
-.tb-left { display: flex; flex-direction: row; width: 502px; }
-.tb-group { display: flex; flex-direction: row; width: 120px; }
+/* fit-content, not a number. A width-less box in EVG is as wide as its parent,
+ * so the first child of a row fills it and every sibling wraps — which is what
+ * this toolbar did until these were measured by hand. `fit-content` is what
+ * those numbers were approximating. */
+/* `nowrap` alongside it, every time: EVG decides whether a row wraps from the
+ * child's width BEFORE that child's own fit-content shrink, so a row of
+ * fit-content boxes still looks full-width at the moment it is deciding. */
+.tb-left { display: flex; flex-direction: row; flex-wrap: nowrap; width: fit-content; }
+.tb-group { display: flex; flex-direction: row; flex-wrap: nowrap; width: fit-content; }
 
 .tb-button {
   color: #4c2889;

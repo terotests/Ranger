@@ -36,6 +36,7 @@ SUITES=(
   office:rtl:editors:test
   ui:test
   evg:trace:test
+  evg:overlay:test
 )
 
 failed=()

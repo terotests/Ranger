@@ -19,6 +19,8 @@
       header h1 { font-size: 14px; margin: 0; font-weight: 600; }
       header p { margin: 0; color: var(--dim); font-size: 12.5px; }
       header a { color: var(--accent); }
+      header a.nav { font-size: 12.5px; text-decoration: none; }
+      header a.nav:hover { text-decoration: underline; }
       main { display: grid; grid-template-columns: 230px 1fr; min-height: calc(100% - 52px); }
       aside { border-right: 1px solid var(--line); padding: 16px 18px; background: #0e1526; }
       aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 8px; font-weight: 500; }
@@ -36,6 +38,7 @@
   <body>
     <header>
       <h1>Ranger tree literals — Radix components</h1>
+      <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
         Two <code>treefactory</code> declarations, each naming its own tags over the
         same <code>EVGElement</code>, painted by EVG's WebGL painter. Every control
@@ -77,11 +80,15 @@
         <canvas id="c"></canvas>
         <div id="err"></div>
         <p class="note">
-          The menubar's dropdowns are laid out in flow rather than floating under their
-          triggers: EVG has no overlay layer yet, so a menu cannot paint above the page.
-          That is the next piece of work in <code>gallery/ui/PLAN.md</code>, and it is
-          the reason the page shows one menu at a time. The toolbar's italic and
-          underlined buttons are missing for a different reason: EVG has no
+          The dropdowns float under their triggers because EVG now has overlay
+          surfaces: <code>Content</code> is still the <code>Menu</code>&rsquo;s child, and
+          layout takes it out of the parent&rsquo;s flow, finds the anchor among its own
+          siblings and moves it and its subtree there. A submenu is a
+          <code>Menu</code> like any other &mdash; there is no submenu case in the demo.
+          What is still missing: paint order and hit testing follow tree order rather
+          than an overlay stack, and there is no collision handling, so a surface near
+          an edge is not flipped or shifted. The toolbar&rsquo;s italic and underlined
+          buttons are missing for an unrelated reason: EVG has no
           <code>font-style</code> and no <code>text-decoration</code>.
         </p>
       </div>
