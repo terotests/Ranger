@@ -11,20 +11,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { assertDomInstalled, MissingDomDeps } from "../conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.join(HERE, "..");
 const DOM_DIR = path.join(UI, "conformance", "dom");
 const domRequire = createRequire(path.join(DOM_DIR, "package.json"));
 
+// One check, shared with the headless adapter, covering every package the page
+// needs — not just the bundler, which the repository also has and which would
+// otherwise let the build get far enough to fail confusingly.
 function requireDom(name) {
   try {
+    assertDomInstalled();
     return domRequire(name);
-  } catch {
-    console.error(
-      "the reference host is not installed — run:\n" +
-        "  npm run ui:conformance:install",
-    );
+  } catch (e) {
+    console.error(e instanceof MissingDomDeps ? e.message : String(e));
     process.exit(3);
   }
 }

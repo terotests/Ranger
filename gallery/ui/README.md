@@ -57,7 +57,8 @@ npm run ui:report        # the scorecard, against real Radix in Chromium
 npm run ui:conformance   # the same run, printed as divergences
 ```
 
-The browser side needs the reference host installed once:
+The browser side needs the reference host installed once — `ui:web` and
+`ui:report` both say so by name if it is missing:
 
 ```bash
 npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
