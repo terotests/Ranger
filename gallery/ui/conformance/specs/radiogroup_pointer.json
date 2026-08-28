@@ -1,0 +1,17 @@
+{
+  "name": "radiogroup_pointer",
+  "component": "radiogroup",
+  "behaviours": ["pointer-select", "aria-checked", "group-role", "roving-focus"],
+  "fixture": {
+    "controls": [
+      {
+        "type": "radiogroup", "tid": "rg", "name": "Size", "value": "s",
+        "items": [
+          { "value": "s", "name": "Small" },
+          { "value": "l", "name": "Large" }
+        ]
+      }
+    ]
+  },
+  "steps": [{ "click": "rg-s" }, { "click": "rg-l" }]
+}

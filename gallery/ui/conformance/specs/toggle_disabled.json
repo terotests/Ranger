@@ -1,0 +1,12 @@
+{
+  "name": "toggle_disabled",
+  "component": "toggle",
+  "behaviours": ["disabled-inert", "disabled-blur"],
+  "fixture": {
+    "controls": [
+      { "type": "toggle", "tid": "toggle", "name": "Bold" },
+      { "type": "toggle", "tid": "toggle-disabled", "name": "Italic", "disabled": true }
+    ]
+  },
+  "steps": [{ "click": "toggle" }, { "click": "toggle-disabled" }, { "key": "Enter" }]
+}

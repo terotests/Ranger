@@ -1,0 +1,7 @@
+{
+  "name": "switch_basic",
+  "component": "switch",
+  "behaviours": ["pointer-toggle", "keyboard-space", "switch-role", "aria-checked"],
+  "fixture": { "controls": [{ "type": "switch", "tid": "sw", "name": "Wifi" }] },
+  "steps": [{ "click": "sw" }, { "key": " " }, { "key": "Enter" }]
+}

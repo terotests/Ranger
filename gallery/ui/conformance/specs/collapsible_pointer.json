@@ -1,0 +1,9 @@
+{
+  "name": "collapsible_pointer",
+  "component": "collapsible",
+  "behaviours": ["pointer-toggle", "aria-expanded", "content-hidden", "state-attr", "wrapper-role"],
+  "fixture": {
+    "controls": [{ "type": "collapsible", "tid": "c", "name": "Details", "body": "Hidden body" }]
+  },
+  "steps": [{ "click": "c-trigger" }, { "click": "c-trigger" }]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "collapsible_keyboard",
+  "component": "collapsible",
+  "behaviours": ["keyboard-toggle"],
+  "fixture": {
+    "controls": [{ "type": "collapsible", "tid": "c", "name": "Details", "body": "Hidden body" }]
+  },
+  "steps": [{ "click": "c-trigger" }, { "key": "Enter" }, { "key": " " }]
+}

@@ -1,0 +1,400 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiTest — the offline half of the conformance story
+; =============================================================================
+; The browser half (conformance/compare.mjs) needs Chromium and the Radix
+; packages. This half needs nothing, so it is what CI runs on every push: the
+; controllers' own behaviour, and the class-first cascade underneath them.
+; =============================================================================
+
+Import "../src/UiTree.rgr"
+Import "../src/UiCtl.rgr"
+Import "../src/ToggleCtl.rgr"
+Import "../src/CollapsibleCtl.rgr"
+Import "../src/CheckboxCtl.rgr"
+Import "../src/RadioGroupCtl.rgr"
+Import "../src/TabsCtl.rgr"
+Import "../src/AccordionCtl.rgr"
+Import "../src/UiHost.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class Check {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class UiTest {
+
+    sfn themeCss:string () {
+        def css:string ".ui-toggle { background-color: #e2e8f0 }"
+        css = css + " .ui-toggle-state-on { background-color: #2563eb }"
+        css = css + " .theme-dark .ui-toggle { background-color: #1e293b }"
+        return css
+    }
+
+    sfn main:void () {
+        def t (new Check())
+        print "=== gallery/ui controller + cascade tests ==="
+        UiTest.testClassFirst(t)
+        UiTest.testInlineWins(t)
+        UiTest.testTheme(t)
+        UiTest.testToggle(t)
+        UiTest.testCollapsible(t)
+        UiTest.testFocusAndKeys(t)
+        UiTest.testCheckbox(t)
+        UiTest.testSwitch(t)
+        UiTest.testRadioGroup(t)
+        UiTest.testTabs(t)
+        UiTest.testAccordion(t)
+        UiTest.testDisabledFade(t)
+        UiTest.testBorderShorthand(t)
+        print ""
+        print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
+        if (t.failed > 0) {
+            print "RESULT FAIL"
+        } {
+            print "RESULT OK"
+        }
+    }
+
+    ; A controller writes classes; the sheet decides what they look like.
+    sfn testClassFirst:void (t:Check) {
+        print "--- class-first cascade ---"
+        def h (new UiHost())
+        h.addStyleSheet((UiTest.themeCss()))
+        t.eqInt("sheet parses cleanly" (h.styleErrorCount()) 0)
+        def tog:ToggleCtl (h.addToggle("toggle" "Bold"))
+        def el:EVGElement (unwrap tog.rootEl)
+        t.ok("has component class" (UiTree.hasClass(el "ui-toggle")))
+        t.ok("has bare state class" (UiTree.hasClass(el "state-off")))
+        t.ok("has scoped state class" (UiTree.hasClass(el "ui-toggle-state-off")))
+        t.eqStr("state reads back" (UiTree.stateOf(el)) "off")
+        h.layout()
+        def offBg:int (to_int el.backgroundColor.r)
+        t.eqInt("off colour from sheet" offBg 226)
+        h.click("toggle")
+        h.layout()
+        t.eqStr("state flipped" (UiTree.stateOf(el)) "on")
+        def onBg:int (to_int el.backgroundColor.r)
+        t.eqInt("on colour from sheet" onBg 37)
+    }
+
+    ; Inline attributes are still allowed, and still win.
+    sfn testInlineWins:void (t:Check) {
+        print "--- inline outranks the sheet ---"
+        def h (new UiHost())
+        h.addStyleSheet((UiTest.themeCss()))
+        def tog:ToggleCtl (h.addToggle("toggle" "Bold"))
+        def el:EVGElement (unwrap tog.rootEl)
+        UiTree.inline(el "background-color" "#ff0000")
+        t.ok("marked inline" (el.hasInline("background-color")))
+        h.layout()
+        def bg:int (to_int el.backgroundColor.r)
+        t.eqInt("inline red survives the cascade" bg 255)
+    }
+
+    sfn testTheme:void (t:Check) {
+        print "--- theme scoping ---"
+        def h (new UiHost())
+        h.addStyleSheet((UiTest.themeCss()))
+        h.setTheme("dark")
+        def tog:ToggleCtl (h.addToggle("toggle" "Bold"))
+        def el:EVGElement (unwrap tog.rootEl)
+        h.layout()
+        def bg:int (to_int el.backgroundColor.r)
+        t.eqInt("dark theme wins" bg 30)
+    }
+
+    sfn testToggle:void (t:Check) {
+        print "--- toggle ---"
+        def h (new UiHost())
+        def tog:ToggleCtl (h.addToggle("toggle" "Bold"))
+        def dis:ToggleCtl (h.addToggle("toggle-disabled" "Italic"))
+        dis.disabled = true
+        dis.build()
+        t.ok("starts off" (tog.on == false))
+        h.click("toggle")
+        t.ok("click turns on" tog.on)
+        h.click("toggle")
+        t.ok("click turns off again" (tog.on == false))
+        h.click("toggle-disabled")
+        t.ok("disabled never activates" (dis.on == false))
+        def rows:[UiRow] (dis.rows())
+        def row:UiRow (itemAt rows 0)
+        t.ok("disabled is not a tab stop" (row.tabStop == false))
+        t.eqInt("off reports aria-pressed=no" row.pressed (EVGA11yTri.no()))
+    }
+
+    sfn testCollapsible:void (t:Check) {
+        print "--- collapsible ---"
+        def h (new UiHost())
+        def col:CollapsibleCtl (h.addCollapsible("collapsible" "Details" "Hidden body"))
+        def root:EVGElement (unwrap h.root)
+        t.ok("closed content leaves the tree" ((UiTree.reachable(root "collapsible-content")) == false))
+        t.ok("trigger stays in the tree" (UiTree.reachable(root "collapsible-trigger")))
+        h.click("collapsible-trigger")
+        t.ok("opens on trigger click" col.open)
+        t.ok("open content is in the tree" (UiTree.reachable(root "collapsible-content")))
+        def rows:[UiRow] (col.rows())
+        def trigRow:UiRow (itemAt rows 1)
+        t.eqInt("open reports aria-expanded=yes" trigRow.expanded (EVGA11yTri.yes()))
+        def rootRow:UiRow (itemAt rows 0)
+        def rootRole:string (EVGA11yRole.ariaName(rootRow.role))
+        t.eqStr("root has no ARIA role of its own" rootRole "none")
+        h.click("collapsible-trigger")
+        t.ok("closes again" (col.open == false))
+        t.ok("closed content left the tree again" ((UiTree.reachable(root "collapsible-content")) == false))
+    }
+
+    sfn testCheckbox:void (t:Check) {
+        print "--- checkbox ---"
+        def h (new UiHost())
+        def cb:CheckboxCtl (h.addCheckbox("cb" "Accept"))
+        def rows0:[UiRow] (cb.rows())
+        def r0:UiRow (itemAt rows0 0)
+        t.eqStr("starts unchecked" r0.state "unchecked")
+        t.eqInt("aria-checked=no" r0.checked (EVGA11yTri.no()))
+        h.click("cb")
+        def rows1:[UiRow] (cb.rows())
+        def r1:UiRow (itemAt rows1 0)
+        t.eqStr("click checks" r1.state "checked")
+        t.eqInt("aria-checked=yes" r1.checked (EVGA11yTri.yes()))
+        ; The third state is an input, never somewhere activation returns to.
+        def mixed (new CheckboxCtl())
+        mixed.tid = "cbm"
+        mixed.name = "Some"
+        mixed.checkState = 2
+        mixed.build()
+        h.add(mixed)
+        def rowsm:[UiRow] (mixed.rows())
+        def rm:UiRow (itemAt rowsm 0)
+        t.eqInt("mixed reports aria-checked=mixed" rm.checked (EVGA11yTri.mixed()))
+        h.click("cbm")
+        def rowsm2:[UiRow] (mixed.rows())
+        def rm2:UiRow (itemAt rowsm2 0)
+        t.eqStr("mixed resolves upward to checked" rm2.state "checked")
+    }
+
+    sfn testSwitch:void (t:Check) {
+        print "--- switch ---"
+        def h (new UiHost())
+        def sw:SwitchCtl (h.addSwitch("sw" "Wifi"))
+        def rows:[UiRow] (sw.rows())
+        def row:UiRow (itemAt rows 0)
+        def roleName:string (EVGA11yRole.ariaName(row.role))
+        t.eqStr("switch has its own role" roleName "switch")
+        h.click("sw")
+        def rows2:[UiRow] (sw.rows())
+        def row2:UiRow (itemAt rows2 0)
+        t.eqStr("click checks" row2.state "checked")
+    }
+
+    sfn testRadioGroup:void (t:Check) {
+        print "--- radio group ---"
+        def h (new UiHost())
+        def rg:RadioGroupCtl (h.addRadioGroup("rg" "Size"))
+        rg.addItem("s" "Small" false)
+        rg.addItem("m" "Medium" true)
+        rg.addItem("l" "Large" false)
+        rg.value = "s"
+        rg.build()
+        def rows0:[UiRow] (rg.rows())
+        def root0:UiRow (itemAt rows0 0)
+        def rootRole:string (EVGA11yRole.ariaName(root0.role))
+        t.eqStr("root is a radiogroup" rootRole "radiogroup")
+        t.ok("root is a tab stop" root0.tabStop)
+        def first0:UiRow (itemAt rows0 1)
+        t.ok("no roving tab stop before the group is touched" (first0.tabStop == false))
+        h.click("rg-s")
+        def rows1:[UiRow] (rg.rows())
+        def first1:UiRow (itemAt rows1 1)
+        t.ok("click gives the item the roving tab stop" first1.tabStop)
+        ; ArrowDown skips the disabled middle item.
+        h.key("ArrowDown")
+        t.eqStr("arrow moves focus past the disabled item" h.focusId "rg-l")
+        t.eqStr("arrow does not move the selection" rg.value "s")
+        h.key("ArrowDown")
+        t.eqStr("arrow wraps at the end" h.focusId "rg-s")
+        h.key("ArrowUp")
+        t.eqStr("arrow moves backwards, wrapping" h.focusId "rg-l")
+    }
+
+    sfn testTabs:void (t:Check) {
+        print "--- tabs ---"
+        def h (new UiHost())
+        def tb:TabsCtl (h.addTabs("tb" "Settings"))
+        tb.addItem("a" "Account" "acct" false)
+        tb.addItem("x" "Billing" "bill" true)
+        tb.addItem("b" "Password" "pwd" false)
+        tb.value = "a"
+        tb.build()
+        def root:EVGElement (unwrap h.root)
+        t.ok("active panel is in the tree" (UiTree.reachable(root "tb-panel-a")))
+        t.ok("inactive panel is not" ((UiTree.reachable(root "tb-panel-b")) == false))
+        h.click("tb-tab-b")
+        t.eqStr("click activates the tab" tb.value "b")
+        t.ok("panels swapped" (UiTree.reachable(root "tb-panel-b")))
+        t.ok("old panel left the tree" ((UiTree.reachable(root "tb-panel-a")) == false))
+        ; Unlike a radio group, a tab strip moves the selection with the arrow.
+        h.key("ArrowRight")
+        t.eqStr("arrow wraps to the first tab" tb.value "a")
+        t.eqStr("and takes focus with it" h.focusId "tb-tab-a")
+        h.key("ArrowLeft")
+        t.eqStr("arrow back skips the disabled tab" tb.value "b")
+    }
+
+    sfn testAccordion:void (t:Check) {
+        print "--- accordion ---"
+        def h (new UiHost())
+        def ac:AccordionCtl (h.addAccordion("ac" ""))
+        ac.addItem("one" "First" "b1" false)
+        ac.addItem("two" "Second" "b2" false)
+        ac.build()
+        def root:EVGElement (unwrap h.root)
+        t.ok("everything starts closed" ((UiTree.reachable(root "ac-one-content")) == false))
+        h.click("ac-one-trigger")
+        t.eqStr("click opens" ac.openValue "one")
+        t.ok("open content is in the tree" (UiTree.reachable(root "ac-one-content")))
+        h.click("ac-two-trigger")
+        t.eqStr("single mode: the other one closes" ac.openValue "two")
+        t.ok("first content left the tree" ((UiTree.reachable(root "ac-one-content")) == false))
+        h.click("ac-two-trigger")
+        t.eqStr("collapsible: clicking the open one closes it" ac.openValue "")
+    }
+
+    ; `opacity` reaching the display list is what makes a disabled control look
+    ; disabled. EVGDisplayList ignored the attribute until this module needed
+    ; it, so the fade is worth holding down with a test.
+    sfn testDisabledFade:void (t:Check) {
+        print "--- disabled fades in the display list ---"
+        def h (new UiHost())
+        def css:string ".ui-toggle { background-color: #2563eb }"
+        css = css + " .ui-toggle-disabled { opacity: 0.5 }"
+        h.addStyleSheet(css)
+        def live:ToggleCtl (h.addToggle("live" "Live"))
+        def dead:ToggleCtl (h.addToggle("dead" "Dead"))
+        dead.disabled = true
+        dead.build()
+        def dl:EVGDisplayList (h.displayList())
+        def faded:int 0
+        def full:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.a < 0.99) {
+                faded = (faded + 1)
+            } {
+                full = (full + 1)
+            }
+            i = (i + 1)
+        }
+        t.ok("the enabled control paints at full strength" (full > 0))
+        t.ok("the disabled one is faded" (faded > 0))
+        def firstFade:double 1.0
+        def j:int 0
+        while (j < (array_length dl.cmds)) {
+            def c2:EVGDrawCmd (itemAt dl.cmds j)
+            if (c2.a < firstFade) {
+                firstFade = c2.a
+            }
+            j = (j + 1)
+        }
+        def half:boolean ((firstFade > 0.49) && (firstFade < 0.51))
+        t.ok("faded exactly by the declared opacity" half)
+    }
+
+    ; The `border` shorthand used to be dropped in silence — no stylesheet
+    ; error, no border. A theme writes it far more often than the longhands.
+    sfn testBorderShorthand:void (t:Check) {
+        print "--- border shorthand ---"
+        def h (new UiHost())
+        h.addStyleSheet(".ui-toggle { border: 2px solid #ff0000 }")
+        t.eqInt("sheet parses cleanly" (h.styleErrorCount()) 0)
+        def tog:ToggleCtl (h.addToggle("t" "T"))
+        def el:EVGElement (unwrap tog.rootEl)
+        h.layout()
+        def w:int (to_int (el.effectiveBorderWidthPx()))
+        t.eqInt("width came from the shorthand" w 2)
+        def col:EVGColor (el.effectiveBorderColor())
+        def r:int (col.red())
+        def g:int (col.green())
+        t.eqInt("colour came from the shorthand" r 255)
+        t.eqInt("and only the red channel" g 0)
+        def dl:EVGDisplayList (h.displayList())
+        def strokes:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 1) {
+                strokes = (strokes + 1)
+            }
+            i = (i + 1)
+        }
+        t.ok("and it reaches the display list" (strokes > 0))
+
+        ; `rgb(203, 213, 225)` has spaces in it and is still one token.
+        def h2 (new UiHost())
+        h2.addStyleSheet(".ui-toggle { border: 2px solid rgb(203, 213, 225) }")
+        def tog2:ToggleCtl (h2.addToggle("t" "T"))
+        def el2:EVGElement (unwrap tog2.rootEl)
+        h2.layout()
+        def w2:int (to_int (el2.effectiveBorderWidthPx()))
+        t.eqInt("a functional colour does not split the shorthand" w2 2)
+        def col2:EVGColor (el2.effectiveBorderColor())
+        def b2:int (col2.blue())
+        t.eqInt("and its channels survive" b2 225)
+    }
+
+    sfn testFocusAndKeys:void (t:Check) {
+        print "--- focus and keys ---"
+        def h (new UiHost())
+        def tog:ToggleCtl (h.addToggle("toggle" "Bold"))
+        def dis:ToggleCtl (h.addToggle("toggle-disabled" "Italic"))
+        dis.disabled = true
+        dis.build()
+        h.click("toggle")
+        t.eqStr("click focuses" h.focusId "toggle")
+        h.key("Enter")
+        t.ok("Enter activates the focused control" (tog.on == false))
+        h.key(" ")
+        t.ok("Space activates too" tog.on)
+        h.key("a")
+        t.ok("other keys do nothing" tog.on)
+        h.click("toggle-disabled")
+        t.eqStr("clicking a disabled control drops focus" h.focusId "")
+        h.key("Enter")
+        t.ok("keys go nowhere without focus" tog.on)
+    }
+}

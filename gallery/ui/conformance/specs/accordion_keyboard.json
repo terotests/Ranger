@@ -1,0 +1,17 @@
+{
+  "name": "accordion_keyboard",
+  "component": "accordion",
+  "behaviours": ["keyboard-toggle"],
+  "fixture": {
+    "controls": [
+      {
+        "type": "accordion", "tid": "ac",
+        "items": [
+          { "value": "one", "name": "First", "body": "b1" },
+          { "value": "two", "name": "Second", "body": "b2" }
+        ]
+      }
+    ]
+  },
+  "steps": [{ "click": "ac-one-trigger" }, { "key": "Enter" }, { "key": " " }]
+}

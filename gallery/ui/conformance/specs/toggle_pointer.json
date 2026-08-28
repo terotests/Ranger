@@ -1,0 +1,7 @@
+{
+  "name": "toggle_pointer",
+  "component": "toggle",
+  "behaviours": ["pointer-activate", "focus-on-click", "aria-pressed", "state-attr"],
+  "fixture": { "controls": [{ "type": "toggle", "tid": "toggle", "name": "Bold" }] },
+  "steps": [{ "click": "toggle" }, { "click": "toggle" }]
+}

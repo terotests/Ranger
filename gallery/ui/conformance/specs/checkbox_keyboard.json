@@ -1,0 +1,7 @@
+{
+  "name": "checkbox_keyboard",
+  "component": "checkbox",
+  "behaviours": ["keyboard-space"],
+  "fixture": { "controls": [{ "type": "checkbox", "tid": "cb", "name": "Accept" }] },
+  "steps": [{ "click": "cb" }, { "key": " " }, { "key": " " }]
+}

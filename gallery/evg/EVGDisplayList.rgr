@@ -608,7 +608,42 @@ class EVGDisplayList {
         this.walk(root)
     }
 
+    ; Apply `opacity` to everything this element and its subtree just emitted.
+    ;
+    ; The attribute has been in SPEC.md and on EVGElement all along, and
+    ; rangerflow's fade highlighter and book's slabs already set it — but
+    ; nothing ever read it, so every one of them painted at full strength. It
+    ; belongs here rather than in each painter: the display list is numbers, so
+    ; scaling the alpha once means WebGL, SDL, SoftCanvas, PDF and HTML all get
+    ; it without knowing the attribute exists.
+    ;
+    ; This scales each command's alpha rather than compositing the subtree
+    ; offscreen the way CSS `opacity` does. The difference shows only where two
+    ; faded children OVERLAP — there they blend with each other instead of as
+    ; one group. A display list cannot express the group form without a layer,
+    ; and this is the approximation every immediate-mode renderer makes.
+    fn fadeFrom:void (start:int factor:double) {
+        if (factor >= 1.0) {
+            return
+        }
+        def i:int start
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            c.a = (c.a * factor)
+            i = (i + 1)
+        }
+    }
+
     fn walk:void (el:EVGElement) {
+        ; Where this element's own output begins, so `opacity` can scale
+        ; exactly what it and its children add — nested fades then multiply as
+        ; the recursion unwinds.
+        def emitStart:int (array_length cmds)
+        this.walkOpaque(el)
+        this.fadeFrom(emitStart el.opacity)
+    }
+
+    fn walkOpaque:void (el:EVGElement) {
         def x:double el.calculatedX
         def y:double el.calculatedY
         def w:double el.calculatedWidth

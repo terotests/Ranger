@@ -1,0 +1,9 @@
+{
+  "name": "checkbox_indeterminate",
+  "component": "checkbox",
+  "behaviours": ["indeterminate", "indeterminate-clears"],
+  "fixture": {
+    "controls": [{ "type": "checkbox", "tid": "cbm", "name": "Some", "checked": "indeterminate" }]
+  },
+  "steps": [{ "click": "cbm" }, { "click": "cbm" }]
+}

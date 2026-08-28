@@ -1,0 +1,12 @@
+{
+  "name": "checkbox_disabled",
+  "component": "checkbox",
+  "behaviours": ["disabled-inert"],
+  "fixture": {
+    "controls": [
+      { "type": "checkbox", "tid": "cb", "name": "Accept" },
+      { "type": "checkbox", "tid": "cbd", "name": "Locked", "disabled": true }
+    ]
+  },
+  "steps": [{ "click": "cb" }, { "click": "cbd" }, { "key": " " }]
+}

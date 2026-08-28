@@ -1,0 +1,110 @@
+{
+  "$comment": [
+    "The Radix surface this kit intends to match, one entry per behaviour.",
+    "A behaviour counts as MATCHED only when a spec exercises it and every",
+    "observation in that spec agrees with Radix. Behaviours with no spec are",
+    "reported as UNCOVERED \u2014 the catalogue is the denominator, so adding a",
+    "component here lowers the score until the work is actually done."
+  ],
+  "components": {
+    "toggle": {
+      "radix": "@radix-ui/react-toggle",
+      "behaviours": {
+        "pointer-activate": "clicking flips the pressed state",
+        "focus-on-click": "clicking moves focus to the control",
+        "keyboard-enter": "Enter activates while focused",
+        "keyboard-space": "Space activates while focused",
+        "disabled-inert": "a disabled control never activates",
+        "disabled-blur": "clicking a disabled control drops focus",
+        "aria-pressed": "pressed state is exposed as aria-pressed",
+        "state-attr": "state is exposed for styling"
+      }
+    },
+    "collapsible": {
+      "radix": "@radix-ui/react-collapsible",
+      "behaviours": {
+        "pointer-toggle": "clicking the trigger opens and closes",
+        "keyboard-toggle": "Enter and Space toggle while the trigger is focused",
+        "aria-expanded": "the trigger exposes aria-expanded",
+        "content-hidden": "closed content is unreachable",
+        "state-attr": "root, trigger and content all carry the state",
+        "wrapper-role": "the root carries no ARIA role of its own",
+        "disabled-inert": "a disabled collapsible never opens"
+      }
+    },
+    "checkbox": {
+      "radix": "@radix-ui/react-checkbox",
+      "behaviours": {
+        "pointer-toggle": "clicking flips checked",
+        "keyboard-space": "Space toggles while focused",
+        "aria-checked": "checked is exposed as aria-checked",
+        "indeterminate": "the mixed state is exposed as aria-checked=mixed",
+        "indeterminate-clears": "activating from mixed goes to checked",
+        "disabled-inert": "a disabled checkbox never toggles",
+        "state-attr": "state is exposed for styling"
+      }
+    },
+    "radiogroup": {
+      "radix": "@radix-ui/react-radio-group",
+      "behaviours": {
+        "pointer-select": "clicking an item selects it and deselects the rest",
+        "roving-focus": "only the selected item is in the tab order",
+        "arrow-next": "ArrowDown/ArrowRight moves selection to the next item",
+        "arrow-prev": "ArrowUp/ArrowLeft moves selection to the previous item",
+        "arrow-wraps": "arrow movement wraps at the ends",
+        "group-role": "the root exposes the radiogroup role",
+        "aria-checked": "items expose aria-checked",
+        "disabled-skipped": "a disabled item is skipped by arrow movement",
+        "arrow-selects": {
+          "note": "selection follows arrow focus, per the WAI-ARIA radio pattern",
+          "disputed": "The reference does not do this consistently. Measured on @radix-ui/react-radio-group in Chromium, settled two frames AND 500ms: the first two arrow presses after a pointer click move focus without moving selection, and every press after that moves both. Reproduced with a 2-item and a 3-item group, and with the React root on #root and on document.body. Until it is decided whether to follow the spec or the reference, this stays uncovered rather than being scored either way."
+        }
+      }
+    },
+    "tabs": {
+      "radix": "@radix-ui/react-tabs",
+      "behaviours": {
+        "pointer-select": "clicking a tab activates it",
+        "arrow-next": "ArrowRight moves to the next tab",
+        "arrow-prev": "ArrowLeft moves to the previous tab",
+        "arrow-wraps": "arrow movement wraps at the ends",
+        "panel-swap": "only the active tab's panel is reachable",
+        "list-role": "the list exposes tablist and items expose tab",
+        "aria-selected": "the active tab exposes aria-selected",
+        "disabled-skipped": "a disabled tab is skipped by arrow movement"
+      }
+    },
+    "accordion": {
+      "radix": "@radix-ui/react-accordion",
+      "behaviours": {
+        "single-open": "opening one item closes the previously open one",
+        "pointer-toggle": "clicking a header toggles its item",
+        "keyboard-toggle": "Enter toggles the focused header",
+        "aria-expanded": "headers expose aria-expanded",
+        "content-hidden": "closed content is unreachable",
+        "state-attr": "state is exposed for styling"
+      }
+    },
+    "switch": {
+      "radix": "@radix-ui/react-switch",
+      "behaviours": {
+        "pointer-toggle": "clicking flips checked",
+        "keyboard-space": "Space toggles while focused",
+        "switch-role": "the control exposes the switch role",
+        "aria-checked": "checked is exposed as aria-checked",
+        "disabled-inert": "a disabled switch never toggles"
+      }
+    },
+    "dialog": {
+      "radix": "@radix-ui/react-dialog",
+      "behaviours": {
+        "pointer-open": "the trigger opens the dialog",
+        "escape-closes": "Escape closes it",
+        "focus-trap": "focus stays inside while open",
+        "focus-restore": "focus returns to the trigger on close",
+        "modal-flag": "the dialog is exposed as modal",
+        "content-hidden": "closed content is unreachable"
+      }
+    }
+  }
+}
