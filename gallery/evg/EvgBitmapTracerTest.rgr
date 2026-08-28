@@ -30,6 +30,9 @@ class EvgBitmapTracerTest {
         test.testThinInkSurvivesManyColors(t)
         test.testExtraColorsDoNotSplitOneRegion(t)
         test.testAutoBackgroundKeepsInteriorWhite(t)
+        test.testFixedPalette(t)
+        test.testSeededPaletteKeepsThePin(t)
+        test.testPaletteBiasDefaultIsUnchanged(t)
         t.summary()
     }
 
@@ -440,5 +443,138 @@ class EvgBitmapTracerTest {
         }
         t.eqInt("interior white patch is painted" white 144)
         t.eqInt("only the shape around it is painted" blue 640)
+    }
+
+    ; A big slow gray gradient — lots of area spread over many histogram bins —
+    ; and one small vivid patch. This is the ball-pit case in miniature: the
+    ; dull background is what a population-weighted quantizer wants to spend
+    ; swatches on, and the colorful thing is what a person wants to keep.
+    fn makeGradientWithSpot:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(60 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 60) {
+                def g:int (90 + (idiv x 2))
+                img.setPixelRGB(x y g g (g - 2))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        y = 6
+        while (y < 12) {
+            def x2:int 6
+            while (x2 < 12) {
+                img.setPixelRGB(x2 y 225 25 35)
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    ; Largest channel spread of a hex swatch — a cheap stand-in for saturation.
+    fn spreadOf:int (hex:string) {
+        def c:EVGColor (EVGColor.parse(hex))
+        def r:int (to_int c.r)
+        def g:int (to_int c.g)
+        def b:int (to_int c.b)
+        def hi:int r
+        def lo:int r
+        if (g > hi) { hi = g }
+        if (b > hi) { hi = b }
+        if (g < lo) { lo = g }
+        if (b < lo) { lo = b }
+        return (hi - lo)
+    }
+
+    fn vividCount:int (tr:EvgBitmapTracer) {
+        def n:int 0
+        def i:int 0
+        while (i < (tr.layerCount())) {
+            def layer:EvgTraceLayer (itemAt tr.layers i)
+            if ((this.spreadOf(layer.fillHex)) > 60) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; "fixed" uses exactly the colors it is given, and the colorCount slider has
+    ; nothing to do with it.
+    fn testFixedPalette:void (t:RgTest) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 9
+        opts.paletteMode = "fixed"
+        opts.bgMode = "none"
+        push opts.paletteHex "#000000"
+        push opts.paletteHex "#ffffff"
+        push opts.paletteHex "#ffd400"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeGradientWithSpot()) opts))
+        tr.trace()
+        t.ok("fixed palette ignores colorCount" ((tr.layerCount()) <= 3))
+        t.ok("fixed palette still paints something" ((tr.layerCount()) >= 1))
+        def i:int 0
+        def foreign:int 0
+        while (i < (tr.layerCount())) {
+            def layer:EvgTraceLayer (itemAt tr.layers i)
+            def h:string layer.fillHex
+            if ((h != "#000000") && (h != "#FFFFFF") && (h != "#FFD400")) {
+                foreign = (foreign + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("no swatch outside the fixed palette" foreign 0)
+    }
+
+    ; "seeded" pins what it is given and quantizes the rest around it. The pin
+    ; must survive both the Lloyd passes and the near-swatch merge — an
+    ; unpinned swatch this close to its neighbour would be merged away.
+    fn testSeededPaletteKeepsThePin:void (t:RgTest) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 3
+        opts.paletteMode = "seeded"
+        opts.bgMode = "none"
+        push opts.paletteHex "#6A6A68"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeGradientWithSpot()) opts))
+        tr.trace()
+        def pinned:int 0
+        def i:int 0
+        while (i < (tr.layerCount())) {
+            def layer:EvgTraceLayer (itemAt tr.layers i)
+            if ((layer.fillHex) == "#6A6A68") {
+                pinned = (pinned + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("the pinned swatch survives" pinned 1)
+        t.ok("the rest of the palette is still filled in" ((tr.layerCount()) >= 2))
+    }
+
+    ; The defaults must reproduce the quantizer exactly as it behaved before the
+    ; palette controls existed — the muted, area-driven palette is a choice, not
+    ; an accident, and it stays the default.
+    fn testPaletteBiasDefaultIsUnchanged:void (t:RgTest) {
+        def a:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.ok("palette mode defaults to auto" ((a.paletteMode) == "auto"))
+        t.ok("palette bias defaults to area" ((a.paletteBias) == "area"))
+        t.eqInt("no palette colors by default" (array_length a.paletteHex) 0)
+        ; With two swatches to spend, area buys two steps of the gradient and
+        ; loses the red spot; balanced buys the spot. That trade is the point.
+        def optA:EvgTraceOptions (EvgTraceOptions.defaults())
+        optA.colorCount = 2
+        optA.bgMode = "none"
+        def trA:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeGradientWithSpot()) optA))
+        trA.trace()
+        t.eqInt("area spends both swatches on the big region" (this.vividCount(trA)) 0)
+        def optB:EvgTraceOptions (EvgTraceOptions.defaults())
+        optB.colorCount = 2
+        optB.bgMode = "none"
+        optB.paletteBias = "balanced"
+        def trB:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeGradientWithSpot()) optB))
+        trB.trace()
+        t.ok("balanced keeps the small vivid patch" ((this.vividCount(trB)) >= 1))
     }
 }

@@ -93,6 +93,23 @@ class EvgTraceOptions {
     def snapRatio:double 1.5
     ; Extra weight on the luma term of the palette distance (1 = plain RGB).
     def lumaWeight:int 3
+    ; How the palette is decided:
+    ;   "auto"   — quantize the image; paletteHex is ignored
+    ;   "fixed"  — use paletteHex exactly, in the given order; colorCount is
+    ;              ignored, and every pixel goes to whichever of them is nearest
+    ;   "seeded" — paletteHex are pinned and the quantizer fills the rest up to
+    ;              colorCount around them
+    ; An unparseable or empty paletteHex falls back to "auto".
+    def paletteMode:string "auto"
+    ; Colors for "fixed" / "seeded" — anything EVGColor.parse accepts:
+    ; "#1a1a1a", "#f80", "rgb(20 30 40)", "crimson".
+    def paletteHex:[string]
+    ; What a swatch is spent on when the quantizer picks one:
+    ;   "area"     — the biggest regions win (the default, and what a photo's
+    ;                large flat background will always take)
+    ;   "balanced" — sqrt of area, so a small vivid object can still claim one
+    ;   "distinct" — color distance alone, above a noise floor
+    def paletteBias:string "area"
     ; Swatches closer than this (largest per-channel difference) are merged
     ; after quantization. Asking for more colors than the image actually holds
     ; otherwise splits one region between two near-identical swatches, and each
@@ -113,6 +130,8 @@ class EvgTraceOptions {
     def bgTolerance:int 24
 
     Constructor () {
+        def ph:[string]
+        paletteHex = ph
     }
 
     sfn defaults:EvgTraceOptions () {
