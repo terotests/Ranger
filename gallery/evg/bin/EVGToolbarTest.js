@@ -7834,6 +7834,9 @@ ToolIcon.arrangeCenter = function() {
 ToolIcon.arrangeRight = function() {
   return 87;
 };
+ToolIcon.outlineList = function() {
+  return 88;
+};
 class ToolItem  {
   constructor() {
     this.command = "";
@@ -17864,6 +17867,22 @@ class EVGToolbarView  {
         this.pushToolText(dl, ((row2 + 1).toString()), cx - 6, (cy - 4) + (row2 * 4), 7.0, this.theme.accent, false);
         this.pushRect(dl, (cx - 3), ry2, 10.0, 2.0, this.theme.ink);
         row2 = row2 + 1;
+      };
+      return;
+    }
+    if ( k == ToolIcon.outlineList() ) {
+      this.pushRect(dl, (cx - 8), (cy - 6), 2.0, 12.0, this.theme.accent);
+      let orow = 0;
+      while (orow < 3) {
+        const oy = ((cy - 5) + (orow * 4));
+        let ox = (cx - 4);
+        let ow = 11.0;
+        if ( orow > 0 ) {
+          ox = (cx - 1);
+          ow = 8.0;
+        }
+        this.pushRect(dl, ox, oy, ow, 2.0, this.theme.ink);
+        orow = orow + 1;
       };
       return;
     }

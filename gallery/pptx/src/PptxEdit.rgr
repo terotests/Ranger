@@ -219,6 +219,9 @@ class PptxClone {
         s.width = src.width
         s.height = src.height
         s.hasXfrm = src.hasXfrm
+        s.hasOff = src.hasOff
+        s.hasExt = src.hasExt
+        s.geomFallback = src.geomFallback
         s.rotation = src.rotation
         s.flipH = src.flipH
         s.flipV = src.flipV
@@ -2316,6 +2319,115 @@ class PptxEditor {
             i = (i + 1)
         }
         this.pushSnapshot("fill")
+        return true
+    }
+
+    ; --- geometry by the number ----------------------------------------------
+    ;
+    ; Dragging says "about here". A deck says 2.54 cm from the left, and the
+    ; two are not the same instruction: a diagram whose boxes are meant to
+    ; line up is lined up by typing the same number twice, not by nudging
+    ; until it looks right. This is that half of the editor — the outline
+    ; panel's inspector calls it, and so does anything else that knows what
+    ; the number should be.
+    ;
+    ; `field` is "x", "y", "w", "h" or "rot", in slide points and degrees.
+    ; Every selected shape takes it, which is what makes "put these four
+    ; boxes at the same width" one gesture. Locked shapes are left alone, the
+    ; way every other transform leaves them alone.
+    fn setShapeBox:boolean (field:string value:double) {
+        return (this.applyShapeBox(field value true))
+    }
+
+    ; The same, as a step from where the shape is now: the panel's arrows,
+    ; and any host that would rather say "1pt to the right" than work out
+    ; where that is.
+    fn nudgeShapeBox:boolean (field:string delta:double) {
+        return (this.applyShapeBox(field delta false))
+    }
+
+    fn applyShapeBox:boolean (field:string value:double absolute:boolean) {
+        def shapes:[PptxShape] (this.movableShapes())
+        if ((array_length shapes) == 0) {
+            return false
+        }
+        def known:boolean false
+        if (field == "x") {
+            known = true
+        }
+        if (field == "y") {
+            known = true
+        }
+        if (field == "w") {
+            known = true
+        }
+        if (field == "h") {
+            known = true
+        }
+        if (field == "rot") {
+            known = true
+        }
+        if (known == false) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            def now:double 0.0
+            if (field == "x") {
+                now = sh.x
+            }
+            if (field == "y") {
+                now = sh.y
+            }
+            if (field == "w") {
+                now = sh.width
+            }
+            if (field == "h") {
+                now = sh.height
+            }
+            if (field == "rot") {
+                now = sh.rotation
+            }
+            def next:double value
+            if (absolute == false) {
+                next = (now + value)
+            }
+            if (field == "x") {
+                sh.x = next
+            }
+            if (field == "y") {
+                sh.y = next
+            }
+            if (field == "w") {
+                ; A box has to stay a box. Zero width is exactly the state
+                ; this editor exists to get a deck OUT of — see
+                ; `PptxResolver.fallbackBox` — so it is not one the reader
+                ; can type their way back into.
+                if (next < minSizePt) {
+                    next = minSizePt
+                }
+                sh.width = next
+            }
+            if (field == "h") {
+                if (next < minSizePt) {
+                    next = minSizePt
+                }
+                sh.height = next
+            }
+            if (field == "rot") {
+                sh.rotation = next
+            }
+            ; Stated now, whatever it was before: a size typed into the panel
+            ; is the document's own and is written out as such, which is what
+            ; takes a shape off the reader's fallback box for good.
+            sh.hasXfrm = true
+            sh.hasOff = true
+            sh.hasExt = true
+            sh.geomFallback = false
+            i = (i + 1)
+        }
+        this.pushSnapshot("geometry")
         return true
     }
 

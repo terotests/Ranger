@@ -1179,6 +1179,81 @@ def gradient_png(w: int = 120, h: int = 80) -> bytes:
     return buf.getvalue()
 
 
+def loose_geometry_fixture() -> None:
+    """37 — a deck that does not say how big its text boxes are.
+
+    Reported from the field: some text boxes rendered as if they were zero
+    wide — every word on its own line down the left edge — and none of them
+    could be selected with the pointer. The geometry is the whole fixture:
+
+      * `Title 1` and `Content 2` state no `a:xfrm` at all. The LAYOUT they
+        come from does not state one either; it only says which placeholder
+        goes where by naming it, which is what a corporate template looks
+        like. The size lives on the MASTER, two steps up.
+      * `Content 2` is `<p:ph idx="1"/>` with no `type`, the way PowerPoint
+        writes a content placeholder.
+      * `OffOnly` states `a:off` and no `a:ext`: it says where it goes and
+        never says how big.
+      * `NoXfrm` states neither, and is not a placeholder, so nothing above it
+        has a box to lend.
+      * `ZeroExt` states `cx="0" cy="0"` — the degenerate size a writer leaves
+        behind, which is not the same as asking for nothing to be drawn.
+      * `Stated` is the control: an ordinary box with an ordinary size.
+    """
+
+    def loose_sp(sid: int, name: str, xfrm: str, text: str) -> str:
+        return (
+            f'<p:sp><p:nvSpPr><p:cNvPr id="{sid}" name="{name}"/>'
+            '<p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>'
+            f"<p:spPr>{xfrm}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>"
+            "<a:noFill/></p:spPr>"
+            '<p:txBody><a:bodyPr wrap="square"/><a:lstStyle/>'
+            '<a:p><a:r><a:rPr lang="en-GB" sz="1800"/>'
+            f"<a:t>{_xml_escape(text)}</a:t></a:r></a:p>"
+            "</p:txBody></p:sp>"
+        )
+
+    sentence = "The quick brown fox jumps over the lazy dog"
+
+    master = master_with_chrome(
+        chrome=(
+            ph_shape(2, "Master Title", "title", None, 457200, 274638, 8229600, 1143000)
+            + ph_shape(3, "Master Body", "body", 1, 457200, 1600200, 8229600, 4525963)
+        )
+    )
+    # The template layout: the placeholders are named and styled, and their
+    # geometry is the master's.
+    layout = layout_with_shapes(
+        "Template",
+        ph_shape(2, "Title Placeholder 1", "title", None, 0, 0, 0, 0, has_xfrm=False)
+        + ph_shape(3, "Content Placeholder 2", "body", 1, 0, 0, 0, 0, has_xfrm=False),
+    )
+
+    slide = slide_xml(
+        sp_tree(
+            ph_shape(2, "Title 1", "title", None, 0, 0, 0, 0,
+                     has_xfrm=False, text="Inherited title"),
+            ph_shape(3, "Content 2", "", 1, 0, 0, 0, 0,
+                     has_xfrm=False, text="Inherited body text", size_hundredths=1800),
+            loose_sp(4, "OffOnly",
+                     '<a:xfrm><a:off x="457200" y="4114800"/></a:xfrm>', sentence),
+            loose_sp(5, "NoXfrm", "", sentence),
+            loose_sp(6, "ZeroExt",
+                     '<a:xfrm><a:off x="457200" y="5029200"/><a:ext cx="0" cy="0"/></a:xfrm>',
+                     sentence),
+            loose_sp(7, "Stated",
+                     '<a:xfrm><a:off x="457200" y="5943600"/>'
+                     '<a:ext cx="7315200" cy="457200"/></a:xfrm>', sentence),
+        )
+    )
+    write_pptx(
+        "37-loose-geometry.pptx",
+        [(slide, slide_rels())],
+        master_xml=master,
+        layout_xml=layout,
+    )
+
+
 def main() -> None:
     FIXTURES.mkdir(parents=True, exist_ok=True)
 
@@ -3013,6 +3088,8 @@ def main() -> None:
         )), slide_rels())],
         master_xml=fontref_master,
     )
+
+    loose_geometry_fixture()
 
     print("fixtures ready")
 

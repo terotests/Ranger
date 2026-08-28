@@ -718,6 +718,24 @@ class PptxShape {
     def width:double 0.0
     def height:double 0.0
     def hasXfrm:boolean false   ; true when spPr/xfrm supplied geometry
+    ; WHICH HALF of the xfrm the file actually stated.
+    ;
+    ; `a:off` and `a:ext` are separate elements and a shape can state one
+    ; without the other — a placeholder that has been moved on the slide but
+    ; still takes its size from the layout states only `a:off`. Reading the
+    ; pair as one flag made "the file said something about geometry" mean "the
+    ; file said everything about geometry", so the half it did not state was
+    ; inherited as zero: a text box no wider than nothing, its words laid out
+    ; one per line down the left edge, and nothing to click because a box of
+    ; no width contains no point. That is the report these two exist for.
+    def hasOff:boolean false    ; the xfrm stated a:off
+    def hasExt:boolean false    ; …and a:ext, with a positive size
+    ; The box is this READER's, not the file's: nothing in the slide, the
+    ; layout or the master ever gave this shape a size, and it carries text
+    ; that has to be readable and selectable anyway. `PptxResolver.fallbackBox`
+    ; is the only thing that sets it, and the writer never states such a box —
+    ; `sheetXfrmSig` covers it the same way it covers inherited geometry.
+    def geomFallback:boolean false
     def rotation:double 0.0     ; degrees
     ; `a:xfrm flipH` / `flipV`: the shape drawn mirrored in its own box.
     def flipH:boolean false

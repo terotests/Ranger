@@ -42,6 +42,11 @@ class PptxToolbar extends EVGToolbar {
     ; it can work out which slide you are on; the app sets it before paint.
     def editOn:boolean false
 
+    ; Which tab the left-hand column is on, so the Outline button can look
+    ; pressed while it is the one showing. Same rule as the two above: the
+    ; strip is told, it does not know.
+    def outlineTab:boolean false
+
     Constructor () {
     }
 
@@ -145,6 +150,9 @@ class PptxToolbar extends EVGToolbar {
         this.addTab("Slides")
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
         this.add("view.props" "" "Show fill, line and text" (ToolIcon.fill()))
+        ; A list, because that is what an outline is: the slide's own shapes
+        ; down the side, where the deck usually is.
+        this.add("view.outline" "" "Browse this slide's shapes" (ToolIcon.outlineList()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.palette()))
         this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
         this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.slideCopy()))
@@ -173,6 +181,9 @@ class PptxToolbar extends EVGToolbar {
             }
             if (t.command == "view.rtl") {
                 t.pressed = uiRtl
+            }
+            if (t.command == "view.outline") {
+                t.pressed = outlineTab
             }
             ; Bold and Italic are toggles and have to LOOK like it. They were
             ; plain buttons: pressing Bold made the text bold and the button
@@ -311,6 +322,35 @@ class PptxApp {
     def propHitH:[int]
     def propHitCmd:[string]
     def propHitArg:[string]
+
+    ; --- the outline -----------------------------------------------------------
+    ;
+    ; The left-hand column shows the DECK. The other thing a reader needs to
+    ; see there is one slide's own structure: what is on it, in what order,
+    ; what each thing is called and how big it is — the questions you ask when
+    ; a box is in the wrong place, or has no size at all, or is hiding behind
+    ; another one and cannot be clicked.
+    ;
+    ; So the column has two tabs. `Slides` is the deck as before; `Outline` is
+    ; this slide, front to back, the way the pointer meets it: the row at the
+    ; top is the shape a click lands on first. Selecting a row selects the
+    ; shape, which is what puts its numbers in the properties panel on the
+    ; other side — and that is the pair, browse on the left, edit on the right.
+    ;
+    ; A shape INSIDE a group is listed, indented, because the structure is the
+    ; point; clicking it selects the group. Everything the editor moves and
+    ; resizes it moves in slide points, and a child's own numbers are in its
+    ; group's child space, so selecting one directly would offer to edit
+    ; coordinates in a space the panel is not showing.
+    def leftTab:string "slides"
+    def outlineScroll:int 0
+    def outlineId:[int]
+    def outlineOwner:[int]
+    def outlineName:[string]
+    def outlineKind:[string]
+    def outlineNote:[string]
+    def outlineDepth:[int]
+    def outlineStamp:string ""
 
     ; The slide panel: the deck down the left-hand side.
     def panelW:int 150
@@ -763,6 +803,7 @@ class PptxApp {
         commands.addArg("edit.linewidth" "Outline thickness" "Format" "")
         commands.addArg("edit.textcolor" "Text colour" "Format" "")
         commands.add("view.props" "Show the properties panel" "View" "")
+        commands.add("view.outline" "Show the slide outline" "View" "")
         commands.addArg("edit.text" "Set the text" "Format" "")
         commands.add("shape.rect" "Insert a box" "Insert" "")
         commands.add("shape.ellipse" "Insert an ellipse" "Insert" "")
@@ -2036,6 +2077,7 @@ class PptxApp {
         ; Settling this only on resize left the strip short after a page
         ; change, with the bottom of the button drawn over the slide.
         toolbarH = (toolbar.heightFor(W))
+        toolbar.outlineTab = (this.outlineOn())
         toolbar.boldOn = (this.selectionBold())
         toolbar.italicOn = (this.selectionItalic())
         this.refreshFonts()
@@ -3888,6 +3930,43 @@ class PptxApp {
             this.resize(W H)
             return true
         }
+        ; The left-hand column, on its other tab: this slide's own structure
+        ; instead of the deck. Answering the command with the tab it left the
+        ; column on is what lets the toolbar button light up.
+        if (id == "view.outline") {
+            if (leftTab == "outline") {
+                leftTab = "slides"
+            } {
+                leftTab = "outline"
+                ; A column that is not there cannot show an outline.
+                panelVisible = true
+                this.resize(W H)
+            }
+            return true
+        }
+        ; A shape's box, by the number rather than by the drag. `arg` is
+        ; points for the four sides and degrees for the turn; `geom.d…` is
+        ; the same as a step from where the shape is now, which is what the
+        ; panel's arrows send.
+        if ((indexOf id "geom.") == 0) {
+            def field:string (substring id 5 (strlen id))
+            ; No field this editor knows begins with a d, so a leading one
+            ; is the "…by this much" form and nothing else.
+            def delta:boolean false
+            if ((indexOf field "d") == 0) {
+                delta = true
+                field = (substring field 1 (strlen field))
+            }
+            def gv@(optional):double (str2double arg)
+            if (null? gv) {
+                return false
+            }
+            def amount:double (unwrap gv)
+            if delta {
+                return (editor.nudgeShapeBox(field amount))
+            }
+            return (editor.setShapeBox(field amount))
+        }
         if (id == "view.snap") {
             editor.snapEnabled = (editor.snapEnabled == false)
             return true
@@ -4794,7 +4873,8 @@ class PptxApp {
         if (this.panelOnTop()) {
             return 26
         }
-        return (toolbarH + 20)
+        ; …and below the two tabs, when the column has room for them.
+        return ((toolbarH + 20) + (this.leftTabsH()))
     }
 
     ; …and where the deck sits ACROSS its own axis.
@@ -4971,6 +5051,11 @@ class PptxApp {
     ; two-finger swipe is dozens of small events, each of which became a full
     ; 40-pixel notch. A hundred slides went past in one flick.
     fn scrollPanelPixels:void (dy:int) {
+        if (this.outlineOn()) {
+            outlineScroll = (outlineScroll + dy)
+            this.clampOutlineScroll()
+            return
+        }
         panelScroll = (panelScroll + dy)
         this.clampPanelScroll()
     }
@@ -5073,6 +5158,24 @@ class PptxApp {
             ; strip, and swallowing that makes the toolbar dead.
             if ((this.panelInBand(px py)) == false) {
                 return false
+            }
+            ; Which of the two the column is showing is the first thing a
+            ; press can be about.
+            def tab:int (this.leftTabAt(px py))
+            if (tab >= 0) {
+                if (tab == 0) {
+                    leftTab = "slides"
+                } {
+                    leftTab = "outline"
+                }
+                return true
+            }
+            if (this.outlineOn()) {
+                def row:int (this.outlineRowAt(px py))
+                if (row >= 0) {
+                    this.outlineSelectRow(row)
+                }
+                return true
             }
             def hit:int (this.panelSlideAt(px py))
             if (hit >= 0) {
@@ -5182,6 +5285,13 @@ class PptxApp {
     ; painted into it — see `framePanel`.
     fn settlePanelScroll:void () {
         if (panelVisible == false) {
+            return
+        }
+        if (this.outlineOn()) {
+            ; The outline follows the SHAPE that is selected, the way the
+            ; deck follows the slide that is shown.
+            this.followSelectionInOutline()
+            this.clampOutlineScroll()
             return
         }
         this.followSelectionInPanel()
@@ -5302,6 +5412,11 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
+        ; The column has two tabs, and this is the other one.
+        if (this.outlineOn()) {
+            this.paintOutline(dl)
+            return
+        }
         def onTop:boolean (this.panelOnTop())
         def bandBg:EVGColor (EVGColor.rgb(32 36 47))
         def top:double (to_double toolbarH)
@@ -5314,6 +5429,7 @@ class PptxApp {
             dl.addRect(0.0 top (to_double w) height bandBg)
             dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
         }
+        this.paintLeftTabs(dl)
         def n:int (this.slideCount())
         def tw:int (this.panelThumbW())
         def th:int (this.panelThumbH())
@@ -5355,9 +5471,9 @@ class PptxApp {
                 ; The number: beside a column's thumbnail, under a strip's,
                 ; because a strip has no room to its left.
                 if onTop {
-                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 theme.dim)
+                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 (PptxApp.panelLabel()))
                 } {
-                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 (PptxApp.panelLabel()))
                 }
                 ; A section names the run of slides that starts here, so it is
                 ; written once, above the first of them.
@@ -5374,7 +5490,7 @@ class PptxApp {
                         ; is worse than one not drawn.
                         if (onTop == false) {
                             def secName:string (editor.sectionNameAt(sec))
-                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(176 192 230)))
                         }
                     }
                 }
@@ -5395,6 +5511,513 @@ class PptxApp {
         }
     }
 
+
+    ; --- the outline ----------------------------------------------------------
+    ;
+    ; See `leftTab` above for what this is and why it sits where the deck
+    ; usually does. Everything below is: what the rows ARE, where they are,
+    ; which one a press landed on, and how to draw them.
+
+    ; --- type on the dark chrome ---------------------------------------------
+    ;
+    ; The strip's own `theme.dim` is rgb(80 92 110): a grey picked to be quiet
+    ; against the LIGHT toolbar, where it sits on rgb(246 247 250). The two
+    ; panels are the other way round — near-black, rgb(32 36 47) — and the
+    ; same grey there is about 1.5:1 against its background, which is not
+    ; quiet, it is unreadable. Reported as exactly that: the headings down
+    ; both sides are too faint to read against the black.
+    ;
+    ; So the dark chrome has its own two, both above 5:1 against it: one for
+    ; a label or a heading, one for the smaller second-rank text under it. A
+    ; value the reader is meant to READ stays brighter still — those are
+    ; written where they are drawn.
+    sfn panelLabel:EVGColor () {
+        return (EVGColor.rgb(166 176 196))
+    }
+
+    sfn panelFaint:EVGColor () {
+        return (EVGColor.rgb(148 158 178))
+    }
+
+    ; The two tabs at the top of the column. A strip along the top of a phone
+    ; has no room for them, and no room for an outline either, so it keeps the
+    ; deck and this answers zero.
+    fn leftTabsH:int () {
+        if (panelVisible == false) {
+            return 0
+        }
+        if (this.panelOnTop()) {
+            return 0
+        }
+        if ((this.panelWidth()) == 0) {
+            return 0
+        }
+        return 22
+    }
+
+    fn outlineOn:boolean () {
+        if ((this.leftTabsH()) == 0) {
+            return false
+        }
+        return (leftTab == "outline")
+    }
+
+    ; Which tab a press landed on: 0 the deck, 1 the outline, -1 neither.
+    fn leftTabAt:int (px:int py:int) {
+        if ((this.leftTabsH()) == 0) {
+            return (0 - 1)
+        }
+        if (py < toolbarH) {
+            return (0 - 1)
+        }
+        if (py >= (toolbarH + (this.leftTabsH()))) {
+            return (0 - 1)
+        }
+        def w:int (this.panelWidth())
+        if (px >= w) {
+            return (0 - 1)
+        }
+        if (px < (idiv w 2)) {
+            return 0
+        }
+        return 1
+    }
+
+    ; --- the rows --------------------------------------------------------------
+    ;
+    ; Rebuilt when the slide, its revision or the number of shapes on it
+    ; changes — the same "has this actually changed" question the thumbnails
+    ; ask, and for the same reason: a list rebuilt sixty times a second is a
+    ; list that cannot be scrolled.
+    fn outlineStampNow:string () {
+        def stamp:string (to_string index)
+        stamp = (stamp + (":" + (to_string (array_length (editor.editableShapes())))))
+        def slide@(optional):PptxSlide (editor.currentSlide())
+        if (!null? slide) {
+            def sl:PptxSlide (unwrap slide)
+            stamp = (stamp + (":" + (to_string sl.revision)))
+            stamp = (stamp + (":" + (to_string sl.key)))
+        }
+        return stamp
+    }
+
+    fn rebuildOutline:void () {
+        def stamp:string (this.outlineStampNow())
+        if (stamp == outlineStamp) {
+            return
+        }
+        outlineStamp = stamp
+        clear outlineId
+        clear outlineOwner
+        clear outlineName
+        clear outlineKind
+        clear outlineNote
+        clear outlineDepth
+        def shapes:[PptxShape] (editor.editableShapes())
+        ; Front to back: the row at the top of the list is the shape a click
+        ; lands on first, because that is the one painted last.
+        def i:int ((array_length shapes) - 1)
+        while (i >= 0) {
+            def sh:PptxShape (itemAt shapes i)
+            this.pushOutlineRow(sh sh.editId 0)
+            i = (i - 1)
+        }
+    }
+
+    fn pushOutlineRow:void (shape:PptxShape owner:int depth:int) {
+        push outlineId shape.editId
+        ; What clicking the row selects. A child's own numbers are in its
+        ; group's child space, so a row inside a group hands the pointer the
+        ; GROUP — see the note on `leftTab`.
+        push outlineOwner owner
+        push outlineName (PptxApp.outlineLabel(shape))
+        push outlineKind (PptxApp.outlineKind(shape))
+        push outlineNote (PptxApp.outlineNote(shape))
+        push outlineDepth depth
+        def j:int ((array_length shape.children) - 1)
+        while (j >= 0) {
+            this.pushOutlineRow((itemAt shape.children j) owner (depth + 1))
+            j = (j - 1)
+        }
+    }
+
+    ; The name the file gave the shape, and failing that what it IS. A deck
+    ; written by anything but PowerPoint often names nothing at all, and a
+    ; list of eleven rows called "" is not an outline.
+    sfn outlineLabel:string (shape:PptxShape) {
+        def name:string (OfficeText.forDisplay(shape.name))
+        if ((strlen name) > 0) {
+            return name
+        }
+        if shape.hasText {
+            def text:string (OfficeText.forDisplay((shape.text.plainText())))
+            if ((strlen text) > 0) {
+                if ((strlen text) > 22) {
+                    return ((substring text 0 21) + "…")
+                }
+                return text
+            }
+        }
+        return (PptxApp.outlineKindName(shape))
+    }
+
+    sfn outlineKindName:string (shape:PptxShape) {
+        if (shape.kind == (PptxShapeKind.picture())) {
+            return "Picture"
+        }
+        if (shape.kind == (PptxShapeKind.group())) {
+            return "Group"
+        }
+        if (shape.kind == (PptxShapeKind.table())) {
+            return "Table"
+        }
+        if (shape.kind == (PptxShapeKind.chart())) {
+            return "Chart"
+        }
+        if (shape.kind == (PptxShapeKind.connector())) {
+            return "Line"
+        }
+        if shape.hasText {
+            return "Text"
+        }
+        return "Shape"
+    }
+
+    ; One letter in front of the name, so the kinds can be told apart at a
+    ; glance in a column 150 pixels wide.
+    sfn outlineKind:string (shape:PptxShape) {
+        if (shape.kind == (PptxShapeKind.picture())) {
+            return "P"
+        }
+        if (shape.kind == (PptxShapeKind.group())) {
+            return "G"
+        }
+        if (shape.kind == (PptxShapeKind.table())) {
+            return "#"
+        }
+        if (shape.kind == (PptxShapeKind.chart())) {
+            return "%"
+        }
+        if (shape.kind == (PptxShapeKind.connector())) {
+            return "/"
+        }
+        if shape.hasText {
+            return "T"
+        }
+        return "S"
+    }
+
+    ; What is worth saying about a row besides its name: that the file never
+    ; gave it a size, that it is a placeholder and which, that it is locked.
+    ; The first of those is the one this whole panel was asked for — a box
+    ; whose geometry this reader invented is a box whose numbers on the right
+    ; are not the document's, and the reader has to be able to see that.
+    sfn outlineNote:string (shape:PptxShape) {
+        if shape.geomFallback {
+            return "no size in file"
+        }
+        if shape.locked {
+            return "locked"
+        }
+        if shape.isPlaceholder {
+            if ((strlen shape.phType) > 0) {
+                return shape.phType
+            }
+            return "placeholder"
+        }
+        return ""
+    }
+
+    fn outlineRowCount:int () {
+        this.rebuildOutline()
+        return (array_length outlineId)
+    }
+
+    fn outlineRowName:string (i:int) {
+        this.rebuildOutline()
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length outlineName)) {
+            return ""
+        }
+        return (itemAt outlineName i)
+    }
+
+    fn outlineRowNote:string (i:int) {
+        this.rebuildOutline()
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length outlineNote)) {
+            return ""
+        }
+        return (itemAt outlineNote i)
+    }
+
+    fn outlineRowId:int (i:int) {
+        this.rebuildOutline()
+        if (i < 0) {
+            return 0
+        }
+        if (i >= (array_length outlineId)) {
+            return 0
+        }
+        return (itemAt outlineId i)
+    }
+
+    fn outlineRowDepth:int (i:int) {
+        this.rebuildOutline()
+        if (i < 0) {
+            return 0
+        }
+        if (i >= (array_length outlineDepth)) {
+            return 0
+        }
+        return (itemAt outlineDepth i)
+    }
+
+    ; Which row holds this shape, or -1. The panel follows the selection with
+    ; it, and so does a test that wants to press the row for a shape it knows.
+    fn outlineRowOf:int (editId:int) {
+        this.rebuildOutline()
+        def i:int 0
+        while (i < (array_length outlineId)) {
+            if ((itemAt outlineId i) == editId) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; --- where the rows are ------------------------------------------------------
+
+    fn outlineRowH:int () {
+        if coarsePointer {
+            return 26
+        }
+        return 18
+    }
+
+    fn outlineTop:int () {
+        return ((toolbarH + (this.leftTabsH())) + 4)
+    }
+
+    fn outlineRowY:int (i:int) {
+        return (((this.outlineTop()) + (i * (this.outlineRowH()))) - outlineScroll)
+    }
+
+    fn outlineMaxScroll:int () {
+        def total:int ((this.outlineRowCount()) * (this.outlineRowH()))
+        def visible:int (((H - (this.outlineTop())) - statusH) - (this.notesHeight()))
+        def maxScroll:int (total - visible)
+        if (maxScroll < 0) {
+            return 0
+        }
+        return maxScroll
+    }
+
+    fn clampOutlineScroll:void () {
+        def maxScroll:int (this.outlineMaxScroll())
+        if (outlineScroll > maxScroll) {
+            outlineScroll = maxScroll
+        }
+        if (outlineScroll < 0) {
+            outlineScroll = 0
+        }
+    }
+
+    fn outlineRowAt:int (px:int py:int) {
+        if ((this.outlineOn()) == false) {
+            return (0 - 1)
+        }
+        if (px >= (this.panelWidth())) {
+            return (0 - 1)
+        }
+        if (py < (this.outlineTop())) {
+            return (0 - 1)
+        }
+        if (py >= (H - statusH)) {
+            return (0 - 1)
+        }
+        def rel:int ((py + outlineScroll) - (this.outlineTop()))
+        if (rel < 0) {
+            return (0 - 1)
+        }
+        def idx:int (idiv rel (this.outlineRowH()))
+        if (idx >= (this.outlineRowCount())) {
+            return (0 - 1)
+        }
+        return idx
+    }
+
+    ; A press on a row: select what it stands for. The properties panel on
+    ; the other side is showing whatever is selected, so this is the whole of
+    ; "click it on the left, read and change its numbers on the right".
+    fn outlineSelectRow:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (this.outlineRowCount())) {
+            return false
+        }
+        def id:int (itemAt outlineOwner i)
+        if (id <= 0) {
+            return false
+        }
+        this.syncEditor()
+        editor.select(id)
+        this.syncFromEditor()
+        return true
+    }
+
+    ; Keep the selected row on screen, however the selection was made — a
+    ; shape chosen on the slide has to show up in the list beside it.
+    fn followSelectionInOutline:void () {
+        if ((this.outlineOn()) == false) {
+            return
+        }
+        def sel@(optional):PptxShape (editor.firstSelected())
+        if (null? sel) {
+            return
+        }
+        def row:int (this.outlineRowOf(((unwrap sel).editId)))
+        if (row < 0) {
+            return
+        }
+        def at:int (this.outlineRowY(row))
+        def h:int (this.outlineRowH())
+        def near:int (this.outlineTop())
+        def far:int ((H - statusH) - (this.notesHeight()))
+        if (at < near) {
+            outlineScroll = (outlineScroll - (near - at))
+        }
+        if ((at + h) > far) {
+            outlineScroll = (outlineScroll + (((at + h) - far) + 4))
+        }
+        this.clampOutlineScroll()
+    }
+
+    ; --- drawing it ---------------------------------------------------------------
+
+    fn paintLeftTabs:void (dl:EVGDisplayList) {
+        def h:int (this.leftTabsH())
+        if (h == 0) {
+            return
+        }
+        def w:int (this.panelWidth())
+        def half:double (to_double (idiv w 2))
+        def top:double (to_double toolbarH)
+        def on:EVGColor (EVGColor.rgb(46 52 66))
+        def off:EVGColor (EVGColor.rgb(32 36 47))
+        def slidesBg:EVGColor on
+        def outlineBg:EVGColor off
+        if (this.outlineOn()) {
+            slidesBg = off
+            outlineBg = on
+        }
+        dl.addRect(0.0 top half (to_double h) slidesBg)
+        dl.addRect(half top ((to_double w) - half) (to_double h) outlineBg)
+        dl.addRect(0.0 (to_double ((toolbarH + h) - 1)) (to_double w) 1.0 theme.line)
+        def slidesInk:EVGColor (PptxApp.panelLabel())
+        def outlineInk:EVGColor (PptxApp.panelLabel())
+        if (this.outlineOn()) {
+            outlineInk = (EVGColor.rgb(238 242 250))
+            ; The tab that is on is underlined, because two panels of the same
+            ; grey with one word each is not a control anybody can read.
+            dl.addRect(half (to_double ((toolbarH + h) - 2)) ((to_double w) - half) 2.0 (EVGColor.rgb(90 140 230)))
+        } {
+            slidesInk = (EVGColor.rgb(238 242 250))
+            dl.addRect(0.0 (to_double ((toolbarH + h) - 2)) half 2.0 (EVGColor.rgb(90 140 230)))
+        }
+        toolbarView.pushText(dl "Slides" 10.0 (top + 6.0) 11.0 slidesInk)
+        toolbarView.pushText(dl "Outline" (half + 8.0) (top + 6.0) 11.0 outlineInk)
+    }
+
+    fn paintOutline:void (dl:EVGDisplayList) {
+        def w:int (this.panelWidth())
+        def top:double (to_double toolbarH)
+        def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
+        dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
+        dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
+        this.paintLeftTabs(dl)
+        this.rebuildOutline()
+        def n:int (array_length outlineId)
+        if (n == 0) {
+            toolbarView.pushText(dl "Nothing on this slide" 10.0 ((to_double (this.outlineTop())) + 6.0) 11.0 (PptxApp.panelFaint()))
+            return
+        }
+        def rowH:int (this.outlineRowH())
+        def lo:double (to_double (this.outlineTop()))
+        def hi:double (to_double ((H - statusH) - (this.notesHeight())))
+        dl.addClip(0.0 lo (to_double (w - 1)) (hi - lo))
+        def i:int 0
+        while (i < n) {
+            def y:int (this.outlineRowY(i))
+            def fy:double (to_double y)
+            def visible:boolean true
+            if ((fy + (to_double rowH)) < lo) {
+                visible = false
+            }
+            if (fy > hi) {
+                visible = false
+            }
+            if visible {
+                def id:int (itemAt outlineId i)
+                def owner:int (itemAt outlineOwner i)
+                def chosen:boolean (editor.isSelected(owner))
+                if chosen {
+                    dl.addRect(0.0 fy (to_double (w - 1)) (to_double rowH) (EVGColor.rgb(52 66 96)))
+                }
+                def depth:int (itemAt outlineDepth i)
+                def x:double (8.0 + ((to_double depth) * 10.0))
+                def ink:EVGColor (EVGColor.rgb(214 221 236))
+                if chosen {
+                    ink = (EVGColor.rgb(240 244 252))
+                }
+                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 (EVGColor.rgb(146 176 236)))
+                ; The note is set hard right and the name is cut to what is
+                ; left of the row. A column 150 pixels wide has room for one
+                ; of them at full length and not for two, and a name written
+                ; over its own note is worse than a name written short.
+                def nameX:double (x + 12.0)
+                def note:string (itemAt outlineNote i)
+                def rowRight:double (to_double (w - 5))
+                def nameRoom:double (rowRight - nameX)
+                if ((strlen note) > 0) {
+                    def noteW:double ((to_double (strlen note)) * 4.6)
+                    def noteInk:EVGColor (PptxApp.panelFaint())
+                    if (note == "no size in file") {
+                        noteInk = (EVGColor.rgb(244 174 112))
+                    }
+                    toolbarView.pushText(dl note (rowRight - noteW) (fy + 4.0) 9.0 noteInk)
+                    nameRoom = ((nameRoom - noteW) - 6.0)
+                }
+                toolbarView.pushText(dl (PptxApp.fitLabel((itemAt outlineName i) nameRoom)) nameX (fy + 4.0) 11.0 ink)
+            }
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    ; As much of a label as fits in the pixels there are, and an ellipsis
+    ; where the rest was. The width is an estimate — 11 point text averages
+    ; about six pixels a character — because a row is drawn before anything
+    ; has measured it, and being a character out only ever costs a character.
+    sfn fitLabel:string (text:string room:double) {
+        if (room <= 0.0) {
+            return ""
+        }
+        def fits:int (to_int (room / 6.1))
+        if ((strlen text) <= fits) {
+            return text
+        }
+        if (fits < 3) {
+            return ""
+        }
+        return ((substring text 0 (fits - 1)) + "…")
+    }
 
     ; --- the notes strip ------------------------------------------------------
     ;
@@ -5516,9 +6139,9 @@ class PptxApp {
         ; Nothing selected is worth saying out loud. A panel of dead controls
         ; reads as a broken panel; a panel that says why is a panel.
         if ((editor.selectionCount()) == 0) {
-            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 theme.dim)
-            toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (EVGColor.rgb(110 118 134)))
-            toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (EVGColor.rgb(110 118 134)))
+            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 (EVGColor.rgb(226 232 244)))
+            toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (PptxApp.panelFaint()))
+            toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (PptxApp.panelFaint()))
             return
         }
 
@@ -5537,6 +6160,14 @@ class PptxApp {
             widthPt = sh.lineWidthPt
         }
 
+        ; What the shape IS, before what it looks like: its name, its kind,
+        ; and — the reason this block exists — whether the box it is drawn in
+        ; came out of the file at all.
+        if (!null? hit) {
+            y = (this.propsIdentity(dl (unwrap hit) x y inner))
+            y = (this.propsGeometry(dl (unwrap hit) x y inner))
+            y = (y + 4.0)
+        }
         y = (this.propsSwatchRow(dl "Fill" x y inner fillHex "edit.fill"))
         y = (y + 8.0)
         y = (this.propsSwatchRow(dl "Line" x y inner lineHex "edit.line"))
@@ -5546,10 +6177,115 @@ class PptxApp {
         y = (this.propsSwatchRow(dl "Text" x y inner (editor.selectionColorHex()) "edit.textcolor"))
     }
 
+    ; Who this is. One line of name, one of kind — and a warning where the
+    ; numbers under it are not the document's own.
+    fn propsIdentity:double (dl:EVGDisplayList shape:PptxShape x:double y:double w:double) {
+        def name:string (PptxApp.outlineLabel(shape))
+        toolbarView.pushText(dl name x y 12.0 (EVGColor.rgb(238 242 250)))
+        def kind:string (PptxApp.outlineKindName(shape))
+        if shape.isPlaceholder {
+            kind = (kind + (" · " + shape.phType))
+        }
+        if ((editor.selectionCount()) > 1) {
+            kind = (kind + (" +" + (to_string ((editor.selectionCount()) - 1))))
+        }
+        toolbarView.pushText(dl kind x (y + 15.0) 10.0 (PptxApp.panelFaint()))
+        def out:double (y + 30.0)
+        if shape.geomFallback {
+            ; The one thing a reader has to be told rather than shown: this
+            ; box is the READER's. The file never gave the shape a size, and
+            ; the numbers below are what was invented so that the text could
+            ; be read and clicked at all. Typing any of them makes the box the
+            ; document's own — see `PptxEditor.setShapeBox`.
+            toolbarView.pushText(dl "No size in the file" x out 10.0 (EVGColor.rgb(244 174 112)))
+            out = (out + 14.0)
+        } {
+            ; …and the next question a reader asks about a box that is not
+            ; where they expect: whose box is it? A slide states its own
+            ; geometry or it takes the layout's, and which of the two it is
+            ; decides whether moving the placeholder on the LAYOUT would have
+            ; moved this. `sheetXfrmSig` is that answer, and it stops being
+            ; the answer the moment the shape is moved — see PptxWriter.
+            if ((strlen shape.sheetXfrmSig) > 0) {
+                if ((shape.xfrmSignature()) == shape.sheetXfrmSig) {
+                    toolbarView.pushText(dl "Size from the layout" x out 10.0 (EVGColor.rgb(146 176 236)))
+                    out = (out + 14.0)
+                }
+            }
+        }
+        return out
+    }
+
+    ; Position and size, in points, with a step either way on each. This is
+    ; the half of the panel the outline is for: pick the shape on the left,
+    ; read where it is and how big on the right, and change it by a number
+    ; instead of by dragging until it looks right.
+    fn propsGeometry:double (dl:EVGDisplayList shape:PptxShape x:double y:double w:double) {
+        def top:double y
+        toolbarView.pushText(dl "Position and size" x top 11.0 (PptxApp.panelLabel()))
+        def row:double (top + 16.0)
+        row = (this.propsNumberRow(dl "X" x row w shape.x "geom.x" 1.0))
+        row = (this.propsNumberRow(dl "Y" x row w shape.y "geom.y" 1.0))
+        row = (this.propsNumberRow(dl "W" x row w shape.width "geom.w" 1.0))
+        row = (this.propsNumberRow(dl "H" x row w shape.height "geom.h" 1.0))
+        row = (this.propsNumberRow(dl "Rot" x row w shape.rotation "geom.rot" 15.0))
+        return row
+    }
+
+    ; One number: what it is, what it is now, and a step down and up. The
+    ; steps send `geom.d…`, which is a step from wherever the shape is rather
+    ; than a value worked out here — so two shapes selected together each
+    ; move by one point instead of both jumping to the first one's.
+    fn propsNumberRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:double cmd:string step:double) {
+        toolbarView.pushText(dl label x (y + 3.0) 11.0 (PptxApp.panelLabel()))
+        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        def bw:double 18.0
+        def plusX:double ((x + w) - bw)
+        def minusX:double ((plusX - bw) - 3.0)
+        def down:string ("-" + (PptxApp.numText(step)))
+        def up:string (PptxApp.numText(step))
+        def deltaCmd:string ("geom.d" + (substring cmd 5 (strlen cmd)))
+        dl.addRect(minusX y bw 16.0 (EVGColor.rgb(46 52 66)))
+        dl.addFrame(minusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
+        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        this.addPropHit((to_int minusX) (to_int y) (to_int bw) 16 deltaCmd down)
+        dl.addRect(plusX y bw 16.0 (EVGColor.rgb(46 52 66)))
+        dl.addFrame(plusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
+        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        this.addPropHit((to_int plusX) (to_int y) (to_int bw) 16 deltaCmd up)
+        return (y + 20.0)
+    }
+
+    ; A number a reader can read: one decimal, and no decimal at all when
+    ; there is nothing after the point. `to_string` on a double writes
+    ; 152.40000000000003, which is not a coordinate anybody typed.
+    sfn numText:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def scaled:int (to_int ((a * 10.0) + 0.5))
+        def whole:int (idiv scaled 10)
+        def tenth:int (scaled % 10)
+        def body:string (to_string whole)
+        if (tenth > 0) {
+            body = ((body + ".") + (to_string tenth))
+        }
+        ; Nothing rounds to a signed nothing: "-0" is not a coordinate.
+        if (scaled == 0) {
+            return "0"
+        }
+        if neg {
+            return ("-" + body)
+        }
+        return body
+    }
+
     ; One labelled row: the name, the current colour beside it, and the
     ; swatches under it. Answers the y the next row starts at.
     fn propsSwatchRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:string cmd:string) {
-        toolbarView.pushText(dl label x y 11.0 theme.dim)
+        toolbarView.pushText(dl label x y 11.0 (PptxApp.panelLabel()))
         ; The current value, right of the label. This is the half of the panel
         ; that was missing entirely: a control that only SETS leaves a reader
         ; guessing what is set.
@@ -5561,7 +6297,7 @@ class PptxApp {
         } {
             ; No colour of its own — inherited, or none at all. Said in words,
             ; because an empty box and a white one look the same.
-            toolbarView.pushText(dl "—" (cx + 12.0) y 11.0 (EVGColor.rgb(110 118 134)))
+            toolbarView.pushText(dl "—" (cx + 12.0) y 11.0 (PptxApp.panelFaint()))
         }
         def top:double (y + 18.0)
         def names:[string] (PptxApp.swatchNames())
@@ -5591,7 +6327,7 @@ class PptxApp {
         ; "None" only where none is a thing a shape can be. A line has to be
         ; removable and so does a fill; text always has a colour.
         if (cmd != "edit.textcolor") {
-            toolbarView.pushText(dl "None" (x + 2.0) (below + 2.0) 11.0 (EVGColor.rgb(150 158 178)))
+            toolbarView.pushText(dl "None" (x + 2.0) (below + 2.0) 11.0 (PptxApp.panelLabel()))
             dl.addFrame(x below 40.0 15.0 1.0 (EVGColor.rgb(70 78 96)))
             this.addPropHit((to_int x) (to_int below) 40 15 cmd "")
             below = (below + 19.0)
@@ -5601,7 +6337,7 @@ class PptxApp {
 
     ; The outline's thickness, as the few widths anybody picks.
     fn propsWidthRow:double (dl:EVGDisplayList x:double y:double w:double now:double) {
-        toolbarView.pushText(dl "Line width" x y 11.0 theme.dim)
+        toolbarView.pushText(dl "Line width" x y 11.0 (PptxApp.panelLabel()))
         def steps:[double] ([] _:double ( 0.75 1.5 3.0 6.0 ))
         def cell:double ((w - 6.0) / 4.0)
         def top:double (y + 16.0)

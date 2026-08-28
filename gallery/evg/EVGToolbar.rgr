@@ -218,6 +218,12 @@ class ToolIcon {
     sfn arrangeLeft:int () { return 85 }
     sfn arrangeCenter:int () { return 86 }
     sfn arrangeRight:int () { return 87 }
+    ; The structure of one page rather than a list of words: a rule down the
+    ; side and rows hanging off it, two of them indented under the first.
+    ; It is next to the bulleted list on the strip and must not be mistaken
+    ; for it — that one makes text into a list, this one shows what is on the
+    ; slide.
+    sfn outlineList:int () { return 88 }
 }
 
 class ToolItem {
