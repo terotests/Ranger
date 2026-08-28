@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Smoothing, so more colors stop meaning more noise** — reported from a tiger photograph: at a low `colorCount` the trace is clean and vector-like, and every color added past that fills it with speckle. The cause is that a photograph's per-pixel noise is real signal to a quantizer. Two adjacent pixels of fur differ by a level or two, land in different swatches, and each speck becomes its own ring — so the extra colors buy fragments instead of shapes.
+
+  `smooth` is a count of 3×3 median passes run over the color planes before anything else looks at them. It moves whole pixels rather than filtering each channel: of the nine neighbours it takes the one whose *luma* is the median and copies its RGB, so it cannot invent a color that is nowhere in the image, and unlike a blur it leaves an edge where it found one. `minRegion` — which absorbs a small run of pixels into what surrounds it — already existed but its slider stopped at 40, far too low for a photograph; it now goes to 400.
+
+  The two belong together on a photo, so the page offers them as a pair: **Piirros** (0 / 6) and **Valokuva** (2 / 60). On a 640×799 portrait at 10 colors, `Valokuva` takes it from 104 rings and 1.33 MB of SVG to 49 rings and 580 KB, and it is *faster* — there is less noise to trace than there was to smooth. `Piirros` restores the default output byte for byte.
+
+  `smooth` defaults to **0** and `minRegion`'s default is unchanged, so line art and flat-color work are untouched — a median would eat exactly the thin strokes the tracer was taught to keep. Verified: three images at 4 and 10 colors produce identical palettes and layers against the previous build.
+
+### Added
+
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed

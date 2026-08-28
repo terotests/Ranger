@@ -61,6 +61,7 @@ class EvgTraceOptions  {
     this.paletteHex = [];
     this.paletteBias = "area";
     this.minColorDelta = 10;
+    this.smooth = 0;
     this.minRegion = 6;
     this.bgMode = "auto";
     this.bgTolerance = 24;
@@ -6650,11 +6651,83 @@ class EvgBitmapTracer  {
     };
     return bm;
   };
+  smoothPlanes () {
+    let passes = this.options.smooth;
+    if ( passes < 1 ) {
+      return;
+    }
+    if ( passes > 4 ) {
+      passes = 4;
+    }
+    const n = this.width * this.height;
+    let pass = 0;
+    while (pass < passes) {
+      let srcR = [];
+      let srcG = [];
+      let srcB = [];
+      let i = 0;
+      while (i < n) {
+        srcR.push(this.planeR[i]);
+        srcG.push(this.planeG[i]);
+        srcB.push(this.planeB[i]);
+        i = i + 1;
+      };
+      let y = 0;
+      while (y < this.height) {
+        let x = 0;
+        while (x < this.width) {
+          let lum = [];
+          let idxs = [];
+          let dy = 0 - 1;
+          while (dy <= 1) {
+            const yy = y + dy;
+            if ( (yy >= 0) && (yy < this.height) ) {
+              let dx = 0 - 1;
+              while (dx <= 1) {
+                const xx = x + dx;
+                if ( (xx >= 0) && (xx < this.width) ) {
+                  const j = (yy * this.width) + xx;
+                  idxs.push(j);
+                  lum.push(EvgBitmapTracer.lumaOf((srcR[j]), (srcG[j]), (srcB[j])));
+                }
+                dx = dx + 1;
+              };
+            }
+            dy = dy + 1;
+          };
+          const k = lum.length;
+          let a = 1;
+          while (a < k) {
+            const lv = lum[a];
+            const iv = idxs[a];
+            let b = a - 1;
+            while ((b >= 0) && ((lum[b]) > lv)) {
+              lum[b + 1] = lum[b];
+              idxs[b + 1] = idxs[b];
+              b = b - 1;
+            };
+            lum[b + 1] = lv;
+            idxs[b + 1] = iv;
+            a = a + 1;
+          };
+          const pick = idxs[(((k / 2) | 0))];
+          const here = (y * this.width) + x;
+          this.planeR[here] = srcR[pick];
+          this.planeG[here] = srcG[pick];
+          this.planeB[here] = srcB[pick];
+          x = x + 1;
+        };
+        y = y + 1;
+      };
+      pass = pass + 1;
+    };
+  };
   traceColorLayers () {
     let want = this.options.colorCount;
     if ( want < 2 ) {
       want = 2;
     }
+    this.smoothPlanes();
     this.detectBackground();
     this.buildFlatMask();
     const mode = this.options.paletteMode;
@@ -7662,6 +7735,62 @@ class EvgBitmapTracerTest  {
     trB.trace();
     t.ok("balanced keeps the small vivid patch", this.vividCount(trB) >= 1);
   };
+  makeSpeckled () {
+    const img = new ImageBuffer();
+    img.init(60, 40);
+    let seed = 12345;
+    let y = 0;
+    while (y < 40) {
+      let x = 0;
+      while (x < 60) {
+        let left = x < 30;
+        seed = ((seed * 75) + 74) % 65537;
+        if ( (seed % 100) < 15 ) {
+          left = left == false;
+        }
+        if ( left ) {
+          img.setPixelRGB(x, y, 60, 90, 160);
+        } else {
+          img.setPixelRGB(x, y, 200, 180, 120);
+        }
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  totalRings (tr) {
+    let n = 0;
+    let i = 0;
+    while (i < tr.layerCount()) {
+      const layer = tr.layers[i];
+      n = n + layer.ringCount;
+      i = i + 1;
+    };
+    return n;
+  };
+  testSmoothRemovesSpeckle (t) {
+    const a = EvgTraceOptions.defaults();
+    t.eqInt("smoothing is off by default", a.smooth, 0);
+    const rawOpts = EvgTraceOptions.defaults();
+    rawOpts.colorCount = 2;
+    rawOpts.bgMode = "none";
+    rawOpts.minRegion = 0;
+    const raw = EvgBitmapTracer.fromImageBuffer(this.makeSpeckled(), rawOpts);
+    raw.trace();
+    const rawRings = this.totalRings(raw);
+    const smOpts = EvgTraceOptions.defaults();
+    smOpts.colorCount = 2;
+    smOpts.bgMode = "none";
+    smOpts.minRegion = 0;
+    smOpts.smooth = 2;
+    const sm = EvgBitmapTracer.fromImageBuffer(this.makeSpeckled(), smOpts);
+    sm.trace();
+    const smRings = this.totalRings(sm);
+    t.ok("the speckle really is there without smoothing", rawRings > 40);
+    t.ok("smoothing collapses it", smRings < (((rawRings / 4) | 0)));
+    t.eqInt("both regions survive the median", sm.layerCount(), 2);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -7685,6 +7814,7 @@ function __js_main() {
   test.testFixedPalette(t);
   test.testSeededPaletteKeepsThePin(t);
   test.testPaletteBiasDefaultIsUnchanged(t);
+  test.testSmoothRemovesSpeckle(t);
   t.summary();
 }
 __js_main();

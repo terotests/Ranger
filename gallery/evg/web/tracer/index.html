@@ -208,10 +208,21 @@
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
           <span class="hint">Tätä lähempänä olevat sävyt yhdistetään. Estää saman alueen halkeamisen kahdeksi lähes samaksi tasoksi.</span>
         </label>
-        <label class="row color-only hidden">Pienin alue <span class="val" id="v-minRegion">6</span>
-          <input id="minRegion" type="range" min="0" max="40" step="1" value="6">
-          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäröivään alueeseen sen sijaan että jäisivät reiäksi.</span>
+        <label class="row color-only hidden">Pehmennys <span class="val" id="v-smooth">0</span>
+          <input id="smooth" type="range" min="0" max="4" step="1" value="0">
+          <span class="hint">Mediaanisuodatus ennen värien poimintaa. Valokuvan pikselikohina muuttuu muuten roskaksi heti kun värejä on enemmän. 0 = pois, piirroksille oikea arvo.</span>
         </label>
+        <label class="row color-only hidden">Pienin alue <span class="val" id="v-minRegion">6</span>
+          <input id="minRegion" type="range" min="0" max="400" step="2" value="6">
+          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäröivään alueeseen sen sijaan että jäisivät reiäksi. Valokuvalle 40–150.</span>
+        </label>
+        <div class="row color-only hidden" style="display:block">
+          <div class="actions" style="margin:0 0 4px">
+            <button type="button" id="presetArt">Piirros</button>
+            <button type="button" id="presetPhoto">Valokuva</button>
+          </div>
+          <span class="hint" style="display:block;margin-top:6px">Pehmennyksen ja pienimmän alueen valmiit parit.</span>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -281,7 +292,7 @@
   var srcStage = $("srcStage"), outStage = $("outStage"), statusEl = $("status"), paletteEl = $("palette");
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
-  var paletteMode = $("paletteMode"), paletteBias = $("paletteBias");
+  var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -318,6 +329,18 @@
   bindRange(skipLuma, $("v-skipLuma"));
   bindRange(minColorDelta, $("v-minColorDelta"));
   bindRange(minRegion, $("v-minRegion"));
+  bindRange(smooth, $("v-smooth"));
+
+  // Photographic noise needs both knobs at once, so offer them as a pair.
+  function applyPreset(sm, mr) {
+    smooth.value = String(sm);
+    minRegion.value = String(mr);
+    [smooth, minRegion].forEach(function (el) {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  $("presetArt").addEventListener("click", function () { applyPreset(0, 6); });
+  $("presetPhoto").addEventListener("click", function () { applyPreset(2, 60); });
   bindRange(turdsize, $("v-turdsize"));
   bindRange(alphamax, $("v-alphamax"), function (v) { return v.toFixed(2); });
   bindRange(opttolerance, $("v-opttolerance"), function (v) { return v.toFixed(2); });
@@ -558,6 +581,7 @@
         opts.bgMode = bgMode.value;
         opts.minColorDelta = +minColorDelta.value;
         opts.minRegion = +minRegion.value;
+        opts.smooth = +smooth.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();

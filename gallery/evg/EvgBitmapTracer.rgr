@@ -1330,11 +1330,89 @@ class EvgBitmapTracer {
         return bm
     }
 
+    ; A 3×3 median that moves whole pixels: of the nine neighbours, take the one
+    ; whose luma is the median and copy its RGB. Picking each channel's median
+    ; separately would invent colors that are nowhere in the image; this cannot,
+    ; and it removes speckle without softening an edge the way a blur does.
+    fn smoothPlanes:void () {
+        def passes:int options.smooth
+        if (passes < 1) {
+            return
+        }
+        if (passes > 4) {
+            passes = 4
+        }
+        def n:int (width * height)
+        def pass:int 0
+        while (pass < passes) {
+            def srcR:[int]
+            def srcG:[int]
+            def srcB:[int]
+            def i:int 0
+            while (i < n) {
+                push srcR (itemAt planeR i)
+                push srcG (itemAt planeG i)
+                push srcB (itemAt planeB i)
+                i = (i + 1)
+            }
+            def y:int 0
+            while (y < height) {
+                def x:int 0
+                while (x < width) {
+                    def lum:[int]
+                    def idxs:[int]
+                    def dy:int (0 - 1)
+                    while (dy <= 1) {
+                        def yy:int (y + dy)
+                        if ((yy >= 0) && (yy < height)) {
+                            def dx:int (0 - 1)
+                            while (dx <= 1) {
+                                def xx:int (x + dx)
+                                if ((xx >= 0) && (xx < width)) {
+                                    def j:int ((yy * width) + xx)
+                                    push idxs j
+                                    push lum (EvgBitmapTracer.lumaOf((itemAt srcR j) (itemAt srcG j) (itemAt srcB j)))
+                                }
+                                dx = (dx + 1)
+                            }
+                        }
+                        dy = (dy + 1)
+                    }
+                    ; Insertion sort — at most nine entries.
+                    def k:int (array_length lum)
+                    def a:int 1
+                    while (a < k) {
+                        def lv:int (itemAt lum a)
+                        def iv:int (itemAt idxs a)
+                        def b:int (a - 1)
+                        while ((b >= 0) && ((itemAt lum b) > lv)) {
+                            set lum (b + 1) (itemAt lum b)
+                            set idxs (b + 1) (itemAt idxs b)
+                            b = (b - 1)
+                        }
+                        set lum (b + 1) lv
+                        set idxs (b + 1) iv
+                        a = (a + 1)
+                    }
+                    def pick:int (itemAt idxs (idiv k 2))
+                    def here:int ((y * width) + x)
+                    set planeR here (itemAt srcR pick)
+                    set planeG here (itemAt srcG pick)
+                    set planeB here (itemAt srcB pick)
+                    x = (x + 1)
+                }
+                y = (y + 1)
+            }
+            pass = (pass + 1)
+        }
+    }
+
     fn traceColorLayers:void () {
         def want:int options.colorCount
         if (want < 2) {
             want = 2
         }
+        this.smoothPlanes()
         this.detectBackground()
         this.buildFlatMask()
         def mode:string options.paletteMode

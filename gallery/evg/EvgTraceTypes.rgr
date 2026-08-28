@@ -115,6 +115,12 @@ class EvgTraceOptions {
     ; otherwise splits one region between two near-identical swatches, and each
     ; half then falls under turdsize — which is how outlines turn into dashes.
     def minColorDelta:int 10
+    ; Posterize: passes of a 3×3 median over the color planes before anything
+    ; else looks at them. A photograph's per-pixel noise otherwise survives
+    ; quantization as speckle, and every extra color splits it further, so the
+    ; trace gains fragments instead of shapes. 0 = off, which is what line art
+    ; and flat-color art want: a median would eat their thin strokes.
+    def smooth:int 0
     ; Posterize: a connected run of pixels smaller than this joins the region
     ; around it instead of being traced. Without it turdsize simply deletes
     ; those rings and leaves holes, so coverage falls as colorCount rises.
