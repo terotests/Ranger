@@ -141,7 +141,7 @@ describe("tree literals", () => {
       css = fs.readFileSync(CSS_FILE, "utf8");
     }, 120_000);
 
-    const state = () => [css, checked, "Luis", "File", true] as const;
+    const state = () => [css, checked, "Luis", "File", true, false] as const;
 
     it("publishes an accessible tree that lints clean", () => {
       // A focusable row with no name, or with no rectangle, is invisible on
@@ -171,7 +171,7 @@ describe("tree literals", () => {
 
     it("puts the states on the roles that carry them", () => {
       const tree = JSON.parse(
-        Demo.a11yJson(css, checked, "Luis", "View", true, 1, ""),
+        Demo.a11yJson(css, checked, "Luis", "View", true, false, 1, ""),
       );
       const byId: Record<string, any> = Object.fromEntries(
         tree.nodes.map((n: any) => [n.id, n]),
@@ -185,6 +185,25 @@ describe("tree literals", () => {
       // closed dropdown is absent from a browser's.
       expect(byId["menu-file-content"]).toBeUndefined();
       expect(byId["trigger-File"].expanded).toBe(1);
+    });
+
+    it("opens the other way when there is no room", () => {
+      // The same menu with the bar pushed to the bottom edge. The demo does
+      // not know a flip happened: it moved a bar, and the placement followed.
+      const at = (bottom: boolean) => {
+        const nodes = JSON.parse(
+          Demo.a11yJson(css, checked, "Luis", "File", true, bottom, 1, ""),
+        ).nodes;
+        const by: Record<string, any> = Object.fromEntries(nodes.map((n: any) => [n.id, n]));
+        return { trigger: by["trigger-File"].b, menu: by["menu-file-content"].b };
+      };
+      const top = at(false);
+      const bottom = at(true);
+      expect(top.menu[1]).toBeGreaterThan(top.trigger[1]); // below its trigger
+      expect(bottom.menu[1]).toBeLessThan(bottom.trigger[1]); // above it
+      // and on the page either way, which is the point of flipping at all
+      expect(bottom.menu[1]).toBeGreaterThanOrEqual(0);
+      expect(bottom.menu[1] + bottom.menu[3]).toBeLessThanOrEqual(560);
     });
 
     it("hits what it says it drew", () => {

@@ -3985,6 +3985,7 @@ class EVGElement  {
     this.overlayGap = 4.0;
     this.overlayX = 0.0;     /** note: unused */
     this.overlayY = 0.0;     /** note: unused */
+    this.overlayPlacedSide = "";     /** note: unused */
     this.role = "";
     this.a11yLabel = "";
     this.a11yChecked = 0;

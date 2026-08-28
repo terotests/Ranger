@@ -83,14 +83,19 @@ it landed.
       backwards, so topmost wins because topmost is last and there is one rule
       instead of two that can drift. Where the event then GOES is still the
       tree's business: an overlay never left it.
-- [ ] **Collision handling:** flip and shift, so a surface near an edge is not
-      drawn off the page.
+- [x] **Collision handling:** a surface whose side does not fit FLIPS to the
+      other side of its anchor, then SHIFTS along the edge to stay on the page.
+      Where neither side fits, the roomier one wins and the surface is clamped
+      — it then covers its anchor, which is what a browser does too: showing
+      the rows is worth more than the gap. The side it ended up on is published
+      as `overlayPlacedSide`, the way Radix publishes `data-side`. Visible in
+      the demo: put the bar at the bottom and the menus open upwards.
 - [ ] **Modal:** the same mechanism plus a backdrop and an inert page behind.
 - [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog. Catalogued as
       `dialog.focus-trap` and disputed, because the harness has no Tab step to
       prove it with
 
-Proof: `npm run evg:overlay:test` — 20 checks, each one shown to fail under a
+Proof: `npm run evg:overlay:test` — 33 checks, each one shown to fail under a
 mutation of the code it covers. The visible result is
 `gallery/ui/demo/menubar.png`, rendered from `MenubarDemo.rgr`.
 

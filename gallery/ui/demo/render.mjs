@@ -25,7 +25,7 @@ const DEMOS = {
     css: "menubar.css",
     height: 560,
     list: (M, css) =>
-      M.MenubarDemo.displayListJson(css, ["Always Show Full URLs"], "Luis", "File", true),
+      M.MenubarDemo.displayListJson(css, ["Always Show Full URLs"], "Luis", "File", true, false),
     errors: (M, css) => M.MenubarDemo.styleErrors(css),
   },
   toolbar: {

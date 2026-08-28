@@ -66,6 +66,10 @@
           <label><input type="checkbox" id="submenu" checked /> show it</label>
         </section>
         <section data-for="menubar">
+          <h2>collisions</h2>
+          <label><input type="checkbox" id="atbottom" /> bar at the bottom</label>
+        </section>
+        <section data-for="menubar">
           <h2>checkbox items</h2>
           <div id="checks"></div>
         </section>
@@ -110,10 +114,10 @@
           layout takes it out of the parent&rsquo;s flow, finds the anchor among its own
           siblings and moves it and its subtree there. A submenu is a
           <code>Menu</code> like any other &mdash; there is no submenu case in the demo.
-          Still missing: collision handling, so a surface near an edge is not flipped
-          or shifted. The toolbar&rsquo;s italic and underlined buttons are missing for an
-          unrelated reason: EVG has no <code>font-style</code> and no
-          <code>text-decoration</code>.
+          A surface near an edge flips to the other side of its anchor and slides
+          along the edge to stay on the page. The toolbar&rsquo;s italic and underlined
+          buttons are missing for an unrelated reason: EVG has no
+          <code>font-style</code> and no <code>text-decoration</code>.
         </p>
       </div>
     </main>
