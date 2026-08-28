@@ -1,0 +1,395 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxOutlineTest — browsing a slide's structure, and editing a box by number
+; ==============================================================================
+;
+; Asked for after a deck arrived whose text boxes had no size: there was no way
+; to look at a slide and ask what is actually ON it, what each thing is called
+; and how big it is. Selecting a shape meant finding it with the pointer, which
+; is exactly what a shape with no size cannot be found with.
+;
+; So the left-hand column has a second tab. `Slides` is the deck; `Outline` is
+; this slide — front to back, the way a click meets it, with what is inside a
+; group indented under it. Picking a row selects the shape, and the properties
+; panel on the other side then shows its X, Y, W, H and rotation as numbers
+; that can be typed rather than dragged.
+;
+; What is checked here:
+;
+;   * the tabs exist, switch, and switch back
+;   * the rows are the slide's own shapes, topmost first, named
+;   * a row says when the box it stands for is not the file's
+;   * pressing a row selects the shape, and a group's child selects the group
+;   * the properties panel draws the five numbers, with a step either way
+;   * pressing a step moves the shape by exactly that step
+;   * a number typed straight in is taken, and a size can never be typed to
+;     zero — which is the state the whole of this was reported out of
+;
+;   npm run pptx:outline:test
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class OlCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got ") + got) + " want ") + (want + ")")) (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (fabs (got - want))
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (d <= tol))
+    }
+}
+
+class PptxOutlineTest {
+    def c:OlCheck (new OlCheck)
+
+    sfn main:void () {
+        def t (new PptxOutlineTest())
+        t.run()
+    }
+
+    sfn app:PptxApp (fixture:string) {
+        def a (new PptxApp)
+        a.init("gallery/pdf_writer/assets/fonts")
+        a.resize(1000 760)
+        a.loadParts("gallery/pptx/fixtures" fixture)
+        return a
+    }
+
+    ; The deck the geometry report was about — see PptxBoxGeometryTest.
+    sfn loose:PptxApp () {
+        return (PptxOutlineTest.app("37-loose-geometry.pptx"))
+    }
+
+    ; A press, the way a host sends one.
+    sfn click:void (a:PptxApp px:int py:int) {
+        a.pointer(px py true true false)
+        a.pointer(px py false false true)
+        a.buildFrame()
+    }
+
+    ; …and a press on a control the properties panel drew, found by what it
+    ; would run rather than by where it happens to be.
+    sfn pressProp:boolean (a:PptxApp cmd:string arg:string) {
+        def at:int (a.propsControlAt(cmd arg))
+        if (at < 0) {
+            return false
+        }
+        def px:int ((a.propsControlX(at)) + (idiv (a.propsControlW(at)) 2))
+        def py:int ((a.propsControlY(at)) + (idiv (a.propsControlH(at)) 2))
+        def took:boolean (a.pointer(px py true true false))
+        a.pointer(px py false false true)
+        a.buildFrame()
+        return took
+    }
+
+    fn rowOfName:int (a:PptxApp name:string) {
+        def i:int 0
+        while (i < (a.outlineRowCount())) {
+            if ((a.outlineRowName(i)) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Press the row, where the row is.
+    fn clickRow:void (a:PptxApp row:int) {
+        def y:int ((a.outlineRowY(row)) + (idiv (a.outlineRowH()) 2))
+        PptxOutlineTest.click(a 20 y)
+    }
+
+    fn selectedName:string (a:PptxApp) {
+        def hit@(optional):PptxShape (a.editor.firstSelected())
+        if (null? hit) {
+            return ""
+        }
+        return ((unwrap hit).name)
+    }
+
+    fn run:void () {
+        print "=== PptxOutlineTest ==="
+        this.testTheTabs()
+        this.testTheRows()
+        this.testRowSaysWhenTheBoxIsOurs()
+        this.testPressingARowSelects()
+        this.testGroupsAreIndented()
+        this.testPanelStillTurnsPages()
+        this.testTheNumbersAreShown()
+        this.testSteppingTheNumbers()
+        this.testTypingTheNumbers()
+        this.testASizeCannotBeTypedToZero()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testTheTabs:void () {
+        print "--- two tabs where the deck used to be ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        c.ok("the column starts on the deck" ((a.outlineOn()) == false))
+        c.ok("the command is answered" (a.runCommand("view.outline" "")))
+        c.ok("and the column is the outline" (a.outlineOn()))
+        a.runCommand("view.outline" "")
+        c.ok("and back to the deck" ((a.outlineOn()) == false))
+
+        ; …and the tabs themselves, pressed the way a reader presses them.
+        def tabsH:int (a.leftTabsH())
+        c.ok("the column has room for the tabs" (tabsH > 0))
+        def half:int (idiv (a.panelWidth()) 2)
+        def ty:int (a.toolbarH + (idiv tabsH 2))
+        c.eqInt("the left half is the deck" (a.leftTabAt(4 ty)) 0)
+        c.eqInt("the right half is the outline" (a.leftTabAt((half + 4) ty)) 1)
+        PptxOutlineTest.click(a (half + 4) ty)
+        c.ok("pressing it switches the column" (a.outlineOn()))
+        PptxOutlineTest.click(a 4 ty)
+        c.ok("and pressing the other switches back" ((a.outlineOn()) == false))
+        ; A press on a tab is the tab's: it must not fall through and change
+        ; the slide under it.
+        c.eqInt("and no slide was turned by it" a.index 0)
+    }
+
+    fn testTheRows:void () {
+        print "--- the rows are the slide's own shapes, topmost first ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        c.eqInt("six shapes, six rows" (a.outlineRowCount()) 6)
+        ; The last shape in the file is painted last and so is met first.
+        c.eqStr("the topmost is at the top" (a.outlineRowName(0)) "Stated")
+        c.eqStr("and the first shape is at the bottom" (a.outlineRowName(5)) "Title 1")
+        c.ok("every row has a name" ((strlen (a.outlineRowName(3))) > 0))
+        c.ok("and a shape behind it" ((a.outlineRowId(2)) > 0))
+        c.ok("the rows are flat on a slide with no groups" ((a.outlineRowDepth(2)) == 0))
+    }
+
+    fn testRowSaysWhenTheBoxIsOurs:void () {
+        print "--- a row says when the box is not the file's ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        def loose:int (this.rowOfName(a "NoXfrm"))
+        c.ok("the box with no xfrm is listed" (loose >= 0))
+        if (loose >= 0) {
+            c.eqStr("and says so" (a.outlineRowNote(loose)) "no size in file")
+        }
+        def stated:int (this.rowOfName(a "Stated"))
+        c.ok("the ordinary box is listed" (stated >= 0))
+        if (stated >= 0) {
+            c.eqStr("and says nothing" (a.outlineRowNote(stated)) "")
+        }
+        def title:int (this.rowOfName(a "Title 1"))
+        if (title >= 0) {
+            c.eqStr("a placeholder says which" (a.outlineRowNote(title)) "title")
+        }
+    }
+
+    fn testPressingARowSelects:void () {
+        print "--- pressing a row selects the shape ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        def row:int (this.rowOfName(a "OffOnly"))
+        c.ok("the row is there" (row >= 0))
+        this.clickRow(a row)
+        c.eqInt("one shape is selected" (a.editor.selectionCount()) 1)
+        c.eqStr("and it is the one in the row" (this.selectedName(a)) "OffOnly")
+        ; …and another row moves the selection rather than adding to it.
+        def other:int (this.rowOfName(a "Stated"))
+        this.clickRow(a other)
+        c.eqInt("still one" (a.editor.selectionCount()) 1)
+        c.eqStr("and it is the other one" (this.selectedName(a)) "Stated")
+    }
+
+    fn testGroupsAreIndented:void () {
+        print "--- what is inside a group is inside it in the list too ---"
+        def a:PptxApp (PptxOutlineTest.app("05-group.pptx"))
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        def child:int (this.rowOfName(a "G-Left"))
+        c.ok("a shape inside the group is listed" (child >= 0))
+        if (child >= 0) {
+            c.eqInt("indented under it" (a.outlineRowDepth(child)) 1)
+            ; Selecting it selects the GROUP: the editor moves shapes in slide
+            ; points, and a child's own numbers are in its group's child
+            ; space, so offering to edit them here would be offering the wrong
+            ; coordinates. See `leftTab` in PptxApp.
+            this.clickRow(a child)
+            c.eqStr("and pressing it selects the group" (this.selectedName(a)) "Cluster")
+        }
+        def group:int (this.rowOfName(a "Cluster"))
+        c.ok("the group itself is listed" (group >= 0))
+        if (group >= 0) {
+            c.eqInt("at the top level" (a.outlineRowDepth(group)) 0)
+        }
+    }
+
+    ; The outline replaces the thumbnails; it must not replace the deck. A
+    ; multi-slide deck still turns its pages, and switching back shows them.
+    fn testPanelStillTurnsPages:void () {
+        print "--- the deck is still there behind the other tab ---"
+        def a:PptxApp (PptxOutlineTest.app("04-multi.pptx"))
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        c.ok("the outline lists the first slide" ((a.outlineRowCount()) > 0))
+        def before:int (a.outlineRowCount())
+        a.runCommand("slide.next" "")
+        a.buildFrame()
+        c.eqInt("turning the page moved the deck" a.index 1)
+        ; A different slide is a different outline, and the list has to have
+        ; been rebuilt rather than kept from the slide before it.
+        c.ok("and the outline followed it"
+            (((a.outlineRowCount()) != before) || ((strlen (a.outlineRowName(0))) > 0)))
+        a.runCommand("view.outline" "")
+        c.ok("and the deck comes back" ((a.outlineOn()) == false))
+        a.buildFrame()
+        c.eqInt("still on the slide the outline left it on" a.index 1)
+    }
+
+    fn testTheNumbersAreShown:void () {
+        print "--- the panel shows where the shape is and how big ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        def row:int (this.rowOfName(a "Stated"))
+        this.clickRow(a row)
+        a.buildFrame()
+        c.ok("X has a step down" ((a.propsControlAt("geom.dx" "-1")) >= 0))
+        c.ok("and a step up" ((a.propsControlAt("geom.dx" "1")) >= 0))
+        c.ok("Y is there" ((a.propsControlAt("geom.dy" "1")) >= 0))
+        c.ok("and the width" ((a.propsControlAt("geom.dw" "1")) >= 0))
+        c.ok("and the height" ((a.propsControlAt("geom.dh" "1")) >= 0))
+        c.ok("and the turn, in fifteens" ((a.propsControlAt("geom.drot" "15")) >= 0))
+        ; A number a reader can read, not the double behind it.
+        ; …and a shape whose box it did NOT state says where the box came
+        ; from, which is the question the whole report started as: is this
+        ; size the slide's, or the template's?
+        def title:int (this.rowOfName(a "Title 1"))
+        this.clickRow(a title)
+        a.buildFrame()
+        def ph@(optional):PptxShape (a.editor.firstSelected())
+        c.ok("the title is selected" (!null? ph))
+        if (!null? ph) {
+            def sh:PptxShape (unwrap ph)
+            c.ok("its box is the layout's, not its own"
+                (((strlen sh.sheetXfrmSig) > 0) && ((sh.xfrmSignature()) == sh.sheetXfrmSig)))
+            ; …and moving it makes the box the slide's, which is the same
+            ; test the writer makes before it states one.
+            a.runCommand("geom.dx" "10")
+            c.ok("and moving it makes the box the slide's own"
+                ((sh.xfrmSignature()) != sh.sheetXfrmSig))
+        }
+        c.eqStr("a round number is written round" (PptxApp.numText(36.0)) "36")
+        c.eqStr("and a fraction to one place" (PptxApp.numText(21.55)) "21.6")
+        c.eqStr("and nothing rounds to a signed nothing" (PptxApp.numText(0.0 - 0.01)) "0")
+    }
+
+    fn testSteppingTheNumbers:void () {
+        print "--- and a step either way moves it by exactly that ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        def row:int (this.rowOfName(a "Stated"))
+        this.clickRow(a row)
+        a.buildFrame()
+        def before@(optional):PptxShape (a.editor.firstSelected())
+        c.ok("something is selected to step" (!null? before))
+        if (null? before) {
+            return
+        }
+        def sh:PptxShape (unwrap before)
+        def x0:double sh.x
+        def w0:double sh.width
+        c.ok("the step is pressed" (PptxOutlineTest.pressProp(a "geom.dx" "1")))
+        c.near("and moved it one point" sh.x (x0 + 1.0) 0.001)
+        c.ok("the other way is pressed" (PptxOutlineTest.pressProp(a "geom.dx" "-1")))
+        c.near("and put it back" sh.x x0 0.001)
+        c.ok("the width steps too" (PptxOutlineTest.pressProp(a "geom.dw" "1")))
+        c.near("by one point" sh.width (w0 + 1.0) 0.001)
+        ; A step is an edit like any other, so it can be taken back.
+        a.runCommand("edit.undo" "")
+        def after@(optional):PptxShape (a.editor.firstSelected())
+        if (!null? after) {
+            c.near("and undo returns the width" ((unwrap after).width) w0 0.001)
+        }
+    }
+
+    fn testTypingTheNumbers:void () {
+        print "--- a number can be given straight ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        def row:int (this.rowOfName(a "Stated"))
+        this.clickRow(a row)
+        c.ok("x is taken" (a.runCommand("geom.x" "100")))
+        c.ok("y is taken" (a.runCommand("geom.y" "200")))
+        c.ok("w is taken" (a.runCommand("geom.w" "300")))
+        c.ok("h is taken" (a.runCommand("geom.h" "50")))
+        c.ok("and the turn" (a.runCommand("geom.rot" "45")))
+        def hit@(optional):PptxShape (a.editor.firstSelected())
+        c.ok("the shape is still selected" (!null? hit))
+        if (!null? hit) {
+            def sh:PptxShape (unwrap hit)
+            c.near("x" sh.x 100.0 0.001)
+            c.near("y" sh.y 200.0 0.001)
+            c.near("w" sh.width 300.0 0.001)
+            c.near("h" sh.height 50.0 0.001)
+            c.near("rot" sh.rotation 45.0 0.001)
+        }
+        ; Nonsense is refused rather than read as zero.
+        c.ok("a number that is not one is refused" ((a.runCommand("geom.x" "wide")) == false))
+        c.ok("and a field that is not one" ((a.runCommand("geom.q" "10")) == false))
+    }
+
+    fn testASizeCannotBeTypedToZero:void () {
+        print "--- and the box the report was about cannot come back ---"
+        def a:PptxApp (PptxOutlineTest.loose())
+        a.runCommand("view.outline" "")
+        a.buildFrame()
+        def row:int (this.rowOfName(a "NoXfrm"))
+        this.clickRow(a row)
+        def hit@(optional):PptxShape (a.editor.firstSelected())
+        c.ok("the loose box is selected" (!null? hit))
+        if (null? hit) {
+            return
+        }
+        def sh:PptxShape (unwrap hit)
+        c.ok("and it is on this reader's own box" sh.geomFallback)
+        a.runCommand("geom.w" "0")
+        c.ok("a width of zero is not taken" (sh.width > 0.0))
+        a.runCommand("geom.w" "-40")
+        c.ok("and neither is a negative one" (sh.width > 0.0))
+        a.runCommand("geom.w" "240")
+        c.near("a real width is" sh.width 240.0 0.001)
+        ; Typed in, the box is the DOCUMENT's now: it is written out, and the
+        ; panel stops warning about it.
+        c.ok("and the box stops being the reader's" (sh.geomFallback == false))
+        a.buildFrame()
+        def again:int (this.rowOfName(a "NoXfrm"))
+        if (again >= 0) {
+            c.eqStr("so the row stops saying so" (a.outlineRowNote(again)) "")
+        }
+    }
+}

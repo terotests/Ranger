@@ -256,6 +256,28 @@ class PptxEditorShots {
         app14.pointer((px0 + 260) (py0 + 40) false false false)
         PptxEditorShots.shot(app14 "14_presenter_view.png")
 
+        ; 15 — the outline: the slide's own structure down the left, a row
+        ; picked, and its box on the right as numbers. The deck is the one
+        ; built for the report — three of its boxes state no size at all, and
+        ; the list and the panel both say so.
+        def app15:PptxApp (PptxEditorShots.open("37-loose-geometry.pptx"))
+        app15.runCommand("view.outline" "")
+        app15.buildFrame()
+        def row:int 0
+        def ri:int 0
+        while (ri < (app15.outlineRowCount())) {
+            if ((app15.outlineRowNote(ri)) == "no size in file") {
+                if (row == 0) {
+                    row = ri
+                }
+            }
+            ri = (ri + 1)
+        }
+        def ry:int ((app15.outlineRowY(row)) + (idiv (app15.outlineRowH()) 2))
+        app15.pointer(20 ry true true false)
+        app15.pointer(20 ry false false true)
+        PptxEditorShots.shot(app15 "15_outline_panel.png")
+
         print "done"
     }
 }

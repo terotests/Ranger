@@ -213,6 +213,8 @@
     "pptx:frame:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxFrameTest.rgr ./gallery/pptx/bin PptxFrameTest.js",
     "pptx:writer:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxWriterTest.rgr ./gallery/pptx/bin PptxWriterTest.js",
     "pptx:textbox:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxTextBoxTest.rgr ./gallery/pptx/bin PptxTextBoxTest.js",
+    "pptx:box:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxBoxGeometryTest.rgr ./gallery/pptx/bin PptxBoxGeometryTest.js",
+    "pptx:outline:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxOutlineTest.rgr ./gallery/pptx/bin PptxOutlineTest.js",
     "pptx:rotate:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxRotateTest.rgr ./gallery/pptx/bin PptxRotateTest.js",
     "pptx:editor:host:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxEditHostTest.rgr ./gallery/pptx/bin PptxEditHostTest.js",
     "pptx:a11y:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxA11yTest.rgr ./gallery/pptx/bin PptxA11yTest.js",

@@ -811,6 +811,25 @@ class EVGToolbarView {
             }
             return
         }
+        ; The outline: the column it is drawn in, and three rows hanging off
+        ; it — the first at the top level and the two under it indented, which
+        ; is the shape of a slide with a group on it.
+        if (k == (ToolIcon.outlineList())) {
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 6)) 2.0 12.0 theme.accent)
+            def orow:int 0
+            while (orow < 3) {
+                def oy:double (to_double ((cy - 5) + (orow * 4)))
+                def ox:double (to_double (cx - 4))
+                def ow:double 11.0
+                if (orow > 0) {
+                    ox = (to_double (cx - 1))
+                    ow = 8.0
+                }
+                this.pushRect(dl ox oy ow 2.0 theme.ink)
+                orow = (orow + 1)
+            }
+            return
+        }
         if (k == (ToolIcon.indentMore())) {
             this.pushIndentIcon(dl cx cy true)
             return
