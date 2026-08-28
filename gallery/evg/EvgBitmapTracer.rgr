@@ -721,7 +721,42 @@ class EvgBitmapTracer {
     ; was drawn to exactly those outliers.
     ; ----------------------------------------------------------------------
 
-    fn buildPalette:void (want:int outR:[int] outG:[int] outB:[int]) {
+    ; Parse options.paletteHex into RGB triples, dropping anything EVGColor
+    ; cannot read. Returns how many survived.
+    fn parsePaletteHex:int (outR:[int] outG:[int] outB:[int]) {
+        def n:int (array_length options.paletteHex)
+        def i:int 0
+        while (i < n) {
+            def c:EVGColor (EVGColor.parse((itemAt options.paletteHex i)))
+            if c.isSet {
+                push outR (to_int c.r)
+                push outG (to_int c.g)
+                push outB (to_int c.b)
+            }
+            i = (i + 1)
+        }
+        return (array_length outR)
+    }
+
+    ; The seeding score for one histogram bin. "area" is population × distance²,
+    ; which is why a photo's big flat background always takes the first swatches;
+    ; the other two trade that away for colors that are merely distinct.
+    fn seedScore:double (weight:int dist2:double) {
+        def bias:string options.paletteBias
+        if (bias == "distinct") {
+            return dist2
+        }
+        def w:double (to_double weight)
+        if (bias == "balanced") {
+            return ((sqrt w) * dist2)
+        }
+        return (w * dist2)
+    }
+
+    ; `outR/outG/outB` may arrive holding `locked` pinned swatches; those are
+    ; seeds the caller chose, so they are never moved by a Lloyd pass and never
+    ; dropped by the merge.
+    fn buildPalette:void (want:int locked:int outR:[int] outG:[int] outB:[int]) {
         def binR:[int]
         def binG:[int]
         def binB:[int]
@@ -745,36 +780,64 @@ class EvgBitmapTracer {
             return
         }
         def lw:int (this.lumaWeight())
-        ; Seed 1: the heaviest bin.
-        def bestI:int 0
-        def bestW:int (itemAt binW 0)
-        def i:int 1
+        ; A bin has to clear a noise floor before it can win a swatch. Only the
+        ; "distinct" bias would otherwise hand one to a single stray pixel.
+        def total:int 0
+        def i:int 0
         while (i < m) {
-            if ((itemAt binW i) > bestW) {
-                bestW = (itemAt binW i)
-                bestI = i
-            }
+            total = (total + (itemAt binW i))
             i = (i + 1)
         }
-        push outR (itemAt binR bestI)
-        push outG (itemAt binG bestI)
-        push outB (itemAt binB bestI)
-        ; Remaining seeds: maximize weight × distance² to the closest center.
+        def floorW:int (idiv total 2000)
+        if (floorW < 2) {
+            floorW = 2
+        }
+        if (locked == 0) {
+            ; Seed 1: the heaviest bin.
+            def bestI:int 0
+            def bestW:int (itemAt binW 0)
+            i = 1
+            while (i < m) {
+                if ((itemAt binW i) > bestW) {
+                    bestW = (itemAt binW i)
+                    bestI = i
+                }
+                i = (i + 1)
+            }
+            push outR (itemAt binR bestI)
+            push outG (itemAt binG bestI)
+            push outB (itemAt binB bestI)
+        }
+        ; Remaining seeds: maximize seedScore against the closest center so far.
         def dist:[double]
         i = 0
         while (i < m) {
             push dist (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR 0) (itemAt outG 0) (itemAt outB 0) lw))
             i = (i + 1)
         }
+        def seeded:int 1
+        while (seeded < (array_length outR)) {
+            i = 0
+            while (i < m) {
+                def d0:double (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR seeded) (itemAt outG seeded) (itemAt outB seeded) lw))
+                if (d0 < (itemAt dist i)) {
+                    set dist i d0
+                }
+                i = (i + 1)
+            }
+            seeded = (seeded + 1)
+        }
         while ((array_length outR) < want) {
             def pickI:int (0 - 1)
             def pickScore:double 0.0
             i = 0
             while (i < m) {
-                def score:double ((itemAt dist i) * (to_double (itemAt binW i)))
-                if (score > pickScore) {
-                    pickScore = score
-                    pickI = i
+                if ((itemAt binW i) >= floorW) {
+                    def score:double (this.seedScore((itemAt binW i) (itemAt dist i)))
+                    if (score > pickScore) {
+                        pickScore = score
+                        pickI = i
+                    }
                 }
                 i = (i + 1)
             }
@@ -828,7 +891,7 @@ class EvgBitmapTracer {
                 i = (i + 1)
             }
             def moved:boolean false
-            ki = 0
+            ki = locked
             while (ki < k) {
                 def wk:double (itemAt wgt ki)
                 if (wk > 0.0) {
@@ -874,7 +937,7 @@ class EvgBitmapTracer {
         ; Collapse swatches the eye cannot tell apart. Without this, asking for
         ; more colors than the image holds splits one region between two
         ; near-identical swatches and turdsize eats both halves.
-        this.mergeCloseSwatches(outR outG outB binR binG binB binW)
+        this.mergeCloseSwatches(locked outR outG outB binR binG binB binW)
         ; Sort palette dark → light (ascending luma). Masks are disjoint so
         ; paint order is mostly cosmetic; lightest ends up last.
         def k2:int (array_length outR)
@@ -902,8 +965,10 @@ class EvgBitmapTracer {
     }
 
     ; Merge palette entries closer than options.minColorDelta, keeping whichever
-    ; of the pair paints more pixels.
-    fn mergeCloseSwatches:void (outR:[int] outG:[int] outB:[int] binR:[int] binG:[int] binB:[int] binW:[int]) {
+    ; of the pair paints more pixels. The first `locked` entries were chosen by
+    ; the caller: a pair of them is left alone, and against an automatic swatch
+    ; the locked one is what survives.
+    fn mergeCloseSwatches:void (locked:int outR:[int] outG:[int] outB:[int] binR:[int] binG:[int] binB:[int] binW:[int]) {
         def delta:int options.minColorDelta
         if (delta <= 0) {
             return
@@ -940,10 +1005,18 @@ class EvgBitmapTracer {
                 while ((b < k) && (dropAt < 0)) {
                     def d:double (EvgBitmapTracer.colorDist2((itemAt outR a) (itemAt outG a) (itemAt outB a) (itemAt outR b) (itemAt outG b) (itemAt outB b) lw))
                     if (d <= limit) {
-                        if ((itemAt wgt a) >= (itemAt wgt b)) {
-                            dropAt = b
+                        if (b < locked) {
+                            ; both pinned — the caller asked for both.
                         } {
-                            dropAt = a
+                            if (a < locked) {
+                                dropAt = b
+                            } {
+                                if ((itemAt wgt a) >= (itemAt wgt b)) {
+                                    dropAt = b
+                                } {
+                                    dropAt = a
+                                }
+                            }
                         }
                     }
                     b = (b + 1)
@@ -1264,10 +1337,26 @@ class EvgBitmapTracer {
         }
         this.detectBackground()
         this.buildFlatMask()
+        def mode:string options.paletteMode
         def palR:[int]
         def palG:[int]
         def palB:[int]
-        this.buildPalette(want palR palG palB)
+        def given:int 0
+        if ((mode == "fixed") || (mode == "seeded")) {
+            given = (this.parsePaletteHex(palR palG palB))
+        }
+        ; "fixed" with a usable list skips quantization entirely and keeps the
+        ; caller's order; anything else (including a list that parsed to
+        ; nothing) goes through the quantizer, with the given colors pinned.
+        def useGivenOnly:boolean false
+        if (mode == "fixed") {
+            if (given > 0) {
+                useGivenOnly = true
+            }
+        }
+        if (useGivenOnly == false) {
+            this.buildPalette(want given palR palG palB)
+        }
         def k:int (array_length palR)
         if (k == 0) {
             return

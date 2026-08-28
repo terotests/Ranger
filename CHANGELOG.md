@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Choose the tracer's colors, or steer how it chooses them** — asked for after a ball-pit photo came back in browns and blues with the reds and greens gone. The palette was decided one way only: count-weighted k-means, which spends swatches on *area*. A photograph's big dull background therefore always takes the first few, and a hundred small vivid balls — large in total but scattered across many histogram bins — take none. There was no lever.
+
+  `paletteMode` is now the lever. `"fixed"` takes a list of colors and uses exactly those, in the given order, with `colorCount` out of the picture: black, white and yellow gives a three-color poster of any photo. `"seeded"` pins the colors you name and quantizes the rest around them — a pinned swatch is never moved by a Lloyd pass and never dropped by the near-swatch merge, so it survives even when an automatic swatch that close would be collapsed. Colors come from `paletteHex` as anything `EVGColor.parse` reads (`"#1a1a1a"`, `"#f80"`, `"rgb(20 30 40)"`, a CSS name it knows); one it cannot read is dropped, and a list that parses to nothing falls back to quantizing.
+
+  `paletteBias` steers the automatic choice instead of replacing it: `"area"` is population × distance² as before, `"balanced"` is its square root, `"distinct"` is distance alone above a noise floor that stops a single stray pixel from claiming a swatch. On a gray gradient with one small red patch and two swatches to spend, `"area"` buys two steps of the gradient and loses the patch; `"balanced"` buys the patch. That trade is the whole feature, and the test asserts both halves of it.
+
+  **The defaults are unchanged and deliberately so**: `paletteMode: "auto"` with `paletteBias: "area"` is the existing quantizer, and it was verified swatch-for-swatch — identical palettes, ring counts, painted area and SVG byte counts on three images at 5 and 9 colors. The muted, area-driven palette is a choice worth keeping, so it stays what you get by default.
+
+  On the page the palette strip under the output is now clickable: one click adopts the palette the quantizer just produced into an editable row of color wells, where a color can be nudged, removed, or added to, with a few ready-made lists (black + white, black/white/yellow, grayscale, sepia). The color-count slider hides itself in `"fixed"` mode, where the list *is* the count, and the status line says how many chosen colors found nothing to paint.
+
 ### Fixed
 
 - **Adding colors to the bitmap tracer deleted the picture's features** — reported against the live page at `/evg/tracer/` with a tiger: at a low colorCount the drawing came through, and every extra color took something away, the eye first and the black linework worst, while the painted area stayed the same or *shrank*. Three separate causes, all of them in the posterize path, and none of them in the curve fitting.

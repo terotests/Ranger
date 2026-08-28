@@ -57,10 +57,15 @@ class EvgTraceOptions  {
     this.edgeSnap = true;
     this.snapRatio = 1.5;
     this.lumaWeight = 3;
+    this.paletteMode = "auto";
+    this.paletteHex = [];
+    this.paletteBias = "area";
     this.minColorDelta = 10;
     this.minRegion = 6;
     this.bgMode = "auto";
     this.bgTolerance = 24;
+    let ph = [];
+    this.paletteHex = ph;
   }
 }
 EvgTraceOptions.defaults = function() {
@@ -6094,7 +6099,32 @@ class EvgBitmapTracer  {
       i = i + 1;
     };
   };
-  buildPalette (want, outR, outG, outB) {
+  parsePaletteHex (outR, outG, outB) {
+    const n = this.options.paletteHex.length;
+    let i = 0;
+    while (i < n) {
+      const c = EVGColor.parse((this.options.paletteHex[i]));
+      if ( c.isSet ) {
+        outR.push(Math.floor( c.r));
+        outG.push(Math.floor( c.g));
+        outB.push(Math.floor( c.b));
+      }
+      i = i + 1;
+    };
+    return outR.length;
+  };
+  seedScore (weight, dist2) {
+    const bias = this.options.paletteBias;
+    if ( bias == "distinct" ) {
+      return dist2;
+    }
+    const w = weight;
+    if ( bias == "balanced" ) {
+      return (Math.sqrt(w)) * dist2;
+    }
+    return w * dist2;
+  };
+  buildPalette (want, locked, outR, outG, outB) {
     let binR = [];
     let binG = [];
     let binB = [];
@@ -6116,34 +6146,60 @@ class EvgBitmapTracer  {
       return;
     }
     const lw = this.lumaWeight();
-    let bestI = 0;
-    let bestW = binW[0];
-    let i = 1;
+    let total = 0;
+    let i = 0;
     while (i < m) {
-      if ( (binW[i]) > bestW ) {
-        bestW = binW[i];
-        bestI = i;
-      }
+      total = total + (binW[i]);
       i = i + 1;
     };
-    outR.push(binR[bestI]);
-    outG.push(binG[bestI]);
-    outB.push(binB[bestI]);
+    let floorW = ((total / 2000) | 0);
+    if ( floorW < 2 ) {
+      floorW = 2;
+    }
+    if ( locked == 0 ) {
+      let bestI = 0;
+      let bestW = binW[0];
+      i = 1;
+      while (i < m) {
+        if ( (binW[i]) > bestW ) {
+          bestW = binW[i];
+          bestI = i;
+        }
+        i = i + 1;
+      };
+      outR.push(binR[bestI]);
+      outG.push(binG[bestI]);
+      outB.push(binB[bestI]);
+    }
     let dist = [];
     i = 0;
     while (i < m) {
       dist.push(EvgBitmapTracer.colorDist2((binR[i]), (binG[i]), (binB[i]), (outR[0]), (outG[0]), (outB[0]), lw));
       i = i + 1;
     };
+    let seeded = 1;
+    while (seeded < (outR.length)) {
+      i = 0;
+      while (i < m) {
+        const d0 = EvgBitmapTracer.colorDist2((binR[i]), (binG[i]), (binB[i]), (outR[seeded]), (outG[seeded]), (outB[seeded]), lw);
+        if ( d0 < (dist[i]) ) {
+          dist[i] = d0;
+        }
+        i = i + 1;
+      };
+      seeded = seeded + 1;
+    };
     while ((outR.length) < want) {
       let pickI = 0 - 1;
       let pickScore = 0.0;
       i = 0;
       while (i < m) {
-        const score = (dist[i]) * ((binW[i]));
-        if ( score > pickScore ) {
-          pickScore = score;
-          pickI = i;
+        if ( (binW[i]) >= floorW ) {
+          const score = this.seedScore((binW[i]), (dist[i]));
+          if ( score > pickScore ) {
+            pickScore = score;
+            pickI = i;
+          }
         }
         i = i + 1;
       };
@@ -6196,7 +6252,7 @@ class EvgBitmapTracer  {
         i = i + 1;
       };
       let moved = false;
-      ki = 0;
+      ki = locked;
       while (ki < k) {
         const wk = wgt[ki];
         if ( wk > 0.0 ) {
@@ -6237,7 +6293,7 @@ class EvgBitmapTracer  {
         pass = 12;
       }
     };
-    this.mergeCloseSwatches(outR, outG, outB, binR, binG, binB, binW);
+    this.mergeCloseSwatches(locked, outR, outG, outB, binR, binG, binB, binW);
     const k2 = outR.length;
     let a = 0;
     while (a < k2) {
@@ -6261,7 +6317,7 @@ class EvgBitmapTracer  {
       a = a + 1;
     };
   };
-  mergeCloseSwatches (outR, outG, outB, binR, binG, binB, binW) {
+  mergeCloseSwatches (locked, outR, outG, outB, binR, binG, binB, binW) {
     const delta = this.options.minColorDelta;
     if ( delta <= 0 ) {
       return;
@@ -6295,10 +6351,17 @@ class EvgBitmapTracer  {
         while ((b < k) && (dropAt < 0)) {
           const d = EvgBitmapTracer.colorDist2((outR[a]), (outG[a]), (outB[a]), (outR[b]), (outG[b]), (outB[b]), lw);
           if ( d <= limit ) {
-            if ( (wgt[a]) >= (wgt[b]) ) {
-              dropAt = b;
+            if ( b < locked ) {
             } else {
-              dropAt = a;
+              if ( a < locked ) {
+                dropAt = b;
+              } else {
+                if ( (wgt[a]) >= (wgt[b]) ) {
+                  dropAt = b;
+                } else {
+                  dropAt = a;
+                }
+              }
             }
           }
           b = b + 1;
@@ -6594,10 +6657,23 @@ class EvgBitmapTracer  {
     }
     this.detectBackground();
     this.buildFlatMask();
+    const mode = this.options.paletteMode;
     let palR = [];
     let palG = [];
     let palB = [];
-    this.buildPalette(want, palR, palG, palB);
+    let given = 0;
+    if ( (mode == "fixed") || (mode == "seeded") ) {
+      given = this.parsePaletteHex(palR, palG, palB);
+    }
+    let useGivenOnly = false;
+    if ( mode == "fixed" ) {
+      if ( given > 0 ) {
+        useGivenOnly = true;
+      }
+    }
+    if ( useGivenOnly == false ) {
+      this.buildPalette(want, given, palR, palG, palB);
+    }
     const k = palR.length;
     if ( k == 0 ) {
       return;
@@ -7466,6 +7542,126 @@ class EvgBitmapTracerTest  {
     t.eqInt("interior white patch is painted", white, 144);
     t.eqInt("only the shape around it is painted", blue, 640);
   };
+  makeGradientWithSpot () {
+    const img = new ImageBuffer();
+    img.init(60, 40);
+    let y = 0;
+    while (y < 40) {
+      let x = 0;
+      while (x < 60) {
+        const g = 90 + (((x / 2) | 0));
+        img.setPixelRGB(x, y, g, g, g - 2);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    y = 6;
+    while (y < 12) {
+      let x2 = 6;
+      while (x2 < 12) {
+        img.setPixelRGB(x2, y, 225, 25, 35);
+        x2 = x2 + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  spreadOf (hex) {
+    const c = EVGColor.parse(hex);
+    const r = Math.floor( c.r);
+    const g = Math.floor( c.g);
+    const b = Math.floor( c.b);
+    let hi = r;
+    let lo = r;
+    if ( g > hi ) {
+      hi = g;
+    }
+    if ( b > hi ) {
+      hi = b;
+    }
+    if ( g < lo ) {
+      lo = g;
+    }
+    if ( b < lo ) {
+      lo = b;
+    }
+    return hi - lo;
+  };
+  vividCount (tr) {
+    let n = 0;
+    let i = 0;
+    while (i < tr.layerCount()) {
+      const layer = tr.layers[i];
+      if ( this.spreadOf(layer.fillHex) > 60 ) {
+        n = n + 1;
+      }
+      i = i + 1;
+    };
+    return n;
+  };
+  testFixedPalette (t) {
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 9;
+    opts.paletteMode = "fixed";
+    opts.bgMode = "none";
+    opts.paletteHex.push("#000000");
+    opts.paletteHex.push("#ffffff");
+    opts.paletteHex.push("#ffd400");
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), opts);
+    tr.trace();
+    t.ok("fixed palette ignores colorCount", tr.layerCount() <= 3);
+    t.ok("fixed palette still paints something", tr.layerCount() >= 1);
+    let i = 0;
+    let foreign = 0;
+    while (i < tr.layerCount()) {
+      const layer = tr.layers[i];
+      const h = layer.fillHex;
+      if ( ((h != "#000000") && (h != "#FFFFFF")) && (h != "#FFD400") ) {
+        foreign = foreign + 1;
+      }
+      i = i + 1;
+    };
+    t.eqInt("no swatch outside the fixed palette", foreign, 0);
+  };
+  testSeededPaletteKeepsThePin (t) {
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 3;
+    opts.paletteMode = "seeded";
+    opts.bgMode = "none";
+    opts.paletteHex.push("#6A6A68");
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), opts);
+    tr.trace();
+    let pinned = 0;
+    let i = 0;
+    while (i < tr.layerCount()) {
+      const layer = tr.layers[i];
+      if ( layer.fillHex == "#6A6A68" ) {
+        pinned = pinned + 1;
+      }
+      i = i + 1;
+    };
+    t.eqInt("the pinned swatch survives", pinned, 1);
+    t.ok("the rest of the palette is still filled in", tr.layerCount() >= 2);
+  };
+  testPaletteBiasDefaultIsUnchanged (t) {
+    const a = EvgTraceOptions.defaults();
+    t.ok("palette mode defaults to auto", a.paletteMode == "auto");
+    t.ok("palette bias defaults to area", a.paletteBias == "area");
+    t.eqInt("no palette colors by default", a.paletteHex.length, 0);
+    const optA = EvgTraceOptions.defaults();
+    optA.colorCount = 2;
+    optA.bgMode = "none";
+    const trA = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), optA);
+    trA.trace();
+    t.eqInt("area spends both swatches on the big region", this.vividCount(trA), 0);
+    const optB = EvgTraceOptions.defaults();
+    optB.colorCount = 2;
+    optB.bgMode = "none";
+    optB.paletteBias = "balanced";
+    const trB = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), optB);
+    trB.trace();
+    t.ok("balanced keeps the small vivid patch", this.vividCount(trB) >= 1);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -7486,6 +7682,9 @@ function __js_main() {
   test.testThinInkSurvivesManyColors(t);
   test.testExtraColorsDoNotSplitOneRegion(t);
   test.testAutoBackgroundKeepsInteriorWhite(t);
+  test.testFixedPalette(t);
+  test.testSeededPaletteKeepsThePin(t);
+  test.testPaletteBiasDefaultIsUnchanged(t);
   t.summary();
 }
 __js_main();

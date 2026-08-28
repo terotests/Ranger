@@ -92,6 +92,16 @@
   .palette { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px; border-top: 1px solid var(--line); }
   .sw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); }
   .sw[title] { cursor: default; }
+  .palette .sw { cursor: copy; }
+  .pal-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0 8px; }
+  .pal-chip { position: relative; width: 34px; height: 30px; }
+  .pal-chip input[type="color"] { width: 34px; height: 30px; padding: 0; }
+  .pal-chip button {
+    position: absolute; top: -7px; right: -7px; width: 17px; height: 17px; line-height: 1;
+    padding: 0; border-radius: 999px; font-size: 12px; background: #202634;
+  }
+  .pal-add { padding: 6px 10px; }
+  .pal-empty { color: var(--muted); font-size: 12px; }
 
   fieldset {
     border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; padding: 10px 12px 2px;
@@ -136,6 +146,38 @@
           <input id="fillHex" type="color" value="#000000">
         </label>
         <label class="check mono-only"><input id="blackOnWhite" type="checkbox" checked> Tumma on etuala</label>
+        <label class="row color-only hidden">Paletti
+          <select id="paletteMode">
+            <option value="auto" selected>auto — poimitaan kuvasta</option>
+            <option value="seeded">omat + auto — omat kiinnitetään</option>
+            <option value="fixed">omat — vain alla olevat värit</option>
+          </select>
+          <span class="hint">auto on oletus, ja tuottaa saman murretun sävyskaalan kuin ennenkin.</span>
+        </label>
+        <label class="row color-only hidden" id="row-bias">Painotus
+          <select id="paletteBias">
+            <option value="area" selected>pinta-ala — suurimmat alueet voittavat</option>
+            <option value="balanced">tasapaino — pieni kirkas kohde pärjää</option>
+            <option value="distinct">erottuvuus — pelkkä väriero ratkaisee</option>
+          </select>
+          <span class="hint">Mihin uusi sävy käytetään. Valokuvassa pinta-ala antaa aina ensimmäiset sävyt taustalle.</span>
+        </label>
+        <div class="row color-only hidden" id="row-palEdit" style="display:block">
+          <div style="margin-bottom:6px">Omat värit</div>
+          <div class="pal-edit" id="palEdit"></div>
+          <div class="actions" style="margin:0 0 10px">
+            <button type="button" id="palAdd" class="pal-add">+ väri</button>
+            <button type="button" id="palPick" class="pal-add">Poimi tuloksesta</button>
+            <select id="palPreset" style="max-width:170px">
+              <option value="">valmis paletti…</option>
+              <option value="#000000,#ffffff">musta + valkoinen</option>
+              <option value="#000000,#ffffff,#ffd400">musta, valkoinen, keltainen</option>
+              <option value="#111111,#555555,#999999,#dddddd">harmaasävy 4</option>
+              <option value="#1d1a17,#6b4f3a,#b08968,#e8d7c3">seepia 4</option>
+              <option value="#0b132b,#1c7293,#f4a259,#f4f1de">rannikko 4</option>
+            </select>
+          </div>
+        </div>
         <label class="row color-only hidden">Tausta
           <select id="bgMode">
             <option value="auto" selected>auto — täytetään reunoilta</option>
@@ -225,6 +267,9 @@
   var srcStage = $("srcStage"), outStage = $("outStage"), statusEl = $("status"), paletteEl = $("palette");
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
+  var paletteMode = $("paletteMode"), paletteBias = $("paletteBias");
+  var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
+  var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
   var optcurve = $("optcurve"), turnpolicy = $("turnpolicy"), blackOnWhite = $("blackOnWhite");
   var fillHex = $("fillHex"), maxW = $("maxW");
@@ -233,6 +278,7 @@
 
   var sourceBitmap = null; // { w, h, rgba: Uint8ClampedArray }
   var lastSvg = "";
+  var lastPalette = [];
   var debounceTimer = null;
   var busy = false;
   var pending = false;
@@ -263,18 +309,87 @@
   bindRange(opttolerance, $("v-opttolerance"), function (v) { return v.toFixed(2); });
   bindRange(maxW, $("v-maxW"));
 
+  // The editable list of colors for the "omat" / "omat + auto" palette modes.
+  function renderPalEdit() {
+    palEdit.innerHTML = "";
+    if (!userPalette.length) {
+      var empty = document.createElement("span");
+      empty.className = "pal-empty";
+      empty.textContent = "ei värejä — paletti poimitaan kuvasta";
+      palEdit.appendChild(empty);
+      return;
+    }
+    userPalette.forEach(function (hex, i) {
+      var chip = document.createElement("span");
+      chip.className = "pal-chip";
+      var inp = document.createElement("input");
+      inp.type = "color";
+      inp.value = hex;
+      inp.title = hex;
+      inp.addEventListener("input", function () {
+        userPalette[i] = inp.value;
+        inp.title = inp.value;
+        schedule();
+      });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "×";
+      del.title = "Poista";
+      del.addEventListener("click", function () {
+        userPalette.splice(i, 1);
+        renderPalEdit();
+        schedule();
+      });
+      chip.appendChild(inp);
+      chip.appendChild(del);
+      palEdit.appendChild(chip);
+    });
+  }
+
+  $("palAdd").addEventListener("click", function () {
+    userPalette.push("#808080");
+    renderPalEdit();
+    schedule();
+  });
+  $("palPreset").addEventListener("change", function (e) {
+    if (!e.target.value) return;
+    userPalette = e.target.value.split(",");
+    e.target.value = "";
+    if (paletteMode.value === "auto") paletteMode.value = "fixed";
+    renderPalEdit();
+    syncMode();
+    schedule();
+  });
+  // Take the palette the quantizer just produced and make it editable.
+  function adoptPalette(hexes) {
+    if (!hexes || !hexes.length) return;
+    userPalette = hexes.slice();
+    if (paletteMode.value === "auto") paletteMode.value = "fixed";
+    renderPalEdit();
+    syncMode();
+    schedule();
+  }
+  $("palPick").addEventListener("click", function () { adoptPalette(lastPalette); });
+
   function syncMode() {
     var color = +colorCount.value > 1;
     monoOnly.forEach(function (el) { el.classList.toggle("hidden", color); });
     colorOnly.forEach(function (el) { el.classList.toggle("hidden", !color); });
     // skipLuma only does anything in luma mode.
     skipLuma.closest("label").classList.toggle("hidden", !color || bgMode.value !== "luma");
+    var mode = paletteMode.value;
+    rowBias.classList.toggle("hidden", !color || mode === "fixed");
+    rowPalEdit.classList.toggle("hidden", !color || mode === "auto");
+    // "omat" replaces the count; "omat + auto" still fills up to it.
+    colorCount.closest("label").classList.toggle("hidden", color && mode === "fixed");
   }
   colorCount.addEventListener("input", syncMode);
   bgMode.addEventListener("change", syncMode);
+  paletteMode.addEventListener("change", syncMode);
+  renderPalEdit();
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -365,6 +480,9 @@
         opts.bgMode = bgMode.value;
         opts.minColorDelta = +minColorDelta.value;
         opts.minRegion = +minRegion.value;
+        opts.paletteMode = paletteMode.value;
+        opts.paletteBias = paletteBias.value;
+        opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();
         opts.turdsize = +turdsize.value;
         opts.alphamax = +alphamax.value;
         opts.opttolerance = +opttolerance.value;
@@ -397,13 +515,17 @@
         var layers = tr.getLayers ? tr.getLayers() : [];
         var layerN = tr.layerCount ? tr.layerCount() : (layers ? layers.length : 0);
         paletteEl.innerHTML = "";
+        lastPalette = [];
         if (layers && layers.length > 1) {
           paletteEl.hidden = false;
           for (var li = 0; li < layers.length; li++) {
+            var hex = layers[li].fillHex || "#000000";
+            lastPalette.push(hex);
             var sw = document.createElement("span");
             sw.className = "sw";
-            sw.style.background = layers[li].fillHex || "#000";
-            sw.title = layers[li].fillHex || "";
+            sw.style.background = hex;
+            sw.title = hex + " — klikkaa ottaaksesi tämän paletin muokattavaksi";
+            sw.addEventListener("click", function () { adoptPalette(lastPalette); });
             paletteEl.appendChild(sw);
           }
         } else {
@@ -411,10 +533,15 @@
         }
 
         var rings = tr.rings ? tr.rings.length : 0;
-        var asked = +colorCount.value;
-        var collapsed = asked > 1 && layerN < asked
-          ? " (kuvassa ei ole " + asked + " erottuvaa sävyä)"
-          : "";
+        // In "omat" mode the slider is irrelevant — the list is the count.
+        var pmode = paletteMode.value;
+        var asked = pmode === "fixed" ? userPalette.length : +colorCount.value;
+        var collapsed = "";
+        if (asked > 1 && layerN < asked) {
+          collapsed = pmode === "auto"
+            ? " (kuvassa ei ole " + asked + " erottuvaa sävyä)"
+            : " (" + (asked - layerN) + "/" + asked + " sävyä jäi käyttämättä)";
+        }
         statusEl.innerHTML = "<b>OK</b> · " + sourceBitmap.w + "×" + sourceBitmap.h
           + " · " + ms + " ms · layers=" + layerN + collapsed
           + (rings ? " · rings=" + rings : "")
