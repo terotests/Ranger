@@ -34,6 +34,7 @@ class EvgBitmapTracerTest {
         test.testSeededPaletteKeepsThePin(t)
         test.testPaletteBiasDefaultIsUnchanged(t)
         test.testSmoothRemovesSpeckle(t)
+        test.testStackedLayersLeaveNoSeam(t)
         t.summary()
     }
 
@@ -640,9 +641,72 @@ class EvgBitmapTracerTest {
         sm.trace()
         def smRings:int (this.totalRings(sm))
 
-        t.ok("the speckle really is there without smoothing" (rawRings > 40))
+        ; 15 rather than something larger: in the default stacked mode the
+        ; bottom layer is one ring covering everything, so only the layer above
+        ; it carries the speckle.
+        t.ok("the speckle really is there without smoothing" (rawRings > 15))
         t.ok("smoothing collapses it" (smRings < (idiv rawRings 4)))
         ; The edge between the halves must survive: both colors still painted.
         t.eqInt("both regions survive the median" (sm.layerCount()) 2)
+    }
+
+    ; A light square inside a dark field. Traced as disjoint regions the dark
+    ; layer needs a hole for the square, and the two layers then meet along one
+    ; pixel boundary that each of them curve-fits on its own — the fits differ,
+    ; and the page shows through the difference as a hairline. Stacked, the
+    ; dark layer simply runs under the square: no hole, and nothing to show
+    ; through.
+    fn makeInsetSquare:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(40 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 40) {
+                img.setPixelRGB(x y 30 40 60)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        y = 12
+        while (y < 28) {
+            def x2:int 12
+            while (x2 < 28) {
+                img.setPixelRGB(x2 y 230 220 200)
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn traceInset:EvgBitmapTracer (mode:string) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 2
+        opts.bgMode = "none"
+        opts.layerMode = mode
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeInsetSquare()) opts))
+        tr.trace()
+        return tr
+    }
+
+    fn testStackedLayersLeaveNoSeam:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.ok("layers are stacked by default" ((d.layerMode) == "stacked"))
+
+        def flat:EvgBitmapTracer (this.traceInset("flat"))
+        def stacked:EvgBitmapTracer (this.traceInset("stacked"))
+        t.eqInt("flat still yields both swatches" (flat.layerCount()) 2)
+        t.eqInt("stacked still yields both swatches" (stacked.layerCount()) 2)
+
+        def flatDark:EvgTraceLayer (itemAt flat.layers 0)
+        def stackedDark:EvgTraceLayer (itemAt stacked.layers 0)
+        ; The hole is the seam: disjoint needs one, stacked does not.
+        t.eqInt("the disjoint dark layer is cut open for the square" (flatDark.ringCount) 2)
+        t.eqInt("the stacked dark layer runs under it whole" (stackedDark.ringCount) 1)
+
+        def flatLight:EvgTraceLayer (itemAt flat.layers 1)
+        def stackedLight:EvgTraceLayer (itemAt stacked.layers 1)
+        t.eqInt("the square itself is unchanged" (stackedLight.ringCount) (flatLight.ringCount))
     }
 }

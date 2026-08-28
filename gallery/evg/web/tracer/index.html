@@ -208,6 +208,13 @@
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
           <span class="hint">Tätä lähempänä olevat sävyt yhdistetään. Estää saman alueen halkeamisen kahdeksi lähes samaksi tasoksi.</span>
         </label>
+        <label class="row color-only hidden">Tasot
+          <select id="layerMode">
+            <option value="stacked" selected>päällekkäin — ei saumoja</option>
+            <option value="flat">vierekkäin — pienempi SVG</option>
+          </select>
+          <span class="hint">Päällekkäin: alempi väri jatkuu ylemmän alla, joten käyräsovituksen rako paljastaa naapurivärin eikä valkoista. Vierekkäin on pienempi tiedosto, mutta sen saumoihin jää ohuita vaaleita viivoja.</span>
+        </label>
         <label class="row color-only hidden">Pehmennys <span class="val" id="v-smooth">0</span>
           <input id="smooth" type="range" min="0" max="4" step="1" value="0">
           <span class="hint">Mediaanisuodatus ennen värien poimintaa. Valokuvan pikselikohina muuttuu muuten roskaksi heti kun värejä on enemmän. 0 = pois, piirroksille oikea arvo.</span>
@@ -292,7 +299,7 @@
   var srcStage = $("srcStage"), outStage = $("outStage"), statusEl = $("status"), paletteEl = $("palette");
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
-  var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth");
+  var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth"), layerMode = $("layerMode");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -439,7 +446,7 @@
   renderPalEdit();
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -582,6 +589,7 @@
         opts.minColorDelta = +minColorDelta.value;
         opts.minRegion = +minRegion.value;
         opts.smooth = +smooth.value;
+        opts.layerMode = layerMode.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();

@@ -115,6 +115,15 @@ class EvgTraceOptions {
     ; otherwise splits one region between two near-identical swatches, and each
     ; half then falls under turdsize — which is how outlines turn into dashes.
     def minColorDelta:int 10
+    ; How the color layers are stacked:
+    ;   "stacked" — layer i covers every pixel at or above it in the palette
+    ;               order, so the layers are painted over one another and a
+    ;               curve-fitting gap exposes the neighbouring color, not the
+    ;               page. Two independent fits of the same pixel boundary never
+    ;               agree exactly, which is where the white hairlines came from.
+    ;   "flat"    — one disjoint region per swatch; smaller, and correct only if
+    ;               nothing is ever going to look at the seams.
+    def layerMode:string "stacked"
     ; Posterize: passes of a 3×3 median over the color planes before anything
     ; else looks at them. A photograph's per-pixel noise otherwise survives
     ; quantization as speckle, and every extra color splits it further, so the
