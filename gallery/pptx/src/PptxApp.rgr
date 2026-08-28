@@ -5471,9 +5471,9 @@ class PptxApp {
                 ; The number: beside a column's thumbnail, under a strip's,
                 ; because a strip has no room to its left.
                 if onTop {
-                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 theme.dim)
+                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 (PptxApp.panelLabel()))
                 } {
-                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 (PptxApp.panelLabel()))
                 }
                 ; A section names the run of slides that starts here, so it is
                 ; written once, above the first of them.
@@ -5490,7 +5490,7 @@ class PptxApp {
                         ; is worse than one not drawn.
                         if (onTop == false) {
                             def secName:string (editor.sectionNameAt(sec))
-                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(176 192 230)))
                         }
                     }
                 }
@@ -5517,6 +5517,27 @@ class PptxApp {
     ; See `leftTab` above for what this is and why it sits where the deck
     ; usually does. Everything below is: what the rows ARE, where they are,
     ; which one a press landed on, and how to draw them.
+
+    ; --- type on the dark chrome ---------------------------------------------
+    ;
+    ; The strip's own `theme.dim` is rgb(80 92 110): a grey picked to be quiet
+    ; against the LIGHT toolbar, where it sits on rgb(246 247 250). The two
+    ; panels are the other way round — near-black, rgb(32 36 47) — and the
+    ; same grey there is about 1.5:1 against its background, which is not
+    ; quiet, it is unreadable. Reported as exactly that: the headings down
+    ; both sides are too faint to read against the black.
+    ;
+    ; So the dark chrome has its own two, both above 5:1 against it: one for
+    ; a label or a heading, one for the smaller second-rank text under it. A
+    ; value the reader is meant to READ stays brighter still — those are
+    ; written where they are drawn.
+    sfn panelLabel:EVGColor () {
+        return (EVGColor.rgb(166 176 196))
+    }
+
+    sfn panelFaint:EVGColor () {
+        return (EVGColor.rgb(148 158 178))
+    }
 
     ; The two tabs at the top of the column. A strip along the top of a phone
     ; has no room for them, and no room for an outline either, so it keeps the
@@ -5899,15 +5920,15 @@ class PptxApp {
         dl.addRect(0.0 top half (to_double h) slidesBg)
         dl.addRect(half top ((to_double w) - half) (to_double h) outlineBg)
         dl.addRect(0.0 (to_double ((toolbarH + h) - 1)) (to_double w) 1.0 theme.line)
-        def slidesInk:EVGColor theme.dim
-        def outlineInk:EVGColor theme.dim
+        def slidesInk:EVGColor (PptxApp.panelLabel())
+        def outlineInk:EVGColor (PptxApp.panelLabel())
         if (this.outlineOn()) {
-            outlineInk = (EVGColor.rgb(225 230 240))
+            outlineInk = (EVGColor.rgb(238 242 250))
             ; The tab that is on is underlined, because two panels of the same
             ; grey with one word each is not a control anybody can read.
             dl.addRect(half (to_double ((toolbarH + h) - 2)) ((to_double w) - half) 2.0 (EVGColor.rgb(90 140 230)))
         } {
-            slidesInk = (EVGColor.rgb(225 230 240))
+            slidesInk = (EVGColor.rgb(238 242 250))
             dl.addRect(0.0 (to_double ((toolbarH + h) - 2)) half 2.0 (EVGColor.rgb(90 140 230)))
         }
         toolbarView.pushText(dl "Slides" 10.0 (top + 6.0) 11.0 slidesInk)
@@ -5924,7 +5945,7 @@ class PptxApp {
         this.rebuildOutline()
         def n:int (array_length outlineId)
         if (n == 0) {
-            toolbarView.pushText(dl "Nothing on this slide" 10.0 ((to_double (this.outlineTop())) + 6.0) 11.0 theme.dim)
+            toolbarView.pushText(dl "Nothing on this slide" 10.0 ((to_double (this.outlineTop())) + 6.0) 11.0 (PptxApp.panelFaint()))
             return
         }
         def rowH:int (this.outlineRowH())
@@ -5951,11 +5972,11 @@ class PptxApp {
                 }
                 def depth:int (itemAt outlineDepth i)
                 def x:double (8.0 + ((to_double depth) * 10.0))
-                def ink:EVGColor (EVGColor.rgb(200 208 224))
+                def ink:EVGColor (EVGColor.rgb(214 221 236))
                 if chosen {
-                    ink = (EVGColor.rgb(235 240 250))
+                    ink = (EVGColor.rgb(240 244 252))
                 }
-                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 (EVGColor.rgb(120 150 210)))
+                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 (EVGColor.rgb(146 176 236)))
                 ; The note is set hard right and the name is cut to what is
                 ; left of the row. A column 150 pixels wide has room for one
                 ; of them at full length and not for two, and a name written
@@ -5966,9 +5987,9 @@ class PptxApp {
                 def nameRoom:double (rowRight - nameX)
                 if ((strlen note) > 0) {
                     def noteW:double ((to_double (strlen note)) * 4.6)
-                    def noteInk:EVGColor (EVGColor.rgb(120 128 148))
+                    def noteInk:EVGColor (PptxApp.panelFaint())
                     if (note == "no size in file") {
-                        noteInk = (EVGColor.rgb(232 150 90))
+                        noteInk = (EVGColor.rgb(244 174 112))
                     }
                     toolbarView.pushText(dl note (rowRight - noteW) (fy + 4.0) 9.0 noteInk)
                     nameRoom = ((nameRoom - noteW) - 6.0)
@@ -6118,9 +6139,9 @@ class PptxApp {
         ; Nothing selected is worth saying out loud. A panel of dead controls
         ; reads as a broken panel; a panel that says why is a panel.
         if ((editor.selectionCount()) == 0) {
-            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 theme.dim)
-            toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (EVGColor.rgb(110 118 134)))
-            toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (EVGColor.rgb(110 118 134)))
+            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 (EVGColor.rgb(226 232 244)))
+            toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (PptxApp.panelFaint()))
+            toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (PptxApp.panelFaint()))
             return
         }
 
@@ -6160,7 +6181,7 @@ class PptxApp {
     ; numbers under it are not the document's own.
     fn propsIdentity:double (dl:EVGDisplayList shape:PptxShape x:double y:double w:double) {
         def name:string (PptxApp.outlineLabel(shape))
-        toolbarView.pushText(dl name x y 12.0 (EVGColor.rgb(225 230 240)))
+        toolbarView.pushText(dl name x y 12.0 (EVGColor.rgb(238 242 250)))
         def kind:string (PptxApp.outlineKindName(shape))
         if shape.isPlaceholder {
             kind = (kind + (" · " + shape.phType))
@@ -6168,7 +6189,7 @@ class PptxApp {
         if ((editor.selectionCount()) > 1) {
             kind = (kind + (" +" + (to_string ((editor.selectionCount()) - 1))))
         }
-        toolbarView.pushText(dl kind x (y + 15.0) 10.0 theme.dim)
+        toolbarView.pushText(dl kind x (y + 15.0) 10.0 (PptxApp.panelFaint()))
         def out:double (y + 30.0)
         if shape.geomFallback {
             ; The one thing a reader has to be told rather than shown: this
@@ -6176,7 +6197,7 @@ class PptxApp {
             ; the numbers below are what was invented so that the text could
             ; be read and clicked at all. Typing any of them makes the box the
             ; document's own — see `PptxEditor.setShapeBox`.
-            toolbarView.pushText(dl "No size in the file" x out 10.0 (EVGColor.rgb(232 150 90)))
+            toolbarView.pushText(dl "No size in the file" x out 10.0 (EVGColor.rgb(244 174 112)))
             out = (out + 14.0)
         } {
             ; …and the next question a reader asks about a box that is not
@@ -6187,7 +6208,7 @@ class PptxApp {
             ; the answer the moment the shape is moved — see PptxWriter.
             if ((strlen shape.sheetXfrmSig) > 0) {
                 if ((shape.xfrmSignature()) == shape.sheetXfrmSig) {
-                    toolbarView.pushText(dl "Size from the layout" x out 10.0 (EVGColor.rgb(120 150 210)))
+                    toolbarView.pushText(dl "Size from the layout" x out 10.0 (EVGColor.rgb(146 176 236)))
                     out = (out + 14.0)
                 }
             }
@@ -6201,7 +6222,7 @@ class PptxApp {
     ; instead of by dragging until it looks right.
     fn propsGeometry:double (dl:EVGDisplayList shape:PptxShape x:double y:double w:double) {
         def top:double y
-        toolbarView.pushText(dl "Position and size" x top 11.0 theme.dim)
+        toolbarView.pushText(dl "Position and size" x top 11.0 (PptxApp.panelLabel()))
         def row:double (top + 16.0)
         row = (this.propsNumberRow(dl "X" x row w shape.x "geom.x" 1.0))
         row = (this.propsNumberRow(dl "Y" x row w shape.y "geom.y" 1.0))
@@ -6216,8 +6237,8 @@ class PptxApp {
     ; than a value worked out here — so two shapes selected together each
     ; move by one point instead of both jumping to the first one's.
     fn propsNumberRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:double cmd:string step:double) {
-        toolbarView.pushText(dl label x (y + 3.0) 11.0 theme.dim)
-        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 (EVGColor.rgb(215 222 236)))
+        toolbarView.pushText(dl label x (y + 3.0) 11.0 (PptxApp.panelLabel()))
+        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
         def bw:double 18.0
         def plusX:double ((x + w) - bw)
         def minusX:double ((plusX - bw) - 3.0)
@@ -6226,11 +6247,11 @@ class PptxApp {
         def deltaCmd:string ("geom.d" + (substring cmd 5 (strlen cmd)))
         dl.addRect(minusX y bw 16.0 (EVGColor.rgb(46 52 66)))
         dl.addFrame(minusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
-        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(215 222 236)))
+        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
         this.addPropHit((to_int minusX) (to_int y) (to_int bw) 16 deltaCmd down)
         dl.addRect(plusX y bw 16.0 (EVGColor.rgb(46 52 66)))
         dl.addFrame(plusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
-        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(215 222 236)))
+        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
         this.addPropHit((to_int plusX) (to_int y) (to_int bw) 16 deltaCmd up)
         return (y + 20.0)
     }
@@ -6264,7 +6285,7 @@ class PptxApp {
     ; One labelled row: the name, the current colour beside it, and the
     ; swatches under it. Answers the y the next row starts at.
     fn propsSwatchRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:string cmd:string) {
-        toolbarView.pushText(dl label x y 11.0 theme.dim)
+        toolbarView.pushText(dl label x y 11.0 (PptxApp.panelLabel()))
         ; The current value, right of the label. This is the half of the panel
         ; that was missing entirely: a control that only SETS leaves a reader
         ; guessing what is set.
@@ -6276,7 +6297,7 @@ class PptxApp {
         } {
             ; No colour of its own — inherited, or none at all. Said in words,
             ; because an empty box and a white one look the same.
-            toolbarView.pushText(dl "—" (cx + 12.0) y 11.0 (EVGColor.rgb(110 118 134)))
+            toolbarView.pushText(dl "—" (cx + 12.0) y 11.0 (PptxApp.panelFaint()))
         }
         def top:double (y + 18.0)
         def names:[string] (PptxApp.swatchNames())
@@ -6306,7 +6327,7 @@ class PptxApp {
         ; "None" only where none is a thing a shape can be. A line has to be
         ; removable and so does a fill; text always has a colour.
         if (cmd != "edit.textcolor") {
-            toolbarView.pushText(dl "None" (x + 2.0) (below + 2.0) 11.0 (EVGColor.rgb(150 158 178)))
+            toolbarView.pushText(dl "None" (x + 2.0) (below + 2.0) 11.0 (PptxApp.panelLabel()))
             dl.addFrame(x below 40.0 15.0 1.0 (EVGColor.rgb(70 78 96)))
             this.addPropHit((to_int x) (to_int below) 40 15 cmd "")
             below = (below + 19.0)
@@ -6316,7 +6337,7 @@ class PptxApp {
 
     ; The outline's thickness, as the few widths anybody picks.
     fn propsWidthRow:double (dl:EVGDisplayList x:double y:double w:double now:double) {
-        toolbarView.pushText(dl "Line width" x y 11.0 theme.dim)
+        toolbarView.pushText(dl "Line width" x y 11.0 (PptxApp.panelLabel()))
         def steps:[double] ([] _:double ( 0.75 1.5 3.0 6.0 ))
         def cell:double ((w - 6.0) / 4.0)
         def top:double (y + 16.0)
