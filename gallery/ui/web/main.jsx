@@ -24,6 +24,26 @@ import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import * as HostModule from "../bin/ui_host.cjs";
 import { SPECS, THEME_CSS } from "./generated.js";
 
+/**
+ * The specs, grouped by the component they exercise. A flat dropdown of 31
+ * names was unreadable; a tree says at a glance which components exist, how
+ * many specs each one has, and — once visited — which of them diverge.
+ */
+const GROUPS = (() => {
+  const by = new Map();
+  SPECS.forEach((s, index) => {
+    const key = s.component || "—";
+    if (!by.has(key)) by.set(key, []);
+    // The component name is already the heading; repeating it in every row
+    // just makes them all start with the same word.
+    const label = s.name.replace(/^[a-z]+_/, "").replace(/_/g, " ");
+    by.get(key).push({ index, label });
+  });
+  return [...by.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([component, specs]) => ({ component, specs }));
+})();
+
 const PAGE_W = 420;
 const PAGE_H = 320;
 
@@ -76,8 +96,12 @@ function Playground() {
   const [diffs, setDiffs] = useState([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // What each spec looked like the last time it was on screen, so the tree can
+  // show where the divergences are without re-running everything.
+  const [seen, setSeen] = useState({});
 
   const spec = SPECS[specIndex];
+  const specName = spec.name;
   const host = useEvgHost(spec.fixture, theme);
   const radixRef = useRef(null);
   const canvasRef = useRef(null);
@@ -107,7 +131,8 @@ function Playground() {
     }
     setRows([...byTid.values()]);
     setDiffs(d);
-  }, [host, repaint]);
+    setSeen((prev) => ({ ...prev, [specName]: d.length }));
+  }, [host, repaint, specName]);
 
   /**
    * Re-observe whenever the DOM side actually changes, instead of guessing how
@@ -224,16 +249,6 @@ function Playground() {
       <header>
         <h1>gallery/ui — Radix vs Ranger EVG</h1>
         <label>
-          fixture
-          <select value={specIndex} onChange={(e) => setSpecIndex(Number(e.target.value))}>
-            {SPECS.map((s, i) => (
-              <option key={s.name} value={i}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
           <input
             type="checkbox"
             checked={theme === "dark"}
@@ -249,6 +264,39 @@ function Playground() {
         </span>
       </header>
 
+      <div className="body">
+        <nav className="tree" aria-label="Specs by component">
+          <div className="count">
+            <span>{GROUPS.length} components</span>
+            <span>{SPECS.length} specs</span>
+          </div>
+          {GROUPS.map((g) => (
+            <div className="group" key={g.component}>
+              <div className="name">
+                <span>{g.component}</span>
+                <span className="n">{g.specs.length}</span>
+              </div>
+              {g.specs.map(({ index, label }) => {
+                const d = seen[SPECS[index].name];
+                const cls = d === undefined ? "dot" : d === 0 ? "dot ok" : "dot bad";
+                return (
+                  <button
+                    key={index}
+                    className="spec"
+                    aria-current={index === specIndex ? "true" : undefined}
+                    title={d === undefined ? "not visited yet" : d === 0 ? "traces agree" : d + " divergences"}
+                    onClick={() => setSpecIndex(index)}
+                  >
+                    <span className={cls} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className="content">
       <main>
         <section>
           <h2>Radix — React DOM</h2>
@@ -305,6 +353,8 @@ function Playground() {
           simulation of a click; the keyboard is shared for real. Confirm anything you see with{" "}
           <code>npm run ui:report</code>, which drives both sides with real input.
         </p>
+          </div>
+        </div>
       </div>
     </>
   );

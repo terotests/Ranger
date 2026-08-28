@@ -75,12 +75,12 @@ class CollapsibleCtl extends UiCtl {
         }
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         if (target != triggerTid) {
-            return
+            return ""
         }
         if open {
             open = false
@@ -88,6 +88,7 @@ class CollapsibleCtl extends UiCtl {
             open = true
         }
         this.build()
+        return ""
     }
 
     fn tids:[string] () {

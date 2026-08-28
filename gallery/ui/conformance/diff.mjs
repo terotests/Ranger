@@ -13,6 +13,7 @@ export const FIELDS = [
   "checked",
   "selected",
   "disabled",
+  "hidden",
   "tabstop",
   "focused",
   "visible",

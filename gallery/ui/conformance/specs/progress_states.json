@@ -1,0 +1,6 @@
+{ "name":"progress_states","component":"progress",
+  "behaviours":["progressbar-role","state-loading","state-indeterminate","state-complete","indicator"],
+  "fixture":{"controls":[
+    {"type":"progress","tid":"pg","name":"Upload","value":40},
+    {"type":"progress","tid":"pgi","name":"Working"},
+    {"type":"progress","tid":"pgc","name":"Done","value":100}]},"steps":[] }

@@ -147,7 +147,16 @@
     "switch": "switch",
     "radio-group": "radiogroup",
     "tabs": "tabs",
-    "accordion": "accordion"
+    "accordion": "accordion",
+    "label": "label",
+    "separator": "separator",
+    "progress": "progress",
+    "aspect-ratio": "aspectratio",
+    "accessible-icon": "accessibleicon",
+    "avatar": "avatar",
+    "toggle-group": "togglegroup",
+    "toolbar": "toolbar",
+    "dialog": "dialog"
   },
   "machinery": {
     "overlay layer": [

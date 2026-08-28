@@ -97,16 +97,16 @@ class AccordionCtl extends UiCtl {
         }
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         def i:int 0
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             if ((this.triggerTid(it.value)) == target) {
                 if it.disabled {
-                    return
+                    return ""
                 }
                 ; single + collapsible: the open one closes, anything else
                 ; becomes the only open one.
@@ -116,10 +116,11 @@ class AccordionCtl extends UiCtl {
                     openValue = it.value
                 }
                 this.build()
-                return
+                return ""
             }
             i = (i + 1)
         }
+        return ""
     }
 
     fn tids:[string] () {

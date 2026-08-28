@@ -23,6 +23,9 @@ Import "CheckboxCtl.rgr"
 Import "RadioGroupCtl.rgr"
 Import "TabsCtl.rgr"
 Import "AccordionCtl.rgr"
+Import "PresentationCtl.rgr"
+Import "ToolbarCtl.rgr"
+Import "DialogCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -148,6 +151,80 @@ class UiHost {
         return c
     }
 
+    fn addToolbar:ToolbarCtl (tid:string name:string) {
+        def c (new ToolbarCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addDialog:DialogCtl (tid:string name:string title:string) {
+        def c (new DialogCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addLabel:LabelCtl (tid:string name:string) {
+        def c (new LabelCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSeparator:SeparatorCtl (tid:string) {
+        def c (new SeparatorCtl())
+        c.tid = tid
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addProgress:ProgressCtl (tid:string name:string) {
+        def c (new ProgressCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAspectRatio:AspectRatioCtl (tid:string name:string) {
+        def c (new AspectRatioCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAccessibleIcon:AccessibleIconCtl (tid:string name:string glyph:string) {
+        def c (new AccessibleIconCtl())
+        c.tid = tid
+        c.name = name
+        c.glyph = glyph
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAvatar:AvatarCtl (tid:string name:string fallback:string) {
+        def c (new AvatarCtl())
+        c.tid = tid
+        c.name = name
+        c.fallback = fallback
+        c.build()
+        this.add(c)
+        return c
+    }
+
     fn ctlFor@(optional):UiCtl (target:string) {
         def i:int 0
         while (i < (array_length ctls)) {
@@ -172,7 +249,13 @@ class UiHost {
             if (c.isFocusable(target)) {
                 focusId = target
                 c.onFocus(target)
-                c.activate(target)
+                ; An activation may move focus itself — opening a dialog puts
+                ; it on the close button, and the host should not have to know
+                ; that a dialog is what happened.
+                def next:string (c.activate(target))
+                if ((strlen next) > 0) {
+                    focusId = next
+                }
                 return
             }
         }
@@ -415,6 +498,7 @@ class UiHost {
                 n.name = row.name
                 n.disabled = row.disabled
                 n.focusable = row.focusable
+                n.modal = row.modal
                 n.checked = row.checked
                 n.expanded = row.expanded
                 if (row.selected == 2) {
@@ -448,9 +532,56 @@ class UiHost {
         return (t.lint())
     }
 
+    ; Which row, if any, has taken the page over. "" when nothing is modal.
+    fn modalTid:string () {
+        def rows:[UiRow] (this.allRows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            if row.modal {
+                return row.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Is `target` the modal or inside it? Everything else is hidden while a
+    ; modal is open — the aria-hidden masking Radix does, which is what a
+    ; reader actually observes.
+    fn insideModal:boolean (rows:[UiRow] target:string modal:string) {
+        def at:string target
+        def hops:int 0
+        while (hops < 32) {
+            if (at == modal) {
+                return true
+            }
+            if ((strlen at) == 0) {
+                return false
+            }
+            def found:boolean false
+            def i:int 0
+            while (i < (array_length rows)) {
+                def row:UiRow (itemAt rows i)
+                if (row.tid == at) {
+                    at = row.parentTid
+                    found = true
+                    i = (array_length rows)
+                }
+                i = (i + 1)
+            }
+            if (found == false) {
+                return false
+            }
+            hops = (hops + 1)
+        }
+        return false
+    }
+
     fn traceJson:string () {
         def r:EVGElement (unwrap root)
         def rows:[UiRow] (this.allRows())
+        def modal:string (this.modalTid())
         def out:string "{\"nodes\":["
         def i:int 0
         while (i < (array_length rows)) {
@@ -464,6 +595,12 @@ class UiHost {
                 isFocused = true
             }
             def isVisible:boolean (UiTree.reachable(r row.tid))
+            def isHidden:boolean row.hidden
+            if ((strlen modal) > 0) {
+                if ((this.insideModal(rows row.tid modal)) == false) {
+                    isHidden = true
+                }
+            }
             out = out + "{\"tid\":" + (EVGA11yTree.jsonString(row.tid))
             out = out + ",\"role\":" + (EVGA11yTree.jsonString(roleName))
             out = out + ",\"name\":" + (EVGA11yTree.jsonString(row.name))
@@ -473,6 +610,7 @@ class UiHost {
             out = out + ",\"checked\":" + (UiHost.triJson(row.checked))
             out = out + ",\"selected\":" + (UiHost.triJson(row.selected))
             out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
+            out = out + ",\"hidden\":" + (UiHost.boolJson(isHidden))
             out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))

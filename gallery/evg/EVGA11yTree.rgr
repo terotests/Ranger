@@ -81,6 +81,7 @@ class EVGA11yRole {
     sfn radioGroup:int ()  { return 25 }
     sfn tabPanel:int ()    { return 26 }
     sfn region:int ()      { return 27 }
+    sfn progressBar:int () { return 28 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -112,6 +113,7 @@ class EVGA11yRole {
         if (role == 25) { return "radiogroup" }
         if (role == 26) { return "tabpanel" }
         if (role == 27) { return "region" }
+        if (role == 28) { return "progressbar" }
         return "none"
     }
 }

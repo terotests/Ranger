@@ -1,17 +1,15 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; =============================================================================
-; RadioGroupCtl — measured against @radix-ui/react-radio-group
+; ToolbarCtl — measured against @radix-ui/react-toolbar
 ; =============================================================================
 ; Parity contract (see conformance/SPEC.md):
-;   root      role radiogroup, always a tab stop, never focused itself
-;   items     role radio, checked no | yes, state "checked" | "unchecked"
-;   arrows    move focus and the roving tab stop, skip disabled items, wrap at
-;             the ends — but NOT the selection; see the note in keyDown
-;   roving    exactly one item is a tab stop — the last one focus reached, and
-;             NONE before the group has been touched. That "none yet" start is
-;             not an oversight: Radix hands the tab stop to the group until an
-;             item has been focused, and the trace records the difference.
+;   root      role toolbar, always a tab stop
+;   items     role button, roving tab stop (none until the bar is touched)
+;   arrows    move focus and the roving tab stop, skip disabled, wrap
+;
+; A toolbar has no selection: the arrows move focus and nothing else, which is
+; the whole difference between it and a tab strip.
 ; =============================================================================
 
 Import "UiCtl.rgr"
@@ -19,17 +17,8 @@ Import "UiTree.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 
-class RadioGroupCtl extends UiCtl {
+class ToolbarCtl extends UiCtl {
     def items:[UiItem]
-    ; A single-select toggle group IS a radio group — Radix gives it role
-    ; radiogroup and its items role radio. Two differences, both measured:
-    ; the state words ("on"/"off" rather than "checked"/"unchecked"), and that
-    ; clicking the SELECTED item deselects it. A radio cannot be switched off
-    ; by clicking it; a toggle can, and that is the whole reason the two are
-    ; different components rather than one.
-    def toggleMode:boolean false
-    def value:string ""
-    ; The item focus last reached; "" until the group has been touched.
     def rovingValue:string ""
 
     Constructor () {
@@ -46,68 +35,8 @@ class RadioGroupCtl extends UiCtl {
         push items it
     }
 
-    fn baseClass:string () {
-        if toggleMode {
-            return "ui-togglegroup-item"
-        }
-        return "ui-radio"
-    }
-
-    fn groupClass:string () {
-        if toggleMode {
-            return "ui-togglegroup"
-        }
-        return "ui-radiogroup"
-    }
-
-    fn wordFor:string (itemValue:string) {
-        if (itemValue == value) {
-            if toggleMode {
-                return "on"
-            }
-            return "checked"
-        }
-        if toggleMode {
-            return "off"
-        }
-        return "unchecked"
-    }
-
     fn itemTid:string (itemValue:string) {
         return (tid + "-" + itemValue)
-    }
-
-    fn indexOfValue:int (itemValue:string) {
-        def i:int 0
-        while (i < (array_length items)) {
-            def it:UiItem (itemAt items i)
-            if (it.value == itemValue) {
-                return i
-            }
-            i = (i + 1)
-        }
-        return -1
-    }
-
-    fn build:void () {
-        def root:EVGElement (unwrap rootEl)
-        root.id = tid
-        root.className = (this.groupClass())
-        UiTree.clearChildren(root)
-        def i:int 0
-        while (i < (array_length items)) {
-            def it:UiItem (itemAt items i)
-            def el:EVGElement (unwrap it.el)
-            el.id = (this.itemTid(it.value))
-            el.className = (this.baseClass())
-            if it.disabled {
-                UiTree.addClass(el ((this.baseClass()) + "-disabled"))
-            }
-            UiTree.setState(el (this.baseClass()) (this.wordFor(it.value)))
-            UiTree.leafText(el it.name)
-            root.addChild(el)
-            i = (i + 1)
-        }
     }
 
     fn valueAtIndex:string (i:int) {
@@ -121,17 +50,24 @@ class RadioGroupCtl extends UiCtl {
         return it.value
     }
 
-    fn selectValue:void (itemValue:string) {
-        def idx:int (this.indexOfValue(itemValue))
-        if (idx < 0) {
-            return
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-toolbar"
+        UiTree.clearChildren(root)
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-toolbar-button"
+            if it.disabled {
+                UiTree.addClass(el "ui-toolbar-button-disabled")
+            }
+            UiTree.leafText(el it.name)
+            root.addChild(el)
+            i = (i + 1)
         }
-        def it:UiItem (itemAt items idx)
-        if it.disabled {
-            return
-        }
-        value = itemValue
-        this.build()
     }
 
     fn activate:string (target:string) {
@@ -143,18 +79,7 @@ class RadioGroupCtl extends UiCtl {
             def it:UiItem (itemAt items i)
             if ((this.itemTid(it.value)) == target) {
                 if (it.disabled == false) {
-                    if toggleMode {
-                        if (value == it.value) {
-                            ; Clicking the one that is on turns it off.
-                            value = ""
-                        } {
-                            value = it.value
-                        }
-                    } {
-                        value = it.value
-                    }
                     rovingValue = it.value
-                    this.build()
                 }
                 return ""
             }
@@ -187,9 +112,6 @@ class RadioGroupCtl extends UiCtl {
             delta = -1
         }
         if (delta == 0) {
-            if (UiCtl.activatesOn(key)) {
-                this.activate(target)
-            }
             return ""
         }
         def landed:int (UiCtl.stepIndex(items from delta))
@@ -197,12 +119,6 @@ class RadioGroupCtl extends UiCtl {
         if (nextValue == "") {
             return ""
         }
-        ; Focus and the roving tab stop move; the SELECTION does not. That is
-        ; not the WAI-ARIA radio pattern, where arrowing also selects — it is
-        ; what @radix-ui/react-radio-group measurably does, checked twice and
-        ; on two mount points (conformance/SPEC.md). Parity means matching the
-        ; reference as it behaves, and the harness is what will tell us if a
-        ; Radix upgrade ever changes it.
         rovingValue = nextValue
         this.build()
         return (this.itemTid(nextValue))
@@ -252,20 +168,14 @@ class RadioGroupCtl extends UiCtl {
 
     fn rows:[UiRow] () {
         def out:[UiRow]
-        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.radioGroup()) name))
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.toolbar()) name))
         rootRow.tabStop = true
         push out rootRow
         def i:int 0
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
-            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.radio()) it.name))
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.button()) it.name))
             row.parentTid = tid
-            row.state = (this.wordFor(it.value))
-            if (it.value == value) {
-                row.checked = (EVGA11yTri.yes())
-            } {
-                row.checked = (EVGA11yTri.no())
-            }
             row.disabled = it.disabled
             if (it.value == rovingValue) {
                 row.tabStop = true

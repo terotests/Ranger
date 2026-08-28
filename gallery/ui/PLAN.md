@@ -7,8 +7,9 @@ Native EVG components good enough to replace the hand-built chrome in
 
 ## Where it stands
 
-**49 of 56 catalogued behaviours, 87.5%** — 2486 observations, no divergences.
-Run `npm run ui:report` for the current number; `baseline.json` is checked in.
+**16 of 31 Radix components (51.6%)**, and **88 of 90 catalogued behaviours
+(97.8%)** — 3756 observations, no divergences. Run `npm run ui:inventory` for
+the first number and `npm run ui:report` for the second.
 
 - [x] Controller convention: own a subtree of the display tree, mutate it,
       report ARIA rows (`UiCtl`)
@@ -19,8 +20,12 @@ Run `npm run ui:report` for the current number; `baseline.json` is checked in.
 - [x] Metrics: a behaviour catalogue as the denominator, coverage / parity /
       observation scores, a divergence profile, and a baseline that fails the
       run on a regression
-- [x] Toggle, Collapsible, Checkbox, Switch, RadioGroup, Tabs, Accordion at
-      parity with their `@radix-ui` counterparts
+- [x] Sixteen components at parity with their `@radix-ui` counterparts: toggle,
+      collapsible, checkbox, switch, radio-group, tabs, accordion, toggle-group,
+      toolbar, dialog, label, separator, progress, aspect-ratio,
+      accessible-icon, avatar
+- [x] A modal that takes focus, restores it on Escape, and hides the page
+      behind it from the accessibility tree
 - [x] Offline suite in CI (`ui:test`, wired into `gallery:editors:test`)
 - [x] Coordinate hit testing (`UiHost.hitTest` / `pointerDown`), innermost wins
 - [x] A browser playground (`npm run ui:web`) running both hosts side by side

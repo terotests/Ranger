@@ -120,9 +120,9 @@ class TabsCtl extends UiCtl {
         }
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         def i:int 0
         while (i < (array_length items)) {
@@ -133,10 +133,11 @@ class TabsCtl extends UiCtl {
                     rovingValue = it.value
                     this.build()
                 }
-                return
+                return ""
             }
             i = (i + 1)
         }
+        return ""
     }
 
     fn keyDown:string (target:string key:string) {

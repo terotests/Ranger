@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 56,
-    "covered": 49,
-    "matchedBehaviours": 49,
-    "observations": 2486,
-    "matchedObservations": 2486
+    "catalogued": 90,
+    "covered": 88,
+    "matchedBehaviours": 88,
+    "observations": 3756,
+    "matchedObservations": 3756
   },
   "components": {
     "toggle": {
@@ -36,8 +36,40 @@
       "matchedBehaviours": 5
     },
     "dialog": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "label": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "separator": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "progress": {
+      "covered": 5,
+      "matchedBehaviours": 5
+    },
+    "aspect-ratio": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "accessible-icon": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "avatar": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "toggle-group": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "toolbar": {
+      "covered": 6,
+      "matchedBehaviours": 6
     }
   }
 }

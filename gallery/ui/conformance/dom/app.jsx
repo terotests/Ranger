@@ -13,12 +13,21 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import * as Accordion from "@radix-ui/react-accordion";
+import * as AccessibleIcon from "@radix-ui/react-accessible-icon";
+import * as AspectRatio from "@radix-ui/react-aspect-ratio";
+import * as Avatar from "@radix-ui/react-avatar";
 import * as Checkbox from "@radix-ui/react-checkbox";
 import * as Collapsible from "@radix-ui/react-collapsible";
+import * as Dialog from "@radix-ui/react-dialog";
+import * as Label from "@radix-ui/react-label";
+import * as Progress from "@radix-ui/react-progress";
 import * as RadioGroup from "@radix-ui/react-radio-group";
+import * as Separator from "@radix-ui/react-separator";
 import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Toggle from "@radix-ui/react-toggle";
+import * as ToggleGroup from "@radix-ui/react-toggle-group";
+import * as Toolbar from "@radix-ui/react-toolbar";
 
 export function Control({ spec }) {
   const tid = spec.tid;
@@ -119,6 +128,110 @@ export function Control({ spec }) {
             </Accordion.Item>
           ))}
         </Accordion.Root>
+      );
+
+    case "label":
+      return (
+        <Label.Root data-tid={tid} htmlFor={tid + "-for"}>
+          {spec.name}
+        </Label.Root>
+      );
+
+    case "separator":
+      return (
+        <Separator.Root
+          data-tid={tid}
+          orientation={spec.orientation || "horizontal"}
+          decorative={!!spec.decorative}
+        />
+      );
+
+    case "progress":
+      return (
+        <Progress.Root data-tid={tid} aria-label={spec.name} value={spec.value ?? null} max={spec.max || 100}>
+          <Progress.Indicator data-tid={tid + "-indicator"} />
+        </Progress.Root>
+      );
+
+    case "aspectratio":
+      return (
+        <div data-tid={tid + "-outer"} style={{ width: (spec.width || 120) + "px" }}>
+          <AspectRatio.Root data-tid={tid} ratio={spec.ratio || 1}>
+            <span data-tid={tid + "-content"}>{spec.name || ""}</span>
+          </AspectRatio.Root>
+        </div>
+      );
+
+    case "accessibleicon":
+      return (
+        <button data-tid={tid} type="button" disabled={!!spec.disabled}>
+          <AccessibleIcon.Root label={spec.name}>
+            <span data-tid={tid + "-glyph"} aria-hidden="true">
+              {spec.glyph || "★"}
+            </span>
+          </AccessibleIcon.Root>
+        </button>
+      );
+
+    case "avatar":
+      return (
+        <Avatar.Root data-tid={tid}>
+          {spec.src ? <Avatar.Image data-tid={tid + "-image"} src={spec.src} alt={spec.name} /> : null}
+          <Avatar.Fallback data-tid={tid + "-fallback"} delayMs={spec.delayMs ?? 0}>
+            {spec.fallback || "?"}
+          </Avatar.Fallback>
+        </Avatar.Root>
+      );
+
+    case "togglegroup":
+      return (
+        <ToggleGroup.Root
+          data-tid={tid}
+          type="single"
+          aria-label={spec.name}
+          defaultValue={spec.value}
+        >
+          {spec.items.map((it) => (
+            <ToggleGroup.Item
+              key={it.value}
+              value={it.value}
+              data-tid={tid + "-" + it.value}
+              aria-label={it.name}
+              disabled={!!it.disabled}
+            >
+              {it.name}
+            </ToggleGroup.Item>
+          ))}
+        </ToggleGroup.Root>
+      );
+
+    case "toolbar":
+      return (
+        <Toolbar.Root data-tid={tid} aria-label={spec.name}>
+          {spec.items.map((it) => (
+            <Toolbar.Button
+              key={it.value}
+              data-tid={tid + "-" + it.value}
+              disabled={!!it.disabled}
+            >
+              {it.name}
+            </Toolbar.Button>
+          ))}
+        </Toolbar.Root>
+      );
+
+    case "dialog":
+      return (
+        <Dialog.Root data-tid={tid}>
+          <Dialog.Trigger data-tid={tid + "-trigger"}>{spec.name}</Dialog.Trigger>
+          <Dialog.Portal>
+            <Dialog.Overlay data-tid={tid + "-overlay"} />
+            <Dialog.Content data-tid={tid + "-content"} aria-describedby={undefined}>
+              <Dialog.Title data-tid={tid + "-title"}>{spec.title || spec.name}</Dialog.Title>
+              <Dialog.Close data-tid={tid + "-close"}>Close</Dialog.Close>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       );
 
     default:

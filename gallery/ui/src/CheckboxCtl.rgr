@@ -69,12 +69,12 @@ class CheckboxCtl extends UiCtl {
         UiTree.leafText(el name)
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         if (target != tid) {
-            return
+            return ""
         }
         ; Mixed resolves upward: Radix sends indeterminate → checked.
         if (checkState == 1) {
@@ -83,6 +83,7 @@ class CheckboxCtl extends UiCtl {
             checkState = 1
         }
         this.build()
+        return ""
     }
 
     fn isFocusable:boolean (target:string) {

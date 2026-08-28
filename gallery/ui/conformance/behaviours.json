@@ -98,12 +98,89 @@
     "dialog": {
       "radix": "@radix-ui/react-dialog",
       "behaviours": {
-        "pointer-open": "the trigger opens the dialog",
-        "escape-closes": "Escape closes it",
-        "focus-trap": "focus stays inside while open",
-        "focus-restore": "focus returns to the trigger on close",
-        "modal-flag": "the dialog is exposed as modal",
-        "content-hidden": "closed content is unreachable"
+        "pointer-open": "the trigger opens it",
+        "keyboard-open": "Enter on the trigger opens it",
+        "escape-closes": "Escape closes it from inside",
+        "focus-into": "opening moves focus into the dialog",
+        "focus-restore": "closing returns focus to the trigger",
+        "aria-expanded": "the trigger says whether it is showing",
+        "background-hidden": "everything outside is out of the accessibility tree",
+        "content-unmounted": "closed content is not in the tree at all",
+        "focus-trap": {
+          "note": "Tab and Shift+Tab cycle inside the open dialog",
+          "disputed": "No spec can prove this yet: the harness has no Tab step, and UiHost has no document-order focus model to answer one with. Catalogued so the gap is counted rather than assumed away \u2014 see PLAN.md."
+        }
+      }
+    },
+    "label": {
+      "radix": "@radix-ui/react-label",
+      "behaviours": {
+        "no-role": "a label carries no ARIA role of its own",
+        "renders-text": "its text is present and visible"
+      }
+    },
+    "separator": {
+      "radix": "@radix-ui/react-separator",
+      "behaviours": {
+        "separator-role": "exposes the separator role",
+        "decorative-drops-role": "a decorative separator reports no role at all",
+        "orientation": "vertical and horizontal both lay out"
+      }
+    },
+    "progress": {
+      "radix": "@radix-ui/react-progress",
+      "behaviours": {
+        "progressbar-role": "exposes the progressbar role",
+        "state-loading": "a value below the maximum reads as loading",
+        "state-indeterminate": "no value at all reads as indeterminate",
+        "state-complete": "the maximum reads as complete",
+        "indicator": "the indicator carries the same state"
+      }
+    },
+    "aspect-ratio": {
+      "radix": "@radix-ui/react-aspect-ratio",
+      "behaviours": {
+        "no-role": "pure layout: nothing in it carries a role",
+        "ratio-applied": "the inner box takes the declared ratio"
+      }
+    },
+    "accessible-icon": {
+      "radix": "@radix-ui/react-accessible-icon",
+      "behaviours": {
+        "button-role": "the control around the icon is a button",
+        "label-names-it": "the hidden label is its accessible name",
+        "glyph-hidden": "the glyph is decoration and does not reach the name"
+      }
+    },
+    "avatar": {
+      "radix": "@radix-ui/react-avatar",
+      "behaviours": {
+        "no-role": "neither the root nor the fallback carries a role",
+        "fallback-shown": "with no image the fallback is what is there"
+      }
+    },
+    "toggle-group": {
+      "radix": "@radix-ui/react-toggle-group",
+      "behaviours": {
+        "radiogroup-role": "a single-select group IS a radio group",
+        "pointer-select": "clicking an item selects it and deselects the rest",
+        "aria-checked": "items expose aria-checked",
+        "roving-focus": "exactly one item is a tab stop",
+        "arrow-next": "arrows move focus to the next item",
+        "arrow-wraps": "arrow movement wraps at the ends",
+        "disabled-skipped": "a disabled item is skipped",
+        "state-attr": "state is exposed for styling"
+      }
+    },
+    "toolbar": {
+      "radix": "@radix-ui/react-toolbar",
+      "behaviours": {
+        "toolbar-role": "the root exposes the toolbar role",
+        "roving-focus": "exactly one button is a tab stop",
+        "arrow-next": "ArrowRight moves focus to the next button",
+        "arrow-prev": "ArrowLeft moves focus back",
+        "arrow-wraps": "arrow movement wraps at the ends",
+        "disabled-skipped": "a disabled button is skipped"
       }
     }
   }

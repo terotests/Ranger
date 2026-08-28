@@ -33,6 +33,14 @@ class UiRow {
     def checked:int 0
     def selected:int 0
     def disabled:boolean false
+    ; Does this node make everything outside it unreachable? Not compared with
+    ; the DOM — Radix masks with aria-hidden rather than aria-modal — but the
+    ; EVG mirror needs it to do the masking, and the host needs it to mark the
+    ; rest hidden.
+    def modal:boolean false
+    ; Decoration, kept out of the accessibility tree the way `aria-hidden`
+    ; keeps a glyph out of the name of the button around it.
+    def hidden:boolean false
     ; Would Tab land here? A composite with roving focus keeps exactly one of
     ; its items true, which is the whole observable difference between roving
     ; focus and a row of ordinary buttons.
@@ -84,7 +92,8 @@ class UiCtl {
     }
 
     ; Pointer activation, or Enter/Space while focused.
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
+        return ""
     }
 
     ; A key arrived while `target` held focus. Returns the test id that should

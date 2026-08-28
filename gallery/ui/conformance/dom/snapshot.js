@@ -30,7 +30,20 @@ export function snapshotDom() {
     let role = explicit;
     if (!role) role = tag === "button" ? "button" : tag === "a" ? "link" : "none";
     const label = el.getAttribute("aria-label");
-    const name = label != null ? label : NAMED_ROLES.has(role) ? (el.textContent || "").trim() : "";
+    // Accessible name from text: aria-hidden subtrees do not contribute. An
+    // icon button is glyph + visually-hidden label, and counting the glyph
+    // would make its name "*Favourite" — which is what the naive version said.
+    const visibleText = (node) => {
+      let out = "";
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) out += child.nodeValue;
+        else if (child.nodeType === 1 && child.getAttribute("aria-hidden") !== "true") {
+          out += visibleText(child);
+        }
+      }
+      return out;
+    };
+    const name = label != null ? label : NAMED_ROLES.has(role) ? visibleText(el).trim() : "";
     const expanded = el.getAttribute("aria-expanded");
     const pressed = el.getAttribute("aria-pressed");
     const disabled = el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
@@ -47,6 +60,12 @@ export function snapshotDom() {
       // Would Tab land here? Roving focus is exactly this going false on the
       // items a composite does not want in the tab order.
       tabstop: el.tabIndex >= 0 && !disabled,
+      // A modal takes the rest of the page out of the accessibility tree; a
+      // reader that can still walk what a dialog covers will walk it. Radix
+      // does that with aria-hidden on everything else rather than aria-modal
+      // on the dialog, so THIS is the observable, and `aria-modal` is not
+      // compared at all.
+      hidden: !!el.closest('[aria-hidden="true"]'),
       focused: document.activeElement === el,
       visible: el.getClientRects().length > 0,
     });

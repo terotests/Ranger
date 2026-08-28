@@ -45,6 +45,56 @@ function buildHost(M, fixture, css) {
         ctl.value = c.value || "";
         break;
 
+      case "togglegroup":
+        // A single-select toggle group IS a radio group; Radix says so with
+        // role=radiogroup, so the same controller serves both.
+        ctl = host.addRadioGroup(c.tid, c.name);
+        ctl.toggleMode = true;
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        ctl.value = c.value || "";
+        break;
+
+      case "toolbar":
+        ctl = host.addToolbar(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "dialog":
+        ctl = host.addDialog(c.tid, c.name, c.title || c.name);
+        break;
+
+      case "label":
+        ctl = host.addLabel(c.tid, c.name);
+        break;
+
+      case "separator":
+        ctl = host.addSeparator(c.tid);
+        ctl.decorative = !!c.decorative;
+        ctl.vertical = c.orientation === "vertical";
+        break;
+
+      case "progress":
+        ctl = host.addProgress(c.tid, c.name);
+        ctl.indeterminate = c.value == null;
+        ctl.value = c.value || 0;
+        ctl.maxValue = c.max || 100;
+        break;
+
+      case "aspectratio":
+        ctl = host.addAspectRatio(c.tid, c.name || "");
+        ctl.boxWidth = c.width || 120;
+        ctl.ratioW = c.ratio || 1;
+        ctl.ratioH = 1;
+        break;
+
+      case "accessibleicon":
+        ctl = host.addAccessibleIcon(c.tid, c.name, c.glyph || "*");
+        break;
+
+      case "avatar":
+        ctl = host.addAvatar(c.tid, c.name, c.fallback || "?");
+        break;
+
       case "accordion":
         ctl = host.addAccordion(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, it.body || "", !!it.disabled);
@@ -76,6 +126,15 @@ const SUPPORTED_TYPES = [
   "radiogroup",
   "tabs",
   "accordion",
+  "togglegroup",
+  "toolbar",
+  "dialog",
+  "label",
+  "separator",
+  "progress",
+  "aspectratio",
+  "accessibleicon",
+  "avatar",
 ];
 
 module.exports = { buildHost, SUPPORTED_TYPES };

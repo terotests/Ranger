@@ -54,10 +54,17 @@ Both adapters derive these identically. A control `x`:
 | `radiogroup` | `x-<value>` per item |
 | `tabs` | `x-list`, `x-tab-<value>`, `x-panel-<value>` |
 | `accordion` | `x-<value>`, `x-<value>-trigger`, `x-<value>-content` |
+| `togglegroup` | `x-<value>` per item |
+| `toolbar` | `x-<value>` per button |
+| `dialog` | `x-trigger`, `x-overlay`, `x-content`, `x-title`, `x-close` |
+| `progress` | `x-indicator` |
+| `aspectratio` | `x-outer` (the sized box), `x` (the ratio), `x-content` |
+| `accessibleicon` | `x-glyph` |
+| `avatar` | `x-fallback` |
 
 ## The observation
 
-Per test id, eleven fields:
+Per test id, twelve fields:
 
 | Field | Ranger (EVG) | Radix (DOM) |
 | --- | --- | --- |
@@ -70,6 +77,7 @@ Per test id, eleven fields:
 | `selected` | `EVGA11yTri` | `aria-selected` |
 | `disabled` | the controller's `disabled` | `disabled` or `aria-disabled` |
 | `tabstop` | `UiRow.tabStop` | `tabIndex >= 0 && !disabled` |
+| `hidden` | inside no open modal, and not decoration | inside no `[aria-hidden="true"]` |
 | `focused` | `UiHost.focusId` | `document.activeElement` |
 | `visible` | reachable from the laid-out display tree | `getClientRects().length > 0` |
 
@@ -107,7 +115,15 @@ new one should be argued for in a pull request rather than added quietly.
    `Accordion.Item` are plain `div`s with no ARIA role; so are their EVG
    counterparts. Both report `"none"` rather than one side inventing a `group`.
 
-3. **Hidden content.** Radix marks closed content hidden, which removes it from
+3. **A modal, and how it masks.** Radix does NOT put `aria-modal` on its
+   dialog; it puts `aria-hidden` on everything else, and that is what a reader
+   observes, so `hidden` is compared and `aria-modal` is not. The EVG side
+   raises `modal` on the dialog's row and `UiHost` marks everything outside
+   its subtree hidden, which is also what `evg-a11y.js` needs to mask the
+   mirror. Measured, not assumed: the first version set `aria-modal` on both
+   sides and diverged.
+
+4. **Hidden content.** Radix marks closed content hidden, which removes it from
    the browser's accessibility tree and paints nothing. EVG has no
    `display:none` that also hides a node from the accessibility surface, so the
    controller detaches the element. Both report `visible: false` — the trace
