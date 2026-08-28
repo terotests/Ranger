@@ -34,6 +34,7 @@ SUITES=(
   office:color:test
   office:asset:test
   office:rtl:editors:test
+  evg:trace:test
 )
 
 failed=()
