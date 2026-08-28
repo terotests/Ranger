@@ -107,6 +107,29 @@ describe("tree literals", () => {
   });
 
   /**
+   * The Radix toolbar, by a SECOND factory. `Bar`, `Group` and `Button` mean
+   * something here that they do not mean in `Menubar` — where `Bar` is the
+   * menu strip and `Button` is not declared at all — and both factories build
+   * plain EVGElements. That is the whole claim about tag resolution being the
+   * factory's business, in one repository.
+   */
+  describe("the toolbar demo", () => {
+    const DEMO = "gallery/ui/demo/ToolbarDemo.rgr";
+
+    it("builds two groups with different selection rules", () => {
+      const run = expectOutput(DEMO, "tb-root");
+      // bold on, italic and underline off: several may be true at once
+      expect(run.output).toContain("tb-button tb-button-bold tb-button-on B");
+      expect(run.output).toContain("tb-button tb-button-italic I");
+      expect(run.output).toContain("tb-button tb-button-underline U");
+      // alignment: exactly one of the three, and it is the middle one
+      expect(run.output.match(/tb-button-align tb-button-on/g)).toHaveLength(1);
+      expect(run.output).toContain("tb-status Edited 2 hours ago");
+      expect(run.output).toContain("tb-share Share");
+    });
+  });
+
+  /**
    * Every one of these has to fail, and the point of listing them is that the
    * checking is not a second implementation of the type checker: a misspelled
    * property is an assignment to a field that does not exist, and a wrongly

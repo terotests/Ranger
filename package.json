@@ -696,9 +696,13 @@
     "datagrid:border:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/BorderRenderTest.rgr ./gallery/datagrid/bin BorderRenderTest.js",
     "datagrid:overflow:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/OverflowRenderTest.rgr ./gallery/datagrid/bin OverflowRenderTest.js",
     "ui:menubar": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.js -nodecli && node ./gallery/ui/bin/MenubarDemo.js",
-    "ui:menubar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && node gallery/ui/demo/render.mjs",
-    "ui:menubar:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs",
-    "ui:menubar:web": "npm run ui:menubar:build && node gallery/ui/demo/build.mjs && PAGE=/gallery/ui/demo/index.html node gallery/ui/web/serve.mjs"
+    "ui:menubar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs && node gallery/ui/demo/render.mjs",
+    "ui:menubar:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs",
+    "ui:menubar:web": "npm run ui:demo:build && node gallery/ui/demo/build.mjs && PAGE=/gallery/ui/demo/index.html node gallery/ui/web/serve.mjs",
+    "ui:demo:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs",
+    "ui:toolbar": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.js -nodecli && node ./gallery/ui/bin/ToolbarDemo.js",
+    "ui:toolbar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs && DEMO=toolbar node gallery/ui/demo/render.mjs",
+    "ui:demo:web": "npm run ui:demo:build && node gallery/ui/demo/build.mjs && PAGE=/gallery/ui/demo/index.html node gallery/ui/web/serve.mjs"
   },
   "repository": {
     "type": "git",

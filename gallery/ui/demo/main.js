@@ -1,28 +1,52 @@
 /**
  * The demo page.
  *
- * Every control rebuilds the tree: the page holds four plain values, hands them
- * to `MenubarDemo.displayListJson`, and paints whatever comes back. There is no
- * diff and nothing is patched — a tree literal builds, and building again is
- * how a change is shown.
+ * Every control rebuilds the tree: the page holds a handful of plain values,
+ * hands them to whichever demo is selected, and paints whatever comes back.
+ * There is no diff and nothing is patched — a tree literal builds, and building
+ * again is how a change is shown.
  */
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
-import { MenubarDemo } from "./generated-host.js";
-import { MENUBAR_CSS } from "./generated.js";
+import { MenubarDemo, ToolbarDemo } from "./generated-host.js";
+import { MENUBAR_CSS, TOOLBAR_CSS } from "./generated.js";
 
 const W = 1240;
-const H = 560;
 
 const CHECK_ITEMS = ["Always Show Bookmarks Bar", "Always Show Full URLs"];
 const PROFILES = ["Andy", "Benoît", "Luis"];
 const MENUS = ["File", "Edit", "View", "Profiles"];
 
 const state = {
+  which: "menubar",
   open: "File",
   submenu: true,
   checked: ["Always Show Full URLs"],
   profile: "Luis",
+  bold: true,
+  italic: false,
+  underline: false,
+  align: "center",
+};
+
+// Two demos, two factories, one page. Each one only has to say how tall it is
+// and how to ask Ranger for its display list; the painting below is the same.
+const DEMOS = {
+  menubar: {
+    height: 560,
+    list: () =>
+      MenubarDemo.displayListJson(
+        MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu,
+      ),
+  },
+  toolbar: {
+    height: 320,
+    list: () =>
+      ToolbarDemo.displayListJson(
+        TOOLBAR_CSS, state.bold, state.italic, state.underline, state.align,
+        "Edited 2 hours ago",
+      ),
+  },
 };
 
 const canvas = document.getElementById("c");
@@ -67,15 +91,9 @@ async function paint() {
   try {
     errEl.textContent = "";
     // Ranger builds the tree, styles it, lays it out and returns the commands.
-    const list = JSON.parse(
-      MenubarDemo.displayListJson(
-        MENUBAR_CSS,
-        state.checked,
-        state.profile,
-        state.open,
-        state.submenu,
-      ),
-    );
+    const demo = DEMOS[state.which];
+    const H = demo.height;
+    const list = JSON.parse(demo.list());
     const doc = { width: W, height: H, list };
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.style.width = W + "px";
@@ -101,6 +119,39 @@ async function paint() {
   }
 }
 
+function syncPanels() {
+  for (const el of document.querySelectorAll("[data-for]")) {
+    el.hidden = el.dataset.for !== state.which;
+  }
+}
+
+radios(
+  document.getElementById("demos"),
+  "demo",
+  ["menubar", "toolbar"],
+  () => state.which,
+  (v) => {
+    state.which = v;
+    syncPanels();
+  },
+);
+boxes(
+  document.getElementById("format"),
+  ["bold", "italic", "underline"],
+  (v) => state[v],
+  (v) => {
+    state[v] = !state[v];
+  },
+);
+radios(
+  document.getElementById("align"),
+  "align",
+  ["left", "center", "right"],
+  () => state.align,
+  (v) => {
+    state.align = v;
+  },
+);
 radios(
   document.getElementById("menus"),
   "menu",
@@ -134,4 +185,5 @@ document.getElementById("submenu").addEventListener("change", (e) => {
   paint();
 });
 
+syncPanels();
 paint();
