@@ -221,6 +221,8 @@ function Playground() {
   const driving = useRef(false);
   /** Set between a Tab keydown and the focusin it causes. */
   const tabbing = useRef(false);
+  /** The element a drag started in the Radix panel is measured against. */
+  const domDragBounds = useRef("");
   const drive = useCallback((fn) => {
     driving.current = true;
     try {
@@ -245,11 +247,40 @@ function Playground() {
     // at all. Measured: five nodes on the Radix side, one on this one.
     // It is also the more faithful event: UiHost's own entry point is
     // pointerDown(), and both sides are observed once everything has settled.
+    // The fraction across the element the control drags against, read off the
+    // DOM's own geometry. Both hosts are asked about the same element, so a
+    // grab on an 18px thumb and one on a 200px rail mean the same point.
+    const fracFor = (boundsTid, e) => {
+      const el = document.querySelector(`[data-tid="${CSS.escape(boundsTid)}"]`);
+      if (!el) return 0;
+      const b = el.getBoundingClientRect();
+      return b.width ? (e.clientX - b.x) / b.width : 0;
+    };
     const onDown = (e) => {
       if (fromCanvas(e)) return;
       const tid = tidOf(e);
       if (tid === null && !radixRef.current.contains(e.target)) return;
+      const boundsTid = tid ? host.dragBoundsFor(tid) : "";
+      if (boundsTid) {
+        // A drag, not a click. Radix is already handling the real pointer; the
+        // EVG side follows it by fraction until the button comes up.
+        domDragBounds.current = boundsTid;
+        host.pressTid(tid, fracFor(boundsTid, e));
+        schedule();
+        return;
+      }
       host.click(tid || "");
+      schedule();
+    };
+    const onMove = (e) => {
+      if (fromCanvas(e) || !domDragBounds.current) return;
+      host.dragFraction(fracFor(domDragBounds.current, e));
+      schedule();
+    };
+    const onUp = () => {
+      if (!domDragBounds.current) return;
+      domDragBounds.current = "";
+      host.pointerUp();
       schedule();
     };
     // A tooltip and a hover card have no other input than this.
@@ -268,10 +299,14 @@ function Playground() {
     };
 
     document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("pointermove", onMove, true);
+    document.addEventListener("pointerup", onUp, true);
     document.addEventListener("pointerover", onOver, true);
     document.addEventListener("contextmenu", onContext, true);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("pointermove", onMove, true);
+      document.removeEventListener("pointerup", onUp, true);
       document.removeEventListener("pointerover", onOver, true);
       document.removeEventListener("contextmenu", onContext, true);
     };
@@ -283,10 +318,131 @@ function Playground() {
    * focus + click for an enabled control, blur otherwise — which is what the
    * headless oracle showed a real press does.
    */
+  /**
+   * Canvas → Radix for a drag. The EVG side is driven by its own hit test and
+   * its own geometry; this puts the same gesture on the reference by asking
+   * both hosts for the fraction across the SAME element — the one the control
+   * drags against, which for a slider is the track whether you grabbed the
+   * rail or the thumb.
+   */
+  const dragging = useRef(false);
+  const pressedTid = useRef("");
+  /**
+   * Pointer capture, faked for the length of a canvas-driven drag.
+   *
+   * Radix grabs the pointer with `setPointerCapture(event.pointerId)` and then
+   * ignores every move where `event.target.hasPointerCapture(id)` is false.
+   * Neither can work here: the real pointer is on the CANVAS, which holds the
+   * capture, and the events going to Radix are replayed. Both failures were
+   * measured, one after the other — first the capture call threw inside
+   * Radix's own handler and it never started dragging, then with that stubbed
+   * it took the press and dropped every move.
+   *
+   * So for the duration of one mirrored drag: capture is a no-op and every
+   * element claims to hold it. Three prototype methods, restored on release.
+   * The headless gate drives Radix with a real mouse and needs none of this.
+   */
+  const savedCapture = useRef(null);
+  const stubPointerCapture = useCallback((on) => {
+    if (on && !savedCapture.current) {
+      savedCapture.current = [
+        Element.prototype.setPointerCapture,
+        Element.prototype.releasePointerCapture,
+        Element.prototype.hasPointerCapture,
+      ];
+      Element.prototype.setPointerCapture = function () {};
+      Element.prototype.releasePointerCapture = function () {};
+      Element.prototype.hasPointerCapture = function () {
+        return true;
+      };
+    } else if (!on && savedCapture.current) {
+      [
+        Element.prototype.setPointerCapture,
+        Element.prototype.releasePointerCapture,
+        Element.prototype.hasPointerCapture,
+      ] = savedCapture.current;
+      savedCapture.current = null;
+    }
+  }, []);
+  const mirrorDrag = useCallback(
+    (tid, e) => {
+      const boundsTid = host.dragBoundsFor(tid);
+      if (!boundsTid) return;
+      const el = document.querySelector(`[data-tid="${CSS.escape(boundsTid)}"]`);
+      if (!el) return;
+      const b = el.getBoundingClientRect();
+      const cr = canvasRef.current.getBoundingClientRect();
+      const evgBox = host.findEl(host.root, boundsTid);
+      if (!evgBox || !evgBox.calculatedWidth) return;
+      const frac = (e.clientX - cr.left - evgBox.calculatedX) / evgBox.calculatedWidth;
+      drive(() => {
+        const x = b.x + b.width * frac;
+        const y = b.y + b.height / 2;
+        el.dispatchEvent(
+          new PointerEvent(dragging.current ? "pointermove" : "pointerdown", {
+            bubbles: true,
+            pointerType: "mouse",
+            clientX: x,
+            clientY: y,
+            buttons: 1,
+            pointerId: 1,
+            isPrimary: true,
+          }),
+        );
+      });
+    },
+    [host, drive],
+  );
+
+  const onCanvasDragMove = useCallback(
+    (e) => {
+      if (!dragging.current) return;
+      const r = canvasRef.current.getBoundingClientRect();
+      host.pointerMove(e.clientX - r.left, e.clientY - r.top);
+      // The bounds come from what was PRESSED, not from what is under the
+      // cursor now — a drag routinely leaves the control it started on.
+      mirrorDrag(pressedTid.current, e);
+      schedule();
+    },
+    [host, mirrorDrag, schedule],
+  );
+
+  const onCanvasUp = useCallback(
+    (e) => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      host.pointerUp();
+      stubPointerCapture(false);
+      drive(() => {
+        document.dispatchEvent(
+          new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse", clientX: e.clientX, clientY: e.clientY }),
+        );
+      });
+      schedule();
+    },
+    [host, drive, schedule, stubPointerCapture],
+  );
+
   const onCanvasPointer = useCallback(
     (e) => {
       const r = canvasRef.current.getBoundingClientRect();
-      const tid = host.pointerDown(e.clientX - r.left, e.clientY - r.top);
+      // pressAt, not pointerDown: a slider's thumb is grabbed, not clicked, and
+      // this is the one host with a real pointer to grab it with.
+      const tid = host.pressAt(e.clientX - r.left, e.clientY - r.top);
+      if (host.dragBoundsFor(tid)) {
+        pressedTid.current = tid;
+        stubPointerCapture(true);
+        mirrorDrag(tid, e);
+        dragging.current = true;
+        try {
+          canvasRef.current.setPointerCapture(e.pointerId);
+        } catch {
+          // A synthetic pointer has none to capture; the drag works without it.
+        }
+        canvasRef.current.focus();
+        schedule();
+        return;
+      }
       const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
       drive(() => {
         if (el && !el.disabled) {
@@ -299,7 +455,7 @@ function Playground() {
       canvasRef.current.focus();
       schedule();
     },
-    [host, schedule, drive],
+    [host, schedule, drive, mirrorDrag, stubPointerCapture],
   );
 
   /**
@@ -558,7 +714,9 @@ function Playground() {
             ref={canvasRef}
             tabIndex={0}
             onPointerDown={onCanvasPointer}
-            onPointerMove={onCanvasMove}
+            onPointerMove={(e) => (dragging.current ? onCanvasDragMove(e) : onCanvasMove(e))}
+            onPointerUp={onCanvasUp}
+            onPointerCancel={onCanvasUp}
             onPointerLeave={onCanvasLeave}
             onContextMenu={onCanvasContext}
           />

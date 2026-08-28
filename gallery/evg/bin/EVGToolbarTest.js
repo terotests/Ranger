@@ -1628,6 +1628,26 @@ class EVGElement  {
       this.box.paddingBottom = EVGUnit.parse(value);
       return;
     }
+    if ( name == "border" ) {
+      const parts = EVGElement.splitWords(value);
+      let i = 0;
+      while (i < (parts.length)) {
+        const tok = parts[i];
+        if ( EVGElement.isBorderStyleWord(tok) ) {
+          if ( tok == "none" ) {
+            this.box.borderWidth = EVGUnit.px(0.0);
+          }
+        } else {
+          if ( EVGElement.looksLikeColor(tok) ) {
+            this.box.borderColor = EVGColor.parse(tok);
+          } else {
+            this.box.borderWidth = EVGUnit.parse(tok);
+          }
+        }
+        i = i + 1;
+      };
+      return;
+    }
     if ( (name == "border-width") || (name == "borderWidth") ) {
       this.box.borderWidth = EVGUnit.parse(value);
       return;
@@ -1986,6 +2006,78 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.splitWords = function(s) {
+  let out = [];
+  let cur = "";
+  let depth = 0;
+  let i = 0;
+  const __len = s.length;
+  while (i < __len) {
+    const c = s.charCodeAt(i );
+    if ( c == 40 ) {
+      depth = depth + 1;
+    }
+    if ( c == 41 ) {
+      depth = depth - 1;
+    }
+    let isSpace = false;
+    if ( depth == 0 ) {
+      if ( c == 32 ) {
+        isSpace = true;
+      }
+      if ( c == 9 ) {
+        isSpace = true;
+      }
+    }
+    if ( isSpace ) {
+      if ( (cur.length) > 0 ) {
+        out.push(cur);
+        cur = "";
+      }
+    } else {
+      cur = cur + (String.fromCharCode(c));
+    }
+    i = i + 1;
+  };
+  if ( (cur.length) > 0 ) {
+    out.push(cur);
+  }
+  return out;
+};
+EVGElement.isBorderStyleWord = function(tok) {
+  if ( tok == "solid" ) {
+    return true;
+  }
+  if ( tok == "dashed" ) {
+    return true;
+  }
+  if ( tok == "dotted" ) {
+    return true;
+  }
+  if ( tok == "double" ) {
+    return true;
+  }
+  if ( tok == "none" ) {
+    return true;
+  }
+  if ( tok == "hidden" ) {
+    return true;
+  }
+  return false;
+};
+EVGElement.looksLikeColor = function(tok) {
+  if ( (tok.length) == 0 ) {
+    return false;
+  }
+  const c = tok.charCodeAt(0 );
+  if ( (c >= 48) && (c <= 57) ) {
+    return false;
+  }
+  if ( c == 46 ) {
+    return false;
+  }
+  return true;
 };
 EVGElement.isPlainNumber = function(s) {
   const __len = s.length;
@@ -5823,7 +5915,23 @@ class EVGDisplayList  {
     this.cmds.length = 0;
     this.walk(root);
   };
+  fadeFrom (start, factor) {
+    if ( factor >= 1.0 ) {
+      return;
+    }
+    let i = start;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      c.a = c.a * factor;
+      i = i + 1;
+    };
+  };
   walk (el) {
+    const emitStart = this.cmds.length;
+    this.walkOpaque(el);
+    this.fadeFrom(emitStart, el.opacity);
+  };
+  walkOpaque (el) {
     const x = el.calculatedX;
     const y = el.calculatedY;
     const w = el.calculatedWidth;
@@ -6346,6 +6454,33 @@ EVGA11yRole.list = function() {
 EVGA11yRole.listItem = function() {
   return 23;
 };
+EVGA11yRole.switchControl = function() {
+  return 24;
+};
+EVGA11yRole.radioGroup = function() {
+  return 25;
+};
+EVGA11yRole.tabPanel = function() {
+  return 26;
+};
+EVGA11yRole.region = function() {
+  return 27;
+};
+EVGA11yRole.progressBar = function() {
+  return 28;
+};
+EVGA11yRole.menu = function() {
+  return 29;
+};
+EVGA11yRole.tooltip = function() {
+  return 30;
+};
+EVGA11yRole.alertDialog = function() {
+  return 31;
+};
+EVGA11yRole.slider = function() {
+  return 32;
+};
 EVGA11yRole.ariaName = function(role) {
   if ( role == 1 ) {
     return "group";
@@ -6416,6 +6551,33 @@ EVGA11yRole.ariaName = function(role) {
   if ( role == 23 ) {
     return "listitem";
   }
+  if ( role == 24 ) {
+    return "switch";
+  }
+  if ( role == 25 ) {
+    return "radiogroup";
+  }
+  if ( role == 26 ) {
+    return "tabpanel";
+  }
+  if ( role == 27 ) {
+    return "region";
+  }
+  if ( role == 28 ) {
+    return "progressbar";
+  }
+  if ( role == 29 ) {
+    return "menu";
+  }
+  if ( role == 30 ) {
+    return "tooltip";
+  }
+  if ( role == 31 ) {
+    return "alertdialog";
+  }
+  if ( role == 32 ) {
+    return "slider";
+  }
   return "none";
 };
 class EVGA11yTri  {
@@ -6467,6 +6629,11 @@ class EVGA11yNode  {
     this.modal = false;
     this.checked = 0;
     this.expanded = 0;
+    this.hasValueNow = false;
+    this.valueNow = 0;
+    this.hasValueRange = false;
+    this.valueMin = 0;
+    this.valueMax = 0;
     this.rowIndex = 0;
     this.colIndex = 0;
     this.rowCount = 0;
@@ -6608,6 +6775,13 @@ class EVGA11yTree  {
     }
     if ( (n.description.length) > 0 ) {
       out = (out + ",\"desc\":") + EVGA11yTree.jsonString(n.description);
+    }
+    if ( n.hasValueNow ) {
+      out = (out + ",\"now\":") + ((n.valueNow.toString()));
+    }
+    if ( n.hasValueRange ) {
+      out = (out + ",\"min\":") + ((n.valueMin.toString()));
+      out = (out + ",\"max\":") + ((n.valueMax.toString()));
     }
     out = (((out + ",\"b\":[") + ((n.x.toString()))) + ",") + ((n.y.toString()));
     out = ((((out + ",") + ((n.w.toString()))) + ",") + ((n.h.toString()))) + "]";

@@ -9867,6 +9867,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.hasRootPath = false;     /** note: unused */
       this.rootPath = "";     /** note: unused */
       this._debug = false;     /** note: unused */
+      this.treeChildCall = {};
+      this.treeTextField = {};
+      this.treeTags = {};
+      this.treeTagDefaults = {};
+      this.treeFactoryNames = {};
+      this.treeTmpCount = 0;
       this.shapeCases = {};
       this.shapeGroupCases = {};
       this.caseAlias = {};
@@ -13694,6 +13700,377 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         };
       }
     };
+    DesugarTrees (node, ctx, wr) {
+      this.collectTreeFactories(node, true, ctx);
+      if ( ((Object.keys(this.treeFactoryNames)).length) > 0 ) {
+        this.expandTreesIn(node, ctx, wr);
+        this.reportStrayTrees(node, ctx);
+      }
+    };
+    reportStrayTrees (node, ctx) {
+      if ( this.isTreeLiteral(node) ) {
+        ctx.addError(node, "a tree literal has to be inside a function body: it builds a tree with statements, and a class field initializer has nowhere to put them");
+        return;
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.reportStrayTrees(ch, ctx);
+      };
+    };
+    isTreeFactoryDeclaration (node) {
+      if ( (node.children.length) != 3 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "treefactory" ) {
+        return false;
+      }
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      const nameNode = node.getSecond();
+      if ( (nameNode.vref.length) == 0 ) {
+        return false;
+      }
+      if ( nameNode.expression ) {
+        return false;
+      }
+      const bodyNode = node.getThird();
+      return bodyNode.is_block_node;
+    };
+    collectTreeFactories (node, atTopLevel, ctx) {
+      let childScope = atTopLevel;
+      if ( node.isFirstVref("class") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("record") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("fn") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("sfn") ) {
+        childScope = false;
+      }
+      let kept = [];
+      let removed = false;
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        if ( this.isTreeFactoryDeclaration(ch) ) {
+          if ( atTopLevel ) {
+            this.registerTreeFactory(ch, ctx);
+          } else {
+            ctx.addError(ch, "treefactory has to be declared at the top level of a file");
+          }
+          removed = true;
+        } else {
+          kept.push(ch);
+          this.collectTreeFactories(ch, childScope, ctx);
+        }
+      };
+      if ( removed ) {
+        node.children.length = 0;
+        for ( let j = 0; j < kept.length; j++) {
+          var k = kept[j];
+          node.add(k);
+        };
+      }
+    };
+    registerTreeFactory (node, ctx) {
+      const nameNode = node.getSecond();
+      const fname = nameNode.vref;
+      if ( ( typeof(this.treeFactoryNames[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeFactoryNames, fname) ) ) {
+        ctx.addError(node, ("treefactory " + fname) + " is declared twice");
+        return;
+      }
+      this.treeFactoryNames[fname] = true;
+      this.treeChildCall[fname] = "";
+      this.treeTextField[fname] = "";
+      const body = node.getThird();
+      for ( let i = 0; i < body.children.length; i++) {
+        var st = body.children[i];
+        if ( (st.children.length) == 0 ) {
+          ctx.addError(st, "expected child, text or tag");
+        } else {
+          const head = st.getFirst();
+          const kw = head.vref;
+          if ( kw == "child" ) {
+            if ( (st.children.length) == 2 ) {
+              this.treeChildCall[fname] = (st.getSecond()).vref;
+            } else {
+              ctx.addError(st, "child takes one method name");
+            }
+          } else {
+            if ( kw == "text" ) {
+              if ( (st.children.length) == 2 ) {
+                this.treeTextField[fname] = (st.getSecond()).vref;
+              } else {
+                ctx.addError(st, "text takes one field name");
+              }
+            } else {
+              if ( kw == "tag" ) {
+                const argc = st.children.length;
+                if ( (argc == 3) || (argc == 4) ) {
+                  const tagName = (st.getSecond()).vref;
+                  const clsName = (st.getThird()).vref;
+                  const tagKey = (fname + " ") + tagName;
+                  this.treeTags[tagKey] = clsName;
+                  if ( argc == 4 ) {
+                    const defs = st.children[3];
+                    if ( this.isTreeKeyword(defs, "props") ) {
+                      this.treeTagDefaults[tagKey] = defs;
+                    } else {
+                      ctx.addError(defs, "a tag's defaults are a props form");
+                    }
+                  }
+                } else {
+                  ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
+                }
+              } else {
+                ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text or tag");
+              }
+            }
+          }
+        }
+      };
+    };
+    isTreeLiteral (node) {
+      if ( (node.children.length) != 3 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "tree" ) {
+        return false;
+      }
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      const nameNode = node.getSecond();
+      if ( (nameNode.vref.length) == 0 ) {
+        return false;
+      }
+      return nameNode.expression == false;
+    };
+    expandTreesIn (node, ctx, wr) {
+      let memberScope = false;
+      if ( node.isFirstVref("class") ) {
+        memberScope = true;
+      }
+      if ( node.isFirstVref("record") ) {
+        memberScope = true;
+      }
+      if ( node.isFirstVref("systemclass") ) {
+        memberScope = true;
+      }
+      if ( memberScope ) {
+        for ( let i = 0; i < node.children.length; i++) {
+          var ch = node.children[i];
+          if ( ch.is_block_node ) {
+            for ( let j = 0; j < ch.children.length; j++) {
+              var m = ch.children[j];
+              this.expandTreesIn(m, ctx, wr);
+            };
+          } else {
+            this.expandTreesIn(ch, ctx, wr);
+          }
+        };
+        return;
+      }
+      if ( node.is_block_node ) {
+        this.expandTreesInBlock(node, ctx, wr);
+        return;
+      }
+      for ( let i_1 = 0; i_1 < node.children.length; i_1++) {
+        var ch_1 = node.children[i_1];
+        this.expandTreesIn(ch_1, ctx, wr);
+      };
+    };
+    expandTreesInBlock (block, ctx, wr) {
+      let out = [];
+      for ( let i = 0; i < block.children.length; i++) {
+        var stmt = block.children[i];
+        let prelude = [];
+        this.lowerTreesIn(stmt, prelude, ctx, wr);
+        for ( let j = 0; j < prelude.length; j++) {
+          var p = prelude[j];
+          out.push(p);
+        };
+        out.push(stmt);
+      };
+      block.children.length = 0;
+      for ( let k = 0; k < out.length; k++) {
+        var n = out[k];
+        block.add(n);
+      };
+    };
+    lowerTreesIn (node, prelude, ctx, wr) {
+      if ( node.is_block_node ) {
+        this.expandTreesInBlock(node, ctx, wr);
+        return;
+      }
+      if ( this.isTreeLiteral(node) ) {
+        const fname = (node.getSecond()).vref;
+        if ( (( typeof(this.treeFactoryNames[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeFactoryNames, fname) )) == false ) {
+          ctx.addError(node, "no treefactory named " + fname);
+          return;
+        }
+        const reg = this.lowerTreeElement(node.getThird(), fname, prelude, ctx, wr);
+        if ( (reg.length) > 0 ) {
+          this.rewriteAsVRef(node, reg);
+        }
+        return;
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.lowerTreesIn(ch, prelude, ctx, wr);
+      };
+    };
+    rewriteAsVRef (node, name) {
+      node.children.length = 0;
+      node.expression = false;
+      node.vref = name;
+      node.value_type = 11;
+      node.parsed_type = 11;
+      node.ns.length = 0;
+      node.ns.push(name);
+    };
+    lowerTreeElement (el, fname, prelude, ctx, wr) {
+      if ( (el.children.length) == 0 ) {
+        ctx.addError(el, "expected a tag");
+        return "";
+      }
+      const head = el.getFirst();
+      const tagName = head.vref;
+      const key = (fname + " ") + tagName;
+      if ( (( typeof(this.treeTags[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, key) )) == false ) {
+        ctx.addError(el, (("treefactory " + fname) + " has no tag ") + tagName);
+        return "";
+      }
+      const clsName = (( Object.prototype.hasOwnProperty.call(this.treeTags, key) ? this.treeTags[key] : undefined ));
+      this.treeTmpCount = this.treeTmpCount + 1;
+      const reg = "_tree" + ((this.treeTmpCount.toString()));
+      const defNode = el.newExpressionNode();
+      defNode.add(el.newVRefNode("def"));
+      defNode.add(el.newVRefNode(reg));
+      const newNode = el.newExpressionNode();
+      newNode.add(el.newVRefNode("new"));
+      newNode.add(el.newVRefNode(clsName));
+      defNode.add(newNode);
+      prelude.push(defNode);
+      if ( ( typeof(this.treeTagDefaults[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ) ) {
+        this.lowerTreeProps((( Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ? this.treeTagDefaults[key] : undefined )), reg, prelude, ctx, wr);
+      }
+      let idx = 1;
+      while (idx < (el.children.length)) {
+        const ch = el.children[idx];
+        if ( this.isTreeKeyword(ch, "props") ) {
+          this.lowerTreeProps(ch, reg, prelude, ctx, wr);
+        } else {
+          if ( this.isTreeKeyword(ch, "child") ) {
+            this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
+          } else {
+            this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
+          }
+        }
+        idx = idx + 1;
+      };
+      return reg;
+    };
+    isTreeKeyword (node, word) {
+      if ( (node.children.length) == 0 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      return head.vref == word;
+    };
+    lowerComputedChildren (ch, reg, fname, prelude, ctx, wr) {
+      const childCall = (( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined ));
+      if ( (childCall.length) == 0 ) {
+        ctx.addError(ch, ("treefactory " + fname) + " has no `child` method");
+        return;
+      }
+      if ( (ch.children.length) < 2 ) {
+        ctx.addError(ch, "child takes one or more expressions");
+        return;
+      }
+      let idx = 1;
+      while (idx < (ch.children.length)) {
+        prelude.push(this.treeCall(ch, reg, childCall, (ch.children[idx])));
+        idx = idx + 1;
+      };
+    };
+    treeCall (at_node, reg, method, arg) {
+      const call = at_node.newExpressionNode();
+      call.add(at_node.newVRefNode(((reg + ".") + method)));
+      const args = at_node.newExpressionNode();
+      args.add(arg.copy());
+      call.add(args);
+      return call;
+    };
+    lowerTreeProps (propsNode, reg, prelude, ctx, wr) {
+      let idx = 1;
+      while (idx < (propsNode.children.length)) {
+        const pair = propsNode.children[idx];
+        if ( (pair.children.length) != 2 ) {
+          ctx.addError(pair, "a property is a name and a value");
+        } else {
+          const pName = (pair.getFirst()).vref;
+          prelude.push(this.treeAssign(pair, reg, pName, pair.getSecond()));
+        }
+        idx = idx + 1;
+      };
+    };
+    treeAssign (at_node, reg, field, value) {
+      const assign = at_node.newExpressionNode();
+      assign.add(at_node.newVRefNode("="));
+      assign.add(at_node.newVRefNode(((reg + ".") + field)));
+      assign.add(value.copy());
+      return assign;
+    };
+    lowerTreeChild (ch, reg, fname, prelude, ctx, wr) {
+      let isElement = false;
+      if ( (ch.children.length) > 0 ) {
+        const head = ch.getFirst();
+        if ( (head.ns.length) == 1 ) {
+          if ( ( typeof(this.treeTags[((fname + " ") + head.vref)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, ((fname + " ") + head.vref)) ) ) {
+            isElement = true;
+          }
+        }
+      }
+      if ( isElement ) {
+        const childCall = (( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined ));
+        if ( (childCall.length) == 0 ) {
+          ctx.addError(ch, ("treefactory " + fname) + " has no `child` method, so it cannot nest");
+          return;
+        }
+        const childReg = this.lowerTreeElement(ch, fname, prelude, ctx, wr);
+        if ( (childReg.length) == 0 ) {
+          return;
+        }
+        prelude.push(this.treeCall(ch, reg, childCall, ch.newVRefNode(childReg)));
+        return;
+      }
+      if ( ch.expression ) {
+        if ( (ch.children.length) == 0 ) {
+          ctx.addError(ch, "empty child: props are optional, so `()` is never needed");
+          return;
+        }
+        const h = ch.getFirst();
+        if ( (h.ns.length) == 1 ) {
+          ctx.addError(ch, ((((h.vref + " is not a tag of treefactory ") + fname) + " — declare it with `tag`, or wrap a computed child in `(child ") + h.vref) + " …)");
+          return;
+        }
+      }
+      const textField = (( Object.prototype.hasOwnProperty.call(this.treeTextField, fname) ? this.treeTextField[fname] : undefined ));
+      if ( (textField.length) == 0 ) {
+        ctx.addError(ch, ("treefactory " + fname) + " has no `text` field, so a value cannot be a child here");
+        return;
+      }
+      prelude.push(this.treeAssign(ch, reg, textField, ch));
+    };
     DesugarShapes (node, ctx, wr) {
       let renames = {};
       this.expandShapesIn(node, ctx, wr, renames);
@@ -15544,6 +15921,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     async CollectMethods (node, ctx, wr) {
       this.DesugarShapes(node, ctx, wr);
+      this.DesugarTrees(node, ctx, wr);
       this.WalkCollectTemplates(node, ctx, wr);
       await this.WalkCollectMethods(node, ctx, wr);
       let allTypes = [];

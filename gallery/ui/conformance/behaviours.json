@@ -274,7 +274,12 @@
         "arrow-decrement": "Left and Down subtract a step",
         "home-end": "Home goes to the minimum and End to the maximum",
         "clamped": "the value never leaves the range",
-        "disabled-inert": "a disabled slider takes neither focus nor keys"
+        "disabled-inert": "a disabled slider takes neither focus nor keys",
+        "pointer-jump": "pressing the track moves the value to that point",
+        "pointer-drag": "holding and moving keeps the value under the cursor",
+        "drag-clamped": "dragging past an end stops at it",
+        "pointer-focuses-thumb": "a press on the rail focuses the thumb, not the rail",
+        "step-snapped": "a dragged value lands on the step grid"
       }
     },
     "toast": {

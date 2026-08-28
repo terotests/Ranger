@@ -153,6 +153,25 @@ class UiCtl {
         return ""
     }
 
+    ; --- dragging -------------------------------------------------------------
+    ; A slider's real input is the pointer, and a pointer drag is the one thing
+    ; a controller cannot resolve on its own: the value under the cursor is a
+    ; function of where the TRACK was laid out, and only the host knows that.
+    ;
+    ; So a controller names the element whose rectangle the drag is measured
+    ; against, and the host hands back the position as a fraction of it. "" for
+    ; a controller that does not drag, which is all of them but one.
+    fn dragBoundsTid:string (target:string) {
+        return ""
+    }
+
+    ; `frac` is 0 at the left edge of those bounds and 1 at the right, and is
+    ; deliberately NOT clamped — dragging past the end is a real gesture, and
+    ; what the control does with it is part of the contract.
+    fn dragTo:string (frac:double) {
+        return ""
+    }
+
     fn rows:[UiRow] () {
         def a:[UiRow]
         return a

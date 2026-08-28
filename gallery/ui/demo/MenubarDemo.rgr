@@ -1,0 +1,328 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MenubarDemo — the Radix menubar example, written with Ranger tree literals
+; =============================================================================
+; The reference is https://www.radix-ui.com/primitives/docs/components/menubar,
+; roughly 200 lines of JSX. This is the same menu structure as a Ranger tree
+; literal over EVG elements: four menus, two submenus, checkbox items, a radio
+; group, separators, disabled items and right-hand shortcut slots.
+;
+; What this is FOR: seeing the ergonomics of the tree syntax on something that
+; is not a toy. It is a structure, not a component library — there is no
+; keyboard handling, no focus and no open/close state here. Those belong to a
+; MenubarCtl in gallery/ui/src, which does not exist yet; this is what its
+; `build()` would be able to look like.
+;
+; Three things the demo made obvious, all of them written down rather than
+; worked around:
+;
+;   * a tag carries defaults. `tag Text EVGElement (props (elementType 1))`
+;     means the factory knows a text leaf is an EVGElement in text mode, so no
+;     call site repeats it. That option exists because writing this without it
+;     read badly.
+;   * a component is a function. `item`, `checkItem` and `radioItem` below are
+;     ordinary Ranger functions returning EVGElement, spliced in with `(child
+;     …)`. No component type, no registration.
+;   * a literal cannot name a node inside itself, so anything that has to be
+;     mutated later is looked up by id afterwards. For a menu that is fine —
+;     the whole thing is rebuilt on a state change — and for a controller that
+;     keeps `thumbEl` it is the gap named in PLAN_TREE_LITERALS.md.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+
+; -----------------------------------------------------------------------------
+; The factory. Every tag is an EVGElement — EVG has one element type and the
+; tags carry the INTENT, which is what the stylesheet then matches on. A
+; different factory over the same tags could build something else entirely.
+; -----------------------------------------------------------------------------
+
+treefactory Menubar {
+    child addChild
+    text  textContent
+
+    tag Bar        EVGElement (props (className "mb-root"))
+    tag Menu       EVGElement (props (className "mb-menu"))
+    tag Trigger    EVGElement (props (className "mb-trigger") (elementType 1))
+    tag Content    EVGElement (props (className "mb-content"))
+    tag Row        EVGElement (props (className "mb-item"))
+    tag Label      EVGElement (props (className "mb-label") (elementType 1))
+    tag Shortcut   EVGElement (props (className "mb-shortcut") (elementType 1))
+    tag Indicator  EVGElement (props (className "mb-indicator") (elementType 1))
+    tag Separator  EVGElement (props (className "mb-separator"))
+    tag SubContent EVGElement (props (className "mb-subcontent"))
+}
+
+class MenubarDemo {
+
+    ; --- components: ordinary functions that return a node ---------------------
+
+    ; "New Tab            ⌘ T"
+    sfn item:EVGElement (label:string shortcut:string) {
+        return (tree Menubar
+            (Row
+                (Label label)
+                (Shortcut shortcut)))
+    }
+
+    ; A disabled row greys its label. The extra class is written here rather
+    ; than matched with a descendant selector, because EVGStyleSheet matches one
+    ; class token per selector and a compound rule would silently do nothing.
+    sfn disabledItem:EVGElement (label:string shortcut:string) {
+        return (tree Menubar
+            (Row (props (className "mb-item mb-item-disabled"))
+                (Label (props (className "mb-label mb-label-disabled")) label)
+                (Shortcut shortcut)))
+    }
+
+    ; A submenu trigger carries the chevron in the same right-hand slot the
+    ; shortcuts use, which is why there is no separate SubTrigger tag.
+    sfn subTrigger:EVGElement (label:string) {
+        return (tree Menubar
+            (Row (props (className "mb-item mb-item-sub"))
+                (Label label)
+                (Shortcut ">")))
+    }
+
+    ; The indicator is always present and always the same width, so the labels
+    ; of checked and unchecked items line up. Radix does this with an `inset`
+    ; class; here the glyph is simply empty when the item is off.
+    sfn checkItem:EVGElement (label:string on:boolean) {
+        def glyph:string " "
+        if on {
+            glyph = "✓"
+        }
+        return (tree Menubar
+            (Row (props (className "mb-item mb-item-inset"))
+                (Indicator glyph)
+                (Label (props (className "mb-label mb-label-inset")) label)))
+    }
+
+    sfn radioItem:EVGElement (label:string on:boolean) {
+        def glyph:string " "
+        if on {
+            glyph = "●"
+        }
+        return (tree Menubar
+            (Row (props (className "mb-item mb-item-inset"))
+                (Indicator glyph)
+                (Label (props (className "mb-label mb-label-inset")) label)))
+    }
+
+    ; --- the four menus --------------------------------------------------------
+
+    sfn fileMenu:EVGElement () {
+        return (tree Menubar
+            (Menu (props (id "menu-file"))
+                (Trigger (props (className "mb-trigger mb-trigger-open")) "File")
+                (Content (props (id "menu-file-content"))
+                    (child (MenubarDemo.item("New Tab" "⌘ T")))
+                    (child (MenubarDemo.item("New Window" "⌘ N")))
+                    (child (MenubarDemo.disabledItem("New Incognito Window" "")))
+                    (Separator)
+                    (child (MenubarDemo.subTrigger("Share")))
+                    (Separator)
+                    (child (MenubarDemo.item("Print…" "⌘ P"))))))
+    }
+
+    ; The Share submenu, which in the reference is a portal next to its trigger.
+    ; Nothing here paints it in the right place — an overlay layer is what
+    ; gallery/ui/PLAN.md calls out as the next piece of work — so it is built as
+    ; its own tree and the demo lays it out beside the menu.
+    sfn shareSubmenu:EVGElement () {
+        return (tree Menubar
+            (SubContent (props (id "menu-share"))
+                (child (MenubarDemo.item("Email Link" "")))
+                (child (MenubarDemo.item("Messages" "")))
+                (child (MenubarDemo.item("Notes" "")))))
+    }
+
+    sfn editMenu:EVGElement () {
+        return (tree Menubar
+            (Menu (props (id "menu-edit"))
+                (Trigger "Edit")
+                (Content (props (id "menu-edit-content"))
+                    (child (MenubarDemo.item("Undo" "⌘ Z")))
+                    (child (MenubarDemo.item("Redo" "⇧ ⌘ Z")))
+                    (Separator)
+                    (child (MenubarDemo.subTrigger("Find")))
+                    (Separator)
+                    (child (MenubarDemo.item("Cut" "")))
+                    (child (MenubarDemo.item("Copy" "")))
+                    (child (MenubarDemo.item("Paste" ""))))))
+    }
+
+    ; The View menu is where the reference maps over an array, and the point of
+    ; this one is that a loop is an ordinary loop: build the children first,
+    ; then hand them to `(child …)`.
+    sfn viewMenu:EVGElement (checked:[string]) {
+        return (tree Menubar
+            (Menu (props (id "menu-view"))
+                (Trigger "View")
+                (child (MenubarDemo.viewContent(checked)))))
+    }
+
+    sfn viewContent:EVGElement (checked:[string]) {
+        def content (tree Menubar (Content (props (id "menu-view-content")) (props (className "mb-content mb-content-wide"))))
+        def labels:[string]
+        push labels "Always Show Bookmarks Bar"
+        push labels "Always Show Full URLs"
+        def i:int 0
+        while (i < (array_length labels)) {
+            def label:string (itemAt labels i)
+            def on:boolean false
+            def j:int 0
+            while (j < (array_length checked)) {
+                if ((itemAt checked j) == label) {
+                    on = true
+                }
+                j = (j + 1)
+            }
+            content.addChild((MenubarDemo.checkItem(label on)))
+            i = (i + 1)
+        }
+        content.addChild((tree Menubar (Separator)))
+        content.addChild((MenubarDemo.item("Reload" "⌘ R")))
+        content.addChild((MenubarDemo.disabledItem("Force Reload" "⇧ ⌘ R")))
+        content.addChild((tree Menubar (Separator)))
+        content.addChild((MenubarDemo.item("Toggle Fullscreen" "")))
+        content.addChild((tree Menubar (Separator)))
+        content.addChild((MenubarDemo.item("Hide Sidebar" "")))
+        return content
+    }
+
+    sfn profilesMenu:EVGElement (selected:string) {
+        return (tree Menubar
+            (Menu (props (id "menu-profiles"))
+                (Trigger "Profiles")
+                (child (MenubarDemo.profilesContent(selected)))))
+    }
+
+    sfn profilesContent:EVGElement (selected:string) {
+        def content (tree Menubar (Content (props (id "menu-profiles-content")) (props (className "mb-content mb-content-narrow"))))
+        def names:[string]
+        push names "Andy"
+        push names "Benoît"
+        push names "Luis"
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            content.addChild((MenubarDemo.radioItem(name (name == selected))))
+            i = (i + 1)
+        }
+        content.addChild((tree Menubar (Separator)))
+        content.addChild((MenubarDemo.item("Edit…" "")))
+        content.addChild((tree Menubar (Separator)))
+        content.addChild((MenubarDemo.item("Add Profile…" "")))
+        return content
+    }
+
+    ; --- the whole thing -------------------------------------------------------
+
+    sfn build:EVGElement (checked:[string] profile:string) {
+        return (tree Menubar
+            (Bar (props (id "menubar"))
+                (child (MenubarDemo.fileMenu()))
+                (child (MenubarDemo.editMenu()))
+                (child (MenubarDemo.viewMenu(checked)))
+                (child (MenubarDemo.profilesMenu(profile)))))
+    }
+
+    ; A flat description of what was built, so a test can assert on the shape
+    ; without a browser.
+    sfn describe:string (el:EVGElement depth:int) {
+        def pad:string ""
+        def i:int 0
+        while (i < depth) {
+            pad = pad + "  "
+            i = (i + 1)
+        }
+        def line:string ((pad + el.className))
+        if ((strlen el.textContent) > 0) {
+            line = ((line + " ") + el.textContent)
+        }
+        def out:string (line + "\n")
+        def j:int 0
+        while (j < (array_length el.children)) {
+            out = out + (MenubarDemo.describe((itemAt el.children j) (depth + 1)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; --- the picture -----------------------------------------------------------
+    ; `build()` above is the whole menubar as a structure, every menu with its
+    ; contents, and that is what `describe()` prints. It is NOT what a screen
+    ; shows: EVG has no overlay layer yet (gallery/ui/PLAN.md), so laying that
+    ; structure out in flow stacks all four dropdowns down the page instead of
+    ; floating one under its trigger. Until that layer exists, the picture is
+    ; composed by hand — a bar of triggers, then the panels that would be
+    ; portalled — which is exactly the gap, made visible rather than hidden.
+
+    sfn barRow:EVGElement () {
+        return (tree Menubar
+            (Bar (props (id "menubar"))
+                (Trigger (props (className "mb-trigger mb-trigger-open")) "File")
+                (Trigger "Edit")
+                (Trigger "View")
+                (Trigger "Profiles")))
+    }
+
+    sfn page:EVGElement (checked:[string] profile:string) {
+        def root (tree Menubar (Bar (props (id "page") (className "mb-page"))))
+        root.addChild((MenubarDemo.barRow()))
+        def row (tree Menubar (Bar (props (id "panels") (className "mb-dropdown-row"))))
+        row.addChild((MenubarDemo.fileContent()))
+        row.addChild((MenubarDemo.shareSubmenu()))
+        row.addChild((MenubarDemo.viewContent(checked)))
+        row.addChild((MenubarDemo.profilesContent(profile)))
+        root.addChild(row)
+        return root
+    }
+
+    sfn fileContent:EVGElement () {
+        return (tree Menubar
+            (Content (props (id "menu-file-content"))
+                (child (MenubarDemo.item("New Tab" "⌘ T")))
+                (child (MenubarDemo.item("New Window" "⌘ N")))
+                (child (MenubarDemo.disabledItem("New Incognito Window" "")))
+                (Separator)
+                (child (MenubarDemo.subTrigger("Share")))
+                (Separator)
+                (child (MenubarDemo.item("Print…" "⌘ P")))))
+    }
+
+    ; Style, lay out, and hand back the display list a painter can draw.
+    sfn displayListJson:string (css:string checked:[string] profile:string) {
+        def root:EVGElement (MenubarDemo.page(checked profile))
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        sheet.setViewport(1240.0 560.0 false)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(1240.0 560.0)
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn styleErrors:int (css:string) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        return (sheet.getErrorCount())
+    }
+
+    sfn main:void () {
+        def checked:[string]
+        push checked "Always Show Full URLs"
+        def bar:EVGElement (MenubarDemo.build(checked "Luis"))
+        print (MenubarDemo.describe(bar 0))
+    }
+}

@@ -361,20 +361,27 @@
    focusable node with no height is a lint failure — you cannot click what has
    no area, however correct its ARIA is. */
 
-.ui-slider { display: flex; flex-direction: column; width: 200px; gap: 6px; }
+.ui-slider { width: 200px; height: 18px; }
 .ui-slider-track {
   background-color: #e2e8f0;
   border-radius: 999px;
   width: 200px;
   height: 6px;
+  margin-top: 6px;
 }
 .ui-slider-range { background-color: #2563eb; height: 6px; border-radius: 999px; }
+/* The thumb sits ON the track, not under it: absolute, with `left` written as
+   a percentage by the controller and a negative margin pulling it back by half
+   its own width — the pre-transform way to centre something on a point, and
+   EVG adds marginLeft to an absolute element's x. */
 .ui-slider-thumb {
   border: 1px solid #2563eb;
   border-radius: 999px;
   background-color: #ffffff;
   width: 18px;
   height: 18px;
+  top: 0;
+  margin-left: -9px;
 }
 .ui-slider-thumb-disabled { opacity: 0.45; }
 

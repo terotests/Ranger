@@ -1,0 +1,98 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The Radix menubar example's look, as an EVG stylesheet. Class-first: every
+ * class here is one the tree literal in MenubarDemo.rgr writes, and the
+ * literal itself carries no appearance at all.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so the compound classes
+ * the demo writes ("mb-item mb-item-disabled") are matched by their own token
+ * rather than by a compound selector. That limit is in gallery/ui/PLAN.md.
+ */
+
+.mb-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #6d5ce7;
+  padding: 40px;
+  width: 1240px;
+  height: 560px;
+}
+
+/* --- the bar ---------------------------------------------------------------- */
+
+.mb-root {
+  display: flex;
+  flex-direction: row;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 4px;
+  width: 320px;
+  height: 44px;
+}
+
+.mb-menu { display: flex; flex-direction: column; }
+.mb-dropdown-row { display: flex; flex-direction: row; gap: 14px; margin-top: 10px; }
+
+.mb-trigger {
+  color: #4c2889;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 6px;
+}
+.mb-trigger-open { background-color: #ece7fd; }
+
+/* --- a dropdown ------------------------------------------------------------- */
+
+.mb-content {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 6px;
+  width: 300px;
+}
+
+.mb-subcontent {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 6px;
+  width: 200px;
+}
+
+/* No fixed height: a label longer than its column wraps, and a row that cannot
+   grow would paint the second line over the row beneath it. */
+.mb-item {
+  display: flex;
+  flex-direction: row;
+  padding: 7px 10px;
+  border-radius: 4px;
+}
+.mb-item-inset { padding: 7px 10px; }
+
+/* Fixed, not `fill`: EVG's `fill` resolves to the parent's full width rather
+ * than to what the siblings leave, so a filled label pushes the shortcut onto
+ * the next line. Measured, and the reason these are numbers. */
+.mb-label { color: #4c2889; font-size: 14px; width: 200px; }
+.mb-shortcut { color: #9d8bd4; font-size: 13px; text-align: right; width: 60px; }
+.mb-indicator { color: #4c2889; font-size: 13px; width: 22px; }
+
+/* Disabled is the one state visible in a still picture, and the reference makes
+ * it grey rather than translucent, so this does too. */
+.mb-label-disabled { color: #b3a7d9; }
+
+.mb-separator {
+  background-color: #e6e0fb;
+  height: 1px;
+  width: 100%;
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+.mb-content-narrow { width: 230px; }
+.mb-content-wide { width: 300px; }
+/* An inset row spends 22px on the indicator, so its label is narrower by that
+ * much or the row wraps and the tick lands on its own line. */
+.mb-label-inset { width: 176px; }

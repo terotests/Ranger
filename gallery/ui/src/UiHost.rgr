@@ -399,6 +399,108 @@ class UiHost {
         }
     }
 
+    ; --- dragging -------------------------------------------------------------
+    ; The pointer held down and moved. A slider is the reason this exists: its
+    ; real input is a drag, and the value under the cursor depends on where the
+    ; TRACK ended up, which is a fact about the laid-out tree and so the host's
+    ; to answer. The controller names the element to measure against; the host
+    ; turns a coordinate into a fraction of it.
+
+    ; The controller currently being dragged, and the element its drag is
+    ; measured against. Empty when no button is down.
+    def dragTid:string ""
+    def dragBounds:string ""
+
+    ; x as a fraction of `boundsTid`'s laid-out width: 0 at its left edge, 1 at
+    ; its right. NOT clamped — dragging past the end is a real gesture.
+    fn fractionIn:double (boundsTid:string px:double) {
+        def r:EVGElement (unwrap root)
+        def maybe@(optional):EVGElement (this.findEl(r boundsTid))
+        if maybe {
+            def el:EVGElement (unwrap maybe)
+            if (el.calculatedWidth > 0.0) {
+                return ((px - el.calculatedX) / el.calculatedWidth)
+            }
+        }
+        return 0.0
+    }
+
+    ; Which element's rectangle a press on `target` would be measured against,
+    ; or "" if pressing it is not a drag. Anything driving this host from the
+    ; outside — the conformance adapter, the browser playground — asks first, so
+    ; both sides of a comparison measure the SAME rectangle. Pressing an 18px
+    ; thumb and pressing a 200px rail are the same gesture on the same track,
+    ; and a fraction of the thumb would mean nothing.
+    fn dragBoundsFor:string (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragBoundsTid(target))
+        }
+        return ""
+    }
+
+    ; Press on `target` at `frac` across its drag bounds. Nothing here converts
+    ; coordinates, so a caller that already has a fraction — from the DOM's own
+    ; geometry, say — does not have to invent EVG pixels to express it.
+    fn pressTid:void (target:string frac:double) {
+        def bounds:string (this.dragBoundsFor(target))
+        if ((strlen bounds) == 0) {
+            this.click(target)
+            return
+        }
+        dragTid = target
+        dragBounds = bounds
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragTo(frac))
+            if ((strlen next) > 0) {
+                focusId = next
+                c.onFocus(next)
+            }
+        }
+    }
+
+    fn dragFraction:void (frac:double) {
+        if ((strlen dragTid) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(dragTid))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragTo(frac))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+        }
+    }
+
+    ; The coordinate entry points, for a host that has a real pointer: the
+    ; canvas in the playground, and eventually an SDL or browser window.
+    fn pressAt:string (px:double py:double) {
+        def target:string (this.hitTest(px py))
+        def bounds:string (this.dragBoundsFor(target))
+        if ((strlen bounds) == 0) {
+            this.click(target)
+            return target
+        }
+        this.pressTid(target (this.fractionIn(bounds px)))
+        return target
+    }
+
+    fn pointerMove:void (px:double py:double) {
+        if ((strlen dragBounds) == 0) {
+            return
+        }
+        this.dragFraction((this.fractionIn(dragBounds px)))
+    }
+
+    fn pointerUp:void () {
+        dragTid = ""
+        dragBounds = ""
+    }
+
     ; Focus cannot survive the node it was on going away. A browser drops it to
     ; the document; so does this. Without it, closing a context menu with
     ; Escape would leave focus on a menu item that no longer exists.

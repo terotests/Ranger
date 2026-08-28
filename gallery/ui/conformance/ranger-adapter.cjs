@@ -51,6 +51,31 @@ function run(spec, css) {
     } else if ("unhover" in step) {
       host.unhover();
       observe("unhover");
+    } else if ("press" in step) {
+      // The fraction goes straight in: the spec says "80% across the track",
+      // and each side resolves that against its own geometry rather than
+      // trading pixels that mean different things.
+      //
+      // Which makes it essential that both sides measure the same rectangle.
+      // The DOM adapter can only use the element the spec names, so the spec
+      // must name the one the control actually drags against — pressing an
+      // 18px thumb "at 0.8" and a 200px track "at 0.8" are different points.
+      // Checked rather than documented: a silent divergence here would look
+      // like a behaviour difference.
+      const bounds = host.dragBoundsFor(step.press);
+      if (bounds && bounds !== step.press) {
+        throw new Error(
+          `press "${step.press}" is measured against "${bounds}" — name that in the spec instead`,
+        );
+      }
+      host.pressTid(step.press, step.at ?? 0.5);
+      observe("press " + step.press + " @" + (step.at ?? 0.5));
+    } else if ("dragto" in step) {
+      host.dragFraction(step.dragto);
+      observe("dragto " + step.dragto);
+    } else if ("release" in step) {
+      host.pointerUp();
+      observe("release");
     } else if ("rightclick" in step) {
       host.rightClick(step.rightclick);
       observe("rightclick " + step.rightclick);

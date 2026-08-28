@@ -341,9 +341,15 @@ export function Control({ spec }) {
       return <ToastControl spec={spec} tid={tid} />;
 
     case "slider":
+      // The ONLY styled control here, and only its geometry. Everything else in
+      // this host is deliberately unstyled — the harness compares behaviour,
+      // not pixels — but a slider's pointer behaviour IS a function of its
+      // geometry: with no width its track is 0x0, there is nothing to press,
+      // and dragging it measured no change at any position. Sizes, not colours.
       return (
         <Slider.Root
           data-tid={tid}
+          style={{ position: "relative", display: "flex", alignItems: "center", width: 200, height: 18 }}
           aria-label={spec.name}
           defaultValue={[spec.value ?? 50]}
           min={spec.min ?? 0}
@@ -351,10 +357,20 @@ export function Control({ spec }) {
           step={spec.step ?? 1}
           disabled={!!spec.disabled}
         >
-          <Slider.Track data-tid={tid + "-track"}>
-            <Slider.Range data-tid={tid + "-range"} />
+          <Slider.Track
+            data-tid={tid + "-track"}
+            style={{ position: "relative", flexGrow: 1, height: 6, background: "#e2e8f0" }}
+          >
+            <Slider.Range
+              data-tid={tid + "-range"}
+              style={{ position: "absolute", height: "100%", background: "#2563eb" }}
+            />
           </Slider.Track>
-          <Slider.Thumb data-tid={tid + "-thumb"} aria-label={spec.name} />
+          <Slider.Thumb
+            data-tid={tid + "-thumb"}
+            aria-label={spec.name}
+            style={{ display: "block", width: 18, height: 18, background: "#fff", border: "1px solid #2563eb", borderRadius: 999 }}
+          />
         </Slider.Root>
       );
 
