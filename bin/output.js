@@ -9870,6 +9870,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.treeChildCall = {};
       this.treeTextField = {};
       this.treeTags = {};
+      this.treeTagDefaults = {};
       this.treeFactoryNames = {};
       this.treeTmpCount = 0;
       this.shapeCases = {};
@@ -13808,12 +13809,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             } else {
               if ( kw == "tag" ) {
-                if ( (st.children.length) == 3 ) {
+                const argc = st.children.length;
+                if ( (argc == 3) || (argc == 4) ) {
                   const tagName = (st.getSecond()).vref;
                   const clsName = (st.getThird()).vref;
-                  this.treeTags[(fname + " ") + tagName] = clsName;
+                  const tagKey = (fname + " ") + tagName;
+                  this.treeTags[tagKey] = clsName;
+                  if ( argc == 4 ) {
+                    const defs = st.children[3];
+                    if ( this.isTreeKeyword(defs, "props") ) {
+                      this.treeTagDefaults[tagKey] = defs;
+                    } else {
+                      ctx.addError(defs, "a tag's defaults are a props form");
+                    }
+                  }
                 } else {
-                  ctx.addError(st, "tag takes a tag name and a class name");
+                  ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
                 }
               } else {
                 ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text or tag");
@@ -13946,6 +13957,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       newNode.add(el.newVRefNode(clsName));
       defNode.add(newNode);
       prelude.push(defNode);
+      if ( ( typeof(this.treeTagDefaults[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ) ) {
+        this.lowerTreeProps((( Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ? this.treeTagDefaults[key] : undefined )), reg, prelude, ctx, wr);
+      }
       let idx = 1;
       while (idx < (el.children.length)) {
         const ch = el.children[idx];

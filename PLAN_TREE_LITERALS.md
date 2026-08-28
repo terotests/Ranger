@@ -173,6 +173,39 @@ the type checker and fails as `Unknown type: type ID : 11`. Everywhere else a
 stray literal is named. Measured, and left named here rather than in a comment
 nobody reads.
 
+## A non-trivial demo
+
+`gallery/ui/demo/MenubarDemo.rgr` is the Radix menubar example
+(https://www.radix-ui.com/primitives/docs/components/menubar, ~200 lines of
+JSX) written with the syntax over real `EVGElement` trees: four menus, two
+submenus, checkbox items, a radio group, separators, disabled rows and
+right-hand shortcut slots. `npm run ui:menubar` prints the structure;
+`npm run ui:menubar:png` paints it with the EVG WebGL painter into
+`gallery/ui/demo/menubar.png`.
+
+Three things it settled:
+
+- **A tag carries defaults.** `tag Trigger EVGElement (props (className
+  "mb-trigger") (elementType 1))` means the factory knows what a trigger is and
+  no call site repeats it. That option exists *because* writing the demo
+  without it read badly; it was added while writing this file, not before.
+- **A loop is an ordinary loop.** The reference maps over an array inside JSX;
+  here the children are built in a `while` and handed to the parent. There is
+  no list form in the syntax and the demo did not want one.
+- **Composition is function composition.** `item`, `disabledItem`,
+  `checkItem`, `radioItem` and `subTrigger` are five ordinary functions
+  returning `EVGElement`, and the menus are built out of them with `(child …)`.
+
+Two EVG limits the demo exposed, neither of them about the syntax:
+
+- **No overlay layer.** Laying the full structure out in flow stacks all four
+  dropdowns down the page instead of floating one under its trigger, so the
+  picture is composed by hand from a trigger bar and the panels that would be
+  portalled. This is the next piece of work in `gallery/ui/PLAN.md`.
+- **`width: fill` is not "the remaining space".** It resolves to the parent's
+  full width, so a filled label pushes its shortcut onto the next line. The
+  demo's columns are therefore numbers.
+
 ## Two things trying it on EVG surfaced
 
 Building a real `EVGElement` tree works — `tests`-level proof is in the plan's

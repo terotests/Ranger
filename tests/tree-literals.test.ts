@@ -77,6 +77,36 @@ describe("tree literals", () => {
   });
 
   /**
+   * The Radix menubar example, written with the syntax — four menus, two
+   * submenus, checkbox items, a radio group, separators, disabled rows and
+   * shortcut slots, over real EVGElement trees. It is here so the demo cannot
+   * rot: it is the only non-toy use of the feature in the repository, and it is
+   * what the ergonomics argument rests on.
+   */
+  describe("the menubar demo", () => {
+    const DEMO = "gallery/ui/demo/MenubarDemo.rgr";
+
+    it("builds the whole structure, with state visible in it", () => {
+      const run = expectOutput(DEMO, "mb-root");
+      // the four triggers, with File carrying the open state
+      expect(run.output).toContain("mb-trigger mb-trigger-open File");
+      for (const label of ["Edit", "View", "Profiles"]) {
+        expect(run.output).toContain(`mb-trigger ${label}`);
+      }
+      // a shortcut slot, a disabled row, a separator and a submenu chevron
+      expect(run.output).toContain("mb-shortcut ⌘ T");
+      expect(run.output).toContain("mb-label mb-label-disabled New Incognito Window");
+      expect(run.output).toContain("mb-separator");
+      expect(run.output).toContain("mb-item mb-item-sub");
+      // the checkbox and radio state the demo was given, and only that state
+      expect(run.output).toContain("mb-indicator ✓");
+      expect(run.output).toContain("mb-indicator ●");
+      expect(run.output.match(/mb-indicator ✓/g)).toHaveLength(1);
+      expect(run.output.match(/mb-indicator ●/g)).toHaveLength(1);
+    });
+  });
+
+  /**
    * Every one of these has to fail, and the point of listing them is that the
    * checking is not a second implementation of the type checker: a misspelled
    * property is an assignment to a field that does not exist, and a wrongly

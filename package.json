@@ -280,7 +280,7 @@
     "rangerflow:sdl:smoke": "bash gallery/rangerflow/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/rangerflow-sdl/rangerflow_sdl gallery/rangerflow/fixtures/ecommerce.sql 30",
     "rangerflow:parity:oracles": "cd gallery/rangerflow/harness && { [ -d node_modules ] || npm install --silent --no-audit --no-fund; } && cd ../../.. && node gallery/rangerflow/harness/oracles/reactflow_oracle.mjs && node gallery/rangerflow/harness/oracles/d3_force_oracle.mjs",
     "rangerflow:parity:dump": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerflow/tests/ParityDump.rgr -d=./gallery/rangerflow/bin -o=ParityDump.js -nodecli && node ./gallery/rangerflow/bin/ParityDump.js",
-    "rangerflow:parity": "npm run --silent rangerflow:parity:oracles || echo '  (no registry: the geometry oracles could not be built \u2014 scoring what is measurable)'; npm run --silent rangerflow:parity:dump && node gallery/rangerflow/tools/parity.mjs",
+    "rangerflow:parity": "npm run --silent rangerflow:parity:oracles || echo '  (no registry: the geometry oracles could not be built — scoring what is measurable)'; npm run --silent rangerflow:parity:dump && node gallery/rangerflow/tools/parity.mjs",
     "rangerflow:rivals": "npm run --silent rangerflow:parity:dump && node gallery/rangerflow/tools/rivals.mjs",
     "rangerflow:web": "bash gallery/rangerflow/web/standalone/build.sh",
     "rangerflow:web:serve": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs",
@@ -694,7 +694,9 @@
     "datagrid:softclip:test": "bash gallery/datagrid/tools/run_soft_clip_test.sh",
     "datagrid:sheets:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/SheetTabTest.rgr ./gallery/datagrid/bin SheetTabTest.js",
     "datagrid:border:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/BorderRenderTest.rgr ./gallery/datagrid/bin BorderRenderTest.js",
-    "datagrid:overflow:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/OverflowRenderTest.rgr ./gallery/datagrid/bin OverflowRenderTest.js"
+    "datagrid:overflow:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/OverflowRenderTest.rgr ./gallery/datagrid/bin OverflowRenderTest.js",
+    "ui:menubar": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.js -nodecli && node ./gallery/ui/bin/MenubarDemo.js",
+    "ui:menubar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && node gallery/ui/demo/render.mjs"
   },
   "repository": {
     "type": "git",

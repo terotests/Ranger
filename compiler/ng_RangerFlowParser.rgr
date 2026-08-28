@@ -107,6 +107,10 @@ class RangerFlowParser {
   def treeTextField:[string:string]
   ; "<factory> <Tag>" -> the class the tag builds.
   def treeTags:[string:string]
+  ; "<factory> <Tag>" -> a props form every use of that tag starts with, so a
+  ; tag can mean "an EVGElement that is a text leaf" rather than making every
+  ; call site repeat it.
+  def treeTagDefaults:[string:CodeNode]
   ; Every factory that was declared, so an unknown one can say so.
   def treeFactoryNames:[string:boolean]
   def treeTmpCount:int 0
@@ -4880,12 +4884,22 @@ class RangerFlowParser {
             }
           } {
             if (kw == "tag") {
-              if ((array_length st.children) == 3) {
+              def argc:int (array_length st.children)
+              if ((argc == 3) || (argc == 4)) {
                 def tagName:string ((st.getSecond()).vref)
                 def clsName:string ((st.getThird()).vref)
-                set treeTags ((fname + " ") + tagName) clsName
+                def tagKey:string ((fname + " ") + tagName)
+                set treeTags tagKey clsName
+                if (argc == 4) {
+                  def defs:CodeNode (at st.children 3)
+                  if (this.isTreeKeyword(defs "props")) {
+                    set treeTagDefaults tagKey defs
+                  } {
+                    ctx.addError(defs "a tag's defaults are a props form")
+                  }
+                }
               } {
-                ctx.addError(st "tag takes a tag name and a class name")
+                ctx.addError(st "tag takes a tag name, a class name and optionally a props form")
               }
             } {
               ctx.addError(st (("unknown treefactory member " + kw) + ", expected child, text or tag"))
@@ -5047,6 +5061,11 @@ class RangerFlowParser {
     newNode.add((el.newVRefNode(clsName)))
     defNode.add(newNode)
     push prelude defNode
+
+    ; The tag's own defaults first, so a use site can still override one.
+    if (has treeTagDefaults key) {
+      this.lowerTreeProps((unwrap (get treeTagDefaults key)) reg prelude ctx wr)
+    }
 
     def idx:int 1
     while (idx < (array_length el.children)) {
