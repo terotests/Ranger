@@ -59,11 +59,13 @@ async function bundle() {
 }
 
 /**
- * Canonical observation. The Ranger side reports the same nine fields off its
+ * Canonical observation. The Ranger side reports the same fields off its
  * display tree; see SPEC.md for what each one means on each side.
  */
 const SNAPSHOT = () => {
-  const NAMED_ROLES = new Set(["button", "link", "heading", "tab", "menuitem", "checkbox"]);
+  const NAMED_ROLES = new Set(["button", "link", "heading", "tab", "menuitem", "checkbox", "radio", "switch"]);
+  // aria-checked and aria-selected are tri-state: "mixed" is a real value.
+  const tri = (v) => (v == null ? null : v === "mixed" ? "mixed" : v === "true");
   const out = [];
   for (const el of document.querySelectorAll("[data-tid]")) {
     const explicit = el.getAttribute("role");
@@ -74,6 +76,7 @@ const SNAPSHOT = () => {
     const name = label != null ? label : NAMED_ROLES.has(role) ? (el.textContent || "").trim() : "";
     const expanded = el.getAttribute("aria-expanded");
     const pressed = el.getAttribute("aria-pressed");
+    const disabled = el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
     out.push({
       tid: el.getAttribute("data-tid"),
       role,
@@ -81,7 +84,12 @@ const SNAPSHOT = () => {
       state: el.getAttribute("data-state") || "",
       expanded: expanded == null ? null : expanded === "true",
       pressed: pressed == null ? null : pressed === "true",
-      disabled: el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true",
+      checked: tri(el.getAttribute("aria-checked")),
+      selected: tri(el.getAttribute("aria-selected")),
+      disabled,
+      // Would Tab land here? Roving focus is exactly this going false on the
+      // items a composite does not want in the tab order.
+      tabstop: el.tabIndex >= 0 && !disabled,
       focused: document.activeElement === el,
       visible: el.getClientRects().length > 0,
     });
@@ -101,8 +109,22 @@ export async function run(spec) {
     await page.waitForFunction("window.__READY__ === true");
 
     const trace = [];
-    const observe = async (label) => trace.push({ step: label, nodes: await page.evaluate(SNAPSHOT) });
     const sel = (tid) => `[data-tid="${tid}"]`;
+
+    // Let React commit before looking. Playwright returns as soon as the event
+    // is dispatched, but React 18 flushes state in a later task — observing
+    // straight away catches a half-updated DOM, and the same spec then yields
+    // different oracles on different runs. Two frames is one full commit plus
+    // paint; without this the benchmark measures a race, not a behaviour.
+    const settle = () =>
+      page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+
+    const observe = async (label) => {
+      await settle();
+      trace.push({ step: label, nodes: await page.evaluate(SNAPSHOT) });
+    };
 
     await observe("initial");
     for (const step of spec.steps) {

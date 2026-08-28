@@ -1,0 +1,23 @@
+{
+  "name": "tabs_arrows",
+  "component": "tabs",
+  "behaviours": ["arrow-next", "arrow-prev", "arrow-wraps", "disabled-skipped"],
+  "fixture": {
+    "controls": [
+      {
+        "type": "tabs", "tid": "tb", "name": "Settings", "value": "a",
+        "items": [
+          { "value": "a", "name": "Account", "body": "acct" },
+          { "value": "x", "name": "Billing", "body": "bill", "disabled": true },
+          { "value": "b", "name": "Password", "body": "pwd" }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    { "click": "tb-tab-a" },
+    { "key": "ArrowRight" },
+    { "key": "ArrowRight" },
+    { "key": "ArrowLeft" }
+  ]
+}

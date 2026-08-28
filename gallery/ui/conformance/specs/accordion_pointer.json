@@ -1,0 +1,21 @@
+{
+  "name": "accordion_pointer",
+  "component": "accordion",
+  "behaviours": ["single-open", "pointer-toggle", "aria-expanded", "content-hidden", "state-attr"],
+  "fixture": {
+    "controls": [
+      {
+        "type": "accordion", "tid": "ac",
+        "items": [
+          { "value": "one", "name": "First", "body": "b1" },
+          { "value": "two", "name": "Second", "body": "b2" }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    { "click": "ac-one-trigger" },
+    { "click": "ac-two-trigger" },
+    { "click": "ac-two-trigger" }
+  ]
+}

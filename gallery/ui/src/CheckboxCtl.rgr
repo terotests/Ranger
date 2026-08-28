@@ -1,0 +1,135 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CheckboxCtl — measured against @radix-ui/react-checkbox
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   role      checkbox
+;   state     "unchecked" | "checked" | "indeterminate"
+;   checked   no | yes | mixed          (Radix aria-checked)
+;   activate  from mixed goes to CHECKED, not to unchecked — the third state is
+;             an input, never something activation returns to
+;   disabled  never activates, is not a tab stop, and a click on it drops focus
+;
+; SwitchCtl lives here too: it is the same machine without the mixed state, and
+; the only observable difference is the role it reports.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class CheckboxCtl extends UiCtl {
+    ; 0 = unchecked, 1 = checked, 2 = indeterminate
+    def checkState:int 0
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn baseClass:string () {
+        return "ui-checkbox"
+    }
+
+    fn roleId:int () {
+        return (EVGA11yRole.checkbox())
+    }
+
+    fn stateWord:string () {
+        if (checkState == 1) {
+            return "checked"
+        }
+        if (checkState == 2) {
+            return "indeterminate"
+        }
+        return "unchecked"
+    }
+
+    fn checkedTri:int () {
+        if (checkState == 1) {
+            return (EVGA11yTri.yes())
+        }
+        if (checkState == 2) {
+            return (EVGA11yTri.mixed())
+        }
+        return (EVGA11yTri.no())
+    }
+
+    fn build:void () {
+        def base:string (this.baseClass())
+        def word:string (this.stateWord())
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = base
+        if disabled {
+            UiTree.addClass(el (base + "-disabled"))
+        }
+        UiTree.setState(el base word)
+        UiTree.clearChildren(el)
+        def text:EVGElement (UiTree.label((tid + "__label") (base + "-label") name))
+        el.addChild(text)
+    }
+
+    fn activate:void (target:string) {
+        if disabled {
+            return
+        }
+        if (target != tid) {
+            return
+        }
+        ; Mixed resolves upward: Radix sends indeterminate → checked.
+        if (checkState == 1) {
+            checkState = 0
+        } {
+            checkState = 1
+        }
+        this.build()
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (target != tid) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        return true
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (this.roleId()) name))
+        r.state = (this.stateWord())
+        r.checked = (this.checkedTri())
+        r.disabled = disabled
+        if disabled {
+            r.tabStop = false
+        } {
+            r.tabStop = true
+        }
+        push out r
+        return out
+    }
+}
+
+; A switch is a checkbox that cannot be mixed. Radix gives it its own role, and
+; that role is the entire observable difference.
+class SwitchCtl extends CheckboxCtl {
+
+    ; Empty, but present: the C++ backend looks up a constructor's params on
+    ; every class and cannot find one two levels up. Assigning `rootEl` here
+    ; instead fails on the ES6 backend, which does not see a grandparent's
+    ; field from a subclass constructor either — so the parent's constructor
+    ; does the work and this one only exists to be found.
+    Constructor () {
+    }
+
+    fn baseClass:string () {
+        return "ui-switch"
+    }
+
+    fn roleId:int () {
+        return (EVGA11yRole.switchControl())
+    }
+}

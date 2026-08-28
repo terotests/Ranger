@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 55,
-    "covered": 15,
-    "matchedBehaviours": 15,
-    "observations": 360,
-    "matchedObservations": 360
+    "catalogued": 56,
+    "covered": 49,
+    "matchedBehaviours": 49,
+    "observations": 2486,
+    "matchedObservations": 2486
   },
   "components": {
     "toggle": {
@@ -16,24 +16,24 @@
       "matchedBehaviours": 7
     },
     "checkbox": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 7,
+      "matchedBehaviours": 7
     },
     "radiogroup": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 8,
+      "matchedBehaviours": 8
     },
     "tabs": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 8,
+      "matchedBehaviours": 8
     },
     "accordion": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 6,
+      "matchedBehaviours": 6
     },
     "switch": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 5,
+      "matchedBehaviours": 5
     },
     "dialog": {
       "covered": 0,

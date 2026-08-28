@@ -1,0 +1,200 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; AccordionCtl — measured against @radix-ui/react-accordion (type="single",
+; collapsible)
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   root      no ARIA role of its own, not a tab stop
+;   item      no role either, state "open" | "closed"
+;   trigger   role button, expanded no | yes, ALWAYS a tab stop — an accordion
+;             does not rove: every header stays reachable by Tab
+;   content   role region, unreachable while closed
+;   single    opening one closes the one that was open; clicking the open one
+;             closes it (collapsible)
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class AccordionCtl extends UiCtl {
+    def items:[UiItem]
+    ; The open section's value; "" when everything is closed.
+    def openValue:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemBody:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.body = itemBody
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return (tid + "-" + itemValue)
+    }
+
+    fn triggerTid:string (itemValue:string) {
+        return (tid + "-" + itemValue + "-trigger")
+    }
+
+    fn contentTid:string (itemValue:string) {
+        return (tid + "-" + itemValue + "-content")
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-accordion"
+        UiTree.clearChildren(root)
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def word:string "closed"
+            if (it.value == openValue) {
+                word = "open"
+            }
+
+            def section:EVGElement (unwrap it.el)
+            section.id = (this.itemTid(it.value))
+            section.className = "ui-accordion-item"
+            UiTree.setState(section "ui-accordion-item" word)
+            UiTree.clearChildren(section)
+
+            def trig (EVGElement.createDiv())
+            trig.id = (this.triggerTid(it.value))
+            trig.className = "ui-accordion-trigger"
+            if it.disabled {
+                UiTree.addClass(trig "ui-accordion-trigger-disabled")
+            }
+            UiTree.setState(trig "ui-accordion-trigger" word)
+            def tlabel:EVGElement (UiTree.label((trig.id + "__label") "ui-accordion-label" it.name))
+            trig.addChild(tlabel)
+            section.addChild(trig)
+
+            def body:EVGElement (unwrap it.contentEl)
+            body.id = (this.contentTid(it.value))
+            body.className = "ui-accordion-content"
+            UiTree.setState(body "ui-accordion-content" word)
+            UiTree.clearChildren(body)
+            def blabel:EVGElement (UiTree.label((body.id + "__label") "ui-accordion-body" it.body))
+            body.addChild(blabel)
+            if (it.value == openValue) {
+                section.addChild(body)
+            }
+
+            root.addChild(section)
+            i = (i + 1)
+        }
+    }
+
+    fn activate:void (target:string) {
+        if disabled {
+            return
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.triggerTid(it.value)) == target) {
+                if it.disabled {
+                    return
+                }
+                ; single + collapsible: the open one closes, anything else
+                ; becomes the only open one.
+                if (openValue == it.value) {
+                    openValue = ""
+                } {
+                    openValue = it.value
+                }
+                this.build()
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            push a (this.triggerTid(it.value))
+            push a (this.contentTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.triggerTid(it.value)) == target) {
+                if it.disabled {
+                    return false
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        push out rootRow
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def isOpen:boolean false
+            if (it.value == openValue) {
+                isOpen = true
+            }
+            def word:string "closed"
+            if isOpen {
+                word = "open"
+            }
+
+            def secRow:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.none()) ""))
+            secRow.state = word
+            push out secRow
+
+            def trigRow:UiRow (UiRow.of((this.triggerTid(it.value)) (EVGA11yRole.button()) it.name))
+            trigRow.state = word
+            trigRow.disabled = it.disabled
+            if isOpen {
+                trigRow.expanded = (EVGA11yTri.yes())
+            } {
+                trigRow.expanded = (EVGA11yTri.no())
+            }
+            if (it.disabled == false) {
+                trigRow.tabStop = true
+            }
+            push out trigRow
+
+            def bodyRow:UiRow (UiRow.of((this.contentTid(it.value)) (EVGA11yRole.region()) ""))
+            bodyRow.state = word
+            push out bodyRow
+
+            i = (i + 1)
+        }
+        return out
+    }
+}

@@ -122,9 +122,9 @@ class CollapsibleCtl extends UiCtl {
         trigRow.state = word
         trigRow.disabled = disabled
         if disabled {
-            trigRow.focusable = false
+            trigRow.tabStop = false
         } {
-            trigRow.focusable = true
+            trigRow.tabStop = true
         }
         if open {
             trigRow.expanded = (EVGA11yTri.yes())

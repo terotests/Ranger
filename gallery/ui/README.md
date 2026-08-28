@@ -47,38 +47,73 @@ place. There is no virtual DOM, no reconciler, no hooks, and no render pass.
 
 The two systems lay out differently on purpose, so comparing pixels would only
 measure the font rasteriser. What they *must* agree on is what a user can
-observe. After every input step both sides report the same nine fields per test
-id — role, name, state, expanded, pressed, disabled, focused, visible — and the
-harness diffs the traces.
+observe. After every input step both sides report the same eleven fields per
+test id — role, name, state, expanded, pressed, checked, selected, disabled,
+tabstop, focused, visible — and the harness diffs the traces.
 
 ```bash
 npm run ui:test          # controllers + cascade, no browser, runs in CI
-npm run ui:trace         # print the Ranger behaviour trace for a spec
-npm run ui:conformance   # diff Ranger against real Radix in Chromium
+npm run ui:report        # the scorecard, against real Radix in Chromium
+npm run ui:conformance   # the same run, printed as divergences
 ```
 
-`ui:conformance` needs the reference host installed once:
+The browser side needs the reference host installed once:
 
 ```bash
 npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
 ```
 
-A passing run looks like:
+## The score
+
+`behaviours.json` is the catalogue: every behaviour this kit intends to match,
+written down as intent. It is the denominator — **cataloguing a component
+nobody has built lowers the score**, which is the only way a number like this
+stays honest.
 
 ```
-PASS toggle_collapsible  (7 steps, 35 observations)
-RESULT OK
+component      specs  behaviours   coverage    parity  observations
+────────────────────────────────────────────────────────────────────────
+toggle            3        8/ 8  100.0%  100.0%       165/165
+collapsible       3        7/ 7  100.0%  100.0%       330/330
+checkbox          4        7/ 7  100.0%  100.0%       198/198
+radiogroup        3        8/ 9   88.9%   88.9%       407/407
+tabs              2        8/ 8  100.0%  100.0%       638/638
+accordion         2        6/ 6  100.0%  100.0%       616/616
+switch            2        5/ 5  100.0%  100.0%       132/132
+dialog            0        0/ 6    0.0%    0.0%             —
+────────────────────────────────────────────────────────────────────────
+TOTAL            19       49/56   87.5%   87.5%     2486/2486
 ```
 
-and a regression names itself:
+Three numbers, because one hides too much. **Coverage** is how much of the
+catalogue any spec touches at all — until it is high, the rest is not
+trustworthy. **Parity** is the headline: behaviours a spec exercises *and* that
+agree with Radix on every observation. **Observation parity** counts matching
+fields, so progress shows up between whole behaviours flipping green. A
+divergence profile says which *kind* of thing is wrong — focus, aria,
+visibility — which is usually what says where to work next.
+
+`baseline.json` is checked in and compared on every run, so a pull request
+shows the score moving and a regression fails the run.
+
+A regression names itself:
 
 ```
-FAIL toggle_collapsible  (1 divergences)
+FAIL toggle_disabled  (1 divergences)
   click toggle-disabled :: collapsible-trigger.focused  ranger=true radix=false
 ```
 
-See [`conformance/SPEC.md`](conformance/SPEC.md) for the trace contract and the
-handful of places where the two systems are deliberately spelled differently.
+Two things the harness found that are worth knowing before trusting any
+number like the above:
+
+- **The oracle has to settle.** Playwright returns when the event is
+  dispatched, but React 18 commits later. Observing immediately produced
+  *different oracles on different runs* of the same spec. The DOM adapter now
+  waits two frames.
+- **The reference is not always self-consistent.** Radix's radio group moves
+  selection with the arrow keys on some presses and not others. That one is
+  catalogued as disputed with its evidence rather than scored either way —
+  see [`conformance/SPEC.md`](conformance/SPEC.md).
 
 ## Class-first styling, inline still allowed
 
@@ -118,10 +153,14 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | --- | --- |
 | `src/UiTree.rgr` | Class helpers, `state-*` classes, inline+markInline, subtree edits |
 | `src/UiCtl.rgr` | The controller convention, and the ARIA row a controller reports |
-| `src/ToggleCtl.rgr` | Two-state button — parity target `@radix-ui/react-toggle` |
-| `src/CollapsibleCtl.rgr` | Trigger + content — parity target `@radix-ui/react-collapsible` |
+| `src/ToggleCtl.rgr` | Two-state button — `@radix-ui/react-toggle` |
+| `src/CollapsibleCtl.rgr` | Trigger + content — `@radix-ui/react-collapsible` |
+| `src/CheckboxCtl.rgr` | Tri-state checkbox, and the switch that is one without the mixed state |
+| `src/RadioGroupCtl.rgr` | Roving focus, arrow keys, disabled items skipped |
+| `src/TabsCtl.rgr` | Tab strip and panels — only the active panel is in the tree |
+| `src/AccordionCtl.rgr` | Single-open sections — `@radix-ui/react-accordion` |
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
-| `conformance/` | Specs, both adapters, the diff |
+| `conformance/` | The catalogue, specs, both adapters, the diff and the scorecard |
 | `theme/base.css` | The class-first theme |
 
 ## Related

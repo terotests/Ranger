@@ -1,0 +1,12 @@
+{
+  "name": "switch_disabled",
+  "component": "switch",
+  "behaviours": ["disabled-inert"],
+  "fixture": {
+    "controls": [
+      { "type": "switch", "tid": "sw", "name": "Wifi" },
+      { "type": "switch", "tid": "swd", "name": "Airplane", "disabled": true }
+    ]
+  },
+  "steps": [{ "click": "sw" }, { "click": "swd" }, { "key": " " }]
+}

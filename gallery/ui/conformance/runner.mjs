@@ -18,7 +18,19 @@ const require = createRequire(import.meta.url);
 const { run: runRanger } = require("./ranger-adapter.cjs");
 
 /** The observable surface. Every one of these is compared literally. */
-export const FIELDS = ["role", "name", "state", "expanded", "pressed", "disabled", "focused", "visible"];
+export const FIELDS = [
+  "role",
+  "name",
+  "state",
+  "expanded",
+  "pressed",
+  "checked",
+  "selected",
+  "disabled",
+  "tabstop",
+  "focused",
+  "visible",
+];
 
 export function loadTheme() {
   const p = path.join(HERE, "..", "theme", "base.css");

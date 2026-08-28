@@ -19,6 +19,10 @@ Import "UiTree.rgr"
 Import "UiCtl.rgr"
 Import "ToggleCtl.rgr"
 Import "CollapsibleCtl.rgr"
+Import "CheckboxCtl.rgr"
+Import "RadioGroupCtl.rgr"
+Import "TabsCtl.rgr"
+Import "AccordionCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -93,6 +97,51 @@ class UiHost {
         return c
     }
 
+    fn addCheckbox:CheckboxCtl (tid:string name:string) {
+        def c (new CheckboxCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSwitch:SwitchCtl (tid:string name:string) {
+        def c (new SwitchCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addRadioGroup:RadioGroupCtl (tid:string name:string) {
+        def c (new RadioGroupCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addTabs:TabsCtl (tid:string name:string) {
+        def c (new TabsCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAccordion:AccordionCtl (tid:string name:string) {
+        def c (new AccordionCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
     fn ctlFor@(optional):UiCtl (target:string) {
         def i:int 0
         while (i < (array_length ctls)) {
@@ -116,6 +165,7 @@ class UiHost {
             def c:UiCtl (unwrap maybe)
             if (c.isFocusable(target)) {
                 focusId = target
+                c.onFocus(target)
                 c.activate(target)
                 return
             }
@@ -129,6 +179,7 @@ class UiHost {
             def c:UiCtl (unwrap maybe)
             if (c.isFocusable(target)) {
                 focusId = target
+                c.onFocus(target)
             }
         }
     }
@@ -137,18 +188,20 @@ class UiHost {
         focusId = ""
     }
 
-    ; Keys go to whatever holds focus, like every real host.
+    ; Keys go to whatever holds focus, like every real host. A controller that
+    ; moves focus itself (arrow keys in a composite) says so by returning the
+    ; test id focus should land on.
     fn key:void (name:string) {
         if ((strlen focusId) == 0) {
-            return
-        }
-        if ((UiCtl.activatesOn(name)) == false) {
             return
         }
         def maybe@(optional):UiCtl (this.ctlFor(focusId))
         if maybe {
             def c:UiCtl (unwrap maybe)
-            c.activate(focusId)
+            def next:string (c.keyDown(focusId name))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
         }
     }
 
@@ -183,12 +236,17 @@ class UiHost {
 
     ; --- the conformance trace ------------------------------------------------
 
+    ; 0 = not applicable → null, 1 = no, 2 = yes, 3 = mixed. `mixed` is a real
+    ; ARIA value, not a third boolean, so it travels as a string.
     sfn triJson:string (v:int) {
         if (v == 1) {
             return "false"
         }
         if (v == 2) {
             return "true"
+        }
+        if (v == 3) {
+            return "\"mixed\""
         }
         return "null"
     }
@@ -238,7 +296,10 @@ class UiHost {
             out = out + ",\"state\":" + (EVGA11yTree.jsonString(row.state))
             out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
             out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
+            out = out + ",\"checked\":" + (UiHost.triJson(row.checked))
+            out = out + ",\"selected\":" + (UiHost.triJson(row.selected))
             out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
+            out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
             out = out + "}"

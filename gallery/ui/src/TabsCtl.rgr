@@ -1,0 +1,279 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TabsCtl — measured against @radix-ui/react-tabs
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   root      no ARIA role of its own, not a tab stop
+;   list      role tablist, always a tab stop
+;   tabs      role tab, selected no | yes, state "active" | "inactive",
+;             roving tab stop (none until the list has been touched)
+;   panels    role tabpanel, state mirrors its tab, ALWAYS a tab stop even
+;             while hidden — a panel is where Tab goes after the tab strip,
+;             and Radix keeps that true for the inactive one too
+;   arrows    move the active tab and focus together, skip disabled, wrap
+;
+; Only the active panel is in the display tree; the inactive one is still
+; reported, so the trace can say it exists and cannot be reached.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class TabsCtl extends UiCtl {
+    def items:[UiItem]
+    def value:string ""
+    def rovingValue:string ""
+    def listEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        listEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemBody:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.body = itemBody
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn listTid:string () {
+        return (tid + "-list")
+    }
+
+    fn tabTid:string (itemValue:string) {
+        return (tid + "-tab-" + itemValue)
+    }
+
+    fn panelTid:string (itemValue:string) {
+        return (tid + "-panel-" + itemValue)
+    }
+
+    fn valueAtIndex:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length items)) {
+            return ""
+        }
+        def it:UiItem (itemAt items i)
+        return it.value
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-tabs"
+        UiTree.clearChildren(root)
+
+        def list:EVGElement (unwrap listEl)
+        list.id = (this.listTid())
+        list.className = "ui-tablist"
+        UiTree.clearChildren(list)
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.tabTid(it.value))
+            el.className = "ui-tab"
+            if it.disabled {
+                UiTree.addClass(el "ui-tab-disabled")
+            }
+            def word:string "inactive"
+            if (it.value == value) {
+                word = "active"
+            }
+            UiTree.setState(el "ui-tab" word)
+            UiTree.clearChildren(el)
+            def text:EVGElement (UiTree.label((el.id + "__label") "ui-tab-label" it.name))
+            el.addChild(text)
+            list.addChild(el)
+            i = (i + 1)
+        }
+        root.addChild(list)
+
+        ; Only the active panel joins the display tree.
+        def j:int 0
+        while (j < (array_length items)) {
+            def it2:UiItem (itemAt items j)
+            def panel:EVGElement (unwrap it2.contentEl)
+            panel.id = (this.panelTid(it2.value))
+            panel.className = "ui-tabpanel"
+            def word2:string "inactive"
+            if (it2.value == value) {
+                word2 = "active"
+            }
+            UiTree.setState(panel "ui-tabpanel" word2)
+            UiTree.clearChildren(panel)
+            def body:EVGElement (UiTree.label((panel.id + "__label") "ui-tabpanel-body" it2.body))
+            panel.addChild(body)
+            if (it2.value == value) {
+                root.addChild(panel)
+            }
+            j = (j + 1)
+        }
+    }
+
+    fn activate:void (target:string) {
+        if disabled {
+            return
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.tabTid(it.value)) == target) {
+                if (it.disabled == false) {
+                    value = it.value
+                    rovingValue = it.value
+                    this.build()
+                }
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def from:int -1
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.tabTid(it.value)) == target) {
+                from = i
+            }
+            i = (i + 1)
+        }
+        if (from < 0) {
+            return ""
+        }
+        def delta:int 0
+        if (UiCtl.isNextKey(key)) {
+            delta = 1
+        }
+        if (UiCtl.isPrevKey(key)) {
+            delta = -1
+        }
+        if (delta == 0) {
+            if (UiCtl.activatesOn(key)) {
+                this.activate(target)
+            }
+            return ""
+        }
+        def landed:int (UiCtl.stepIndex(items from delta))
+        def nextValue:string (this.valueAtIndex(landed))
+        if (nextValue == "") {
+            return ""
+        }
+        value = nextValue
+        rovingValue = nextValue
+        this.build()
+        return (this.tabTid(nextValue))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.listTid())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.tabTid(it.value))
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length items)) {
+            def it2:UiItem (itemAt items j)
+            push a (this.panelTid(it2.value))
+            j = (j + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.tabTid(it.value)) == target) {
+                if it.disabled {
+                    return false
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn onFocus:void (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.tabTid(it.value)) == target) {
+                rovingValue = it.value
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        push out rootRow
+
+        def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.tabList()) name))
+        listRow.tabStop = true
+        push out listRow
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.tabTid(it.value)) (EVGA11yRole.tab()) it.name))
+            if (it.value == value) {
+                row.state = "active"
+                row.selected = (EVGA11yTri.yes())
+            } {
+                row.state = "inactive"
+                row.selected = (EVGA11yTri.no())
+            }
+            row.disabled = it.disabled
+            if (it.value == rovingValue) {
+                row.tabStop = true
+            }
+            if it.disabled {
+                row.tabStop = false
+            }
+            push out row
+            i = (i + 1)
+        }
+
+        def j:int 0
+        while (j < (array_length items)) {
+            def it2:UiItem (itemAt items j)
+            def prow:UiRow (UiRow.of((this.panelTid(it2.value)) (EVGA11yRole.tabPanel()) ""))
+            if (it2.value == value) {
+                prow.state = "active"
+            } {
+                prow.state = "inactive"
+            }
+            prow.tabStop = true
+            push out prow
+            j = (j + 1)
+        }
+        return out
+    }
+}

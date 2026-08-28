@@ -76,6 +76,19 @@ if (problems.length) {
 
 // --- score -----------------------------------------------------------------
 
+// A catalogue entry is either a description or { note, disputed }. "Disputed"
+// means the reference itself is inconsistent about it, so scoring either way
+// would be a lie — it stays in the denominator, uncovered, with the evidence.
+const disputed = [];
+for (const [comp, entry] of Object.entries(catalogue)) {
+  for (const [b, v] of Object.entries(entry.behaviours)) {
+    if (v && typeof v === "object" && v.disputed) {
+      disputed.push({ component: comp, behaviour: b, why: v.disputed });
+    }
+  }
+}
+const isDisputed = (comp, b) => disputed.some((d) => d.component === comp && d.behaviour === b);
+
 const byComponent = new Map();
 for (const name of Object.keys(catalogue)) {
   byComponent.set(name, {
@@ -121,7 +134,7 @@ const rows = [...byComponent.values()].map((c) => {
     parity: catalogued ? matched / catalogued : 0,
     observations: c.observations,
     matchedObservations: c.matched,
-    uncovered: c.catalogued.filter((b) => !c.covered.has(b)),
+    uncovered: c.catalogued.filter((b) => !c.covered.has(b) && !isDisputed(c.component, b)),
     failingBehaviours: [...c.failing].sort(),
   };
 });
@@ -143,6 +156,7 @@ total.observationParity = total.observations ? total.matchedObservations / total
 const scorecard = {
   generated: new Date().toISOString(),
   specs: results.length,
+  disputed,
   components: rows,
   total,
   divergenceByField,
@@ -200,6 +214,13 @@ if (gaps.length) {
     if (r.uncovered.length) {
       console.log(`  ${r.component}: uncovered ${r.uncovered.join(", ")}`);
     }
+  }
+}
+
+if (disputed.length) {
+  console.log("\ndisputed — the reference is inconsistent, see conformance/SPEC.md");
+  for (const d of disputed) {
+    console.log(`  ${d.component}.${d.behaviour}`);
   }
 }
 

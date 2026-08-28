@@ -12,6 +12,10 @@ Import "../src/UiTree.rgr"
 Import "../src/UiCtl.rgr"
 Import "../src/ToggleCtl.rgr"
 Import "../src/CollapsibleCtl.rgr"
+Import "../src/CheckboxCtl.rgr"
+Import "../src/RadioGroupCtl.rgr"
+Import "../src/TabsCtl.rgr"
+Import "../src/AccordionCtl.rgr"
 Import "../src/UiHost.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
@@ -67,6 +71,11 @@ class UiTest {
         UiTest.testToggle(t)
         UiTest.testCollapsible(t)
         UiTest.testFocusAndKeys(t)
+        UiTest.testCheckbox(t)
+        UiTest.testSwitch(t)
+        UiTest.testRadioGroup(t)
+        UiTest.testTabs(t)
+        UiTest.testAccordion(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -140,7 +149,7 @@ class UiTest {
         t.ok("disabled never activates" (dis.on == false))
         def rows:[UiRow] (dis.rows())
         def row:UiRow (itemAt rows 0)
-        t.ok("disabled is not focusable" (row.focusable == false))
+        t.ok("disabled is not a tab stop" (row.tabStop == false))
         t.eqInt("off reports aria-pressed=no" row.pressed (EVGA11yTri.no()))
     }
 
@@ -163,6 +172,122 @@ class UiTest {
         h.click("collapsible-trigger")
         t.ok("closes again" (col.open == false))
         t.ok("closed content left the tree again" ((UiTree.reachable(root "collapsible-content")) == false))
+    }
+
+    sfn testCheckbox:void (t:Check) {
+        print "--- checkbox ---"
+        def h (new UiHost())
+        def cb:CheckboxCtl (h.addCheckbox("cb" "Accept"))
+        def rows0:[UiRow] (cb.rows())
+        def r0:UiRow (itemAt rows0 0)
+        t.eqStr("starts unchecked" r0.state "unchecked")
+        t.eqInt("aria-checked=no" r0.checked (EVGA11yTri.no()))
+        h.click("cb")
+        def rows1:[UiRow] (cb.rows())
+        def r1:UiRow (itemAt rows1 0)
+        t.eqStr("click checks" r1.state "checked")
+        t.eqInt("aria-checked=yes" r1.checked (EVGA11yTri.yes()))
+        ; The third state is an input, never somewhere activation returns to.
+        def mixed (new CheckboxCtl())
+        mixed.tid = "cbm"
+        mixed.name = "Some"
+        mixed.checkState = 2
+        mixed.build()
+        h.add(mixed)
+        def rowsm:[UiRow] (mixed.rows())
+        def rm:UiRow (itemAt rowsm 0)
+        t.eqInt("mixed reports aria-checked=mixed" rm.checked (EVGA11yTri.mixed()))
+        h.click("cbm")
+        def rowsm2:[UiRow] (mixed.rows())
+        def rm2:UiRow (itemAt rowsm2 0)
+        t.eqStr("mixed resolves upward to checked" rm2.state "checked")
+    }
+
+    sfn testSwitch:void (t:Check) {
+        print "--- switch ---"
+        def h (new UiHost())
+        def sw:SwitchCtl (h.addSwitch("sw" "Wifi"))
+        def rows:[UiRow] (sw.rows())
+        def row:UiRow (itemAt rows 0)
+        def roleName:string (EVGA11yRole.ariaName(row.role))
+        t.eqStr("switch has its own role" roleName "switch")
+        h.click("sw")
+        def rows2:[UiRow] (sw.rows())
+        def row2:UiRow (itemAt rows2 0)
+        t.eqStr("click checks" row2.state "checked")
+    }
+
+    sfn testRadioGroup:void (t:Check) {
+        print "--- radio group ---"
+        def h (new UiHost())
+        def rg:RadioGroupCtl (h.addRadioGroup("rg" "Size"))
+        rg.addItem("s" "Small" false)
+        rg.addItem("m" "Medium" true)
+        rg.addItem("l" "Large" false)
+        rg.value = "s"
+        rg.build()
+        def rows0:[UiRow] (rg.rows())
+        def root0:UiRow (itemAt rows0 0)
+        def rootRole:string (EVGA11yRole.ariaName(root0.role))
+        t.eqStr("root is a radiogroup" rootRole "radiogroup")
+        t.ok("root is a tab stop" root0.tabStop)
+        def first0:UiRow (itemAt rows0 1)
+        t.ok("no roving tab stop before the group is touched" (first0.tabStop == false))
+        h.click("rg-s")
+        def rows1:[UiRow] (rg.rows())
+        def first1:UiRow (itemAt rows1 1)
+        t.ok("click gives the item the roving tab stop" first1.tabStop)
+        ; ArrowDown skips the disabled middle item.
+        h.key("ArrowDown")
+        t.eqStr("arrow moves focus past the disabled item" h.focusId "rg-l")
+        t.eqStr("arrow does not move the selection" rg.value "s")
+        h.key("ArrowDown")
+        t.eqStr("arrow wraps at the end" h.focusId "rg-s")
+        h.key("ArrowUp")
+        t.eqStr("arrow moves backwards, wrapping" h.focusId "rg-l")
+    }
+
+    sfn testTabs:void (t:Check) {
+        print "--- tabs ---"
+        def h (new UiHost())
+        def tb:TabsCtl (h.addTabs("tb" "Settings"))
+        tb.addItem("a" "Account" "acct" false)
+        tb.addItem("x" "Billing" "bill" true)
+        tb.addItem("b" "Password" "pwd" false)
+        tb.value = "a"
+        tb.build()
+        def root:EVGElement (unwrap h.root)
+        t.ok("active panel is in the tree" (UiTree.reachable(root "tb-panel-a")))
+        t.ok("inactive panel is not" ((UiTree.reachable(root "tb-panel-b")) == false))
+        h.click("tb-tab-b")
+        t.eqStr("click activates the tab" tb.value "b")
+        t.ok("panels swapped" (UiTree.reachable(root "tb-panel-b")))
+        t.ok("old panel left the tree" ((UiTree.reachable(root "tb-panel-a")) == false))
+        ; Unlike a radio group, a tab strip moves the selection with the arrow.
+        h.key("ArrowRight")
+        t.eqStr("arrow wraps to the first tab" tb.value "a")
+        t.eqStr("and takes focus with it" h.focusId "tb-tab-a")
+        h.key("ArrowLeft")
+        t.eqStr("arrow back skips the disabled tab" tb.value "b")
+    }
+
+    sfn testAccordion:void (t:Check) {
+        print "--- accordion ---"
+        def h (new UiHost())
+        def ac:AccordionCtl (h.addAccordion("ac" ""))
+        ac.addItem("one" "First" "b1" false)
+        ac.addItem("two" "Second" "b2" false)
+        ac.build()
+        def root:EVGElement (unwrap h.root)
+        t.ok("everything starts closed" ((UiTree.reachable(root "ac-one-content")) == false))
+        h.click("ac-one-trigger")
+        t.eqStr("click opens" ac.openValue "one")
+        t.ok("open content is in the tree" (UiTree.reachable(root "ac-one-content")))
+        h.click("ac-two-trigger")
+        t.eqStr("single mode: the other one closes" ac.openValue "two")
+        t.ok("first content left the tree" ((UiTree.reachable(root "ac-one-content")) == false))
+        h.click("ac-two-trigger")
+        t.eqStr("collapsible: clicking the open one closes it" ac.openValue "")
     }
 
     sfn testFocusAndKeys:void (t:Check) {

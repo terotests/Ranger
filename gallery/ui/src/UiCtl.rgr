@@ -17,7 +17,8 @@ Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "UiTree.rgr"
 
-; Tri-state, spelled as EVGA11yTri: 0 = not applicable, 1 = no, 2 = yes.
+; Tri-state, spelled as EVGA11yTri: 0 = not applicable, 1 = no, 2 = yes,
+; 3 = mixed.
 class UiRow {
     def tid:string ""
     def role:int 0
@@ -26,8 +27,13 @@ class UiRow {
     def state:string ""
     def expanded:int 0
     def pressed:int 0
+    def checked:int 0
+    def selected:int 0
     def disabled:boolean false
-    def focusable:boolean false
+    ; Would Tab land here? A composite with roving focus keeps exactly one of
+    ; its items true, which is the whole observable difference between roving
+    ; focus and a row of ordinary buttons.
+    def tabStop:boolean false
 
     Constructor () {
     }
@@ -38,6 +44,21 @@ class UiRow {
         r.role = role
         r.name = name
         return r
+    }
+}
+
+; One member of a composite (a radio item, a tab, an accordion section).
+class UiItem {
+    def value:string ""
+    def name:string ""
+    def body:string ""
+    def disabled:boolean false
+    def el:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        el = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
     }
 }
 
@@ -59,6 +80,17 @@ class UiCtl {
     fn activate:void (target:string) {
     }
 
+    ; A key arrived while `target` held focus. Returns the test id that should
+    ; hold focus afterwards, or "" to leave focus where it is — which is how a
+    ; composite moves focus along with an arrow key without the host needing to
+    ; know anything about arrows.
+    fn keyDown:string (target:string key:string) {
+        if (UiCtl.activatesOn(key)) {
+            this.activate(target)
+        }
+        return ""
+    }
+
     ; Test ids this controller answers for, outermost first.
     fn tids:[string] () {
         def a:[string]
@@ -69,6 +101,10 @@ class UiCtl {
     ; Is `target` a focusable node of this controller?
     fn isFocusable:boolean (target:string) {
         return false
+    }
+
+    ; Focus landed on `target` — a composite records its roving tab stop here.
+    fn onFocus:void (target:string) {
     }
 
     fn rows:[UiRow] () {
@@ -97,5 +133,51 @@ class UiCtl {
             return true
         }
         return false
+    }
+
+    sfn isNextKey:boolean (key:string) {
+        if (key == "ArrowDown") {
+            return true
+        }
+        if (key == "ArrowRight") {
+            return true
+        }
+        return false
+    }
+
+    sfn isPrevKey:boolean (key:string) {
+        if (key == "ArrowUp") {
+            return true
+        }
+        if (key == "ArrowLeft") {
+            return true
+        }
+        return false
+    }
+
+    ; Step through items, skipping disabled ones and wrapping at the ends.
+    ; Returns the landing index, or `from` when nothing else can take focus.
+    sfn stepIndex:int (items:[UiItem] from:int delta:int) {
+        def n:int (array_length items)
+        if (n == 0) {
+            return from
+        }
+        def i:int from
+        def tries:int 0
+        while (tries < n) {
+            i = (i + delta)
+            if (i < 0) {
+                i = (n - 1)
+            }
+            if (i >= n) {
+                i = 0
+            }
+            def it:UiItem (itemAt items i)
+            if (it.disabled == false) {
+                return i
+            }
+            tries = (tries + 1)
+        }
+        return from
     }
 }

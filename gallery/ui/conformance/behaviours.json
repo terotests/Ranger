@@ -3,7 +3,7 @@
     "The Radix surface this kit intends to match, one entry per behaviour.",
     "A behaviour counts as MATCHED only when a spec exercises it and every",
     "observation in that spec agrees with Radix. Behaviours with no spec are",
-    "reported as UNCOVERED — the catalogue is the denominator, so adding a",
+    "reported as UNCOVERED \u2014 the catalogue is the denominator, so adding a",
     "component here lowers the score until the work is actually done."
   ],
   "components": {
@@ -54,7 +54,11 @@
         "arrow-wraps": "arrow movement wraps at the ends",
         "group-role": "the root exposes the radiogroup role",
         "aria-checked": "items expose aria-checked",
-        "disabled-skipped": "a disabled item is skipped by arrow movement"
+        "disabled-skipped": "a disabled item is skipped by arrow movement",
+        "arrow-selects": {
+          "note": "selection follows arrow focus, per the WAI-ARIA radio pattern",
+          "disputed": "The reference does not do this consistently. Measured on @radix-ui/react-radio-group in Chromium, settled two frames AND 500ms: the first two arrow presses after a pointer click move focus without moving selection, and every press after that moves both. Reproduced with a 2-item and a 3-item group, and with the React root on #root and on document.body. Until it is decided whether to follow the spec or the reference, this stays uncovered rather than being scored either way."
+        }
       }
     },
     "tabs": {

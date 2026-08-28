@@ -72,9 +72,9 @@ class ToggleCtl extends UiCtl {
         r.state = (UiTree.stateOf(el))
         r.disabled = disabled
         if disabled {
-            r.focusable = false
+            r.tabStop = false
         } {
-            r.focusable = true
+            r.tabStop = true
         }
         if on {
             r.pressed = (EVGA11yTri.yes())

@@ -5,28 +5,45 @@
 Native EVG components good enough to replace the hand-built chrome in
 `PptxApp`, with a Radix-measured definition of "good enough".
 
-## Done
+## Where it stands
+
+**49 of 56 catalogued behaviours, 87.5%** — 2486 observations, no divergences.
+Run `npm run ui:report` for the current number; `baseline.json` is checked in.
 
 - [x] Controller convention: own a subtree of the display tree, mutate it,
       report ARIA rows (`UiCtl`)
 - [x] Class-first styling with `state-*` classes; inline attributes still legal
       and still winning (`UiTree.inline` + `markInline`)
 - [x] Theme scoping through `EVGStyleSheet` (`.theme-dark .ui-toggle`)
-- [x] `ToggleCtl` at parity with `@radix-ui/react-toggle`
-- [x] `CollapsibleCtl` at parity with `@radix-ui/react-collapsible`
 - [x] Conformance harness: one spec, two adapters, a trace diff
+- [x] Metrics: a behaviour catalogue as the denominator, coverage / parity /
+      observation scores, a divergence profile, and a baseline that fails the
+      run on a regression
+- [x] Toggle, Collapsible, Checkbox, Switch, RadioGroup, Tabs, Accordion at
+      parity with their `@radix-ui` counterparts
 - [x] Offline suite in CI (`ui:test`, wired into `gallery:editors:test`)
 
-## Next — more surface, same method
+## Next — the last catalogued component
 
-Each of these lands with a spec, or it does not land.
+`dialog` is the remaining 6 behaviours, and it is the one that needs machinery
+nothing here has yet:
 
-- [ ] `TabsCtl` — roving focus, arrow keys, `aria-selected`
-- [ ] `DialogCtl` — modal, focus trap, restore focus on close, Escape
-- [ ] `DropdownCtl` — an overlay layer with z-order, dismiss-on-outside
-- [ ] `CheckboxCtl` / `RadioGroupCtl` — the tri-state `checked` path
-- [ ] Composition: a Slot/`asChild` equivalent, so a controller can merge its
-      props and classes into a caller's element instead of wrapping it
+- [ ] An overlay layer with z-order, so a dialog paints above the page
+- [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog
+- [ ] Focus restore: closing returns focus to the trigger
+- [ ] Escape closes
+- [ ] `modal` on the accessibility row
+
+`EVGWindow` already implements a modal dialog with focus and key handling, and
+`EVGToolbar` already hand-rolls an overlay pass for its dropdown. The dialog
+work should fold those together rather than adding a third.
+
+## Next — Tab itself
+
+`tabstop` is reported and scored, but nothing yet *presses* Tab: the harness
+has no `{ "tab": true }` step. Roving focus is therefore verified by where the
+tab stop sits, not by where Tab lands. Adding the step would also need a
+document-order focus model in `UiHost`.
 
 ## Next — the styling engine
 
@@ -41,12 +58,21 @@ utility-class theme.
 
 ## Next — the actual point
 
-- [ ] Port one `PptxApp` surface (the dialogs first: modal + focus trap +
-      keyboard is where hand-built chrome hurts most) onto these controllers
-- [ ] Fold `EVGToolbar`'s hand-rolled `openMenu` overlay into the layer the
-      dropdown work introduces, rather than leaving two of them
+- [ ] Port one `PptxApp` surface onto these controllers. The dialogs first:
+      modal + focus trap + keyboard is where hand-built chrome hurts most, and
+      it is the same work the `dialog` component needs
+- [ ] Fold `EVGToolbar`'s hand-rolled `openMenu` overlay into that layer
 - [ ] Lift focus and key routing out of `game_engine/ui/UILayer`, which is
       SoftCanvas-bound, so games and documents share one focus model
+
+## Open question, not a task
+
+`radiogroup.arrow-selects` is catalogued as disputed: the reference moves
+selection with the arrow keys on some presses and not others, so there is no
+consistent behaviour to match. Ranger currently follows the reference's stable
+region (focus moves, selection does not), which is *not* the WAI-ARIA radio
+pattern. Deciding to follow the spec instead is a product call, and the
+evidence for it is in `conformance/SPEC.md`.
 
 ## Deliberately not doing
 

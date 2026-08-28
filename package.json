@@ -304,6 +304,8 @@
     "ui:trace": "npm run ui:build && node gallery/ui/conformance/ranger-adapter.cjs gallery/ui/conformance/specs/toggle_collapsible.json",
     "ui:conformance:install": "npm --prefix gallery/ui/conformance/dom install",
     "ui:conformance": "npm run ui:build && node gallery/ui/conformance/compare.mjs",
+    "ui:report": "npm run ui:build && node gallery/ui/conformance/report.mjs",
+    "ui:report:baseline": "npm run ui:build && node gallery/ui/conformance/report.mjs --update-baseline",
     "rangerdbviewer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/DbViewerTest.rgr -d=./gallery/rangerdbviewer/bin -o=DbViewerTest.js -nodecli && node ./gallery/rangerdbviewer/bin/DbViewerTest.js",
     "rangerdbviewer:migrations:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/MigrationTest.rgr -d=./gallery/rangerdbviewer/bin -o=MigrationTest.js -nodecli && node ./gallery/rangerdbviewer/bin/MigrationTest.js",
     "rangerdbviewer:query:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/QueryTest.rgr -d=./gallery/rangerdbviewer/bin -o=QueryTest.js -nodecli && node ./gallery/rangerdbviewer/bin/QueryTest.js",
