@@ -1,0 +1,7 @@
+{
+  "name": "toggle_keyboard",
+  "component": "toggle",
+  "behaviours": ["keyboard-enter", "keyboard-space"],
+  "fixture": { "controls": [{ "type": "toggle", "tid": "toggle", "name": "Bold" }] },
+  "steps": [{ "click": "toggle" }, { "key": "Enter" }, { "key": " " }]
+}

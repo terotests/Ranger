@@ -1,0 +1,11 @@
+{
+  "name": "collapsible_disabled",
+  "component": "collapsible",
+  "behaviours": ["disabled-inert"],
+  "fixture": {
+    "controls": [
+      { "type": "collapsible", "tid": "c", "name": "Details", "body": "Hidden body", "disabled": true }
+    ]
+  },
+  "steps": [{ "click": "c-trigger" }, { "key": "Enter" }]
+}
