@@ -52,7 +52,9 @@ function buildHost(M, fixture, css) {
         break;
 
       default:
-        throw new Error("unknown control type: " + c.type);
+        throw new Error(
+          "unknown control type: " + c.type + " (known: " + SUPPORTED_TYPES.join(", ") + ")",
+        );
     }
     if (c.disabled) ctl.disabled = true;
     // Every field above is initial state, so the subtree is built once here
@@ -62,4 +64,18 @@ function buildHost(M, fixture, css) {
   return host;
 }
 
-module.exports = { buildHost };
+/**
+ * The control types the kit can actually build. The inventory reads this rather
+ * than a hand-kept list, so "implemented" cannot drift from what the code does.
+ */
+const SUPPORTED_TYPES = [
+  "toggle",
+  "collapsible",
+  "checkbox",
+  "switch",
+  "radiogroup",
+  "tabs",
+  "accordion",
+];
+
+module.exports = { buildHost, SUPPORTED_TYPES };

@@ -105,6 +105,7 @@ class CheckboxCtl extends UiCtl {
             r.tabStop = false
         } {
             r.tabStop = true
+            r.focusable = true
         }
         push out r
         return out

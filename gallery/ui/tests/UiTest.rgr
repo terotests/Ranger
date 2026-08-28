@@ -80,6 +80,7 @@ class UiTest {
         UiTest.testAccordion(t)
         UiTest.testDisabledFade(t)
         UiTest.testBorderShorthand(t)
+        UiTest.testA11yTree(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -375,6 +376,57 @@ class UiTest {
         def col2:EVGColor (el2.effectiveBorderColor())
         def b2:int (col2.blue())
         t.eqInt("and its channels survive" b2 225)
+    }
+
+    ; The accessibility tree is what a screen reader gets — `evg-a11y.js` mirrors
+    ; it into real DOM over the canvas, and conformance/a11y.mjs runs axe-core on
+    ; that. This half needs no browser, so CI holds the structure down: every
+    ; focusable node named and sized, no orphans, no duplicate ids.
+    sfn testA11yTree:void (t:Check) {
+        print "--- accessibility tree ---"
+        def h (new UiHost())
+        h.addStyleSheet((UiTest.themeCss()))
+        def tog:ToggleCtl (h.addToggle("tog" "Bold"))
+        def cb:CheckboxCtl (h.addCheckbox("cb" "Accept"))
+        cb.checkState = 2
+        cb.build()
+        def col:CollapsibleCtl (h.addCollapsible("col" "Details" "Body"))
+        def rg:RadioGroupCtl (h.addRadioGroup("rg" "Size"))
+        rg.addItem("s" "Small" false)
+        rg.addItem("m" "Medium" true)
+        rg.value = "s"
+        rg.build()
+        h.setPageSize(420.0 600.0)
+
+        def problems:[string] (h.a11yProblems())
+        def i:int 0
+        while (i < (array_length problems)) {
+            print ("       lint: " + (itemAt problems i))
+            i = (i + 1)
+        }
+        t.eqInt("tree lints clean" (array_length problems) 0)
+
+        def tree:EVGA11yTree (h.a11yTree())
+        t.ok("the root is the page" (tree.rootId == "root"))
+        def togNode:EVGA11yNode (tree.find("tog"))
+        def togRole:string (EVGA11yRole.ariaName(togNode.role))
+        t.eqStr("a toggle is a button" togRole "button")
+        t.ok("and it is focusable" togNode.focusable)
+        t.ok("and it has a rectangle" (togNode.w > 0))
+        def cbNode:EVGA11yNode (tree.find("cb"))
+        t.eqInt("a mixed checkbox says mixed" cbNode.checked (EVGA11yTri.mixed()))
+        def disabledNode:EVGA11yNode (tree.find("rg-m"))
+        t.ok("a disabled item is disabled" disabledNode.disabled)
+        t.ok("and not focusable" (disabledNode.focusable == false))
+        def trigNode:EVGA11yNode (tree.find("col-trigger"))
+        t.eqStr("a trigger hangs under its collapsible" trigNode.parentId "col")
+        ; Closed content is out of the tree, exactly as a hidden node is out of
+        ; the browser's — a reader must not find a panel nobody can open.
+        t.ok("closed content is not in the tree" ((tree.has("col-content")) == false))
+        h.click("col-trigger")
+        def tree2:EVGA11yTree (h.a11yTree())
+        t.ok("open content is" (tree2.has("col-content")))
+        t.eqStr("focus is reported" tree2.focusId "col-trigger")
     }
 
     sfn testFocusAndKeys:void (t:Check) {

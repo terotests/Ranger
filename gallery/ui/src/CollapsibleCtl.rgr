@@ -117,12 +117,14 @@ class CollapsibleCtl extends UiCtl {
         push out rootRow
 
         def trigRow:UiRow (UiRow.of(triggerTid (EVGA11yRole.button()) name))
+        trigRow.parentTid = tid
         trigRow.state = word
         trigRow.disabled = disabled
         if disabled {
             trigRow.tabStop = false
         } {
             trigRow.tabStop = true
+            trigRow.focusable = true
         }
         if open {
             trigRow.expanded = (EVGA11yTri.yes())
@@ -132,6 +134,7 @@ class CollapsibleCtl extends UiCtl {
         push out trigRow
 
         def bodyRow:UiRow (UiRow.of(contentTid (EVGA11yRole.none()) ""))
+        bodyRow.parentTid = tid
         bodyRow.state = word
         push out bodyRow
 

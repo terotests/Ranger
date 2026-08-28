@@ -234,6 +234,7 @@ class TabsCtl extends UiCtl {
         push out rootRow
 
         def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.tabList()) name))
+        listRow.parentTid = tid
         listRow.tabStop = true
         push out listRow
 
@@ -241,6 +242,7 @@ class TabsCtl extends UiCtl {
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             def row:UiRow (UiRow.of((this.tabTid(it.value)) (EVGA11yRole.tab()) it.name))
+            row.parentTid = (this.listTid())
             if (it.value == value) {
                 row.state = "active"
                 row.selected = (EVGA11yTri.yes())
@@ -254,6 +256,8 @@ class TabsCtl extends UiCtl {
             }
             if it.disabled {
                 row.tabStop = false
+            } {
+                row.focusable = true
             }
             push out row
             i = (i + 1)
@@ -263,6 +267,7 @@ class TabsCtl extends UiCtl {
         while (j < (array_length items)) {
             def it2:UiItem (itemAt items j)
             def prow:UiRow (UiRow.of((this.panelTid(it2.value)) (EVGA11yRole.tabPanel()) ""))
+            prow.parentTid = tid
             if (it2.value == value) {
                 prow.state = "active"
             } {

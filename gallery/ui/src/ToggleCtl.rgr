@@ -73,6 +73,7 @@ class ToggleCtl extends UiCtl {
             r.tabStop = false
         } {
             r.tabStop = true
+            r.focusable = true
         }
         if on {
             r.pressed = (EVGA11yTri.yes())

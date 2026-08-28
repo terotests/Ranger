@@ -57,12 +57,12 @@ export function assertDomInstalled() {
   }
 }
 
-function requireDom(name) {
+export function requireDom(name) {
   assertDomInstalled();
   return domRequire(name);
 }
 
-function findChromium() {
+export function findChromium() {
   if (process.env.RANGER_CHROMIUM) return process.env.RANGER_CHROMIUM;
   const base = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (base && fs.existsSync(base)) {

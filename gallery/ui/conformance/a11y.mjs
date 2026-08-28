@@ -1,0 +1,292 @@
+/**
+ * The accessibility audit: the same independent auditor over both systems.
+ *
+ *   node gallery/ui/conformance/a11y.mjs [spec.json ...]
+ *
+ * Three checks, because no single one of them is enough:
+ *
+ *   axe-core on Radix      the reference, audited by the industry-standard
+ *                          rule set — so we find out whether the thing we are
+ *                          copying is itself clean before blaming ourselves.
+ *   axe-core on EVG        the SAME rule set over `evg-a11y.js`'s DOM mirror,
+ *                          which is literally what a screen reader walks when
+ *                          the frame is a canvas. Auditing the canvas itself
+ *                          would be auditing one empty graphic.
+ *   display-list contrast  what axe cannot do on the EVG side: the mirror's
+ *                          ink is transparent by design, so colour contrast has
+ *                          to be measured where the colour actually is — in the
+ *                          display list, text command against the rect behind
+ *                          it, at WCAG 2.1 ratios.
+ *
+ * Plus `EVGA11yTree.lint()`, which needs no browser and so runs in CI through
+ * `npm run ui:test`: duplicate ids, orphaned parents, a focusable node with no
+ * accessible name or no rectangle.
+ *
+ * Exit code 0 when the EVG side has no violation the Radix side does not also
+ * have, and no contrast failure.
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+import { listSpecs, loadTheme } from "./runner.mjs";
+import { assertDomInstalled, findChromium, requireDom } from "./dom-adapter.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const DOM_DIR = path.join(HERE, "dom");
+const A11Y_DIR = path.join(HERE, "a11y");
+const PAGE = { width: 460, height: 640 };
+
+// --- contrast, measured off the display list --------------------------------
+
+/** WCAG 2.1 relative luminance. */
+function luminance([r, g, b]) {
+  const f = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrastRatio(fg, bg) {
+  const a = luminance(fg);
+  const b = luminance(bg);
+  const [hi, lo] = a > b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Composite a possibly-transparent colour over what is behind it. */
+function over(fg, bg) {
+  const a = fg[3] == null ? 1 : fg[3];
+  return [0, 1, 2].map((i) => Math.round(fg[i] * a + bg[i] * (1 - a)));
+}
+
+/**
+ * For every text command, find the filled rectangles painted underneath it and
+ * check the ratio. Painter order is the display list's order, so the rects that
+ * contain this text and were drawn before it are what the eye sees through.
+ *
+ * Text inside a DISABLED control is exempt, and the exemption matters: WCAG
+ * 1.4.3 excludes "text that is part of an inactive user interface component"
+ * from the contrast minimum. Flagging it anyway would make the checker cry wolf
+ * on every greyed-out button in the kit, and a checker people learn to ignore
+ * is worse than no checker. They are counted separately instead, so the
+ * decision stays visible.
+ */
+function contrastFailures(list, a11yNodes = [], pageBg = [255, 255, 255]) {
+  const out = [];
+  const exempt = [];
+  const disabledBoxes = a11yNodes.filter((n) => n.disabled).map((n) => n.b || [0, 0, 0, 0]);
+  const inDisabled = (c) =>
+    disabledBoxes.some(
+      (b) =>
+        c.x >= b[0] - 0.5 &&
+        c.y >= b[1] - 0.5 &&
+        c.x + c.w <= b[0] + b[2] + 0.5 &&
+        c.y + c.h <= b[1] + b[3] + 0.5,
+    );
+  const cmds = list.cmds || [];
+  for (let i = 0; i < cmds.length; i++) {
+    const c = cmds[i];
+    if (!c.text) continue;
+    let bg = pageBg;
+    for (let j = 0; j < i; j++) {
+      const r = cmds[j];
+      if (r.text) continue;
+      if (r.w <= 0 || r.h <= 0) continue;
+      const covers =
+        c.x >= r.x - 0.5 &&
+        c.y >= r.y - 0.5 &&
+        c.x + c.w <= r.x + r.w + 0.5 &&
+        c.y + c.h <= r.y + r.h + 0.5;
+      if (covers) bg = over(r.c, bg);
+    }
+    const fg = over(c.c, bg);
+    const ratio = contrastRatio(fg, bg);
+    // WCAG AA: 3.0 for large text (18pt / 14pt bold), 4.5 otherwise.
+    const large = (c.size || 0) >= 24;
+    const need = large ? 3.0 : 4.5;
+    if (ratio < need) {
+      const row = {
+        text: c.text,
+        ratio: Number(ratio.toFixed(2)),
+        need,
+        fg: `rgb(${fg.join(",")})`,
+        bg: `rgb(${bg.join(",")})`,
+      };
+      if (inDisabled(c)) exempt.push(row);
+      else out.push(row);
+    }
+  }
+  return { failures: out, exempt };
+}
+
+// --- the audit ---------------------------------------------------------------
+
+async function bundleMirror(esbuild, spec, css) {
+  fs.writeFileSync(
+    path.join(A11Y_DIR, "generated.js"),
+    "// Generated by a11y.mjs — do not edit.\n" +
+      `export const FIXTURE = ${JSON.stringify(spec.fixture)};\n` +
+      `export const THEME_CSS = ${JSON.stringify(css)};\n` +
+      `export const PAGE = ${JSON.stringify(PAGE)};\n`,
+  );
+  await esbuild.build({
+    entryPoints: [path.join(A11Y_DIR, "mirror.js")],
+    bundle: true,
+    // Classic script, not a module: this page is opened over file:// and a
+    // module there is blocked by CORS.
+    format: "iife",
+    outfile: path.join(A11Y_DIR, "bundle.js"),
+    define: { "process.env.NODE_ENV": '"production"' },
+    nodePaths: [path.join(DOM_DIR, "node_modules")],
+    logLevel: "silent",
+  });
+}
+
+async function bundleRadix(esbuild) {
+  await esbuild.build({
+    entryPoints: [path.join(DOM_DIR, "app.jsx")],
+    bundle: true,
+    outfile: path.join(DOM_DIR, "bundle.js"),
+    loader: { ".jsx": "jsx" },
+    define: { "process.env.NODE_ENV": '"production"' },
+    logLevel: "silent",
+  });
+}
+
+const domRequire = createRequire(path.join(DOM_DIR, "package.json"));
+const AXE_SRC = () => fs.readFileSync(domRequire.resolve("axe-core"), "utf8");
+
+/**
+ * Colour contrast is excluded on the EVG side and reported separately, because
+ * the mirror's ink is deliberately transparent — `display:none` would take the
+ * nodes out of the very tree being audited. axe would be measuring the wrong
+ * surface, and a rule that always fails teaches nothing.
+ */
+async function runAxe(page, selector, { skipContrast }) {
+  await page.addScriptTag({ content: AXE_SRC() });
+  return page.evaluate(
+    async ([sel, skip]) => {
+      const opts = { resultTypes: ["violations"] };
+      if (skip) opts.rules = { "color-contrast": { enabled: false } };
+      const res = await window.axe.run(document.querySelector(sel), opts);
+      return res.violations.map((v) => ({
+        id: v.id,
+        impact: v.impact,
+        help: v.help,
+        nodes: v.nodes.length,
+        targets: v.nodes.slice(0, 3).map((n) => String(n.target)),
+      }));
+    },
+    [selector, !!skipContrast],
+  );
+}
+
+export async function auditSpec(spec, css, browser, esbuild) {
+  // --- Radix, in its own page
+  await bundleRadix(esbuild);
+  const radixPage = await browser.newPage();
+  await radixPage.addInitScript(`window.__FIXTURE__ = ${JSON.stringify(spec.fixture)};`);
+  await radixPage.goto(pathToFileURL(path.join(DOM_DIR, "index.html")).href);
+  await radixPage.waitForFunction("window.__READY__ === true");
+  const radix = await runAxe(radixPage, "#root", { skipContrast: false });
+  await radixPage.close();
+
+  // --- EVG, through the accessibility mirror
+  await bundleMirror(esbuild, spec, css);
+  const evgPage = await browser.newPage();
+  await evgPage.goto(pathToFileURL(path.join(A11Y_DIR, "index.html")).href);
+  await evgPage.waitForFunction("window.__READY__ === true");
+  const evg = await runAxe(evgPage, "#stage", { skipContrast: true });
+  const lint = await evgPage.evaluate(() => window.__evg.lint());
+  const list = await evgPage.evaluate(() => window.__evg.displayList());
+  const tree = await evgPage.evaluate(() => window.__evg.a11y());
+  await evgPage.close();
+
+  const { failures, exempt } = contrastFailures(list, tree.nodes);
+  return {
+    spec: spec.name,
+    radix,
+    evg,
+    lint,
+    nodes: tree.nodes.length,
+    contrast: failures,
+    exempt,
+  };
+}
+
+// --- report ------------------------------------------------------------------
+
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  assertDomInstalled();
+  const esbuild = requireDom("esbuild");
+  const { chromium } = requireDom("playwright-core");
+  const css = loadTheme();
+  const specs = listSpecs(process.argv.slice(2).filter((a) => !a.startsWith("--")));
+
+  const browser = await chromium.launch({ executablePath: findChromium() });
+  const results = [];
+  try {
+    for (const spec of specs) results.push(await auditSpec(spec, css, browser, esbuild));
+  } finally {
+    await browser.close();
+  }
+
+  const key = (v) => v.id;
+  let failed = 0;
+
+  console.log("gallery/ui — accessibility audit (axe-core " + domRequire("axe-core/package.json").version + ")\n");
+  console.log("spec                        nodes   radix    evg   contrast   lint   exempt");
+  console.log("─".repeat(70));
+  for (const r of results) {
+    const extra = r.evg.filter((v) => !r.radix.some((w) => key(w) === key(v)));
+    if (extra.length || r.contrast.length || r.lint.length) failed += 1;
+    console.log(
+      r.spec.padEnd(26) +
+        String(r.nodes).padStart(6) +
+        String(r.radix.length).padStart(8) +
+        String(r.evg.length).padStart(7) +
+        String(r.contrast.length).padStart(11) +
+        String(r.lint.length).padStart(7) +
+        String(r.exempt.length).padStart(9),
+    );
+  }
+  console.log("─".repeat(70));
+
+  for (const r of results) {
+    const extra = r.evg.filter((v) => !r.radix.some((w) => key(w) === key(v)));
+    if (!extra.length && !r.contrast.length && !r.lint.length) continue;
+    console.log("\n" + r.spec);
+    for (const v of extra) {
+      console.log(`  axe [${v.impact}] ${v.id}: ${v.help} (${v.nodes} nodes) ${v.targets.join(" ")}`);
+    }
+    for (const c of r.contrast) {
+      console.log(`  contrast ${c.ratio}:1 (needs ${c.need}) "${c.text}" ${c.fg} on ${c.bg}`);
+    }
+    for (const l of r.lint) console.log("  lint " + l);
+  }
+
+  const exemptTotal = results.reduce((a, r) => a + r.exempt.length, 0);
+  if (exemptTotal) {
+    console.log(
+      `\n${exemptTotal} low-contrast string(s) inside disabled controls — exempt under WCAG 1.4.3 ` +
+        "(inactive user interface components), reported so the exemption stays a decision.",
+    );
+  }
+
+  const sharedRadix = [...new Set(results.flatMap((r) => r.radix.map(key)))];
+  if (sharedRadix.length) {
+    console.log(
+      "\nviolations the REFERENCE also has (not ours to fix, but worth knowing): " +
+        sharedRadix.join(", "),
+    );
+  }
+
+  if (failed) {
+    console.log(`\nRESULT FAIL — ${failed} spec(s)`);
+    process.exit(1);
+  }
+  console.log("\nRESULT OK");
+}

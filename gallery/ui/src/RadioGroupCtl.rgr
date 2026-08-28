@@ -219,6 +219,7 @@ class RadioGroupCtl extends UiCtl {
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.radio()) it.name))
+            row.parentTid = tid
             if (it.value == value) {
                 row.state = "checked"
                 row.checked = (EVGA11yTri.yes())
@@ -232,6 +233,8 @@ class RadioGroupCtl extends UiCtl {
             }
             if it.disabled {
                 row.tabStop = false
+            } {
+                row.focusable = true
             }
             push out row
             i = (i + 1)

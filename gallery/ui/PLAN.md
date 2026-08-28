@@ -28,11 +28,23 @@ Run `npm run ui:report` for the current number; `baseline.json` is checked in.
       rangerflow and book, and read by nothing
 - [x] The `border` shorthand parsed in `EVGElement` — it used to vanish
       without a stylesheet error
+- [x] `UiHost.a11yTree()` — a real `EVGA11yTree`, so `evg-a11y.js` can mirror
+      it into DOM and axe-core can audit it
+- [x] `ui:a11y`: axe-core over both systems, display-list contrast, and the
+      structural lint offline in CI
+- [x] `ui:inventory`: the Radix denominator derived from npm, with an
+      unclassified package failing the run
 
-## Next — the last catalogued component
+## Next — the overlay layer
 
-`dialog` is the remaining 6 behaviours, and it is the one that needs machinery
-nothing here has yet:
+The inventory says where the leverage is: **11 of the 24 missing components are
+waiting on one overlay layer** — dialog, alert-dialog, popover, tooltip,
+hover-card, dropdown-menu, context-menu, menubar, navigation-menu, select,
+toast. Four of those additionally need typeahead and submenus, seven need a
+focus trap.
+
+`dialog` is the smallest of them and the one already catalogued, so it is the
+way in:
 
 - [ ] An overlay layer with z-order, so a dialog paints above the page
 - [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog

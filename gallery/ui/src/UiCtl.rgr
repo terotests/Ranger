@@ -21,6 +21,9 @@ Import "UiTree.rgr"
 ; 3 = mixed.
 class UiRow {
     def tid:string ""
+    ; The row this one hangs under, "" for a control the host parents to the
+    ; page. The accessibility tree needs the shape, not just the list.
+    def parentTid:string ""
     def role:int 0
     def name:string ""
     ; The `state-<value>` class, reported bare: "on", "off", "open", "closed".
@@ -34,6 +37,10 @@ class UiRow {
     ; its items true, which is the whole observable difference between roving
     ; focus and a row of ordinary buttons.
     def tabStop:boolean false
+    ; CAN focus reach it at all? Every enabled radio item is focusable; only
+    ; one of them is a tab stop. A screen reader cares about the first, Tab
+    ; about the second, and conflating them loses the arrow-key surface.
+    def focusable:boolean false
 
     Constructor () {
     }

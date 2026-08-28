@@ -38,6 +38,10 @@ class UiHost {
     def focusId:string ""
     ; The last laid-out page, kept so a pointer can be turned into a test id.
     def lastPage@(optional):EVGElement
+    ; Bumped on every tree so the DOM mirror knows the frame changed — it skips
+    ; an update whose generation it has already applied, which is what keeps a
+    ; reader's cursor from being rebuilt out from under it.
+    def a11yGen:int 0
     def pageWidth:double 480.0
     def pageHeight:double 320.0
 
@@ -354,6 +358,94 @@ class UiHost {
             i = (i + 1)
         }
         return out
+    }
+
+    ; --- the accessibility tree ----------------------------------------------
+    ; The same tree `gallery/evg/gl/evg-a11y.js` mirrors into real DOM over the
+    ; canvas, which is how a screen reader — and axe-core — sees an EVG frame at
+    ; all. A node the display tree no longer carries is left OUT: hidden content
+    ; is not in a browser's accessibility tree either, and putting it in would
+    ; hand a reader a panel nobody can reach.
+
+    ; The laid-out element with this id, if the display tree still carries it.
+    ; An instance method rather than a static on UiTree: Ranger will not resolve
+    ; a static that returns an optional and recurses into itself.
+    fn findEl@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def hit@(optional):EVGElement el
+            return hit
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            def got@(optional):EVGElement (this.findEl(c id))
+            if got {
+                return got
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    fn a11yTree:EVGA11yTree () {
+        def page:EVGElement (this.layout())
+        def r:EVGElement (unwrap root)
+        def t (new EVGA11yTree())
+        a11yGen = (a11yGen + 1)
+        t.generation = a11yGen
+        def rootNode:EVGA11yNode (t.node("root" "" (EVGA11yRole.group())))
+        rootNode.name = "Ranger UI"
+        def pw:int (to_int pageWidth)
+        def ph:int (to_int pageHeight)
+        t.place(rootNode 0 0 pw ph)
+
+        def rows:[UiRow] (this.allRows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            def maybe@(optional):EVGElement (this.findEl(r row.tid))
+            if maybe {
+                def el:EVGElement (unwrap maybe)
+                def parent:string "root"
+                if ((strlen row.parentTid) > 0) {
+                    parent = row.parentTid
+                }
+                def n:EVGA11yNode (t.node(row.tid parent row.role))
+                n.name = row.name
+                n.disabled = row.disabled
+                n.focusable = row.focusable
+                n.checked = row.checked
+                n.expanded = row.expanded
+                if (row.selected == 2) {
+                    n.selected = true
+                }
+                if row.focusable {
+                    n.actActivate = true
+                }
+                def x:int (to_int el.calculatedX)
+                def y:int (to_int el.calculatedY)
+                def w:int (to_int el.calculatedWidth)
+                def h:int (to_int el.calculatedHeight)
+                t.place(n x y w h)
+            }
+            i = (i + 1)
+        }
+        t.setFocus(focusId)
+        return t
+    }
+
+    fn a11yJson:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.toJson())
+    }
+
+    ; EVGA11yTree's own structural lint: duplicate ids, orphaned parents, a
+    ; focusable node with no accessible name or no rectangle, a named node whose
+    ; role is decoration. Runs without a browser, so CI gets it.
+    fn a11yProblems:[string] () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.lint())
     }
 
     fn traceJson:string () {
