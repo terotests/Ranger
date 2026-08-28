@@ -1,0 +1,20 @@
+; SPDX-License-Identifier: MIT
+; Negative control for tree literals — this file must NOT compile.
+
+class Box {
+    def name:string ""
+    def label:string ""
+    def kids:[Box]
+    Constructor () { }
+    fn addKid:void (k:Box) {
+        push kids k
+    }
+}
+
+treefactory UiTree {
+    child addKid
+    text  label
+    tag   Row Box
+}
+
+class T { sfn main:void () { def b (tree Nope (Row)) print b.name } }
