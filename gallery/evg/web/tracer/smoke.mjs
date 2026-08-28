@@ -209,6 +209,56 @@ if (!ready) {
     process.exitCode = 1;
   }
 
+  // Pasting an image loads and traces it; a paste with no image, or one aimed
+  // at a text field, is left alone.
+  const pasted = await page.evaluate(async () => {
+    const cv = document.createElement("canvas");
+    cv.width = 40; cv.height = 30;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 40, 30);
+    ctx.fillStyle = "#101010"; ctx.fillRect(8, 6, 24, 18);
+    const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
+    const fire = (build) => {
+      const dt = new DataTransfer();
+      build(dt);
+      document.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt, bubbles: true, cancelable: true,
+      }));
+    };
+    document.getElementById("status").textContent = "…";
+    fire((dt) => dt.items.add(new File([blob], "pasted.png", { type: "image/png" })));
+    await new Promise((r) => setTimeout(r, 1500));
+    const afterImage = document.getElementById("status").textContent;
+
+    // A paste carrying no image must not disturb anything.
+    document.getElementById("status").textContent = "UNTOUCHED";
+    fire((dt) => dt.setData("text/plain", "just words"));
+    await new Promise((r) => setTimeout(r, 400));
+    const afterText = document.getElementById("status").textContent;
+
+    // Nor may it steal a paste meant for a text field.
+    const tf = document.createElement("input");
+    tf.type = "text";
+    document.body.appendChild(tf);
+    tf.focus();
+    document.getElementById("status").textContent = "UNTOUCHED";
+    fire((dt) => dt.items.add(new File([blob], "pasted.png", { type: "image/png" })));
+    await new Promise((r) => setTimeout(r, 400));
+    const afterField = document.getElementById("status").textContent;
+    tf.remove();
+
+    return { afterImage, afterText, afterField, size: "40x30" };
+  });
+  console.log(JSON.stringify(pasted));
+  if (!/40×30/.test(pasted.afterImage)) {
+    console.error("pasting an image should load and trace it");
+    process.exitCode = 1;
+  }
+  if (pasted.afterText !== "UNTOUCHED" || pasted.afterField !== "UNTOUCHED") {
+    console.error("paste should be ignored without an image, and inside a text field");
+    process.exitCode = 1;
+  }
+
   if (!process.exitCode) {
     console.log("tracer smoke OK");
   }
