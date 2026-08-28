@@ -22,7 +22,7 @@ const css = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const errors = M.MenubarDemo.styleErrors(css);
 if (errors > 0) throw new Error(`the stylesheet has ${errors} error(s)`);
 
-const list = JSON.parse(M.MenubarDemo.displayListJson(css, ["Always Show Full URLs"], "Luis"));
+const list = JSON.parse(M.MenubarDemo.displayListJson(css, ["Always Show Full URLs"], "Luis", "File", true));
 const doc = { width: 1240, height: 560, list };
 
 const html = `<!doctype html><meta charset="utf-8">
