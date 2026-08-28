@@ -1616,6 +1616,36 @@ class EVGLayout {
         def x:double 0.0
         def y:double 0.0
 
+        if (surface.overlaySide == "cover") {
+            ; The page itself: a modal's backdrop. It is sized here rather than
+            ; with `width: 100%` because a percentage resolves against the
+            ; PARENT, and the parent of a dialog's backdrop is whatever part of
+            ; the page happened to declare the dialog — a card, a toolbar, a
+            ; row. A backdrop that covers its card and not the page is the
+            ; thing it exists to prevent.
+            x = 0.0
+            y = 0.0
+            surface.calculatedWidth = pageWidth
+            surface.calculatedHeight = pageHeight
+            surface.calculatedInnerWidth = (surface.box.getInnerWidth(pageWidth))
+            surface.calculatedInnerHeight = (surface.box.getInnerHeight(pageHeight))
+            w = pageWidth
+            h = pageHeight
+            surface.overlayPlacedSide = "cover"
+            ; Anything inside it was laid out against the old box, so it is laid
+            ; out again against this one. A backdrop is usually empty, but
+            ; nothing here requires that.
+            def kid:int 0
+            while (kid < (surface.getChildCount())) {
+                def kc:EVGElement (surface.getChild(kid))
+                kc.resetLayoutState()
+                kid = (kid + 1)
+            }
+            if ((surface.getChildCount()) > 0) {
+                this.layoutChildren(surface)
+                this.mirrorChildren(surface)
+            }
+        } {
         if (surface.overlaySide == "center") {
             ; Centred on the page: a modal, which has no anchor by definition.
             x = ((pageWidth - w) / 2.0)
@@ -1672,6 +1702,7 @@ class EVGLayout {
             ; its anchor.
             x = (EVGLayout.clampTo(x 0.0 (pageWidth - w)))
             y = (EVGLayout.clampTo(y 0.0 (pageHeight - h)))
+        }
         }
 
         surface.overlayX = x

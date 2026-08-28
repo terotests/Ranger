@@ -103,6 +103,7 @@ class AlertDialogCtl extends UiCtl {
         def overlay:EVGElement (unwrap overlayEl)
         overlay.id = (this.overlayTid())
         overlay.className = "ui-alertdialog-overlay"
+        UiTree.backdrop(overlay)
         UiTree.setState(overlay "ui-alertdialog-overlay" word)
         UiTree.clearChildren(overlay)
         root.addChild(overlay)
@@ -110,6 +111,7 @@ class AlertDialogCtl extends UiCtl {
         def content:EVGElement (unwrap contentEl)
         content.id = (this.contentTid())
         content.className = "ui-alertdialog-content"
+        UiTree.surface(content "center" "center")
         UiTree.setState(content "ui-alertdialog-content" word)
         UiTree.clearChildren(content)
 

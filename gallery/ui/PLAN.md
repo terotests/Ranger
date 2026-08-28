@@ -90,12 +90,17 @@ it landed.
       the rows is worth more than the gap. The side it ended up on is published
       as `overlayPlacedSide`, the way Radix publishes `data-side`. Visible in
       the demo: put the bar at the bottom and the menus open upwards.
-- [ ] **Modal:** the same mechanism plus a backdrop and an inert page behind.
+- [x] **Modal:** the same mechanism. `overlay-side: cover` is the backdrop —
+      the page, sized by the layout pass because a percentage resolves against
+      the parent, and the parent of a dialog is whatever part of the page
+      declared it. The content is `center`. With paint-order hit testing the
+      backdrop is also what a click outside lands on, which is what makes a
+      modal modal rather than a thing that looks like one.
 - [ ] Focus trap: Tab and Shift+Tab cycle inside the open dialog. Catalogued as
       `dialog.focus-trap` and disputed, because the harness has no Tab step to
       prove it with
 
-Proof: `npm run evg:overlay:test` — 33 checks, each one shown to fail under a
+Proof: `npm run evg:overlay:test` — 42 checks, each one shown to fail under a
 mutation of the code it covers. The visible result is
 `gallery/ui/demo/menubar.png`, rendered from `MenubarDemo.rgr`.
 
@@ -136,9 +141,24 @@ were invisible to the audit page that had no input:
 for a controller: it knows things the tree does not, like what a key will do
 next. Everything else should derive.
 
-`EVGWindow` already implements a modal dialog with focus and key handling, and
-`EVGToolbar` already hand-rolls an overlay pass for its dropdown. Folding those
-into this layer is the work, rather than adding a third.
+**The controllers are on it.** `UiTree.anchor()`, `UiTree.surface()` and
+`UiTree.backdrop()` are the whole API, and each controller uses two lines of
+it: popover, dropdown menu, context menu, tooltip and hover card anchor their
+panel to their trigger; dialog and alert dialog take a backdrop and centre.
+Nothing else in those files changed — the surface is still the trigger's
+sibling, so focus, Escape, `hidden` and the accessibility walk work exactly as
+they did.
+
+The oracle for that was the conformance trace, and it is the useful result:
+**46/46 specs still agree, and none of the 15 observed fields moved.** The
+panels stopped pushing the page down and started floating, and nothing a user
+can observe about behaviour changed. `UiHost.hitTest` now scans the same paint
+order backwards, so a click on an open panel reaches the panel and not the
+trigger beside it.
+
+`EVGWindow` still implements its own modal dialog with focus and key handling,
+and `EVGToolbar` still hand-rolls an overlay pass for its dropdown. Folding
+those two into this layer is what is left.
 
 The seven components still missing are `form`,
 `one-time-password-field`, `password-toggle-field`, `menubar`, `select`,

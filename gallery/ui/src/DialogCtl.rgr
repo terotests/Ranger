@@ -92,6 +92,10 @@ class DialogCtl extends UiCtl {
         def overlay:EVGElement (unwrap overlayEl)
         overlay.id = (this.overlayTid())
         overlay.className = "ui-dialog-overlay"
+        ; The dim behind the dialog is the page, not the card the dialog was
+        ; declared in — and it is out of flow, so opening one no longer pushes
+        ; the page down by the height of a backdrop.
+        UiTree.backdrop(overlay)
         UiTree.setState(overlay "ui-dialog-overlay" word)
         UiTree.clearChildren(overlay)
         root.addChild(overlay)
@@ -99,6 +103,9 @@ class DialogCtl extends UiCtl {
         def content:EVGElement (unwrap contentEl)
         content.id = (this.contentTid())
         content.className = "ui-dialog-content"
+        ; Centred on the page, which is what `center` means and why a modal
+        ; needs no anchor: there is nothing it is "next to".
+        UiTree.surface(content "center" "center")
         UiTree.setState(content "ui-dialog-content" word)
         UiTree.clearChildren(content)
 

@@ -454,6 +454,44 @@ class EVGOverlayTest {
         c.eqStr("on the side that loses less" s.overlayPlacedSide "top")
     }
 
+    ; A modal's backdrop: the page itself, not the card the dialog was declared
+    ; in. This is the case a percentage cannot express — `width: 100%` resolves
+    ; against the PARENT, and the parent of a dialog is whatever part of the
+    ; page happened to declare it.
+    sfn testCover:void (c:OverlayCheck) {
+        print "--- a backdrop covers the page, not its parent ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def card:EVGElement (EVGOverlayTest.box("card" "card" 200.0 100.0))
+        def backdrop:EVGElement (EVGOverlayTest.box("backdrop" "backdrop" 50.0 20.0))
+        backdrop.setAttribute("overlay" "true")
+        backdrop.setAttribute("overlay-side" "cover")
+        def dialog:EVGElement (EVGOverlayTest.box("dialog" "dialog" 300.0 200.0))
+        dialog.setAttribute("overlay" "true")
+        dialog.setAttribute("overlay-side" "center")
+        card.addChild(backdrop)
+        card.addChild(dialog)
+        page.addChild(card)
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+
+        def b:EVGElement (EVGOverlayTest.nodeById(page "backdrop"))
+        c.eqInt("it starts at the page's origin" (to_int (b.calculatedX + b.calculatedY)) 0)
+        c.eqInt("as wide as the page" (to_int b.calculatedWidth) 800)
+        c.eqInt("and as tall" (to_int b.calculatedHeight) 600)
+        def d:EVGElement (EVGOverlayTest.nodeById(page "dialog"))
+        c.eqInt("the dialog is centred on the page, not on the card" (to_int d.calculatedX) 250)
+        c.eqInt("and down" (to_int d.calculatedY) 200)
+        ; The card it was declared in is unchanged: a modal takes no space.
+        def cd:EVGElement (EVGOverlayTest.nodeById(page "card"))
+        c.eqInt("and the card it was declared in is untouched" (to_int cd.calculatedWidth) 200)
+        ; Painted after everything, and the dialog after the backdrop, so the
+        ; dim never covers the dialog.
+        def hit (new EVGHitTest())
+        c.eqStr("a press in the middle hits the dialog" (hit.idAt(page 400.0 300.0)) "dialog")
+        c.eqStr("and one at the edge hits the backdrop, not the page behind it"
+            (hit.idAt(page 20.0 560.0)) "backdrop")
+        c.eqInt("with nothing reported" (array_length (lay.getOverlayErrors())) 0)
+    }
+
     sfn main:void () {
         def c (new OverlayCheck())
         print "=== EVG overlay surfaces ==="
@@ -468,6 +506,7 @@ class EVGOverlayTest {
         EVGOverlayTest.testFlip(c)
         EVGOverlayTest.testShift(c)
         EVGOverlayTest.testNoRoomEitherWay(c)
+        EVGOverlayTest.testCover(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

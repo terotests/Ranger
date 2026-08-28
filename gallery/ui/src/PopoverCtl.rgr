@@ -80,6 +80,10 @@ class PopoverCtl extends UiCtl {
         }
         UiTree.setState(trig "ui-popover-trigger" word)
         UiTree.leafText(trig name)
+        ; The panel hangs off this. Nothing else in the file changes: the
+        ; surface stays the trigger's sibling, so focus, Escape and the
+        ; accessibility walk are all unaffected — only where it is DRAWN moves.
+        UiTree.anchor(trig)
         root.addChild(trig)
 
         if (open == false) {
@@ -89,6 +93,7 @@ class PopoverCtl extends UiCtl {
         def content:EVGElement (unwrap contentEl)
         content.id = (this.contentTid())
         content.className = "ui-popover-content"
+        UiTree.surface(content "bottom" "start")
         UiTree.setState(content "ui-popover-content" word)
         UiTree.clearChildren(content)
 
