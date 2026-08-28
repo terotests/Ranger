@@ -1,0 +1,550 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxBoxGeometryTest — how big is a text box, and who said so
+; ==============================================================================
+;
+; Reported from a deck this repository does not have: some text boxes came out
+; as if they were ZERO WIDE. The words were laid out down the left edge, one
+; per line, broken at every space — and none of that text could be selected
+; with the pointer, which is the same fault seen from the other side: the hit
+; test asks whether a point is inside the box, and no point is inside a box of
+; no width. The author's guess was that the sizes had come from a template
+; attached to the file, and the guess was right.
+;
+; There are three ways a shape ends up with no size, and this suite is one
+; section per way:
+;
+;   1. THE FILE SAYS HALF OF IT. `a:off` and `a:ext` are separate elements.
+;      A box can say where it goes and never say how big, and the reader used
+;      to treat "said something" as "said everything", so the half that was
+;      missing was inherited as zero rather than asked for.
+;
+;   2. THE TEMPLATE SAYS IT TWO STEPS UP. A slide placeholder inherits from
+;      the layout's, which inherits from the MASTER's. A corporate template's
+;      layout often only names its placeholders — the geometry is on the
+;      master. The reader stopped at the layout, took its 0 × 0, and marked
+;      the geometry as settled.
+;
+;   3. NOBODY SAYS IT AT ALL. A text box that is not a placeholder and states
+;      no `a:xfrm` has nothing above it to ask. It still has words in it, and
+;      the reader now states a box so that they can be read and clicked —
+;      flagged `geomFallback`, and never written back into the file.
+;
+; The last two sections are the symptoms themselves, on a fixture built for
+; this: the lines the text lays out into, and whether a pointer can select it.
+;
+;   npm run pptx:box:test
+; ==============================================================================
+
+Import "../../xml/XmlCore.rgr"
+Import "../src/PptxModel.rgr"
+Import "../src/PptxParser.rgr"
+Import "../src/PptxResolver.rgr"
+Import "../src/PptxEdit.rgr"
+Import "../src/PptxTextLayout.rgr"
+Import "../../office/text/OfficeTextMeasure.rgr"
+Import "../../ooxml/OpcPackage.rgr"
+Import "../src/PptxWriter.rgr"
+
+class PptxBoxGeometryTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxBoxGeometryTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (fabs (got - want))
+        this.check(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (d <= tol))
+    }
+
+    fn run:void () {
+        print "=== PptxBoxGeometryTest ==="
+        this.testStatedHalves()
+        this.testInheritsThroughTheLayout()
+        this.testStatedBeatsInherited()
+        this.testFallbackBox()
+        this.testTheDeckThatSaysNothing()
+        this.testTextIsNotOneWordPerLine()
+        this.testEveryBoxCanBeClicked()
+        this.testSavingKeepsTheFileHonest()
+        print ""
+        print (("passed = " + (to_string passed)) + ("  failed = " + (to_string failed)))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --- helpers -------------------------------------------------------------
+
+    ; One `<p:sp>`, read the way a slide's shape tree reads it.
+    fn shapeOf:PptxShape (xml:string) {
+        def p (new XmlParser())
+        def node@(optional):XmlNode (p.parse(xml))
+        if (null? node) {
+            def empty (new PptxShape())
+            return empty
+        }
+        def parser (new PptxParser())
+        def out:PptxShape (parser.parseShape((unwrap node)))
+        return out
+    }
+
+    ; A text box with whatever `spPr` this asks for, and words in it.
+    sfn boxXml:string (name:string spPr:string text:string) {
+        def out:string "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\""
+        out = (out + name)
+        out = (out + "\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr>")
+        out = (out + spPr)
+        out = (out + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>")
+        out = (out + "<p:txBody><a:bodyPr wrap=\"square\"/><a:lstStyle/><a:p><a:r>")
+        out = (out + "<a:rPr lang=\"en-GB\" sz=\"1800\"/><a:t>")
+        out = (out + text)
+        out = (out + "</a:t></a:r></a:p></p:txBody></p:sp>")
+        return out
+    }
+
+    ; A placeholder as a sheet holds one: with a box, or with only a name.
+    sfn ph:PptxShape (phType:string idx:int) {
+        def s (new PptxShape())
+        s.isPlaceholder = true
+        s.phType = phType
+        s.phIdx = idx
+        s.name = (phType + " placeholder")
+        return s
+    }
+
+    sfn placed:PptxShape (phType:string idx:int x:double y:double w:double h:double) {
+        def s:PptxShape (PptxBoxGeometryTest.ph(phType idx))
+        s.x = x
+        s.y = y
+        s.width = w
+        s.height = h
+        s.hasXfrm = true
+        s.hasOff = true
+        s.hasExt = true
+        return s
+    }
+
+    sfn sheetWith:PptxSheet (part:string shape:PptxShape) {
+        def sheet (new PptxSheet())
+        sheet.partPath = part
+        push sheet.shapes shape
+        return sheet
+    }
+
+    ; The slide, its layout and its master, resolved the way a deck is.
+    fn resolveOne:PptxShape (shape:PptxShape layoutPh:PptxSheet masterPh:PptxSheet) {
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        slide.layoutPart = "ppt/slideLayouts/slideLayout1.xml"
+        slide.masterPart = "ppt/slideMasters/slideMaster1.xml"
+        push slide.shapes shape
+        def layouts:[string:PptxSheet]
+        set layouts "ppt/slideLayouts/slideLayout1.xml" layoutPh
+        def masters:[string:PptxSheet]
+        set masters "ppt/slideMasters/slideMaster1.xml" masterPh
+        def theme (new PptxTheme())
+        def resolver (new PptxResolver())
+        resolver.resolveSlide(slide theme layouts masters)
+        def out:PptxShape (itemAt slide.shapes 0)
+        return out
+    }
+
+    ; --- 1: the file says half of it -----------------------------------------
+
+    fn testStatedHalves:void () {
+        print "--- a:off and a:ext are two statements, not one ---"
+        def full:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("Full"
+            "<a:xfrm><a:off x=\"914400\" y=\"457200\"/><a:ext cx=\"1828800\" cy=\"914400\"/></a:xfrm>"
+            "Hello"))))
+        this.check("a whole xfrm is an xfrm" full.hasXfrm)
+        this.check("with a position" full.hasOff)
+        this.check("and a size" full.hasExt)
+        this.near("x is 72pt" full.x 72.0 0.1)
+        this.near("width is 144pt" full.width 144.0 0.1)
+
+        ; The reported half: where it goes, and nothing about how big.
+        def offOnly:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("OffOnly"
+            "<a:xfrm><a:off x=\"914400\" y=\"457200\"/></a:xfrm>" "Hello"))))
+        this.check("an xfrm with only a:off still counts as an xfrm" offOnly.hasXfrm)
+        this.check("its position is stated" offOnly.hasOff)
+        this.check("its size is NOT" (offOnly.hasExt == false))
+
+        ; `cx="0"` is a size a writer leaves behind, not a size.
+        def zero:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("ZeroExt"
+            "<a:xfrm><a:off x=\"914400\" y=\"457200\"/><a:ext cx=\"0\" cy=\"0\"/></a:xfrm>"
+            "Hello"))))
+        this.check("a zero a:ext is not a size" (zero.hasExt == false))
+
+        def none:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("NoXfrm" "" "Hello"))))
+        this.check("no xfrm at all" (none.hasXfrm == false))
+        this.check("so neither half is stated" ((none.hasOff == false) && (none.hasExt == false)))
+    }
+
+    ; --- 2: the template says it two steps up --------------------------------
+
+    fn testInheritsThroughTheLayout:void () {
+        print "--- a slide inherits THROUGH the layout, not only from it ---"
+        ; The template shape: the layout names the placeholder and says
+        ; nothing about where it is; the master is where the box lives.
+        def slideShape:PptxShape (PptxBoxGeometryTest.ph("title" (0 - 1)))
+        slideShape.hasText = true
+        def para (new PptxParagraph())
+        def run (new PptxTextRun())
+        run.text = "Inherited title"
+        run.fontSizePt = 32.0
+        run.sizeSet = true
+        push para.runs run
+        push slideShape.text.paragraphs para
+        def layout:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideLayouts/slideLayout1.xml"
+            (PptxBoxGeometryTest.ph("title" (0 - 1)))))
+        def master:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideMasters/slideMaster1.xml"
+            (PptxBoxGeometryTest.placed("title" (0 - 1) 36.0 21.6 648.0 90.0))))
+        def out:PptxShape (this.resolveOne(slideShape layout master))
+        this.near("the master's x came down" out.x 36.0 0.01)
+        this.near("and its y" out.y 21.6 0.01)
+        this.near("and its width" out.width 648.0 0.01)
+        this.near("and its height" out.height 90.0 0.01)
+        this.check("which is the file's geometry, not this reader's"
+            (out.geomFallback == false))
+        ; Inherited, so a save must not state it as the slide's own.
+        this.check("and it is marked as inherited for the writer"
+            ((out.xfrmSignature()) == out.sheetXfrmSig))
+
+        ; The layout still wins when it does state a box.
+        def slide2:PptxShape (PptxBoxGeometryTest.ph("body" 1))
+        def layout2:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideLayouts/slideLayout1.xml"
+            (PptxBoxGeometryTest.placed("body" 1 40.0 200.0 600.0 200.0))))
+        def master2:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideMasters/slideMaster1.xml"
+            (PptxBoxGeometryTest.placed("body" 1 36.0 126.0 648.0 356.0))))
+        def out2:PptxShape (this.resolveOne(slide2 layout2 master2))
+        this.near("the layout's box beats the master's" out2.width 600.0 0.01)
+        this.near("in both directions" out2.y 200.0 0.01)
+
+        ; …and each HALF is asked for separately: a template that moves a
+        ; placeholder on the layout and leaves its size on the master.
+        def slide3:PptxShape (PptxBoxGeometryTest.ph("body" 1))
+        def halfLayout:PptxShape (PptxBoxGeometryTest.ph("body" 1))
+        halfLayout.x = 100.0
+        halfLayout.y = 300.0
+        halfLayout.hasXfrm = true
+        halfLayout.hasOff = true
+        def layout3:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideLayouts/slideLayout1.xml" halfLayout))
+        def master3:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideMasters/slideMaster1.xml"
+            (PptxBoxGeometryTest.placed("body" 1 36.0 126.0 648.0 356.0))))
+        def out3:PptxShape (this.resolveOne(slide3 layout3 master3))
+        this.near("the position is the layout's" out3.x 100.0 0.01)
+        this.near("the size is the master's" out3.width 648.0 0.01)
+        this.near("and the height with it" out3.height 356.0 0.01)
+
+        ; A content placeholder is written `<p:ph idx="1"/>` with no type at
+        ; all, and the parser reads that as `body`, which is what makes it
+        ; find the layout's body placeholder.
+        def bare:PptxShape (this.shapeOf("<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Content 2\"/><p:cNvSpPr/><p:nvPr><p:ph idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr sz=\"1800\"/><a:t>Body</a:t></a:r></a:p></p:txBody></p:sp>"))
+        this.check("an untyped p:ph is a placeholder" bare.isPlaceholder)
+        this.check("of the body kind" (bare.phType == "body"))
+        def out4:PptxShape (this.resolveOne(bare layout2 master2))
+        this.near("so it lands in the layout's content box" out4.width 600.0 0.01)
+    }
+
+    ; --- what the slide states is never overwritten ---------------------------
+
+    fn testStatedBeatsInherited:void () {
+        print "--- what the slide states stays stated ---"
+        def stated:PptxShape (PptxBoxGeometryTest.placed("title" (0 - 1) 10.0 20.0 300.0 100.0))
+        def layout:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideLayouts/slideLayout1.xml"
+            (PptxBoxGeometryTest.placed("title" (0 - 1) 36.0 21.6 648.0 90.0))))
+        def master:PptxSheet (PptxBoxGeometryTest.sheetWith("ppt/slideMasters/slideMaster1.xml"
+            (PptxBoxGeometryTest.placed("title" (0 - 1) 1.0 2.0 3.0 4.0))))
+        def out:PptxShape (this.resolveOne(stated layout master))
+        this.near("its own x" out.x 10.0 0.01)
+        this.near("its own width" out.width 300.0 0.01)
+        this.check("and nothing to hide from the writer" ((strlen out.sheetXfrmSig) == 0))
+
+        ; Half stated, half inherited: a placeholder dragged on the slide but
+        ; never resized. The position is the slide's, the size the layout's.
+        def moved:PptxShape (PptxBoxGeometryTest.ph("title" (0 - 1)))
+        moved.x = 200.0
+        moved.y = 300.0
+        moved.hasXfrm = true
+        moved.hasOff = true
+        def out2:PptxShape (this.resolveOne(moved layout master))
+        this.near("the move survives" out2.x 200.0 0.01)
+        this.near("and so does the y" out2.y 300.0 0.01)
+        this.near("the size still comes from the layout" out2.width 648.0 0.01)
+        this.near("and the height too" out2.height 90.0 0.01)
+    }
+
+    ; --- 3: nobody says it at all --------------------------------------------
+
+    fn testFallbackBox:void () {
+        print "--- a box for a shape nothing ever gave one ---"
+        def empty (new PptxSheet())
+        def empty2 (new PptxSheet())
+
+        def loose:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("NoXfrm" ""
+            "The quick brown fox jumps over the lazy dog"))))
+        def out:PptxShape (this.resolveOne(loose empty empty2))
+        this.check("it ends up with a width" (out.width > 0.0))
+        this.check("and a height" (out.height > 0.0))
+        this.check("wide enough to be a line of text, not a column of words"
+            (out.width > 100.0))
+        this.check("and it says the box is the reader's, not the file's" out.geomFallback)
+        this.check("so the writer will not state it" ((out.xfrmSignature()) == out.sheetXfrmSig))
+        this.check("it stays on the slide, across" (((out.x + out.width) <= 720.5) && (out.x >= 0.0)))
+        this.check("and down" (((out.y + out.height) <= 540.5) && (out.y >= 0.0)))
+
+        ; Half a statement is still a statement: the box the file put at
+        ; 36 × 300 stays at 36 × 300 and only grows a size.
+        def offOnly:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("OffOnly"
+            "<a:xfrm><a:off x=\"457200\" y=\"3810000\"/></a:xfrm>"
+            "The quick brown fox jumps over the lazy dog"))))
+        def out2:PptxShape (this.resolveOne(offOnly empty empty2))
+        this.near("the stated x is kept" out2.x 36.0 0.01)
+        this.near("and the stated y" out2.y 300.0 0.01)
+        this.check("the invented width runs to the margin" (out2.width > 400.0))
+        this.check("and it is flagged" out2.geomFallback)
+
+        ; A degenerate `a:ext` is treated as no size at all.
+        def zero:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("ZeroExt"
+            "<a:xfrm><a:off x=\"457200\" y=\"457200\"/><a:ext cx=\"0\" cy=\"0\"/></a:xfrm>"
+            "The quick brown fox jumps over the lazy dog"))))
+        def out3:PptxShape (this.resolveOne(zero empty empty2))
+        this.check("a zero box is given a real one" (out3.width > 100.0))
+
+        ; A shape with NO text is left alone. A rectangle of no size draws
+        ; nothing in PowerPoint either, and inventing a box for it would put
+        ; shapes on the slide that its author cannot see anywhere else.
+        def blank:PptxShape (this.shapeOf("<p:sp><p:nvSpPr><p:cNvPr id=\"9\" name=\"Blank\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:sp>"))
+        def out4:PptxShape (this.resolveOne(blank empty empty2))
+        this.near("an empty zero-sized shape keeps its nothing" out4.width 0.0 0.001)
+        this.check("and is not flagged" (out4.geomFallback == false))
+
+        ; A box that states its own size is never touched.
+        def stated:PptxShape (this.shapeOf((PptxBoxGeometryTest.boxXml("Stated"
+            "<a:xfrm><a:off x=\"457200\" y=\"457200\"/><a:ext cx=\"5486400\" cy=\"457200\"/></a:xfrm>"
+            "The quick brown fox jumps over the lazy dog"))))
+        def out5:PptxShape (this.resolveOne(stated empty empty2))
+        this.near("a stated width is left alone" out5.width 432.0 0.01)
+        this.check("and not flagged" (out5.geomFallback == false))
+    }
+
+    ; --- the deck itself -----------------------------------------------------
+
+    ; `37-loose-geometry.pptx` is the report, built: two placeholders whose
+    ; geometry is two steps up, a box that says only where it goes, one that
+    ; says nothing, one that says zero, and one ordinary box as a control.
+    fn deck:PptxSlide () {
+        def parser (new PptxParser())
+        def ok:boolean (parser.openParts("gallery/pptx/fixtures" "37-loose-geometry.pptx"))
+        this.check("open 37-loose-geometry" ok)
+        if (ok == false) {
+            def empty (new PptxSlide())
+            return empty
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def resolver (new PptxResolver())
+        def pres:PptxPresentation (resolver.resolvePresentation(raw))
+        parser.close()
+        def slide:PptxSlide (itemAt pres.slides 0)
+        return slide
+    }
+
+    fn shapeNamed@(optional):PptxShape (slide:PptxSlide name:string) {
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (sh.name == name) {
+                def hit@(optional):PptxShape sh
+                return hit
+            }
+            i = (i + 1)
+        }
+        def missing@(optional):PptxShape
+        return missing
+    }
+
+    fn boxOf:PptxShape (slide:PptxSlide name:string) {
+        def hit@(optional):PptxShape (this.shapeNamed(slide name))
+        this.check((name + " is on the slide") (!null? hit))
+        if (null? hit) {
+            def empty (new PptxShape())
+            return empty
+        }
+        def out:PptxShape (unwrap hit)
+        return out
+    }
+
+    fn testTheDeckThatSaysNothing:void () {
+        print "--- the deck the report was about ---"
+        def slide:PptxSlide (this.deck())
+        if ((array_length slide.shapes) == 0) {
+            return
+        }
+        ; The two placeholders take the master's bands, through a layout that
+        ; states nothing at all. This is the template case, end to end.
+        def title:PptxShape (this.boxOf(slide "Title 1"))
+        this.near("the title takes the master's x" title.x 36.0 0.5)
+        this.near("and the master's width" title.width 648.0 0.5)
+        this.check("from the file, not invented" (title.geomFallback == false))
+        def body:PptxShape (this.boxOf(slide "Content 2"))
+        this.near("the content placeholder too" body.width 648.0 0.5)
+        this.near("in the master's body band" body.y 126.0 0.5)
+        this.check("also from the file" (body.geomFallback == false))
+
+        ; …and the three loose boxes are given one.
+        def names:[string] ([] _:string ( "OffOnly" "NoXfrm" "ZeroExt" ))
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def sh:PptxShape (this.boxOf(slide nm))
+            this.check((nm + " has a width") (sh.width > 100.0))
+            this.check((nm + " has a height") (sh.height > 0.0))
+            this.check((nm + " is inside the slide")
+                (((sh.x + sh.width) <= 720.5) && ((sh.y + sh.height) <= 540.5)))
+            i = (i + 1)
+        }
+        def off:PptxShape (this.boxOf(slide "OffOnly"))
+        this.near("OffOnly stays where the file put it" off.x 36.0 0.5)
+        def stated:PptxShape (this.boxOf(slide "Stated"))
+        this.near("and the control box is untouched" stated.width 576.0 0.5)
+    }
+
+    ; --- the symptom, from the reader's side ---------------------------------
+
+    ; A box of no width lays its text out one word per line, because the
+    ; layout clamps the wrap width to a few pixels and every space then
+    ; becomes a break. That is what "zero width" LOOKED like, and it is worth
+    ; asserting directly rather than only asserting the number behind it.
+    fn testTextIsNotOneWordPerLine:void () {
+        print "--- the text lays out as lines, not as a column of words ---"
+        def slide:PptxSlide (this.deck())
+        if ((array_length slide.shapes) == 0) {
+            return
+        }
+        def m (new OfficeTextMeasure())
+        def names:[string] ([] _:string ( "OffOnly" "NoXfrm" "ZeroExt" "Stated" ))
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def sh:PptxShape (this.boxOf(slide nm))
+            def px:double (sh.width * (96.0 / 72.0))
+            def py:double (sh.height * (96.0 / 72.0))
+            def lines:[PptxTextLine] (PptxTextLayout.layout(sh.text m 1.0 0.0 0.0 px py))
+            ; Nine words in "The quick brown fox jumps over the lazy dog": a
+            ; box wide enough for a sentence takes two lines at the very
+            ; most, and a box of no width takes nine.
+            this.check((nm + " is not one word per line") ((array_length lines) <= 3))
+            this.check((nm + " did lay something out") ((array_length lines) >= 1))
+            i = (i + 1)
+        }
+        ; And the other way round, so the assertion above is known to be able
+        ; to fail: the same text in the box the bug left behind.
+        def broken:PptxShape (this.boxOf(slide "Stated"))
+        def zeroLines:[PptxTextLine] (PptxTextLayout.layout(broken.text m 1.0 0.0 0.0 0.0 100.0))
+        this.check("a box of no width really does break at every word"
+            ((array_length zeroLines) >= 8))
+    }
+
+    ; A box this reader invented is not the document's. Saving the deck must
+    ; not write it out as though the author had put it there: a file that
+    ; comes back with the reader's guesses in it has been damaged by being
+    ; opened, and the next reader — PowerPoint included — would then honour a
+    ; number nobody chose. Inherited geometry goes out under the same rule,
+    ; which is why the two are checked together.
+    fn testSavingKeepsTheFileHonest:void () {
+        print "--- and saving does not write the guess into the file ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "37-loose-geometry.pptx")) == false) {
+            this.check("open 37-loose-geometry to save it" false)
+            return
+        }
+        def resolver (new PptxResolver())
+        def pres:PptxPresentation (resolver.resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        slide.dirty = true
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "loose-geometry-saved.pptx")
+        parser.close()
+
+        ; Read back WITHOUT resolving: this is what the file itself says now.
+        def again (new PptxParser())
+        if ((again.openParts("gallery/pptx/bin" "loose-geometry-saved.pptx")) == false) {
+            this.check("the saved deck reopens" false)
+            return
+        }
+        def back:PptxPresentation (again.parsePresentation())
+        this.check("the saved deck has a slide" ((array_length back.slides) > 0))
+        if ((array_length back.slides) == 0) {
+            again.close()
+            return
+        }
+        def s2:PptxSlide (itemAt back.slides 0)
+        def loose:PptxShape (this.boxOf(s2 "NoXfrm"))
+        this.check("the invented box was not written" (loose.hasExt == false))
+        def title:PptxShape (this.boxOf(s2 "Title 1"))
+        this.check("and neither was the master's, through the layout"
+            (title.hasExt == false))
+        def stated:PptxShape (this.boxOf(s2 "Stated"))
+        this.check("while a box the file stated is still stated" stated.hasExt)
+        this.near("at the size it was" stated.width 576.0 0.5)
+        again.close()
+    }
+
+    ; The other half of the report: none of that text could be selected. A
+    ; click lands on a shape when the point is inside its box, so a box of no
+    ; width is a shape no click can ever reach.
+    fn testEveryBoxCanBeClicked:void () {
+        print "--- and every one of them can be clicked ---"
+        def slide:PptxSlide (this.deck())
+        if ((array_length slide.shapes) == 0) {
+            return
+        }
+        def editor (new PptxEditor())
+        def names:[string] ([] _:string ( "Title 1" "Content 2" "OffOnly" "NoXfrm" "ZeroExt" "Stated" ))
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def sh:PptxShape (this.boxOf(slide nm))
+            def cx:double (sh.x + (sh.width * 0.5))
+            def cy:double (sh.y + (sh.height * 0.5))
+            this.check((nm + " contains its own centre") (PptxEditor.containsPoint(sh cx cy)))
+            i = (i + 1)
+        }
+        ; …and through the editor, which is what the pointer actually calls.
+        def deck (new PptxPresentation())
+        deck.slideWidth = slide.width
+        deck.slideHeight = slide.height
+        push deck.slides slide
+        editor.attach(deck)
+        editor.gotoSlide(0)
+        def target:PptxShape (this.boxOf(slide "NoXfrm"))
+        def hitX:double (target.x + (target.width * 0.5))
+        def hitY:double (target.y + (target.height * 0.5))
+        def got:boolean (editor.selectAt(hitX hitY false))
+        this.check("a click on the loose box selects something" got)
+        def sel@(optional):PptxShape (editor.firstSelected())
+        this.check("and it is a shape" (!null? sel))
+        if (!null? sel) {
+            def s:PptxShape (unwrap sel)
+            this.check("with words in it" s.hasText)
+        }
+    }
+}

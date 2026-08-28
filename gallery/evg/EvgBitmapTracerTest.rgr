@@ -27,6 +27,9 @@ class EvgBitmapTracerTest {
         test.testCheckerTopology(t)
         test.testMonoFillHex(t)
         test.testPosterizeTwoColors(t)
+        test.testThinInkSurvivesManyColors(t)
+        test.testExtraColorsDoNotSplitOneRegion(t)
+        test.testAutoBackgroundKeepsInteriorWhite(t)
         t.summary()
     }
 
@@ -305,5 +308,137 @@ class EvgBitmapTracerTest {
         t.ok("layer fills differ" (h0 != h1))
         t.ok("SVG embeds first layer fill" ((indexOf svg h0) >= 0))
         t.ok("SVG embeds second layer fill" ((indexOf svg h1) >= 0))
+    }
+
+    ; Fill a rect, anti-aliasing every boundary the way a rasterizer would.
+    fn blend:int (a:int b:int t:int) {
+        return (idiv (((a * (100 - t)) + (b * t))) 100)
+    }
+
+    ; A dark hairline on a colored field. Asking for many colors used to spend
+    ; the extra swatches on the halo around the line and then lose the line
+    ; itself to turdsize — the regression this guards.
+    fn makeInkLine:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(60 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 60) {
+                img.setPixelRGB(x y 220 150 60)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; A 3px ink stroke with one blended pixel on each side.
+        y = 0
+        while (y < 40) {
+            img.setPixelRGB(28 y (this.blend(220 20 60)) (this.blend(150 20 60)) (this.blend(60 20 60)))
+            img.setPixelRGB(29 y 20 20 20)
+            img.setPixelRGB(30 y 20 20 20)
+            img.setPixelRGB(31 y (this.blend(220 20 60)) (this.blend(150 20 60)) (this.blend(60 20 60)))
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn countInkPixels:int (tr:EvgBitmapTracer) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length tr.labels)) {
+            def lab:int (itemAt tr.labels i)
+            if (lab == 0) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testThinInkSurvivesManyColors:void (t:RgTest) {
+        def counts:[int]
+        push counts 2
+        push counts 6
+        push counts 12
+        def ci:int 0
+        while (ci < (array_length counts)) {
+            def want:int (itemAt counts ci)
+            def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+            opts.colorCount = want
+            def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeInkLine()) opts))
+            tr.trace()
+            def darkest:EvgTraceLayer (itemAt tr.layers 0)
+            t.ok(("ink layer survives at " + (to_string want) + " colors") ((darkest.ringCount) > 0))
+            ; The stroke is 40px tall and at least 2px wide.
+            def ink:int (this.countInkPixels(tr))
+            t.ok(("ink keeps its width at " + (to_string want) + " colors") (ink >= 80))
+            ci = (ci + 1)
+        }
+    }
+
+    ; The image holds two colors; asking for twelve must not invent ten more
+    ; near-identical swatches that then split every region.
+    fn testExtraColorsDoNotSplitOneRegion:void (t:RgTest) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 12
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeInkLine()) opts))
+        tr.trace()
+        t.ok("palette collapses to what the image holds" ((tr.layerCount()) <= 4))
+        t.ok("palette is not empty" ((tr.layerCount()) >= 2))
+    }
+
+    ; A white page around a shape, and a white patch inside it. The page goes;
+    ; the patch stays — skipLuma alone could not tell them apart.
+    fn testAutoBackgroundKeepsInteriorWhite:void (t:RgTest) {
+        def img (new ImageBuffer())
+        img.init(40 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 40) {
+                img.setPixelRGB(x y 255 255 255)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        y = 6
+        while (y < 34) {
+            def x2:int 6
+            while (x2 < 34) {
+                img.setPixelRGB(x2 y 40 90 200)
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        y = 14
+        while (y < 26) {
+            def x3:int 14
+            while (x3 < 26) {
+                img.setPixelRGB(x3 y 255 255 255)
+                x3 = (x3 + 1)
+            }
+            y = (y + 1)
+        }
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 2
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img opts))
+        tr.trace()
+        t.eqInt("auto background yields both swatches" (tr.layerCount()) 2)
+        ; Count what each swatch painted: the patch is 12×12, the page 40×40-28×28.
+        def white:int 0
+        def blue:int 0
+        def i:int 0
+        while (i < (array_length tr.labels)) {
+            def lab:int (itemAt tr.labels i)
+            if (lab == 0) {
+                blue = (blue + 1)
+            }
+            if (lab == 1) {
+                white = (white + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("interior white patch is painted" white 144)
+        t.eqInt("only the shape around it is painted" blue 640)
     }
 }

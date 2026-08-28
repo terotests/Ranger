@@ -69,7 +69,15 @@ gallery/office/          likewise — see office/README.md
 - [x] Rect / ellipse / preset shapes + groups
 - [x] Theme `schemeClr` / major-minor fonts
 - [x] Master + layout backgrounds and chrome shapes
-- [x] Placeholder match by `type` / `idx` with geometry + style inheritance
+- [x] Placeholder match by `type` / `idx` with geometry + style inheritance,
+      down the whole chain — slide → layout → **master** — and `a:off` and
+      `a:ext` inherited separately, because a file states them separately.
+      A template whose layouts only name their placeholders keeps the master's
+      boxes; a shape that states where it goes and not how big keeps the one
+      and inherits the other
+- [x] A shape with words in it that NOTHING gives a size gets one anyway, so
+      the text is readable and can be clicked. It is flagged (the outline says
+      "no size in file") and never written back into the package
 - [x] PNG + JPEG SoftCanvas blit (`PptxImageDecode` + `blitImageRectScaled`)
 - [x] WebGL host serves OPC media via `/part/ppt/media/…` + `loadImages`
 - [x] Text: align L/C/R (measured), font size, bold/italic/bold-italic faces,
@@ -116,6 +124,12 @@ window pixel becomes one:
 - [x] Slides: add, duplicate, delete, reorder — and a **slide panel** down the
       left whose thumbnails are the slides' own scenes at a small scale, with
       click to go, drag to reorder and the wheel to scroll
+- [x] An **outline** on the column's other tab: this slide's own shapes, front
+      to back, what is inside a group indented under it, each row saying what
+      the shape is and whether the box it is drawn in came out of the file at
+      all. Pick a row and the properties panel shows its **X, Y, W, H and
+      rotation** as numbers, with a step either way — geometry by the number
+      rather than by the drag (`view.outline`, `geom.x` … `geom.drot`)
 - [x] One shared **text layout**: the painter, the caret and the click all use
       the same lines, so a caret lands on the glyphs of a wrapped line, mixed
       runs are placed by measurement rather than by an average character width,
@@ -152,6 +166,8 @@ npm run pptx:writer:test        # write a deck, read it back, compare
 npm run pptx:writer:verify      # …and check the package from outside
 npm run pptx:writer:visual      # …and that it redraws the same picture
 npm run pptx:editor:shots       # artifacts/*.png — what the editor looks like
+npm run pptx:box:test           # how big is a text box, and who said so
+npm run pptx:outline:test       # the outline panel and the geometry inspector
 ```
 
 ## Running it in a browser, with no host

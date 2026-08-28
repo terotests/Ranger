@@ -158,6 +158,9 @@ class PptxResolver {
         out.width = shape.width
         out.height = shape.height
         out.hasXfrm = shape.hasXfrm
+        out.hasOff = shape.hasOff
+        out.hasExt = shape.hasExt
+        out.geomFallback = shape.geomFallback
         out.rotation = shape.rotation
         out.preset = shape.preset
         out.adj = shape.adj
@@ -270,6 +273,160 @@ class PptxResolver {
         }
         def __missing@(optional):PptxShape
         return __missing
+    }
+
+    ; --- a box for a shape that was never given one ---------------------------
+    ;
+    ; Everything above is inheritance: the slide asks the layout, the layout
+    ; asks the master. This is what happens when the answer is still nothing.
+    ;
+    ; A shape with words in it and no size is not a shape a reader can use.
+    ; The painter clamps the wrap width to a few pixels, so the text comes
+    ; down the left edge one word per line; the hit test asks whether the
+    ; pointer is inside a box of zero width, and no pointer ever is, so the
+    ; text cannot be selected, moved or corrected. Both of those were reported
+    ; on the same deck, and they are the same missing number.
+    ;
+    ; So the reader states a box: where the file put the shape when it said,
+    ; the slide's own margins when it did not, and a height the text actually
+    ; needs. It is flagged `geomFallback` — the outline panel says so, and the
+    ; writer never states it back into the file (`sheetXfrmSig`), so a save
+    ; cannot turn this reader's guess into the document's own geometry.
+    ;
+    ; Only shapes that HAVE text get one. A zero-sized rectangle with nothing
+    ; in it draws nothing in PowerPoint too, and inventing a box for it would
+    ; put shapes on the slide that its author cannot see anywhere else.
+    sfn visibleText:boolean (shape:PptxShape) {
+        if (shape.hasText == false) {
+            return false
+        }
+        def body:PptxTextBody shape.text
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if ((strlen run.text) > 0) {
+                    return true
+                }
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        return false
+    }
+
+    ; How tall this text is at the sizes it resolved to, unwrapped: one line
+    ; per paragraph, its tallest run, the spacing around it and the insets.
+    ; It is a floor rather than a measurement — nothing here can measure a
+    ; glyph — but a floor is what a box needs to stop being zero.
+    sfn textHeightPt:double (body:PptxTextBody) {
+        def total:double 0.0
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            def size:double 18.0
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if (run.fontSizePt > size) {
+                    size = run.fontSizePt
+                }
+                ri = (ri + 1)
+            }
+            def line:double (size * 1.2)
+            line = (line + (para.spaceBeforePt + para.spaceAfterPt))
+            total = (total + line)
+            pi = (pi + 1)
+        }
+        if (total <= 0.0) {
+            total = 21.6
+        }
+        return (total + (body.insetT + body.insetB))
+    }
+
+    ; `flowY` is the bottom of everything placed on this slide so far. A
+    ; shape that never said WHERE it goes either is put under them rather
+    ; than at the top of the slide, where it would be drawn across the
+    ; title — the deck this came from has one of each, and a repair that
+    ; buries the title under a repaired box has not repaired anything.
+    fn fallbackBox:void (shape:PptxShape slideW:double slideH:double flowY:double) {
+        if (PptxResolver.statedSize(shape)) {
+            return
+        }
+        if ((PptxResolver.visibleText(shape)) == false) {
+            return
+        }
+        if (slideW <= 0.0) {
+            return
+        }
+        def margin:double (slideW * 0.05)
+        def x:double margin
+        def y:double (slideH * 0.05)
+        if (flowY > y) {
+            y = (flowY + 6.0)
+        }
+        def w:double (slideW - (margin * 2.0))
+        def h:double (PptxResolver.textHeightPt(shape.text))
+        ; A placeholder is not just any shape: the deck asked for the title or
+        ; the body, and PowerPoint's own default master says where those go.
+        ; Standing them in that band is closer to what the author saw than a
+        ; box the size of its own text would be.
+        if shape.isPlaceholder {
+            if ((shape.phType == "title") || (shape.phType == "ctrTitle")) {
+                y = (slideH * 0.04)
+                h = (slideH * 0.17)
+            } {
+                if (((shape.phType == "body") || (shape.phType == "obj")) || (shape.phType == "subTitle")) {
+                    y = (slideH * 0.23)
+                    h = (slideH * 0.66)
+                }
+            }
+        }
+        ; Where the file DID say the shape goes, it goes — only the size is
+        ; this reader's. A box that states `a:off` and no `a:ext` is the
+        ; common half of the report, and moving it as well would put the text
+        ; somewhere the author never put it.
+        if shape.hasOff {
+            x = shape.x
+            y = shape.y
+            w = ((slideW - x) - margin)
+        }
+        if (x < 0.0) {
+            x = margin
+        }
+        if (x >= slideW) {
+            x = margin
+        }
+        if (y < 0.0) {
+            y = 0.0
+        }
+        if (w < (slideW * 0.2)) {
+            w = (slideW * 0.2)
+        }
+        if (h < 14.4) {
+            h = 14.4
+        }
+        if ((y + h) > slideH) {
+            if (h < slideH) {
+                y = (slideH - h)
+            } {
+                y = 0.0
+                h = slideH
+            }
+        }
+        shape.x = x
+        shape.y = y
+        shape.width = w
+        shape.height = h
+        shape.hasXfrm = true
+        shape.hasOff = true
+        shape.hasExt = true
+        shape.geomFallback = true
+        ; Invented, so never written back as the document's own — the same
+        ; rule inherited geometry goes out under.
+        shape.sheetXfrmSig = (shape.xfrmSignature())
     }
 
     ; Which of the master's three styles a placeholder of this kind uses.
@@ -506,15 +663,50 @@ class PptxResolver {
         }
     }
 
+    ; A size worth having: both sides positive. `cx="0"` is not a size and
+    ; neither is a placeholder that was never given one.
+    sfn statedSize:boolean (s:PptxShape) {
+        if (s.width <= 0.0) {
+            return false
+        }
+        return (s.height > 0.0)
+    }
+
     fn mergePlaceholderFrom:void (dst:PptxShape src:PptxShape) {
-        ; Geometry: slide wins when it supplied an xfrm with positive size
-        if ((dst.hasXfrm == false) || ((dst.width <= 0.0) && (dst.height <= 0.0))) {
+        ; Geometry, in two halves, because the file states it in two halves.
+        ;
+        ; The slide wins on each half it stated. What it did not state is the
+        ; layout's, and what the LAYOUT did not state is the master's — which
+        ; is the case this used to lose: the merge marked `hasXfrm` whether or
+        ; not the source had a size, so a layout placeholder that takes its own
+        ; geometry from the master (very common in a corporate template, where
+        ; the layout only says which placeholder goes where by naming it)
+        ; handed the slide a box of 0 × 0 and ended the search. The text then
+        ; wrapped at every word against the left edge and could not be clicked.
+        ; See `PptxShape.hasOff` / `hasExt`.
+        def tookAny:boolean false
+        def statedOff:boolean dst.hasOff
+        if ((statedOff == false) && (src.hasXfrm && src.hasOff)) {
             dst.x = src.x
             dst.y = src.y
+            dst.hasOff = true
+            dst.hasXfrm = true
+            tookAny = true
+        }
+        if ((dst.hasExt == false) && (PptxResolver.statedSize(src))) {
             dst.width = src.width
             dst.height = src.height
-            dst.rotation = src.rotation
+            dst.hasExt = true
             dst.hasXfrm = true
+            ; The rotation belongs to the box it turns, so it comes with the
+            ; size rather than on its own — and only when the slide did not
+            ; state a box of its own to turn.
+            if (statedOff == false) {
+                dst.rotation = src.rotation
+            }
+            tookAny = true
+        }
+        if tookAny {
             ; Inherited, not stated — recorded as it stands now, so a later
             ; move stops matching and IS written. See `sheetXfrmSig`.
             dst.sheetXfrmSig = (dst.xfrmSignature())
@@ -957,6 +1149,7 @@ class PptxResolver {
         }
 
         ; Slide shapes with placeholder inheritance
+        def flowY:double 0.0
         def i:int 0
         while (i < (array_length slide.shapes)) {
             def shape:PptxShape (itemAt slide.shapes i)
@@ -966,14 +1159,23 @@ class PptxResolver {
                     def lay2:PptxSheet (unwrap layout)
                     matched = (this.findPlaceholder(lay2.shapes shape.phType shape.phIdx))
                 }
-                if (null? matched) {
-                    if (!null? master) {
-                        def mas2:PptxSheet (unwrap master)
-                        matched = (this.findPlaceholder(mas2.shapes shape.phType shape.phIdx))
-                    }
+                def fromMaster@(optional):PptxShape
+                if (!null? master) {
+                    def mas2:PptxSheet (unwrap master)
+                    fromMaster = (this.findPlaceholder(mas2.shapes shape.phType shape.phIdx))
                 }
                 if (!null? matched) {
                     this.mergePlaceholderFrom(shape (unwrap matched))
+                }
+                ; …and then the master, for whatever the layout did not give.
+                ; The master used to be consulted ONLY when the layout had no
+                ; placeholder of this kind at all, which is not the chain the
+                ; format describes: a layout placeholder inherits from the
+                ; master one, so a slide that inherits from the layout
+                ; inherits through it. A template whose layouts name their
+                ; placeholders without repeating the geometry lost every box.
+                if (!null? fromMaster) {
+                    this.mergePlaceholderFrom(shape (unwrap fromMaster))
                 }
                 ; The typography a placeholder inherits: the master's style for
                 ; this KIND of placeholder first, then the layout's own list
@@ -1022,6 +1224,15 @@ class PptxResolver {
             this.applyListStyle(shape.text theme)
             this.inheritChildren(shape master theme)
             this.resolveShape(shape theme)
+            ; Last, because the sizes the text resolved to are what a box with
+            ; no size of its own is built from.
+            this.fallbackBox(shape slide.width slide.height flowY)
+            ; …and the next shape with no place of its own goes under this
+            ; one. See `fallbackBox`.
+            def bottom:double (shape.y + shape.height)
+            if (bottom > flowY) {
+                flowY = bottom
+            }
             push resolved shape
             i = (i + 1)
         }

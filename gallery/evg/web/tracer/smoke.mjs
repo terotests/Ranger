@@ -114,7 +114,42 @@ if (!ready) {
   if (!info.hasSvg || info.paths < 1) {
     console.error("expected an SVG with at least one path");
     process.exitCode = 1;
-  } else {
+  }
+
+  // Color mode: the posterize path is the one with the moving parts.
+  await page.evaluate(() => {
+    document.getElementById("status").textContent = "…";
+    const cc = document.getElementById("colorCount");
+    cc.value = "8";
+    cc.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(() => {
+    const st = document.getElementById("status");
+    return st && /OK/.test(st.textContent || "");
+  }, { timeout: 60000 });
+  const color = await page.evaluate(() => {
+    const out = document.getElementById("outStage");
+    const svg = out && out.querySelector("svg");
+    const fills = svg
+      ? Array.from(svg.querySelectorAll("path")).map((p) => p.getAttribute("fill"))
+      : [];
+    return {
+      status: document.getElementById("status").textContent,
+      paths: fills.length,
+      distinctFills: new Set(fills).size,
+      swatches: document.querySelectorAll("#palette .sw").length,
+    };
+  });
+  console.log(JSON.stringify(color, null, 2));
+  if (color.paths < 2 || color.distinctFills < 2) {
+    console.error("expected several colored paths in posterize mode");
+    process.exitCode = 1;
+  }
+  if (color.swatches !== color.paths) {
+    console.error("palette swatches should match the emitted layers");
+    process.exitCode = 1;
+  }
+  if (!process.exitCode) {
     console.log("tracer smoke OK");
   }
 }

@@ -155,12 +155,20 @@ class PptxParser {
             def o:XmlNode (unwrap off)
             shape.x = (PptxUnits.emuToPt((this.parseDoubleAttr(o "x"))))
             shape.y = (PptxUnits.emuToPt((this.parseDoubleAttr(o "y"))))
+            shape.hasOff = true
         }
         def ext@(optional):XmlNode (xfrm.firstChild("ext"))
         if (!null? ext) {
             def e:XmlNode (unwrap ext)
             shape.width = (PptxUnits.emuToPt((this.parseDoubleAttr(e "cx"))))
             shape.height = (PptxUnits.emuToPt((this.parseDoubleAttr(e "cy"))))
+            ; Stated, and stated as a SIZE. `cx="0"` is a degenerate box that
+            ; a writer leaves behind, not an instruction to draw nothing, and
+            ; treating it as stated is what stopped the layout's real size
+            ; from ever being asked for.
+            if ((shape.width > 0.0) && (shape.height > 0.0)) {
+                shape.hasExt = true
+            }
         }
         def chOff@(optional):XmlNode (xfrm.firstChild("chOff"))
         if (!null? chOff) {
@@ -1377,6 +1385,8 @@ class PptxParser {
         shape.width = w
         shape.height = h
         shape.hasXfrm = true
+        shape.hasOff = true
+        shape.hasExt = ((w > 0.0) && (h > 0.0))
         def grid@(optional):XmlNode (tbl.firstChild("tblGrid"))
         def cols:int 0
         if (!null? grid) {
@@ -1586,6 +1596,8 @@ class PptxParser {
             shape.width = w
             shape.height = h
             shape.hasXfrm = true
+            shape.hasOff = true
+            shape.hasExt = ((w > 0.0) && (h > 0.0))
             if ((strlen rid) > 0) {
                 def part:string (pkg.resolveRelationship(slidePart rid))
                 if ((strlen part) > 0) {
