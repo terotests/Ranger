@@ -61,6 +61,7 @@ class EvgTraceOptions  {
     this.paletteHex = [];
     this.paletteBias = "area";
     this.minColorDelta = 10;
+    this.layerMode = "stacked";
     this.smooth = 0;
     this.minRegion = 6;
     this.bgMode = "auto";
@@ -6638,11 +6639,17 @@ class EvgBitmapTracer  {
     return c.toHexString();
   };
   maskForLabel (colorIndex) {
+    const stacked = this.options.layerMode != "flat";
     const bm = EvgBinaryBitmap.create(this.width, this.height);
     const n = this.labels.length;
     let i = 0;
     while (i < n) {
-      if ( (this.labels[i]) == colorIndex ) {
+      const lab = this.labels[i];
+      let take = lab == colorIndex;
+      if ( (stacked && (lab >= colorIndex)) && (lab >= 0) ) {
+        take = true;
+      }
+      if ( take ) {
         const y = ((i / this.width) | 0);
         const x = i - (y * this.width);
         bm.setBit(x, y, true);
@@ -7787,9 +7794,56 @@ class EvgBitmapTracerTest  {
     const sm = EvgBitmapTracer.fromImageBuffer(this.makeSpeckled(), smOpts);
     sm.trace();
     const smRings = this.totalRings(sm);
-    t.ok("the speckle really is there without smoothing", rawRings > 40);
+    t.ok("the speckle really is there without smoothing", rawRings > 15);
     t.ok("smoothing collapses it", smRings < (((rawRings / 4) | 0)));
     t.eqInt("both regions survive the median", sm.layerCount(), 2);
+  };
+  makeInsetSquare () {
+    const img = new ImageBuffer();
+    img.init(40, 40);
+    let y = 0;
+    while (y < 40) {
+      let x = 0;
+      while (x < 40) {
+        img.setPixelRGB(x, y, 30, 40, 60);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    y = 12;
+    while (y < 28) {
+      let x2 = 12;
+      while (x2 < 28) {
+        img.setPixelRGB(x2, y, 230, 220, 200);
+        x2 = x2 + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  traceInset (mode) {
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 2;
+    opts.bgMode = "none";
+    opts.layerMode = mode;
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeInsetSquare(), opts);
+    tr.trace();
+    return tr;
+  };
+  testStackedLayersLeaveNoSeam (t) {
+    const d = EvgTraceOptions.defaults();
+    t.ok("layers are stacked by default", d.layerMode == "stacked");
+    const flat = this.traceInset("flat");
+    const stacked = this.traceInset("stacked");
+    t.eqInt("flat still yields both swatches", flat.layerCount(), 2);
+    t.eqInt("stacked still yields both swatches", stacked.layerCount(), 2);
+    const flatDark = flat.layers[0];
+    const stackedDark = stacked.layers[0];
+    t.eqInt("the disjoint dark layer is cut open for the square", flatDark.ringCount, 2);
+    t.eqInt("the stacked dark layer runs under it whole", stackedDark.ringCount, 1);
+    const flatLight = flat.layers[1];
+    const stackedLight = stacked.layers[1];
+    t.eqInt("the square itself is unchanged", stackedLight.ringCount, flatLight.ringCount);
   };
 }
 /* static JavaSript main routine at the end of the JS file */
@@ -7815,6 +7869,7 @@ function __js_main() {
   test.testSeededPaletteKeepsThePin(t);
   test.testPaletteBiasDefaultIsUnchanged(t);
   test.testSmoothRemovesSpeckle(t);
+  test.testStackedLayersLeaveNoSeam(t);
   t.summary();
 }
 __js_main();

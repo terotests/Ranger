@@ -1315,12 +1315,22 @@ class EvgBitmapTracer {
         return (c.toHexString())
     }
 
+    ; In "stacked" mode a layer claims its own swatch and everything painted
+    ; after it, so each layer is drawn on top of a filled neighbour rather than
+    ; on the page. The palette is sorted dark → light, so what shows through a
+    ; hairline is the next darker color instead of white.
     fn maskForLabel:EvgBinaryBitmap (colorIndex:int) {
+        def stacked:boolean ((options.layerMode) != "flat")
         def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
         def n:int (array_length labels)
         def i:int 0
         while (i < n) {
-            if ((itemAt labels i) == colorIndex) {
+            def lab:int (itemAt labels i)
+            def take:boolean (lab == colorIndex)
+            if (stacked && (lab >= colorIndex) && (lab >= 0)) {
+                take = true
+            }
+            if take {
                 def y:int (idiv i width)
                 def x:int (i - (y * width))
                 bm.setBit(x y true)
