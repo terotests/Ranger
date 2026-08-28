@@ -1,0 +1,7 @@
+{
+  "name": "checkbox_pointer",
+  "component": "checkbox",
+  "behaviours": ["pointer-toggle", "aria-checked", "state-attr"],
+  "fixture": { "controls": [{ "type": "checkbox", "tid": "cb", "name": "Accept" }] },
+  "steps": [{ "click": "cb" }, { "click": "cb" }]
+}

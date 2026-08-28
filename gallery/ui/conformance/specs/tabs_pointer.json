@@ -1,0 +1,17 @@
+{
+  "name": "tabs_pointer",
+  "component": "tabs",
+  "behaviours": ["pointer-select", "panel-swap", "list-role", "aria-selected"],
+  "fixture": {
+    "controls": [
+      {
+        "type": "tabs", "tid": "tb", "name": "Settings", "value": "a",
+        "items": [
+          { "value": "a", "name": "Account", "body": "acct" },
+          { "value": "b", "name": "Password", "body": "pwd" }
+        ]
+      }
+    ]
+  },
+  "steps": [{ "click": "tb-tab-b" }, { "click": "tb-tab-a" }]
+}

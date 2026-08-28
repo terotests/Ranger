@@ -808,6 +808,86 @@ class EVGElement {
         return out
     }
 
+    ; Split a CSS value on whitespace, but never inside parentheses —
+    ; `rgb(203, 213, 225)` is ONE token, and splitting it would hand the
+    ; border shorthand three pieces of nonsense.
+    sfn splitWords:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def depth:int 0
+        def i:int 0
+        def len:int (strlen s)
+        while (i < len) {
+            def c:int (charAt s i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+            }
+            def isSpace:boolean false
+            if (depth == 0) {
+                if (c == 32) {
+                    isSpace = true
+                }
+                if (c == 9) {
+                    isSpace = true
+                }
+            }
+            if isSpace {
+                if ((strlen cur) > 0) {
+                    push out cur
+                    cur = ""
+                }
+            } {
+                cur = cur + (strfromcode c)
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    sfn isBorderStyleWord:boolean (tok:string) {
+        if (tok == "solid") {
+            return true
+        }
+        if (tok == "dashed") {
+            return true
+        }
+        if (tok == "dotted") {
+            return true
+        }
+        if (tok == "double") {
+            return true
+        }
+        if (tok == "none") {
+            return true
+        }
+        if (tok == "hidden") {
+            return true
+        }
+        return false
+    }
+
+    ; A width starts with a digit or a dot; anything else in the shorthand that
+    ; is not a style keyword is the colour — `#abc`, `rgb(...)` or a name.
+    sfn looksLikeColor:boolean (tok:string) {
+        if ((strlen tok) == 0) {
+            return false
+        }
+        def c:int (charAt tok 0)
+        if ((c >= 48) && (c <= 57)) {
+            return false
+        }
+        if (c == 46) {
+            return false
+        }
+        return true
+    }
+
     ; Record that the authoring layer set `name` directly on this element.
     fn markInline:void (name:string) {
         def key:string (EVGElement.toKebab(name))
@@ -1053,6 +1133,33 @@ class EVGElement {
         }
         
         ; Border
+        ;
+        ; The shorthand, because it is what anyone writing CSS reaches for and
+        ; it used to be dropped in silence: no error from the stylesheet, no
+        ; border on the screen. Order-independent, like CSS — a length is the
+        ; width, a colour is the colour, and a style keyword is accepted and
+        ; ignored, since EVG strokes one way.
+        if (name == "border") {
+            def parts:[string] (EVGElement.splitWords(value))
+            def i:int 0
+            while (i < (array_length parts)) {
+                def tok:string (itemAt parts i)
+                if (EVGElement.isBorderStyleWord(tok)) {
+                    ; `none` means no border at all, whatever else was written.
+                    if (tok == "none") {
+                        box.borderWidth = (EVGUnit.px(0.0))
+                    }
+                } {
+                    if (EVGElement.looksLikeColor(tok)) {
+                        box.borderColor = (EVGColor.parse(tok))
+                    } {
+                        box.borderWidth = (EVGUnit.parse(tok))
+                    }
+                }
+                i = (i + 1)
+            }
+            return
+        }
         if ((name == "border-width") || (name == "borderWidth")) {
             box.borderWidth = (EVGUnit.parse(value))
             return

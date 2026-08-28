@@ -75,6 +75,12 @@ class EVGA11yRole {
     sfn separator:int ()   { return 21 }
     sfn list:int ()        { return 22 }
     sfn listItem:int ()    { return 23 }
+    ; Added for the gallery/ui parity work: roles Radix exposes that this
+    ; catalogue had no word for. Appended, so every existing number stands.
+    sfn switchControl:int () { return 24 }
+    sfn radioGroup:int ()  { return 25 }
+    sfn tabPanel:int ()    { return 26 }
+    sfn region:int ()      { return 27 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -102,6 +108,10 @@ class EVGA11yRole {
         if (role == 21) { return "separator" }
         if (role == 22) { return "list" }
         if (role == 23) { return "listitem" }
+        if (role == 24) { return "switch" }
+        if (role == 25) { return "radiogroup" }
+        if (role == 26) { return "tabpanel" }
+        if (role == 27) { return "region" }
         return "none"
     }
 }

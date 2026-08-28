@@ -1,0 +1,241 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RadioGroupCtl — measured against @radix-ui/react-radio-group
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   root      role radiogroup, always a tab stop, never focused itself
+;   items     role radio, checked no | yes, state "checked" | "unchecked"
+;   arrows    move focus and the roving tab stop, skip disabled items, wrap at
+;             the ends — but NOT the selection; see the note in keyDown
+;   roving    exactly one item is a tab stop — the last one focus reached, and
+;             NONE before the group has been touched. That "none yet" start is
+;             not an oversight: Radix hands the tab stop to the group until an
+;             item has been focused, and the trace records the difference.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class RadioGroupCtl extends UiCtl {
+    def items:[UiItem]
+    def value:string ""
+    ; The item focus last reached; "" until the group has been touched.
+    def rovingValue:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return (tid + "-" + itemValue)
+    }
+
+    fn indexOfValue:int (itemValue:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (it.value == itemValue) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-radiogroup"
+        UiTree.clearChildren(root)
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-radio"
+            if it.disabled {
+                UiTree.addClass(el "ui-radio-disabled")
+            }
+            def word:string "unchecked"
+            if (it.value == value) {
+                word = "checked"
+            }
+            UiTree.setState(el "ui-radio" word)
+            UiTree.leafText(el it.name)
+            root.addChild(el)
+            i = (i + 1)
+        }
+    }
+
+    fn valueAtIndex:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length items)) {
+            return ""
+        }
+        def it:UiItem (itemAt items i)
+        return it.value
+    }
+
+    fn selectValue:void (itemValue:string) {
+        def idx:int (this.indexOfValue(itemValue))
+        if (idx < 0) {
+            return
+        }
+        def it:UiItem (itemAt items idx)
+        if it.disabled {
+            return
+        }
+        value = itemValue
+        this.build()
+    }
+
+    fn activate:void (target:string) {
+        if disabled {
+            return
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                if (it.disabled == false) {
+                    value = it.value
+                    rovingValue = it.value
+                    this.build()
+                }
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def from:int -1
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                from = i
+            }
+            i = (i + 1)
+        }
+        if (from < 0) {
+            return ""
+        }
+        def delta:int 0
+        if (UiCtl.isNextKey(key)) {
+            delta = 1
+        }
+        if (UiCtl.isPrevKey(key)) {
+            delta = -1
+        }
+        if (delta == 0) {
+            if (UiCtl.activatesOn(key)) {
+                this.activate(target)
+            }
+            return ""
+        }
+        def landed:int (UiCtl.stepIndex(items from delta))
+        def nextValue:string (this.valueAtIndex(landed))
+        if (nextValue == "") {
+            return ""
+        }
+        ; Focus and the roving tab stop move; the SELECTION does not. That is
+        ; not the WAI-ARIA radio pattern, where arrowing also selects — it is
+        ; what @radix-ui/react-radio-group measurably does, checked twice and
+        ; on two mount points (conformance/SPEC.md). Parity means matching the
+        ; reference as it behaves, and the harness is what will tell us if a
+        ; Radix upgrade ever changes it.
+        rovingValue = nextValue
+        this.build()
+        return (this.itemTid(nextValue))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                if it.disabled {
+                    return false
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn onFocus:void (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                rovingValue = it.value
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.radioGroup()) name))
+        rootRow.tabStop = true
+        push out rootRow
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.radio()) it.name))
+            if (it.value == value) {
+                row.state = "checked"
+                row.checked = (EVGA11yTri.yes())
+            } {
+                row.state = "unchecked"
+                row.checked = (EVGA11yTri.no())
+            }
+            row.disabled = it.disabled
+            if (it.value == rovingValue) {
+                row.tabStop = true
+            }
+            if it.disabled {
+                row.tabStop = false
+            }
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

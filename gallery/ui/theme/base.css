@@ -1,0 +1,179 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * Class-first theme for gallery/ui. Controllers never name a colour; they
+ * write class names and this sheet decides. Inline attributes written through
+ * UiTree.inline() still outrank every rule here, so a one-off stays possible.
+ *
+ * EVGStyleSheet matches ONE class token per selector (`.a`, or `.theme-x .a`),
+ * so state variants are scoped class names rather than `.ui-toggle.state-on`.
+ * That limit is the first thing a Tailwind-style theme would have to lift.
+ *
+ * Every controller needs an entry here or it paints as bare text — the
+ * playground is where that shows up immediately.
+ *
+ * Disabled fades with `opacity`, which EVGDisplayList now applies to the
+ * subtree it scales. `inline` is still inert — it is parsed into `isInline`
+ * and never read by EVGLayout — so `display: flex` is what puts controls on
+ * a row.
+ *
+ * Layout is flex. `direction` is EVG's block-flow property and will not put
+ * shrink-wrapped controls on one line; `display: flex` with `flex-direction`
+ * is what does, and EVG supports the rest of it (gap, wrapping,
+ * justify-content, align-items) too.
+ */
+
+/* An opaque root. A faded control blends with what is BEHIND it, and behind a
+   transparent canvas there is nothing to blend with — the fade then comes out
+   dark instead of light. A real app paints its own background anyway. */
+.ui-root {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 16px;
+  gap: 12px;
+  background-color: #ffffff;
+}
+
+/* --- toggle --------------------------------------------------------------- */
+
+.ui-toggle {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-toggle-state-on { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-toggle-disabled { opacity: 0.45; }
+
+/* --- collapsible ---------------------------------------------------------- */
+
+.ui-collapsible { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+.ui-collapsible-trigger {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-collapsible-trigger-state-open { background-color: #cbd5e1; }
+.ui-collapsible-trigger-disabled { opacity: 0.45; }
+
+.ui-collapsible-content {
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #334155;
+}
+/* A panel keeps its text in a child span, and EVG does not inherit colour into
+   one, so the span needs its own rule or the words come out black. */
+.ui-collapsible-body { color: #334155; }
+
+/* --- checkbox and switch -------------------------------------------------- */
+
+.ui-checkbox {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-checkbox-state-checked { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-checkbox-state-indeterminate { background-color: #fbbf24; color: #422006; }
+.ui-checkbox-disabled { opacity: 0.45; }
+
+.ui-switch {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-switch-state-checked { background-color: #16a34a; color: #ffffff; border-color: #16a34a; }
+.ui-switch-disabled { opacity: 0.45; }
+
+/* --- radio group ---------------------------------------------------------- */
+
+.ui-radiogroup { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+
+.ui-radio {
+  border: 1px solid #cbd5e1;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-radio-state-checked { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-radio-disabled { opacity: 0.45; }
+
+/* --- tabs ----------------------------------------------------------------- */
+
+.ui-tabs { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.ui-tablist { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+
+.ui-tab {
+  border: 1px solid #cbd5e1;
+  padding: 7px 14px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #334155;
+}
+.ui-tab-state-active { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-tab-disabled { opacity: 0.45; }
+
+.ui-tabpanel {
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #334155;
+}
+.ui-tabpanel-body { color: #334155; }
+
+/* --- accordion ------------------------------------------------------------ */
+
+.ui-accordion { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.ui-accordion-item { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+.ui-accordion-trigger {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-accordion-trigger-state-open { background-color: #cbd5e1; }
+.ui-accordion-trigger-disabled { opacity: 0.45; }
+
+.ui-accordion-content {
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #334155;
+}
+.ui-accordion-body { color: #334155; }
+
+/* --- dark theme, in the only descendant form the engine supports ----------- */
+
+.theme-dark .ui-root { background-color: #0f172a; }
+.theme-dark .ui-toggle { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-toggle-state-on { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-collapsible-trigger { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-collapsible-content { background-color: #0b1222; color: #cbd5e1; }
+.theme-dark .ui-checkbox { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-checkbox-state-checked { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-switch { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-switch-state-checked { background-color: #22c55e; color: #052e16; }
+.theme-dark .ui-radio { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-radio-state-checked { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-tab { background-color: #1e293b; color: #cbd5e1; }
+.theme-dark .ui-tab-state-active { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-tabpanel { background-color: #0b1222; color: #cbd5e1; }
+.theme-dark .ui-accordion-trigger { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-accordion-content { background-color: #0b1222; color: #cbd5e1; }
+.theme-dark .ui-collapsible-body { color: #cbd5e1; }
+.theme-dark .ui-tabpanel-body { color: #cbd5e1; }
+.theme-dark .ui-accordion-body { color: #cbd5e1; }

@@ -5631,8 +5631,8 @@ class PptxApp {
         ; GROUP — see the note on `leftTab`.
         push outlineOwner owner
         push outlineName (PptxApp.outlineLabel(shape))
-        push outlineKind (PptxApp.outlineKind(shape))
-        push outlineNote (PptxApp.outlineNote(shape))
+        push outlineKind (PptxApp.outlineKindTag(shape))
+        push outlineNote (PptxApp.outlineNoteFor(shape))
         push outlineDepth depth
         def j:int ((array_length shape.children) - 1)
         while (j >= 0) {
@@ -5685,7 +5685,15 @@ class PptxApp {
 
     ; One letter in front of the name, so the kinds can be told apart at a
     ; glance in a column 150 pixels wide.
-    sfn outlineKind:string (shape:PptxShape) {
+    ;
+    ; `…Tag` and `…For` rather than `outlineKind` / `outlineNote`, which are
+    ; the ARRAYS these fill. JavaScript keeps a method and a field of the same
+    ; name apart — `this.outlineKind` is one, `PptxApp.outlineKind` the other
+    ; — and C++ does not: the WASM build of this editor stopped compiling on
+    ; "redefinition of 'outlineKind' as different kind of symbol", six errors
+    ; from two names. A field and a function in one class do not share a name
+    ; here, whatever the target that is generated first would allow.
+    sfn outlineKindTag:string (shape:PptxShape) {
         if (shape.kind == (PptxShapeKind.picture())) {
             return "P"
         }
@@ -5712,7 +5720,7 @@ class PptxApp {
     ; The first of those is the one this whole panel was asked for — a box
     ; whose geometry this reader invented is a box whose numbers on the right
     ; are not the document's, and the reader has to be able to see that.
-    sfn outlineNote:string (shape:PptxShape) {
+    sfn outlineNoteFor:string (shape:PptxShape) {
         if shape.geomFallback {
             return "no size in file"
         }

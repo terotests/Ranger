@@ -288,6 +288,15 @@ jobs:
       - name: Run the gallery editor suites
         run: npm run gallery:editors:test
 
+      # The deck editor is built twice — to JavaScript for /pptx/ and through
+      # C++ to WebAssembly for /pptx-wasm/ — and only the first was compiled
+      # by anything before a merge. A name that JavaScript keeps apart and C++
+      # does not therefore turned the Pages deploy red AFTER landing. This is
+      # the front end of that build, without Emscripten: ~30 seconds, and it
+      # catches the whole class. See gallery/pptx/web/wasm/cpp-check.sh.
+      - name: The deck editor still compiles as C++
+        run: npm run pptx:cpp:check
+
   # The interpreter realm is gallery code but its tests live in tests/, so this
   # job is deliberately ungated: a change on either side must re-check that the
   # evaluator still produces the values Node produces. A parser score alone says

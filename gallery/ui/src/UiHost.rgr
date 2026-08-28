@@ -1,0 +1,399 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiHost — mounts controllers, routes input, and reports the behaviour trace
+; =============================================================================
+; The host owns three things a single controller cannot:
+;
+;   1. the root of the display tree (so "visible" means "reachable and laid out")
+;   2. focus (so a click can move it, and a key can be routed by it)
+;   3. the stylesheet (class-first: controllers write classes, the sheet
+;      decides what they look like; inline attributes still outrank it)
+;
+; `traceJson()` is the conformance surface. It reports the same ARIA-shaped
+; record the DOM adapter reads off Radix, so two systems that share no code can
+; be compared on what a user can actually observe.
+; =============================================================================
+
+Import "UiTree.rgr"
+Import "UiCtl.rgr"
+Import "ToggleCtl.rgr"
+Import "CollapsibleCtl.rgr"
+Import "CheckboxCtl.rgr"
+Import "RadioGroupCtl.rgr"
+Import "TabsCtl.rgr"
+Import "AccordionCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class UiHost {
+    def root:EVGElement
+    def ctls:[UiCtl]
+    def sheet:EVGStyleSheet
+    def theme:string ""
+    def focusId:string ""
+    ; The last laid-out page, kept so a pointer can be turned into a test id.
+    def lastPage@(optional):EVGElement
+    def pageWidth:double 480.0
+    def pageHeight:double 320.0
+
+    Constructor () {
+        root = (EVGElement.createDiv())
+        def r:EVGElement (unwrap root)
+        r.id = "root"
+        r.className = "ui-root"
+        sheet = (new EVGStyleSheet())
+        def empty:[UiCtl]
+        ctls = empty
+    }
+
+    fn setPageSize:void (w:double h:double) {
+        pageWidth = w
+        pageHeight = h
+    }
+
+    fn setTheme:void (name:string) {
+        theme = name
+    }
+
+    ; Class-first: the whole look of the tree arrives as CSS text.
+    fn addStyleSheet:void (css:string) {
+        def s:EVGStyleSheet (unwrap sheet)
+        s.parse(css)
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn add:void (c:UiCtl) {
+        push ctls c
+        def r:EVGElement (unwrap root)
+        def el:EVGElement (unwrap c.rootEl)
+        r.addChild(el)
+    }
+
+    fn addToggle:ToggleCtl (tid:string name:string) {
+        def c (new ToggleCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addCollapsible:CollapsibleCtl (tid:string name:string body:string) {
+        def c (new CollapsibleCtl())
+        c.tid = tid
+        c.name = name
+        c.triggerTid = (tid + "-trigger")
+        c.contentTid = (tid + "-content")
+        c.contentText = body
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addCheckbox:CheckboxCtl (tid:string name:string) {
+        def c (new CheckboxCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSwitch:SwitchCtl (tid:string name:string) {
+        def c (new SwitchCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addRadioGroup:RadioGroupCtl (tid:string name:string) {
+        def c (new RadioGroupCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addTabs:TabsCtl (tid:string name:string) {
+        def c (new TabsCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAccordion:AccordionCtl (tid:string name:string) {
+        def c (new AccordionCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn ctlFor@(optional):UiCtl (target:string) {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            if (c.owns(target)) {
+                def hit@(optional):UiCtl c
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):UiCtl
+        return miss
+    }
+
+    ; A click on a focusable node focuses it and activates it. A click on a
+    ; disabled node activates nothing AND takes focus away — which is what a
+    ; browser does, and what the Radix oracle records.
+    fn click:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            if (c.isFocusable(target)) {
+                focusId = target
+                c.onFocus(target)
+                c.activate(target)
+                return
+            }
+        }
+        focusId = ""
+    }
+
+    fn focus:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            if (c.isFocusable(target)) {
+                focusId = target
+                c.onFocus(target)
+            }
+        }
+    }
+
+    fn blur:void () {
+        focusId = ""
+    }
+
+    ; Keys go to whatever holds focus, like every real host. A controller that
+    ; moves focus itself (arrow keys in a composite) says so by returning the
+    ; test id focus should land on.
+    fn key:void (name:string) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.keyDown(focusId name))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+        }
+    }
+
+    ; Style, then lay out. Inline attributes written through UiTree.inline()
+    ; are marked, so this pass cannot overwrite them.
+    fn layout:EVGElement () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageWidth pageHeight false)
+        s.applyTree(r theme)
+        def page (EVGElement.createDiv())
+        page.id = "page"
+        page.width = (EVGUnit.px(pageWidth))
+        page.height = (EVGUnit.px(pageHeight))
+        page.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(pageWidth pageHeight)
+        lay.layout(page)
+        lastPage = page
+        return page
+    }
+
+    ; --- pointer -------------------------------------------------------------
+    ; A real host has coordinates, not test ids. Hit testing walks the laid-out
+    ; display tree deepest-first and takes the LAST child before the first, so
+    ; the innermost, latest-painted node wins — a button inside a clickable
+    ; card dispatches to the button, the way a browser does.
+
+    fn containsPoint:boolean (el:EVGElement px:double py:double) {
+        if (px < el.calculatedX) {
+            return false
+        }
+        if (py < el.calculatedY) {
+            return false
+        }
+        def right:double (el.calculatedX + el.calculatedWidth)
+        if (px >= right) {
+            return false
+        }
+        def bottom:double (el.calculatedY + el.calculatedHeight)
+        if (py >= bottom) {
+            return false
+        }
+        return true
+    }
+
+    fn ownsTid:boolean (candidate:string) {
+        if ((strlen candidate) == 0) {
+            return false
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(candidate))
+        if maybe {
+            return true
+        }
+        return false
+    }
+
+    fn hitIn:string (el:EVGElement px:double py:double) {
+        def i:int (array_length el.children)
+        while (i > 0) {
+            i = (i - 1)
+            def c:EVGElement (itemAt el.children i)
+            def got:string (this.hitIn(c px py))
+            if ((strlen got) > 0) {
+                return got
+            }
+        }
+        ; Self last: a label that is not a test id falls through to the control
+        ; that owns it.
+        if (this.containsPoint(el px py)) {
+            if (this.ownsTid(el.id)) {
+                return el.id
+            }
+        }
+        return ""
+    }
+
+    ; The test id under the pointer, or "" for empty space.
+    fn hitTest:string (px:double py:double) {
+        if lastPage {
+            def page:EVGElement (unwrap lastPage)
+            return (this.hitIn(page px py))
+        }
+        return ""
+    }
+
+    ; Press at a point: same rules as click(), including the blur that follows
+    ; a press on empty space or on a disabled control.
+    fn pointerDown:string (px:double py:double) {
+        def target:string (this.hitTest(px py))
+        this.click(target)
+        return target
+    }
+
+    ; The display list itself. A native host (SDL, the C++ painter) wants the
+    ; commands, not a string it has to parse back.
+    fn displayList:EVGDisplayList () {
+        def page:EVGElement (this.layout())
+        def engineLay (new EVGLayout())
+        engineLay.setPageSize(pageWidth pageHeight)
+        def dl (new EVGDisplayList())
+        def te (engineLay.getTextEngine())
+        dl.setTextEngine(te)
+        dl.build(page)
+        return dl
+    }
+
+    fn displayListJson:string () {
+        def dl:EVGDisplayList (this.displayList())
+        return (dl.toJson())
+    }
+
+    ; --- the conformance trace ------------------------------------------------
+
+    ; 0 = not applicable → null, 1 = no, 2 = yes, 3 = mixed. `mixed` is a real
+    ; ARIA value, not a third boolean, so it travels as a string.
+    sfn triJson:string (v:int) {
+        if (v == 1) {
+            return "false"
+        }
+        if (v == 2) {
+            return "true"
+        }
+        if (v == 3) {
+            return "\"mixed\""
+        }
+        return "null"
+    }
+
+    sfn boolJson:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    fn allRows:[UiRow] () {
+        def out:[UiRow]
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            def rs:[UiRow] (c.rows())
+            def j:int 0
+            while (j < (array_length rs)) {
+                push out (itemAt rs j)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn traceJson:string () {
+        def r:EVGElement (unwrap root)
+        def rows:[UiRow] (this.allRows())
+        def out:string "{\"nodes\":["
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            if (i > 0) {
+                out = out + ","
+            }
+            def roleName:string (EVGA11yRole.ariaName(row.role))
+            def isFocused:boolean false
+            if (row.tid == focusId) {
+                isFocused = true
+            }
+            def isVisible:boolean (UiTree.reachable(r row.tid))
+            out = out + "{\"tid\":" + (EVGA11yTree.jsonString(row.tid))
+            out = out + ",\"role\":" + (EVGA11yTree.jsonString(roleName))
+            out = out + ",\"name\":" + (EVGA11yTree.jsonString(row.name))
+            out = out + ",\"state\":" + (EVGA11yTree.jsonString(row.state))
+            out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
+            out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
+            out = out + ",\"checked\":" + (UiHost.triJson(row.checked))
+            out = out + ",\"selected\":" + (UiHost.triJson(row.selected))
+            out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
+            out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
+            out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
+            out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
+            out = out + "}"
+            i = (i + 1)
+        }
+        return (out + "]}")
+    }
+}
+
+; Entry point for -nodemodule builds; the adapter drives the classes above.
+class UiHostModule {
+    sfn main:void () {
+        print "gallery/ui host module"
+    }
+}

@@ -301,6 +301,7 @@ Radial gradients radiate from the center outward.
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
+| `border` | shorthand | Width, style and colour in any order (`1px solid #cbd5e1`); `none` clears it. The style keyword is accepted and ignored — EVG strokes one way |
 | `border-width` | unit | Border thickness |
 | `border-color` | color | Border color |
 | `border-radius` | unit | Corner radius (supports percentage, e.g., `50%` for circle) |
