@@ -41,6 +41,7 @@ class EvgBitmapTracerTest {
         test.testOverlayRecoversASwallowedShape(t)
         test.testEdgeFilterSeparatesNoiseFromBoundary(t)
         test.testOverlayStaysWithinItsPalette(t)
+        test.testOverlaySimilarityDecidesHowManyStack(t)
         t.summary()
     }
 
@@ -1221,11 +1222,71 @@ class EvgBitmapTracerTest {
         ; failure this guards: it is what made the SVG megabytes wide.
         t.ok("a noisy image does not become a shape per pixel" ((four.layerCount()) < 300))
 
-        ; The smallest-area control reaches this mode too — it used to be read
-        ; and then ignored here, so nothing the user could set bounded the
-        ; output at all.
-        def coarse:EvgBitmapTracer (this.traceNoisyOverlay(4 40))
-        t.ok("raising the smallest area makes overlay draw fewer shapes" ((coarse.layerCount()) < (four.layerCount())))
+        ; Overlay stands on the plain picture, so its floor is the plain result.
+        ; It used to stand on a single flat rectangle in the average color of
+        ; the frame, and when the shapes above failed to cover that rectangle —
+        ; on a portrait they reached the face only as slivers — the frame *was*
+        ; the result. Standing on the real thing, an overlay that adds nothing
+        ; costs nothing and one that is wrong is wrong only inside its own
+        ; outline.
+        def plain:EvgTraceOptions (EvgTraceOptions.defaults())
+        plain.colorCount = 4
+        plain.bgMode = "none"
+        plain.minRegion = 6
+        def flat:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) plain))
+        flat.trace()
+        t.ok("overlay draws at least the whole plain picture" ((four.layerCount()) >= (flat.layerCount())))
+        def sameStart:boolean true
+        def li:int 0
+        while (li < (flat.layerCount())) {
+            def a:EvgTraceLayer (itemAt flat.layers li)
+            def b:EvgTraceLayer (itemAt four.layers li)
+            if ((a.fillHex) != (b.fillHex)) {
+                sameStart = false
+            }
+            li = (li + 1)
+        }
+        t.ok("and the plain picture is what it starts from, swatch for swatch" sameStart)
+
+        ; A ramp of noise gives an overlay nothing to say — the plain picture
+        ; already describes it — and the mode correctly adds no shape at all to
+        ; it. That is the point of standing on the plain picture, and it is why
+        ; the similarity control is exercised on the image where overlays do
+        ; fire, below.
+        t.eqInt("noise alone earns no overlay at all" (four.layerCount()) (flat.layerCount()))
+    }
+
+    ; An overlay earns its place by differing from what it sits on, so the
+    ; similarity tolerance decides how many there are. Asked against a blank
+    ; paint map, as it used to be, every overlay "showed" and the control did
+    ; nothing whatever — the mode drew thousands of them on any photograph and
+    ; the same thousands whatever this was set to.
+    fn rampLayers:int (colors:int mode:string sim:int) {
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        o.colorCount = colors
+        o.bgMode = "none"
+        o.minRegion = 6
+        o.contourMode = mode
+        o.overlaySimilar = sim
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) o))
+        tr.trace()
+        return (tr.layerCount())
+    }
+
+    fn testOverlaySimilarityDecidesHowManyStack:void (t:RgTest) {
+        def plain:int (this.rampLayers(6 "off" 8))
+        def deflt:int (this.rampLayers(6 "overlay" 8))
+        def loose:int (this.rampLayers(6 "overlay" 40))
+
+        ; Six swatches leave one stretch of this ramp the plain picture cannot
+        ; describe, and an overlay goes on top of it.
+        t.ok("an overlay is drawn where the plain picture falls short" (deflt > plain))
+        ; Told that a wider difference still counts as the same color, the same
+        ; overlay stops being worth drawing and is gone. Against the blank paint
+        ; map this control had no effect whatever, because the comparison it
+        ; makes was being made against nothing.
+        t.ok("and a loose similarity limit drops it again" (loose < deflt))
+        t.eqInt("leaving exactly the plain picture" loose plain)
     }
 
     fn testEdgeFilterSeparatesNoiseFromBoundary:void (t:RgTest) {

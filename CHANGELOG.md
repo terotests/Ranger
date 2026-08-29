@@ -106,6 +106,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The overlay tracer now stands on the plain picture instead of a flat
+  rectangle.** Reported as it destroying photographs, and it was: under every
+  overlay shape sat a single frame-filling rectangle painted the average color
+  of the image, on the theory that the shapes above would cover it. They do
+  not. Measured on the cheek of a portrait — layer 0 painted that pixel
+  `#6C2D21`, and of the 1467 shapes stacked above it exactly one touched it at
+  all, changing it to `#75372a`. The face read as a brown sheet while its own
+  skin shapes sat in the file underneath, drawn and invisible. The base is now
+  the ordinary quantized result, so the floor of this mode is the plain result
+  rather than a flat sheet, and a bad overlay can only be as wrong as its own
+  outline.
+
+  Two consequences follow. The paint map starts as that picture, which is what
+  makes the mode's own stop rule mean anything: "does this overlay show against
+  what is under it" was being asked against a blank map, so every overlay
+  showed and every overlay was drawn — `overlaySimilar` had no effect at all.
+  Answered against the real picture, an overlay exists only where it differs,
+  and shapes that merely repeat the picture fall out. And an overlay may no
+  longer cross a region boundary of the base picture (`overlayFollowBase`,
+  default on), so it refines that picture rather than contradicting it, which
+  also bounds what any one shape can claim.
+
+  Measured, per-pixel mean absolute error against the source: a detailed photo
+  **10.9 → 5.34** and its SVG 1.3 MB → 153 KB (3990 shapes → 50); clip art
+  1.50 → 1.12 and 29 KB → 26 KB. The portrait that prompted this now traces its
+  cheek to the same swatch the plain algorithm gives it.
+
 - **The overlay tracer no longer explodes the palette or the CPU on photographs.**
   Two independent defects met in the worst possible input. Every overlay shape
   was painted its own mean color, so the color count did nothing whatever in

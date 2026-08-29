@@ -70,6 +70,7 @@ class EvgTraceOptions  {
     this.minColorDelta = 10;
     this.contourMode = "off";
     this.overlaySimilar = 8;
+    this.overlayFollowBase = true;
     this.edgeMinRun = 3;
     this.contourEdge = 3;
     this.contourSpread = 48;
@@ -7441,7 +7442,7 @@ class EvgBitmapTracer  {
     layer.stopA = this.hexOf(this.linAt(la, lb, lc, 0, 0, layer.gx0, layer.gy0), this.linAt(la, lb, lc, 0, 1, layer.gx0, layer.gy0), this.linAt(la, lb, lc, 0, 2, layer.gx0, layer.gy0));
     layer.stopB = this.hexOf(this.linAt(la, lb, lc, 0, 0, layer.gx1, layer.gy1), this.linAt(la, lb, lc, 0, 1, layer.gx1, layer.gy1), this.linAt(la, lb, lc, 0, 2, layer.gx1, layer.gy1));
   };
-  traceOverlayShapes () {
+  traceOverlayShapes (palR, palG, palB) {
     this.buildEdgeMask();
     const n = this.width * this.height;
     let edgeTol = this.options.contourEdge;
@@ -7464,19 +7465,33 @@ class EvgBitmapTracer  {
     let stamp = [];
     let i = 0;
     while (i < n) {
-      paintR.push(0);
-      paintG.push(0);
-      paintB.push(0);
-      painted.push(0);
+      const lab = this.labels[i];
+      if ( (lab >= 0) && (lab < (palR.length)) ) {
+        paintR.push(palR[lab]);
+        paintG.push(palG[lab]);
+        paintB.push(palB[lab]);
+        painted.push(1);
+      } else {
+        paintR.push(0);
+        paintG.push(0);
+        paintB.push(0);
+        painted.push(0);
+      }
       stamp.push(0 - 1);
       i = i + 1;
     };
     let bucket = [];
     let seedPixel = [];
     let seedNext = [];
+    let seedBest = [];
     i = 0;
     while (i < 256) {
       bucket.push(0 - 1);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < n) {
+      seedBest.push(0 - 1);
       i = i + 1;
     };
     let y0 = 0;
@@ -7516,7 +7531,7 @@ class EvgBitmapTracer  {
             }
           }
           if ( st > 0 ) {
-            this.pushSeed(idx0, st, bucket, seedPixel, seedNext);
+            this.pushSeed(idx0, st, bucket, seedPixel, seedNext, seedBest);
           }
         }
         x0 = x0 + 1;
@@ -7524,43 +7539,7 @@ class EvgBitmapTracer  {
       y0 = y0 + 1;
     };
     let allCmds = [];
-    const baseMask = EvgBinaryBitmap.create(this.width, this.height);
-    let bsR = 0;
-    let bsG = 0;
-    let bsB = 0;
-    let bsN = 0;
-    let bi = 0;
-    while (bi < n) {
-      if ( (this.labels[bi]) >= 0 ) {
-        const by = ((bi / this.width) | 0);
-        baseMask.setBit(bi - (by * this.width), by, true);
-        bsR = bsR + (this.planeR[bi]);
-        bsG = bsG + (this.planeG[bi]);
-        bsB = bsB + (this.planeB[bi]);
-        bsN = bsN + 1;
-      }
-      bi = bi + 1;
-    };
-    if ( bsN > 0 ) {
-      const baseOpts = EvgTraceOptions.defaults();
-      baseOpts.turdsize = this.options.turdsize;
-      baseOpts.alphamax = this.options.alphamax;
-      baseOpts.turnpolicy = this.options.turnpolicy;
-      baseOpts.optcurve = this.options.optcurve;
-      baseOpts.opttolerance = this.options.opttolerance;
-      baseOpts.fillHex = this.hexFromRgb((((bsR / bsN) | 0)), (((bsG / bsN) | 0)), (((bsB / bsN) | 0)));
-      const baseTr = EvgBitmapTracer.fromBinary(baseMask, baseOpts);
-      baseTr.trace();
-      if ( baseTr.ringCount() > 0 ) {
-        this.layers.push(baseTr.layers[0]);
-        const bcmds = baseTr.getCommands();
-        let bc = 0;
-        while (bc < (bcmds.length)) {
-          allCmds.push(bcmds[bc]);
-          bc = bc + 1;
-        };
-      }
-    }
+    this.paintLabelLayers(palR, palG, palB, allCmds);
     let budget = ((n / 4) | 0);
     if ( budget < 500 ) {
       budget = 500;
@@ -7621,32 +7600,45 @@ class EvgBitmapTracer  {
           const cy = ((cur / this.width) | 0);
           const cx = cur - (cy * this.width);
           if ( cx > 0 ) {
-            this.overlayStep(cur - 1, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur - 1, cur, stamp, stack, acc, bucket, seedPixel, seedNext, seedBest, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
           if ( cx < (this.width - 1) ) {
-            this.overlayStep(cur + 1, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur + 1, cur, stamp, stack, acc, bucket, seedPixel, seedNext, seedBest, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
           if ( cy > 0 ) {
-            this.overlayStep(cur - this.width, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur - this.width, cur, stamp, stack, acc, bucket, seedPixel, seedNext, seedBest, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
           if ( cy < (this.height - 1) ) {
-            this.overlayStep(cur + this.width, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur + this.width, cur, stamp, stack, acc, bucket, seedPixel, seedNext, seedBest, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
         };
         const cnt = acc[3];
-        const mr = (((acc[0]) / cnt) | 0);
-        const mg = (((acc[1]) / cnt) | 0);
-        const mb = (((acc[2]) / cnt) | 0);
+        let mr = (((acc[0]) / cnt) | 0);
+        let mg = (((acc[1]) / cnt) | 0);
+        let mb = (((acc[2]) / cnt) | 0);
+        const pi = this.nearestIndex(mr, mg, mb, palR, palG, palB);
+        mr = palR[pi];
+        mg = palG[pi];
+        mb = palB[pi];
+        let sameBelow = 0;
         let c = 0;
         while (c < (comp.length)) {
           const px = comp[c];
+          if ( (painted[px]) == 1 ) {
+            if ( ((paintR[px]) == mr) && ((paintG[px]) == mg) ) {
+              if ( (paintB[px]) == mb ) {
+                sameBelow = sameBelow + 1;
+              }
+            }
+          }
           paintR[px] = mr;
           paintG[px] = mg;
           paintB[px] = mb;
           painted[px] = 1;
           c = c + 1;
         };
-        if ( (comp.length) >= 4 ) {
+        const addsNothing = sameBelow == (comp.length);
+        if ( ((comp.length) >= minPx) && (addsNothing == false) ) {
           let bx0 = this.width;
           let by0 = this.height;
           let bx1 = 0;
@@ -7725,7 +7717,7 @@ class EvgBitmapTracer  {
       this.pathData = first.pathData;
     }
   };
-  pushSeed (px, strength, bucket, seedPixel, seedNext) {
+  pushSeed (px, strength, bucket, seedPixel, seedNext, seedBest) {
     let s = strength;
     if ( s < 0 ) {
       s = 0;
@@ -7733,6 +7725,10 @@ class EvgBitmapTracer  {
     if ( s > 255 ) {
       s = 255;
     }
+    if ( s <= (seedBest[px]) ) {
+      return;
+    }
+    seedBest[px] = s;
     const idx = seedPixel.length;
     seedPixel.push(px);
     seedNext.push(bucket[s]);
@@ -7750,18 +7746,23 @@ class EvgBitmapTracer  {
     };
     return 0 - 1;
   };
-  overlayStep (i, from, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted) {
+  overlayStep (i, from, stamp, stack, acc, bucket, seedPixel, seedNext, seedBest, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted) {
     if ( (stamp[i]) == shapeNo ) {
       return;
     }
     if ( (this.labels[i]) < 0 ) {
       return;
     }
+    if ( this.options.overlayFollowBase ) {
+      if ( (this.labels[i]) != (this.labels[from]) ) {
+        return;
+      }
+    }
     const step = this.pixelDelta(from, i);
     if ( step > edgeTol ) {
       if ( this.isBoundary(from, i, edgeTol) ) {
-        this.pushSeed(i, step, bucket, seedPixel, seedNext);
-        this.pushSeed(from, step, bucket, seedPixel, seedNext);
+        this.pushSeed(i, step, bucket, seedPixel, seedNext, seedBest);
+        this.pushSeed(from, step, bucket, seedPixel, seedNext, seedBest);
       }
       return;
     }
@@ -8041,6 +8042,35 @@ class EvgBitmapTracer  {
       pass = pass + 1;
     };
   };
+  paintLabelLayers (palR, palG, palB, allCmds) {
+    const k = palR.length;
+    let li = 0;
+    while (li < k) {
+      const mask = this.maskForLabel(li);
+      const layerOpts = EvgTraceOptions.defaults();
+      layerOpts.turdsize = this.options.turdsize;
+      layerOpts.alphamax = this.options.alphamax;
+      layerOpts.turnpolicy = this.options.turnpolicy;
+      layerOpts.optcurve = this.options.optcurve;
+      layerOpts.opttolerance = this.options.opttolerance;
+      layerOpts.fillHex = this.hexFromRgb((palR[li]), (palG[li]), (palB[li]));
+      const sub = EvgBitmapTracer.fromBinary(mask, layerOpts);
+      sub.trace();
+      if ( sub.ringCount() > 0 ) {
+        const layer = sub.layers[0];
+        this.layers.push(layer);
+        const cmds = sub.getCommands();
+        let ci = 0;
+        while (ci < (cmds.length)) {
+          allCmds.push(cmds[ci]);
+          ci = ci + 1;
+        };
+        this.pathData = layer.pathData;
+        this.rings = sub.rings;
+      }
+      li = li + 1;
+    };
+  };
   traceColorLayers () {
     let want = this.options.colorCount;
     if ( want < 2 ) {
@@ -8072,43 +8102,15 @@ class EvgBitmapTracer  {
     }
     this.assignLabels(palR, palG, palB);
     if ( this.options.contourMode == "overlay" ) {
-      this.traceOverlayShapes();
+      this.traceOverlayShapes(palR, palG, palB);
       return;
     }
     if ( this.options.gradientFill ) {
       this.traceGradientRegions();
       return;
     }
-    let li = 0;
     let allCmds = [];
-    while (li < k) {
-      const cr = palR[li];
-      const cg = palG[li];
-      const cb = palB[li];
-      const mask = this.maskForLabel(li);
-      const layerOpts = EvgTraceOptions.defaults();
-      layerOpts.turdsize = this.options.turdsize;
-      layerOpts.alphamax = this.options.alphamax;
-      layerOpts.turnpolicy = this.options.turnpolicy;
-      layerOpts.optcurve = this.options.optcurve;
-      layerOpts.opttolerance = this.options.opttolerance;
-      layerOpts.fillHex = this.hexFromRgb(cr, cg, cb);
-      const sub = EvgBitmapTracer.fromBinary(mask, layerOpts);
-      sub.trace();
-      if ( sub.ringCount() > 0 ) {
-        const layer = sub.layers[0];
-        this.layers.push(layer);
-        const cmds = sub.getCommands();
-        let ci = 0;
-        while (ci < (cmds.length)) {
-          allCmds.push(cmds[ci]);
-          ci = ci + 1;
-        };
-        this.pathData = layer.pathData;
-        this.rings = sub.rings;
-      }
-      li = li + 1;
-    };
+    this.paintLabelLayers(palR, palG, palB, allCmds);
     this.commands = allCmds;
     if ( (this.layers.length) > 0 ) {
       const first = this.layers[0];
@@ -9548,6 +9550,108 @@ class EvgBitmapTracerTest  {
     tr.trace();
     return tr;
   };
+  makeNoisyRamp () {
+    const img = new ImageBuffer();
+    img.init(60, 40);
+    let seed = 987;
+    let y = 0;
+    while (y < 40) {
+      let x = 0;
+      while (x < 60) {
+        seed = ((seed * 75) + 74) % 65537;
+        const jitter = (seed % 25) - 12;
+        let v = ((((x * 200) / 60) | 0)) + jitter;
+        if ( v < 0 ) {
+          v = 0;
+        }
+        if ( v > 255 ) {
+          v = 255;
+        }
+        img.setPixelRGB(x, y, v, (((v * 3) / 4) | 0), ((v / 2) | 0));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  traceNoisyOverlay (colors, minRegion) {
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = colors;
+    opts.bgMode = "none";
+    opts.minRegion = minRegion;
+    opts.contourMode = "overlay";
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeNoisyRamp(), opts);
+    tr.trace();
+    return tr;
+  };
+  distinctFills (tr) {
+    let seen = [];
+    let i = 0;
+    while (i < tr.layerCount()) {
+      const layer = tr.layers[i];
+      const hex = layer.fillHex;
+      let found = false;
+      let j = 0;
+      while (j < (seen.length)) {
+        if ( (seen[j]) == hex ) {
+          found = true;
+        }
+        j = j + 1;
+      };
+      if ( found == false ) {
+        seen.push(hex);
+      }
+      i = i + 1;
+    };
+    return seen.length;
+  };
+  testOverlayStaysWithinItsPalette (t) {
+    const four = this.traceNoisyOverlay(4, 6);
+    t.ok("overlay never invents a color the palette does not have", this.distinctFills(four) <= 4);
+    const twelve = this.traceNoisyOverlay(12, 6);
+    t.ok("and the ceiling follows the count that was asked for", this.distinctFills(twelve) <= 12);
+    t.ok("a noisy image does not become a shape per pixel", four.layerCount() < 300);
+    const plain = EvgTraceOptions.defaults();
+    plain.colorCount = 4;
+    plain.bgMode = "none";
+    plain.minRegion = 6;
+    const flat = EvgBitmapTracer.fromImageBuffer(this.makeNoisyRamp(), plain);
+    flat.trace();
+    t.ok("overlay draws at least the whole plain picture", four.layerCount() >= flat.layerCount());
+    let sameStart = true;
+    let li = 0;
+    while (li < flat.layerCount()) {
+      const a = flat.layers[li];
+      const b = four.layers[li];
+      if ( a.fillHex != b.fillHex ) {
+        sameStart = false;
+      }
+      li = li + 1;
+    };
+    t.ok("and the plain picture is what it starts from, swatch for swatch", sameStart);
+    t.eqInt("noise alone earns no overlay at all", four.layerCount(), flat.layerCount());
+  };
+  testOverlaySimilarityDecidesHowManyStack (t) {
+    const deflt = this.traceVanishing("overlay", true, 15);
+    const keen = EvgTraceOptions.defaults();
+    keen.colorCount = 6;
+    keen.bgMode = "none";
+    keen.minRegion = 20;
+    keen.contourMode = "overlay";
+    keen.gradientFill = true;
+    keen.gradientGain = 15;
+    keen.overlaySimilar = 1;
+    const fussy = EvgBitmapTracer.fromImageBuffer(this.makeVanishingBoundary(), keen);
+    fussy.trace();
+    t.ok("a tighter similarity limit stacks more overlays", fussy.layerCount() > deflt.layerCount());
+    const plain = EvgTraceOptions.defaults();
+    plain.colorCount = 6;
+    plain.bgMode = "none";
+    plain.minRegion = 20;
+    const flat = EvgBitmapTracer.fromImageBuffer(this.makeVanishingBoundary(), plain);
+    flat.trace();
+    t.eqInt("and at the default it adds none here", deflt.layerCount(), flat.layerCount());
+  };
   testEdgeFilterSeparatesNoiseFromBoundary (t) {
     const d = EvgTraceOptions.defaults();
     t.eqInt("the edge filter is on by default", d.edgeMinRun, 3);
@@ -9621,6 +9725,8 @@ function __js_main() {
   test.testGradientFills(t);
   test.testOverlayRecoversASwallowedShape(t);
   test.testEdgeFilterSeparatesNoiseFromBoundary(t);
+  test.testOverlayStaysWithinItsPalette(t);
+  test.testOverlaySimilarityDecidesHowManyStack(t);
   t.summary();
 }
 __js_main();

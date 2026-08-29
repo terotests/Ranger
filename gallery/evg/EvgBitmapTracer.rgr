@@ -2291,12 +2291,27 @@ class EvgBitmapTracer {
         def paintB:[int]
         def painted:[int]
         def stamp:[int]
+        ; The paint map starts as the base picture, because that is what is on
+        ; screen before a single overlay is drawn. It was started blank, which
+        ; made both of the stop rules lie: "would this overlay show against what
+        ; is under it" was asked against nothing, so every overlay showed and
+        ; every overlay was drawn. Answered against the real picture, the rule
+        ; means what it says — an overlay exists only where it differs from the
+        ; picture it sits on — and the shapes that merely repeat it fall out.
         def i:int 0
         while (i < n) {
-            push paintR 0
-            push paintG 0
-            push paintB 0
-            push painted 0
+            def lab:int (itemAt labels i)
+            if ((lab >= 0) && (lab < (array_length palR))) {
+                push paintR (itemAt palR lab)
+                push paintG (itemAt palG lab)
+                push paintB (itemAt palB lab)
+                push painted 1
+            } {
+                push paintR 0
+                push paintG 0
+                push paintB 0
+                push painted 0
+            }
             push stamp (0 - 1)
             i = (i + 1)
         }
@@ -2376,52 +2391,22 @@ class EvgBitmapTracer {
             y0 = (y0 + 1)
         }
         def allCmds:[PathCommand]
-        ; A base surface under everything, so the picture is never part
-        ; transparent. The shape budget is finite and a photograph will spend it
-        ; on small overlays long before it has covered the frame; whatever is
-        ; left then shows this rather than the page. It is drawn but not entered
-        ; into the paint map, so it changes nothing about how the shapes above
-        ; it decide where to stop.
-        def baseMask:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
-        def bsR:int 0
-        def bsG:int 0
-        def bsB:int 0
-        def bsN:int 0
-        def bi:int 0
-        while (bi < n) {
-            if ((itemAt labels bi) >= 0) {
-                def by:int (idiv bi width)
-                baseMask.setBit((bi - (by * width)) by true)
-                bsR = (bsR + (itemAt planeR bi))
-                bsG = (bsG + (itemAt planeG bi))
-                bsB = (bsB + (itemAt planeB bi))
-                bsN = (bsN + 1)
-            }
-            bi = (bi + 1)
-        }
-        if (bsN > 0) {
-            def baseOpts:EvgTraceOptions (EvgTraceOptions.defaults())
-            baseOpts.turdsize = options.turdsize
-            baseOpts.alphamax = options.alphamax
-            baseOpts.turnpolicy = options.turnpolicy
-            baseOpts.optcurve = options.optcurve
-            baseOpts.opttolerance = options.opttolerance
-            ; The base is snapped like every other shape, or the one color
-            ; nobody chose would be the one covering the most ground.
-            def bpi:int (this.nearestIndex((idiv bsR bsN) (idiv bsG bsN) (idiv bsB bsN) palR palG palB))
-            baseOpts.fillHex = (this.hexFromRgb((itemAt palR bpi) (itemAt palG bpi) (itemAt palB bpi)))
-            def baseTr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(baseMask baseOpts))
-            baseTr.trace()
-            if ((baseTr.ringCount()) > 0) {
-                push layers (itemAt baseTr.layers 0)
-                def bcmds:[PathCommand] (baseTr.getCommands())
-                def bc:int 0
-                while (bc < (array_length bcmds)) {
-                    push allCmds (itemAt bcmds bc)
-                    bc = (bc + 1)
-                }
-            }
-        }
+        ; The picture the quantizer just produced goes down first, and the
+        ; overlay shapes stack on top of it.
+        ;
+        ; What used to be here was a single flat rectangle in the average color
+        ; of the frame, on the theory that the shapes above would cover it. They
+        ; do not: on a portrait the base was a dark brown sheet, the shapes on
+        ; top reached the face only as slivers, and the face read as that brown
+        ; — with its own skin shapes sitting in the file underneath, drawn and
+        ; invisible. Measured on the cheek pixel: layer 0 painted it #6C2D21 and
+        ; of the 1467 shapes above it exactly one touched it at all.
+        ;
+        ; Standing on the real picture makes the floor of this mode the ordinary
+        ; result rather than a flat sheet. An overlay that adds nothing now
+        ; costs nothing, and one that is wrong can only be as wrong as the
+        ; shape it draws — never the whole frame.
+        this.paintLabelLayers(palR palG palB allCmds)
         ; How many shapes are worth making scales with the picture: a fixed
         ; ceiling starves a large photograph of exactly the shapes it needs,
         ; and the flag in one test came out as bare background because its
@@ -2522,6 +2507,12 @@ class EvgBitmapTracer {
                 ; approximately, the same color, which is what lets it be
                 ; dropped rather than drawn.
                 def pi:int (this.nearestIndex(mr mg mb palR palG palB))
+                ; Giving the shape its *region's* swatch instead was tried and
+                ; is provably useless: the base picture already paints that
+                ; swatch there, so every overlay would add nothing by
+                ; construction and the mode collapses to the plain result. A
+                ; shape earns its place by differing from what it sits on, so
+                ; the mean is what decides its color.
                 mr = (itemAt palR pi)
                 mg = (itemAt palG pi)
                 mb = (itemAt palB pi)
@@ -2697,6 +2688,25 @@ class EvgBitmapTracer {
         }
         if ((itemAt labels i) < 0) {
             return
+        }
+        ; An overlay shape may not cross a boundary of the base picture.
+        ;
+        ; Without this it is free to disagree with the quantizer that ran just
+        ; before it, and on a photograph it does: a surface grown by continuity
+        ; runs from a cheek out into the background behind it, takes one color
+        ; for the pair, and a face comes back as brown mush. Growth stopping at
+        ; the base boundary makes overlay a *refinement* of that picture rather
+        ; than a competitor to it — it may still split one region into several
+        ; shapes stacked in z, which is the whole point of it, but it can no
+        ; longer contradict where the regions are.
+        ;
+        ; Checking the pair rather than the seed is the same test: every step
+        ; preserves the label, so the whole component carries one. It is also
+        ; what bounds a shape's area, since no shape can outgrow its region.
+        if (options.overlayFollowBase) {
+            if ((itemAt labels i) != (itemAt labels from)) {
+                return
+            }
         }
         def step:int (this.pixelDelta(from i))
         if (step > edgeTol) {
@@ -3015,6 +3025,41 @@ class EvgBitmapTracer {
         }
     }
 
+    ; Paint the ordinary quantized picture — one evenodd layer per swatch —
+    ; appending to layers and to allCmds. This is what the tracer draws when no
+    ; extra algorithm is asked for, and it is also what the overlay tracer now
+    ; stands on.
+    fn paintLabelLayers:void (palR:[int] palG:[int] palB:[int] allCmds:[PathCommand]) {
+        def k:int (array_length palR)
+        def li:int 0
+        while (li < k) {
+            def mask:EvgBinaryBitmap (this.maskForLabel(li))
+            def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            layerOpts.turdsize = options.turdsize
+            layerOpts.alphamax = options.alphamax
+            layerOpts.turnpolicy = options.turnpolicy
+            layerOpts.optcurve = options.optcurve
+            layerOpts.opttolerance = options.opttolerance
+            layerOpts.fillHex = (this.hexFromRgb((itemAt palR li) (itemAt palG li) (itemAt palB li)))
+            def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+            sub.trace()
+            if ((sub.ringCount()) > 0) {
+                def layer:EvgTraceLayer (itemAt sub.layers 0)
+                push layers layer
+                def cmds:[PathCommand] (sub.getCommands())
+                def ci:int 0
+                while (ci < (array_length cmds)) {
+                    push allCmds (itemAt cmds ci)
+                    ci = (ci + 1)
+                }
+                ; Keep mono-compatible aggregates: last non-empty path + total rings.
+                pathData = layer.pathData
+                rings = sub.rings
+            }
+            li = (li + 1)
+        }
+    }
+
     fn traceColorLayers:void () {
         def want:int options.colorCount
         if (want < 2) {
@@ -3058,37 +3103,8 @@ class EvgBitmapTracer {
             this.traceGradientRegions()
             return
         }
-        def li:int 0
         def allCmds:[PathCommand]
-        while (li < k) {
-            def cr:int (itemAt palR li)
-            def cg:int (itemAt palG li)
-            def cb:int (itemAt palB li)
-            def mask:EvgBinaryBitmap (this.maskForLabel(li))
-            def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
-            layerOpts.turdsize = options.turdsize
-            layerOpts.alphamax = options.alphamax
-            layerOpts.turnpolicy = options.turnpolicy
-            layerOpts.optcurve = options.optcurve
-            layerOpts.opttolerance = options.opttolerance
-            layerOpts.fillHex = (this.hexFromRgb(cr cg cb))
-            def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
-            sub.trace()
-            if ((sub.ringCount()) > 0) {
-                def layer:EvgTraceLayer (itemAt sub.layers 0)
-                push layers layer
-                def cmds:[PathCommand] (sub.getCommands())
-                def ci:int 0
-                while (ci < (array_length cmds)) {
-                    push allCmds (itemAt cmds ci)
-                    ci = (ci + 1)
-                }
-                ; Keep mono-compatible aggregates: last non-empty path + total rings.
-                pathData = layer.pathData
-                rings = sub.rings
-            }
-            li = (li + 1)
-        }
+        this.paintLabelLayers(palR palG palB allCmds)
         commands = allCmds
         if ((array_length layers) > 0) {
             def first:EvgTraceLayer (itemAt layers 0)

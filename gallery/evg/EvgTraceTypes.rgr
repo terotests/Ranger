@@ -155,6 +155,15 @@ class EvgTraceOptions {
     ; "overlay": how close to the color already painted underneath is close
     ; enough to stop. An overlay that matches its background adds nothing.
     def overlaySimilar:int 8
+    ; "overlay": keep every shape inside one region of the picture the
+    ; quantizer already produced. An overlay shape is meant to be a refinement
+    ; of that picture — one region resolved into several shapes stacked in z —
+    ; not a second opinion about where the regions are. Allowed to disagree, it
+    ; grows a surface from a face out into the background behind it and paints
+    ; the pair one color, which is how a portrait came back as mush. This also
+    ; bounds what any single shape can claim, since no shape outgrows its
+    ; region.
+    def overlayFollowBase:boolean true
     ; A step only counts as a boundary when it is *unique* in its
     ; neighbourhood — the strongest one across its own direction, so a noisy
     ; pixel does not out-vote the ridge beside it — and *continuous*, part of a
