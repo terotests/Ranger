@@ -267,6 +267,10 @@
           <input id="detailColorMerge" type="range" min="0" max="48" step="1" value="16">
           <span class="hint">Yksityiskohta-alueet jakavat yhden paletin, ja tämä on se raja jota lähempänä olevat sävyt ovat sama merkintä siinä. Ilman tätä jokainen alue keksii omat värinsä toisistaan tietämättä. Muotokuvassa <b>0</b> = 456 väriä, <b>16</b> = 97, <b>24</b> = 55 — virhe kasvaa 0,5 %. <b>48</b> yhdistää jo liikaa ja kulmakarvat sinertävät.</span>
         </label>
+        <label class="row color-only hidden" id="row-detailMax">Yksityiskohtien värikatto <span class="val" id="v-detailColorMax">12</span>
+          <input id="detailColorMax" type="range" min="0" max="64" step="2" value="12">
+          <span class="hint">Enintään näin monta väriä yksityiskohta-alueet saavat lisätä yhteensä, eli värejä on korkeintaan <b>värimäärä + tämä</b>. Ilman kattoa jokainen alue tuo omansa: muotokuva jolta pyydettiin 6 sävyä palautti 103. Katolla 12 se on 18, virhettä 3,6 % enemmän. <b>0</b> = ei kattoa.</span>
+        </label>
         <label class="check color-only hidden" id="row-detailTrue"><input id="detailTrueColor" type="checkbox"> Tarkat värit yksityiskohdissa
           <span class="hint">Silmien ja hampaiden kaltaisissa kohdissa — missä selvästi eri värit kohtaavat muutaman pikselin sisällä — muoto saa pitää oman mitatun värinsä sen sijaan että se pyöristettäisiin palettiin. Vain näin tila voi lisätä tarkkuutta sen sijaan että piirtäisi uudelleen sen mikä jo on. Muotokuvassa suun virhe pieneni 8,7 %, mutta värejä tuli 10 sijaan 109 — eli värimäärä lakkaa olemasta katto.</span>
         </label>
@@ -417,7 +421,7 @@
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
   var overlaySimilar = $("overlaySimilar"), edgeMinRun = $("edgeMinRun");
   var detailTrueColor = $("detailTrueColor"), detailMinShare = $("detailMinShare");
-  var detailColorMerge = $("detailColorMerge");
+  var detailColorMerge = $("detailColorMerge"), detailColorMax = $("detailColorMax");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -462,6 +466,7 @@
   bindRange(overlaySimilar, $("v-overlaySimilar"));
   bindRange(detailMinShare, $("v-detailMinShare"));
   bindRange(detailColorMerge, $("v-detailColorMerge"));
+  bindRange(detailColorMax, $("v-detailColorMax"));
   bindRange(edgeMinRun, $("v-edgeMinRun"));
 
   function syncChecker() {
@@ -572,6 +577,7 @@
     $("row-detailTrue").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-detailShare").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-detailMerge").classList.toggle("hidden", !color || contourMode.value !== "overlay");
+    $("row-detailMax").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-cEdge").classList.toggle("hidden", !color || !cont);
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
     $("row-eRun").classList.toggle("hidden", !color || !cont);
@@ -1601,6 +1607,7 @@
         opts.detailTrueColor = detailTrueColor.checked;
         opts.detailMinShare = +detailMinShare.value;
         opts.detailColorMerge = +detailColorMerge.value;
+        opts.detailColorMax = +detailColorMax.value;
         opts.edgeMinRun = +edgeMinRun.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
@@ -1644,8 +1651,15 @@
         lastPalette = [];
         if (layers && layers.length > 1) {
           paletteEl.hidden = false;
+          // One swatch per color, not per layer. A layer is a shape, and the
+          // overlay algorithm makes hundreds of them out of a handful of
+          // colors — the strip was showing 407 squares for 18 colors, which
+          // reads as a palette that has run away when it has not.
+          var seenHex = {};
           for (var li = 0; li < layers.length; li++) {
             var hex = layers[li].fillHex || "#000000";
+            if (seenHex[hex]) continue;
+            seenHex[hex] = 1;
             lastPalette.push(hex);
             var sw = document.createElement("span");
             sw.className = "sw";

@@ -220,6 +220,15 @@ class EvgTraceOptions {
     ; portrait: 456 distinct fills unmerged, 234 at a tolerance of 8, 91 at 16,
     ; 49 at 24. 0 disables the merge and lets every neighbourhood keep its own.
     def detailColorMerge:int 16
+    ; The most colors the detail neighbourhoods may add between them. Merging
+    ; near-duplicates bounds nothing on its own: colors that are genuinely
+    ; different keep accumulating, one per neighbourhood per band, and a busy
+    ; picture has hundreds of neighbourhoods — a portrait asked for six swatches
+    ; came back with 103. Once this many have been taken, a new band uses the
+    ; nearest one already in hand instead of adding another, so the color count
+    ; is at most colorCount + this, whatever the picture does. 0 removes the
+    ; ceiling.
+    def detailColorMax:int 12
     ; A step only counts as a boundary when it is *unique* in its
     ; neighbourhood — the strongest one across its own direction, so a noisy
     ; pixel does not out-vote the ridge beside it — and *continuous*, part of a

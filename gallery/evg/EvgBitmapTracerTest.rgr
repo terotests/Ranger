@@ -786,7 +786,23 @@ class EvgBitmapTracerTest {
         autoOpts.colorCount = 3
         def au:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeBustedBorder()) autoOpts))
         au.trace()
-        t.ok("auto declines when the border is not one color" ((au.backgroundRemoved()) == false))
+        ; The border is not one flat color here, so the modal-color flood stands
+        ; down — and what used to happen then was that every bright pixel in the
+        ; picture was deleted wherever it sat, white belly and all. Auto now
+        ; falls back to flooding *brightness* in from the border, which removes
+        ; the same page and cannot reach an interior.
+        t.ok("auto still removes a page whose border is not one flat color" (au.backgroundRemoved()))
+        def autoWhite:int 0
+        def ai:int 0
+        while (ai < (au.layerCount())) {
+            def al:EvgTraceLayer (itemAt au.layers ai)
+            def ac:EVGColor (EVGColor.parse(al.fillHex))
+            if ((EvgBitmapTracer.lumaOf((to_int ac.r) (to_int ac.g) (to_int ac.b))) > 200) {
+                autoWhite = (autoWhite + (this.countLabel(au ai)))
+            }
+            ai = (ai + 1)
+        }
+        t.eqInt("and keeps the white inside the shape, which is not the page" autoWhite 120)
 
         def namedOpts:EvgTraceOptions (EvgTraceOptions.defaults())
         namedOpts.colorCount = 3
@@ -1336,6 +1352,7 @@ class EvgBitmapTracerTest {
         def d:EvgTraceOptions (EvgTraceOptions.defaults())
         t.eqInt("a detail neighbourhood quantizes itself in four" (d.detailColors) 4)
         t.eqInt("and neighbourhoods share one palette by default" (d.detailColorMerge) 16)
+        t.eqInt("with a ceiling on how much it may grow" (d.detailColorMax) 12)
 
         def opts:EvgTraceOptions (EvgTraceOptions.defaults())
         opts.colorCount = 6
@@ -1389,6 +1406,24 @@ class EvgBitmapTracerTest {
         def unmerged:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) wide))
         unmerged.trace()
         t.ok("merging never adds colors" ((this.distinctFills(tr)) <= (this.distinctFills(unmerged))))
+
+        ; Merging bounds nothing on its own: it folds together colors that are
+        ; nearly the same, and colors that are genuinely different keep arriving
+        ; one per neighbourhood per band. A busy picture has hundreds of
+        ; neighbourhoods, and a portrait asked for six swatches came back with
+        ; 103. Past the ceiling a band takes the closest color already in hand,
+        ; however far away that is.
+        def capped:EvgTraceOptions (EvgTraceOptions.defaults())
+        capped.colorCount = 6
+        capped.bgMode = "none"
+        capped.contourMode = "overlay"
+        capped.detailMinShare = 0
+        capped.detailColorMax = 2
+        def few:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) capped))
+        few.trace()
+        t.ok("the ceiling holds the color count to what was asked plus it" ((this.distinctFills(few)) <= 8))
+        t.ok("and never costs shapes, only the colors they are painted"
+             ((few.layerCount()) >= (tr.layerCount())))
     }
 
     fn testDetailMaskFindsTheEyeNotTheRamp:void (t:RgTest) {
