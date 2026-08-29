@@ -61,6 +61,9 @@ class EvgTraceOptions  {
     this.paletteHex = [];
     this.paletteBias = "area";
     this.minColorDelta = 10;
+    this.contourMode = "off";
+    this.contourEdge = 3;
+    this.contourSpread = 48;
     this.layerMode = "stacked";
     this.smooth = 0;
     this.minRegion = 6;
@@ -6493,7 +6496,107 @@ class EvgBitmapTracer  {
     }
     this.labels = outL;
     this.despeckleLabels();
+    this.smoothContours(palR, palG, palB);
     this.mergeTinyRegions(palR.length);
+  };
+  contourStep (i, from, seen, stack, acc, edgeTol, spread) {
+    if ( (seen[i]) != 0 ) {
+      return;
+    }
+    if ( (this.labels[i]) < 0 ) {
+      return;
+    }
+    if ( this.pixelDelta(from, i) > edgeTol ) {
+      return;
+    }
+    const cnt = acc[3];
+    if ( cnt > 0 ) {
+      const mr = (((acc[0]) / cnt) | 0);
+      const mg = (((acc[1]) / cnt) | 0);
+      const mb = (((acc[2]) / cnt) | 0);
+      let d = EvgBitmapTracer.absI(((this.planeR[i]) - mr));
+      const dg = EvgBitmapTracer.absI(((this.planeG[i]) - mg));
+      if ( dg > d ) {
+        d = dg;
+      }
+      const db = EvgBitmapTracer.absI(((this.planeB[i]) - mb));
+      if ( db > d ) {
+        d = db;
+      }
+      if ( d > spread ) {
+        return;
+      }
+    }
+    seen[i] = 1;
+    stack.push(i);
+    acc[0] = (acc[0]) + (this.planeR[i]);
+    acc[1] = (acc[1]) + (this.planeG[i]);
+    acc[2] = (acc[2]) + (this.planeB[i]);
+    acc[3] = cnt + 1;
+  };
+  smoothContours (palR, palG, palB) {
+    if ( this.options.contourMode != "smooth" ) {
+      return;
+    }
+    let edgeTol = this.options.contourEdge;
+    if ( edgeTol < 1 ) {
+      edgeTol = 1;
+    }
+    let spread = this.options.contourSpread;
+    if ( spread < 1 ) {
+      spread = 1;
+    }
+    const n = this.width * this.height;
+    let seen = [];
+    let i = 0;
+    while (i < n) {
+      seen.push(0);
+      i = i + 1;
+    };
+    let start = 0;
+    while (start < n) {
+      if ( ((seen[start]) == 0) && ((this.labels[start]) >= 0) ) {
+        let comp = [];
+        let stack = [];
+        let acc = [];
+        acc.push(this.planeR[start]);
+        acc.push(this.planeG[start]);
+        acc.push(this.planeB[start]);
+        acc.push(1);
+        seen[start] = 1;
+        stack.push(start);
+        let head = 0;
+        while (head < (stack.length)) {
+          const cur = stack[head];
+          head = head + 1;
+          comp.push(cur);
+          const cy = ((cur / this.width) | 0);
+          const cx = cur - (cy * this.width);
+          if ( cx > 0 ) {
+            this.contourStep(cur - 1, cur, seen, stack, acc, edgeTol, spread);
+          }
+          if ( cx < (this.width - 1) ) {
+            this.contourStep(cur + 1, cur, seen, stack, acc, edgeTol, spread);
+          }
+          if ( cy > 0 ) {
+            this.contourStep(cur - this.width, cur, seen, stack, acc, edgeTol, spread);
+          }
+          if ( cy < (this.height - 1) ) {
+            this.contourStep(cur + this.width, cur, seen, stack, acc, edgeTol, spread);
+          }
+        };
+        const cnt = acc[3];
+        if ( cnt > 0 ) {
+          const lab = this.nearestIndex(((((acc[0]) / cnt) | 0)), ((((acc[1]) / cnt) | 0)), ((((acc[2]) / cnt) | 0)), palR, palG, palB);
+          let c = 0;
+          while (c < (comp.length)) {
+            this.labels[comp[c]] = lab;
+            c = c + 1;
+          };
+        }
+      }
+      start = start + 1;
+    };
   };
   mergeTinyRegions (k) {
     const minPx = this.options.minRegion;
@@ -7942,6 +8045,83 @@ class EvgBitmapTracerTest  {
     };
     t.eqInt("the white inside the shape is kept, and only that", keptWhite, 120);
   };
+  makeRampWithBlock () {
+    const img = new ImageBuffer();
+    img.init(60, 40);
+    let y = 0;
+    while (y < 40) {
+      let x = 0;
+      while (x < 60) {
+        const g = 80 + ((((x * 110) / 60) | 0));
+        img.setPixelRGB(x, y, g, g, g);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    y = 20;
+    while (y < 30) {
+      let x2 = 20;
+      while (x2 < 30) {
+        img.setPixelRGB(x2, y, 30, 60, 200);
+        x2 = x2 + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  labelChangesInRow (tr, row) {
+    let n = 0;
+    let x = 1;
+    while (x < 60) {
+      const a = tr.labels[(((row * 60) + x) - 1)];
+      const b = tr.labels[((row * 60) + x)];
+      if ( a != b ) {
+        n = n + 1;
+      }
+      x = x + 1;
+    };
+    return n;
+  };
+  traceRamp (mode, spread) {
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 4;
+    opts.bgMode = "none";
+    opts.minRegion = 0;
+    opts.contourMode = mode;
+    opts.contourSpread = spread;
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampWithBlock(), opts);
+    tr.trace();
+    return tr;
+  };
+  testContourSmoothing (t) {
+    const d = EvgTraceOptions.defaults();
+    t.ok("contour smoothing is off by default", d.contourMode == "off");
+    const off = this.traceRamp("off", 48);
+    const on = this.traceRamp("smooth", 48);
+    const loose = this.traceRamp("smooth", 200);
+    const bandsOff = this.labelChangesInRow(off, 5);
+    const bandsOn = this.labelChangesInRow(on, 5);
+    const bandsLoose = this.labelChangesInRow(loose, 5);
+    t.ok("the ramp really is banded without it", bandsOff >= 2);
+    t.ok("smoothing cuts the banding", bandsOn < bandsOff);
+    t.eqInt("and removes it outright once the leash is long enough", bandsLoose, 0);
+    const inside = loose.labels[((25 * 60) + 25)];
+    const outside = loose.labels[((25 * 60) + 5)];
+    t.ok("the hard edge is still an edge", inside != outside);
+    let body = 0;
+    let y = 20;
+    while (y < 30) {
+      let x = 20;
+      while (x < 30) {
+        if ( (loose.labels[((y * 60) + x)]) == inside ) {
+          body = body + 1;
+        }
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    t.eqInt("the block is whole", body, 100);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -7968,6 +8148,7 @@ function __js_main() {
   test.testSmoothRemovesSpeckle(t);
   test.testStackedLayersLeaveNoSeam(t);
   test.testNamedBackgroundColor(t);
+  test.testContourSmoothing(t);
   t.summary();
 }
 __js_main();

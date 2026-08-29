@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Read small color changes as continuous and large ones as a break** (`contourMode: "smooth"`, off by default) — reported from a photograph of playground tubing and again from a portrait: a quantizer cuts a hard edge wherever a smooth ramp crosses the midpoint between two swatches, so a sky gains stripes and a cheek gains blotches, while a genuine edge between two *similar* colors can go unmarked. Both are the same missing distinction, and the fix is the one the report proposed: grow regions across neighbours that differ by at most `contourEdge`, then give the whole region the single swatch nearest its mean. A ramp becomes one region and loses its false contour; a step bigger than the threshold still splits.
+
+  Measured by counting adjacent pixel pairs whose labels differ, split by whether the image is actually discontinuous there. On a portrait at 10 colors, **false contours fell 22075 → 11667 (−47%) while real edges moved 34848 → 34820, that is by 0.1%** — the banding goes and the detail stays. With the photo preset as well it is −69%, and the SVG halves.
+
+  `contourSpread` is the leash, and it is the interesting part: without it one gradient walks across the whole picture and merges everything it touches. The tests pin both sides of that trade — a 110-level ramp is longer than the default leash of 48, so one seam is left in it, and only with the leash lengthened does the ramp come out unbroken.
+
+  It stays **off by default and is labelled experimental on the page**, because it is a segmentation and segmentations fail hard: at `contourEdge: 10` a soft-edged tube merged into the field behind it and disappeared entirely. The default of 3 is chosen against exactly that, and the slider's hint says so.
+
+### Added
+
 - **Remove a background color you name, and a checkerboard to see what is transparent** — `bgMode: "auto"` floods the page in from the border, but it first requires the border to be 80% one flat color, and it *declines silently* when it is not: a banner across the top, a drop shadow, a screenshot with the page furniture in it, and the background comes through painted with no explanation. `bgMode: "color"` is the same border flood from a color you name in `bgColor`, with no uniformity test to pass. It is still a flood rather than a "delete every white pixel", so white inside the subject survives — on a face with white eyes and a white page, the eyes come out as a real white layer of exactly their own pixels while the page goes. `bgTolerance` is now on the page too, for backgrounds with a gradient or compression noise in them. And `auto` no longer declines quietly: the status line says the background was left and points at the color mode.
 
   The output stage now sits on a **checkerboard**, because a transparent hole and a painted cream background look identical against a cream stage — that is what made this hard to see in the first place. It is on by default for both the source and the result, and there is a checkbox to turn it off. `EvgBitmapTracer.backgroundRemoved()` reports whether a page color was actually flooded away.

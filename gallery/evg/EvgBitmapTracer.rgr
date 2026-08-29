@@ -1162,7 +1162,119 @@ class EvgBitmapTracer {
         }
         labels = outL
         this.despeckleLabels()
+        this.smoothContours(palR palG palB)
         this.mergeTinyRegions((array_length palR))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Banding suppression (options.contourMode)
+    ; ----------------------------------------------------------------------
+
+    ; One step of the continuity walk. A neighbour joins when the step to it is
+    ; small enough to read as continuous AND it has not drifted too far from
+    ; what the region has averaged so far — the second test is what stops a
+    ; gradient from walking off across the whole picture.
+    fn contourStep:void (i:int from:int seen:[int] stack:[int] acc:[int] edgeTol:int spread:int) {
+        if ((itemAt seen i) != 0) {
+            return
+        }
+        if ((itemAt labels i) < 0) {
+            return
+        }
+        if ((this.pixelDelta(from i)) > edgeTol) {
+            return
+        }
+        def cnt:int (itemAt acc 3)
+        if (cnt > 0) {
+            def mr:int (idiv (itemAt acc 0) cnt)
+            def mg:int (idiv (itemAt acc 1) cnt)
+            def mb:int (idiv (itemAt acc 2) cnt)
+            def d:int (EvgBitmapTracer.absI((itemAt planeR i) - mr))
+            def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - mg))
+            if (dg > d) {
+                d = dg
+            }
+            def db:int (EvgBitmapTracer.absI((itemAt planeB i) - mb))
+            if (db > d) {
+                d = db
+            }
+            if (d > spread) {
+                return
+            }
+        }
+        set seen i 1
+        push stack i
+        set acc 0 ((itemAt acc 0) + (itemAt planeR i))
+        set acc 1 ((itemAt acc 1) + (itemAt planeG i))
+        set acc 2 ((itemAt acc 2) + (itemAt planeB i))
+        set acc 3 (cnt + 1)
+    }
+
+    ; Regrow the labels as regions of continuous color, then hand each region a
+    ; single swatch — the one nearest its own mean.
+    fn smoothContours:void (palR:[int] palG:[int] palB:[int]) {
+        if ((options.contourMode) != "smooth") {
+            return
+        }
+        def edgeTol:int options.contourEdge
+        if (edgeTol < 1) {
+            edgeTol = 1
+        }
+        def spread:int options.contourSpread
+        if (spread < 1) {
+            spread = 1
+        }
+        def n:int (width * height)
+        def seen:[int]
+        def i:int 0
+        while (i < n) {
+            push seen 0
+            i = (i + 1)
+        }
+        def start:int 0
+        while (start < n) {
+            if (((itemAt seen start) == 0) && ((itemAt labels start) >= 0)) {
+                def comp:[int]
+                def stack:[int]
+                def acc:[int]
+                push acc (itemAt planeR start)
+                push acc (itemAt planeG start)
+                push acc (itemAt planeB start)
+                push acc 1
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.contourStep((cur - 1) cur seen stack acc edgeTol spread)
+                    }
+                    if (cx < (width - 1)) {
+                        this.contourStep((cur + 1) cur seen stack acc edgeTol spread)
+                    }
+                    if (cy > 0) {
+                        this.contourStep((cur - width) cur seen stack acc edgeTol spread)
+                    }
+                    if (cy < (height - 1)) {
+                        this.contourStep((cur + width) cur seen stack acc edgeTol spread)
+                    }
+                }
+                def cnt:int (itemAt acc 3)
+                if (cnt > 0) {
+                    def lab:int (this.nearestIndex((idiv (itemAt acc 0) cnt) (idiv (itemAt acc 1) cnt) (idiv (itemAt acc 2) cnt) palR palG palB))
+                    def c:int 0
+                    while (c < (array_length comp)) {
+                        set labels (itemAt comp c) lab
+                        c = (c + 1)
+                    }
+                }
+            }
+            start = (start + 1)
+        }
     }
 
     ; Absorb connected runs below options.minRegion into the region that

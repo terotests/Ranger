@@ -115,6 +115,26 @@ class EvgTraceOptions {
     ; otherwise splits one region between two near-identical swatches, and each
     ; half then falls under turdsize — which is how outlines turn into dashes.
     def minColorDelta:int 10
+    ; Banding suppression. A quantizer cuts a hard edge wherever a smooth ramp
+    ; crosses the midpoint between two swatches, which is a contour the picture
+    ; does not have; meanwhile a real edge between two *similar* colors can go
+    ; unmarked. Read small differences as continuous and large ones as a break:
+    ;   "off"    — every pixel takes its own nearest swatch (the default)
+    ;   "smooth" — grow regions across neighbours that differ by at most
+    ;              contourEdge, then give the whole region the one swatch
+    ;              nearest its mean. A ramp becomes one region and loses its
+    ;              false contour; a step larger than contourEdge still splits.
+    ; Off by default because it is a real segmentation, and segmentation has
+    ; failure modes: where two areas are joined by a gradual path it will merge
+    ; them, and that mistake is a large one.
+    def contourMode:string "off"
+    ; Largest per-channel step still counted as continuous. Small on purpose:
+    ; at 10 a soft-edged object merges into the field behind it.
+    def contourEdge:int 3
+    ; How far a region may drift from its own running mean before it stops
+    ; growing. This is the leash on the failure above: without it one ramp can
+    ; walk across the whole picture.
+    def contourSpread:int 48
     ; How the color layers are stacked:
     ;   "stacked" — layer i covers every pixel at or above it in the palette
     ;               order, so the layers are painted over one another and a

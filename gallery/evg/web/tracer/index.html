@@ -227,6 +227,21 @@
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
           <span class="hint">Tätä lähempänä olevat sävyt yhdistetään. Estää saman alueen halkeamisen kahdeksi lähes samaksi tasoksi.</span>
         </label>
+        <label class="row color-only hidden">Reunojen tulkinta
+          <select id="contourMode">
+            <option value="off" selected>pois</option>
+            <option value="smooth">jatkuvuus — vältä valereunoja</option>
+          </select>
+          <span class="hint">Lukee pienet muutokset jatkuvina ja suuret katkoksina: liukuväri ei saa keinotekoista raitaa, mutta aito jyrkkä reuna säilyy. Kokeellinen — voi myös sulauttaa pehmeäreunaisen kohteen taustaansa.</span>
+        </label>
+        <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
+          <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
+          <span class="hint">Tätä pienempi askel naapuriin luetaan jatkuvaksi. Nosta varovasti: 10 riitti jo sulauttamaan pehmeäreunaisen putken taustaan testikuvassa.</span>
+        </label>
+        <label class="row color-only hidden" id="row-cSpread">Alueen hajonta <span class="val" id="v-contourSpread">48</span>
+          <input id="contourSpread" type="range" min="8" max="160" step="4" value="48">
+          <span class="hint">Kuinka kauas alue saa ajautua omasta keskiarvostaan. Tämä on talutushihna: ilman sitä yksi liukuväri voi kävellä läpi koko kuvan.</span>
+        </label>
         <label class="row color-only hidden">Tasot
           <select id="layerMode">
             <option value="stacked" selected>päällekkäin — ei saumoja</option>
@@ -325,6 +340,7 @@
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
   var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth"), layerMode = $("layerMode");
   var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
+  var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -363,6 +379,8 @@
   bindRange(minRegion, $("v-minRegion"));
   bindRange(smooth, $("v-smooth"));
   bindRange(bgTolerance, $("v-bgTolerance"));
+  bindRange(contourEdge, $("v-contourEdge"));
+  bindRange(contourSpread, $("v-contourSpread"));
 
   function syncChecker() {
     [srcStage, outStage].forEach(function (el) {
@@ -467,6 +485,9 @@
     $("row-bgColor").classList.toggle("hidden", !color || bgMode.value !== "color");
     var floods = bgMode.value === "auto" || bgMode.value === "color";
     $("row-bgTol").classList.toggle("hidden", !color || !floods);
+    var cont = contourMode.value === "smooth";
+    $("row-cEdge").classList.toggle("hidden", !color || !cont);
+    $("row-cSpread").classList.toggle("hidden", !color || !cont);
     var mode = paletteMode.value;
     rowBias.classList.toggle("hidden", !color || mode === "fixed");
     // Kept on screen even on "auto" — it is how you reach "Poimi tuloksesta",
@@ -480,10 +501,11 @@
   colorCount.addEventListener("input", syncMode);
   bgMode.addEventListener("change", syncMode);
   paletteMode.addEventListener("change", syncMode);
+  contourMode.addEventListener("change", syncMode);
   renderPalEdit();
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor", "contourMode"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -629,6 +651,9 @@
         opts.layerMode = layerMode.value;
         opts.bgColor = bgColor.value;
         opts.bgTolerance = +bgTolerance.value;
+        opts.contourMode = contourMode.value;
+        opts.contourEdge = +contourEdge.value;
+        opts.contourSpread = +contourSpread.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();
