@@ -597,6 +597,48 @@ new declaration. `EVGTimingTest` has the case in both a number and a colour,
 plus the check that a genuine mid-flight change is still heard — which is what
 would fail if the memory were applied too broadly.
 
+## The menubar keyboard, and a chevron read out loud
+
+Two accessibility defects in the demo menubar, both reported by using it.
+
+**The keyboard was a dead end.** Every branch of the key handler began
+`if (!state.open) return false`, so pressing Escape — or arriving with nothing
+open — left the component completely unreachable. A pointer user would never
+notice; a keyboard user finds nothing else. It handled two of the eight keys
+the WAI-ARIA menubar pattern names and gave up.
+
+All of it is there now, and three parts of the pattern are worth writing down
+because they are the ones an implementation invents wrongly:
+
+- **Left/Right on the bar move focus without opening anything** — unless a menu
+  is already down, in which case they bring it along. That is what lets you
+  look along a menubar without pulling every menu out of it.
+- **Right means two different things.** On a row that owns a submenu it opens
+  that submenu; anywhere else it leaves for the next menu. Right on `Share`
+  used to jump to Edit, which is the bug that distinction exists to prevent.
+- **Escape closes one level and puts focus back where it came from** — out of a
+  submenu onto the row that owns it, out of a menu onto its trigger. That is
+  the part that makes the component recoverable rather than a trap.
+
+Opening a menu and choosing a row inside it is one keystroke but two frames:
+the rows are read off the accessible tree, and the tree for a menu that was
+closed a moment ago has none. The request is remembered and settled after the
+paint that builds them.
+
+**And `Share` announced as "Share greater-than".** The chevron beside the label
+is decoration, and the accessible name is built from the text of an element's
+roleless descendants — so the glyph went into the name as if it were a word.
+`aria-expanded` on the row already says "there is more this way", properly.
+
+EVG had no way to say "this is decoration", so it has one now: `aria-hidden`
+prunes an element and everything under it out of the accessible tree and out of
+any ancestor's name. The whole BRANCH, not just the element — a hidden wrapper
+with a real button inside it must not report the button, and a button a reader
+is told about but cannot see is worse than one it is never told about. Proving
+that needed a better fixture than the chevron itself: a glyph with no role
+makes no node either way, so the first version of the test passed under a
+mutation that removed the pruning entirely.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

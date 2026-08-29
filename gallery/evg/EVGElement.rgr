@@ -547,6 +547,15 @@ class EVGElement {
     def a11yLabel:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
+    ; `aria-hidden`: this element and everything under it is DECORATION and
+    ; contributes nothing to the accessible tree — no node, and no words to an
+    ; ancestor's name.
+    ;
+    ; The chevron on a submenu row is the case that asked for it. It is a ">"
+    ; drawn beside the label, and without this the row announces as "Share
+    ; greater-than" — the glyph read aloud as if it were part of the name, when
+    ; `aria-haspopup` has already said the same thing properly.
+    def a11yHidden:boolean false
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
@@ -1691,6 +1700,10 @@ class EVGElement {
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value
+            return
+        }
+        if ((name == "aria-hidden") || (name == "a11yHidden")) {
+            a11yHidden = (EVGElement.truthy(value))
             return
         }
         if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {

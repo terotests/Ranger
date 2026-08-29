@@ -86,7 +86,7 @@ class EVGA11yFromTree {
         def i:int 0
         while (i < (array_length el.children)) {
             def kid:EVGElement (itemAt el.children i)
-            if ((strlen kid.role) == 0) {
+            if (((strlen kid.role) == 0) && ((kid.a11yHidden) == false)) {
                 def t:string (trim kid.textContent)
                 if ((strlen t) > 0) {
                     if ((strlen out) > 0) {
@@ -134,6 +134,12 @@ class EVGA11yFromTree {
     }
 
     fn walk:void (el:EVGElement parentId:string index:int) {
+        ; Decoration, and everything under it. Not "skip the node but keep the
+        ; children": `aria-hidden` prunes the whole branch, and a chevron with
+        ; a label inside it would otherwise put the label back.
+        if el.a11yHidden {
+            return
+        }
         def nextParent:string parentId
         def code:int (EVGA11yFromTree.roleCode(el.role))
         if (code != (EVGA11yRole.none())) {

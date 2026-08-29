@@ -1537,6 +1537,7 @@ class EVGElement  {
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
+    this.a11yHidden = false;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2097,6 +2098,10 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
+      this.a11yHidden = EVGElement.truthy(value);
       return;
     }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
