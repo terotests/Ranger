@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 170,
-    "covered": 168,
-    "matchedBehaviours": 168,
-    "observations": 10312,
-    "matchedObservations": 10312
+    "catalogued": 186,
+    "covered": 184,
+    "matchedBehaviours": 184,
+    "observations": 12379,
+    "matchedObservations": 12379
   },
   "components": {
     "toggle": {
@@ -106,6 +106,22 @@
     "sortable": {
       "covered": 8,
       "matchedBehaviours": 8
+    },
+    "menubar": {
+      "covered": 7,
+      "matchedBehaviours": 7
+    },
+    "select": {
+      "covered": 4,
+      "matchedBehaviours": 4
+    },
+    "navigationmenu": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "scrollarea": {
+      "covered": 2,
+      "matchedBehaviours": 2
     }
   }
 }

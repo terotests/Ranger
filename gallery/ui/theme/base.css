@@ -449,3 +449,93 @@
   background-color: #dbeafe;
 }
 .ui-sortable-item-disabled { opacity: 0.45; }
+
+/* --- menubar, navigation menu, select, scroll area ---------------------------
+   The four the overlay layer unblocked. Their panels are floating surfaces, so
+   they get `fit-content` for the same reason the rest do: out of the flow there
+   is no row to divide up, and a width-less box takes the whole page. */
+
+.ui-menubar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 4px;
+  width: fit-content;
+}
+.ui-menubar-trigger {
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #0f172a;
+}
+.ui-menubar-trigger-state-open { background-color: #e0e7ff; }
+.ui-menubar-trigger-disabled { opacity: 0.45; }
+.ui-menubar-content {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px;
+  background-color: #ffffff;
+}
+.ui-menubar-item { padding: 6px 14px; border-radius: 5px; color: #0f172a; }
+.ui-menubar-item-disabled { opacity: 0.45; }
+
+.ui-navmenu { display: flex; flex-direction: column; gap: 6px; width: fit-content; }
+.ui-navmenu-list { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; width: fit-content; }
+.ui-navmenu-trigger { border-radius: 6px; padding: 6px 12px; color: #0f172a; background-color: #f1f5f9; }
+.ui-navmenu-trigger-state-open { background-color: #e0e7ff; }
+.ui-navmenu-content {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  background-color: #ffffff;
+}
+.ui-navmenu-link { color: #1d4ed8; padding: 4px 6px; }
+.ui-navmenu-viewport { height: 1px; }
+
+.ui-select { display: flex; flex-direction: column; width: fit-content; }
+.ui-select-trigger {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background-color: #ffffff;
+  color: #0f172a;
+  width: fit-content;
+}
+.ui-select-trigger-disabled { opacity: 0.45; }
+.ui-select-value { color: #0f172a; }
+.ui-select-content {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px;
+  background-color: #ffffff;
+}
+.ui-select-item { padding: 6px 14px; border-radius: 5px; color: #0f172a; }
+.ui-select-item-state-checked { background-color: #e0e7ff; }
+.ui-select-item-disabled { opacity: 0.45; }
+
+/* The scroll area had NO rules at all, and the audit caught it: black text on
+   a box with no background is black on black, which axe measures as 1:1. A
+   control with no theme is not a neutral control. */
+.ui-scrollarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #ffffff;
+  width: 200px;
+}
+.ui-scrollarea-viewport { background-color: #ffffff; }
+.ui-scrollarea-content { display: flex; flex-direction: column; }
+.ui-scrollarea-item { color: #0f172a; padding: 8px 12px; }

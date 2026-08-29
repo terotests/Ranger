@@ -33,6 +33,10 @@ Import "HoverCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ToastCtl.rgr"
 Import "SortableCtl.rgr"
+Import "MenubarCtl.rgr"
+Import "SelectCtl.rgr"
+Import "NavMenuCtl.rgr"
+Import "ScrollAreaCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -250,6 +254,38 @@ class UiHost {
         c.tid = tid
         c.name = name
         c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addMenubar:MenubarCtl (tid:string name:string) {
+        def c (new MenubarCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addSelect:SelectCtl (tid:string name:string) {
+        def c (new SelectCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addNavMenu:NavMenuCtl (tid:string name:string) {
+        def c (new NavMenuCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addScrollArea:ScrollAreaCtl (tid:string name:string) {
+        def c (new ScrollAreaCtl())
+        c.tid = tid
+        c.name = name
         this.add(c)
         return c
     }

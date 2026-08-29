@@ -308,6 +308,43 @@
         "sortable-escape-cancels": "Escape puts it back and reorders nothing",
         "sortable-announces": "every stage is announced into a live region"
       }
+    },
+    "menubar": {
+      "radix": "@radix-ui/react-menubar",
+      "behaviours": {
+        "menubar-role": "the bar is a menubar and its triggers are menu items",
+        "menubar-pointer-open": "clicking a trigger opens its menu and focuses the content",
+        "menubar-item-closes": "choosing a row closes the menu and returns focus to the trigger",
+        "menubar-arrow-between-menus": "an arrow moves which menu is OPEN, not which trigger has focus",
+        "menubar-arrow-into-items": "an arrow from the content focuses the first row",
+        "menubar-escape-closes": "Escape closes and returns focus to the trigger",
+        "menubar-roving-tabstop": "the bar holds the tab stop until a menu has been opened"
+      }
+    },
+    "select": {
+      "radix": "@radix-ui/react-select",
+      "behaviours": {
+        "select-roles": "the trigger is a combobox, the list a listbox and the rows options",
+        "select-pointer-open": "clicking the trigger opens the list and focuses the CHOSEN option",
+        "select-choose-value": "choosing an option closes the list and returns focus to the trigger",
+        "select-selected-state": "exactly one option is selected, and the rest say they are not"
+      }
+    },
+    "navigationmenu": {
+      "radix": "@radix-ui/react-navigation-menu",
+      "behaviours": {
+        "navmenu-roles": "the triggers are buttons and the panel holds links",
+        "navmenu-pointer-open": "clicking a trigger opens its panel and leaves focus on the trigger",
+        "navmenu-every-trigger-tabbable": "every trigger is a tab stop \u2014 there is no roving focus"
+      }
+    },
+    "scrollarea": {
+      "radix": "@radix-ui/react-scroll-area",
+      "$comment": "Measured: the reference exposes NO roles and no names here, and renders no scrollbar until the pointer is over it. What is observable is that the content stays reachable and visible while the box does not grow.",
+      "behaviours": {
+        "scrollarea-roles": "nothing is given a role the reference does not give it",
+        "scrollarea-content-reachable": "the content is in the tree and visible even though it does not fit"
+      }
     }
   }
 }

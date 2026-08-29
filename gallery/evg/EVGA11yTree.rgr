@@ -94,6 +94,12 @@ class EVGA11yRole {
     sfn menuBar:int ()          { return 33 }
     sfn menuItemCheckbox:int () { return 34 }
     sfn menuItemRadio:int ()    { return 35 }
+    ; A select: a button that opens a list of options, and the list itself.
+    ; `combobox` even when nothing can be typed — it is what the reference
+    ; reports, and what every platform maps a picker onto.
+    sfn comboBox:int ()         { return 36 }
+    sfn listBox:int ()          { return 37 }
+    sfn option:int ()           { return 38 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -133,6 +139,9 @@ class EVGA11yRole {
         if (role == 33) { return "menubar" }
         if (role == 34) { return "menuitemcheckbox" }
         if (role == 35) { return "menuitemradio" }
+        if (role == 36) { return "combobox" }
+        if (role == 37) { return "listbox" }
+        if (role == 38) { return "option" }
         return "none"
     }
 }

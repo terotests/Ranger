@@ -111,6 +111,15 @@ EVGA11yRole.menuItemCheckbox = function() {
 EVGA11yRole.menuItemRadio = function() {
   return 35;
 };
+EVGA11yRole.comboBox = function() {
+  return 36;
+};
+EVGA11yRole.listBox = function() {
+  return 37;
+};
+EVGA11yRole.option = function() {
+  return 38;
+};
 EVGA11yRole.ariaName = function(role) {
   if ( role == 1 ) {
     return "group";
@@ -216,6 +225,15 @@ EVGA11yRole.ariaName = function(role) {
   }
   if ( role == 35 ) {
     return "menuitemradio";
+  }
+  if ( role == 36 ) {
+    return "combobox";
+  }
+  if ( role == 37 ) {
+    return "listbox";
+  }
+  if ( role == 38 ) {
+    return "option";
   }
   return "none";
 };

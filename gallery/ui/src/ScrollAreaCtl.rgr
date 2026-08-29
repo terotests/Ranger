@@ -1,0 +1,136 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ScrollAreaCtl — measured against @radix-ui/react-scroll-area
+; =============================================================================
+; The honest note first: measured, this component has almost NO accessible
+; surface. Every node the reference renders — root, viewport, content, rows —
+; reports role `none` and no name, and the scrollbar is not in the tree at all
+; until the pointer is over it, because the default `type="hover"` does not
+; render one. A screen reader is given a box of content and scrolls it the way
+; it scrolls a page.
+;
+; That is worth saying rather than dressing up. What this control has to get
+; right is what the reference gets right: the content stays REACHABLE and
+; visible whether or not it fits, the box does not grow to swallow it, and the
+; rows are ordinary nodes rather than something a reader has to be taught.
+; Scrolling itself is not in the trace at all — the fifteen observed fields have
+; no scroll offset in them, and inventing one to make this component look
+; better measured would be measuring ourselves.
+;
+; So `overflow: hidden` and a clipped subtree, which is all EVG needs to draw
+; it, and no ARIA that the reference does not have.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ScrollAreaCtl extends UiCtl {
+    def items:[UiItem]
+    def viewportEl:EVGElement
+    def contentEl:EVGElement
+    def boxHeight:double 120.0
+    def rowHeight:double 80.0
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        viewportEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        push items it
+    }
+
+    fn viewportTid:string () {
+        return (tid + "-viewport")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return ((tid + "-item-") + itemValue)
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-scrollarea"
+        UiTree.clearChildren(root)
+        ; The box does not grow to fit its content: that is the whole point of
+        ; a scroll area, and it is one attribute rather than a component.
+        root.setAttribute("overflow" "hidden")
+        root.setAttribute("height" ((to_string (to_int boxHeight)) + "px"))
+
+        def vp:EVGElement (unwrap viewportEl)
+        vp.id = (this.viewportTid())
+        vp.className = "ui-scrollarea-viewport"
+        vp.setAttribute("overflow" "hidden")
+        UiTree.clearChildren(vp)
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-scrollarea-content"
+        UiTree.clearChildren(content)
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-scrollarea-item"
+            el.setAttribute("height" ((to_string (to_int rowHeight)) + "px"))
+            UiTree.leafText(el it.name)
+            content.addChild(el)
+            i = (i + 1)
+        }
+        vp.addChild(content)
+        root.addChild(vp)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.viewportTid())
+        push a (this.contentTid())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        ; No roles and no names, because the reference has none. A box of
+        ; content is a box of content.
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        push out rootRow
+        def vpRow:UiRow (UiRow.of((this.viewportTid()) (EVGA11yRole.none()) ""))
+        vpRow.parentTid = tid
+        push out vpRow
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.none()) ""))
+        contentRow.parentTid = (this.viewportTid())
+        push out contentRow
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.none()) ""))
+            row.parentTid = (this.contentTid())
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

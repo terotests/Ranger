@@ -165,7 +165,11 @@
     "dropdown-menu": "dropdownmenu",
     "context-menu": "contextmenu",
     "slider": "slider",
-    "toast": "toast"
+    "toast": "toast",
+    "menubar": "menubar",
+    "select": "select",
+    "navigation-menu": "navigationmenu",
+    "scroll-area": "scrollarea"
   },
   "machinery": {
     "overlay layer": [

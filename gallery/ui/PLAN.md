@@ -211,6 +211,43 @@ Live in the playground: press an item on the canvas and drag it onto another,
 or click one and use Space / arrows / Escape. Both sides reorder together, and
 the panel says "traces agree" at every step.
 
+## Four more components, and the blockers that had held them
+
+The overlay layer and the pointer drag cleared what the plan said was in the
+way, so the four they were blocking are in: **menubar**, **navigation-menu**,
+**select** and **scroll-area**. Radix coverage is **28/31, 90.3%**, and the
+three still missing — `form`, `one-time-password-field`,
+`password-toggle-field` — all want the same thing, a text field.
+
+Each one was captured from the real component before a line of the controller
+existed, and each one corrected something that had been written from
+assumption:
+
+- **menubar** is not a row of dropdowns. An arrow at the top level moves which
+  menu is OPEN, not which trigger has focus, and the BAR holds the tab stop
+  until a menu has been opened — after that the one that was opened keeps it.
+  Passed on the first comparison run.
+- **navigation-menu** is deliberately not a menubar: triggers are `button`s,
+  every one of them is a tab stop, and opening a panel LEAVES FOCUS on the
+  trigger. It also renders its viewport only while something is open — the
+  first version kept an empty one in the page, and the diff said so.
+- **select** hides the page behind it: the list is modal, so with it open the
+  reference marks the trigger and its own value `aria-hidden`. And
+  `aria-selected` follows selected AND focused *together*, so arrowing off the
+  chosen row leaves nothing selected at all. Both were found by disagreeing
+  with the obvious implementation, and both were copied rather than corrected.
+- **scroll-area** is the honest thin one. Measured, the reference exposes no
+  roles and no names anywhere in it, and renders no scrollbar until the pointer
+  is over it. Scrolling is not observable in the fifteen fields either. What is
+  compared is that the content stays reachable and visible while the box does
+  not grow — and saying that plainly is better than inventing a field to make
+  the component look better measured.
+
+It also found a defect in the audit itself. The scroll area is the first
+control here that clips, and `a11y.mjs` counted a clip command as a painted
+rectangle — so every row inside it was reported as black-on-black at 1:1. Only
+fills count now.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

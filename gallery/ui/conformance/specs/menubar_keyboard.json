@@ -1,0 +1,7 @@
+{ "name":"menubar_keyboard","component":"menubar",
+  "behaviours":["menubar-arrow-between-menus","menubar-arrow-into-items","menubar-escape-closes"],
+  "fixture":{"controls":[
+    {"type":"menubar","tid":"mb","name":"Main","items":[
+      {"value":"file","name":"File","items":[{"value":"new","name":"New"},{"value":"open","name":"Open"}]},
+      {"value":"edit","name":"Edit","items":[{"value":"undo","name":"Undo"}]}]}]},
+  "steps":[{"click":"mb-file-trigger"},{"key":"ArrowRight"},{"key":"ArrowDown"},{"key":"Escape"}] }

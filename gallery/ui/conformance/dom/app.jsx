@@ -36,6 +36,10 @@ import * as Toggle from "@radix-ui/react-toggle";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import * as Menubar from "@radix-ui/react-menubar";
+import * as NavigationMenu from "@radix-ui/react-navigation-menu";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
+import * as Select from "@radix-ui/react-select";
 import {
   DndContext,
   KeyboardSensor,
@@ -501,6 +505,117 @@ export function Control({ spec }) {
 
     case "sortable":
       return <SortableControl spec={spec} tid={tid} />;
+
+    /**
+     * A bar of menus. The parts follow the same rule the rest do — `x-<value>`
+     * for a menu, and its trigger and content beneath it — so a spec names a
+     * menu by the value it was given and never by position.
+     */
+    case "menubar":
+      return (
+        <Menubar.Root data-tid={tid} aria-label={spec.name}>
+          {spec.items.map((menu) => (
+            <Menubar.Menu key={menu.value}>
+              <Menubar.Trigger
+                data-tid={tid + "-" + menu.value + "-trigger"}
+                disabled={!!menu.disabled}
+              >
+                {menu.name}
+              </Menubar.Trigger>
+              <Menubar.Portal>
+                <Menubar.Content data-tid={tid + "-" + menu.value + "-content"}>
+                  {(menu.items || []).map((it) => (
+                    <Menubar.Item
+                      key={it.value}
+                      data-tid={tid + "-" + menu.value + "-item-" + it.value}
+                      disabled={!!it.disabled}
+                    >
+                      {it.name}
+                    </Menubar.Item>
+                  ))}
+                </Menubar.Content>
+              </Menubar.Portal>
+            </Menubar.Menu>
+          ))}
+        </Menubar.Root>
+      );
+
+    case "navigationmenu":
+      return (
+        <NavigationMenu.Root data-tid={tid} aria-label={spec.name}>
+          <NavigationMenu.List data-tid={tid + "-list"}>
+            {spec.items.map((it) => (
+              <NavigationMenu.Item key={it.value}>
+                <NavigationMenu.Trigger data-tid={tid + "-" + it.value + "-trigger"}>
+                  {it.name}
+                </NavigationMenu.Trigger>
+                <NavigationMenu.Content data-tid={tid + "-" + it.value + "-content"}>
+                  {(it.links || []).map((l) => (
+                    <NavigationMenu.Link
+                      key={l.value}
+                      data-tid={tid + "-" + it.value + "-link-" + l.value}
+                      href="#"
+                    >
+                      {l.name}
+                    </NavigationMenu.Link>
+                  ))}
+                </NavigationMenu.Content>
+              </NavigationMenu.Item>
+            ))}
+          </NavigationMenu.List>
+          <NavigationMenu.Viewport data-tid={tid + "-viewport"} />
+        </NavigationMenu.Root>
+      );
+
+    /**
+     * A scrolling box. The content is taller than the viewport on purpose —
+     * a scroll area with nothing to scroll has no scrollbar and no behaviour.
+     */
+    case "scrollarea":
+      return (
+        <ScrollArea.Root data-tid={tid} style={{ height: 120, width: 200, overflow: "hidden" }}>
+          <ScrollArea.Viewport
+            data-tid={tid + "-viewport"}
+            style={{ width: "100%", height: "100%" }}
+          >
+            <div data-tid={tid + "-content"} style={{ height: 480 }}>
+              {(spec.items || []).map((it) => (
+                <div key={it.value} data-tid={tid + "-item-" + it.value} style={{ height: 80 }}>
+                  {it.name}
+                </div>
+              ))}
+            </div>
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar orientation="vertical" data-tid={tid + "-scrollbar"}>
+            <ScrollArea.Thumb data-tid={tid + "-thumb"} />
+          </ScrollArea.Scrollbar>
+        </ScrollArea.Root>
+      );
+
+    case "select":
+      return (
+        <Select.Root defaultValue={spec.value}>
+          <Select.Trigger data-tid={tid + "-trigger"} aria-label={spec.name}>
+            <Select.Value data-tid={tid + "-value"} />
+          </Select.Trigger>
+          <Select.Portal>
+            <Select.Content data-tid={tid + "-content"}>
+              <Select.Viewport>
+                {spec.items.map((it) => (
+                  <Select.Item
+                    key={it.value}
+                    value={it.value}
+                    data-tid={tid + "-item-" + it.value}
+                    disabled={!!it.disabled}
+                  >
+                    <Select.ItemText>{it.name}</Select.ItemText>
+                  </Select.Item>
+                ))}
+              </Select.Viewport>
+            </Select.Content>
+          </Select.Portal>
+        </Select.Root>
+      );
 
     default:
       throw new Error("unknown control type: " + spec.type);

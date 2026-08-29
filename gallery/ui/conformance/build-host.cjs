@@ -140,6 +140,36 @@ function buildHost(M, fixture, css) {
         ctl = host.addAvatar(c.tid, c.name, c.fallback || "?");
         break;
 
+      case "menubar":
+        ctl = host.addMenubar(c.tid, c.name || "");
+        for (const m of c.items) {
+          const menu = ctl.addMenu(m.value, m.name);
+          if (m.disabled) menu.disabled = true;
+          for (const it of m.items || []) {
+            ctl.addItem(m.value, it.value, it.name, !!it.disabled);
+          }
+        }
+        break;
+
+      case "select":
+        ctl = host.addSelect(c.tid, c.name || "");
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        ctl.value = c.value || "";
+        break;
+
+      case "navigationmenu":
+        ctl = host.addNavMenu(c.tid, c.name || "");
+        for (const s of c.items) {
+          ctl.addSection(s.value, s.name);
+          for (const l of s.links || []) ctl.addLink(s.value, l.value, l.name);
+        }
+        break;
+
+      case "scrollarea":
+        ctl = host.addScrollArea(c.tid, c.name || "");
+        for (const it of c.items || []) ctl.addItem(it.value, it.name);
+        break;
+
       case "sortable":
         ctl = host.addSortable(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
@@ -194,6 +224,10 @@ const SUPPORTED_TYPES = [
   "slider",
   "toast",
   "sortable",
+  "menubar",
+  "select",
+  "navigationmenu",
+  "scrollarea",
 ];
 
 module.exports = { buildHost, SUPPORTED_TYPES };
