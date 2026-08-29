@@ -102,7 +102,8 @@
   #outStage.editing svg path { cursor: crosshair; }
   #outStage.editing svg path:hover { stroke: #ff2ec4; stroke-width: 1.5; paint-order: stroke; vector-effect: non-scaling-stroke; }
   #outStage.editing.picking svg path { cursor: copy; }
-  #outStage.editing.refining svg path { cursor: zoom-in; }
+  #outStage.editing.refining svg path { cursor: crosshair; }
+  #outStage.editing.refining svg path:hover { stroke: none; }
   #outStage.editing.smoothing svg path { cursor: grab; }
   #outStage.editing.smoothing svg path:hover { stroke: none; }
   .split {
@@ -372,12 +373,13 @@
       </div>
       <div class="editbar" id="editbar">
         <button type="button" class="tool active" id="toolMerge">Yhdistä</button>
-        <button type="button" class="tool" id="toolRefine">Tarkenna</button>
+        <button type="button" class="tool" id="toolRefine">Tarkennin</button>
         <button type="button" class="tool" id="toolSmooth">Pehmennä</button>
         <span class="sep"></span>
         <input type="color" id="editColor" value="#c9a227" title="Yhdistämisen kohdeväri">
         <button type="button" class="tool" id="toolPick">Poimi väri</button>
         <span class="sep"></span>
+        <span class="note" id="toolHelp"></span>
         <label class="note" style="display:flex;align-items:center;gap:6px">Koko
           <input id="refineSize" type="range" min="12" max="120" step="4" value="40" style="width:90px">
           <span class="val" id="v-refineSize">40</span>px
@@ -807,6 +809,10 @@
     outStage.classList.toggle("picking", picking);
     outStage.classList.toggle("refining", !picking && editTool === "refine");
     outStage.classList.toggle("smoothing", !picking && editTool === "smooth");
+    $("toolHelp").textContent = picking ? "Napsauta muotoa poimiaksesi sen värin."
+      : editTool === "merge" ? "Napsauta muotoja: ne saavat valitun värin ja sulautuvat naapureihinsa."
+      : editTool === "refine" ? "Vedä alueen yli: se vektoroidaan uudelleen omalla paletillaan."
+      : "Vedä ääriviivan yli: kulmat pyöristyvät, pienet muodot katoavat.";
   }
 
   function enterEdit() {
@@ -861,8 +867,6 @@
       editStack.push({ kind: "fill", el: el, was: el.getAttribute("fill") });
       el.setAttribute("fill", editColor.value);
       setEditNote("Yhdistetty väriin " + editColor.value + ".");
-    } else {
-      refineAt(ev, el);
     }
   });
 
@@ -870,21 +874,78 @@
   // A whole-frame palette is counting the whole frame, so a small feature gets
   // a swatch or two of it; a box gets all of them, which is the same reasoning
   // the detail neighbourhoods use, applied where a person points.
-  function refineAt(ev, el) {
-    if (!sourceBitmap) return;
-    var svg = outSvg();
-    var vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
-    var rect = svg.getBoundingClientRect();
-    var vw = vb.length === 4 ? vb[2] : sourceBitmap.w;
-    var vh = vb.length === 4 ? vb[3] : sourceBitmap.h;
-    var ux = (ev.clientX - rect.left) / rect.width * vw;
-    var uy = (ev.clientY - rect.top) / rect.height * vh;
-    var half = Math.max(6, (+refineSize.value) >> 1);
-    var x0 = Math.max(0, Math.round(ux) - half), y0 = Math.max(0, Math.round(uy) - half);
-    var x1 = Math.min(sourceBitmap.w, x0 + half * 2), y1 = Math.min(sourceBitmap.h, y0 + half * 2);
-    var bw = x1 - x0, bh = y1 - y0;
-    if (bw < 4 || bh < 4) return;
+  // ------------------------------------------------------------ tarkennin
+  //
+  // A brush that re-runs the vectorizer over what it is dragged across. The
+  // stroke collects an area; when it ends, the source pixels under that area
+  // are traced again on their own and the result is laid on top, masked to the
+  // stroke so nothing outside what was painted changes.
+  //
+  // Tracing per dab is not an option — one trace is tens of milliseconds and a
+  // drag is hundreds of dabs — so the stroke gathers and the trace happens once
+  // at the end. Quantizing the crop alone is the whole point: a palette counted
+  // over a whole frame gives a small feature a swatch or two, and the same
+  // feature cropped gets all of them. That is what "zoom in on it" means, done
+  // where a person points.
+  var refineStroke = null;   // {pts:[], preview:<path>}
 
+  function refineBegin(u) {
+    var svg = outSvg();
+    if (!svg) return;
+    var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", "#ff2ec4");
+    el.setAttribute("stroke-opacity", "0.35");
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("stroke-linejoin", "round");
+    el.setAttribute("stroke-width", String(Math.max(6, +refineSize.value)));
+    // The preview is a hint, not a target: it must not take the pointer nor
+    // pick up the hover outline every other shape gets.
+    el.setAttribute("pointer-events", "none");
+    svg.appendChild(el);
+    refineStroke = { pts: [], preview: el };
+    refineExtend(u);
+  }
+
+  function strokeD(pts) {
+    var d = "M" + pts[0].x.toFixed(1) + "," + pts[0].y.toFixed(1);
+    for (var i = 1; i < pts.length; i++) d += "L" + pts[i].x.toFixed(1) + "," + pts[i].y.toFixed(1);
+    // A single dab is a dot, and a zero-length line draws nothing even with a
+    // round cap, so give it somewhere to go.
+    if (pts.length === 1) d += "L" + (pts[0].x + 0.01).toFixed(2) + "," + pts[0].y.toFixed(1);
+    return d;
+  }
+
+  function refineExtend(u) {
+    if (!refineStroke) return;
+    var pts = refineStroke.pts, last = pts[pts.length - 1];
+    if (last && Math.abs(last.x - u.x) < 1.5 && Math.abs(last.y - u.y) < 1.5) return;
+    pts.push({ x: u.x, y: u.y });
+    refineStroke.preview.setAttribute("d", strokeD(pts));
+  }
+
+  function refineFinish() {
+    if (!refineStroke) return;
+    var stroke = refineStroke;
+    refineStroke = null;
+    var svg = outSvg();
+    stroke.preview.remove();
+    if (!sourceBitmap || !stroke.pts.length || !svg) return;
+
+    var half = Math.max(3, (+refineSize.value) / 2);
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    stroke.pts.forEach(function (p) {
+      if (p.x - half < x0) x0 = p.x - half;
+      if (p.x + half > x1) x1 = p.x + half;
+      if (p.y - half < y0) y0 = p.y - half;
+      if (p.y + half > y1) y1 = p.y + half;
+    });
+    x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
+    x1 = Math.min(sourceBitmap.w, Math.ceil(x1)); y1 = Math.min(sourceBitmap.h, Math.ceil(y1));
+    var bw = x1 - x0, bh = y1 - y0;
+    if (bw < 4 || bh < 4) { setEditNote("Liian pieni alue."); return; }
+
+    setEditNote("Vektoroidaan " + bw + "×" + bh + " px…");
     var img = new ImageBuffer();
     img.init(bw, bh);
     var rgba = sourceBitmap.rgba;
@@ -895,7 +956,12 @@
       }
     }
     var o2 = EvgTraceOptions.defaults();
-    o2.colorCount = Math.max(4, +colorCount.value);
+    // The crop gets more swatches than the frame, which is the point of the
+    // tool: a palette counted over a whole picture spends itself on the large
+    // dull areas, so a feature gets one or two entries and comes back flat.
+    // Counted over the crop alone, and given room, the same feature gets a
+    // range to describe itself with.
+    o2.colorCount = Math.min(16, Math.max(6, (+colorCount.value) * 2));
     o2.bgMode = "none";
     o2.minRegion = 2;
     o2.turdsize = +turdsize.value;
@@ -903,24 +969,55 @@
     o2.optcurve = !!optcurve.checked;
     o2.opttolerance = +opttolerance.value;
     o2.turnpolicy = turnpolicy.value;
+    var t0 = performance.now();
     var sub = EvgBitmapTracer.fromImageBuffer(img, o2);
     sub.trace();
+    var ms = Math.round(performance.now() - t0);
     var layers = sub.getLayers ? sub.getLayers() : [];
     if (!layers.length) { setEditNote("Alueesta ei irronnut muotoja."); return; }
+
+    // Mask it to the stroke. A crop is a rectangle and the brush is not, so
+    // pasting the rectangle would rewrite everything the brush went around.
+    // Masks take a stroked path; clip paths do not, which is why this is a mask.
+    var id = "refmask" + (++refineSeq);
+    var mask = document.createElementNS("http://www.w3.org/2000/svg", "mask");
+    mask.setAttribute("id", id);
+    mask.setAttribute("maskUnits", "userSpaceOnUse");
+    var mp = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    mp.setAttribute("d", strokeD(stroke.pts));
+    mp.setAttribute("fill", "none");
+    mp.setAttribute("stroke", "#fff");
+    mp.setAttribute("stroke-linecap", "round");
+    mp.setAttribute("stroke-linejoin", "round");
+    mp.setAttribute("stroke-width", String(half * 2));
+    mask.appendChild(mp);
+    svg.appendChild(mask);
+
+    // Two groups, not one, and the reason is a real trap: a mask on an element
+    // that also carries a transform is resolved in the coordinate system that
+    // transform establishes, so a mask drawn in image coordinates lands offset
+    // by the crop origin — far enough to miss the shapes entirely, which masked
+    // the whole result away and changed exactly zero pixels. The outer group
+    // wears the mask in image space, the inner one does the translating.
     var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("transform", "translate(" + x0 + "," + y0 + ")");
+    g.setAttribute("mask", "url(#" + id + ")");
+    var inner = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    inner.setAttribute("transform", "translate(" + x0 + "," + y0 + ")");
     layers.forEach(function (L) {
       if (!L.pathData) return;
       var pe = document.createElementNS("http://www.w3.org/2000/svg", "path");
       pe.setAttribute("d", L.pathData);
       pe.setAttribute("fill", L.fillHex || "#000");
       pe.setAttribute("fill-rule", "evenodd");
-      g.appendChild(pe);
+      inner.appendChild(pe);
     });
+    g.appendChild(inner);
     svg.appendChild(g);
-    editStack.push({ kind: "add", el: g });
-    setEditNote("Tarkennettu " + bw + "×" + bh + " px, " + layers.length + " sävyä.");
+    editStack.push({ kind: "add", el: g, also: mask });
+    setEditNote("Tarkennettu " + bw + "×" + bh + " px — " + layers.length + " sävyä, " + ms + " ms.");
   }
+
+  var refineSeq = 0;
 
   // ------------------------------------------------------------ pehmennä
   //
@@ -1204,18 +1301,30 @@
   }
 
   outStage.addEventListener("pointerdown", function (ev) {
-    if (!editOn || editTool !== "smooth" || picking) return;
+    if (!editOn || picking) return;
+    if (editTool !== "smooth" && editTool !== "refine") return;
+    var svg = outSvg();
+    if (!svg) return;
     ev.preventDefault();
     brushing = true;
-    strokeTouched = new Map();
-    brushAt(ev);
+    if (editTool === "smooth") {
+      strokeTouched = new Map();
+      brushAt(ev);
+    } else {
+      refineBegin(toUser(ev, svg));
+    }
   });
   outStage.addEventListener("pointermove", function (ev) {
     if (!brushing) return;
-    brushAt(ev);
+    if (editTool === "smooth") brushAt(ev);
+    else { var svg = outSvg(); if (svg) refineExtend(toUser(ev, svg)); }
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach(function (t) {
-    outStage.addEventListener(t, endStroke);
+    outStage.addEventListener(t, function () {
+      if (!brushing) return;
+      if (editTool === "refine") { brushing = false; refineFinish(); }
+      else endStroke();
+    });
   });
 
   $("editUndo").addEventListener("click", function () {
@@ -1231,7 +1340,10 @@
       });
     }
     else if (last.kind === "remove") { last.parent.insertBefore(last.el, last.next); last.el.__rings = null; }
-    else last.el.parentNode.removeChild(last.el);
+    else {
+      last.el.parentNode.removeChild(last.el);
+      if (last.also && last.also.parentNode) last.also.parentNode.removeChild(last.also);
+    }
     setEditNote("Kumottu.");
   });
 

@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under evenodd a crossed ring turns its own inside into a mesh of alternating
   slivers.
 
+- **The refiner is a brush**: drag across an area and the vectorizer runs again
+  on exactly the source pixels under the stroke, quantizing that crop on its own
+  and laying the result on top, masked to what was painted. A whole-frame
+  palette is counted over a whole frame, so it spends itself on the large dull
+  areas and a small feature gets a swatch or two; the crop gets a palette of its
+  own with room to spare (twice the frame's count, capped at 16), which is what
+  "zoom in on it" means done where a person points. Measured on a portrait's
+  eyes at 6 colors: a 126×46 stroke re-traced in 19 ms with 10 shades and
+  changed **80% of the pixels under it**, and nothing outside it. The stroke is
+  previewed while dragging, tracing happens once when it ends — a trace is tens
+  of milliseconds and a drag is hundreds of dabs — and the whole thing is one
+  undo step. The patch keeps its own palette, so the edge of a stroke is
+  visible where its colors meet the frame's; that is the trade the tool makes.
+
 - **An edit mode on the traced result** — asked for as a way to finish a trace
   by hand: merge parts that were split for no reason, and rebuild parts that
   deserve more care. Both tools work by clicking shapes.
@@ -223,6 +237,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **The refiner reported success and changed nothing.** Its result is masked to
+  the brush stroke, and the mask went on the same group that carried the crop's
+  `translate`. A mask is resolved in the coordinate system that element's own
+  transform establishes, so a mask drawn in image coordinates landed offset by
+  the crop origin — far enough to miss the shapes entirely and hide the whole
+  result. The tool still said "10 shades, 19 ms" while the picture was
+  byte-identical: **0 of 4536 pixels under the stroke changed**. The mask now
+  goes on an outer group and the translate on an inner one, and the same stroke
+  changes 80% of them. The smoke test asserts the changed pixels, not just that
+  a group was added — "a group was added" was true the whole time it was broken.
 
 - **Entering the tracer's edit mode repainted part of the picture before any
   edit was made.** Splitting a traced layer into individual shapes has to decide

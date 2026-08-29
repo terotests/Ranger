@@ -328,15 +328,59 @@ if (!ready) {
     });
     const picked = await page.evaluate(() => document.getElementById("editColor").value.toLowerCase());
 
-    // refine: re-trace a box and splice the result in
+    // refine: drag over an area, which re-traces it with a palette of its own
+    // and lays the result on top, masked to the stroke. The mask is the part
+    // worth guarding — resolved in the wrong coordinate system it hides the
+    // whole result, and the tool then reports success while changing nothing.
     await page.click("#toolRefine");
-    await page.evaluate(() => {
-      document.querySelectorAll("#outStage svg path")[2]
-        .dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 200 }));
+    const refined = await page.evaluate(async () => {
+      const svg = document.querySelector("#outStage svg");
+      const rect = svg.getBoundingClientRect();
+      // Rasterize a probe inside the stroke: "one group was added" is not the
+      // same claim as "the picture changed", and the mask bug satisfied the
+      // first while failing the second.
+      const shot = async () => {
+        const str = new XMLSerializer().serializeToString(svg);
+        const im = new Image();
+        im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+        await im.decode();
+        await new Promise(r => setTimeout(r, 150));
+        const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+        const c = document.createElement("canvas");
+        c.width = vb[2]; c.height = vb[3];
+        const g = c.getContext("2d");
+        g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(im, 0, 0, c.width, c.height);
+        return g.getImageData(0, 0, c.width, c.height).data;
+      };
+      const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+      const before = await shot();
+      const stage = document.getElementById("outStage");
+      const at = (fx, fy) => ({ x: rect.left + rect.width * fx, y: rect.top + rect.height * fy });
+      const send = (type, pt) => stage.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, clientX: pt.x, clientY: pt.y
+      }));
+      send("pointerdown", at(0.3, 0.45));
+      for (let i = 1; i <= 12; i++) send("pointermove", at(0.3 + 0.4 * i / 12, 0.45));
+      const preview = svg.querySelectorAll('path[stroke="#ff2ec4"]').length;
+      send("pointerup", at(0.7, 0.45));
+      await new Promise(r => setTimeout(r, 400));
+      const after = await shot();
+      let changed = 0;
+      const y0 = Math.round(vb[3] * 0.40), y1 = Math.round(vb[3] * 0.50);
+      const x0 = Math.round(vb[2] * 0.32), x1 = Math.round(vb[2] * 0.68);
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const o = (y * vb[2] + x) * 4;
+        if (Math.abs(before[o] - after[o]) + Math.abs(before[o+1] - after[o+1])
+          + Math.abs(before[o+2] - after[o+2]) > 24) changed++;
+      }
+      return { preview, previewLeft: svg.querySelectorAll('path[stroke="#ff2ec4"]').length, changed };
     });
-    const groups = await page.evaluate(() => document.querySelectorAll("#outStage svg g").length);
+    const groups = await page.evaluate(() => document.querySelectorAll("#outStage svg g[mask]").length);
+    const masks = await page.evaluate(() => document.querySelectorAll("#outStage svg mask").length);
     await page.click("#editUndo");
-    const groupsUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg g").length);
+    const groupsUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg g[mask]").length);
+    const masksUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg mask").length);
 
     // smooth: brush over the biggest shape's own colour and check the outline
     // gets simpler rather than heavier, and that undo restores it exactly.
@@ -398,6 +442,8 @@ if (!ready) {
     const stillEditing = await page.evaluate(() =>
       document.getElementById("editbar").classList.contains("on"));
     return { before, exploded, merged, undone, picked, want, groups, groupsUndone, stillEditing,
+             masks, masksUndone, preview: refined.preview, previewLeft: refined.previewLeft,
+             refineChangedPixels: refined.changed,
              smoothBefore: smooth.before, smoothAfter: smooth.after, smoothUndone };
   })();
   console.log(JSON.stringify(edit));
@@ -413,8 +459,16 @@ if (!ready) {
     console.error("the picker should take the clicked shape's fill, got " + edit.picked + " want " + edit.want);
     process.exitCode = 1;
   }
-  if (edit.groups !== 1 || edit.groupsUndone !== 0) {
-    console.error("refine should add one group of shapes, and undo should remove it");
+  if (edit.groups !== 1 || edit.groupsUndone !== 0 || edit.masks !== 1 || edit.masksUndone !== 0) {
+    console.error("a refine stroke should add one masked group and its mask, and undo should take both away");
+    process.exitCode = 1;
+  }
+  if (!(edit.refineChangedPixels > 0)) {
+    console.error("a refine stroke must change the picture under it, not just add a hidden group");
+    process.exitCode = 1;
+  }
+  if (edit.preview !== 1 || edit.previewLeft !== 0) {
+    console.error("the stroke preview should show while dragging and be gone afterwards");
     process.exitCode = 1;
   }
   if (!(edit.smoothAfter > 0) || edit.smoothAfter === edit.smoothBefore) {
