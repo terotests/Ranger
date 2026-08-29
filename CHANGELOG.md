@@ -263,6 +263,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The overlay algorithm still picked an enormous number of colors**, reported
+  from the page with a palette strip hundreds of squares long. Two separate
+  causes, and the strip was the louder of them: it drew **one swatch per layer**,
+  and a layer is a shape. The overlay algorithm makes hundreds of shapes out of a
+  handful of colors, so a portrait showed **407 squares for 18 colors** — a
+  palette that has run away when it has not. The strip is one swatch per color
+  now.
+
+  The count underneath was real too. Merging near-duplicates across
+  neighbourhoods bounds nothing on its own: colors that are genuinely different
+  keep arriving, one per neighbourhood per band, and a busy picture has hundreds
+  of neighbourhoods. `detailColorMax` (12) is the ceiling — past it a band takes
+  the closest color already in hand, however far that is — so the total is at
+  most `colorCount` plus that, whatever the picture does. A portrait asked for
+  six: **103 fills → 18**, for 3.6% more per-pixel error (13.25 → 13.73). A
+  ball pit: **71 → 18** at 0.2% (17.29 → 17.33). Clip art was already fine and
+  is unchanged.
+
 - **Transparency reached inside the subject.** Reported on a cartoon still: the
   whites of the eyes and the boots came out as holes while the blue page behind
   the characters stayed put — the exact opposite of what removing a background

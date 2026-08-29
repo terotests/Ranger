@@ -2582,16 +2582,42 @@ class EvgBitmapTracer {
     ; are describing the same brown.
     fn shareColor:int (r:int g:int b:int tol:int shR:[int] shG:[int] shB:[int]) {
         def n:int (array_length shR)
+        ; Nearest entry as well as near-enough entry: the first answers "is this
+        ; the same brown as one we have", the second answers "which of the ones
+        ; we have is this closest to", and the ceiling needs the second.
+        def best:int (0 - 1)
+        def bestD:int 1000
         def i:int 0
         while (i < n) {
-            if ((EvgBitmapTracer.absI(r - (itemAt shR i))) <= tol) {
-                if ((EvgBitmapTracer.absI(g - (itemAt shG i))) <= tol) {
-                    if ((EvgBitmapTracer.absI(b - (itemAt shB i))) <= tol) {
-                        return i
-                    }
-                }
+            def dr:int (EvgBitmapTracer.absI(r - (itemAt shR i)))
+            def dg:int (EvgBitmapTracer.absI(g - (itemAt shG i)))
+            def db:int (EvgBitmapTracer.absI(b - (itemAt shB i)))
+            def d:int dr
+            if (dg > d) {
+                d = dg
+            }
+            if (db > d) {
+                d = db
+            }
+            if (d < bestD) {
+                bestD = d
+                best = i
             }
             i = (i + 1)
+        }
+        if ((best >= 0) && (bestD <= tol)) {
+            return best
+        }
+        ; Merging near-duplicates bounds nothing on its own — colors that really
+        ; are different keep arriving, one per neighbourhood per band, and a busy
+        ; picture has hundreds of neighbourhoods. Past the ceiling a new band
+        ; takes the closest color already in hand, however far that is, so the
+        ; count the user asked for stays the count they roughly get.
+        def cap:int options.detailColorMax
+        if ((cap > 0) && (n >= cap)) {
+            if (best >= 0) {
+                return best
+            }
         }
         push shR r
         push shG g

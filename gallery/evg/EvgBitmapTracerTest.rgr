@@ -1352,6 +1352,7 @@ class EvgBitmapTracerTest {
         def d:EvgTraceOptions (EvgTraceOptions.defaults())
         t.eqInt("a detail neighbourhood quantizes itself in four" (d.detailColors) 4)
         t.eqInt("and neighbourhoods share one palette by default" (d.detailColorMerge) 16)
+        t.eqInt("with a ceiling on how much it may grow" (d.detailColorMax) 12)
 
         def opts:EvgTraceOptions (EvgTraceOptions.defaults())
         opts.colorCount = 6
@@ -1405,6 +1406,24 @@ class EvgBitmapTracerTest {
         def unmerged:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) wide))
         unmerged.trace()
         t.ok("merging never adds colors" ((this.distinctFills(tr)) <= (this.distinctFills(unmerged))))
+
+        ; Merging bounds nothing on its own: it folds together colors that are
+        ; nearly the same, and colors that are genuinely different keep arriving
+        ; one per neighbourhood per band. A busy picture has hundreds of
+        ; neighbourhoods, and a portrait asked for six swatches came back with
+        ; 103. Past the ceiling a band takes the closest color already in hand,
+        ; however far away that is.
+        def capped:EvgTraceOptions (EvgTraceOptions.defaults())
+        capped.colorCount = 6
+        capped.bgMode = "none"
+        capped.contourMode = "overlay"
+        capped.detailMinShare = 0
+        capped.detailColorMax = 2
+        def few:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) capped))
+        few.trace()
+        t.ok("the ceiling holds the color count to what was asked plus it" ((this.distinctFills(few)) <= 8))
+        t.ok("and never costs shapes, only the colors they are painted"
+             ((few.layerCount()) >= (tr.layerCount())))
     }
 
     fn testDetailMaskFindsTheEyeNotTheRamp:void (t:RgTest) {
