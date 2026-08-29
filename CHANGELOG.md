@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A pre-processing stage on the bitmap, before anything is quantized or
+  traced.** It sits beside the picture rather than in the parameter column —
+  it is about the bitmap, and you want it where you can watch the bitmap change
+  — behind an *Esikäsittely* button, and it opens a third preview so the flow
+  reads **Lähde → Käsitelty → SVG**. The middle pane appears only while a
+  filter is doing something.
+
+  What it offers: grayscale, invert, brightness, contrast, gamma, saturation, a
+  median despeckle, a blur, an unsharp mask, and posterize, plus four preset
+  chains (logo, line art, photo, poster). The order is fixed and it matters —
+  exposure first because everything after reads brightness, then color, then the
+  blur that decides how much detail survives at all, then sharpening on what the
+  blur left, and posterize last because it is a decision about levels rather
+  than a correction.
+
+  Deliberately a short list. Most of what a filter menu usually offers is
+  already a tracing parameter here — the color count *is* quantization, the
+  smallest area *is* despeckle, mono mode *is* threshold, the background section
+  *is* background removal — and a second way to do the same thing makes a page
+  harder to reason about rather than more capable. What earns a place is the
+  work that has to happen before the palette is chosen, because afterwards it is
+  too late. The blur is the one that pays: on a portrait it takes the SVG from
+  **377 KB to 85 KB**, and that is detail the tracer never has to spend paths on.
+
 - **A "Pehmennä" brush in the edit mode** — pick the color it should act on,
   then drag over the outline to take the corners out of it. Each dab pulls the
   points under the brush toward the midpoint of their neighbours, which rounds a

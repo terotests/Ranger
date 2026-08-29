@@ -517,6 +517,80 @@ if (!ready) {
     process.exitCode = 1;
   }
 
+  // --- pre-processing ------------------------------------------------------
+  // Filters that run on the bitmap before anything is quantized. The one that
+  // has to hold is that they reach the tracer at all: the chain is built in the
+  // page and the engine only ever sees its output, so a wiring mistake is
+  // invisible except by tracing the same image twice.
+  const pre = await (async () => {
+    // Leave edit mode and re-trace first: the status quotes the live drawing,
+    // and the edit tests above left a modified one, so "restores exactly" would
+    // be comparing an edited picture against a fresh trace.
+    if (await page.evaluate(() => document.getElementById("editbar").classList.contains("on"))) {
+      await page.click("#editToggle");
+    }
+    await page.click("#run");
+    await page.waitForFunction(() => !document.getElementById("run").disabled, { timeout: 120000 });
+    await page.waitForTimeout(350);
+
+    const hiddenAtFirst = await page.evaluate(() =>
+      !document.getElementById("prebar").classList.contains("on"));
+    await page.click("#preToggle");
+    const opens = await page.evaluate(() =>
+      document.getElementById("prebar").classList.contains("on"));
+
+    const bytes = () => page.evaluate(() => {
+      const m = document.getElementById("status").textContent.match(/svg=(\d+)/);
+      return m ? +m[1] : -1;
+    });
+    const settle = async () => {
+      await page.waitForFunction(() => !document.getElementById("run").disabled, { timeout: 120000 });
+      await page.waitForTimeout(350);
+    };
+    await settle();
+    const plain = await bytes();
+
+    // Blur is the one that must visibly simplify: it decides how much detail
+    // reaches the tracer at all.
+    await page.evaluate(() => {
+      const e = document.getElementById("preBlur");
+      e.value = 4; e.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await settle();
+    const blurred = await bytes();
+    const showsPane = await page.evaluate(() => !document.getElementById("paneProc").hidden
+      && document.querySelector(".split").classList.contains("triple"));
+
+    // And going back to no filters must put the picture back exactly.
+    await page.evaluate(() => {
+      const s = document.getElementById("prePreset");
+      s.value = "none"; s.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    const restored = await bytes();
+    const hidesPane = await page.evaluate(() => document.getElementById("paneProc").hidden);
+    return { hiddenAtFirst, opens, plain, blurred, restored, showsPane, hidesPane };
+  })();
+  console.log(JSON.stringify(pre));
+  if (!pre.hiddenAtFirst || !pre.opens) {
+    console.error("pre-processing should be hidden until asked for, then open");
+    process.exitCode = 1;
+  }
+  if (!(pre.blurred < pre.plain)) {
+    console.error("blurring the bitmap should reach the tracer and simplify it, got "
+      + pre.plain + " -> " + pre.blurred);
+    process.exitCode = 1;
+  }
+  if (pre.restored !== pre.plain) {
+    console.error("clearing the filters should restore the original trace exactly, got "
+      + pre.restored + " want " + pre.plain);
+    process.exitCode = 1;
+  }
+  if (!pre.showsPane || !pre.hidesPane) {
+    console.error("the processed pane should appear only while a filter is doing something");
+    process.exitCode = 1;
+  }
+
   if (!process.exitCode) {
     console.log("tracer smoke OK");
   }
