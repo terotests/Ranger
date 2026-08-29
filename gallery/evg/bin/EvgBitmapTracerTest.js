@@ -44,7 +44,6 @@ class EvgTraceLayer  {
     this.gy0 = 0.0;
     this.gx1 = 0.0;
     this.gy1 = 0.0;
-    this.gr = 0.0;
     this.stopA = "#000000";
     this.stopB = "#000000";
   }
@@ -75,7 +74,6 @@ class EvgTraceOptions  {
     this.contourSpread = 48;
     this.gradientFill = false;
     this.gradientGain = 15;
-    this.radialCaution = 3;
     this.layerMode = "stacked";
     this.smooth = 0;
     this.minRegion = 6;
@@ -5833,13 +5831,6 @@ class EvgBitmapTracer  {
           defs = ((defs + "<stop offset=\"0\" stop-color=\"") + layer.stopA) + "\"/>";
           defs = ((defs + "<stop offset=\"1\" stop-color=\"") + layer.stopB) + "\"/></linearGradient>";
         }
-        if ( layer.fillKind == "radial" ) {
-          defs = ((defs + "<radialGradient id=\"") + id) + "\" gradientUnits=\"userSpaceOnUse\"";
-          defs = ((((defs + " cx=\"") + EvgBitmapTracer.num(layer.gx0)) + "\" cy=\"") + EvgBitmapTracer.num(layer.gy0)) + "\"";
-          defs = ((defs + " r=\"") + EvgBitmapTracer.num(layer.gr)) + "\">";
-          defs = ((defs + "<stop offset=\"0\" stop-color=\"") + layer.stopA) + "\"/>";
-          defs = ((defs + "<stop offset=\"1\" stop-color=\"") + layer.stopB) + "\"/></radialGradient>";
-        }
         i = i + 1;
       };
       if ( (defs.length) > 0 ) {
@@ -7056,10 +7047,6 @@ class EvgBitmapTracer  {
           best = eLin;
           kind = "linear";
         }
-        if ( eRad < best ) {
-          best = eRad;
-          kind = "radial";
-        }
         if ( kind != "flat" ) {
           if ( (eFlat - best) < (eFlat * gain) ) {
             kind = "flat";
@@ -7097,17 +7084,6 @@ class EvgBitmapTracer  {
             layer.gy1 = my + ((uy[r]) * t1);
             layer.stopA = this.hexOf(this.linAt(la, lb, lc, r, 0, layer.gx0, layer.gy0), this.linAt(la, lb, lc, r, 1, layer.gx0, layer.gy0), this.linAt(la, lb, lc, r, 2, layer.gx0, layer.gy0));
             layer.stopB = this.hexOf(this.linAt(la, lb, lc, r, 0, layer.gx1, layer.gy1), this.linAt(la, lb, lc, r, 1, layer.gx1, layer.gy1), this.linAt(la, lb, lc, r, 2, layer.gx1, layer.gy1));
-          }
-          if ( kind == "radial" ) {
-            if ( (dmax[r]) < 2.0 ) {
-              kind = "flat";
-              layer.fillKind = "flat";
-            }
-            layer.gx0 = mx;
-            layer.gy0 = my;
-            layer.gr = dmax[r];
-            layer.stopA = this.hexOf((ra[0]), (ra[1]), (ra[2]));
-            layer.stopB = this.hexOf(((ra[0]) + ((rb[0]) * layer.gr)), ((ra[1]) + ((rb[1]) * layer.gr)), ((ra[2]) + ((rb[2]) * layer.gr)));
           }
           this.layers.push(layer);
           const cmds = sub.getCommands();
@@ -7220,43 +7196,11 @@ class EvgBitmapTracer  {
     };
     const mx = sx / cnt;
     const my = sy / cnt;
-    let sd = 0.0;
-    let sdd = 0.0;
-    let sdv = [];
-    let dmax = 0.0;
-    let ci = 0;
-    while (ci < 3) {
-      sdv.push(0.0);
-      ci = ci + 1;
-    };
-    i = 0;
-    while (i < n) {
-      const q = comp[i];
-      const qy = ((q / this.width) | 0);
-      const ddx = ((q - (qy * this.width))) - mx;
-      const ddy = (qy) - my;
-      const dist = Math.sqrt(((ddx * ddx) + (ddy * ddy)));
-      sd = sd + dist;
-      sdd = sdd + (dist * dist);
-      if ( dist > dmax ) {
-        dmax = dist;
-      }
-      ci = 0;
-      while (ci < 3) {
-        sdv[ci] = (sdv[ci]) + (dist * (this.planeAt(ci, q)));
-        ci = ci + 1;
-      };
-      i = i + 1;
-    };
     let la = [];
     let lb = [];
     let lc = [];
-    let ra = [];
-    let rb = [];
     let eFlat = 0.0;
     let eLin = 0.0;
-    let eRad = 0.0;
-    const rden = (cnt * sdd) - (sd * sd);
     let sol = [];
     sol.push(0.0);
     sol.push(0.0);
@@ -7278,17 +7222,6 @@ class EvgBitmapTracer  {
         lc.push(0.0);
         eLin = eLin + 1000000000.0;
       }
-      if ( EvgBitmapTracer.absD(rden) > 0.000001 ) {
-        const bb = ((cnt * (sdv[c])) - (sd * s1)) / rden;
-        const aa = (s1 - (bb * sd)) / cnt;
-        ra.push(aa);
-        rb.push(bb);
-        eRad = eRad + ((svv[c]) - ((aa * s1) + (bb * (sdv[c]))));
-      } else {
-        ra.push(s1 / cnt);
-        rb.push(0.0);
-        eRad = eRad + 1000000000.0;
-      }
       c = c + 1;
     };
     if ( eFlat < 0.0 ) {
@@ -7297,60 +7230,23 @@ class EvgBitmapTracer  {
     if ( (eLin < 0.0) || (cnt < 64.0) ) {
       eLin = 1000000000.0;
     }
-    if ( ((eRad < 0.0) || (cnt < 64.0)) || (dmax < 2.0) ) {
-      eRad = 1000000000.0;
-    }
     const gain = (this.options.gradientGain) / 100.0;
     let best = eFlat;
     let useLin = false;
-    let useRad = false;
     if ( eLin < best ) {
       best = eLin;
       useLin = true;
-      useRad = false;
-    }
-    let caution = this.options.radialCaution;
-    if ( caution < 1.0 ) {
-      caution = 1.0;
-    }
-    if ( eRad < (best - ((best * gain) * caution)) ) {
-      best = eRad;
-      useRad = true;
-      useLin = false;
     }
     if ( (eFlat - best) < (eFlat * gain) ) {
       useLin = false;
-      useRad = false;
     }
     if ( eFlat < (cnt * 3.0) ) {
       useLin = false;
-      useRad = false;
     }
     const mR = EvgBitmapTracer.clamp255(((sv[0]) / cnt));
     const mG = EvgBitmapTracer.clamp255(((sv[1]) / cnt));
     const mB = EvgBitmapTracer.clamp255(((sv[2]) / cnt));
     layer.fillHex = this.hexFromRgb(mR, mG, mB);
-    if ( useRad ) {
-      layer.fillKind = "radial";
-      layer.gx0 = mx;
-      layer.gy0 = my;
-      layer.gr = dmax;
-      layer.stopA = this.hexOf((ra[0]), (ra[1]), (ra[2]));
-      layer.stopB = this.hexOf(((ra[0]) + ((rb[0]) * dmax)), ((ra[1]) + ((rb[1]) * dmax)), ((ra[2]) + ((rb[2]) * dmax)));
-      i = 0;
-      while (i < n) {
-        const p3 = comp[i];
-        const y3 = ((p3 / this.width) | 0);
-        const ex = ((p3 - (y3 * this.width))) - mx;
-        const ey = (y3) - my;
-        const dd = Math.sqrt(((ex * ex) + (ey * ey)));
-        paintR[p3] = EvgBitmapTracer.clamp255(((ra[0]) + ((rb[0]) * dd)));
-        paintG[p3] = EvgBitmapTracer.clamp255(((ra[1]) + ((rb[1]) * dd)));
-        paintB[p3] = EvgBitmapTracer.clamp255(((ra[2]) + ((rb[2]) * dd)));
-        i = i + 1;
-      };
-      return;
-    }
     if ( useLin == false ) {
       layer.fillKind = "flat";
       i = 0;
@@ -7431,27 +7327,102 @@ class EvgBitmapTracer  {
       stamp.push(0 - 1);
       i = i + 1;
     };
-    let seeds = [];
+    let bucket = [];
+    let seedPixel = [];
+    let seedNext = [];
     i = 0;
-    while (i < n) {
-      if ( (this.labels[i]) >= 0 ) {
-        seeds.push(i);
-        i = n;
-      }
+    while (i < 256) {
+      bucket.push(0 - 1);
       i = i + 1;
     };
+    let y0 = 0;
+    while (y0 < this.height) {
+      let x0 = 0;
+      while (x0 < this.width) {
+        const idx0 = (y0 * this.width) + x0;
+        if ( (this.labels[idx0]) >= 0 ) {
+          let st = 0;
+          if ( x0 > 0 ) {
+            st = this.pixelDelta(idx0, (idx0 - 1));
+          }
+          if ( x0 < (this.width - 1) ) {
+            const s1 = this.pixelDelta(idx0, (idx0 + 1));
+            if ( s1 > st ) {
+              st = s1;
+            }
+          }
+          if ( y0 > 0 ) {
+            const s2 = this.pixelDelta(idx0, (idx0 - this.width));
+            if ( s2 > st ) {
+              st = s2;
+            }
+          }
+          if ( y0 < (this.height - 1) ) {
+            const s3 = this.pixelDelta(idx0, (idx0 + this.width));
+            if ( s3 > st ) {
+              st = s3;
+            }
+          }
+          if ( st > edgeTol ) {
+            this.pushSeed(idx0, st, bucket, seedPixel, seedNext);
+          }
+        }
+        x0 = x0 + 1;
+      };
+      y0 = y0 + 1;
+    };
     let allCmds = [];
-    let head = 0;
+    const baseMask = EvgBinaryBitmap.create(this.width, this.height);
+    let bsR = 0;
+    let bsG = 0;
+    let bsB = 0;
+    let bsN = 0;
+    let bi = 0;
+    while (bi < n) {
+      if ( (this.labels[bi]) >= 0 ) {
+        const by = ((bi / this.width) | 0);
+        baseMask.setBit(bi - (by * this.width), by, true);
+        bsR = bsR + (this.planeR[bi]);
+        bsG = bsG + (this.planeG[bi]);
+        bsB = bsB + (this.planeB[bi]);
+        bsN = bsN + 1;
+      }
+      bi = bi + 1;
+    };
+    if ( bsN > 0 ) {
+      const baseOpts = EvgTraceOptions.defaults();
+      baseOpts.turdsize = this.options.turdsize;
+      baseOpts.alphamax = this.options.alphamax;
+      baseOpts.turnpolicy = this.options.turnpolicy;
+      baseOpts.optcurve = this.options.optcurve;
+      baseOpts.opttolerance = this.options.opttolerance;
+      baseOpts.fillHex = this.hexFromRgb((((bsR / bsN) | 0)), (((bsG / bsN) | 0)), (((bsB / bsN) | 0)));
+      const baseTr = EvgBitmapTracer.fromBinary(baseMask, baseOpts);
+      baseTr.trace();
+      if ( baseTr.ringCount() > 0 ) {
+        this.layers.push(baseTr.layers[0]);
+        const bcmds = baseTr.getCommands();
+        let bc = 0;
+        while (bc < (bcmds.length)) {
+          allCmds.push(bcmds[bc]);
+          bc = bc + 1;
+        };
+      }
+    }
     let shapeNo = 0;
     let sweepFrom = 0;
     while (shapeNo < 3000) {
       let seed = 0 - 1;
-      while ((head < (seeds.length)) && (seed < 0)) {
-        const cand = seeds[head];
-        head = head + 1;
-        if ( (this.labels[cand]) >= 0 ) {
-          if ( this.coveredAlready(cand, paintR, paintG, paintB, painted, simTol) == false ) {
-            seed = cand;
+      let empty = false;
+      while ((seed < 0) && (empty == false)) {
+        const cand = this.popSeed(bucket, seedPixel, seedNext);
+        if ( cand < 0 ) {
+          empty = true;
+        } else {
+          if ( (this.labels[cand]) >= 0 ) {
+            if ( this.coveredAlready(cand, paintR, paintG, paintB, painted, simTol) == false ) {
+              seed = cand;
+            }
           }
         }
       };
@@ -7483,16 +7454,16 @@ class EvgBitmapTracer  {
           const cy = ((cur / this.width) | 0);
           const cx = cur - (cy * this.width);
           if ( cx > 0 ) {
-            this.overlayStep(cur - 1, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur - 1, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
           if ( cx < (this.width - 1) ) {
-            this.overlayStep(cur + 1, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur + 1, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
           if ( cy > 0 ) {
-            this.overlayStep(cur - this.width, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur - this.width, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
           if ( cy < (this.height - 1) ) {
-            this.overlayStep(cur + this.width, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+            this.overlayStep(cur + this.width, cur, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
           }
         };
         const cnt = acc[3];
@@ -7508,7 +7479,7 @@ class EvgBitmapTracer  {
           painted[px] = 1;
           c = c + 1;
         };
-        if ( (comp.length) >= minPx ) {
+        if ( (comp.length) >= 4 ) {
           const bm = EvgBinaryBitmap.create(this.width, this.height);
           c = 0;
           while (c < (comp.length)) {
@@ -7550,15 +7521,42 @@ class EvgBitmapTracer  {
       this.pathData = first.pathData;
     }
   };
-  overlayStep (i, from, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted) {
+  pushSeed (px, strength, bucket, seedPixel, seedNext) {
+    let s = strength;
+    if ( s < 0 ) {
+      s = 0;
+    }
+    if ( s > 255 ) {
+      s = 255;
+    }
+    const idx = seedPixel.length;
+    seedPixel.push(px);
+    seedNext.push(bucket[s]);
+    bucket[s] = idx;
+  };
+  popSeed (bucket, seedPixel, seedNext) {
+    let s = 255;
+    while (s >= 0) {
+      const idx = bucket[s];
+      if ( idx >= 0 ) {
+        bucket[s] = seedNext[idx];
+        return seedPixel[idx];
+      }
+      s = s - 1;
+    };
+    return 0 - 1;
+  };
+  overlayStep (i, from, stamp, stack, acc, bucket, seedPixel, seedNext, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted) {
     if ( (stamp[i]) == shapeNo ) {
       return;
     }
     if ( (this.labels[i]) < 0 ) {
       return;
     }
-    if ( this.pixelDelta(from, i) > edgeTol ) {
-      seeds.push(i);
+    const step = this.pixelDelta(from, i);
+    if ( step > edgeTol ) {
+      this.pushSeed(i, step, bucket, seedPixel, seedNext);
+      this.pushSeed(from, step, bucket, seedPixel, seedNext);
       return;
     }
     if ( this.coveredAlready(i, paintR, paintG, paintB, painted, simTol) ) {
@@ -9209,8 +9207,8 @@ class EvgBitmapTracerTest  {
     const tr = EvgBitmapTracer.fromImageBuffer(this.makeThreeFields(), opts);
     tr.trace();
     t.ok("the straight ramp gets a linear fill", this.countKind(tr, "linear") >= 1);
-    t.ok("the ridge gets a radial fill", this.countKind(tr, "radial") >= 1);
     t.ok("the even field stays flat", this.countKind(tr, "flat") >= 1);
+    t.eqInt("no radial fill is ever emitted", this.countKind(tr, "radial"), 0);
     let i = 0;
     let checked = 0;
     while (i < tr.layerCount()) {
@@ -9222,18 +9220,13 @@ class EvgBitmapTracerTest  {
         t.ok("its two stops differ", layer.stopA != layer.stopB);
         checked = checked + 1;
       }
-      if ( layer.fillKind == "radial" ) {
-        t.ok("the radius is positive", layer.gr > 1.0);
-        t.ok("its two stops differ too", layer.stopA != layer.stopB);
-        checked = checked + 1;
-      }
       i = i + 1;
     };
-    t.ok("both gradient kinds were checked", checked >= 2);
+    t.ok("at least one linear fill was checked", checked >= 1);
     const svg = tr.toSVG();
     t.ok("the SVG declares its gradients", (svg.indexOf("<defs>")) >= 0);
     t.ok("and a linear one among them", (svg.indexOf("<linearGradient")) >= 0);
-    t.ok("and a radial one", (svg.indexOf("<radialGradient")) >= 0);
+    t.eqInt("and no radial one", svg.indexOf("<radialGradient"), 0 - 1);
     t.ok("paths reference them by url()", (svg.indexOf("fill=\"url(#g")) >= 0);
     const plain = EvgTraceOptions.defaults();
     plain.colorCount = 6;
@@ -9282,9 +9275,17 @@ class EvgBitmapTracerTest  {
     const overlay = this.traceVanishing("overlay", true, 15);
     t.ok("the block is lost when the shapes partition", smooth.layerCount() <= 2);
     t.ok("and comes back when they stack", overlay.layerCount() > smooth.layerCount());
-    const a = overlay.layers[0];
-    const b = overlay.layers[1];
-    t.ok("stacked shapes differ from one another", a.fillHex != b.fillHex);
+    const base = overlay.layers[0];
+    let differs = 0;
+    let li = 1;
+    while (li < overlay.layerCount()) {
+      const l = overlay.layers[li];
+      if ( l.fillHex != base.fillHex ) {
+        differs = differs + 1;
+      }
+      li = li + 1;
+    };
+    t.ok("a stacked shape says something the base does not", differs >= 1);
     const strict = this.traceVanishing("overlay", true, 100);
     let i = 0;
     let shaped = 0;
@@ -9296,10 +9297,16 @@ class EvgBitmapTracerTest  {
       i = i + 1;
     };
     t.eqInt("a gain of 100 leaves every fill flat", shaped, 0);
-    const bold = this.traceVanishing("overlay", true, 15);
-    const timid = EvgTraceOptions.defaults();
-    t.eqInt("radial caution has a default", timid.radialCaution, 3);
-    t.ok("and it is above one, so radial must win clearly", timid.radialCaution > 1);
+    let rad = 0;
+    let j = 0;
+    while (j < strict.layerCount()) {
+      const l2 = strict.layers[j];
+      if ( l2.fillKind == "radial" ) {
+        rad = rad + 1;
+      }
+      j = j + 1;
+    };
+    t.eqInt("no radial fill among the overlay shapes", rad, 0);
   };
 }
 /* static JavaSript main routine at the end of the JS file */

@@ -250,11 +250,7 @@
         <label class="check color-only hidden"><input id="gradientFill" type="checkbox"> Gradienttitäytöt (kokeellinen)</label>
         <label class="row color-only hidden" id="row-gGain">Gradientin kynnys <span class="val" id="v-gradientGain">15</span>
           <input id="gradientGain" type="range" min="0" max="60" step="1" value="15">
-          <span class="hint">Jokaiselle alueelle sovitetaan tasainen väri, lineaarinen ja radiaalinen liuku, ja paras voittaa — mutta vain jos se selittää vähintään näin monta prosenttia enemmän. Toimii hyvin kuvissa joissa on isoja pehmeitä pintoja; yksityiskohtainen valokuva pilkkoutuu sadoiksi alueiksi ja tulos on huono. Vain SVG-vienti.</span>
-        </label>
-        <label class="row color-only hidden" id="row-rCaution">Radiaalin maltti <span class="val" id="v-radialCaution">3</span>
-          <input id="radialCaution" type="range" min="1" max="20" step="1" value="3">
-          <span class="hint">Radiaali on ympyräsymmetrinen kartio, joten muulla kuin pyöreällä muodolla se liioittelee laskua — oikea laji, liian voimakkaana. Se saa voittaa lineaarisen vasta tällä kertoimella. Nosta jos liu'uista tulee liian dramaattisia.</span>
+          <span class="hint">Jokaiselle alueelle sovitetaan tasainen väri ja lineaarinen liuku, ja parempi voittaa — mutta vain jos se selittää vähintään näin monta prosenttia enemmän. Radiaalia ei käytetä: se päättelee muotoja joita kuvassa ei ole, ellei alue ole aidosti pyöreä. Toimii hyvin kuvissa joissa on isoja pehmeitä pintoja; yksityiskohtainen valokuva pilkkoutuu sadoiksi alueiksi ja tulos on huono. Vain SVG-vienti.</span>
         </label>
         <label class="row color-only hidden">Tasot
           <select id="layerMode">
@@ -356,7 +352,7 @@
   var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
-  var overlaySimilar = $("overlaySimilar"), radialCaution = $("radialCaution");
+  var overlaySimilar = $("overlaySimilar");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -399,7 +395,6 @@
   bindRange(contourSpread, $("v-contourSpread"));
   bindRange(gradientGain, $("v-gradientGain"));
   bindRange(overlaySimilar, $("v-overlaySimilar"));
-  bindRange(radialCaution, $("v-radialCaution"));
 
   function syncChecker() {
     [srcStage, outStage].forEach(function (el) {
@@ -510,7 +505,6 @@
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
     gradientFill.closest("label").classList.toggle("hidden", !color);
     $("row-gGain").classList.toggle("hidden", !color || !gradientFill.checked);
-    $("row-rCaution").classList.toggle("hidden", !color || !gradientFill.checked);
     var mode = paletteMode.value;
     rowBias.classList.toggle("hidden", !color || mode === "fixed");
     // Kept on screen even on "auto" — it is how you reach "Poimi tuloksesta",
@@ -681,7 +675,6 @@
         opts.gradientFill = !!gradientFill.checked;
         opts.gradientGain = +gradientGain.value;
         opts.overlaySimilar = +overlaySimilar.value;
-        opts.radialCaution = +radialCaution.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();

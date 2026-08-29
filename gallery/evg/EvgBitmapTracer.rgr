@@ -386,13 +386,6 @@ class EvgBitmapTracer {
                     defs = (defs + "<stop offset=\"0\" stop-color=\"" + layer.stopA + "\"/>")
                     defs = (defs + "<stop offset=\"1\" stop-color=\"" + layer.stopB + "\"/></linearGradient>")
                 }
-                if ((layer.fillKind) == "radial") {
-                    defs = (defs + "<radialGradient id=\"" + id + "\" gradientUnits=\"userSpaceOnUse\"")
-                    defs = (defs + " cx=\"" + (EvgBitmapTracer.num(layer.gx0)) + "\" cy=\"" + (EvgBitmapTracer.num(layer.gy0)) + "\"")
-                    defs = (defs + " r=\"" + (EvgBitmapTracer.num(layer.gr)) + "\">")
-                    defs = (defs + "<stop offset=\"0\" stop-color=\"" + layer.stopA + "\"/>")
-                    defs = (defs + "<stop offset=\"1\" stop-color=\"" + layer.stopB + "\"/></radialGradient>")
-                }
                 i = (i + 1)
             }
             if ((strlen defs) > 0) {
@@ -1381,9 +1374,9 @@ class EvgBitmapTracer {
     ; Gradient fills (options.gradientFill)
     ;
     ; Each continuity region is fitted with three models — one flat color, a
-    ; linear ramp and a radial one — and keeps whichever leaves the least
-    ; error. Neither wins everywhere: a sky is linear, and a tube lit down its
-    ; middle is radial and comes out badly wrong as a linear ramp.
+    ; linear ramp — and keeps whichever leaves the least error. A radial model
+    ; is fitted alongside them but not used: away from a genuinely round region
+    ; its cone infers structure the picture does not contain.
     ; ----------------------------------------------------------------------
 
     sfn clamp255:int (v:double) {
@@ -1533,7 +1526,7 @@ class EvgBitmapTracer {
     }
 
     ; One layer per continuity region, filled with whichever of flat / linear /
-    ; radial explains it best. Regions are painted largest first and each mask
+    ; a linear ramp explains it best. Regions are painted largest first, each mask
     ; is grown by a pixel, so the smaller shape laid on top covers the join —
     ; the same reason the swatch layers are stacked rather than butted together.
     fn traceGradientRegions:void () {
@@ -1817,10 +1810,11 @@ class EvgBitmapTracer {
                     best = eLin
                     kind = "linear"
                 }
-                if (eRad < best) {
-                    best = eRad
-                    kind = "radial"
-                }
+                ; Radial is fitted but never chosen: an isotropic cone
+                ; invents structure that is not in the picture wherever the
+                ; region is not actually round, and the shapes it infers are
+                ; strange rather than merely wrong. Kept out until it can be
+                ; fitted to the region's real geometry.
                 ; A gradient has to earn its place: a nearly flat region stays
                 ; flat. Both tests are needed — the relative one alone lets a
                 ; perfectly even region through, because zero is not 15% worse
@@ -1866,17 +1860,6 @@ class EvgBitmapTracer {
                         layer.gy1 = (my + ((itemAt uy r) * t1))
                         layer.stopA = (this.hexOf((this.linAt(la lb lc r 0 layer.gx0 layer.gy0)) (this.linAt(la lb lc r 1 layer.gx0 layer.gy0)) (this.linAt(la lb lc r 2 layer.gx0 layer.gy0))))
                         layer.stopB = (this.hexOf((this.linAt(la lb lc r 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc r 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc r 2 layer.gx1 layer.gy1))))
-                    }
-                    if (kind == "radial") {
-                        if ((itemAt dmax r) < 2.0) {
-                            kind = "flat"
-                            layer.fillKind = "flat"
-                        }
-                        layer.gx0 = mx
-                        layer.gy0 = my
-                        layer.gr = (itemAt dmax r)
-                        layer.stopA = (this.hexOf((itemAt ra 0) (itemAt ra 1) (itemAt ra 2)))
-                        layer.stopB = (this.hexOf(((itemAt ra 0) + ((itemAt rb 0) * layer.gr)) ((itemAt ra 1) + ((itemAt rb 1) * layer.gr)) ((itemAt ra 2) + ((itemAt rb 2) * layer.gr))))
                     }
                     push layers layer
                     def cmds:[PathCommand] (sub.getCommands())
@@ -1959,7 +1942,7 @@ class EvgBitmapTracer {
         return (d <= tol)
     }
 
-    ; Fit one shape's pixel list with flat / linear / radial, describe the
+    ; Fit one shape's pixel list with flat or linear, describe the
     ; winner on the layer, and write what the model *predicts* into the paint
     ; map. That last part is the whole reason the two features belong together:
     ; the similarity stop asks "does an overlay show against what is under it",
@@ -2013,44 +1996,11 @@ class EvgBitmapTracer {
         }
         def mx:double (sx / cnt)
         def my:double (sy / cnt)
-        ; Radial sums need the centroid, so they take a second look at the list.
-        def sd:double 0.0
-        def sdd:double 0.0
-        def sdv:[double]
-        def dmax:double 0.0
-        def ci:int 0
-        while (ci < 3) {
-            push sdv 0.0
-            ci = (ci + 1)
-        }
-        i = 0
-        while (i < n) {
-            def q:int (itemAt comp i)
-            def qy:int (idiv q width)
-            def ddx:double ((to_double (q - (qy * width))) - mx)
-            def ddy:double ((to_double qy) - my)
-            def dist:double (sqrt ((ddx * ddx) + (ddy * ddy)))
-            sd = (sd + dist)
-            sdd = (sdd + (dist * dist))
-            if (dist > dmax) {
-                dmax = dist
-            }
-            ci = 0
-            while (ci < 3) {
-                set sdv ci ((itemAt sdv ci) + (dist * (to_double (this.planeAt(ci q)))))
-                ci = (ci + 1)
-            }
-            i = (i + 1)
-        }
         def la:[double]
         def lb:[double]
         def lc:[double]
-        def ra:[double]
-        def rb:[double]
         def eFlat:double 0.0
         def eLin:double 0.0
-        def eRad:double 0.0
-        def rden:double ((cnt * sdd) - (sd * sd))
         def sol:[double]
         push sol 0.0
         push sol 0.0
@@ -2072,17 +2022,6 @@ class EvgBitmapTracer {
                 push lc 0.0
                 eLin = (eLin + 1000000000.0)
             }
-            if ((EvgBitmapTracer.absD(rden)) > 0.000001) {
-                def bb:double (((cnt * (itemAt sdv c)) - (sd * s1)) / rden)
-                def aa:double ((s1 - (bb * sd)) / cnt)
-                push ra aa
-                push rb bb
-                eRad = (eRad + ((itemAt svv c) - ((aa * s1) + (bb * (itemAt sdv c)))))
-            } {
-                push ra (s1 / cnt)
-                push rb 0.0
-                eRad = (eRad + 1000000000.0)
-            }
             c = (c + 1)
         }
         if (eFlat < 0.0) {
@@ -2091,61 +2030,23 @@ class EvgBitmapTracer {
         if ((eLin < 0.0) || (cnt < 64.0)) {
             eLin = 1000000000.0
         }
-        if ((eRad < 0.0) || (cnt < 64.0) || (dmax < 2.0)) {
-            eRad = 1000000000.0
-        }
         def gain:double ((to_double options.gradientGain) / 100.0)
         def best:double eFlat
         def useLin:boolean false
-        def useRad:boolean false
         if (eLin < best) {
             best = eLin
             useLin = true
-            useRad = false
-        }
-        ; Radial only when it is decisively better, not merely better.
-        def caution:double (to_double options.radialCaution)
-        if (caution < 1.0) {
-            caution = 1.0
-        }
-        if (eRad < (best - ((best * gain) * caution))) {
-            best = eRad
-            useRad = true
-            useLin = false
         }
         if ((eFlat - best) < (eFlat * gain)) {
             useLin = false
-            useRad = false
         }
         if (eFlat < (cnt * 3.0)) {
             useLin = false
-            useRad = false
         }
         def mR:int (EvgBitmapTracer.clamp255((itemAt sv 0) / cnt))
         def mG:int (EvgBitmapTracer.clamp255((itemAt sv 1) / cnt))
         def mB:int (EvgBitmapTracer.clamp255((itemAt sv 2) / cnt))
         layer.fillHex = (this.hexFromRgb(mR mG mB))
-        if (useRad) {
-            layer.fillKind = "radial"
-            layer.gx0 = mx
-            layer.gy0 = my
-            layer.gr = dmax
-            layer.stopA = (this.hexOf((itemAt ra 0) (itemAt ra 1) (itemAt ra 2)))
-            layer.stopB = (this.hexOf(((itemAt ra 0) + ((itemAt rb 0) * dmax)) ((itemAt ra 1) + ((itemAt rb 1) * dmax)) ((itemAt ra 2) + ((itemAt rb 2) * dmax))))
-            i = 0
-            while (i < n) {
-                def p3:int (itemAt comp i)
-                def y3:int (idiv p3 width)
-                def ex:double ((to_double (p3 - (y3 * width))) - mx)
-                def ey:double ((to_double y3) - my)
-                def dd:double (sqrt ((ex * ex) + (ey * ey)))
-                set paintR p3 (EvgBitmapTracer.clamp255((itemAt ra 0) + ((itemAt rb 0) * dd)))
-                set paintG p3 (EvgBitmapTracer.clamp255((itemAt ra 1) + ((itemAt rb 1) * dd)))
-                set paintB p3 (EvgBitmapTracer.clamp255((itemAt ra 2) + ((itemAt rb 2) * dd)))
-                i = (i + 1)
-            }
-            return
-        }
         if (useLin == false) {
             layer.fillKind = "flat"
             i = 0
@@ -2231,29 +2132,124 @@ class EvgBitmapTracer {
             push stamp (0 - 1)
             i = (i + 1)
         }
-        def seeds:[int]
+        ; Seeds are held in 256 buckets by the strength of the edge that
+        ; produced them, and the steepest is always served first. Order is not
+        ; a detail here: a smooth surface started first spreads across weak
+        ; boundaries and claims what lies behind them, and the shape it took can
+        ; then only come back as whatever part of itself still differs — half a
+        ; rectangle, with the other half sitting inside the surface that ate it.
+        ; Started from the sharpest edge, the shapes with an identity are laid
+        ; down before the smooth ones get to move.
+        def bucket:[int]
+        def seedPixel:[int]
+        def seedNext:[int]
         i = 0
-        while (i < n) {
-            if ((itemAt labels i) >= 0) {
-                push seeds i
-                i = n
-            }
+        while (i < 256) {
+            push bucket (0 - 1)
             i = (i + 1)
         }
+        ; Every steep pixel goes in up front, not just the steepest one. A
+        ; figure can be star-shaped, or in several pieces, and growing outward
+        ; from one point does not necessarily reach the sharp corners of the
+        ; others. Queued together and served steepest-first, the question
+        ; "have all the steep points been dealt with" answers itself: the queue
+        ; is empty when they have.
+        def y0:int 0
+        while (y0 < height) {
+            def x0:int 0
+            while (x0 < width) {
+                def idx0:int ((y0 * width) + x0)
+                if ((itemAt labels idx0) >= 0) {
+                    def st:int 0
+                    if (x0 > 0) {
+                        st = (this.pixelDelta(idx0 (idx0 - 1)))
+                    }
+                    if (x0 < (width - 1)) {
+                        def s1:int (this.pixelDelta(idx0 (idx0 + 1)))
+                        if (s1 > st) {
+                            st = s1
+                        }
+                    }
+                    if (y0 > 0) {
+                        def s2:int (this.pixelDelta(idx0 (idx0 - width)))
+                        if (s2 > st) {
+                            st = s2
+                        }
+                    }
+                    if (y0 < (height - 1)) {
+                        def s3:int (this.pixelDelta(idx0 (idx0 + width)))
+                        if (s3 > st) {
+                            st = s3
+                        }
+                    }
+                    if (st > edgeTol) {
+                        this.pushSeed(idx0 st bucket seedPixel seedNext)
+                    }
+                }
+                x0 = (x0 + 1)
+            }
+            y0 = (y0 + 1)
+        }
         def allCmds:[PathCommand]
-        def head:int 0
+        ; A base surface under everything, so the picture is never part
+        ; transparent. The shape budget is finite and a photograph will spend it
+        ; on small overlays long before it has covered the frame; whatever is
+        ; left then shows this rather than the page. It is drawn but not entered
+        ; into the paint map, so it changes nothing about how the shapes above
+        ; it decide where to stop.
+        def baseMask:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+        def bsR:int 0
+        def bsG:int 0
+        def bsB:int 0
+        def bsN:int 0
+        def bi:int 0
+        while (bi < n) {
+            if ((itemAt labels bi) >= 0) {
+                def by:int (idiv bi width)
+                baseMask.setBit((bi - (by * width)) by true)
+                bsR = (bsR + (itemAt planeR bi))
+                bsG = (bsG + (itemAt planeG bi))
+                bsB = (bsB + (itemAt planeB bi))
+                bsN = (bsN + 1)
+            }
+            bi = (bi + 1)
+        }
+        if (bsN > 0) {
+            def baseOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            baseOpts.turdsize = options.turdsize
+            baseOpts.alphamax = options.alphamax
+            baseOpts.turnpolicy = options.turnpolicy
+            baseOpts.optcurve = options.optcurve
+            baseOpts.opttolerance = options.opttolerance
+            baseOpts.fillHex = (this.hexFromRgb((idiv bsR bsN) (idiv bsG bsN) (idiv bsB bsN)))
+            def baseTr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(baseMask baseOpts))
+            baseTr.trace()
+            if ((baseTr.ringCount()) > 0) {
+                push layers (itemAt baseTr.layers 0)
+                def bcmds:[PathCommand] (baseTr.getCommands())
+                def bc:int 0
+                while (bc < (array_length bcmds)) {
+                    push allCmds (itemAt bcmds bc)
+                    bc = (bc + 1)
+                }
+            }
+        }
         def shapeNo:int 0
         def sweepFrom:int 0
         while (shapeNo < 3000) {
             ; Take the next seed; when they run out, sweep for anything still
             ; unpainted so nothing is left as a hole.
             def seed:int (0 - 1)
-            while ((head < (array_length seeds)) && (seed < 0)) {
-                def cand:int (itemAt seeds head)
-                head = (head + 1)
-                if ((itemAt labels cand) >= 0) {
-                    if ((this.coveredAlready(cand paintR paintG paintB painted simTol)) == false) {
-                        seed = cand
+            def empty:boolean false
+            while ((seed < 0) && (empty == false)) {
+                def cand:int (this.popSeed(bucket seedPixel seedNext))
+                if (cand < 0) {
+                    empty = true
+                } {
+                    if ((itemAt labels cand) >= 0) {
+                        if ((this.coveredAlready(cand paintR paintG paintB painted simTol)) == false) {
+                            seed = cand
+                        }
                     }
                 }
             }
@@ -2286,16 +2282,16 @@ class EvgBitmapTracer {
                     def cy:int (idiv cur width)
                     def cx:int (cur - (cy * width))
                     if (cx > 0) {
-                        this.overlayStep((cur - 1) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur - 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cx < (width - 1)) {
-                        this.overlayStep((cur + 1) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur + 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cy > 0) {
-                        this.overlayStep((cur - width) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur - width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cy < (height - 1)) {
-                        this.overlayStep((cur + width) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur + width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                 }
                 def cnt:int (itemAt acc 3)
@@ -2314,7 +2310,11 @@ class EvgBitmapTracer {
                     set painted px 1
                     c = (c + 1)
                 }
-                if ((array_length comp) >= minPx) {
+                ; Every shape that marks the map has to be drawn, or it is a
+                ; hole: the shapes below it have already stopped at its border
+                ; and nothing else will cover it. Only specks smaller than a
+                ; traceable ring are skipped — turdsize deals with those.
+                if ((array_length comp) >= 4) {
                     def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
                     c = 0
                     while (c < (array_length comp)) {
@@ -2361,16 +2361,51 @@ class EvgBitmapTracer {
     ; too far from its own mean, and arriving somewhere it would look the same
     ; as what is already painted. An edge is not just a stop — it is where the
     ; next shape begins, on the far side and above.
-    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] seeds:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
+    ; Push one seed into the bucket for its edge strength.
+    fn pushSeed:void (px:int strength:int bucket:[int] seedPixel:[int] seedNext:[int]) {
+        def s:int strength
+        if (s < 0) {
+            s = 0
+        }
+        if (s > 255) {
+            s = 255
+        }
+        def idx:int (array_length seedPixel)
+        push seedPixel px
+        push seedNext (itemAt bucket s)
+        set bucket s idx
+    }
+
+    ; Take the steepest seed still waiting, or -1 when there are none.
+    fn popSeed:int (bucket:[int] seedPixel:[int] seedNext:[int]) {
+        def s:int 255
+        while (s >= 0) {
+            def idx:int (itemAt bucket s)
+            if (idx >= 0) {
+                set bucket s (itemAt seedNext idx)
+                return (itemAt seedPixel idx)
+            }
+            s = (s - 1)
+        }
+        return (0 - 1)
+    }
+
+    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] bucket:[int] seedPixel:[int] seedNext:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
         if ((itemAt stamp i) == shapeNo) {
             return
         }
         if ((itemAt labels i) < 0) {
             return
         }
-        if ((this.pixelDelta(from i)) > edgeTol) {
-            ; The far side of an edge is a shape of its own, drawn over this one.
-            push seeds i
+        def step:int (this.pixelDelta(from i))
+        if (step > edgeTol) {
+            ; Both sides of an edge are shapes of their own. Seeding only the
+            ; far side leaves the near side to whichever surface happens to
+            ; arrive there, and at a boundary that fades that is the surface
+            ; which already leaked through it — which is how half a shape goes
+            ; missing while the other half is drawn.
+            this.pushSeed(i step bucket seedPixel seedNext)
+            this.pushSeed(from step bucket seedPixel seedNext)
             return
         }
         if (this.coveredAlready(i paintR paintG paintB painted simTol)) {

@@ -906,9 +906,11 @@ class EvgBitmapTracerTest {
     }
 
     ; Three fields side by side: one even, one that ramps in a straight line,
-    ; and one that is a bright spot falling off in every direction. A linear
-    ; model reads the second and gets the third wrong; a radial one reads the
-    ; third. Neither wins everywhere, which is why the fit is chosen per region.
+    ; and one that is a bright spot falling off in every direction. Only flat
+    ; and linear are emitted — a radial fit is held back because away from a
+    ; genuinely round region its cone infers structure the picture does not
+    ; contain — so the spot is expected to come out flat or as a ramp, not as
+    ; a radial gradient.
     fn makeThreeFields:ImageBuffer () {
         def img (new ImageBuffer())
         img.init(150 50)
@@ -973,8 +975,8 @@ class EvgBitmapTracerTest {
         ; a gradient with two equal stops is just a bigger way of saying one
         ; color, so gradientGain has to refuse it.
         t.ok("the straight ramp gets a linear fill" ((this.countKind(tr "linear")) >= 1))
-        t.ok("the ridge gets a radial fill" ((this.countKind(tr "radial")) >= 1))
         t.ok("the even field stays flat" ((this.countKind(tr "flat")) >= 1))
+        t.eqInt("no radial fill is ever emitted" (this.countKind(tr "radial")) 0)
 
         ; A linear layer must carry an axis with length, a radial one a radius.
         def i:int 0
@@ -988,20 +990,15 @@ class EvgBitmapTracerTest {
                 t.ok("its two stops differ" ((layer.stopA) != (layer.stopB)))
                 checked = (checked + 1)
             }
-            if ((layer.fillKind) == "radial") {
-                t.ok("the radius is positive" ((layer.gr) > 1.0))
-                t.ok("its two stops differ too" ((layer.stopA) != (layer.stopB)))
-                checked = (checked + 1)
-            }
             i = (i + 1)
         }
-        t.ok("both gradient kinds were checked" (checked >= 2))
+        t.ok("at least one linear fill was checked" (checked >= 1))
 
         ; The SVG has to declare what it references.
         def svg:string (tr.toSVG())
         t.ok("the SVG declares its gradients" ((indexOf svg "<defs>") >= 0))
         t.ok("and a linear one among them" ((indexOf svg "<linearGradient") >= 0))
-        t.ok("and a radial one" ((indexOf svg "<radialGradient") >= 0))
+        t.eqInt("and no radial one" (indexOf svg "<radialGradient") (0 - 1))
         t.ok("paths reference them by url()" ((indexOf svg "fill=\"url(#g") >= 0))
 
         ; Off, the same image comes back as flat swatch layers and no defs.
@@ -1063,10 +1060,20 @@ class EvgBitmapTracerTest {
         t.ok("the block is lost when the shapes partition" ((smooth.layerCount()) <= 2))
         t.ok("and comes back when they stack" ((overlay.layerCount()) > (smooth.layerCount())))
 
-        ; Every shape has its own fill, or the stack says nothing.
-        def a:EvgTraceLayer (itemAt overlay.layers 0)
-        def b:EvgTraceLayer (itemAt overlay.layers 1)
-        t.ok("stacked shapes differ from one another" ((a.fillHex) != (b.fillHex)))
+        ; Layer 0 is the base surface the stack is drawn onto, so the shapes
+        ; that matter start at 1 — and at least one of them has to say something
+        ; the base does not, or the stack is decoration.
+        def base:EvgTraceLayer (itemAt overlay.layers 0)
+        def differs:int 0
+        def li:int 1
+        while (li < (overlay.layerCount())) {
+            def l:EvgTraceLayer (itemAt overlay.layers li)
+            if ((l.fillHex) != (base.fillHex)) {
+                differs = (differs + 1)
+            }
+            li = (li + 1)
+        }
+        t.ok("a stacked shape says something the base does not" (differs >= 1))
 
         ; gradientGain is the restraint: at 100% nothing can out-argue flat.
         def strict:EvgBitmapTracer (this.traceVanishing("overlay" true 100))
@@ -1081,13 +1088,16 @@ class EvgBitmapTracerTest {
         }
         t.eqInt("a gain of 100 leaves every fill flat" shaped 0)
 
-        ; radialCaution is the dial on the model that overstates itself. A
-        ; radial fit is a circular cone, so on a shape that is not round it is
-        ; right in kind and too strong in degree; raising the caution hands
-        ; those regions back to the linear fit.
-        def bold:EvgBitmapTracer (this.traceVanishing("overlay" true 15))
-        def timid:EvgTraceOptions (EvgTraceOptions.defaults())
-        t.eqInt("radial caution has a default" (timid.radialCaution) 3)
-        t.ok("and it is above one, so radial must win clearly" ((timid.radialCaution) > 1))
+        ; And no overlay shape gets a radial fill either.
+        def rad:int 0
+        def j:int 0
+        while (j < (strict.layerCount())) {
+            def l2:EvgTraceLayer (itemAt strict.layers j)
+            if ((l2.fillKind) == "radial") {
+                rad = (rad + 1)
+            }
+            j = (j + 1)
+        }
+        t.eqInt("no radial fill among the overlay shapes" rad 0)
     }
 }
