@@ -279,6 +279,100 @@ if (!ready) {
     process.exitCode = 1;
   }
 
+  // --- edit mode ----------------------------------------------------------
+  // A traced layer is one path per color, so the thing that makes edit mode
+  // possible at all is splitting those into one path per shape. Check that,
+  // then each of the three tools and undo.
+  await page.evaluate(() => {
+    const c = document.getElementById("colorCount");
+    c.value = 8;
+    c.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click("#sample");
+  await page.waitForFunction(() => !document.getElementById("dl").disabled, { timeout: 120000 });
+  // A queued re-trace replaces the drawing and ends the edit session with it,
+  // so wait for the tracer to go idle before opening one.
+  await page.waitForFunction(() => !document.getElementById("run").disabled, { timeout: 120000 });
+  await page.waitForTimeout(300);
+
+  const edit = await (async () => {
+    const before = await page.evaluate(() => document.querySelectorAll("#outStage svg path").length);
+    await page.click("#editToggle");
+    const exploded = await page.evaluate(() => document.querySelectorAll("#outStage svg path").length);
+
+    // merge: set the picker, click the biggest shape, count what took the color
+    await page.evaluate(() => {
+      const c = document.getElementById("editColor");
+      c.value = "#00ff88";
+      c.dispatchEvent(new Event("input", { bubbles: true }));
+      const ps = [...document.querySelectorAll("#outStage svg path")];
+      ps.sort((a, b) => {
+        const x = a.getBBox(), y = b.getBBox();
+        return y.width * y.height - x.width * x.height;
+      });
+      ps[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const green = () => page.evaluate(() =>
+      [...document.querySelectorAll("#outStage svg path")]
+        .filter(e => (e.getAttribute("fill") || "").toLowerCase() === "#00ff88").length);
+    const merged = await green();
+    await page.click("#editUndo");
+    const undone = await green();
+
+    // pick: take a shape's own fill into the picker
+    await page.click("#toolPick");
+    const want = await page.evaluate(() => {
+      const el = document.querySelectorAll("#outStage svg path")[2];
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return (el.getAttribute("fill") || "").toLowerCase();
+    });
+    const picked = await page.evaluate(() => document.getElementById("editColor").value.toLowerCase());
+
+    // refine: re-trace a box and splice the result in
+    await page.click("#toolRefine");
+    await page.evaluate(() => {
+      document.querySelectorAll("#outStage svg path")[2]
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 200 }));
+    });
+    const groups = await page.evaluate(() => document.querySelectorAll("#outStage svg g").length);
+    await page.click("#editUndo");
+    const groupsUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg g").length);
+
+    // The refine-size slider must not re-trace: a re-trace replaces the
+    // drawing and takes the edit session down with it, which is a strange way
+    // to lose your work while sizing the next click.
+    await page.evaluate(() => {
+      const r = document.getElementById("refineSize");
+      r.value = 80;
+      r.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForTimeout(400);
+    const stillEditing = await page.evaluate(() =>
+      document.getElementById("editbar").classList.contains("on"));
+    return { before, exploded, merged, undone, picked, want, groups, groupsUndone, stillEditing };
+  })();
+  console.log(JSON.stringify(edit));
+  if (!(edit.exploded > edit.before)) {
+    console.error("edit mode must split color layers into individual shapes");
+    process.exitCode = 1;
+  }
+  if (edit.merged !== 1 || edit.undone !== 0) {
+    console.error("merge should recolor exactly one shape, and undo should put it back");
+    process.exitCode = 1;
+  }
+  if (edit.picked !== edit.want) {
+    console.error("the picker should take the clicked shape's fill, got " + edit.picked + " want " + edit.want);
+    process.exitCode = 1;
+  }
+  if (edit.groups !== 1 || edit.groupsUndone !== 0) {
+    console.error("refine should add one group of shapes, and undo should remove it");
+    process.exitCode = 1;
+  }
+  if (!edit.stillEditing) {
+    console.error("sizing the refine box must not re-trace and drop the edit session");
+    process.exitCode = 1;
+  }
+
   if (!process.exitCode) {
     console.log("tracer smoke OK");
   }

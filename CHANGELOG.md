@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An edit mode on the traced result** — asked for as a way to finish a trace
+  by hand: merge parts that were split for no reason, and rebuild parts that
+  deserve more care. Both tools work by clicking shapes.
+
+  **Yhdistä** repaints the clicked shape in a chosen color, which is how a shape
+  merges into what surrounds it: adjacent areas of one fill read as one surface.
+  The red knuckles on a hand become skin in four clicks. **Poimi väri** takes a
+  shape's own fill into the picker, so the target is usually one click away.
+  **Tarkenna** is the inverse: it re-traces a box around the click using a
+  palette built from that box alone — the same reasoning the detail
+  neighbourhoods use, applied where a person points — and lays the result on
+  top. Every action is undoable, *Palauta* returns to the traced result, and the
+  download saves what is on screen rather than what the tracer produced.
+
+  What makes it possible at all is that entering the mode splits each traced
+  layer into one path per shape. A layer is one path holding every ring of its
+  color, so without that, clicking selects a whole color rather than a shape —
+  on a portrait it is the difference between 10 clickable things and 286. Rings
+  nested inside another ring travel with it as its holes, decided by bounding
+  box; without that grouping every hole would fill in and every eye would close.
+
 - **A detail neighbourhood now quantizes itself with its own palette**, and its
   shapes are drawn on top of the picture the global palette produced. This is
   the fix for a complaint worth stating precisely: trace an eye on its own and
