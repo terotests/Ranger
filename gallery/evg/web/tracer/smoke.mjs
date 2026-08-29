@@ -279,6 +279,224 @@ if (!ready) {
     process.exitCode = 1;
   }
 
+  // --- edit mode ----------------------------------------------------------
+  // A traced layer is one path per color, so the thing that makes edit mode
+  // possible at all is splitting those into one path per shape. Check that,
+  // then each of the three tools and undo.
+  await page.evaluate(() => {
+    const c = document.getElementById("colorCount");
+    c.value = 8;
+    c.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click("#sample");
+  await page.waitForFunction(() => !document.getElementById("dl").disabled, { timeout: 120000 });
+  // A queued re-trace replaces the drawing and ends the edit session with it,
+  // so wait for the tracer to go idle before opening one.
+  await page.waitForFunction(() => !document.getElementById("run").disabled, { timeout: 120000 });
+  await page.waitForTimeout(300);
+
+  const edit = await (async () => {
+    const before = await page.evaluate(() => document.querySelectorAll("#outStage svg path").length);
+    await page.click("#editToggle");
+    const exploded = await page.evaluate(() => document.querySelectorAll("#outStage svg path").length);
+
+    // merge: set the picker, click the biggest shape, count what took the color
+    await page.evaluate(() => {
+      const c = document.getElementById("editColor");
+      c.value = "#00ff88";
+      c.dispatchEvent(new Event("input", { bubbles: true }));
+      const ps = [...document.querySelectorAll("#outStage svg path")];
+      ps.sort((a, b) => {
+        const x = a.getBBox(), y = b.getBBox();
+        return y.width * y.height - x.width * x.height;
+      });
+      ps[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const green = () => page.evaluate(() =>
+      [...document.querySelectorAll("#outStage svg path")]
+        .filter(e => (e.getAttribute("fill") || "").toLowerCase() === "#00ff88").length);
+    const merged = await green();
+    await page.click("#editUndo");
+    const undone = await green();
+
+    // pick: take a shape's own fill into the picker
+    await page.click("#toolPick");
+    const want = await page.evaluate(() => {
+      const el = document.querySelectorAll("#outStage svg path")[2];
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return (el.getAttribute("fill") || "").toLowerCase();
+    });
+    const picked = await page.evaluate(() => document.getElementById("editColor").value.toLowerCase());
+
+    // refine: drag over an area, which re-traces it with a palette of its own
+    // and lays the result on top, masked to the stroke. The mask is the part
+    // worth guarding — resolved in the wrong coordinate system it hides the
+    // whole result, and the tool then reports success while changing nothing.
+    await page.click("#toolRefine");
+    // Force the patch to differ from what is already there. With the palette
+    // seeded from the border and the mask feathered, a refine stroke can quite
+    // correctly change nothing — it had nothing to add — and then this test
+    // would pass a broken mask as a no-op. Given its own colors to invent and
+    // no edge snapping, it must change something, and that is what makes the
+    // "is the mask hiding everything" check mean anything.
+    await page.evaluate(() => {
+      const x = document.getElementById("refineExtra");
+      x.value = 12; x.dispatchEvent(new Event("input", { bubbles: true }));
+      const e = document.getElementById("edgeBlend");
+      e.value = 0; e.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const refined = await page.evaluate(async () => {
+      const svg = document.querySelector("#outStage svg");
+      const rect = svg.getBoundingClientRect();
+      // Rasterize a probe inside the stroke: "one group was added" is not the
+      // same claim as "the picture changed", and the mask bug satisfied the
+      // first while failing the second.
+      const shot = async () => {
+        const str = new XMLSerializer().serializeToString(svg);
+        const im = new Image();
+        im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+        await im.decode();
+        await new Promise(r => setTimeout(r, 150));
+        const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+        const c = document.createElement("canvas");
+        c.width = vb[2]; c.height = vb[3];
+        const g = c.getContext("2d");
+        g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(im, 0, 0, c.width, c.height);
+        return g.getImageData(0, 0, c.width, c.height).data;
+      };
+      const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+      const before = await shot();
+      const stage = document.getElementById("outStage");
+      const at = (fx, fy) => ({ x: rect.left + rect.width * fx, y: rect.top + rect.height * fy });
+      const send = (type, pt) => stage.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, clientX: pt.x, clientY: pt.y
+      }));
+      send("pointerdown", at(0.3, 0.45));
+      for (let i = 1; i <= 12; i++) send("pointermove", at(0.3 + 0.4 * i / 12, 0.45));
+      const preview = svg.querySelectorAll('path[stroke="#ff2ec4"]').length;
+      send("pointerup", at(0.7, 0.45));
+      await new Promise(r => setTimeout(r, 400));
+      const after = await shot();
+      let changed = 0;
+      const y0 = Math.round(vb[3] * 0.40), y1 = Math.round(vb[3] * 0.50);
+      const x0 = Math.round(vb[2] * 0.32), x1 = Math.round(vb[2] * 0.68);
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const o = (y * vb[2] + x) * 4;
+        if (Math.abs(before[o] - after[o]) + Math.abs(before[o+1] - after[o+1])
+          + Math.abs(before[o+2] - after[o+2]) > 24) changed++;
+      }
+      return { preview, previewLeft: svg.querySelectorAll('path[stroke="#ff2ec4"]').length, changed };
+    });
+    const groups = await page.evaluate(() => document.querySelectorAll("#outStage svg g[mask]").length);
+    const masks = await page.evaluate(() => document.querySelectorAll("#outStage svg mask").length);
+    await page.click("#editUndo");
+    const groupsUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg g[mask]").length);
+    const masksUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg mask").length);
+
+    // smooth: brush over the biggest shape's own colour and check the outline
+    // gets simpler rather than heavier, and that undo restores it exactly.
+    await page.click("#toolSmooth");
+    const smooth = await page.evaluate(async () => {
+      const svg = document.querySelector("#outStage svg");
+      const ps = [...svg.querySelectorAll("path")];
+      ps.sort((a, b) => {
+        const x = a.getBBox(), y = b.getBBox();
+        return y.width * y.height - x.width * x.height;
+      });
+      // The biggest shape is usually the background frame; take the biggest one
+      // that actually has an outline worth smoothing.
+      const el = ps.find(e => (e.getAttribute("d") || "").length > 400) || ps[1];
+      el.id = "__smoothTarget";
+      const fill = el.getAttribute("fill");
+      const c = document.getElementById("editColor");
+      c.value = fill; c.dispatchEvent(new Event("input", { bubbles: true }));
+      const bb = el.getBBox();
+      const rect = svg.getBoundingClientRect();
+      const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+      const toScreen = (ux, uy) => ({
+        x: rect.left + ux / vb[2] * rect.width,
+        y: rect.top + uy / vb[3] * rect.height
+      });
+      const before = el.getAttribute("d").length;
+      const stage = document.getElementById("outStage");
+      const send = (type, pt) => stage.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, clientX: pt.x, clientY: pt.y
+      }));
+      for (let pass = 0; pass < 3; pass++) {
+        send("pointerdown", toScreen(bb.x + bb.width * 0.2, bb.y + bb.height * 0.5));
+        for (let i = 1; i <= 12; i++) {
+          send("pointermove", toScreen(bb.x + bb.width * (0.2 + 0.6 * i / 12), bb.y + bb.height * 0.5));
+        }
+        send("pointerup", toScreen(bb.x + bb.width * 0.8, bb.y + bb.height * 0.5));
+      }
+      return { before, after: el.getAttribute("d").length };
+    });
+    // A stroke is one undo step however many shapes it crossed, so three
+    // strokes are exactly three clicks back.
+    await page.click("#editUndo");
+    await page.click("#editUndo");
+    await page.click("#editUndo");
+    const smoothUndone = await page.evaluate(() => {
+      const el = document.getElementById("__smoothTarget");
+      return el ? el.getAttribute("d").length : -1;
+    });
+
+    // The refine-size slider must not re-trace: a re-trace replaces the
+    // drawing and takes the edit session down with it, which is a strange way
+    // to lose your work while sizing the next click.
+    await page.evaluate(() => {
+      const r = document.getElementById("refineSize");
+      r.value = 80;
+      r.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForTimeout(400);
+    const stillEditing = await page.evaluate(() =>
+      document.getElementById("editbar").classList.contains("on"));
+    return { before, exploded, merged, undone, picked, want, groups, groupsUndone, stillEditing,
+             masks, masksUndone, preview: refined.preview, previewLeft: refined.previewLeft,
+             refineChangedPixels: refined.changed,
+             smoothBefore: smooth.before, smoothAfter: smooth.after, smoothUndone };
+  })();
+  console.log(JSON.stringify(edit));
+  if (!(edit.exploded > edit.before)) {
+    console.error("edit mode must split color layers into individual shapes");
+    process.exitCode = 1;
+  }
+  if (edit.merged !== 1 || edit.undone !== 0) {
+    console.error("merge should recolor exactly one shape, and undo should put it back");
+    process.exitCode = 1;
+  }
+  if (edit.picked !== edit.want) {
+    console.error("the picker should take the clicked shape's fill, got " + edit.picked + " want " + edit.want);
+    process.exitCode = 1;
+  }
+  if (edit.groups !== 1 || edit.groupsUndone !== 0 || edit.masks !== 1 || edit.masksUndone !== 0) {
+    console.error("a refine stroke should add one masked group and its mask, and undo should take both away");
+    process.exitCode = 1;
+  }
+  if (!(edit.refineChangedPixels > 0)) {
+    console.error("a refine stroke must change the picture under it, not just add a hidden group");
+    process.exitCode = 1;
+  }
+  if (edit.preview !== 1 || edit.previewLeft !== 0) {
+    console.error("the stroke preview should show while dragging and be gone afterwards");
+    process.exitCode = 1;
+  }
+  if (!(edit.smoothAfter > 0) || edit.smoothAfter === edit.smoothBefore) {
+    console.error("the smooth brush should change the outline it is dragged over");
+    process.exitCode = 1;
+  }
+  if (edit.smoothUndone !== edit.smoothBefore) {
+    console.error("undo should restore the smoothed outline exactly, got "
+      + edit.smoothUndone + " want " + edit.smoothBefore);
+    process.exitCode = 1;
+  }
+  if (!edit.stillEditing) {
+    console.error("sizing the refine box must not re-trace and drop the edit session");
+    process.exitCode = 1;
+  }
+
   if (!process.exitCode) {
     console.log("tracer smoke OK");
   }

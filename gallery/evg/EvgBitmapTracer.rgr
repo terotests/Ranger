@@ -57,6 +57,7 @@ class EvgBitmapTracer {
     ; 1 = a step that survived the uniqueness and continuity tests, i.e. a
     ; boundary rather than noise (buildEdgeMask).
     def edgeMask:[int]
+    def detailMask:[int]
     ; Continuity region id per pixel, -1 = none (buildContourRegions).
     def regionOf:[int]
     def regionCount:int 0
@@ -1273,6 +1274,137 @@ class EvgBitmapTracer {
     ;                noisy pixel loses to whatever it sits next to.
     ;   continuous — it belongs to a run of at least edgeMinRun such pixels.
     ;                A boundary is a line; noise is scattered.
+    ; Mark the neighbourhoods that need fine work.
+    ;
+    ; Not every busy patch of a picture is the same kind of busy. A gradient is
+    ; busy and wants to be left alone; an eye is busy because three or four
+    ; plainly different colors — the white, the iris, the lash, the skin — meet
+    ; inside a few pixels, and that is detail a coarse pass throws away. The
+    ; test is therefore both halves at once: several distinct swatches inside a
+    ; small window *and* a wide luma spread across it. A smooth ramp fails the
+    ; first (its window is one or two swatches), and a patch of noise in one
+    ; flat color fails the second.
+    ;
+    ; Overlay uses this to work at a finer grain where it finds it, and only
+    ; there, which is what lets the whites and the darks of an eye be resolved
+    ; without spending the same effort on a cheek.
+    fn buildDetailMask:void () {
+        def n:int (width * height)
+        def dm:[int]
+        def i:int 0
+        while (i < n) {
+            push dm 0
+            i = (i + 1)
+        }
+        detailMask = dm
+        def minSwatches:int options.detailSwatches
+        if (minSwatches < 2) {
+            return
+        }
+        def minSpread:int options.detailSpread
+        def r:int options.detailRadius
+        if (r < 1) {
+            r = 1
+        }
+        def lum:[int]
+        i = 0
+        while (i < n) {
+            push lum (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
+            i = (i + 1)
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def seen:[int]
+                def distinct:int 0
+                def lo:int 256
+                def hi:int (0 - 1)
+                def dy:int (0 - r)
+                while (dy <= r) {
+                    def yy:int (y + dy)
+                    if ((yy >= 0) && (yy < height)) {
+                        def dx:int (0 - r)
+                        while (dx <= r) {
+                            def xx:int (x + dx)
+                            if ((xx >= 0) && (xx < width)) {
+                                def q:int ((yy * width) + xx)
+                                def lab:int (itemAt labels q)
+                                if (lab >= 0) {
+                                    def known:boolean false
+                                    def si:int 0
+                                    while (si < (array_length seen)) {
+                                        if ((itemAt seen si) == lab) {
+                                            known = true
+                                        }
+                                        si = (si + 1)
+                                    }
+                                    if (known == false) {
+                                        push seen lab
+                                        distinct = (distinct + 1)
+                                    }
+                                    def lv:int (itemAt lum q)
+                                    if (lv < lo) {
+                                        lo = lv
+                                    }
+                                    if (lv > hi) {
+                                        hi = lv
+                                    }
+                                }
+                            }
+                            dx = (dx + 1)
+                        }
+                    }
+                    dy = (dy + 1)
+                }
+                if (distinct >= minSwatches) {
+                    if ((hi - lo) >= minSpread) {
+                        set dm ((y * width) + x) 1
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; What the test marks is where the colors *meet* — a ring around an eye
+        ; rather than the eye. The flat middle of a pupil is as plain as a cheek
+        ; by this measure, and left out it would split the feature in two.
+        ; Growing the mark by the window radius closes the ring into the shape a
+        ; person would have drawn around the feature.
+        def grown:[int]
+        i = 0
+        while (i < n) {
+            push grown (itemAt dm i)
+            i = (i + 1)
+        }
+        def gy:int 0
+        while (gy < height) {
+            def gx:int 0
+            while (gx < width) {
+                if ((itemAt dm ((gy * width) + gx)) == 1) {
+                    def dy2:int (0 - r)
+                    while (dy2 <= r) {
+                        def yy2:int (gy + dy2)
+                        if ((yy2 >= 0) && (yy2 < height)) {
+                            def dx2:int (0 - r)
+                            while (dx2 <= r) {
+                                def xx2:int (gx + dx2)
+                                if ((xx2 >= 0) && (xx2 < width)) {
+                                    set grown ((yy2 * width) + xx2) 1
+                                }
+                                dx2 = (dx2 + 1)
+                            }
+                        }
+                        dy2 = (dy2 + 1)
+                    }
+                }
+                gx = (gx + 1)
+            }
+            gy = (gy + 1)
+        }
+        detailMask = grown
+    }
+
     fn buildEdgeMask:void () {
         def n:int (width * height)
         def keep:[int]
@@ -2270,8 +2402,302 @@ class EvgBitmapTracer {
         layer.stopB = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 2 layer.gx1 layer.gy1))))
     }
 
-    fn traceOverlayShapes:void () {
+    ; Re-quantize each detail neighbourhood using only its own pixels, and draw
+    ; the result on top of the picture the global palette produced.
+    ;
+    ; This answers the complaint that an eye traced on its own comes out
+    ; beautifully while the same eye inside a whole face comes out a smudge.
+    ; Nothing is wrong with the tracer in either case: zoomed in, the entire
+    ; color budget is spent on an eye; in a portrait the eye gets two swatches
+    ; out of ten, because the quantizer counts the whole frame and a face is
+    ; mostly cheek. What survives that is the eye's outline; what is lost is the
+    ; lid, the lash line and the opening — everything that makes it read as an
+    ; eye rather than a dark almond. Giving the neighbourhood its own palette is
+    ; what "zoom in on it" means, done in place, and the shapes come out the way
+    ; the plain algorithm makes shapes — whole connected regions of one color —
+    ; rather than grown on a leash and fragmented.
+    fn traceDetailShapes:void (allCmds:[PathCommand] minPx:int) {
+        def k:int options.detailColors
+        if (k < 2) {
+            return
+        }
+        def n:int (width * height)
+        if ((array_length detailMask) != n) {
+            return
+        }
+        def seen:[int]
+        def i:int 0
+        while (i < n) {
+            push seen 0
+            i = (i + 1)
+        }
+        def needPx:int minPx
+        if ((options.detailBoost) >= 2) {
+            needPx = (idiv minPx (options.detailBoost))
+        }
+        if (needPx < 4) {
+            needPx = 4
+        }
+        ; One palette shared by every neighbourhood. Each still derives its own
+        ; bands from its own pixels — that is the whole feature — but derived in
+        ; ignorance of one another, forty neighbourhoods invent forty nearly
+        ; identical browns, and a portrait came back with 456 fills for 561
+        ; shapes. A band that lands close to a color already in use takes that
+        ; one instead of adding another.
+        def shR:[int]
+        def shG:[int]
+        def shB:[int]
+        def start:int 0
+        while (start < n) {
+            if (((itemAt detailMask start) == 1) && ((itemAt seen start) == 0)) {
+                def comp:[int]
+                def stack:[int]
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.detailVisit((cur - 1) seen stack)
+                    }
+                    if (cx < (width - 1)) {
+                        this.detailVisit((cur + 1) seen stack)
+                    }
+                    if (cy > 0) {
+                        this.detailVisit((cur - width) seen stack)
+                    }
+                    if (cy < (height - 1)) {
+                        this.detailVisit((cur + width) seen stack)
+                    }
+                }
+                ; A neighbourhood has to be able to hold the pieces it is being
+                ; split into, or the split is noise.
+                if ((array_length comp) >= (needPx * k)) {
+                    this.paintDetailCluster(comp k needPx allCmds shR shG shB)
+                }
+            }
+            start = (start + 1)
+        }
+    }
+
+    fn detailVisit:void (i:int seen:[int] stack:[int]) {
+        if ((itemAt seen i) == 1) {
+            return
+        }
+        if ((itemAt detailMask i) == 0) {
+            return
+        }
+        set seen i 1
+        push stack i
+    }
+
+    ; Find this color in the shared detail palette, or add it. Greedy and in
+    ; order, which is enough: the question is only whether two neighbourhoods
+    ; are describing the same brown.
+    fn shareColor:int (r:int g:int b:int tol:int shR:[int] shG:[int] shB:[int]) {
+        def n:int (array_length shR)
+        def i:int 0
+        while (i < n) {
+            if ((EvgBitmapTracer.absI(r - (itemAt shR i))) <= tol) {
+                if ((EvgBitmapTracer.absI(g - (itemAt shG i))) <= tol) {
+                    if ((EvgBitmapTracer.absI(b - (itemAt shB i))) <= tol) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        push shR r
+        push shG g
+        push shB b
+        return n
+    }
+
+    ; One neighbourhood: build a palette out of its own pixels, split it by that
+    ; palette, and emit each piece as a layer.
+    fn paintDetailCluster:void (comp:[int] k:int needPx:int allCmds:[PathCommand] shR:[int] shG:[int] shB:[int]) {
+        ; The local palette comes from equal shares of the neighbourhood's own
+        ; luma range. Bands rather than a k-means because what has to be
+        ; separated here is exactly light from dark — the white of an eye from
+        ; its pupil — and a band split does that by construction, cheaply, and
+        ; with the same answer every run.
+        def binN:[int]
+        def binR:[int]
+        def binG:[int]
+        def binB:[int]
+        def i:int 0
+        while (i < 256) {
+            push binN 0
+            push binR 0
+            push binG 0
+            push binB 0
+            i = (i + 1)
+        }
+        def c:int 0
+        while (c < (array_length comp)) {
+            def px:int (itemAt comp c)
+            def r:int (itemAt planeR px)
+            def g:int (itemAt planeG px)
+            def b:int (itemAt planeB px)
+            def l:int (EvgBitmapTracer.lumaOf(r g b))
+            set binN l ((itemAt binN l) + 1)
+            set binR l ((itemAt binR l) + r)
+            set binG l ((itemAt binG l) + g)
+            set binB l ((itemAt binB l) + b)
+            c = (c + 1)
+        }
+        def total:int (array_length comp)
+        def lpR:[int]
+        def lpG:[int]
+        def lpB:[int]
+        def acc:int 0
+        def sR:int 0
+        def sG:int 0
+        def sB:int 0
+        def sN:int 0
+        def band:int 1
+        i = 0
+        while (i < 256) {
+            def cnt:int (itemAt binN i)
+            if (cnt > 0) {
+                sR = (sR + (itemAt binR i))
+                sG = (sG + (itemAt binG i))
+                sB = (sB + (itemAt binB i))
+                sN = (sN + cnt)
+                acc = (acc + cnt)
+            }
+            def edge:int (idiv (total * band) k)
+            if ((acc >= edge) && (band < k)) {
+                if (sN > 0) {
+                    push lpR (idiv sR sN)
+                    push lpG (idiv sG sN)
+                    push lpB (idiv sB sN)
+                }
+                sR = 0
+                sG = 0
+                sB = 0
+                sN = 0
+                band = (band + 1)
+            }
+            i = (i + 1)
+        }
+        if (sN > 0) {
+            push lpR (idiv sR sN)
+            push lpG (idiv sG sN)
+            push lpB (idiv sB sN)
+        }
+        def lk:int (array_length lpR)
+        if (lk < 2) {
+            return
+        }
+        def merge:int options.detailColorMerge
+        if (merge > 0) {
+            def bi:int 0
+            while (bi < lk) {
+                def want:int (this.shareColor((itemAt lpR bi) (itemAt lpG bi) (itemAt lpB bi) merge shR shG shB))
+                set lpR bi (itemAt shR want)
+                set lpG bi (itemAt shG want)
+                set lpB bi (itemAt shB want)
+                bi = (bi + 1)
+            }
+        }
+        ; Speckle here is not whole bands that are too small — with equal-share
+        ; bands none ever is, each holds about 1/k of the neighbourhood by
+        ; construction, and gating on that was measured to do nothing until it
+        ; was high enough to delete real structure. It is the scatter *inside* a
+        ; band: a band traces to one big ring plus a spray of little ones. So
+        ; the share is spent where it bites, as the smallest ring a detail shape
+        ; may keep.
+        def speck:int (idiv (total * (options.detailMinShare)) 100)
+        def bx0:int width
+        def by0:int height
+        def bx1:int 0
+        def by1:int 0
+        c = 0
+        while (c < (array_length comp)) {
+            def q:int (itemAt comp c)
+            def qy:int (idiv q width)
+            def qx:int (q - (qy * width))
+            if (qx < bx0) {
+                bx0 = qx
+            }
+            if (qx > bx1) {
+                bx1 = qx
+            }
+            if (qy < by0) {
+                by0 = qy
+            }
+            if (qy > by1) {
+                by1 = qy
+            }
+            c = (c + 1)
+        }
+        bx0 = (bx0 - 1)
+        by0 = (by0 - 1)
+        def bw:int ((bx1 - bx0) + 2)
+        def bh:int ((by1 - by0) + 2)
+        def li:int 0
+        while (li < lk) {
+            def mask:EvgBinaryBitmap (EvgBinaryBitmap.create(bw bh))
+            def held:int 0
+            c = 0
+            while (c < (array_length comp)) {
+                def p2:int (itemAt comp c)
+                def py:int (idiv p2 width)
+                def pxx:int (p2 - (py * width))
+                def near:int (this.nearestIndex((itemAt planeR p2) (itemAt planeG p2) (itemAt planeB p2) lpR lpG lpB))
+                if (near == li) {
+                    mask.setBit((pxx - bx0) (py - by0) true)
+                    held = (held + 1)
+                }
+                c = (c + 1)
+            }
+            if (held >= needPx) {
+                def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+                layerOpts.turdsize = options.turdsize
+                if (speck > (options.turdsize)) {
+                    layerOpts.turdsize = speck
+                }
+                layerOpts.alphamax = options.alphamax
+                layerOpts.turnpolicy = options.turnpolicy
+                layerOpts.optcurve = options.optcurve
+                layerOpts.opttolerance = options.opttolerance
+                layerOpts.fillHex = (this.hexFromRgb((itemAt lpR li) (itemAt lpG li) (itemAt lpB li)))
+                def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+                sub.trace()
+                if ((sub.ringCount()) > 0) {
+                    def cmds:[PathCommand] (sub.getCommands())
+                    def ox:double (to_double bx0)
+                    def oy:double (to_double by0)
+                    def ci:int 0
+                    while (ci < (array_length cmds)) {
+                        def cm:PathCommand (itemAt cmds ci)
+                        cm.x = (cm.x + ox)
+                        cm.y = (cm.y + oy)
+                        cm.x1 = (cm.x1 + ox)
+                        cm.y1 = (cm.y1 + oy)
+                        cm.x2 = (cm.x2 + ox)
+                        cm.y2 = (cm.y2 + oy)
+                        push allCmds cm
+                        ci = (ci + 1)
+                    }
+                    def layer:EvgTraceLayer (itemAt sub.layers 0)
+                    layer.pathData = (VectorShapes.asPathData(cmds))
+                    push layers layer
+                    rings = sub.rings
+                }
+            }
+            li = (li + 1)
+        }
+    }
+
+    fn traceOverlayShapes:void (palR:[int] palG:[int] palB:[int]) {
         this.buildEdgeMask()
+        this.buildDetailMask()
         def n:int (width * height)
         def edgeTol:int options.contourEdge
         if (edgeTol < 1) {
@@ -2291,12 +2717,27 @@ class EvgBitmapTracer {
         def paintB:[int]
         def painted:[int]
         def stamp:[int]
+        ; The paint map starts as the base picture, because that is what is on
+        ; screen before a single overlay is drawn. It was started blank, which
+        ; made both of the stop rules lie: "would this overlay show against what
+        ; is under it" was asked against nothing, so every overlay showed and
+        ; every overlay was drawn. Answered against the real picture, the rule
+        ; means what it says — an overlay exists only where it differs from the
+        ; picture it sits on — and the shapes that merely repeat it fall out.
         def i:int 0
         while (i < n) {
-            push paintR 0
-            push paintG 0
-            push paintB 0
-            push painted 0
+            def lab:int (itemAt labels i)
+            if ((lab >= 0) && (lab < (array_length palR))) {
+                push paintR (itemAt palR lab)
+                push paintG (itemAt palG lab)
+                push paintB (itemAt palB lab)
+                push painted 1
+            } {
+                push paintR 0
+                push paintG 0
+                push paintB 0
+                push painted 0
+            }
             push stamp (0 - 1)
             i = (i + 1)
         }
@@ -2311,9 +2752,15 @@ class EvgBitmapTracer {
         def bucket:[int]
         def seedPixel:[int]
         def seedNext:[int]
+        def seedBest:[int]
         i = 0
         while (i < 256) {
             push bucket (0 - 1)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            push seedBest (0 - 1)
             i = (i + 1)
         }
         ; Every steep pixel goes in up front, not just the steepest one. A
@@ -2362,7 +2809,7 @@ class EvgBitmapTracer {
                         }
                     }
                     if (st > 0) {
-                        this.pushSeed(idx0 st bucket seedPixel seedNext)
+                        this.pushSeed(idx0 st bucket seedPixel seedNext seedBest)
                     }
                 }
                 x0 = (x0 + 1)
@@ -2370,49 +2817,25 @@ class EvgBitmapTracer {
             y0 = (y0 + 1)
         }
         def allCmds:[PathCommand]
-        ; A base surface under everything, so the picture is never part
-        ; transparent. The shape budget is finite and a photograph will spend it
-        ; on small overlays long before it has covered the frame; whatever is
-        ; left then shows this rather than the page. It is drawn but not entered
-        ; into the paint map, so it changes nothing about how the shapes above
-        ; it decide where to stop.
-        def baseMask:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
-        def bsR:int 0
-        def bsG:int 0
-        def bsB:int 0
-        def bsN:int 0
-        def bi:int 0
-        while (bi < n) {
-            if ((itemAt labels bi) >= 0) {
-                def by:int (idiv bi width)
-                baseMask.setBit((bi - (by * width)) by true)
-                bsR = (bsR + (itemAt planeR bi))
-                bsG = (bsG + (itemAt planeG bi))
-                bsB = (bsB + (itemAt planeB bi))
-                bsN = (bsN + 1)
-            }
-            bi = (bi + 1)
-        }
-        if (bsN > 0) {
-            def baseOpts:EvgTraceOptions (EvgTraceOptions.defaults())
-            baseOpts.turdsize = options.turdsize
-            baseOpts.alphamax = options.alphamax
-            baseOpts.turnpolicy = options.turnpolicy
-            baseOpts.optcurve = options.optcurve
-            baseOpts.opttolerance = options.opttolerance
-            baseOpts.fillHex = (this.hexFromRgb((idiv bsR bsN) (idiv bsG bsN) (idiv bsB bsN)))
-            def baseTr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(baseMask baseOpts))
-            baseTr.trace()
-            if ((baseTr.ringCount()) > 0) {
-                push layers (itemAt baseTr.layers 0)
-                def bcmds:[PathCommand] (baseTr.getCommands())
-                def bc:int 0
-                while (bc < (array_length bcmds)) {
-                    push allCmds (itemAt bcmds bc)
-                    bc = (bc + 1)
-                }
-            }
-        }
+        ; The picture the quantizer just produced goes down first, and the
+        ; overlay shapes stack on top of it.
+        ;
+        ; What used to be here was a single flat rectangle in the average color
+        ; of the frame, on the theory that the shapes above would cover it. They
+        ; do not: on a portrait the base was a dark brown sheet, the shapes on
+        ; top reached the face only as slivers, and the face read as that brown
+        ; — with its own skin shapes sitting in the file underneath, drawn and
+        ; invisible. Measured on the cheek pixel: layer 0 painted it #6C2D21 and
+        ; of the 1467 shapes above it exactly one touched it at all.
+        ;
+        ; Standing on the real picture makes the floor of this mode the ordinary
+        ; result rather than a flat sheet. An overlay that adds nothing now
+        ; costs nothing, and one that is wrong can only be as wrong as the
+        ; shape it draws — never the whole frame.
+        this.paintLabelLayers(palR palG palB allCmds)
+        ; Then the neighbourhoods that need a palette of their own, before the
+        ; grown overlays — those refine the picture, these re-read it.
+        this.traceDetailShapes(allCmds minPx)
         ; How many shapes are worth making scales with the picture: a fixed
         ; ceiling starves a large photograph of exactly the shapes it needs,
         ; and the flag in one test came out as bare background because its
@@ -2451,7 +2874,11 @@ class EvgBitmapTracer {
                     empty = true
                 } {
                     if ((itemAt labels cand) >= 0) {
-                        if ((this.coveredAlready(cand paintR paintG paintB painted simTol)) == false) {
+                        def candSim:int simTol
+                        if (this.isDetail(cand)) {
+                            candSim = (idiv simTol (options.detailBoost))
+                        }
+                        if ((this.coveredAlready(cand paintR paintG paintB painted candSim)) == false) {
                             seed = cand
                         }
                     }
@@ -2486,28 +2913,64 @@ class EvgBitmapTracer {
                     def cy:int (idiv cur width)
                     def cx:int (cur - (cy * width))
                     if (cx > 0) {
-                        this.overlayStep((cur - 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur - 1) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cx < (width - 1)) {
-                        this.overlayStep((cur + 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur + 1) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cy > 0) {
-                        this.overlayStep((cur - width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur - width) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cy < (height - 1)) {
-                        this.overlayStep((cur + width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur + width) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                 }
                 def cnt:int (itemAt acc 3)
                 def mr:int (idiv (itemAt acc 0) cnt)
                 def mg:int (idiv (itemAt acc 1) cnt)
                 def mb:int (idiv (itemAt acc 2) cnt)
+                ; Every shape used to be painted its own mean, which meant the
+                ; color count did nothing at all in this mode: a photograph
+                ; decomposes into thousands of surfaces, each one got a color of
+                ; its own, and the palette strip came back with five thousand
+                ; swatches under a slider that said four. The mean is snapped
+                ; onto the palette the quantizer already built, so "four colors"
+                ; means four colors here too — and a shape that lands on the
+                ; same swatch as the surface under it is then exactly, not
+                ; approximately, the same color, which is what lets it be
+                ; dropped rather than drawn.
+                def pi:int (this.nearestIndex(mr mg mb palR palG palB))
+                def keepTrue:boolean false
+                if (options.detailTrueColor) {
+                    if (this.isDetail(seed)) {
+                        keepTrue = true
+                    }
+                }
+                ; Giving the shape its *region's* swatch instead was tried and
+                ; is provably useless: the base picture already paints that
+                ; swatch there, so every overlay would add nothing by
+                ; construction and the mode collapses to the plain result. A
+                ; shape earns its place by differing from what it sits on, so
+                ; the mean is what decides its color.
+                if (keepTrue == false) {
+                    mr = (itemAt palR pi)
+                    mg = (itemAt palG pi)
+                    mb = (itemAt palB pi)
+                }
                 ; Every shape marks its ground, whatever its size — a scrap too
                 ; small to be worth its own path still has to stop later shapes
                 ; from growing over it again.
+                def sameBelow:int 0
                 def c:int 0
                 while (c < (array_length comp)) {
                     def px:int (itemAt comp c)
+                    if ((itemAt painted px) == 1) {
+                        if (((itemAt paintR px) == mr) && ((itemAt paintG px) == mg)) {
+                            if ((itemAt paintB px) == mb) {
+                                sameBelow = (sameBelow + 1)
+                            }
+                        }
+                    }
                     set paintR px mr
                     set paintG px mg
                     set paintB px mb
@@ -2518,7 +2981,24 @@ class EvgBitmapTracer {
                 ; hole: the shapes below it have already stopped at its border
                 ; and nothing else will cover it. Only specks smaller than a
                 ; traceable ring are skipped — turdsize deals with those.
-                if ((array_length comp) >= 4) {
+                ; A shape every pixel of which already carries this exact
+                ; swatch is a path that would change no pixel on screen. It can
+                ; be dropped without leaving a hole, and the argument is by
+                ; induction: a color reaches the paint map only from a shape
+                ; that was drawn, because the first shape to cover a pixel
+                ; always finds it unpainted and so is never dropped here.
+                def addsNothing:boolean (sameBelow == (array_length comp))
+                ; And a shape that sits in detail is allowed to be small. A
+                ; pupil is a handful of pixels; the area that is right for a
+                ; cheek discards it.
+                def needPx:int minPx
+                if (this.isDetail(seed)) {
+                    needPx = (idiv minPx (options.detailBoost))
+                    if (needPx < 4) {
+                        needPx = 4
+                    }
+                }
+                if (((array_length comp) >= needPx) && (addsNothing == false)) {
                     ; The mask covers the shape's own bounding box, not the
                     ; frame. A full-size bitmap per shape is allocated, copied
                     ; and scanned once each, so a photograph — which is
@@ -2606,12 +3086,33 @@ class EvgBitmapTracer {
         }
     }
 
+    ; True where the picture asks for fine work — see buildDetailMask.
+    fn isDetail:boolean (i:int) {
+        if ((options.detailBoost) < 2) {
+            return false
+        }
+        if ((array_length detailMask) != (width * height)) {
+            return false
+        }
+        return ((itemAt detailMask i) == 1)
+    }
+
     ; One step of an overlay's growth. Three things stop it: an edge, drifting
     ; too far from its own mean, and arriving somewhere it would look the same
     ; as what is already painted. An edge is not just a stop — it is where the
     ; next shape begins, on the far side and above.
     ; Push one seed into the bucket for its edge strength.
-    fn pushSeed:void (px:int strength:int bucket:[int] seedPixel:[int] seedNext:[int]) {
+    ;
+    ; A pixel is a point, and the queue's question is "has every steep point
+    ; been dealt with" — so queuing the same pixel twice answers nothing and
+    ; costs everything. Growth bumps into the same boundary from every pixel
+    ; along it, and each bump used to queue both sides again: on a photograph
+    ; that is millions of entries in three arrays that only ever grow, which is
+    ; why a 640-pixel-wide photo spent ten seconds here and half of it in the
+    ; collector. seedBest remembers the strength each pixel is already waiting
+    ; at, and only a steeper claim on the same pixel gets through — so a pixel
+    ; can still be promoted to the front, but never merely repeated.
+    fn pushSeed:void (px:int strength:int bucket:[int] seedPixel:[int] seedNext:[int] seedBest:[int]) {
         def s:int strength
         if (s < 0) {
             s = 0
@@ -2619,6 +3120,10 @@ class EvgBitmapTracer {
         if (s > 255) {
             s = 255
         }
+        if (s <= (itemAt seedBest px)) {
+            return
+        }
+        set seedBest px s
         def idx:int (array_length seedPixel)
         push seedPixel px
         push seedNext (itemAt bucket s)
@@ -2639,12 +3144,42 @@ class EvgBitmapTracer {
         return (0 - 1)
     }
 
-    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] bucket:[int] seedPixel:[int] seedNext:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
+    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] bucket:[int] seedPixel:[int] seedNext:[int] seedBest:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
         if ((itemAt stamp i) == shapeNo) {
             return
         }
         if ((itemAt labels i) < 0) {
             return
+        }
+        ; An overlay shape may not cross a boundary of the base picture.
+        ;
+        ; Without this it is free to disagree with the quantizer that ran just
+        ; before it, and on a photograph it does: a surface grown by continuity
+        ; runs from a cheek out into the background behind it, takes one color
+        ; for the pair, and a face comes back as brown mush. Growth stopping at
+        ; the base boundary makes overlay a *refinement* of that picture rather
+        ; than a competitor to it — it may still split one region into several
+        ; shapes stacked in z, which is the whole point of it, but it can no
+        ; longer contradict where the regions are.
+        ;
+        ; Checking the pair rather than the seed is the same test: every step
+        ; preserves the label, so the whole component carries one. It is also
+        ; what bounds a shape's area, since no shape can outgrow its region.
+        ; — except where the picture asks for precision. The leash and the
+        ; point of the mode are in tension: a shape confined to one region has a
+        ; mean dominated by that region, so it snaps back to that region's own
+        ; swatch and repaints what is already there. Measured: with the leash on
+        ; everywhere, 42 overlay shapes changed the per-pixel error by nothing
+        ; at all, to two decimals. Off everywhere, a face turns to mush. So it
+        ; comes off exactly where buildDetailMask says several plainly different
+        ; colors meet in a few pixels — an eye, a set of teeth — and stays on
+        ; across the cheeks and the curtains, which is where letting go hurt.
+        if (options.overlayFollowBase) {
+            if ((this.isDetail(i)) == false) {
+                if ((itemAt labels i) != (itemAt labels from)) {
+                    return
+                }
+            }
         }
         def step:int (this.pixelDelta(from i))
         if (step > edgeTol) {
@@ -2659,12 +3194,19 @@ class EvgBitmapTracer {
             ; new shape only when it is a boundary rather than a speck. That is
             ; the difference between finding edges and finding noise.
             if (this.isBoundary(from i edgeTol)) {
-                this.pushSeed(i step bucket seedPixel seedNext)
-                this.pushSeed(from step bucket seedPixel seedNext)
+                this.pushSeed(i step bucket seedPixel seedNext seedBest)
+                this.pushSeed(from step bucket seedPixel seedNext seedBest)
             }
             return
         }
-        if (this.coveredAlready(i paintR paintG paintB painted simTol)) {
+        ; Inside a detail neighbourhood the bar for "this shows against what is
+        ; under it" is lower, so the small strong shapes an eye is made of are
+        ; drawn instead of being written off as near enough to the skin.
+        def useSim:int simTol
+        if (this.isDetail(i)) {
+            useSim = (idiv simTol (options.detailBoost))
+        }
+        if (this.coveredAlready(i paintR paintG paintB painted useSim)) {
             return
         }
         def cnt:int (itemAt acc 3)
@@ -2963,6 +3505,41 @@ class EvgBitmapTracer {
         }
     }
 
+    ; Paint the ordinary quantized picture — one evenodd layer per swatch —
+    ; appending to layers and to allCmds. This is what the tracer draws when no
+    ; extra algorithm is asked for, and it is also what the overlay tracer now
+    ; stands on.
+    fn paintLabelLayers:void (palR:[int] palG:[int] palB:[int] allCmds:[PathCommand]) {
+        def k:int (array_length palR)
+        def li:int 0
+        while (li < k) {
+            def mask:EvgBinaryBitmap (this.maskForLabel(li))
+            def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            layerOpts.turdsize = options.turdsize
+            layerOpts.alphamax = options.alphamax
+            layerOpts.turnpolicy = options.turnpolicy
+            layerOpts.optcurve = options.optcurve
+            layerOpts.opttolerance = options.opttolerance
+            layerOpts.fillHex = (this.hexFromRgb((itemAt palR li) (itemAt palG li) (itemAt palB li)))
+            def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+            sub.trace()
+            if ((sub.ringCount()) > 0) {
+                def layer:EvgTraceLayer (itemAt sub.layers 0)
+                push layers layer
+                def cmds:[PathCommand] (sub.getCommands())
+                def ci:int 0
+                while (ci < (array_length cmds)) {
+                    push allCmds (itemAt cmds ci)
+                    ci = (ci + 1)
+                }
+                ; Keep mono-compatible aggregates: last non-empty path + total rings.
+                pathData = layer.pathData
+                rings = sub.rings
+            }
+            li = (li + 1)
+        }
+    }
+
     fn traceColorLayers:void () {
         def want:int options.colorCount
         if (want < 2) {
@@ -2999,44 +3576,15 @@ class EvgBitmapTracer {
         ; Overlay shapes carry their own fits, so it takes precedence when both
         ; are asked for — the two compose rather than compete.
         if ((options.contourMode) == "overlay") {
-            this.traceOverlayShapes()
+            this.traceOverlayShapes(palR palG palB)
             return
         }
         if options.gradientFill {
             this.traceGradientRegions()
             return
         }
-        def li:int 0
         def allCmds:[PathCommand]
-        while (li < k) {
-            def cr:int (itemAt palR li)
-            def cg:int (itemAt palG li)
-            def cb:int (itemAt palB li)
-            def mask:EvgBinaryBitmap (this.maskForLabel(li))
-            def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
-            layerOpts.turdsize = options.turdsize
-            layerOpts.alphamax = options.alphamax
-            layerOpts.turnpolicy = options.turnpolicy
-            layerOpts.optcurve = options.optcurve
-            layerOpts.opttolerance = options.opttolerance
-            layerOpts.fillHex = (this.hexFromRgb(cr cg cb))
-            def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
-            sub.trace()
-            if ((sub.ringCount()) > 0) {
-                def layer:EvgTraceLayer (itemAt sub.layers 0)
-                push layers layer
-                def cmds:[PathCommand] (sub.getCommands())
-                def ci:int 0
-                while (ci < (array_length cmds)) {
-                    push allCmds (itemAt cmds ci)
-                    ci = (ci + 1)
-                }
-                ; Keep mono-compatible aggregates: last non-empty path + total rings.
-                pathData = layer.pathData
-                rings = sub.rings
-            }
-            li = (li + 1)
-        }
+        this.paintLabelLayers(palR palG palB allCmds)
         commands = allCmds
         if ((array_length layers) > 0) {
             def first:EvgTraceLayer (itemAt layers 0)

@@ -88,6 +88,24 @@
     background-position: 0 0, 9px 9px;
   }
   .stage.empty { color: #7a7268; font-size: 14px; }
+
+  /* --- edit mode ------------------------------------------------------- */
+  .editbar { display: none; gap: 8px; align-items: center; flex-wrap: wrap;
+             padding: 8px 14px; border-top: 1px solid var(--line); background: #1a1f2b; }
+  .editbar.on { display: flex; }
+  .editbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+  .editbar .note { color: var(--muted); font-size: 12px; }
+  .tool { padding: 5px 12px; font-size: 12.5px; }
+  .tool.active { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
+  /* Hit-testing wants the whole shape, not just its painted middle, and a
+     shape scaled down to fit the pane is a few screen pixels wide in places. */
+  #outStage.editing svg path { cursor: crosshair; }
+  #outStage.editing svg path:hover { stroke: #ff2ec4; stroke-width: 1.5; paint-order: stroke; vector-effect: non-scaling-stroke; }
+  #outStage.editing.picking svg path { cursor: copy; }
+  #outStage.editing.refining svg path { cursor: crosshair; }
+  #outStage.editing.refining svg path:hover { stroke: none; }
+  #outStage.editing.smoothing svg path { cursor: grab; }
+  #outStage.editing.smoothing svg path:hover { stroke: none; }
   .split {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
   }
@@ -165,6 +183,10 @@
         </select>
         <span class="hint" style="display:block;margin-top:6px">perus on oletus ja se, joka toimii useimmissa tapauksissa. Muut ovat lisiä, eivät korvaajia.</span>
       </div>
+      <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
+        <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
+        <span class="hint"><b>Jatkuvuus</b>-algoritmin tärkein säädin. Tätä pienempi askel on jatkuva, joten nostaminen kokoaa pinnat yhteen ja jättää jäljelle sen mikä oikeasti on reuna — silmät ja kulmakarvat. Liian ylhäällä kohde sulaa taustaansa.</span>
+      </label>
       <fieldset>
         <legend>Värit</legend>
         <label class="row">Värimäärä <span class="val" id="v-colorCount">1</span>
@@ -237,9 +259,16 @@
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
           <span class="hint">Tätä lähempänä olevat sävyt yhdistetään.</span>
         </label>
-        <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
-          <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
-          <span class="hint">Tätä pienempi askel on jatkuva. Nosta varovasti — 10 sulatti jo kohteen taustaansa.</span>
+        <label class="row color-only hidden" id="row-detailShare">Yksityiskohtien karkeus <span class="val" id="v-detailMinShare">8</span>
+          <input id="detailMinShare" type="range" min="0" max="30" step="1" value="8">
+          <span class="hint">Silmien kaltaiset kohdat kvantisoidaan omalla paletillaan — sillä kokonaisesta naamasta silmälle jää pari sävyä, yksinään zoomattuna koko budjetti. Tämä on se säädin joka erottaa rakenteen rakeesta: <b>0</b> = kaikki yksityiskohdat ja kaikki rae, <b>8</b> = luomi, ripsiraja ja silmän aukko näkyvät ilman raetta, <b>15+</b> = alkaa syödä rakennettakin.</span>
+        </label>
+        <label class="row color-only hidden" id="row-detailMerge">Yksityiskohtien värien yhdistäminen <span class="val" id="v-detailColorMerge">16</span>
+          <input id="detailColorMerge" type="range" min="0" max="48" step="1" value="16">
+          <span class="hint">Yksityiskohta-alueet jakavat yhden paletin, ja tämä on se raja jota lähempänä olevat sävyt ovat sama merkintä siinä. Ilman tätä jokainen alue keksii omat värinsä toisistaan tietämättä. Muotokuvassa <b>0</b> = 456 väriä, <b>16</b> = 97, <b>24</b> = 55 — virhe kasvaa 0,5 %. <b>48</b> yhdistää jo liikaa ja kulmakarvat sinertävät.</span>
+        </label>
+        <label class="check color-only hidden" id="row-detailTrue"><input id="detailTrueColor" type="checkbox"> Tarkat värit yksityiskohdissa
+          <span class="hint">Silmien ja hampaiden kaltaisissa kohdissa — missä selvästi eri värit kohtaavat muutaman pikselin sisällä — muoto saa pitää oman mitatun värinsä sen sijaan että se pyöristettäisiin palettiin. Vain näin tila voi lisätä tarkkuutta sen sijaan että piirtäisi uudelleen sen mikä jo on. Muotokuvassa suun virhe pieneni 8,7 %, mutta värejä tuli 10 sijaan 109 — eli värimäärä lakkaa olemasta katto.</span>
         </label>
         <label class="row color-only hidden" id="row-oSim">Samankaltaisuuden raja <span class="val" id="v-overlaySimilar">8</span>
           <input id="overlaySimilar" type="range" min="1" max="40" step="1" value="8">
@@ -271,7 +300,7 @@
         </label>
         <label class="row color-only hidden">Pienin alue <span class="val" id="v-minRegion">6</span>
           <input id="minRegion" type="range" min="0" max="400" step="2" value="6">
-          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150.</span>
+          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150. <b>Päällekkäiset muodot</b> -algoritmissa tämä on se säädin, joka pitää tuloksen kohtuullisen kokoisena: valokuvassa 6 → 24 pudotti muotojen määrän noin neljäsosaan.</span>
         </label>
         <div class="row color-only hidden" style="display:block">
           <div class="actions" style="margin:0 0 4px">
@@ -336,9 +365,37 @@
           <div class="stage empty" id="srcStage">Ei kuvaa</div>
         </div>
         <div class="pane">
-          <div class="head">SVG<span class="grow"></span></div>
+          <div class="head">SVG<span class="grow"></span>
+            <button type="button" class="tool" id="editToggle" disabled>Muokkaa</button>
+          </div>
           <div class="stage empty" id="outStage">—</div>
         </div>
+      </div>
+      <div class="editbar" id="editbar">
+        <button type="button" class="tool active" id="toolMerge">Yhdistä</button>
+        <button type="button" class="tool" id="toolRefine">Tarkennin</button>
+        <button type="button" class="tool" id="toolSmooth">Pehmennä</button>
+        <span class="sep"></span>
+        <input type="color" id="editColor" value="#c9a227" title="Yhdistämisen kohdeväri">
+        <button type="button" class="tool" id="toolPick">Poimi väri</button>
+        <span class="sep"></span>
+        <span class="note" id="toolHelp"></span>
+        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa väriä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä.">Lisävärit
+          <input id="refineExtra" type="range" min="0" max="16" step="1" value="4" style="width:70px">
+          <span class="val" id="v-refineExtra">4</span>
+        </label>
+        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka voimakkaasti reunan muodot palautetaan ympäröiviin sävyihin">Sulautus
+          <input id="edgeBlend" type="range" min="0" max="120" step="4" value="90" style="width:70px">
+          <span class="val" id="v-edgeBlend">90</span>
+        </label>
+        <label class="note" style="display:flex;align-items:center;gap:6px">Koko
+          <input id="refineSize" type="range" min="12" max="120" step="4" value="40" style="width:90px">
+          <span class="val" id="v-refineSize">40</span>px
+        </label>
+        <span class="sep"></span>
+        <button type="button" class="tool" id="editUndo">Kumoa</button>
+        <button type="button" class="tool" id="editReset">Palauta</button>
+        <span class="note" id="editNote">Napsauta muotoa.</span>
       </div>
       <div class="palette" id="palette" hidden></div>
       <div id="status">Ladataan tracer-bundlea…</div>
@@ -359,6 +416,8 @@
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
   var overlaySimilar = $("overlaySimilar"), edgeMinRun = $("edgeMinRun");
+  var detailTrueColor = $("detailTrueColor"), detailMinShare = $("detailMinShare");
+  var detailColorMerge = $("detailColorMerge");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -401,6 +460,8 @@
   bindRange(contourSpread, $("v-contourSpread"));
   bindRange(gradientGain, $("v-gradientGain"));
   bindRange(overlaySimilar, $("v-overlaySimilar"));
+  bindRange(detailMinShare, $("v-detailMinShare"));
+  bindRange(detailColorMerge, $("v-detailColorMerge"));
   bindRange(edgeMinRun, $("v-edgeMinRun"));
 
   function syncChecker() {
@@ -508,6 +569,9 @@
     $("row-bgTol").classList.toggle("hidden", !color || !floods);
     var cont = contourMode.value !== "off";
     $("row-oSim").classList.toggle("hidden", !color || contourMode.value !== "overlay");
+    $("row-detailTrue").classList.toggle("hidden", !color || contourMode.value !== "overlay");
+    $("row-detailShare").classList.toggle("hidden", !color || contourMode.value !== "overlay");
+    $("row-detailMerge").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-cEdge").classList.toggle("hidden", !color || !cont);
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
     $("row-eRun").classList.toggle("hidden", !color || !cont);
@@ -531,7 +595,7 @@
   renderPalEdit();
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor", "contourMode", "gradientFill"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor", "contourMode", "gradientFill", "detailTrueColor"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -644,9 +708,860 @@
 
   runBtn.addEventListener("click", function () { vectorize(); });
 
+  // ---------------------------------------------------------------- edit mode
+  //
+  // Two tools over the traced result. "Yhdistä" repaints a shape in a chosen
+  // color, which is how a shape merges into its neighbours: adjacent areas of
+  // one fill read as one surface, so recoloring the red knuckles of a hand to
+  // the skin beside them makes the hand one shape. "Tarkenna" is the inverse —
+  // it re-traces a small box around the click with a palette built from that
+  // box alone, the same idea as the detail neighbourhoods, and lays the result
+  // on top.
+  var editOn = false, editTool = "merge", picking = false, editStack = [];
+  var editToggle = $("editToggle"), editbar = $("editbar");
+  var toolMerge = $("toolMerge"), toolRefine = $("toolRefine"), toolPick = $("toolPick");
+  var editColor = $("editColor"), refineSize = $("refineSize"), editNote = $("editNote");
+
+  // A traced layer is one path holding every ring of its color, so clicking it
+  // selects a whole color rather than a shape. Edit mode splits each path into
+  // one path per outer ring, carrying the rings nested inside it as its holes —
+  // without that grouping the holes would be filled in and every eye would
+  // close. Containment is decided by bounding box, which is what "inside" means
+  // for rings that came from one traced region and cannot partially overlap.
+  function ringsOf(d) {
+    var out = [], parts = d.split(/(?=M)/);
+    for (var i = 0; i < parts.length; i++) {
+      var seg = parts[i].trim();
+      if (!seg) continue;
+      var nums = seg.match(/-?\d+(?:\.\d+)?/g);
+      if (!nums || nums.length < 4) { out.push({ d: seg, box: null }); continue; }
+      var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (var k = 0; k + 1 < nums.length; k += 2) {
+        var x = +nums[k], y = +nums[k + 1];
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      out.push({ d: seg, box: [x0, y0, x1, y1], area: (x1 - x0) * (y1 - y0) });
+    }
+    return out;
+  }
+
+  // Which ring contains which. A bounding box is not the answer: under evenodd
+  // it is the *parity* of how many rings enclose a ring that decides whether it
+  // is painted or punched out, and a box test both misses an island sitting
+  // inside a hole and invents containment between rings that merely overlap in
+  // their extents. Entering edit mode with the box version repainted 1472
+  // pixels of a portrait before a single edit was made — a stacked layer is one
+  // frame-filling ring with hundreds of rings inside it, and getting their
+  // nesting wrong exposes the layer underneath. Path2D with an exact
+  // point-in-fill test costs a few milliseconds once and is simply correct.
+  function nestDepths(rings, ctx) {
+    var paths = rings.map(function (r) { return new Path2D(r.d); });
+    var pt = rings.map(function (r) {
+      var m = r.d.match(/-?\d+(?:\.\d+)?/g);
+      return m && m.length >= 2 ? { x: +m[0], y: +m[1] } : null;
+    });
+    return rings.map(function (r, i) {
+      if (!pt[i]) return { depth: 0, parent: -1 };
+      var depth = 0, parent = -1, bestArea = Infinity;
+      for (var j = 0; j < rings.length; j++) {
+        if (j === i) continue;
+        if (!ctx.isPointInPath(paths[j], pt[i].x, pt[i].y, "nonzero")) continue;
+        depth++;
+        var a = rings[j].area === undefined ? Infinity : rings[j].area;
+        if (a < bestArea) { bestArea = a; parent = j; }   // the immediate parent
+      }
+      return { depth: depth, parent: parent };
+    });
+  }
+
+  // One layer's path data as individual shapes, each carrying its own holes.
+  // Even depth is painted, odd depth is punched out. A shape carries the
+  // odd-depth rings whose immediate parent it is; an island at depth 2 is a
+  // shape of its own, drawn after the hole it sits in. Splitting on M alone and
+  // treating every ring as a shape fills in every hole — every eye closes —
+  // which is why this is one function used everywhere shapes are split.
+  function splitShapes(d, ctx) {
+    var rings = ringsOf(d || "");
+    if (rings.length < 2) return null;
+    var nest = nestDepths(rings, ctx);
+    var order = [];
+    rings.forEach(function (r, i) { if (nest[i].depth % 2 === 0) order.push(i); });
+    order.sort(function (x, y) { return nest[x].depth - nest[y].depth; });
+    return order.map(function (i) {
+      var out = rings[i].d, box = rings[i].box;
+      for (var j = 0; j < rings.length; j++) {
+        if (nest[j].depth % 2 === 1 && nest[j].parent === i) out += " " + rings[j].d;
+      }
+      return { d: out, box: box };
+    });
+  }
+
+  function explode(svg) {
+    var ctx = document.createElement("canvas").getContext("2d");
+    var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
+    paths.forEach(function (p) {
+      var shapes = splitShapes(p.getAttribute("d") || "", ctx);
+      if (!shapes || !shapes.length) return;
+      shapes.forEach(function (sh) {
+        var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        el.setAttribute("d", sh.d);
+        el.setAttribute("fill", p.getAttribute("fill") || "#000");
+        el.setAttribute("fill-rule", "evenodd");
+        p.parentNode.insertBefore(el, p);
+      });
+      p.parentNode.removeChild(p);
+    });
+  }
+
+  function outSvg() { return outStage.querySelector("svg"); }
+
+  function setEditNote(msg) { editNote.textContent = msg; }
+
+  function refreshEditUi() {
+    toolMerge.classList.toggle("active", editTool === "merge" && !picking);
+    toolRefine.classList.toggle("active", editTool === "refine" && !picking);
+    $("toolSmooth").classList.toggle("active", editTool === "smooth" && !picking);
+    toolPick.classList.toggle("active", picking);
+    outStage.classList.toggle("picking", picking);
+    outStage.classList.toggle("refining", !picking && editTool === "refine");
+    outStage.classList.toggle("smoothing", !picking && editTool === "smooth");
+    $("toolHelp").textContent = picking ? "Napsauta muotoa poimiaksesi sen värin."
+      : editTool === "merge" ? "Napsauta muotoja: ne saavat valitun värin ja sulautuvat naapureihinsa."
+      : editTool === "refine" ? "Vedä alueen yli: se vektoroidaan uudelleen omalla paletillaan."
+      : "Vedä ääriviivan yli: kulmat pyöristyvät, pienet muodot katoavat.";
+  }
+
+  function enterEdit() {
+    var svg = outSvg();
+    if (!svg) return;
+    explode(svg);
+    editOn = true;
+    editStack = [];
+    outStage.classList.add("editing");
+    editbar.classList.add("on");
+    editToggle.classList.add("active");
+    editToggle.textContent = "Valmis";
+    setEditNote(svg.querySelectorAll("path").length + " muotoa. Napsauta muotoa.");
+    refreshEditUi();
+  }
+
+  function leaveEdit() {
+    editOn = false;
+    outStage.classList.remove("editing", "picking", "refining");
+    editbar.classList.remove("on");
+    editToggle.classList.remove("active");
+    editToggle.textContent = "Muokkaa";
+  }
+
+  editToggle.addEventListener("click", function () { editOn ? leaveEdit() : enterEdit(); });
+  toolMerge.addEventListener("click", function () { editTool = "merge"; picking = false; refreshEditUi(); });
+  toolRefine.addEventListener("click", function () { editTool = "refine"; picking = false; refreshEditUi(); });
+  $("toolSmooth").addEventListener("click", function () { editTool = "smooth"; picking = false; refreshEditUi(); });
+  toolPick.addEventListener("click", function () { picking = !picking; refreshEditUi(); });
+  var edgeBlend = $("edgeBlend"), refineExtra = $("refineExtra");
+  // Not bindRange: that one re-traces the image, and re-tracing replaces the
+  // drawing being edited. These only affect the next stroke.
+  (function () {
+    var lab = $("v-refineSize");
+    function sync() { lab.textContent = String(refineSize.value); }
+    refineSize.addEventListener("input", sync);
+    sync();
+    [[edgeBlend, "v-edgeBlend"], [refineExtra, "v-refineExtra"]].forEach(function (pair) {
+      var lab2 = $(pair[1]);
+      function sync2() { lab2.textContent = String(pair[0].value); }
+      pair[0].addEventListener("input", sync2);
+      sync2();
+    });
+  })();
+
+  outStage.addEventListener("click", function (ev) {
+    if (!editOn) return;
+    var el = ev.target;
+    if (!el || el.tagName !== "path") return;
+    if (picking) {
+      var f = el.getAttribute("fill") || "#000000";
+      editColor.value = /^#[0-9a-f]{6}$/i.test(f) ? f : "#000000";
+      picking = false;
+      refreshEditUi();
+      setEditNote("Väri poimittu: " + editColor.value);
+      return;
+    }
+    if (editTool === "merge") {
+      editStack.push({ kind: "fill", el: el, was: el.getAttribute("fill") });
+      el.setAttribute("fill", editColor.value);
+      setEditNote("Yhdistetty väriin " + editColor.value + ".");
+    }
+  });
+
+  // Re-trace a box around the click with a palette built from that box alone.
+  // A whole-frame palette is counting the whole frame, so a small feature gets
+  // a swatch or two of it; a box gets all of them, which is the same reasoning
+  // the detail neighbourhoods use, applied where a person points.
+  // ------------------------------------------------------------ tarkennin
+  //
+  // A brush that re-runs the vectorizer over what it is dragged across. The
+  // stroke collects an area; when it ends, the source pixels under that area
+  // are traced again on their own and the result is laid on top, masked to the
+  // stroke so nothing outside what was painted changes.
+  //
+  // Tracing per dab is not an option — one trace is tens of milliseconds and a
+  // drag is hundreds of dabs — so the stroke gathers and the trace happens once
+  // at the end. Quantizing the crop alone is the whole point: a palette counted
+  // over a whole frame gives a small feature a swatch or two, and the same
+  // feature cropped gets all of them. That is what "zoom in on it" means, done
+  // where a person points.
+  var refineStroke = null;   // {pts:[], preview:<path>}
+
+  function refineBegin(u) {
+    var svg = outSvg();
+    if (!svg) return;
+    var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", "#ff2ec4");
+    el.setAttribute("stroke-opacity", "0.35");
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("stroke-linejoin", "round");
+    el.setAttribute("stroke-width", String(Math.max(6, +refineSize.value)));
+    // The preview is a hint, not a target: it must not take the pointer nor
+    // pick up the hover outline every other shape gets.
+    el.setAttribute("pointer-events", "none");
+    svg.appendChild(el);
+    refineStroke = { pts: [], preview: el };
+    refineExtend(u);
+  }
+
+  function strokeD(pts) {
+    var d = "M" + pts[0].x.toFixed(1) + "," + pts[0].y.toFixed(1);
+    for (var i = 1; i < pts.length; i++) d += "L" + pts[i].x.toFixed(1) + "," + pts[i].y.toFixed(1);
+    // A single dab is a dot, and a zero-length line draws nothing even with a
+    // round cap, so give it somewhere to go.
+    if (pts.length === 1) d += "L" + (pts[0].x + 0.01).toFixed(2) + "," + pts[0].y.toFixed(1);
+    return d;
+  }
+
+  function refineExtend(u) {
+    if (!refineStroke) return;
+    var pts = refineStroke.pts, last = pts[pts.length - 1];
+    if (last && Math.abs(last.x - u.x) < 1.5 && Math.abs(last.y - u.y) < 1.5) return;
+    pts.push({ x: u.x, y: u.y });
+    refineStroke.preview.setAttribute("d", strokeD(pts));
+  }
+
+  function refineFinish() {
+    if (!refineStroke) return;
+    var stroke = refineStroke;
+    refineStroke = null;
+    var svg = outSvg();
+    stroke.preview.remove();
+    if (!sourceBitmap || !stroke.pts.length || !svg) return;
+
+    var half = Math.max(3, (+refineSize.value) / 2);
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    stroke.pts.forEach(function (p) {
+      if (p.x - half < x0) x0 = p.x - half;
+      if (p.x + half > x1) x1 = p.x + half;
+      if (p.y - half < y0) y0 = p.y - half;
+      if (p.y + half > y1) y1 = p.y + half;
+    });
+    // Trace more than the mask will show. The crop and the mask used to end on
+    // exactly the same line: the stroke's own half-width bounded both, so every
+    // shape the tracer made was cut flat against the crop rectangle and the
+    // mask revealed precisely that cut — a straight edge lying along the
+    // stroke, at right angles to whatever the picture was actually doing there.
+    // Measured on a horizontal stroke over smooth skin, the boundary row went
+    // from 0.5 of edge energy to 14.9, which is more than the refined area's own
+    // interior. With a margin the tracer sees context past the mask, and its cut
+    // falls where nothing is shown.
+    var pad = Math.ceil(half) + 4;
+    x0 = Math.max(0, Math.floor(x0) - pad); y0 = Math.max(0, Math.floor(y0) - pad);
+    x1 = Math.min(sourceBitmap.w, Math.ceil(x1) + pad); y1 = Math.min(sourceBitmap.h, Math.ceil(y1) + pad);
+    var bw = x1 - x0, bh = y1 - y0;
+    if (bw < 4 || bh < 4) { setEditNote("Liian pieni alue."); return; }
+
+    setEditNote("Vektoroidaan " + bw + "×" + bh + " px…");
+    var img = new ImageBuffer();
+    img.init(bw, bh);
+    var rgba = sourceBitmap.rgba;
+    for (var y = 0; y < bh; y++) {
+      for (var x = 0; x < bw; x++) {
+        var o = (((y + y0) * sourceBitmap.w) + (x + x0)) * 4;
+        img.setPixelRGBA(x, y, rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3]);
+      }
+    }
+    // The colors the patch will meet at its border, pinned into its palette.
+    // This is the fix for the seam, and it is a palette problem before it is
+    // anything else: quantized in ignorance of its surroundings the crop
+    // invents its own near-equivalents of the same tones, and every one of them
+    // shows as a line where the two meet. Seeded, the quantizer keeps those
+    // exact tones and spends its remaining swatches on what the crop actually
+    // adds, so the border matches by construction.
+    var border = borderColors(svg, stroke.pts, half);
+    var around = paletteOf(border);
+
+    var o2 = EvgTraceOptions.defaults();
+    // The crop gets more swatches than the frame, which is the point of the
+    // tool: a palette counted over a whole picture spends itself on the large
+    // dull areas, so a feature gets one or two entries and comes back flat.
+    // Counted over the crop alone, and given room, the same feature gets a
+    // range to describe itself with — on top of the pinned border tones.
+    // How many colors the crop may invent beyond the ones pinned from its
+    // border. This is the seam control, and it is a sharp one: measured on a
+    // portrait, quantizing the crop with the border colors alone leaves a seam
+    // 1.2 above what the picture has there naturally, and letting it add even
+    // two of its own takes that to 6.7. Four plus a firm edge snap comes to
+    // 1.6 with half again as much detail as none — that is the default.
+    var extra = +refineExtra.value;
+    if (border.length) {
+      o2.paletteMode = "seeded";
+      o2.paletteHex = border;
+      o2.colorCount = Math.min(28, border.length + extra);
+    } else {
+      o2.colorCount = extra;
+    }
+    o2.bgMode = "none";
+    o2.minRegion = 2;
+    o2.turdsize = +turdsize.value;
+    o2.alphamax = +alphamax.value;
+    o2.optcurve = !!optcurve.checked;
+    o2.opttolerance = +opttolerance.value;
+    o2.turnpolicy = turnpolicy.value;
+    var t0 = performance.now();
+    var sub = EvgBitmapTracer.fromImageBuffer(img, o2);
+    sub.trace();
+    var ms = Math.round(performance.now() - t0);
+    var layers = sub.getLayers ? sub.getLayers() : [];
+    if (!layers.length) { setEditNote("Alueesta ei irronnut muotoja."); return; }
+    var reach = +edgeBlend.value;
+    var blendCtx = document.createElement("canvas").getContext("2d");
+
+    // Mask it to the stroke. A crop is a rectangle and the brush is not, so
+    // pasting the rectangle would rewrite everything the brush went around.
+    // Masks take a stroked path; clip paths do not, which is why this is a mask.
+    var id = "refmask" + (++refineSeq);
+    var mask = document.createElementNS("http://www.w3.org/2000/svg", "mask");
+    mask.setAttribute("id", id);
+    mask.setAttribute("maskUnits", "userSpaceOnUse");
+    // Feather the mask. Even with the crop padded and the palette seeded, the
+    // mask is still a hard cut between refined and unrefined content, and a
+    // hard cut along a straight stroke reads as a drawn line. Blurring the
+    // mask turns the last couple of pixels into a ramp, so the patch arrives
+    // rather than starts.
+    var fid = id + "f";
+    // In user space with an explicit region, not percentages: a filter region
+    // given in percent is measured against the filtered element's bounding box,
+    // and a straight horizontal stroke has a bounding box of zero height. The
+    // region collapses, the mask renders empty, and the whole patch disappears
+    // while the tool reports success — which is exactly what happened, and what
+    // the smoke test's "did any pixel change" check caught.
+    var fpad = Math.ceil(half) + 8;
+    var filt = document.createElementNS("http://www.w3.org/2000/svg", "filter");
+    filt.setAttribute("id", fid);
+    filt.setAttribute("filterUnits", "userSpaceOnUse");
+    filt.setAttribute("x", String(x0 - fpad));
+    filt.setAttribute("y", String(y0 - fpad));
+    filt.setAttribute("width", String(bw + fpad * 2));
+    filt.setAttribute("height", String(bh + fpad * 2));
+    var blur = document.createElementNS("http://www.w3.org/2000/svg", "feGaussianBlur");
+    blur.setAttribute("stdDeviation", String(Math.max(0.8, half / 8).toFixed(2)));
+    filt.appendChild(blur);
+    mask.appendChild(filt);
+    var mp = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    mp.setAttribute("filter", "url(#" + fid + ")");
+    mp.setAttribute("d", strokeD(stroke.pts));
+    mp.setAttribute("fill", "none");
+    mp.setAttribute("stroke", "#fff");
+    mp.setAttribute("stroke-linecap", "round");
+    mp.setAttribute("stroke-linejoin", "round");
+    mp.setAttribute("stroke-width", String(half * 2));
+    mask.appendChild(mp);
+    svg.appendChild(mask);
+
+    // Two groups, not one, and the reason is a real trap: a mask on an element
+    // that also carries a transform is resolved in the coordinate system that
+    // transform establishes, so a mask drawn in image coordinates lands offset
+    // by the crop origin — far enough to miss the shapes entirely, which masked
+    // the whole result away and changed exactly zero pixels. The outer group
+    // wears the mask in image space, the inner one does the translating.
+    var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("mask", "url(#" + id + ")");
+    var inner = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    inner.setAttribute("transform", "translate(" + x0 + "," + y0 + ")");
+    var snapped = 0;
+    layers.forEach(function (L) {
+      if (!L.pathData) return;
+      var pe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      pe.setAttribute("d", L.pathData);
+      pe.setAttribute("fill-rule", "evenodd");
+      inner.appendChild(pe);
+      var fill = (L.fillHex || "#000").toLowerCase();
+      pe.setAttribute("fill", fill);
+      // Split the shape's own extent, not the layer's: a layer is every ring of
+      // one color and can span the whole stroke, so one depth for all of it
+      // would blend the middle and the border alike.
+      var shapes = splitShapes(L.pathData, blendCtx);
+      if (shapes && shapes.length) {
+        pe.remove();
+        shapes.forEach(function (sh) {
+          var use = fill;
+          if (sh.box) {
+            var mid = { x: x0 + (sh.box[0] + sh.box[2]) / 2, y: y0 + (sh.box[1] + sh.box[3]) / 2 };
+            use = blendEdge(fill, mid, stroke.pts, half, around, reach);
+            if (use !== fill) snapped++;
+          }
+          var el2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          el2.setAttribute("d", sh.d);
+          el2.setAttribute("fill", use);
+          el2.setAttribute("fill-rule", "evenodd");
+          inner.appendChild(el2);
+        });
+      } else {
+        var r1 = ringsOf(L.pathData);
+        if (r1.length === 1 && r1[0].box) {
+          var mid1 = { x: x0 + (r1[0].box[0] + r1[0].box[2]) / 2, y: y0 + (r1[0].box[1] + r1[0].box[3]) / 2 };
+          var use1 = blendEdge(fill, mid1, stroke.pts, half, around, reach);
+          if (use1 !== fill) snapped++;
+          pe.setAttribute("fill", use1);
+        }
+      }
+    });
+    g.appendChild(inner);
+    svg.appendChild(g);
+    editStack.push({ kind: "add", el: g, also: mask });
+    setEditNote("Tarkennettu " + bw + "×" + bh + " px — " + layers.length + " sävyä ("
+      + border.length + " reunalta kiinnitettyä), " + snapped + " sulautettu, " + ms + " ms.");
+  }
+
+  // The colors actually on the picture at the border of this stroke.
+  //
+  // Not the whole frame's palette: what the patch has to agree with is the
+  // handful of colors it is about to butt up against, and seeding the crop's
+  // quantizer with those is what makes the border right by construction rather
+  // than by correction afterwards. Sampled by walking a ring just outside the
+  // stroke and asking which shape is on top at each step, which is the same
+  // question the eye asks when it sees a seam.
+  function borderColors(svg, pts, half) {
+    var ctx = document.createElement("canvas").getContext("2d");
+    var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
+    var cache = paths.map(function (e) {
+      return { fill: (e.getAttribute("fill") || "").toLowerCase(), p2: new Path2D(e.getAttribute("d") || "") };
+    });
+    var tally = {}, out = [];
+    var ring = half + 2;
+    for (var i = 0; i < pts.length; i += 2) {
+      for (var a = 0; a < 12; a++) {
+        var th = a / 12 * Math.PI * 2;
+        var x = pts[i].x + ring * Math.cos(th), y = pts[i].y + ring * Math.sin(th);
+        var top = null;
+        for (var k = 0; k < cache.length; k++) {
+          if (!/^#[0-9a-f]{6}$/.test(cache[k].fill)) continue;
+          if (ctx.isPointInPath(cache[k].p2, x, y, "evenodd")) top = cache[k].fill;
+        }
+        if (top) tally[top] = (tally[top] || 0) + 1;
+      }
+    }
+    Object.keys(tally).forEach(function (h) { out.push({ hex: h, n: tally[h] }); });
+    out.sort(function (p, q) { return q.n - p.n; });
+    return out.map(function (o) { return o.hex; });
+  }
+
+  function paletteOf(hexes) {
+    return hexes.map(function (f) {
+      return { hex: f, r: parseInt(f.slice(1, 3), 16), g: parseInt(f.slice(3, 5), 16), b: parseInt(f.slice(5, 7), 16) };
+    });
+  }
+
+  // How far inside the stroke a point lies: 1 at the centre line, 0 at the edge.
+  function strokeDepth(pt, pts, half) {
+    var best = Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var a = pts[i], b = pts[i + 1] || pts[i];
+      var vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+      var t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((pt.x - a.x) * vx + (pt.y - a.y) * vy) / len2));
+      var dx = pt.x - (a.x + t * vx), dy = pt.y - (a.y + t * vy);
+      var d = dx * dx + dy * dy;
+      if (d < best) best = d;
+    }
+    return Math.max(0, 1 - Math.sqrt(best) / half);
+  }
+
+  // Bring the patch back to the surrounding colors at its border.
+  //
+  // The last of the four, and it still earns its keep. Seeding the palette,
+  // padding the crop and feathering the mask take the boundary line out; this
+  // takes the colour disagreement out. Measured across the boundary as excess
+  // over what the picture has there naturally: 5.5 without it, 0.2 at 90, for
+  // 12.8 → 11.9 of detail. Worth the trade, so 90 is the default. A patch
+  // colour with no near neighbour outside keeps its own whatever this is set
+  // to — that is the case none of the four can fix, and should not.
+  //
+  // A crop quantized on its own has colors the frame's palette does not, which
+  // is exactly why it shows detail — and exactly why its edge is visible where
+  // the two meet. So the tolerance for snapping a patch color onto a
+  // surrounding one is widened toward the border: at the edge almost anything
+  // snaps and the seam closes, deep inside almost nothing does and the detail
+  // survives. A color that has no near neighbour in the surrounding palette
+  // even at the edge keeps its own — sometimes the patch genuinely found
+  // something the frame cannot say, and forcing that to the nearest swatch
+  // would throw the find away.
+  function blendEdge(fill, pt, pts, half, palette, reach) {
+    if (reach <= 0 || !palette.length) return fill;
+    var depth = strokeDepth(pt, pts, half);
+    var tol = reach * (1 - depth);
+    if (tol <= 0) return fill;
+    var r = parseInt(fill.slice(1, 3), 16), g = parseInt(fill.slice(3, 5), 16), b = parseInt(fill.slice(5, 7), 16);
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < palette.length; i++) {
+      var c = palette[i];
+      var d = Math.max(Math.abs(c.r - r), Math.abs(c.g - g), Math.abs(c.b - b));
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best && bestD <= tol ? best.hex : fill;
+  }
+
+  var refineSeq = 0;
+
+  // ------------------------------------------------------------ pehmennä
+  //
+  // A brush that takes corners out of whatever it is dragged over. Each dab
+  // pulls every point under it toward the midpoint of its neighbours, which is
+  // what rounds a corner off, and then drops points that have become nearly
+  // collinear, which is what makes the outline simpler rather than merely
+  // rounder. Both are local and both are small, so the tool behaves like a
+  // tool: one pass barely shows, a few passes over the same place take the
+  // detail out, and a small shape loses points and area on every pass until
+  // there is nothing left of it and it goes. It only touches shapes of the
+  // chosen color, so a stroke across an eye can smooth the lashes without
+  // touching the white beside them.
+
+  // The tracer emits M/L/C/Z with comma-separated pairs. Smoothing needs points
+  // on the curve, and a cubic's control points are not on it, so a ring has to
+  // be flattened before it can be worked — but only a ring the brush actually
+  // reaches. Potrace-style curve fitting is far more economical than any list
+  // of points (79 shapes here are 1272 cubics), so flattening a whole shape to
+  // touch one edge of it made the file 2.5x bigger for nothing. Rings the brush
+  // never meets keep their original text verbatim.
+  function flattenRing(d) {
+    var pts = [], cur = null, start = null;
+    var re = /([MLCZ])([^MLCZ]*)/gi, m;
+    function nums(t) { return (t.match(/-?\d+(?:\.\d+)?/g) || []).map(Number); }
+    while ((m = re.exec(d))) {
+      var cmd = m[1].toUpperCase(), arr = nums(m[2]);
+      if (cmd === "M") { cur = { x: arr[0], y: arr[1] }; start = cur; pts.push(cur); }
+      else if (cmd === "L") {
+        for (var i = 0; i + 1 < arr.length; i += 2) { cur = { x: arr[i], y: arr[i+1] }; pts.push(cur); }
+      } else if (cmd === "C") {
+        for (var j = 0; j + 5 < arr.length; j += 6) {
+          var c1 = { x: arr[j], y: arr[j+1] }, c2 = { x: arr[j+2], y: arr[j+3] },
+              p3 = { x: arr[j+4], y: arr[j+5] };
+          // Sample by how long the segment is, not by a fixed count: a curve
+          // three pixels across does not need six points on it.
+          var span = Math.hypot(c1.x-cur.x, c1.y-cur.y) + Math.hypot(c2.x-c1.x, c2.y-c1.y) + Math.hypot(p3.x-c2.x, p3.y-c2.y);
+          var steps = Math.max(1, Math.min(8, Math.round(span / 1.6)));
+          for (var k = 1; k <= steps; k++) {
+            var t = k / steps, u = 1 - t;
+            pts.push({
+              x: u*u*u*cur.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*p3.x,
+              y: u*u*u*cur.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*p3.y
+            });
+          }
+          cur = p3;
+        }
+      } else if (cmd === "Z") { cur = start; }
+    }
+    while (pts.length > 2 && Math.abs(pts[0].x - pts[pts.length-1].x) < 1e-6
+                          && Math.abs(pts[0].y - pts[pts.length-1].y) < 1e-6) pts.pop();
+    return pts;
+  }
+
+  // Douglas-Peucker. Flattening a ring costs far more than the curve fit it
+  // replaced — potrace describes these shapes in a couple of hundred cubics and
+  // a point list needs thousands — and the whole document pays for it: past
+  // roughly half a megabyte Chromium starts rasterizing an SVG image in
+  // degraded tiles, which shows up as a rectangular patch of blended color that
+  // no single shape accounts for. Dropping points that the straight line
+  // between their neighbours already describes keeps the outline and most of
+  // the size.
+  function simplify(pts, tol) {
+    if (pts.length < 5) return pts;
+    var keep = new Uint8Array(pts.length);
+    keep[0] = 1;
+    keep[pts.length - 1] = 1;
+    var stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      var seg = stack.pop(), i0 = seg[0], i1 = seg[1];
+      var a = pts[i0], b = pts[i1];
+      var vx = b.x - a.x, vy = b.y - a.y, len = Math.hypot(vx, vy);
+      var worst = -1, wd = tol;
+      for (var i = i0 + 1; i < i1; i++) {
+        var p = pts[i];
+        var d = len < 1e-9 ? Math.hypot(p.x - a.x, p.y - a.y)
+                           : Math.abs(vx * (a.y - p.y) - vy * (a.x - p.x)) / len;
+        if (d > wd) { wd = d; worst = i; }
+      }
+      if (worst > 0) {
+        keep[worst] = 1;
+        stack.push([i0, worst], [worst, i1]);
+      }
+    }
+    var out = [];
+    for (var k = 0; k < pts.length; k++) if (keep[k]) out.push(pts[k]);
+    return out.length >= 5 ? out : pts;
+  }
+
+  function ringArea(r) {
+    var a = 0;
+    for (var i = 0, n = r.length; i < n; i++) {
+      var p = r[i], q = r[(i + 1) % n];
+      a += p.x * q.y - q.x * p.y;
+    }
+    return Math.abs(a) / 2;
+  }
+
+  // Redraw as curves rather than as the polygon it now is: a Catmull-Rom
+  // through the points, written out as the cubics SVG wants.
+  function curveString(r) {
+    var n = r.length;
+    var d = "M" + r[0].x.toFixed(2) + "," + r[0].y.toFixed(2);
+    for (var i = 0; i < n; i++) {
+      var p0 = r[(i - 1 + n) % n], p1 = r[i], p2 = r[(i + 1) % n], p3 = r[(i + 2) % n];
+      d += "C" + (p1.x + (p2.x - p0.x) / 6).toFixed(2) + "," + (p1.y + (p2.y - p0.y) / 6).toFixed(2)
+         + " " + (p2.x - (p3.x - p1.x) / 6).toFixed(2) + "," + (p2.y - (p3.y - p1.y) / 6).toFixed(2)
+         + " " + p2.x.toFixed(2) + "," + p2.y.toFixed(2);
+    }
+    return d + "Z";
+  }
+
+  function ringsFor(el) {
+    if (!el.__rings) {
+      el.__rings = ringsOf(el.getAttribute("d") || "").map(function (r) {
+        return { d: r.d, box: r.box, pts: null };
+      });
+    }
+    return el.__rings;
+  }
+
+  function writeRings(el) {
+    var d = "";
+    el.__rings.forEach(function (r) { d += (r.pts ? curveString(r.pts) : r.d) + " "; });
+    el.setAttribute("d", d.trim());
+  }
+
+  // Pulling points toward their neighbours closes a narrow neck, and once the
+  // two sides of a neck cross, evenodd turns the inside of the ring into a mesh
+  // of alternating filled and empty slivers — on screen a muddy block of a
+  // color that is in no palette. So a dab that makes the outline cross itself
+  // is refused and the ring is left as it was. Only segments the brush touched
+  // can have started a crossing, and a crossing they start is next to them, so
+  // testing that neighbourhood against itself is enough and stays cheap.
+  function segHit(a, b, c, d) {
+    function side(p, q, r) { return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x); }
+    var d1 = side(c, d, a), d2 = side(c, d, b), d3 = side(a, b, c), d4 = side(a, b, d);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  }
+
+  function selfCrosses(ring, cx, cy, radius) {
+    var n = ring.length, reach = radius * 1.5, r2 = reach * reach, near = [];
+    for (var i = 0; i < n; i++) {
+      var p = ring[i], q = ring[(i + 1) % n];
+      var mx = (p.x + q.x) / 2 - cx, my = (p.y + q.y) / 2 - cy;
+      if (mx * mx + my * my <= r2) near.push(i);
+      if (near.length > 400) break;          // stay bounded on a huge ring
+    }
+    for (var a = 0; a < near.length; a++) {
+      var i1 = near[a], p1 = ring[i1], q1 = ring[(i1 + 1) % n];
+      for (var b = a + 1; b < near.length; b++) {
+        var i2 = near[b];
+        if (i2 === i1 || (i2 + 1) % n === i1 || (i1 + 1) % n === i2) continue;
+        if (segHit(p1, q1, ring[i2], ring[(i2 + 1) % n])) return true;
+      }
+    }
+    return false;
+  }
+
+  var SMOOTH_PULL = 0.6;    // how far a point moves toward its neighbours' midpoint
+  var SMOOTH_DROP = 0.7;    // how flat a corner has to be before it is dropped
+  var SMOOTH_MIN_AREA = 6;  // a ring smaller than this has stopped being a shape
+
+  function smoothDab(el, cx, cy, radius) {
+    var rings = ringsFor(el), r2 = radius * radius, changed = false, kept = [];
+    for (var s = 0; s < rings.length; s++) {
+      var rec = rings[s], bx = rec.box;
+      if (bx && (cx < bx[0] - radius || cx > bx[2] + radius || cy < bx[1] - radius || cy > bx[3] + radius)) {
+        kept.push(rec);
+        continue;
+      }
+      if (!rec.pts) rec.pts = flattenRing(rec.d);
+      var ring = rec.pts, n = ring.length;
+      if (n < 5) { kept.push(rec); continue; }
+      var hit = false;
+      var moved = ring.map(function (p, i) {
+        var dx = p.x - cx, dy = p.y - cy, d2 = dx*dx + dy*dy;
+        if (d2 > r2) return p;
+        hit = true;
+        var a = ring[(i - 1 + n) % n], b = ring[(i + 1) % n];
+        var t = SMOOTH_PULL * (1 - Math.sqrt(d2) / radius);
+        return { x: p.x + t * ((a.x + b.x) / 2 - p.x), y: p.y + t * ((a.y + b.y) / 2 - p.y) };
+      });
+      if (!hit) { kept.push(rec); continue; }
+      changed = true;
+      // Drop points that are now nearly on the line between their neighbours.
+      // This is the half that simplifies rather than merely rounds, and it is
+      // what makes a small shape lose itself a piece at a time.
+      var thin = [];
+      for (var i = 0; i < moved.length; i++) {
+        var p = moved[i];
+        var a = thin.length ? thin[thin.length - 1] : moved[(i - 1 + moved.length) % moved.length];
+        var b = moved[(i + 1) % moved.length];
+        var dx2 = p.x - cx, dy2 = p.y - cy;
+        if (dx2*dx2 + dy2*dy2 > r2 || moved.length - (moved.length - thin.length) <= 5) { thin.push(p); continue; }
+        var vx = b.x - a.x, vy = b.y - a.y, len = Math.hypot(vx, vy);
+        var dev = len < 1e-6 ? 0 : Math.abs(vx * (a.y - p.y) - vy * (a.x - p.x)) / len;
+        if (dev > SMOOTH_DROP) thin.push(p);
+      }
+      // A ring that fits inside the brush is one of the small shapes this tool
+      // is meant to be able to erase by dwelling on it. Pulling every point
+      // toward its neighbours shrinks such a ring, but only by a few percent a
+      // pass, so on its own the shape survives far longer than "a moment".
+      // Halving its points as well takes its corners away several at a time,
+      // and it collapses in a handful of passes instead of dozens.
+      var whole = true;
+      for (var w = 0; w < thin.length; w++) {
+        var wx = thin[w].x - cx, wy = thin[w].y - cy;
+        if (wx*wx + wy*wy > r2) { whole = false; break; }
+      }
+      if (whole && thin.length > 8) {
+        var half = [];
+        for (var h = 0; h < thin.length; h += 2) half.push(thin[h]);
+        thin = half;
+      }
+      thin = simplify(thin, 0.8);
+      if (selfCrosses(thin, cx, cy, radius)) { kept.push(rec); continue; }
+      if (thin.length >= 5 && ringArea(thin) >= SMOOTH_MIN_AREA) {
+        rec.pts = thin;
+        rec.box = null;   // it moved; stop trusting the old box
+        kept.push(rec);
+      }
+      // else: the ring has shrunk out of existence and is simply not kept
+    }
+    if (!changed) return false;
+    el.__rings = kept;
+    if (!kept.length) {
+      editStack.push({ kind: "remove", el: el, parent: el.parentNode, next: el.nextSibling });
+      el.parentNode.removeChild(el);
+      return true;
+    }
+    writeRings(el);
+    return true;
+  }
+
+  var brushing = false, strokeTouched = null;  var brushing = false, strokeTouched = null;
+
+  function toUser(ev, svg) {
+    var vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+    var rect = svg.getBoundingClientRect();
+    var vw = vb.length === 4 ? vb[2] : rect.width, vh = vb.length === 4 ? vb[3] : rect.height;
+    return {
+      x: (ev.clientX - rect.left) / rect.width * vw,
+      y: (ev.clientY - rect.top) / rect.height * vh,
+      scale: vw / rect.width
+    };
+  }
+
+  function brushAt(ev) {
+    var svg = outSvg();
+    if (!svg) return;
+    var u = toUser(ev, svg);
+    var radius = Math.max(3, (+refineSize.value) / 2);
+    var want = editColor.value.toLowerCase();
+    var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
+    var hits = 0;
+    paths.forEach(function (el) {
+      if ((el.getAttribute("fill") || "").toLowerCase() !== want) return;
+      var b;
+      try { b = el.getBBox(); } catch (e) { return; }
+      if (u.x < b.x - radius || u.x > b.x + b.width + radius ||
+          u.y < b.y - radius || u.y > b.y + b.height + radius) return;
+      // A stroke is one action, so it is one undo step however many shapes it
+      // crosses — recording a shape at a time meant a drag over twenty shapes
+      // took twenty clicks to take back.
+      if (!strokeTouched.has(el)) strokeTouched.set(el, el.getAttribute("d"));
+      if (smoothDab(el, u.x, u.y, radius)) hits++;
+    });
+    if (hits) setEditNote("Pehmennetään " + want + " — " + hits + " muotoa kosketettu.");
+  }
+
+  function endStroke() {
+    if (!brushing) return;
+    brushing = false;
+    if (strokeTouched && strokeTouched.size) {
+      var was = [];
+      strokeTouched.forEach(function (d, el) { was.push({ el: el, d: d }); });
+      editStack.push({ kind: "stroke", was: was });
+    }
+    strokeTouched = null;
+  }
+
+  outStage.addEventListener("pointerdown", function (ev) {
+    if (!editOn || picking) return;
+    if (editTool !== "smooth" && editTool !== "refine") return;
+    var svg = outSvg();
+    if (!svg) return;
+    ev.preventDefault();
+    brushing = true;
+    if (editTool === "smooth") {
+      strokeTouched = new Map();
+      brushAt(ev);
+    } else {
+      refineBegin(toUser(ev, svg));
+    }
+  });
+  outStage.addEventListener("pointermove", function (ev) {
+    if (!brushing) return;
+    if (editTool === "smooth") brushAt(ev);
+    else { var svg = outSvg(); if (svg) refineExtend(toUser(ev, svg)); }
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(function (t) {
+    outStage.addEventListener(t, function () {
+      if (!brushing) return;
+      if (editTool === "refine") { brushing = false; refineFinish(); }
+      else endStroke();
+    });
+  });
+
+  $("editUndo").addEventListener("click", function () {
+    var last = editStack.pop();
+    if (!last) { setEditNote("Ei kumottavaa."); return; }
+    if (last.kind === "fill") last.el.setAttribute("fill", last.was);
+    else if (last.kind === "d") { last.el.setAttribute("d", last.was); last.el.__rings = null; }
+    else if (last.kind === "stroke") {
+      last.was.forEach(function (w) {
+        w.el.setAttribute("d", w.d);
+        w.el.__rings = null;
+        if (!w.el.parentNode) outSvg().appendChild(w.el);   // a shape the stroke erased
+      });
+    }
+    else if (last.kind === "remove") { last.parent.insertBefore(last.el, last.next); last.el.__rings = null; }
+    else {
+      last.el.parentNode.removeChild(last.el);
+      if (last.also && last.also.parentNode) last.also.parentNode.removeChild(last.also);
+    }
+    setEditNote("Kumottu.");
+  });
+
+  $("editReset").addEventListener("click", function () {
+    if (!lastSvg) return;
+    outStage.innerHTML = lastSvg;
+    editStack = [];
+    if (editOn) { explode(outSvg()); setEditNote("Palautettu jäljitettyyn tulokseen."); }
+  });
+
   dlBtn.addEventListener("click", function () {
     if (!lastSvg) return;
-    var blob = new Blob([lastSvg], { type: "image/svg+xml;charset=utf-8" });
+    // What is on screen is what gets saved — edits included.
+    var live = outSvg();
+    var text = live ? new XMLSerializer().serializeToString(live) : lastSvg;
+    var blob = new Blob([text], { type: "image/svg+xml;charset=utf-8" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = (sourceBitmap && sourceBitmap.name ? sourceBitmap.name.replace(/\.[^.]+$/, "") : "trace") + ".svg";
@@ -683,6 +1598,9 @@
         opts.gradientFill = !!gradientFill.checked;
         opts.gradientGain = +gradientGain.value;
         opts.overlaySimilar = +overlaySimilar.value;
+        opts.detailTrueColor = detailTrueColor.checked;
+        opts.detailMinShare = +detailMinShare.value;
+        opts.detailColorMerge = +detailColorMerge.value;
         opts.edgeMinRun = +edgeMinRun.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
@@ -713,8 +1631,12 @@
         lastSvg = svg;
 
         outStage.classList.remove("empty");
+        // A new trace replaces the drawing edit mode was working on, so it also
+        // ends the session rather than leaving a stale one pointing at nothing.
+        if (editOn) leaveEdit();
         outStage.innerHTML = svg;
         dlBtn.disabled = !svg;
+        editToggle.disabled = !svg;
 
         var layers = tr.getLayers ? tr.getLayers() : [];
         var layerN = tr.layerCount ? tr.layerCount() : (layers ? layers.length : 0);
@@ -762,6 +1684,7 @@
         outStage.classList.add("empty");
         outStage.textContent = "—";
         dlBtn.disabled = true;
+        editToggle.disabled = true;
       } finally {
         busy = false;
         runBtn.disabled = !sourceBitmap;

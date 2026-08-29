@@ -155,6 +155,71 @@ class EvgTraceOptions {
     ; "overlay": how close to the color already painted underneath is close
     ; enough to stop. An overlay that matches its background adds nothing.
     def overlaySimilar:int 8
+    ; "overlay": keep every shape inside one region of the picture the
+    ; quantizer already produced. An overlay shape is meant to be a refinement
+    ; of that picture — one region resolved into several shapes stacked in z —
+    ; not a second opinion about where the regions are. Allowed to disagree, it
+    ; grows a surface from a face out into the background behind it and paints
+    ; the pair one color, which is how a portrait came back as mush. This also
+    ; bounds what any single shape can claim, since no shape outgrows its
+    ; region.
+    def overlayFollowBase:boolean true
+    ; Where the picture needs fine work, let overlay do fine work.
+    ;
+    ; An eye is a few pixels holding four plainly different colors — white,
+    ; iris, lash, skin — and a pass coarse enough to be sensible on a cheek
+    ; throws all of it away. A window counts as detail when it holds at least
+    ; detailSwatches distinct swatches *and* spans at least detailSpread levels
+    ; of luma: both halves are needed, or a gradient (few swatches, wide spread)
+    ; and noise inside one flat color (one swatch) both read as detail.
+    ; Inside such a window overlay divides its smallest-area and its similarity
+    ; limits by detailBoost, so small strong shapes are drawn there and nowhere
+    ; else. detailSwatches below 2, or detailBoost below 2, turns it off.
+    ; Swept against landmarks on a portrait: at 4 swatches / 120 luma / radius
+    ; 2 the mask covers 2.8% of the frame and fires on both eyes while missing
+    ; the cheek, the suit, the curtain and the flag. Three swatches lets the
+    ; flag in; five loses one of the eyes.
+    def detailSwatches:int 4
+    def detailSpread:int 120
+    def detailRadius:int 2
+    def detailBoost:int 4
+    ; In a detail neighbourhood, let an overlay keep its own measured color
+    ; instead of snapping it to the palette. This is the only way the mode can
+    ; add resolution rather than redraw what is already there: everywhere else
+    ; an overlay is snapped to the same swatches the base picture used, and a
+    ; shape sitting inside one region has a mean dominated by that region — so
+    ; it snaps back to that region's own swatch and repaints it. Unsnapped, the
+    ; white of an eye can be white and the pupil black even when neither is in
+    ; the palette. It costs the guarantee that the color count is a hard ceiling,
+    ; which is why it is a separate switch; the detail mask covers a few percent
+    ; of a frame, so the cost is bounded.
+    def detailTrueColor:boolean false
+    ; How many colors a detail neighbourhood gets to quantize itself into.
+    ; Zoom into an eye on its own and the tracer renders it beautifully, because
+    ; the whole color budget is spent on an eye. Give it the whole face and the
+    ; eye gets two swatches out of ten and comes back as a smudge that keeps the
+    ; outline and loses the lid, the lash line and the opening. A detail
+    ; neighbourhood therefore builds its own small palette out of its own pixels
+    ; — which is what "zoom in on it" means, done in place — and its shapes are
+    ; drawn on top of the picture the global palette produced. 0 turns it off.
+    def detailColors:int 4
+    ; Smallest ring a detail shape may keep, as a share of its neighbourhood, in
+    ; percent. The local palette buys structure inside a feature and speckle
+    ; along with it, and this is what separates them: each band traces to one
+    ; large ring plus a spray of small ones, and the spray is the speckle.
+    ; Swept on a portrait's eyes — 0%: every bit of structure and every bit of
+    ; grain, 687 KB. 8%: the lid, the lash line and the opening all still read,
+    ; the grain is gone, 599 KB. 15% and up: it starts eating the structure too
+    ; and converges on what the plain algorithm already gives.
+    def detailMinShare:int 8
+    ; Detail neighbourhoods share one palette, and this is how close two of
+    ; their colors may be before they become one entry in it. Each
+    ; neighbourhood still derives its own bands from its own pixels — that is
+    ; the point of the feature — but derived in ignorance of each other, forty
+    ; neighbourhoods invent forty nearly identical browns. Measured on a
+    ; portrait: 456 distinct fills unmerged, 234 at a tolerance of 8, 91 at 16,
+    ; 49 at 24. 0 disables the merge and lets every neighbourhood keep its own.
+    def detailColorMerge:int 16
     ; A step only counts as a boundary when it is *unique* in its
     ; neighbourhood — the strongest one across its own direction, so a noisy
     ; pixel does not out-vote the ridge beside it — and *continuous*, part of a

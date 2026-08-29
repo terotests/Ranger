@@ -9,6 +9,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A "Pehmennä" brush in the edit mode** — pick the color it should act on,
+  then drag over the outline to take the corners out of it. Each dab pulls the
+  points under the brush toward the midpoint of their neighbours, which rounds a
+  corner, and then drops the points that have become nearly collinear, which
+  makes the outline simpler rather than merely rounder. Both effects are local
+  and small, so it behaves like a tool: one pass barely shows, several over the
+  same place take the detail out, and a shape small enough to sit inside the
+  brush loses points and area on every pass until there is nothing left of it
+  and it goes. Measured on a portrait with a 72 px brush: ten small shapes in
+  one window became two and their area fell 544 → 62 (−89%); on a large shape
+  three strokes took the outline from 64313 to 52029 characters. The brush size
+  is what decides which shapes count as small. A stroke is one undo step however
+  many shapes it crossed.
+
+  Only rings the brush actually reaches are converted to points — potrace's
+  curve fit is far more compact than any point list (79 shapes are 1272 cubics),
+  so flattening a whole shape to touch one edge of it made the file 2.5× bigger
+  for nothing. A dab that would make an outline cross itself is refused, since
+  under evenodd a crossed ring turns its own inside into a mesh of alternating
+  slivers.
+
+- **The refiner's patch is quantized with the colors it is about to butt up
+  against.** The seam at the edge of a refine stroke is a palette problem before
+  it is anything else: a crop quantized in ignorance of its surroundings invents
+  its own near-equivalents of the same tones, and every one of them shows as a
+  line where the two meet. The colors at the stroke's border are now sampled
+  from the picture — walking a ring just outside the stroke and asking which
+  shape is on top, the same question the eye asks — and pinned into the crop's
+  palette with `paletteMode: "seeded"`, so the border matches by construction.
+
+  How many colors the crop may invent *beyond* those is now the control that
+  matters, and it is a sharp one. Measured on a portrait, against the seam the
+  picture has there naturally: border colors alone leaves the seam **1.2** above
+  natural; letting the crop add two of its own takes it to **6.7**, and sixteen
+  to **8.4**. Detail runs the other way, 6.8 → 8.6 → 17.9. Four extra colors
+  with a firm edge snap sits at **1.6 with 10.2** — nearly the seam of none and
+  half again the detail — and that is the default. `Lisävärit` and `Sulautus`
+  expose both ends of the trade.
+
+  The edge snap is the second half: a shape's tolerance for being snapped onto a
+  surrounding color widens toward the border, so at the edge almost anything
+  returns to the level around it and deep inside almost nothing does. A color
+  with no near neighbour out there keeps its own — sometimes the patch really
+  did find something the frame cannot say, and forcing it to the nearest swatch
+  would throw the find away.
+
+- **The refiner is a brush**: drag across an area and the vectorizer runs again
+  on exactly the source pixels under the stroke, quantizing that crop on its own
+  and laying the result on top, masked to what was painted. A whole-frame
+  palette is counted over a whole frame, so it spends itself on the large dull
+  areas and a small feature gets a swatch or two; the crop gets a palette of its
+  own with room to spare (twice the frame's count, capped at 16), which is what
+  "zoom in on it" means done where a person points. Measured on a portrait's
+  eyes at 6 colors: a 126×46 stroke re-traced in 19 ms with 10 shades and
+  changed **80% of the pixels under it**, and nothing outside it. The stroke is
+  previewed while dragging, tracing happens once when it ends — a trace is tens
+  of milliseconds and a drag is hundreds of dabs — and the whole thing is one
+  undo step. The patch keeps its own palette, so the edge of a stroke is
+  visible where its colors meet the frame's; that is the trade the tool makes.
+
+- **An edit mode on the traced result** — asked for as a way to finish a trace
+  by hand: merge parts that were split for no reason, and rebuild parts that
+  deserve more care. Both tools work by clicking shapes.
+
+  **Yhdistä** repaints the clicked shape in a chosen color, which is how a shape
+  merges into what surrounds it: adjacent areas of one fill read as one surface.
+  The red knuckles on a hand become skin in four clicks. **Poimi väri** takes a
+  shape's own fill into the picker, so the target is usually one click away.
+  **Tarkenna** is the inverse: it re-traces a box around the click using a
+  palette built from that box alone — the same reasoning the detail
+  neighbourhoods use, applied where a person points — and lays the result on
+  top. Every action is undoable, *Palauta* returns to the traced result, and the
+  download saves what is on screen rather than what the tracer produced.
+
+  What makes it possible at all is that entering the mode splits each traced
+  layer into one path per shape. A layer is one path holding every ring of its
+  color, so without that, clicking selects a whole color rather than a shape —
+  on a portrait it is the difference between 10 clickable things and 286. Rings
+  nested inside another ring travel with it as its holes, decided by bounding
+  box; without that grouping every hole would fill in and every eye would close.
+
+- **A detail neighbourhood now quantizes itself with its own palette**, and its
+  shapes are drawn on top of the picture the global palette produced. This is
+  the fix for a complaint worth stating precisely: trace an eye on its own and
+  it comes out beautifully; trace the same eye inside a whole face and it comes
+  back a smudge. Nothing is wrong in either case. Zoomed in, the entire color
+  budget goes to an eye; in a portrait the eye gets two swatches out of ten,
+  because the quantizer counts the whole frame and a face is mostly cheek. What
+  survives is the eye's outline; what is lost is the lid, the lash line and the
+  opening — everything that makes it read as an eye rather than a dark almond.
+  Each neighbourhood is split into `detailColors` (4) bands of its own luma
+  range, and each band is traced as a whole connected region the way the plain
+  algorithm makes shapes, rather than grown on a leash and fragmented.
+
+  `detailMinShare` (8%) is what makes it usable: a band traces to one large ring
+  plus a spray of small ones, and the spray is speckle. Swept on a portrait's
+  eyes — **0%**: every bit of structure and every bit of grain, 687 KB; **8%**:
+  the lid, the lash line and the opening all still read and the grain is gone,
+  599 KB; **15% and up**: it starts eating the structure and converges on what
+  the plain algorithm already gives. An earlier version of this control gated
+  whole bands instead of rings and was measured to do nothing at all, which
+  makes sense in hindsight — equal-share bands are each about 1/k of the
+  neighbourhood by construction, so none is ever small.
+
+  Whole-frame cost, 640 px wide: clip art 38 shapes / 35 KB, a detailed photo
+  84 / 229 KB, a portrait 561 / 658 KB. The color count stops being a hard
+  ceiling in this mode, since the local palettes are the point; `detailColors:
+  0` turns it off and gives the ceiling back. Verified that the other two
+  algorithms are untouched by any of this: **perus and jatkuvuus are
+  byte-identical before and after, 24/24** across four images, three modes and
+  two color counts.
+
+  **Neighbourhoods share one palette.** Deriving bands in ignorance of one
+  another, forty neighbourhoods invent forty nearly identical browns: a portrait
+  came back with 456 distinct fills for 561 shapes, which is close to a color
+  per shape and fair to ask about. `detailColorMerge` (16) is how close two of
+  them may be before they become one entry. Measured on that portrait —
+  **456 → 97 fills**, SVG 599 → 601 KB, per-pixel error 12.78 → 12.85 on the
+  eyes and 10.87 → 10.93 overall. That is a 79% cut in colors for half a percent
+  of error, and the result is visually indistinguishable. 24 gives 55 fills and
+  still beats the plain algorithm; 48 merges across too far and the eyebrows go
+  blue. Whole-frame fills after merging: clip art 17, a detailed photo 18, a
+  portrait 103.
+
+  A note on how this was nearly lost. Judged by eye against the plain result it
+  looked worse — speckled — and it was written off as a negative result and
+  reverted, even though the error metric had improved (eyes 13.80 → 12.51, whole
+  frame 11.51 → 10.54). The metric was right and the glance was wrong: the
+  structure was there under the grain, and the grain was one control away.
+
+- **The tracer finds where a picture needs fine work, and spends its precision
+  there** — asked for after the eyes of a portrait stayed coarse: could the
+  algorithm notice a spot where clearly different colors are doing exacting
+  work, and adapt? It can, and the detector is the solid half of this. A
+  neighbourhood counts as detail when it holds at least `detailSwatches` (4)
+  distinct swatches *and* spans `detailSpread` (120) levels of luma inside
+  `detailRadius` (2). Both halves are needed: a gradient passes a contrast test
+  and noise inside one flat color passes a variety test, and neither is detail.
+  Swept against landmarks on a portrait, the defaults mark **2.8% of the frame
+  and fire on both eyes while missing the cheek, the suit, the curtain and the
+  flag**. Inside it, overlay divides its smallest-area and similarity limits by
+  `detailBoost` and comes off the base-region leash.
+
+  **What that alone buys is nothing, and the measurement says so**: the finer
+  thresholds took the portrait from 37 overlay shapes to 54 and changed the
+  per-pixel error by 0.01. The reason is worth stating — an overlay is snapped
+  to the same swatches the base picture used, and a shape sitting inside one
+  region has a mean dominated by that region, so it snaps back to that region's
+  own swatch and repaints what is already there. `detailTrueColor` is the switch
+  that breaks that circle: inside a detail neighbourhood the shape keeps its own
+  measured color. The mouth's error then falls **14.46 → 13.20 (−8.7%)** and the
+  teeth come out as one white block instead of a segmented grey one. **The eyes
+  themselves barely move (13.80 → 13.78)** — their limit is the base
+  quantization, not the overlay. It costs the color count its meaning as a hard
+  ceiling (10 asked, 109 drawn), so it is off by default and offered as its own
+  checkbox.
+
+- **The continuity threshold moved to the top of the tracer's controls**, right
+  under the algorithm picker, and shows only for the algorithms it affects. It
+  is the main tuning knob for *jatkuvuus* — raising it collects scattered
+  surfaces into one and leaves behind what is genuinely an edge, which is what
+  makes eyes and eyebrows come out sharp — but it was sitting eight controls
+  down inside the color section where nobody would find it.
+
+- **Run the tracer locally** — the page had a build script and a headless-browser
+  check but no way to just *open* it, so trying it out meant either publishing to
+  Pages or hand-rolling a static server over `dist/`. `npm run evg:trace:web:serve`
+  now builds the page and serves it at <http://localhost:8006/>, matching the
+  convention the other web pages in this repo already follow. Nothing about the
+  tracer needs a server — it decodes, quantizes and traces entirely in the
+  browser, and no image ever leaves the machine — and opening `dist/index.html`
+  straight off disk does trace images you drop on it. What it cannot do from
+  `file://` is the *Kokeile esimerkkiä* button: the sample is `fetch`ed
+  relatively, and Chromium blocks that from a null origin. A real origin makes
+  the whole page work, so that is what the script gives you.
+
 - **Choose the tracer's colors, or steer how it chooses them** — asked for after a ball-pit photo came back in browns and blues with the reds and greens gone. The palette was decided one way only: count-weighted k-means, which spends swatches on *area*. A photograph's big dull background therefore always takes the first few, and a hundred small vivid balls — large in total but scattered across many histogram bins — take none. There was no lever.
 
   `paletteMode` is now the lever. `"fixed"` takes a list of colors and uses exactly those, in the given order, with `colorCount` out of the picture: black, white and yellow gives a three-color poster of any photo. `"seeded"` pins the colors you name and quantizes the rest around them — a pinned swatch is never moved by a Lloyd pass and never dropped by the near-swatch merge, so it survives even when an automatic swatch that close would be collapsed. Colors come from `paletteHex` as anything `EVGColor.parse` reads (`"#1a1a1a"`, `"#f80"`, `"rgb(20 30 40)"`, a CSS name it knows); one it cannot read is dropped, and a list that parses to nothing falls back to quantizing.
@@ -86,6 +262,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **A refine stroke drew a straight line along its own boundary.** Reported as a
+  horizontal line at the edge of a refined area, running at odds with whatever
+  the picture was doing there and parallel to the region border — which is the
+  tell, because nothing in a photograph lines up with a brush stroke. Two causes,
+  both of them the stroke's own geometry leaking into the result:
+
+  The crop and the mask ended on exactly the same line. The stroke's half-width
+  bounded both, so every shape the tracer made was cut flat against the crop
+  rectangle and the mask revealed precisely that cut. The crop is now traced
+  with a margin past what the mask shows, so the tracer has context there and
+  its cut falls where nothing is drawn. And the mask was a hard cut between
+  refined and unrefined content; it is now feathered, so the patch arrives
+  rather than starts.
+
+  Measured on a horizontal stroke over smooth skin, edge energy on the boundary
+  row against the **0.5** the picture has there naturally: **14.9 → 2.9** at the
+  top edge, **9.9 → 3.4** at the bottom, where the natural value is 3.5. Colour
+  disagreement across the boundary, as excess over natural, fell from **5.5 to
+  0.2**, and the detail inside went **up**, 10.2 → 11.9.
+
+  One of those fixes was briefly worse than the bug: the feather's filter region
+  was given in percentages, which are measured against the filtered element's
+  bounding box — and a straight horizontal stroke has a bounding box of zero
+  height. The region collapsed, the mask rendered empty, and the entire patch
+  disappeared while the tool reported success and the boundary measured
+  perfectly clean, because there was nothing there. The smoke test's "did any
+  pixel actually change" check caught it; the filter region is in user space
+  now.
+
+- **Splitting a traced layer into shapes now happens in one place.** The
+  refiner grew its own copy that split on `M` and treated every ring as a shape,
+  which fills in every hole — on a portrait it closed both eyes and washed the
+  face to flat skin. It is the same parity rule the edit mode already needed, so
+  it is now one `splitShapes` used by both.
+
+- **The refiner reported success and changed nothing.** Its result is masked to
+  the brush stroke, and the mask went on the same group that carried the crop's
+  `translate`. A mask is resolved in the coordinate system that element's own
+  transform establishes, so a mask drawn in image coordinates landed offset by
+  the crop origin — far enough to miss the shapes entirely and hide the whole
+  result. The tool still said "10 shades, 19 ms" while the picture was
+  byte-identical: **0 of 4536 pixels under the stroke changed**. The mask now
+  goes on an outer group and the translate on an inner one, and the same stroke
+  changes 80% of them. The smoke test asserts the changed pixels, not just that
+  a group was added — "a group was added" was true the whole time it was broken.
+
+- **Entering the tracer's edit mode repainted part of the picture before any
+  edit was made.** Splitting a traced layer into individual shapes has to decide
+  which rings are holes, and it decided by bounding box. Under evenodd that is
+  simply the wrong question: what makes a ring painted or punched out is the
+  *parity* of how many rings enclose it, so an island sitting inside a hole came
+  out as a hole, and rings that merely overlapped in extent were treated as
+  nested. On a portrait that repainted **1472 pixels (0.67% of the frame), with
+  a peak channel error of 478**, mostly by exposing the layer beneath a stacked
+  one. Nesting is now decided by an exact point-in-fill test, which costs a few
+  milliseconds once: **142 pixels (0.06%), peak 89, and none of them with more
+  than five differing neighbours** — that is antialiasing along the new seams
+  between shapes that used to be one path, which is inherent to splitting them.
+
+- **The overlay tracer now stands on the plain picture instead of a flat
+  rectangle.** Reported as it destroying photographs, and it was: under every
+  overlay shape sat a single frame-filling rectangle painted the average color
+  of the image, on the theory that the shapes above would cover it. They do
+  not. Measured on the cheek of a portrait — layer 0 painted that pixel
+  `#6C2D21`, and of the 1467 shapes stacked above it exactly one touched it at
+  all, changing it to `#75372a`. The face read as a brown sheet while its own
+  skin shapes sat in the file underneath, drawn and invisible. The base is now
+  the ordinary quantized result, so the floor of this mode is the plain result
+  rather than a flat sheet, and a bad overlay can only be as wrong as its own
+  outline.
+
+  Two consequences follow. The paint map starts as that picture, which is what
+  makes the mode's own stop rule mean anything: "does this overlay show against
+  what is under it" was being asked against a blank map, so every overlay
+  showed and every overlay was drawn — `overlaySimilar` had no effect at all.
+  Answered against the real picture, an overlay exists only where it differs,
+  and shapes that merely repeat the picture fall out. And an overlay may no
+  longer cross a region boundary of the base picture (`overlayFollowBase`,
+  default on), so it refines that picture rather than contradicting it, which
+  also bounds what any one shape can claim.
+
+  Measured, per-pixel mean absolute error against the source: a detailed photo
+  **10.9 → 5.34** and its SVG 1.3 MB → 153 KB (3990 shapes → 50); clip art
+  1.50 → 1.12 and 29 KB → 26 KB. The portrait that prompted this now traces its
+  cheek to the same swatch the plain algorithm gives it.
+
+- **The overlay tracer no longer explodes the palette or the CPU on photographs.**
+  Two independent defects met in the worst possible input. Every overlay shape
+  was painted its own mean color, so the color count did nothing whatever in
+  this mode: a photograph decomposes into thousands of surfaces and each one
+  took a color of its own — a measured 5194 distinct fills under a slider that
+  said four. And a pixel was queued as a growth seed once per neighbour that
+  ever touched it, in three arrays that only grow, so the queue ran to millions
+  of entries: one 640-pixel-wide photo spent **10.1 seconds** in the tracer with
+  a fifth of the profile in `pushSeed` and another eighth in the garbage
+  collector. Shape means are now snapped onto the palette the quantizer already
+  built, and a pixel is queued once — a steeper claim can still promote it, but
+  a repeat cannot. The same photo now traces in **183 ms**, and the palette
+  comes back with 5 colors instead of 5194. `minRegion` also reached this mode
+  read-but-ignored; wiring it up gives back a real size control (on a detailed
+  photo, 6 → 24 cuts the shapes from 3990 to 853 and the SVG from 1.3 MB to
+  672 KB, for 30% more per-pixel error).
 
 - **Overlay mode was not leaking, it was running out of shapes** — reported as a leak: on a portrait the US flag came out as bare background even though its stripes are about the strongest boundaries in the picture. It is not a leak. Raising the shape budget from 3000 to 60000 brought the flag, the curtains and the face all back, which settles it: those shapes were never made.
 

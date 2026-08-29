@@ -40,6 +40,10 @@ class EvgBitmapTracerTest {
         test.testGradientFills(t)
         test.testOverlayRecoversASwallowedShape(t)
         test.testEdgeFilterSeparatesNoiseFromBoundary(t)
+        test.testOverlayStaysWithinItsPalette(t)
+        test.testOverlaySimilarityDecidesHowManyStack(t)
+        test.testDetailMaskFindsTheEyeNotTheRamp(t)
+        test.testDetailNeighbourhoodGetsItsOwnPalette(t)
         t.summary()
     }
 
@@ -1138,6 +1142,312 @@ class EvgBitmapTracerTest {
         def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeLineAndSpecks()) opts))
         tr.trace()
         return tr
+    }
+
+    ; A noisy ramp: the shape of a photograph as far as the overlay tracer is
+    ; concerned. Every pixel differs a little from its neighbour, so there is no
+    ; flat surface anywhere and no clean edge either — which is precisely the
+    ; input that used to shatter into thousands of one-color shapes.
+    fn makeNoisyRamp:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(60 40)
+        def seed:int 987
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 60) {
+                seed = (((seed * 75) + 74) % 65537)
+                def jitter:int ((seed % 25) - 12)
+                def v:int ((idiv (x * 200) 60) + jitter)
+                if (v < 0) {
+                    v = 0
+                }
+                if (v > 255) {
+                    v = 255
+                }
+                img.setPixelRGB(x y v (idiv (v * 3) 4) (idiv v 2))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn traceNoisyOverlay:EvgBitmapTracer (colors:int minRegion:int) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = colors
+        opts.bgMode = "none"
+        opts.minRegion = minRegion
+        opts.contourMode = "overlay"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) opts))
+        tr.trace()
+        return tr
+    }
+
+    fn distinctFills:int (tr:EvgBitmapTracer) {
+        def seen:[string]
+        def i:int 0
+        while (i < (tr.layerCount())) {
+            def layer:EvgTraceLayer (itemAt tr.layers i)
+            def hex:string layer.fillHex
+            def found:boolean false
+            def j:int 0
+            while (j < (array_length seen)) {
+                if ((itemAt seen j) == hex) {
+                    found = true
+                }
+                j = (j + 1)
+            }
+            if (found == false) {
+                push seen hex
+            }
+            i = (i + 1)
+        }
+        return (array_length seen)
+    }
+
+    ; Overlay used to paint every shape its own mean color and queue the same
+    ; pixel as a seed once per neighbour that touched it. Together those made a
+    ; photograph come back as thousands of swatches under a slider that said
+    ; four, and cost ten seconds of CPU to do it.
+    fn testOverlayStaysWithinItsPalette:void (t:RgTest) {
+        def four:EvgBitmapTracer (this.traceNoisyOverlay(4 6))
+        ; The color count is the ceiling on the colors, not a suggestion. The
+        ; base surface under everything is drawn from the same palette, so it
+        ; adds no swatch of its own.
+        t.ok("overlay never invents a color the palette does not have" ((this.distinctFills(four)) <= 4))
+
+        def twelve:EvgBitmapTracer (this.traceNoisyOverlay(12 6))
+        t.ok("and the ceiling follows the count that was asked for" ((this.distinctFills(twelve)) <= 12))
+
+        ; 2400 pixels of pure noise. A shape per handful of pixels is the
+        ; failure this guards: it is what made the SVG megabytes wide.
+        t.ok("a noisy image does not become a shape per pixel" ((four.layerCount()) < 300))
+
+        ; Overlay stands on the plain picture, so its floor is the plain result.
+        ; It used to stand on a single flat rectangle in the average color of
+        ; the frame, and when the shapes above failed to cover that rectangle —
+        ; on a portrait they reached the face only as slivers — the frame *was*
+        ; the result. Standing on the real thing, an overlay that adds nothing
+        ; costs nothing and one that is wrong is wrong only inside its own
+        ; outline.
+        def plain:EvgTraceOptions (EvgTraceOptions.defaults())
+        plain.colorCount = 4
+        plain.bgMode = "none"
+        plain.minRegion = 6
+        def flat:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) plain))
+        flat.trace()
+        t.ok("overlay draws at least the whole plain picture" ((four.layerCount()) >= (flat.layerCount())))
+        def sameStart:boolean true
+        def li:int 0
+        while (li < (flat.layerCount())) {
+            def a:EvgTraceLayer (itemAt flat.layers li)
+            def b:EvgTraceLayer (itemAt four.layers li)
+            if ((a.fillHex) != (b.fillHex)) {
+                sameStart = false
+            }
+            li = (li + 1)
+        }
+        t.ok("and the plain picture is what it starts from, swatch for swatch" sameStart)
+
+        ; A ramp of noise gives an overlay nothing to say — the plain picture
+        ; already describes it — and the mode correctly adds no shape at all to
+        ; it. That is the point of standing on the plain picture, and it is why
+        ; the similarity control is exercised on the image where overlays do
+        ; fire, below.
+        t.eqInt("noise alone earns no overlay at all" (four.layerCount()) (flat.layerCount()))
+    }
+
+    ; An overlay earns its place by differing from what it sits on, so the
+    ; similarity tolerance decides how many there are. Asked against a blank
+    ; paint map, as it used to be, every overlay "showed" and the control did
+    ; nothing whatever — the mode drew thousands of them on any photograph and
+    ; the same thousands whatever this was set to.
+    fn rampLayers:int (colors:int mode:string sim:int) {
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        o.colorCount = colors
+        o.bgMode = "none"
+        o.minRegion = 6
+        o.contourMode = mode
+        o.overlaySimilar = sim
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) o))
+        tr.trace()
+        return (tr.layerCount())
+    }
+
+    ; Left half: a smooth ramp — busy, but busy in the way a gradient is busy.
+    ; Right half: a flat field with a small patch where black, white and a mid
+    ; tone meet inside a few pixels, the way they do in an eye.
+    fn makeRampAndEye:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(80 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 80) {
+                if (x < 40) {
+                    def v:int (idiv (x * 250) 40)
+                    img.setPixelRGB(x y v v v)
+                } {
+                    img.setPixelRGB(x y 130 130 130)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; the "eye": white sclera, black pupil, mid lash, inside 10x8 pixels
+        def ey:int 16
+        while (ey < 24) {
+            def ex:int 55
+            while (ex < 65) {
+                img.setPixelRGB(ex ey 255 255 255)
+                ex = (ex + 1)
+            }
+            ey = (ey + 1)
+        }
+        ey = 18
+        while (ey < 22) {
+            def ex2:int 58
+            while (ex2 < 62) {
+                img.setPixelRGB(ex2 ey 0 0 0)
+                ex2 = (ex2 + 1)
+            }
+            ey = (ey + 1)
+        }
+        def ex3:int 55
+        while (ex3 < 65) {
+            img.setPixelRGB(ex3 15 60 40 40)
+            ex3 = (ex3 + 1)
+        }
+        return img
+    }
+
+    ; The mode was asked to adapt: spend precision where several plainly
+    ; different colors meet in a few pixels, and not where the picture merely
+    ; changes smoothly. Both halves of the test matter — a gradient passes a
+    ; contrast test and a patch of noise inside one flat color passes a variety
+    ; test, and neither is detail.
+    ; A detail neighbourhood quantizes itself with its own palette, which is
+    ; what "zoom in on it" means done in place — and it is the only way the eye
+    ; of a portrait keeps its lid and its opening instead of flattening into one
+    ; dark almond. The global palette cannot do it: it is counting a whole frame
+    ; and a face is mostly cheek, so an eye gets two swatches out of ten.
+    fn testDetailNeighbourhoodGetsItsOwnPalette:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("a detail neighbourhood quantizes itself in four" (d.detailColors) 4)
+        t.eqInt("and neighbourhoods share one palette by default" (d.detailColorMerge) 16)
+
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 6
+        opts.bgMode = "none"
+        opts.contourMode = "overlay"
+        opts.detailMinShare = 0
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) opts))
+        tr.trace()
+
+        def off:EvgTraceOptions (EvgTraceOptions.defaults())
+        off.colorCount = 6
+        off.bgMode = "none"
+        off.contourMode = "overlay"
+        off.detailColors = 0
+        def bare:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) off))
+        bare.trace()
+
+        t.ok("the eye earns shapes the global palette did not pay for" ((tr.layerCount()) > (bare.layerCount())))
+
+        ; And they are the eye's own colors. The point is the extremes: six
+        ; swatches spread over a ramp leave nothing near white or near black for
+        ; an eye, so both its sclera and its pupil round to something mid-grey.
+        def darkest:int 256
+        def lightest:int (0 - 1)
+        def li:int 0
+        while (li < (tr.layerCount())) {
+            def l:EvgTraceLayer (itemAt tr.layers li)
+            def col:EVGColor (EVGColor.parse(l.fillHex))
+            def lv:int (EvgBitmapTracer.lumaOf((to_int col.r) (to_int col.g) (to_int col.b)))
+            if (lv < darkest) {
+                darkest = lv
+            }
+            if (lv > lightest) {
+                lightest = lv
+            }
+            li = (li + 1)
+        }
+        t.ok("with a darker shape than the global palette held" (darkest < 40))
+        t.ok("and a lighter one" (lightest > 200))
+
+        ; Neighbourhoods share one palette rather than each inventing its own.
+        ; Derived in ignorance of one another they produce near-duplicates by
+        ; the dozen — on a portrait, 456 fills for 561 shapes — and merging what
+        ; is within a few levels costs nothing anyone can see.
+        def wide:EvgTraceOptions (EvgTraceOptions.defaults())
+        wide.colorCount = 6
+        wide.bgMode = "none"
+        wide.contourMode = "overlay"
+        wide.detailMinShare = 0
+        wide.detailColorMerge = 0
+        def unmerged:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) wide))
+        unmerged.trace()
+        t.ok("merging never adds colors" ((this.distinctFills(tr)) <= (this.distinctFills(unmerged))))
+    }
+
+    fn testDetailMaskFindsTheEyeNotTheRamp:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("the detail window wants several swatches" (d.detailSwatches) 4)
+        t.ok("and true color inside it is opt-in" ((d.detailTrueColor) == false))
+
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 6
+        opts.bgMode = "none"
+        opts.contourMode = "overlay"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) opts))
+        tr.trace()
+
+        ; What the mask marks is where the different colors *meet* — the band
+        ; around the eye rather than the flat middle of the pupil, which on its
+        ; own is as plain as a cheek. That is the part a coarse pass rounds away.
+        def onEye:int 0
+        def y:int 12
+        while (y < 28) {
+            def x:int 50
+            while (x < 70) {
+                if ((itemAt tr.detailMask ((y * 80) + x)) == 1) {
+                    onEye = (onEye + 1)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        t.ok("the eye is marked as needing fine work" (onEye >= 8))
+
+        ; And nothing else in the picture is — not one pixel. The ramp is the
+        ; case that matters: it is the steepest thing here and it is still not
+        ; detail, because a gradient is one or two swatches wide at any window.
+        def total:int 0
+        def i:int 0
+        while (i < (array_length tr.detailMask)) {
+            if ((itemAt tr.detailMask i) == 1) {
+                total = (total + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("and nowhere else in the picture is, the ramp included" total onEye)
+    }
+
+    fn testOverlaySimilarityDecidesHowManyStack:void (t:RgTest) {
+        def plain:int (this.rampLayers(6 "off" 8))
+        def deflt:int (this.rampLayers(6 "overlay" 8))
+        def loose:int (this.rampLayers(6 "overlay" 40))
+
+        ; Six swatches leave one stretch of this ramp the plain picture cannot
+        ; describe, and an overlay goes on top of it.
+        t.ok("an overlay is drawn where the plain picture falls short" (deflt > plain))
+        ; Told that a wider difference still counts as the same color, the same
+        ; overlay stops being worth drawing and is gone. Against the blank paint
+        ; map this control had no effect whatever, because the comparison it
+        ; makes was being made against nothing.
+        t.ok("and a loose similarity limit drops it again" (loose < deflt))
+        t.eqInt("leaving exactly the plain picture" loose plain)
     }
 
     fn testEdgeFilterSeparatesNoiseFromBoundary:void (t:RgTest) {
