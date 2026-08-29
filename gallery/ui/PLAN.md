@@ -545,6 +545,58 @@ opaque the premultiplication is the identity, so nothing about the ordinary
 case changed; the toolbar's button now fades at the correct hue instead of
 through grey.
 
+## A drag you can watch
+
+The sortable reordered the array on every pointer move, so the rows teleported
+into their new places and the row being carried stayed flat in the list. What a
+drag should show — where the thing is going, and the space opening for it — was
+missing entirely.
+
+It is built the way dnd-kit builds it, and the first decision is the one that
+makes the rest possible: **the order is not touched until the drop.**
+Reordering live means rebuilding the list on every move, and a rebuilt list has
+different elements in it, so nothing can travel anywhere. Instead the target is
+recorded, and three things move:
+
+- **the placeholder** — the row you picked up, faded and dashed, slides to the
+  slot it will land in. That is the "right place", said before you commit to it.
+- **the rows in between** step one place to open the gap. One place, never
+  more: pick a row up and drop it three down and the three it passes each step
+  once.
+- **a floating copy** follows the pointer. It is positioned with `left`/`top`,
+  which takes it out of the flow, and added last, which puts it on top —
+  children paint in order and there is no z-index to get wrong. It carries no
+  id, because hit testing scans backwards and an id there would put the preview
+  under the cursor so the row beneath could never be found.
+
+The stride, 88px, is the row's 76 plus the list's 12 gap, and it is the one
+piece of arithmetic in that sheet a change elsewhere can silently break.
+
+### Three bugs on the way, each invisible to the one before it
+
+**The gap did not open.** The target is what decides which rows step aside, and
+it was in the rebuild key — so every crossing rebuilt the list and the rows
+appeared in their new places. `applyShift` re-aims an existing tree instead.
+
+**Then it still did not open**, because the drag branch of the pointer handler
+returns early and never started the frame loop. The classes were right, the
+rules were right, and every flight sat at zero progress for the whole gesture.
+
+**Then the placeholder alone refused to move**, and that one was an engine bug
+worth the trip. `reconcile` reads the target off the element and `writeBack`
+writes the showing value to the same field, so a second reconcile before the
+next tick reads its own output back and concludes the target has moved to
+wherever the animation has got to. A host asks its tree three questions a frame
+— what to draw, what is under the pointer, what it means — and each lays out
+and reconciles, so three reconciles a frame is ordinary. It stayed hidden
+because the stylesheet rewrites its own values at the top of every one of them.
+A property set INLINE has no such protection and simply would not animate.
+
+A flight now remembers what it last wrote, and a target equal to that is not a
+new declaration. `EVGTimingTest` has the case in both a number and a colour,
+plus the check that a genuine mid-flight change is still heard — which is what
+would fail if the memory were applied too broadly.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

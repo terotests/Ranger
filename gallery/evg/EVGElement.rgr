@@ -58,6 +58,26 @@ class EVGFlight {
     def reversingStartNumber:double 0.0
     def reversingFactor:double 1.0
 
+    ; --- what this flight last put on the element -----------------------------
+    ;
+    ; `reconcile` reads the TARGET off the element and `writeBack` writes the
+    ; SHOWING value to the same field, so the two can be told apart only if the
+    ; flight remembers what it wrote. Without that, a second `reconcile` in the
+    ; same frame reads its own output back, decides the target has moved to
+    ; wherever the animation has got to, and retargets there — which collapses
+    ; the flight to a standstill.
+    ;
+    ; That is not hypothetical. `laidOut()` runs once per question a host asks
+    ; — what to draw, what is under the pointer, what it means — so three
+    ; reconciles a frame is ordinary. It stayed hidden because the stylesheet
+    ; rewrites its own values at the top of every one of them, which re-declares
+    ; the target each time. Anything the stylesheet does NOT write — an inline
+    ; attribute set by the author — had no such protection, and simply refused
+    ; to animate.
+    def wroteNumber:double 0.0
+    def wroteColor:EVGColor
+    def hasWrote:boolean false
+
     Constructor () {
     }
 

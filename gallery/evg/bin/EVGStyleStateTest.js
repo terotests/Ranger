@@ -1394,6 +1394,8 @@ class EVGFlight  {
     this.unitCode = 0;
     this.reversingStartNumber = 0.0;
     this.reversingFactor = 1.0;
+    this.wroteNumber = 0.0;
+    this.hasWrote = false;
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {
@@ -3807,6 +3809,11 @@ class EVGTransition  {
       if ( EVGTransition.sameColor((f.toColor), target) ) {
         return;
       }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameColor((f.wroteColor), target) ) {
+          return;
+        }
+      }
       const here = this.showColor(f);
       if ( EVGTransition.sameColor(here, target) ) {
         f.fromColor = target;
@@ -3868,6 +3875,11 @@ class EVGTransition  {
       const f = existing;
       if ( EVGTransition.sameNumber(f.toNumber, target) ) {
         return;
+      }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameNumber(f.wroteNumber, target) ) {
+          return;
+        }
       }
       const hereN = this.showNumber(f);
       if ( EVGTransition.sameNumber(hereN, target) ) {
@@ -3962,6 +3974,8 @@ class EVGTransition  {
       const f = el.transitions[i];
       if ( f.isColor ) {
         const c = this.showColor(f);
+        f.wroteColor = c;
+        f.hasWrote = true;
         if ( f.property == "background-color" ) {
           el.backgroundColor = c;
         }
@@ -3969,26 +3983,29 @@ class EVGTransition  {
           el.color = c;
         }
       } else {
+        const n = this.showNumber(f);
+        f.wroteNumber = n;
+        f.hasWrote = true;
         if ( f.property == "opacity" ) {
-          el.opacity = this.showNumber(f);
+          el.opacity = n;
         }
         if ( f.property == "transform.rotate" ) {
-          el.rotate = this.showNumber(f);
+          el.rotate = n;
         }
         if ( f.property == "transform.scale" ) {
-          el.scale = this.showNumber(f);
+          el.scale = n;
         }
         if ( f.property == "transform.tx" ) {
-          el.translateX = this.showNumber(f);
+          el.translateX = n;
         }
         if ( f.property == "transform.ty" ) {
-          el.translateY = this.showNumber(f);
+          el.translateY = n;
         }
         if ( f.property == "transform-origin.x" ) {
-          el.transformOriginX = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
+          el.transformOriginX = EVGTransition.unitOf(f.unitCode, n);
         }
         if ( f.property == "transform-origin.y" ) {
-          el.transformOriginY = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
+          el.transformOriginY = EVGTransition.unitOf(f.unitCode, n);
         }
       }
       i = i + 1;
