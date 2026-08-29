@@ -10,11 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A pre-processing stage on the bitmap, before anything is quantized or
-  traced.** It sits beside the picture rather than in the parameter column —
-  it is about the bitmap, and you want it where you can watch the bitmap change
-  — behind an *Esikäsittely* button, and it opens a third preview so the flow
-  reads **Lähde → Käsitelty → SVG**. The middle pane appears only while a
-  filter is doing something.
+  traced.** It sits beside the picture rather than in the parameter column — it
+  is about the bitmap, and you want it where you can watch the bitmap change —
+  behind an *Esikäsittely* button. There is **one picture**: the filters edit
+  what you are working on and the pane shows the result, rather than an original
+  and a copy of it side by side, which costs more room than it explains. *Kumoa*
+  steps back one setting at a time and *Palauta alkuperäinen* returns the
+  original in a click. Undo works on the settings rather than the pixels, and
+  records on release rather than on every frame, so dragging a slider across the
+  bar is one step back rather than forty.
 
   What it offers: grayscale, invert, brightness, contrast, gamma, saturation, a
   median despeckle, a blur, an unsharp mask, and posterize, plus four preset

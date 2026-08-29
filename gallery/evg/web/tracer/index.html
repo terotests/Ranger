@@ -121,10 +121,7 @@
   .split {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
   }
-  /* Lähde / käsitelty / SVG side by side, so it is obvious which stage did
-     what to the picture. */
-  .split.triple { grid-template-columns: 1fr 1fr 1fr; }
-  @media (max-width: 1100px) { .split.triple { grid-template-columns: 1fr 1fr; } }
+
   @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
   .pane { background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
   .pane .stage { flex: 1; }
@@ -386,10 +383,6 @@
           </div>
           <div class="stage empty" id="srcStage">Ei kuvaa</div>
         </div>
-        <div class="pane" id="paneProc" hidden>
-          <div class="head">KÄSITELTY</div>
-          <div class="stage empty" id="procStage">—</div>
-        </div>
         <div class="pane">
           <div class="head">SVG<span class="grow"></span>
             <button type="button" class="tool" id="editToggle" disabled>Muokkaa</button>
@@ -424,6 +417,11 @@
         <span class="note" id="editNote">Napsauta muotoa.</span>
       </div>
       <div class="editbar prebar" id="prebar">
+        <div style="display:flex;gap:8px;align-items:center;width:100%">
+          <button type="button" class="tool" id="preUndo" disabled>Kumoa</button>
+          <button type="button" class="tool" id="preReset">Palauta alkuperäinen</button>
+          <span class="note" id="preNote">Kuva on tämä. Säätimet muokkaavat sitä.</span>
+        </div>
         <label class="row">Valmis ketju
           <select id="prePreset" style="width:100%">
             <option value="none" selected>ei mitään</option>
@@ -947,7 +945,39 @@
   var preBright = $("preBright"), preContrast = $("preContrast"), preGamma = $("preGamma");
   var preSat = $("preSat"), preBlur = $("preBlur"), preSharpen = $("preSharpen");
   var prePost = $("prePost"), prePreset = $("prePreset");
-  var procStage = $("procStage"), paneProc = $("paneProc");
+
+  // Undo steps over settings, not over pixels: the chain is a set of values, so
+  // stepping back one is putting the previous set of values back. Snapshots are
+  // taken on "change" rather than "input", so dragging a slider from one place
+  // to another is one step to undo rather than forty.
+  var PRE_IDS = ["preGray", "preInvert", "preMedian", "preBright", "preContrast",
+                 "preGamma", "preSat", "preBlur", "preSharpen", "prePost"];
+
+  function preSnapshot() {
+    var q = {};
+    PRE_IDS.forEach(function (id) {
+      var el = $(id);
+      q[id] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    return q;
+  }
+
+  function preApply(q) {
+    PRE_IDS.forEach(function (id) {
+      var el = $(id);
+      if (el.type === "checkbox") el.checked = q[id];
+      else { el.value = q[id]; el.dispatchEvent(new Event("input", { bubbles: true })); }
+    });
+  }
+
+  var preStack = [], prePrev = null;
+
+  function preRemember() {
+    if (prePrev) preStack.push(prePrev);
+    prePrev = preSnapshot();
+    $("preUndo").disabled = preStack.length === 0;
+  }
+
 
   [[preBright, "v-preBright"], [preContrast, "v-preContrast"], [preGamma, "v-preGamma"],
    [preSat, "v-preSat"], [preBlur, "v-preBlur"], [preSharpen, "v-preSharpen"],
@@ -955,7 +985,27 @@
     bindRange(pair[0], $(pair[1]));
   });
   [preGray, preInvert, preMedian].forEach(function (el) {
-    el.addEventListener("change", schedule);
+    el.addEventListener("change", function () { preRemember(); schedule(); });
+  });
+  PRE_IDS.forEach(function (id) {
+    var el = $(id);
+    if (el.type !== "checkbox") el.addEventListener("change", preRemember);
+  });
+
+  $("preUndo").addEventListener("click", function () {
+    var q = preStack.pop();
+    if (!q) return;
+    preApply(q);
+    prePrev = preSnapshot();
+    $("preUndo").disabled = preStack.length === 0;
+    schedule();
+  });
+
+  $("preReset").addEventListener("click", function () {
+    preRemember();
+    prePreset.value = "none";
+    preApply(PRE_SNAP_NONE);
+    schedule();
   });
 
   var PRE_PRESETS = {
@@ -966,9 +1016,15 @@
     poster:   { gray: false, invert: false, median: false, bright: 0, contrast: 30, gamma: 100, sat: 130, blur: 1, sharpen: 0, post: 5 }
   };
 
+  var PRE_SNAP_NONE = { preGray: false, preInvert: false, preMedian: false,
+    preBright: "0", preContrast: "0", preGamma: "100", preSat: "100",
+    preBlur: "0", preSharpen: "0", prePost: "0" };
+  prePrev = preSnapshot();
+
   prePreset.addEventListener("change", function () {
     var q = PRE_PRESETS[prePreset.value];
     if (!q) return;
+    preRemember();
     preGray.checked = q.gray; preInvert.checked = q.invert; preMedian.checked = q.median;
     preBright.value = q.bright; preContrast.value = q.contrast; preGamma.value = q.gamma;
     preSat.value = q.sat; preBlur.value = q.blur; preSharpen.value = q.sharpen;
@@ -993,31 +1049,28 @@
       && o.posterize === 0;
   }
 
-  // Run the chain and show what the tracer is actually going to read. The
-  // middle pane only appears when there is something to see in it — an
-  // untouched copy of the source beside the source is noise.
+  // Run the chain and show the result *as* the picture. There is one image, not
+  // an original and a copy of it side by side: the filters edit what you are
+  // working on, and the original is a click away rather than a pane away. Two
+  // panes of the same photograph cost more room than they explain.
   function buildProcessed() {
     if (!sourceBitmap) { processedBitmap = null; return; }
     var o = preOptions();
-    if (preIsIdentity(o)) {
-      processedBitmap = null;
-      paneProc.hidden = true;
-      document.querySelector(".split").classList.remove("triple");
-      return;
-    }
-    processedBitmap = preprocess(sourceBitmap.rgba, sourceBitmap.w, sourceBitmap.h, o);
-    paneProc.hidden = false;
-    document.querySelector(".split").classList.add("triple");
+    processedBitmap = preIsIdentity(o) ? null
+      : preprocess(sourceBitmap.rgba, sourceBitmap.w, sourceBitmap.h, o);
     var cv = document.createElement("canvas");
     cv.width = sourceBitmap.w; cv.height = sourceBitmap.h;
-    var ctx = cv.getContext("2d");
-    ctx.putImageData(new ImageData(processedBitmap, sourceBitmap.w, sourceBitmap.h), 0, 0);
-    procStage.classList.remove("empty");
-    procStage.innerHTML = "";
+    cv.getContext("2d").putImageData(
+      new ImageData(processedBitmap || sourceBitmap.rgba, sourceBitmap.w, sourceBitmap.h), 0, 0);
+    srcStage.classList.remove("empty");
+    srcStage.innerHTML = "";
     var im = document.createElement("img");
-    im.alt = "Käsitelty";
+    im.alt = "Lähde";
     im.src = cv.toDataURL("image/png");
-    procStage.appendChild(im);
+    srcStage.appendChild(im);
+    $("preNote").textContent = processedBitmap
+      ? "Muokattu — Palauta alkuperäinen tuo sen takaisin."
+      : "Kuva on tämä. Säätimet muokkaavat sitä.";
   }
 
   $("preToggle").addEventListener("click", function () {
