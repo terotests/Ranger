@@ -2438,6 +2438,15 @@ class EvgBitmapTracer {
         if (needPx < 4) {
             needPx = 4
         }
+        ; One palette shared by every neighbourhood. Each still derives its own
+        ; bands from its own pixels — that is the whole feature — but derived in
+        ; ignorance of one another, forty neighbourhoods invent forty nearly
+        ; identical browns, and a portrait came back with 456 fills for 561
+        ; shapes. A band that lands close to a color already in use takes that
+        ; one instead of adding another.
+        def shR:[int]
+        def shG:[int]
+        def shB:[int]
         def start:int 0
         while (start < n) {
             if (((itemAt detailMask start) == 1) && ((itemAt seen start) == 0)) {
@@ -2468,7 +2477,7 @@ class EvgBitmapTracer {
                 ; A neighbourhood has to be able to hold the pieces it is being
                 ; split into, or the split is noise.
                 if ((array_length comp) >= (needPx * k)) {
-                    this.paintDetailCluster(comp k needPx allCmds)
+                    this.paintDetailCluster(comp k needPx allCmds shR shG shB)
                 }
             }
             start = (start + 1)
@@ -2486,9 +2495,31 @@ class EvgBitmapTracer {
         push stack i
     }
 
+    ; Find this color in the shared detail palette, or add it. Greedy and in
+    ; order, which is enough: the question is only whether two neighbourhoods
+    ; are describing the same brown.
+    fn shareColor:int (r:int g:int b:int tol:int shR:[int] shG:[int] shB:[int]) {
+        def n:int (array_length shR)
+        def i:int 0
+        while (i < n) {
+            if ((EvgBitmapTracer.absI(r - (itemAt shR i))) <= tol) {
+                if ((EvgBitmapTracer.absI(g - (itemAt shG i))) <= tol) {
+                    if ((EvgBitmapTracer.absI(b - (itemAt shB i))) <= tol) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        push shR r
+        push shG g
+        push shB b
+        return n
+    }
+
     ; One neighbourhood: build a palette out of its own pixels, split it by that
     ; palette, and emit each piece as a layer.
-    fn paintDetailCluster:void (comp:[int] k:int needPx:int allCmds:[PathCommand]) {
+    fn paintDetailCluster:void (comp:[int] k:int needPx:int allCmds:[PathCommand] shR:[int] shG:[int] shB:[int]) {
         ; The local palette comes from equal shares of the neighbourhood's own
         ; luma range. Bands rather than a k-means because what has to be
         ; separated here is exactly light from dark — the white of an eye from
@@ -2562,6 +2593,17 @@ class EvgBitmapTracer {
         def lk:int (array_length lpR)
         if (lk < 2) {
             return
+        }
+        def merge:int options.detailColorMerge
+        if (merge > 0) {
+            def bi:int 0
+            while (bi < lk) {
+                def want:int (this.shareColor((itemAt lpR bi) (itemAt lpG bi) (itemAt lpB bi) merge shR shG shB))
+                set lpR bi (itemAt shR want)
+                set lpG bi (itemAt shG want)
+                set lpB bi (itemAt shB want)
+                bi = (bi + 1)
+            }
         }
         ; Speckle here is not whole bands that are too small — with equal-share
         ; bands none ever is, each holds about 1/k of the neighbourhood by

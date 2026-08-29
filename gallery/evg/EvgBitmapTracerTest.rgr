@@ -1335,6 +1335,7 @@ class EvgBitmapTracerTest {
     fn testDetailNeighbourhoodGetsItsOwnPalette:void (t:RgTest) {
         def d:EvgTraceOptions (EvgTraceOptions.defaults())
         t.eqInt("a detail neighbourhood quantizes itself in four" (d.detailColors) 4)
+        t.eqInt("and neighbourhoods share one palette by default" (d.detailColorMerge) 16)
 
         def opts:EvgTraceOptions (EvgTraceOptions.defaults())
         opts.colorCount = 6
@@ -1374,6 +1375,20 @@ class EvgBitmapTracerTest {
         }
         t.ok("with a darker shape than the global palette held" (darkest < 40))
         t.ok("and a lighter one" (lightest > 200))
+
+        ; Neighbourhoods share one palette rather than each inventing its own.
+        ; Derived in ignorance of one another they produce near-duplicates by
+        ; the dozen — on a portrait, 456 fills for 561 shapes — and merging what
+        ; is within a few levels costs nothing anyone can see.
+        def wide:EvgTraceOptions (EvgTraceOptions.defaults())
+        wide.colorCount = 6
+        wide.bgMode = "none"
+        wide.contourMode = "overlay"
+        wide.detailMinShare = 0
+        wide.detailColorMerge = 0
+        def unmerged:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) wide))
+        unmerged.trace()
+        t.ok("merging never adds colors" ((this.distinctFills(tr)) <= (this.distinctFills(unmerged))))
     }
 
     fn testDetailMaskFindsTheEyeNotTheRamp:void (t:RgTest) {

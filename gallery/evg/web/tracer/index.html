@@ -245,6 +245,10 @@
           <input id="detailMinShare" type="range" min="0" max="30" step="1" value="8">
           <span class="hint">Silmien kaltaiset kohdat kvantisoidaan omalla paletillaan — sillä kokonaisesta naamasta silmälle jää pari sävyä, yksinään zoomattuna koko budjetti. Tämä on se säädin joka erottaa rakenteen rakeesta: <b>0</b> = kaikki yksityiskohdat ja kaikki rae, <b>8</b> = luomi, ripsiraja ja silmän aukko näkyvät ilman raetta, <b>15+</b> = alkaa syödä rakennettakin.</span>
         </label>
+        <label class="row color-only hidden" id="row-detailMerge">Yksityiskohtien värien yhdistäminen <span class="val" id="v-detailColorMerge">16</span>
+          <input id="detailColorMerge" type="range" min="0" max="48" step="1" value="16">
+          <span class="hint">Yksityiskohta-alueet jakavat yhden paletin, ja tämä on se raja jota lähempänä olevat sävyt ovat sama merkintä siinä. Ilman tätä jokainen alue keksii omat värinsä toisistaan tietämättä. Muotokuvassa <b>0</b> = 456 väriä, <b>16</b> = 97, <b>24</b> = 55 — virhe kasvaa 0,5 %. <b>48</b> yhdistää jo liikaa ja kulmakarvat sinertävät.</span>
+        </label>
         <label class="check color-only hidden" id="row-detailTrue"><input id="detailTrueColor" type="checkbox"> Tarkat värit yksityiskohdissa
           <span class="hint">Silmien ja hampaiden kaltaisissa kohdissa — missä selvästi eri värit kohtaavat muutaman pikselin sisällä — muoto saa pitää oman mitatun värinsä sen sijaan että se pyöristettäisiin palettiin. Vain näin tila voi lisätä tarkkuutta sen sijaan että piirtäisi uudelleen sen mikä jo on. Muotokuvassa suun virhe pieneni 8,7 %, mutta värejä tuli 10 sijaan 109 — eli värimäärä lakkaa olemasta katto.</span>
         </label>
@@ -367,6 +371,7 @@
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
   var overlaySimilar = $("overlaySimilar"), edgeMinRun = $("edgeMinRun");
   var detailTrueColor = $("detailTrueColor"), detailMinShare = $("detailMinShare");
+  var detailColorMerge = $("detailColorMerge");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -410,6 +415,7 @@
   bindRange(gradientGain, $("v-gradientGain"));
   bindRange(overlaySimilar, $("v-overlaySimilar"));
   bindRange(detailMinShare, $("v-detailMinShare"));
+  bindRange(detailColorMerge, $("v-detailColorMerge"));
   bindRange(edgeMinRun, $("v-edgeMinRun"));
 
   function syncChecker() {
@@ -519,6 +525,7 @@
     $("row-oSim").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-detailTrue").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-detailShare").classList.toggle("hidden", !color || contourMode.value !== "overlay");
+    $("row-detailMerge").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-cEdge").classList.toggle("hidden", !color || !cont);
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
     $("row-eRun").classList.toggle("hidden", !color || !cont);
@@ -696,6 +703,7 @@
         opts.overlaySimilar = +overlaySimilar.value;
         opts.detailTrueColor = detailTrueColor.checked;
         opts.detailMinShare = +detailMinShare.value;
+        opts.detailColorMerge = +detailColorMerge.value;
         opts.edgeMinRun = +edgeMinRun.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;

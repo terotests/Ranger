@@ -212,6 +212,14 @@ class EvgTraceOptions {
     ; the grain is gone, 599 KB. 15% and up: it starts eating the structure too
     ; and converges on what the plain algorithm already gives.
     def detailMinShare:int 8
+    ; Detail neighbourhoods share one palette, and this is how close two of
+    ; their colors may be before they become one entry in it. Each
+    ; neighbourhood still derives its own bands from its own pixels — that is
+    ; the point of the feature — but derived in ignorance of each other, forty
+    ; neighbourhoods invent forty nearly identical browns. Measured on a
+    ; portrait: 456 distinct fills unmerged, 234 at a tolerance of 8, 91 at 16,
+    ; 49 at 24. 0 disables the merge and lets every neighbourhood keep its own.
+    def detailColorMerge:int 16
     ; A step only counts as a boundary when it is *unique* in its
     ; neighbourhood — the strongest one across its own direction, so a noisy
     ; pixel does not out-vote the ridge beside it — and *continuous*, part of a

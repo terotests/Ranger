@@ -40,6 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   byte-identical before and after, 24/24** across four images, three modes and
   two color counts.
 
+  **Neighbourhoods share one palette.** Deriving bands in ignorance of one
+  another, forty neighbourhoods invent forty nearly identical browns: a portrait
+  came back with 456 distinct fills for 561 shapes, which is close to a color
+  per shape and fair to ask about. `detailColorMerge` (16) is how close two of
+  them may be before they become one entry. Measured on that portrait —
+  **456 → 97 fills**, SVG 599 → 601 KB, per-pixel error 12.78 → 12.85 on the
+  eyes and 10.87 → 10.93 overall. That is a 79% cut in colors for half a percent
+  of error, and the result is visually indistinguishable. 24 gives 55 fills and
+  still beats the plain algorithm; 48 merges across too far and the eyebrows go
+  blue. Whole-frame fills after merging: clip art 17, a detailed photo 18, a
+  portrait 103.
+
   A note on how this was nearly lost. Judged by eye against the plain result it
   looked worse — speckled — and it was written off as a negative result and
   reverted, even though the error metric had improved (eyes 13.80 → 12.51, whole
