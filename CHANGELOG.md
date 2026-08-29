@@ -291,6 +291,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The refiner was re-tracing the original bitmap, not the edited one.**
+  Pre-processing edits the picture, so everything that samples pixels afterwards
+  has to sample the edited one — the tracer did, the refine brush did not. On a
+  blurred picture it cut its patch out of the unblurred original and put sharp
+  detail back exactly where the filters had been asked to take it away.
+  Measured on a portrait with a strong blur, edge energy inside the stroke
+  against the **0.99** the blurred picture has there: **4.63 before, 1.97
+  after** — 3.4× the surrounding detail level, down to 1.4×. Both reads now go
+  through one accessor so they cannot drift apart again, and the smoke test
+  fails if a refine stroke more than doubles the local edge energy.
+
 - **Gradient fill: the palette ran away, the smallest-area control did nothing,
   and gradients barely appeared.** Three complaints, and measuring them found
   two causes that between them explain all three.

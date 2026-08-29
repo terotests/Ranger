@@ -1034,6 +1034,15 @@
     });
   });
 
+  // The pixels everything downstream reads. Pre-processing edits the picture,
+  // so the tracer, the refiner and anything else that samples the bitmap have
+  // to sample the edited one — the refiner did not, and re-traced a blurred
+  // picture's patch out of the original, which puts detail back exactly where
+  // the filters were asked to take it away.
+  function workingPixels() {
+    return processedBitmap || sourceBitmap.rgba;
+  }
+
   function preOptions() {
     return {
       grayscale: preGray.checked, invert: preInvert.checked, median: preMedian.checked,
@@ -1364,7 +1373,7 @@
     setEditNote("Vektoroidaan " + bw + "×" + bh + " px…");
     var img = new ImageBuffer();
     img.init(bw, bh);
-    var rgba = sourceBitmap.rgba;
+    var rgba = workingPixels();
     for (var y = 0; y < bh; y++) {
       for (var x = 0; x < bw; x++) {
         var o = (((y + y0) * sourceBitmap.w) + (x + x0)) * 4;
@@ -1999,7 +2008,7 @@
         buildProcessed();
         var img = new ImageBuffer();
         img.init(sourceBitmap.w, sourceBitmap.h);
-        var rgba = processedBitmap || sourceBitmap.rgba;
+        var rgba = workingPixels();
         var n = sourceBitmap.w * sourceBitmap.h;
         for (var i = 0; i < n; i++) {
           var o = i * 4;

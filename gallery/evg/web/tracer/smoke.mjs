@@ -612,6 +612,80 @@ if (!ready) {
     process.exitCode = 1;
   }
 
+  // --- the refiner must read the edited picture, not the original -----------
+  // Pre-processing edits the bitmap; everything that samples pixels afterwards
+  // has to sample the edited one. The refiner did not, so on a blurred picture
+  // it cut its patch from the unblurred original and put sharp detail back
+  // exactly where the filters had been asked to take it away.
+  const refPre = await (async () => {
+    const settle = async () => {
+      await page.waitForFunction(() => !document.getElementById("run").disabled, { timeout: 120000 });
+      await page.waitForTimeout(350);
+    };
+    if (await page.evaluate(() => document.getElementById("editbar").classList.contains("on"))) {
+      await page.click("#editToggle");
+    }
+    await page.evaluate(() => {
+      const e = document.getElementById("preBlur");
+      e.value = 6;
+      e.dispatchEvent(new Event("input", { bubbles: true }));
+      e.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+
+    const energy = () => page.evaluate(async () => {
+      const svg = document.querySelector("#outStage svg");
+      const str = new XMLSerializer().serializeToString(svg);
+      const im = new Image();
+      im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+      await im.decode();
+      await new Promise(r => setTimeout(r, 200));
+      const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+      const c = document.createElement("canvas");
+      c.width = vb[2]; c.height = vb[3];
+      const g = c.getContext("2d");
+      g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(im, 0, 0, c.width, c.height);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      const y0 = Math.round(vb[3] * 0.40), y1 = Math.round(vb[3] * 0.50);
+      const x0 = Math.round(vb[2] * 0.32), x1 = Math.round(vb[2] * 0.66);
+      let sum = 0, n = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const o = (y * vb[2] + x) * 4, q = (y * vb[2] + x + 1) * 4;
+        sum += Math.abs(d[o] - d[q]) + Math.abs(d[o+1] - d[q+1]) + Math.abs(d[o+2] - d[q+2]);
+        n++;
+      }
+      return sum / n / 3;
+    });
+    const flat = await energy();
+
+    await page.click("#editToggle");
+    await page.click("#toolRefine");
+    await page.evaluate(async () => {
+      const svg = document.querySelector("#outStage svg");
+      const rect = svg.getBoundingClientRect();
+      const stage = document.getElementById("outStage");
+      const at = (fx, fy) => ({ x: rect.left + rect.width * fx, y: rect.top + rect.height * fy });
+      const send = (t, pt) => stage.dispatchEvent(new PointerEvent(t, {
+        bubbles: true, clientX: pt.x, clientY: pt.y
+      }));
+      send("pointerdown", at(0.34, 0.45));
+      for (let i = 1; i <= 12; i++) send("pointermove", at(0.34 + 0.3 * i / 12, 0.45));
+      send("pointerup", at(0.64, 0.45));
+      await new Promise(r => setTimeout(r, 400));
+    });
+    const refined = await energy();
+    return { flat: +flat.toFixed(2), refined: +refined.toFixed(2) };
+  })();
+  console.log(JSON.stringify(refPre));
+  // Reading the original instead measured 3.4x on a portrait; reading the
+  // edited picture measured 1.4x. Anything past double is the old bug back.
+  if (refPre.refined > refPre.flat * 2) {
+    console.error("the refiner is sampling the unprocessed bitmap: edge energy went "
+      + refPre.flat + " -> " + refPre.refined);
+    process.exitCode = 1;
+  }
+
   if (!process.exitCode) {
     console.log("tracer smoke OK");
   }
