@@ -35,8 +35,15 @@ build machine; this is what proves the API still runs where the reader is.
 
 [`tracer/`](../web/tracer/) is the other live page: upload a JPEG/PNG, tweak
 Potrace-style parameters, and vectorize with the compiled `EvgBitmapTracer`.
-Build alone with `npm run evg:trace:web`; the showcase build ships it to
-`/evg/tracer/` on Pages. `npm run evg:trace:web:smoke` opens it in Chromium.
+To run it on your own machine, `npm run evg:trace:web:serve` builds the page
+and serves it at <http://localhost:8006/>. Everything happens in the browser —
+decode, quantize, trace — so no image ever leaves the machine. Opening
+`dist/index.html` off disk works too for images you drop on it, but the *try the
+sample* button needs a real origin, so the served page is the one that works
+whole. Build alone with `npm run evg:trace:web` (output lands in
+`gallery/evg/web/tracer/dist/`); the showcase build ships the same files to
+`/evg/tracer/` on Pages. `npm run evg:trace:web:smoke` opens it in Chromium and
+checks it.
 
 ### Eight pages are generated
 

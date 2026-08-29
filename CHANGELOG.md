@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Run the tracer locally** — the page had a build script and a headless-browser
+  check but no way to just *open* it, so trying it out meant either publishing to
+  Pages or hand-rolling a static server over `dist/`. `npm run evg:trace:web:serve`
+  now builds the page and serves it at <http://localhost:8006/>, matching the
+  convention the other web pages in this repo already follow. Nothing about the
+  tracer needs a server — it decodes, quantizes and traces entirely in the
+  browser, and no image ever leaves the machine — and opening `dist/index.html`
+  straight off disk does trace images you drop on it. What it cannot do from
+  `file://` is the *Kokeile esimerkkiä* button: the sample is `fetch`ed
+  relatively, and Chromium blocks that from a null origin. A real origin makes
+  the whole page work, so that is what the script gives you.
+
 - **Choose the tracer's colors, or steer how it chooses them** — asked for after a ball-pit photo came back in browns and blues with the reds and greens gone. The palette was decided one way only: count-weighted k-means, which spends swatches on *area*. A photograph's big dull background therefore always takes the first few, and a hundred small vivid balls — large in total but scattered across many histogram bins — take none. There was no lever.
 
   `paletteMode` is now the lever. `"fixed"` takes a list of colors and uses exactly those, in the given order, with `colorCount` out of the picture: black, white and yellow gives a three-color poster of any photo. `"seeded"` pins the colors you name and quantizes the rest around them — a pinned swatch is never moved by a Lloyd pass and never dropped by the near-swatch merge, so it survives even when an automatic swatch that close would be collapsed. Colors come from `paletteHex` as anything `EVGColor.parse` reads (`"#1a1a1a"`, `"#f80"`, `"rgb(20 30 40)"`, a CSS name it knows); one it cannot read is dropped, and a list that parses to nothing falls back to quantizing.
