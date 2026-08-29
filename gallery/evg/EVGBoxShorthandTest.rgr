@@ -1,0 +1,220 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGBoxShorthandTest — `padding: 0 16px` means two different numbers
+; ==============================================================================
+;
+; This file exists because of a screenshot. The table demo's rows carried
+; `padding: 0 16px` and their contents sat flush against the card's edge, so
+; the sides were getting nothing. EVG was reading the whole declaration as ONE
+; unit: `EVGUnit.parse("0 16px")` sees the leading `0`, stops, and the box was
+; given zero on all four sides. Every two-, three- and four-value box shorthand
+; in the gallery had been wrong since the day the sheets were written — and it
+; had never been reported, because a padding that is too small does not look
+; like a bug. It looks like a layout someone chose.
+;
+; That is the argument for checking the PAINTED result and not the parse: this
+; is the third defect this month found by looking at pixels and the third that
+; no amount of reading the code would have surfaced.
+;
+; The numbers below are not invented. `oracle/css_box_oracle.mjs` puts each
+; declaration on a real element in a real browser and reads back the four
+; computed sides; `oracle/css-box.json` is what it said. Every case here is a
+; row of that file, the rejections included — a browser drops the whole
+; DECLARATION on a bad component rather than the component, and an element
+; keeps what it had, which is a different observable outcome from zero.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGBox.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+
+class BoxCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got '" + got + "' want '" + want + "'")
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGBoxShorthandTest {
+
+    ; The four sides as one string, so a wrong side names itself in the failure
+    ; rather than making the reader count arguments.
+    sfn padOf:string (el:EVGElement) {
+        return (((((((to_string el.box.paddingTopPx) + " ")
+            + (to_string el.box.paddingRightPx)) + " ")
+            + (to_string el.box.paddingBottomPx)) + " ")
+            + (to_string el.box.paddingLeftPx))
+    }
+
+    sfn marginOf:string (el:EVGElement) {
+        return (((((((to_string el.box.marginTopPx) + " ")
+            + (to_string el.box.marginRightPx)) + " ")
+            + (to_string el.box.marginBottomPx)) + " ")
+            + (to_string el.box.marginLeftPx))
+    }
+
+    ; One declaration, applied through the stylesheet exactly as a page would —
+    ; not by calling the parser directly. The bug was in what the sheet did with
+    ; a declaration, so the test has to go the same way in.
+    sfn boxFor:EVGElement (decl:string) {
+        def s (new EVGStyleSheet())
+        s.parse((".b { " + decl) + " }")
+        def el:EVGElement (EVGElement.createDiv())
+        el.className = "b"
+        s.applyTree(el "")
+        ; 400px of containing block, so a percentage has the same thing to
+        ; resolve against as the oracle's 400px parent did.
+        el.box.resolveUnits(400.0 200.0 16.0 16.0)
+        return el
+    }
+
+    sfn testPadding:void (c:BoxCheck) {
+        print ""
+        print "-- padding, one to four values"
+        c.eqStr("one value is all four sides"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 10px;"))))
+            "10 10 10 10")
+        ; The case from the screenshot.
+        c.eqStr("two values are vertical then horizontal"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 0 16px;"))))
+            "0 16 0 16")
+        c.eqStr("three are top, horizontal, bottom"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 1px 2px 3px;"))))
+            "1 2 3 2")
+        c.eqStr("four are top, right, bottom, left"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 1px 2px 3px 4px;"))))
+            "1 2 3 4")
+        c.eqStr("a bare zero needs no unit"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 0;"))))
+            "0 0 0 0")
+        c.eqStr("the badge's own declaration"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 2px 10px;"))))
+            "2 10 2 10")
+        c.eqStr("extra whitespace between components"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding:   4px   8px  ;"))))
+            "4 8 4 8")
+        ; A percentage resolves against the containing block's WIDTH on every
+        ; side, top and bottom included. 10% of 400 is 40, four times over.
+        c.eqStr("a percentage resolves against the width on all four sides"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 10%;"))))
+            "40 40 40 40")
+        c.eqStr("em against the element's own font size"
+            (EVGBoxShorthandTest.padOf((EVGBoxShorthandTest.boxFor("padding: 1em 2em;"))))
+            "16 32 16 32")
+    }
+
+    sfn testMargin:void (c:BoxCheck) {
+        print ""
+        print "-- margin, which may go negative"
+        c.eqStr("one value is all four sides"
+            (EVGBoxShorthandTest.marginOf((EVGBoxShorthandTest.boxFor("margin: 10px;"))))
+            "10 10 10 10")
+        c.eqStr("four sides in order"
+            (EVGBoxShorthandTest.marginOf((EVGBoxShorthandTest.boxFor("margin: 1px 2px 3px 4px;"))))
+            "1 2 3 4")
+        ; The one real difference between the two properties: a negative margin
+        ; is ordinary CSS and pulls a box outwards.
+        c.eqStr("a negative margin survives"
+            (EVGBoxShorthandTest.marginOf((EVGBoxShorthandTest.boxFor("margin: -4px 8px;"))))
+            "-4 8 -4 8")
+        ; `auto` parses to no length. EVG has no auto-margin centring, so it
+        ; lands where an unset margin lands — but the declaration is ACCEPTED,
+        ; which is what stops `margin: 0 auto` from throwing the `0` away too.
+        c.eqStr("margin: 0 auto is accepted, and auto is zero here"
+            (EVGBoxShorthandTest.marginOf((EVGBoxShorthandTest.boxFor("margin: 0 auto;"))))
+            "0 0 0 0")
+        c.eqStr("a percentage margin resolves against the width"
+            (EVGBoxShorthandTest.marginOf((EVGBoxShorthandTest.boxFor("margin: 5%;"))))
+            "20 20 20 20")
+    }
+
+    ; The rejections. Each of these must leave the element with what it already
+    ; had rather than with zero — the browser drops the declaration, and an
+    ; element that had 7px on every side still has 7px afterwards. Testing them
+    ; against a fresh element would prove nothing, because a fresh element is
+    ; zero either way.
+    sfn afterBad:string (decl:string) {
+        def s (new EVGStyleSheet())
+        s.parse((".b { padding: 7px; " + decl) + " }")
+        def el:EVGElement (EVGElement.createDiv())
+        el.className = "b"
+        s.applyTree(el "")
+        el.box.resolveUnits(400.0 200.0 16.0 16.0)
+        return (EVGBoxShorthandTest.padOf(el))
+    }
+
+    sfn testRejected:void (c:BoxCheck) {
+        print ""
+        print "-- declarations a browser drops whole"
+        c.eqStr("five values is not a shorthand"
+            (EVGBoxShorthandTest.afterBad("padding: 1px 2px 3px 4px 5px;")) "7 7 7 7")
+        c.eqStr("a component that is not a length"
+            (EVGBoxShorthandTest.afterBad("padding: 1px nonsense;")) "7 7 7 7")
+        c.eqStr("a negative padding takes the whole declaration with it"
+            (EVGBoxShorthandTest.afterBad("padding: -4px;")) "7 7 7 7")
+        c.eqStr("and a negative one among good ones"
+            (EVGBoxShorthandTest.afterBad("padding: 4px -4px;")) "7 7 7 7")
+        c.eqStr("padding: auto is not a thing"
+            (EVGBoxShorthandTest.afterBad("padding: auto;")) "7 7 7 7")
+        c.eqStr("a unit EVG does not know"
+            (EVGBoxShorthandTest.afterBad("padding: 1px 4ch;")) "7 7 7 7")
+    }
+
+    ; The layout has to move, not just the box. A row of two children in a
+    ; container padded `0 16px` starts at 16 and ends 16 short — that is the
+    ; observable the screenshot was showing, and the box numbers above could all
+    ; be right while this stayed broken.
+    sfn testLaidOut:void (c:BoxCheck) {
+        print ""
+        print "-- and it reaches the layout"
+        def s (new EVGStyleSheet())
+        s.parse(".row { display: flex; flex-direction: row; width: 200px; height: 40px; padding: 0 16px; } .kid { width: 50px; height: 20px; }")
+        def row:EVGElement (EVGElement.createDiv())
+        row.className = "row"
+        def kid:EVGElement (EVGElement.createDiv())
+        kid.className = "kid"
+        row.addChild(kid)
+        s.applyTree(row "")
+        def layout (new EVGLayout())
+        layout.layout(row)
+        c.eqStr("the first child starts one padding in"
+            (to_string kid.calculatedX) "16")
+        c.eqStr("and the row is still its declared width"
+            (to_string row.calculatedWidth) "200")
+    }
+
+    sfn main:void () {
+        def c (new BoxCheck())
+        print "=== EVG box shorthands: one to four values ==="
+        EVGBoxShorthandTest.testPadding(c)
+        EVGBoxShorthandTest.testMargin(c)
+        EVGBoxShorthandTest.testRejected(c)
+        EVGBoxShorthandTest.testLaidOut(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

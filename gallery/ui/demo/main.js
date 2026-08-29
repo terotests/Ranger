@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -192,8 +192,24 @@ let generation = 0;
  * other three demos exist to make.
  */
 let lastHover = "";
+let lastTableHover = "";
 const motion = new MotionDemo();
 motion.init(MOTION_CSS);
+
+/**
+ * The table, and the second demo here that keeps its tree.
+ *
+ * A PRESS changes the data and rebuilds; the pointer moving does not, so it
+ * only sets a flag. That is the same split `keptTree` makes for the other
+ * three, and the reason both of them can animate at all.
+ *
+ * Its state is `TableCtl`'s — the controller the conformance harness measures
+ * against TanStack — so the demo owns the look and nothing else. Writing the
+ * sort cycle again here would be writing an untested second copy of the only
+ * hard part of a table.
+ */
+const table = new TableDemo();
+table.init(TABLE_CSS);
 
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
@@ -246,6 +262,34 @@ const DEMOS = {
     hover: () => false,
     key: () => false,
   },
+  table: {
+    height: () => table.heightPx(),
+    list: () => table.displayListJson(),
+    hit: (x, y) => table.hit ? table.hit(x, y) : table.hitId(x, y),
+    a11y: (gen, focus) => table.a11yJson(gen, focus),
+    press: (id) => table.press(id),
+    hover: (id) => {
+      if (id === lastTableHover) return false;
+      lastTableHover = id;
+      table.setHover(id);
+      return true;
+    },
+    key: () => false,
+    host: () => ({
+      tick: (dt) => table.tick(dt),
+      busy: () => table.busyNow(),
+      setHover: (id) => {
+        if (id === lastTableHover) return false;
+        lastTableHover = id;
+        table.setHover(id);
+        return true;
+      },
+      setPressed: (id) => table.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
   motion: {
     height: () => motion.heightPx(),
     // Persistent: the three thunks below go to the kept host rather than
@@ -864,7 +908,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

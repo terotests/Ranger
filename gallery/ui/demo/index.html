@@ -47,7 +47,7 @@
       <h1>Ranger tree literals — Radix components</h1>
       <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
-        Four <code>treefactory</code> declarations, each naming its own tags over the
+        Five <code>treefactory</code> declarations, each naming its own tags over the
         same <code>EVGElement</code>, painted by EVG's WebGL painter. Three of them
         rebuild the whole tree on every control; the motion showcase keeps its tree,
         because a transition remembers where a value was and a rebuilt element
@@ -92,6 +92,23 @@
           <h2>order</h2>
           <p class="hint" id="order"></p>
         </section>
+        <section data-for="table">
+          <h2>what to try</h2>
+          <p class="hint">
+            Click a header <strong>three</strong> times: ascending, descending,
+            then back to the order the data arrived in. A two-way toggle can
+            never reach that third state.
+          </p>
+          <p class="hint">
+            <strong>Spend</strong> is numeric, so its first click sorts
+            <em>descending</em> — biggest first is the useful first answer for
+            a quantity, A-to-Z for a name.
+          </p>
+          <p class="hint">
+            The header checkbox is <strong>page-scoped</strong>: select page
+            one, go to page two, and the first page stays selected.
+          </p>
+        </section>
         <section data-for="motion">
           <h2>what to look at</h2>
           <p class="hint">
@@ -116,6 +133,16 @@
           &darr; and Escape for the same thing from the keyboard. The behaviour is the
           one <code>gallery/ui/src/SortableCtl.rgr</code> is measured against, item for
           item, with <code>@dnd-kit/sortable</code> as the reference.
+        </p>
+        <p class="note" data-for="table">
+          <strong>The state is not this demo's.</strong> Sorting, page-scoped
+          selection and the paging arithmetic all live in
+          <code>gallery/ui/src/TableCtl.rgr</code>, which the conformance
+          harness measures against <code>@tanstack/react-table</code> — the
+          library ReUI's table is built on. This file is the other half: a
+          <code>treefactory</code> and a stylesheet, and nothing else. The
+          controller decides what is true; the tree literal decides what it
+          looks like.
         </p>
         <p class="note" data-for="motion">
           <strong>Hover the cards at the bottom.</strong> Nothing in

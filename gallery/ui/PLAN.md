@@ -738,6 +738,49 @@ synchronously reads the previous one and reports that nothing happened; and
 four the probe was set up with, which made the whole selection capture measure
 a one-page table.
 
+### The demo, and the shorthand it broke
+
+`demo/TableDemo.rgr` is the table wearing ReUI's clothes: a bordered card, a
+muted header whose sortable columns carry a chevron, rows that light under the
+pointer, coloured status badges, and a footer that says how many are selected
+and which page you are on. It reuses `TableCtl` unchanged — the controller
+decides what is true, the tree literal decides what it looks like, and neither
+knows about the other. Writing the sort cycle and the page-scoped selection a
+second time for the demo would be writing an untested copy of the only part of
+a table that is hard.
+
+Like the motion showcase, the tree is **kept**. Hover is a flag on an element,
+and a rebuilt tree has a different element in that position with no memory of
+anything, so a demo that rebuilds every frame can have no hover and no
+transitions at all. A press rebuilds, because a press changes the data; the
+pointer moving does not.
+
+And then the footer wrapped onto a second line, which is how a defect four
+months old finally surfaced.
+
+`.tb-foot` declares `padding: 0 16px`, and the row's contents sat flush against
+the card's edge. EVG was reading the whole declaration as **one** unit:
+`EVGUnit.parse("0 16px")` sees the leading `0`, stops there, and the box was
+given zero on all four sides. Every two-, three- and four-value box shorthand
+in the gallery had been wrong since the sheets were written — 30 declarations
+across five stylesheets, every one of them silently dropping its horizontal
+padding. Nobody had reported it because a padding that is too small does not
+look like a bug. It looks like a layout someone chose.
+
+`oracle/css_box_oracle.mjs` put each form on a real element and read back the
+four computed sides, and the rejections are the half worth capturing: a browser
+drops the whole **declaration** on a five-value list, a junk component or a
+negative padding, rather than dropping the component — so an element keeps what
+it had, which is a different observable outcome from zero. A negative *margin*
+is ordinary CSS and survives. `EVGBoxShorthandTest.rgr` is those 17 rows plus a
+laid-out row proving it reaches the geometry and not just the box; four
+mutations were run against it, and the two-value one alone fails seven checks.
+
+This is the third defect this month found by looking at painted output rather
+than at code, after the non-idempotent transition reconcile and a `text-align`
+that was parsed and read by nothing. None of the three would have been found by
+reading; all three had passing tests around them.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

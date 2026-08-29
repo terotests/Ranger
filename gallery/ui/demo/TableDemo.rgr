@@ -1,0 +1,381 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TableDemo — ReUI's Table, wearing its own clothes
+; =============================================================================
+; The reference is ReUI's Table (https://reui.io/components/table): a bordered
+; card, a muted header row whose sortable columns carry a chevron, a checkbox
+; column, rows that light up under the pointer, and a footer that says how many
+; are selected and which page you are on.
+;
+; THE STATE IS NOT REBUILT HERE. `TableCtl` already owns the sort cycle, the
+; page-scoped selection and the paging arithmetic, and it is measured against
+; TanStack in `conformance/oracle/`. Writing that again for the demo would be
+; writing an untested second copy of the only part of a table that is hard.
+;
+; So this file is the other half, and the split is the argument the gallery is
+; making: the CONTROLLER decides what is true, the TREE LITERAL decides what it
+; looks like. `TableCtl.build()` produces a plain, conformance-shaped tree; the
+; factory below produces the reference's one; neither knows about the other.
+;
+; Like the motion showcase and unlike the first three demos, the tree is KEPT.
+; Hover is a flag on an element, and a tree rebuilt between two frames has a
+; different element in that position with no memory of anything — so a rebuilt
+; demo can have no hover and no transitions at all. A press rebuilds, because a
+; press changes the data; the pointer moving does not.
+; =============================================================================
+
+Import "../src/TableCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Table {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "tb-page"))
+    tag Card     EVGElement (props (className "tb-card"))
+    tag Grid     EVGElement (props (className "tb-grid") (role "table") (a11yLabel "Team members"))
+    tag HeadRow  EVGElement (props (className "tb-headrow") (role "row"))
+    tag Row      EVGElement (props (className "tb-row") (role "row"))
+    tag ColSel   EVGElement (props (className "tb-col tb-col-sel") (role "columnheader"))
+    tag Col      EVGElement (props (className "tb-col") (role "columnheader"))
+    tag ColText  EVGElement (props (className "tb-col-text") (elementType 1))
+    ; The chevron. Decoration: `aria-sort` on the header already says which way,
+    ; and a reader announcing "Name down-arrow" is told the same thing twice.
+    tag Arrow    EVGElement (props (className "tb-arrow") (elementType 1) (a11yHidden true))
+    tag CellSel  EVGElement (props (className "tb-cell tb-cell-sel") (role "cell"))
+    tag Cell     EVGElement (props (className "tb-cell") (role "cell"))
+    tag CellText EVGElement (props (className "tb-cell-text") (elementType 1))
+    tag Check    EVGElement (props (className "tb-check") (role "checkbox"))
+    tag Mark     EVGElement (props (className "tb-mark") (elementType 1) (a11yHidden true))
+    tag Badge    EVGElement (props (className "tb-badge") (elementType 1))
+    tag Foot     EVGElement (props (className "tb-foot"))
+    tag Note     EVGElement (props (className "tb-note") (elementType 1))
+    tag Spacer   EVGElement (props (className "tb-spacer"))
+    tag Button   EVGElement (props (className "tb-button") (role "button"))
+    tag ButtonT  EVGElement (props (className "tb-button-text") (elementType 1))
+}
+
+class TableDemo {
+
+    def model:TableCtl (new TableCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def hovered:string ""
+    def pressed:string ""
+    def pageW:double 900.0
+    def pageH:double 460.0
+
+    Constructor () {
+    }
+
+    ; --- the data ---------------------------------------------------------------
+    ; Five columns and seven people, so a page size of five leaves a short
+    ; second page — the short page is where paging arithmetic goes wrong.
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "tbl"
+        model.name = "Team members"
+        model.pageSize = 5
+        model.addColumn("name" "Name" false true)
+        model.addColumn("email" "Email" false true)
+        model.addColumn("role" "Role" false true)
+        model.addColumn("status" "Status" false false)
+        model.addColumn("spend" "Spend" true true)
+
+        this.person("p1" "Ada Lovelace" "ada@analytical.eng" "Owner" "active" "1420")
+        this.person("p2" "Grace Hopper" "grace@navy.mil" "Admin" "active" "980")
+        this.person("p3" "Alan Turing" "alan@bletchley.uk" "Member" "invited" "310")
+        this.person("p4" "Edsger Dijkstra" "edsger@thue.nl" "Member" "active" "2075")
+        this.person("p5" "Barbara McClintock" "barbara@maize.org" "Member" "paused" "640")
+        this.person("p6" "Katherine Johnson" "katherine@nasa.gov" "Admin" "active" "1755")
+        this.person("p7" "Karen Sparck Jones" "karen@cam.ac.uk" "Member" "invited" "425")
+
+        root = (this.page())
+    }
+
+    fn person:void (key:string name:string email:string role:string status:string spend:string) {
+        def cells:[string]
+        push cells name
+        push cells email
+        push cells role
+        push cells status
+        push cells spend
+        model.addRecord(key cells)
+    }
+
+    ; --- the look ------------------------------------------------------------------
+
+    sfn offSuffix:string (enabled:boolean) {
+        if enabled {
+            return ""
+        }
+        return " tb-button-text-off"
+    }
+
+    sfn money:string (raw:string) {
+        return ("$" + raw)
+    }
+
+    ; A cell's own tag, so a badge is a badge rather than a class someone
+    ; remembered to add.
+    sfn isStatus:boolean (colKey:string) {
+        return (colKey == "status")
+    }
+
+    fn headRow:EVGElement () {
+        def head (tree Table (HeadRow (props (id "tbl-headrow"))))
+        def selState:int (model.selectAllState())
+        def selCls:string ("tb-check tb-check-" + (TableCtl.checkedName(selState)))
+        def selCol (tree Table
+            (ColSel (props (id "tbl-selectcol"))
+                (Check (props (id "tbl-selectall") (className selCls)
+                              (a11yLabel "Select all") (a11yChecked selState))
+                    (Mark (TableCtl.checkGlyph(selState))))))
+        head.addChild(selCol)
+
+        def i:int 0
+        while (i < (array_length model.columns)) {
+            def c:UiColumn (itemAt model.columns i)
+            def st:int (model.sortStateOf(c.key))
+            def cls:string ("tb-col tb-col-" + c.key)
+            def col (tree Table (Col (props (id (model.colTid(c.key))) (className cls))))
+            if c.sortable {
+                col.a11ySorted = st
+                col.a11yFocusable = true
+                col.addChild((tree Table (ColText c.label)))
+                col.addChild((tree Table (Arrow (TableCtl.sortGlyph(st)))))
+            } {
+                col.addChild((tree Table (ColText c.label)))
+            }
+            head.addChild(col)
+            i = (i + 1)
+        }
+        return head
+    }
+
+    fn bodyRow:EVGElement (r:UiRecord) {
+        def rowCls:string "tb-row"
+        if r.selected {
+            rowCls = "tb-row tb-row-selected"
+        }
+        def checkState:int (EVGA11yTri.no())
+        if r.selected {
+            checkState = (EVGA11yTri.yes())
+        }
+        def checkCls:string ("tb-check tb-check-" + (TableCtl.checkedName(checkState)))
+        def label:string ("Select " + (itemAt r.cells 0))
+        def row (tree Table
+            (Row (props (id (model.rowTid(r.key))) (className rowCls)
+                        (a11ySelected checkState))
+                (CellSel (props (id ((model.rowTid(r.key)) + "-checkcell")))
+                    (Check (props (id (model.checkTid(r.key))) (className checkCls)
+                                  (a11yLabel label) (a11yChecked checkState) (a11yFocusable true))
+                        (Mark (TableCtl.checkGlyph(checkState)))))))
+        def i:int 0
+        while (i < (array_length model.columns)) {
+            def c:UiColumn (itemAt model.columns i)
+            def raw:string ""
+            if (i < (array_length r.cells)) {
+                raw = (itemAt r.cells i)
+            }
+            def cell (tree Table (Cell (props (id (model.cellTid(r.key c.key)))
+                                              (className ("tb-cell tb-cell-" + c.key)))))
+            if (TableDemo.isStatus(c.key)) {
+                cell.addChild((tree Table (Badge (props (className ("tb-badge tb-badge-" + raw))) raw)))
+            } {
+                def shown:string raw
+                if (c.numeric) {
+                    shown = (TableDemo.money(raw))
+                }
+                ; The column's own class on the TEXT, not a descendant
+                ; selector. `EVGStyleSheet` matches one class token and has no
+                ; `.tb-cell-email .tb-cell-text` — it says so rather than
+                ; ignoring the rule, which is how this was found.
+                cell.addChild((tree Table (CellText (props (className ("tb-cell-text tb-text-" + c.key))) shown)))
+            }
+            row.addChild(cell)
+            i = (i + 1)
+        }
+        return row
+    }
+
+    fn foot:EVGElement () {
+        def chosen:string ((((to_string (model.selectedCount())) + " of ")
+            + (to_string (array_length model.records))) + " row(s) selected")
+        def where:string (((("Page " + (to_string (model.pageIndex + 1))) + " of ")
+            + (to_string (model.pageCount()))))
+        def prevCls:string "tb-button"
+        if ((model.canPrevious()) == false) {
+            prevCls = "tb-button tb-button-off"
+        }
+        def nextCls:string "tb-button"
+        if ((model.canNext()) == false) {
+            nextCls = "tb-button tb-button-off"
+        }
+        return (tree Table
+            (Foot
+                (Note chosen)
+                (Spacer)
+                (Note (props (className "tb-note tb-note-page")) where)
+                (Button (props (id (model.prevTid())) (className prevCls)
+                               (a11yLabel "Previous page")
+                               (a11yDisabled ((model.canPrevious()) == false))
+                               (a11yFocusable (model.canPrevious())))
+                    (ButtonT (props (className ("tb-button-text" + (TableDemo.offSuffix((model.canPrevious())))))) "Previous"))
+                (Button (props (id (model.nextTid())) (className nextCls)
+                               (a11yLabel "Next page")
+                               (a11yDisabled ((model.canNext()) == false))
+                               (a11yFocusable (model.canNext())))
+                    (ButtonT (props (className ("tb-button-text" + (TableDemo.offSuffix((model.canNext())))))) "Next"))))
+    }
+
+    fn page:EVGElement () {
+        def grid (tree Table (Grid (props (id "tbl"))))
+        grid.addChild((this.headRow()))
+        def rows:[UiRecord] (model.pageRecords())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:UiRecord (itemAt rows i)
+            grid.addChild((this.bodyRow(r)))
+            i = (i + 1)
+        }
+        def card (tree Table (Card (props (id "tbl-card"))))
+        card.addChild(grid)
+        card.addChild((this.foot()))
+        return (tree Table
+            (Page (props (id "page"))
+                (child card)))
+    }
+
+    ; --- the host --------------------------------------------------------------------
+
+    ; A press changes the DATA, so the tree is rebuilt. The pointer moving does
+    ; not, so it only sets a flag — which is the whole difference between a
+    ; demo that can animate and one that cannot.
+    fn press:boolean (target:string) {
+        def changed:boolean (model.press(target))
+        if changed {
+            root = (this.page())
+        }
+        return changed
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            this.markStates(kid)
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        return lay
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Table demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Table demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn summary:string () {
+        return ((((to_string (model.selectedCount())) + " selected, page ")
+            + (to_string (model.pageIndex + 1))) + "/" + (to_string (model.pageCount())))
+    }
+}
