@@ -40,6 +40,9 @@ const state = {
   which: "menubar",
   open: "File",
   submenu: true,
+  // The bar at the bottom edge, where the menus have no room below their
+  // triggers and the overlay pass flips them upwards.
+  atBottom: false,
   checked: ["Always Show Full URLs"],
   profile: "Luis",
   bold: true,
@@ -58,7 +61,7 @@ let generation = 0;
 const DEMOS = {
   menubar: {
     height: 560,
-    args: () => [MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu],
+    args: () => [MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu, state.atBottom],
     module: MenubarDemo,
     press: pressMenubar,
     hover: hoverMenubar,
@@ -333,6 +336,7 @@ function syncControls() {
     input.checked = input.value === state.align;
   }
   document.getElementById("submenu").checked = state.submenu;
+  document.getElementById("atbottom").checked = state.atBottom;
 }
 
 function syncPanels() {
@@ -399,6 +403,10 @@ boxes(
 );
 document.getElementById("submenu").addEventListener("change", (e) => {
   state.submenu = e.target.checked;
+  paint();
+});
+document.getElementById("atbottom").addEventListener("change", (e) => {
+  state.atBottom = e.target.checked;
   paint();
 });
 

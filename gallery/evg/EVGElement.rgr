@@ -367,6 +367,11 @@ class EVGElement {
     ; froze every percentage after the first layout.
     def overlayX:double 0.0
     def overlayY:double 0.0
+    ; Which side the surface ENDED UP on, which is not always the one it asked
+    ; for: near an edge it flips. Radix publishes the same thing as `data-side`
+    ; and stylesheets use it — an arrow points the other way when a menu opens
+    ; upwards — so it is a placement result, not an internal.
+    def overlayPlacedSide:string ""
 
     ; --- accessibility ---------------------------------------------------------
     ; What this element MEANS, next to what it looks like. A canvas contributes

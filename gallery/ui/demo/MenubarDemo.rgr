@@ -325,9 +325,16 @@ class MenubarDemo {
                 (child (MenubarDemo.profilesMenu((openMenu == "Profiles") profile)))))
     }
 
-    sfn page:EVGElement (checked:[string] profile:string openMenu:string submenu:boolean) {
+    ; `atBottom` pushes the bar to the bottom edge, where the menus have no room
+    ; below their triggers and the overlay pass flips them upwards. The demo
+    ; does not know that happens: it moves a bar, and the placement follows.
+    sfn page:EVGElement (checked:[string] profile:string openMenu:string submenu:boolean atBottom:boolean) {
+        def cls:string "mb-page"
+        if atBottom {
+            cls = "mb-page mb-page-bottom"
+        }
         return (tree Menubar
-            (Bar (props (id "page") (className "mb-page"))
+            (Bar (props (id "page") (className cls))
                 (child (MenubarDemo.bar(checked profile openMenu submenu)))))
     }
 
@@ -348,8 +355,8 @@ class MenubarDemo {
         return lay
     }
 
-    sfn displayListJson:string (css:string checked:[string] profile:string openMenu:string submenu:boolean) {
-        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
+    sfn displayListJson:string (css:string checked:[string] profile:string openMenu:string submenu:boolean atBottom:boolean) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu atBottom))
         def lay:EVGLayout (MenubarDemo.laidOut(root css))
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
@@ -360,8 +367,8 @@ class MenubarDemo {
     ; What is under the pointer: the id of the topmost element there, "" for
     ; empty space. Topmost, not first in the tree — an open panel covers the
     ; trigger beside it, and a click inside the panel belongs to the panel.
-    sfn hitId:string (css:string checked:[string] profile:string openMenu:string submenu:boolean px:double py:double) {
-        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
+    sfn hitId:string (css:string checked:[string] profile:string openMenu:string submenu:boolean atBottom:boolean px:double py:double) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu atBottom))
         MenubarDemo.laidOut(root css)
         def hit (new EVGHitTest())
         return (hit.idAt(root px py))
@@ -371,8 +378,8 @@ class MenubarDemo {
     ; describes the menu a second time: the roles are on the tags, the names
     ; are the text that was drawn, and the rectangles are where layout put
     ; them — including the surfaces, which the overlay pass moved.
-    sfn a11yJson:string (css:string checked:[string] profile:string openMenu:string submenu:boolean generation:int focusId:string) {
-        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
+    sfn a11yJson:string (css:string checked:[string] profile:string openMenu:string submenu:boolean atBottom:boolean generation:int focusId:string) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu atBottom))
         MenubarDemo.laidOut(root css)
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(root "Menubar demo" generation focusId))
@@ -382,8 +389,8 @@ class MenubarDemo {
     ; The same tree's structural lint: a focusable row with no name, a
     ; duplicate id, a parent that is not in the tree. Invisible on screen and
     ; total for someone using a reader, so a test asserts on it.
-    sfn a11yProblems:[string] (css:string checked:[string] profile:string openMenu:string submenu:boolean) {
-        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
+    sfn a11yProblems:[string] (css:string checked:[string] profile:string openMenu:string submenu:boolean atBottom:boolean) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu atBottom))
         MenubarDemo.laidOut(root css)
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(root "Menubar demo" 1 ""))
@@ -392,8 +399,8 @@ class MenubarDemo {
 
     ; Overlay surfaces the layout could not place. An unanchored surface would
     ; otherwise sit in the corner and read as a styling mistake.
-    sfn overlayErrors:[string] (css:string checked:[string] profile:string openMenu:string submenu:boolean) {
-        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu))
+    sfn overlayErrors:[string] (css:string checked:[string] profile:string openMenu:string submenu:boolean atBottom:boolean) {
+        def root:EVGElement (MenubarDemo.page(checked profile openMenu submenu atBottom))
         def lay:EVGLayout (MenubarDemo.laidOut(root css))
         return (lay.getOverlayErrors())
     }
@@ -433,10 +440,10 @@ class MenubarDemo {
         def checked:[string]
         push checked "Always Show Full URLs"
         print "--- File open, with the Share submenu ---"
-        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "File" true)) 0))
+        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "File" true false)) 0))
         print "--- View open ---"
-        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "View" false)) 0))
+        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "View" false false)) 0))
         print "--- Profiles open ---"
-        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "Profiles" false)) 0))
+        print (MenubarDemo.describe((MenubarDemo.page(checked "Luis" "Profiles" false false)) 0))
     }
 }

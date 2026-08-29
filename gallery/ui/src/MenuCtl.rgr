@@ -101,6 +101,7 @@ class MenuCtl extends UiCtl {
         }
         UiTree.setState(trig (base + "-trigger") word)
         UiTree.leafText(trig name)
+        UiTree.anchor(trig)
         root.addChild(trig)
 
         if (open == false) {
@@ -110,6 +111,10 @@ class MenuCtl extends UiCtl {
         def content:EVGElement (unwrap contentEl)
         content.id = (this.contentTid())
         content.className = (base + "-content")
+        ; A dropdown opens under its trigger; a context menu opens under the
+        ; point it was invoked at, which is the trigger's rectangle here — the
+        ; same anchor, and no second rule for it.
+        UiTree.surface(content "bottom" "start")
         UiTree.setState(content (base + "-content") word)
         UiTree.clearChildren(content)
 

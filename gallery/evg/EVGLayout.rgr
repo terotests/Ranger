@@ -1560,16 +1560,97 @@ class EVGLayout {
         return miss
     }
 
+    ; --- collisions ------------------------------------------------------------
+    ; The part of a surface that falls off the page cannot be clicked and cannot
+    ; be read, so a menu that ignores the edge silently loses rows. Two moves,
+    ; in this order, and they are the two every real menu makes:
+    ;
+    ;   FLIP   the side it opens on, when the asked side does not fit and the
+    ;          opposite one does. A menu at the bottom of the page opens
+    ;          upwards; a submenu at the right edge opens to the left.
+    ;   SHIFT  along the other axis, sliding it back onto the page. This one is
+    ;          a slide and not a flip because the side was never the problem.
+    ;
+    ; Where NEITHER side fits — a surface taller than the page — the roomier
+    ; side wins and the surface is clamped to the page. It then covers its
+    ; anchor, which is what a browser does too: showing the rows is worth more
+    ; than the gap.
+
+    sfn oppositeSide:string (side:string) {
+        if (side == "top")    { return "bottom" }
+        if (side == "bottom") { return "top" }
+        if (side == "left")   { return "right" }
+        if (side == "right")  { return "left" }
+        return side
+    }
+
+    ; How much room there is between the anchor and the page edge on this side,
+    ; gap included. Negative means the surface does not fit.
+    fn overlayRoom:double (side:string ax:double ay:double aw:double ah:double w:double h:double gap:double) {
+        if (side == "top")    { return ((ay - gap) - h) }
+        if (side == "bottom") { return ((pageHeight - ((ay + ah) + gap)) - h) }
+        if (side == "left")   { return ((ax - gap) - w) }
+        if (side == "right")  { return ((pageWidth - ((ax + aw) + gap)) - w) }
+        return 0.0
+    }
+
+    sfn clampTo:double (v:double lo:double hi:double) {
+        if (hi < lo) {
+            ; The surface is bigger than the page on this axis. Show the start
+            ; of it: the first rows of a menu are the ones it puts its
+            ; most-used item in.
+            return lo
+        }
+        if (v < lo) {
+            return lo
+        }
+        if (v > hi) {
+            return hi
+        }
+        return v
+    }
+
     fn placeOverlay:void (surface:EVGElement parent:EVGElement) {
         def w:double surface.calculatedWidth
         def h:double surface.calculatedHeight
         def x:double 0.0
         def y:double 0.0
 
+        if (surface.overlaySide == "cover") {
+            ; The page itself: a modal's backdrop. It is sized here rather than
+            ; with `width: 100%` because a percentage resolves against the
+            ; PARENT, and the parent of a dialog's backdrop is whatever part of
+            ; the page happened to declare the dialog — a card, a toolbar, a
+            ; row. A backdrop that covers its card and not the page is the
+            ; thing it exists to prevent.
+            x = 0.0
+            y = 0.0
+            surface.calculatedWidth = pageWidth
+            surface.calculatedHeight = pageHeight
+            surface.calculatedInnerWidth = (surface.box.getInnerWidth(pageWidth))
+            surface.calculatedInnerHeight = (surface.box.getInnerHeight(pageHeight))
+            w = pageWidth
+            h = pageHeight
+            surface.overlayPlacedSide = "cover"
+            ; Anything inside it was laid out against the old box, so it is laid
+            ; out again against this one. A backdrop is usually empty, but
+            ; nothing here requires that.
+            def kid:int 0
+            while (kid < (surface.getChildCount())) {
+                def kc:EVGElement (surface.getChild(kid))
+                kc.resetLayoutState()
+                kid = (kid + 1)
+            }
+            if ((surface.getChildCount()) > 0) {
+                this.layoutChildren(surface)
+                this.mirrorChildren(surface)
+            }
+        } {
         if (surface.overlaySide == "center") {
             ; Centred on the page: a modal, which has no anchor by definition.
             x = ((pageWidth - w) / 2.0)
             y = ((pageHeight - h) / 2.0)
+            surface.overlayPlacedSide = "center"
         } {
             def maybe@(optional):EVGElement (this.findOverlayAnchor(surface parent))
             if (null? maybe) {
@@ -1583,23 +1664,45 @@ class EVGLayout {
             def ay:double a.calculatedY
             def aw:double a.calculatedWidth
             def ah:double a.calculatedHeight
+            def gap:double surface.overlayGap
 
-            if (surface.overlaySide == "top") {
-                x = (this.overlayCross(ax aw w surface.overlayAlign))
-                y = ((ay - h) - surface.overlayGap)
+            ; Flip, if the other side is better. `better` and not merely
+            ; `fits`: when neither fits the roomier one still loses less.
+            def side:string surface.overlaySide
+            def other:string (EVGLayout.oppositeSide(side))
+            def here:double (this.overlayRoom(side ax ay aw ah w h gap))
+            if (here < 0.0) {
+                def there:double (this.overlayRoom(other ax ay aw ah w h gap))
+                if (there > here) {
+                    side = other
+                }
             }
-            if (surface.overlaySide == "bottom") {
+            surface.overlayPlacedSide = side
+
+            if (side == "top") {
                 x = (this.overlayCross(ax aw w surface.overlayAlign))
-                y = ((ay + ah) + surface.overlayGap)
+                y = ((ay - h) - gap)
             }
-            if (surface.overlaySide == "right") {
-                x = ((ax + aw) + surface.overlayGap)
+            if (side == "bottom") {
+                x = (this.overlayCross(ax aw w surface.overlayAlign))
+                y = ((ay + ah) + gap)
+            }
+            if (side == "right") {
+                x = ((ax + aw) + gap)
                 y = (this.overlayCross(ay ah h surface.overlayAlign))
             }
-            if (surface.overlaySide == "left") {
-                x = ((ax - w) - surface.overlayGap)
+            if (side == "left") {
+                x = ((ax - w) - gap)
                 y = (this.overlayCross(ay ah h surface.overlayAlign))
             }
+
+            ; Shift onto the page. Both axes are clamped, not only the cross
+            ; one: after a flip that did not help there is nothing else left to
+            ; do, and a surface half off the page is worse than one that covers
+            ; its anchor.
+            x = (EVGLayout.clampTo(x 0.0 (pageWidth - w)))
+            y = (EVGLayout.clampTo(y 0.0 (pageHeight - h)))
+        }
         }
 
         surface.overlayX = x

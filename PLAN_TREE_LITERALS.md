@@ -236,6 +236,10 @@ Two EVG limits the menubar exposed, neither of them about the syntax:
   canvas — and the syntax again did not change. The roles are `(role
   "menuitem")` on a TAG, beside the class, so one declaration says what a thing
   looks like and what it means, and no call site says either twice.
+
+  Collision handling went the same way: `atBottom` moves the bar to the bottom
+  of the page and the menus open upwards, and the demo does not know a flip
+  happened. It moved a bar; the placement followed.
 - **`width: fill` is not "the remaining space".** It resolves to the parent's
   full width, so a filled label pushes its shortcut onto the next line. The
   demo's columns are therefore numbers.

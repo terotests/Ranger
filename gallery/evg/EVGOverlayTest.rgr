@@ -23,7 +23,10 @@
 ;   * it PAINTS above the page, not merely later in the tree — a menu whose
 ;     trigger comes first must still cover the menu next to it;
 ;   * and a click in the area it covers HITS IT, not what is underneath, which
-;     is the same rule as painting and is therefore the same list.
+;     is the same rule as painting and is therefore the same list;
+;   * near an edge it FLIPS to the other side of its anchor and SHIFTS along
+;     the edge, because a menu drawn half off the page is worse than a menu
+;     drawn above its trigger.
 ; ==============================================================================
 
 Import "EVGElement.rgr"
@@ -44,6 +47,14 @@ class OverlayCheck {
             failed = (failed + 1)
             print ("  FAIL " + name)
         }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got '" + got + "' want '" + want + "'")
+        }
+        this.ok(name good)
     }
 
     fn eqInt:void (name:string got:int want:int) {
@@ -342,6 +353,145 @@ class EVGOverlayTest {
             ((hit.idAt(page (t2.calculatedX + 10.0) (t2.calculatedY + 200.0))) == "t2"))
     }
 
+    ; ---- collisions ----------------------------------------------------------
+    ; A menu near the bottom of the page opens upwards. Every real menu does
+    ; this, and the reason is not aesthetics: the part that falls off the page
+    ; cannot be clicked or read, so a surface that ignores the edge silently
+    ; loses rows.
+
+    ; One anchor at a given spot, with a surface hanging off it. The page is
+    ; 800x600, so putting the anchor near an edge is how the collision is set up.
+    sfn buildAt:EVGElement (ax:double ay:double side:string align:string sw:double sh:double) {
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def holder:EVGElement (EVGElement.createDiv())
+        holder.id = "holder"
+        holder.setAttribute("position" "absolute")
+        holder.setAttribute("left" ((to_string (to_int ax)) + "px"))
+        holder.setAttribute("top" ((to_string (to_int ay)) + "px"))
+        holder.setAttribute("width" "60px")
+        holder.setAttribute("height" "30px")
+
+        def anchor:EVGElement (EVGOverlayTest.box("anchor" "anchor" 60.0 30.0))
+        anchor.setAttribute("overlay-anchor-role" "true")
+        def surface:EVGElement (EVGOverlayTest.box("surface" "surface" sw sh))
+        surface.setAttribute("overlay" "true")
+        surface.setAttribute("overlay-side" side)
+        surface.setAttribute("overlay-align" align)
+        surface.setAttribute("overlay-gap" "4")
+
+        holder.addChild(anchor)
+        holder.addChild(surface)
+        page.addChild(holder)
+        return page
+    }
+
+    sfn testFlip:void (c:OverlayCheck) {
+        print "--- a surface near an edge opens the other way ---"
+        ; Room below: nothing moves. This one is here so the flip cannot be a
+        ; test that passes because the code always flips.
+        def roomy:EVGElement (EVGOverlayTest.buildAt(100.0 100.0 "bottom" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(roomy)
+        def s1:EVGElement (EVGOverlayTest.nodeById(roomy "surface"))
+        def a1:EVGElement (EVGOverlayTest.nodeById(roomy "anchor"))
+        c.eqStr("with room, it stays where it was asked to be" s1.overlayPlacedSide "bottom")
+        c.eqInt("under the anchor" (to_int s1.calculatedY) (to_int ((a1.calculatedY + a1.calculatedHeight) + 4.0)))
+
+        ; 520 + 30 + 4 + 120 = 674, which is off a 600-tall page.
+        def tight:EVGElement (EVGOverlayTest.buildAt(100.0 520.0 "bottom" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(tight)
+        def s2:EVGElement (EVGOverlayTest.nodeById(tight "surface"))
+        def a2:EVGElement (EVGOverlayTest.nodeById(tight "anchor"))
+        c.eqStr("with no room below, it opens upwards" s2.overlayPlacedSide "top")
+        c.eqInt("above the anchor, past the gap"
+            (to_int s2.calculatedY)
+            (to_int ((a2.calculatedY - 120.0) - 4.0)))
+        c.ok("and is fully on the page" ((s2.calculatedY >= 0.0) && (((s2.calculatedY + 120.0)) <= 600.0)))
+
+        ; The same, sideways: a submenu at the right edge opens to the left.
+        def right:EVGElement (EVGOverlayTest.buildAt(700.0 100.0 "right" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(right)
+        def s3:EVGElement (EVGOverlayTest.nodeById(right "surface"))
+        def a3:EVGElement (EVGOverlayTest.nodeById(right "anchor"))
+        c.eqStr("a submenu at the right edge opens to the left" s3.overlayPlacedSide "left")
+        c.eqInt("beside the anchor, past the gap"
+            (to_int s3.calculatedX)
+            (to_int ((a3.calculatedX - 200.0) - 4.0)))
+    }
+
+    sfn testShift:void (c:OverlayCheck) {
+        print "--- and slides along the edge rather than hanging off it ---"
+        ; Anchored at x=700 with a 200-wide surface aligned to its left edge:
+        ; 700 + 200 = 900, off an 800-wide page. The side is fine; the CROSS
+        ; axis is not, and the fix is to slide, not to flip.
+        def page:EVGElement (EVGOverlayTest.buildAt(700.0 100.0 "bottom" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(page)
+        def s:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        def a:EVGElement (EVGOverlayTest.nodeById(page "anchor"))
+        c.eqStr("it is still below" s.overlayPlacedSide "bottom")
+        c.eqInt("and its right edge is the page's" (to_int (s.calculatedX + 200.0)) 800)
+        ; Sliding it back has to keep it attached to what opened it. A panel
+        ; that no longer overlaps its trigger has stopped being that trigger's.
+        c.ok("while still overlapping its anchor"
+            ((s.calculatedX < (a.calculatedX + a.calculatedWidth)) && ((s.calculatedX + 200.0) > a.calculatedX)))
+        ; The subtree comes along, as it does for the first placement.
+        c.ok("and the move is the whole surface" (s.calculatedX < a.calculatedX))
+    }
+
+    sfn testNoRoomEitherWay:void (c:OverlayCheck) {
+        print "--- with no room on either side it takes the roomier one ---"
+        ; A surface taller than the page cannot fit above or below. Drawing it
+        ; off the top would lose the first rows, which are the ones a menu puts
+        ; its most-used item in.
+        ;
+        ; The anchor sits at y=300 on a 600-tall page, so there are 296px above
+        ; it and 266 below: neither is enough for 700, and `top` loses less. It
+        ; asked for `bottom` and gets `top`, which is the rule doing its job
+        ; rather than a fits/does-not-fit test.
+        def page:EVGElement (EVGOverlayTest.buildAt(100.0 300.0 "bottom" "start" 200.0 700.0))
+        EVGOverlayTest.laidOut(page)
+        def s:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        c.eqInt("it starts at the top of the page" (to_int s.calculatedY) 0)
+        c.eqStr("on the side that loses less" s.overlayPlacedSide "top")
+    }
+
+    ; A modal's backdrop: the page itself, not the card the dialog was declared
+    ; in. This is the case a percentage cannot express — `width: 100%` resolves
+    ; against the PARENT, and the parent of a dialog is whatever part of the
+    ; page happened to declare it.
+    sfn testCover:void (c:OverlayCheck) {
+        print "--- a backdrop covers the page, not its parent ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def card:EVGElement (EVGOverlayTest.box("card" "card" 200.0 100.0))
+        def backdrop:EVGElement (EVGOverlayTest.box("backdrop" "backdrop" 50.0 20.0))
+        backdrop.setAttribute("overlay" "true")
+        backdrop.setAttribute("overlay-side" "cover")
+        def dialog:EVGElement (EVGOverlayTest.box("dialog" "dialog" 300.0 200.0))
+        dialog.setAttribute("overlay" "true")
+        dialog.setAttribute("overlay-side" "center")
+        card.addChild(backdrop)
+        card.addChild(dialog)
+        page.addChild(card)
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+
+        def b:EVGElement (EVGOverlayTest.nodeById(page "backdrop"))
+        c.eqInt("it starts at the page's origin" (to_int (b.calculatedX + b.calculatedY)) 0)
+        c.eqInt("as wide as the page" (to_int b.calculatedWidth) 800)
+        c.eqInt("and as tall" (to_int b.calculatedHeight) 600)
+        def d:EVGElement (EVGOverlayTest.nodeById(page "dialog"))
+        c.eqInt("the dialog is centred on the page, not on the card" (to_int d.calculatedX) 250)
+        c.eqInt("and down" (to_int d.calculatedY) 200)
+        ; The card it was declared in is unchanged: a modal takes no space.
+        def cd:EVGElement (EVGOverlayTest.nodeById(page "card"))
+        c.eqInt("and the card it was declared in is untouched" (to_int cd.calculatedWidth) 200)
+        ; Painted after everything, and the dialog after the backdrop, so the
+        ; dim never covers the dialog.
+        def hit (new EVGHitTest())
+        c.eqStr("a press in the middle hits the dialog" (hit.idAt(page 400.0 300.0)) "dialog")
+        c.eqStr("and one at the edge hits the backdrop, not the page behind it"
+            (hit.idAt(page 20.0 560.0)) "backdrop")
+        c.eqInt("with nothing reported" (array_length (lay.getOverlayErrors())) 0)
+    }
+
     sfn main:void () {
         def c (new OverlayCheck())
         print "=== EVG overlay surfaces ==="
@@ -353,6 +503,10 @@ class EVGOverlayTest {
         EVGOverlayTest.testCentered(c)
         EVGOverlayTest.testPaintOrder(c)
         EVGOverlayTest.testHitTopmost(c)
+        EVGOverlayTest.testFlip(c)
+        EVGOverlayTest.testShift(c)
+        EVGOverlayTest.testNoRoomEitherWay(c)
+        EVGOverlayTest.testCover(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

@@ -209,8 +209,16 @@
   background-color: #e2e8f0;
   color: #0f172a;
 }
-.ui-dialog-overlay { background-color: rgba(15, 23, 42, 0.45); width: 100%; height: 120px; }
+/* The backdrop is sized by the overlay pass, not here: `overlay-side: cover`
+   means the page, and a percentage would resolve against whatever part of the
+   page declared the dialog. The 120px this used to carry was the height of a
+   backdrop that sat in the flow and pushed the page down. */
+.ui-dialog-overlay { background-color: rgba(15, 23, 42, 0.45); }
 .ui-dialog-content {
+  /* A width-less box in EVG is as wide as its parent, and a centred modal's
+     parent is the page — so without this the dialog is a full-width band
+     rather than a panel. */
+  width: fit-content;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -287,11 +295,16 @@
 .ui-toast-trigger-disabled,
 .ui-tooltip-trigger-disabled { opacity: 0.45; }
 
+/* Every floating surface: as wide as what it holds, because out of the flow
+   there is no row to divide up and a width-less box would take the whole page.
+   The panels used to sit IN the flow, where their parent's width was the
+   sensible answer. */
 .ui-popover-content,
 .ui-alertdialog-content,
 .ui-dropdownmenu-content,
 .ui-contextmenu-content,
 .ui-hovercard-content {
+  width: fit-content;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -310,7 +323,8 @@
   color: #0f172a;
 }
 
-.ui-alertdialog-overlay { background-color: rgba(15, 23, 42, 0.45); width: 100%; height: 120px; }
+/* Sized by the overlay pass — see .ui-dialog-overlay above. */
+.ui-alertdialog-overlay { background-color: rgba(15, 23, 42, 0.45); }
 .ui-alertdialog-title { color: #0f172a; font-size: 16px; }
 .ui-alertdialog-description { color: #475569; }
 .ui-alertdialog-cancel {
@@ -349,6 +363,7 @@
 /* --- tooltip and hover card ---------------------------------------------- */
 
 .ui-tooltip-content {
+  width: fit-content;
   border-radius: 6px;
   padding: 6px 10px;
   background-color: #0f172a;

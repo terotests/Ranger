@@ -187,6 +187,34 @@ class UiTree {
     ; says — a strip of tabs then stacks vertically no matter what `direction`
     ; the sheet asks for. Every control whose whole content is its label is
     ; therefore a leaf.
+    ; --- overlay surfaces -------------------------------------------------------
+    ; A popover's panel, a menu's list, a tooltip's bubble: out of the page's
+    ; flow, painted above it, anchored to the thing that opened it — and still
+    ; the trigger's SIBLING in the tree, so focus, events, `hidden` and the
+    ; accessibility walk all keep working exactly as they did.
+    ;
+    ; Two calls rather than a base class: a controller says which of its own
+    ; elements is the anchor and which is the surface, and the layout engine
+    ; does the rest. Nothing here knows what a popover is.
+
+    sfn anchor:void (el:EVGElement) {
+        el.isOverlayAnchor = true
+    }
+
+    sfn surface:void (el:EVGElement side:string align:string) {
+        el.isOverlay = true
+        el.overlaySide = side
+        el.overlayAlign = align
+    }
+
+    ; The page-sized dim behind a modal. `cover` is a side like any other, and
+    ; it is sized by the layout pass because a percentage would resolve against
+    ; the parent — which for a dialog is whatever part of the page declared it.
+    sfn backdrop:void (el:EVGElement) {
+        el.isOverlay = true
+        el.overlaySide = "cover"
+    }
+
     sfn leafText:void (el:EVGElement text:string) {
         UiTree.clearChildren(el)
         el.textContent = text

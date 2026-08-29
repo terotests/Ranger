@@ -18,6 +18,14 @@
   height: 560px;
 }
 
+/* The same page with the bar pushed to the bottom edge. Nothing else changes:
+   the menus then have no room below their triggers, and the overlay pass flips
+   them so they open upwards. It is here to make that visible rather than only
+   tested. */
+.mb-page-bottom {
+  justify-content: flex-end;
+}
+
 /* --- the bar ---------------------------------------------------------------- */
 
 .mb-root {

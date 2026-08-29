@@ -38,6 +38,7 @@ Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
 
 class UiHost {
     def root:EVGElement
@@ -590,31 +591,35 @@ class UiHost {
         return false
     }
 
-    fn hitIn:string (el:EVGElement px:double py:double) {
-        def i:int (array_length el.children)
-        while (i > 0) {
-            i = (i - 1)
-            def c:EVGElement (itemAt el.children i)
-            def got:string (this.hitIn(c px py))
-            if ((strlen got) > 0) {
-                return got
-            }
-        }
-        ; Self last: a label that is not a test id falls through to the control
-        ; that owns it.
-        if (this.containsPoint(el px py)) {
-            if (this.ownsTid(el.id)) {
-                return el.id
-            }
-        }
-        return ""
-    }
-
     ; The test id under the pointer, or "" for empty space.
+    ;
+    ; The scan is PAINT order, backwards — the same list `EVGDisplayList` draws
+    ; and `EVGHitTest` builds, so what is clicked is what is seen. Walking the
+    ; tree deepest-last-first is nearly the same answer and differs exactly
+    ; where it matters: an open menu's panel is drawn above the trigger BESIDE
+    ; it, and a tree walk reaches that trigger first. It would take the click
+    ; through the panel.
+    ;
+    ; A modal's backdrop covers the page, so with this order it is what a click
+    ; outside the dialog lands on — which is what makes a modal modal, rather
+    ; than a thing that merely looks like one.
     fn hitTest:string (px:double py:double) {
         if lastPage {
             def page:EVGElement (unwrap lastPage)
-            return (this.hitIn(page px py))
+            def hit (new EVGHitTest())
+            def order:[EVGElement] (hit.paintOrder(page))
+            def i:int ((array_length order) - 1)
+            while (i >= 0) {
+                def el:EVGElement (itemAt order i)
+                ; A label that is not a test id falls through to the control
+                ; that owns it, exactly as it did before.
+                if (this.ownsTid(el.id)) {
+                    if (this.containsPoint(el px py)) {
+                        return el.id
+                    }
+                }
+                i = (i - 1)
+            }
         }
         return ""
     }

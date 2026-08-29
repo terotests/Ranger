@@ -1170,6 +1170,7 @@ class EVGElement  {
     this.overlayGap = 4.0;
     this.overlayX = 0.0;
     this.overlayY = 0.0;
+    this.overlayPlacedSide = "";
     this.role = "";
     this.a11yLabel = "";
     this.a11yChecked = 0;
@@ -4748,40 +4749,91 @@ class EVGLayout  {
     let miss;
     return miss;
   };
+  overlayRoom (side, ax, ay, aw, ah, w, h, gap) {
+    if ( side == "top" ) {
+      return (ay - gap) - h;
+    }
+    if ( side == "bottom" ) {
+      return (this.pageHeight - ((ay + ah) + gap)) - h;
+    }
+    if ( side == "left" ) {
+      return (ax - gap) - w;
+    }
+    if ( side == "right" ) {
+      return (this.pageWidth - ((ax + aw) + gap)) - w;
+    }
+    return 0.0;
+  };
   placeOverlay (surface, parent) {
-    const w = surface.calculatedWidth;
-    const h = surface.calculatedHeight;
+    let w = surface.calculatedWidth;
+    let h = surface.calculatedHeight;
     let x = 0.0;
     let y = 0.0;
-    if ( surface.overlaySide == "center" ) {
-      x = (this.pageWidth - w) / 2.0;
-      y = (this.pageHeight - h) / 2.0;
+    if ( surface.overlaySide == "cover" ) {
+      x = 0.0;
+      y = 0.0;
+      surface.calculatedWidth = this.pageWidth;
+      surface.calculatedHeight = this.pageHeight;
+      surface.calculatedInnerWidth = surface.box.getInnerWidth(this.pageWidth);
+      surface.calculatedInnerHeight = surface.box.getInnerHeight(this.pageHeight);
+      w = this.pageWidth;
+      h = this.pageHeight;
+      surface.overlayPlacedSide = "cover";
+      let kid = 0;
+      while (kid < surface.getChildCount()) {
+        const kc = surface.getChild(kid);
+        kc.resetLayoutState();
+        kid = kid + 1;
+      };
+      if ( surface.getChildCount() > 0 ) {
+        this.layoutChildren(surface);
+        this.mirrorChildren(surface);
+      }
     } else {
-      const maybe = this.findOverlayAnchor(surface, parent);
-      if ( typeof(maybe) === "undefined" ) {
-        this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
-        return;
-      }
-      const a = maybe;
-      const ax = a.calculatedX;
-      const ay = a.calculatedY;
-      const aw = a.calculatedWidth;
-      const ah = a.calculatedHeight;
-      if ( surface.overlaySide == "top" ) {
-        x = this.overlayCross(ax, aw, w, surface.overlayAlign);
-        y = (ay - h) - surface.overlayGap;
-      }
-      if ( surface.overlaySide == "bottom" ) {
-        x = this.overlayCross(ax, aw, w, surface.overlayAlign);
-        y = (ay + ah) + surface.overlayGap;
-      }
-      if ( surface.overlaySide == "right" ) {
-        x = (ax + aw) + surface.overlayGap;
-        y = this.overlayCross(ay, ah, h, surface.overlayAlign);
-      }
-      if ( surface.overlaySide == "left" ) {
-        x = (ax - w) - surface.overlayGap;
-        y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+      if ( surface.overlaySide == "center" ) {
+        x = (this.pageWidth - w) / 2.0;
+        y = (this.pageHeight - h) / 2.0;
+        surface.overlayPlacedSide = "center";
+      } else {
+        const maybe = this.findOverlayAnchor(surface, parent);
+        if ( typeof(maybe) === "undefined" ) {
+          this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
+          return;
+        }
+        const a = maybe;
+        const ax = a.calculatedX;
+        const ay = a.calculatedY;
+        const aw = a.calculatedWidth;
+        const ah = a.calculatedHeight;
+        const gap = surface.overlayGap;
+        let side = surface.overlaySide;
+        const other = EVGLayout.oppositeSide(side);
+        const here = this.overlayRoom(side, ax, ay, aw, ah, w, h, gap);
+        if ( here < 0.0 ) {
+          const there = this.overlayRoom(other, ax, ay, aw, ah, w, h, gap);
+          if ( there > here ) {
+            side = other;
+          }
+        }
+        surface.overlayPlacedSide = side;
+        if ( side == "top" ) {
+          x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+          y = (ay - h) - gap;
+        }
+        if ( side == "bottom" ) {
+          x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+          y = (ay + ah) + gap;
+        }
+        if ( side == "right" ) {
+          x = (ax + aw) + gap;
+          y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+        }
+        if ( side == "left" ) {
+          x = (ax - w) - gap;
+          y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+        }
+        x = EVGLayout.clampTo(x, 0.0, (this.pageWidth - w));
+        y = EVGLayout.clampTo(y, 0.0, (this.pageHeight - h));
       }
     }
     surface.overlayX = x;
@@ -5348,6 +5400,33 @@ class EVGLayout  {
     return maxInnerWidth;
   };
 }
+EVGLayout.oppositeSide = function(side) {
+  if ( side == "top" ) {
+    return "bottom";
+  }
+  if ( side == "bottom" ) {
+    return "top";
+  }
+  if ( side == "left" ) {
+    return "right";
+  }
+  if ( side == "right" ) {
+    return "left";
+  }
+  return side;
+};
+EVGLayout.clampTo = function(v, lo, hi) {
+  if ( hi < lo ) {
+    return lo;
+  }
+  if ( v < lo ) {
+    return lo;
+  }
+  if ( v > hi ) {
+    return hi;
+  }
+  return v;
+};
 class PathCommand  {
   constructor() {
     this.type = "";
@@ -9148,6 +9227,13 @@ class OverlayCheck  {
       console.log("  FAIL " + name);
     }
   };
+  eqStr (name, got, want) {
+    const good = got == want;
+    if ( good == false ) {
+      console.log(((("       got '" + got) + "' want '") + want) + "'");
+    }
+    this.ok(name, good);
+  };
   eqInt (name, got, want) {
     const good = got == want;
     if ( good == false ) {
@@ -9377,6 +9463,96 @@ EVGOverlayTest.testHitTopmost = function(c) {
   c.ok("and the panel answers", hit.idAt(page, px, py) == "panel");
   c.ok("a point outside answers the element under it", hit.idAt(page, (t2.calculatedX + 10.0), (t2.calculatedY + 200.0)) == "t2");
 };
+EVGOverlayTest.buildAt = function(ax, ay, side, align, sw, sh) {
+  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
+  const holder = EVGElement.createDiv();
+  holder.id = "holder";
+  holder.setAttribute("position", "absolute");
+  holder.setAttribute("left", (((Math.floor( ax)).toString())) + "px");
+  holder.setAttribute("top", (((Math.floor( ay)).toString())) + "px");
+  holder.setAttribute("width", "60px");
+  holder.setAttribute("height", "30px");
+  const anchor = EVGOverlayTest.box("anchor", "anchor", 60.0, 30.0);
+  anchor.setAttribute("overlay-anchor-role", "true");
+  const surface = EVGOverlayTest.box("surface", "surface", sw, sh);
+  surface.setAttribute("overlay", "true");
+  surface.setAttribute("overlay-side", side);
+  surface.setAttribute("overlay-align", align);
+  surface.setAttribute("overlay-gap", "4");
+  holder.addChild(anchor);
+  holder.addChild(surface);
+  page.addChild(holder);
+  return page;
+};
+EVGOverlayTest.testFlip = function(c) {
+  console.log("--- a surface near an edge opens the other way ---");
+  const roomy = EVGOverlayTest.buildAt(100.0, 100.0, "bottom", "start", 200.0, 120.0);
+  EVGOverlayTest.laidOut(roomy);
+  const s1 = EVGOverlayTest.nodeById(roomy, "surface");
+  const a1 = EVGOverlayTest.nodeById(roomy, "anchor");
+  c.eqStr("with room, it stays where it was asked to be", s1.overlayPlacedSide, "bottom");
+  c.eqInt("under the anchor", Math.floor( s1.calculatedY), Math.floor( ((a1.calculatedY + a1.calculatedHeight) + 4.0)));
+  const tight = EVGOverlayTest.buildAt(100.0, 520.0, "bottom", "start", 200.0, 120.0);
+  EVGOverlayTest.laidOut(tight);
+  const s2 = EVGOverlayTest.nodeById(tight, "surface");
+  const a2 = EVGOverlayTest.nodeById(tight, "anchor");
+  c.eqStr("with no room below, it opens upwards", s2.overlayPlacedSide, "top");
+  c.eqInt("above the anchor, past the gap", Math.floor( s2.calculatedY), Math.floor( ((a2.calculatedY - 120.0) - 4.0)));
+  c.ok("and is fully on the page", (s2.calculatedY >= 0.0) && ((s2.calculatedY + 120.0) <= 600.0));
+  const right = EVGOverlayTest.buildAt(700.0, 100.0, "right", "start", 200.0, 120.0);
+  EVGOverlayTest.laidOut(right);
+  const s3 = EVGOverlayTest.nodeById(right, "surface");
+  const a3 = EVGOverlayTest.nodeById(right, "anchor");
+  c.eqStr("a submenu at the right edge opens to the left", s3.overlayPlacedSide, "left");
+  c.eqInt("beside the anchor, past the gap", Math.floor( s3.calculatedX), Math.floor( ((a3.calculatedX - 200.0) - 4.0)));
+};
+EVGOverlayTest.testShift = function(c) {
+  console.log("--- and slides along the edge rather than hanging off it ---");
+  const page = EVGOverlayTest.buildAt(700.0, 100.0, "bottom", "start", 200.0, 120.0);
+  EVGOverlayTest.laidOut(page);
+  const s = EVGOverlayTest.nodeById(page, "surface");
+  const a = EVGOverlayTest.nodeById(page, "anchor");
+  c.eqStr("it is still below", s.overlayPlacedSide, "bottom");
+  c.eqInt("and its right edge is the page's", Math.floor( (s.calculatedX + 200.0)), 800);
+  c.ok("while still overlapping its anchor", (s.calculatedX < (a.calculatedX + a.calculatedWidth)) && ((s.calculatedX + 200.0) > a.calculatedX));
+  c.ok("and the move is the whole surface", s.calculatedX < a.calculatedX);
+};
+EVGOverlayTest.testNoRoomEitherWay = function(c) {
+  console.log("--- with no room on either side it takes the roomier one ---");
+  const page = EVGOverlayTest.buildAt(100.0, 300.0, "bottom", "start", 200.0, 700.0);
+  EVGOverlayTest.laidOut(page);
+  const s = EVGOverlayTest.nodeById(page, "surface");
+  c.eqInt("it starts at the top of the page", Math.floor( s.calculatedY), 0);
+  c.eqStr("on the side that loses less", s.overlayPlacedSide, "top");
+};
+EVGOverlayTest.testCover = function(c) {
+  console.log("--- a backdrop covers the page, not its parent ---");
+  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
+  const card = EVGOverlayTest.box("card", "card", 200.0, 100.0);
+  const backdrop = EVGOverlayTest.box("backdrop", "backdrop", 50.0, 20.0);
+  backdrop.setAttribute("overlay", "true");
+  backdrop.setAttribute("overlay-side", "cover");
+  const dialog = EVGOverlayTest.box("dialog", "dialog", 300.0, 200.0);
+  dialog.setAttribute("overlay", "true");
+  dialog.setAttribute("overlay-side", "center");
+  card.addChild(backdrop);
+  card.addChild(dialog);
+  page.addChild(card);
+  const lay = EVGOverlayTest.laidOut(page);
+  const b = EVGOverlayTest.nodeById(page, "backdrop");
+  c.eqInt("it starts at the page's origin", Math.floor( (b.calculatedX + b.calculatedY)), 0);
+  c.eqInt("as wide as the page", Math.floor( b.calculatedWidth), 800);
+  c.eqInt("and as tall", Math.floor( b.calculatedHeight), 600);
+  const d = EVGOverlayTest.nodeById(page, "dialog");
+  c.eqInt("the dialog is centred on the page, not on the card", Math.floor( d.calculatedX), 250);
+  c.eqInt("and down", Math.floor( d.calculatedY), 200);
+  const cd = EVGOverlayTest.nodeById(page, "card");
+  c.eqInt("and the card it was declared in is untouched", Math.floor( cd.calculatedWidth), 200);
+  const hit = new EVGHitTest();
+  c.eqStr("a press in the middle hits the dialog", hit.idAt(page, 400.0, 300.0), "dialog");
+  c.eqStr("and one at the edge hits the backdrop, not the page behind it", hit.idAt(page, 20.0, 560.0), "backdrop");
+  c.eqInt("with nothing reported", lay.getOverlayErrors().length, 0);
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new OverlayCheck();
@@ -9389,6 +9565,10 @@ function __js_main() {
   EVGOverlayTest.testCentered(c);
   EVGOverlayTest.testPaintOrder(c);
   EVGOverlayTest.testHitTopmost(c);
+  EVGOverlayTest.testFlip(c);
+  EVGOverlayTest.testShift(c);
+  EVGOverlayTest.testNoRoomEitherWay(c);
+  EVGOverlayTest.testCover(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {
