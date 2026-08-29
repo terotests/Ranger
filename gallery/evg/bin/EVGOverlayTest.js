@@ -9558,6 +9558,31 @@ EVGOverlayTest.testCover = function(c) {
   c.eqStr("and one at the edge hits the backdrop, not the page behind it", hit.idAt(page, 20.0, 560.0), "backdrop");
   c.eqInt("with nothing reported", lay.getOverlayErrors().length, 0);
 };
+EVGOverlayTest.testFitText = function(c) {
+  console.log("--- fit-content measures text, not only children ---");
+  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
+  const badge = EVGElement.createDiv();
+  badge.id = "badge";
+  badge.setAttribute("width", "fit-content");
+  badge.setAttribute("padding", "4px 12px");
+  badge.setAttribute("font-size", "13px");
+  badge.textContent = "document";
+  const wide = EVGElement.createDiv();
+  wide.id = "wide";
+  wide.setAttribute("width", "fit-content");
+  wide.setAttribute("padding", "4px 12px");
+  wide.setAttribute("font-size", "13px");
+  wide.textContent = "a much longer label";
+  page.addChild(badge);
+  page.addChild(wide);
+  EVGOverlayTest.laidOut(page);
+  const b = EVGOverlayTest.nodeById(page, "badge");
+  const w = EVGOverlayTest.nodeById(page, "wide");
+  c.ok("a badge is narrower than the page it sits in", b.calculatedWidth < 200.0);
+  c.ok("but wide enough for its word", b.calculatedWidth > 40.0);
+  c.ok("a longer label is wider", w.calculatedWidth > b.calculatedWidth);
+  c.ok("and still not the whole page", w.calculatedWidth < 400.0);
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new OverlayCheck();
@@ -9574,6 +9599,7 @@ function __js_main() {
   EVGOverlayTest.testShift(c);
   EVGOverlayTest.testNoRoomEitherWay(c);
   EVGOverlayTest.testCover(c);
+  EVGOverlayTest.testFitText(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {

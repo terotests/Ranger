@@ -36,8 +36,11 @@ const domRequire = createRequire(path.join(ROOT, "gallery/ui/conformance/dom/pac
 
 const { MenubarDemo } = require(path.join(ROOT, "gallery/ui/bin/MenubarDemo.cjs"));
 const { ToolbarDemo } = require(path.join(ROOT, "gallery/ui/bin/ToolbarDemo.cjs"));
+const { SortableDemo } = require(path.join(ROOT, "gallery/ui/bin/SortableDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
+const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
+const ORDER = ["demo", "spec", "video", "audio", "extra"];
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -71,6 +74,18 @@ const STATES = [
     size: [1240, 560],
     lint: () => MenubarDemo.a11yProblems(MENUBAR_CSS, CHECKED, "Luis", "File", true, true),
     tree: () => MenubarDemo.a11yJson(MENUBAR_CSS, CHECKED, "Luis", "File", true, true, 5, ""),
+  },
+  {
+    name: "sortable — at rest",
+    size: [1240, 560],
+    lint: () => SortableDemo.a11yProblems(SORTABLE_CSS, ORDER, ""),
+    tree: () => SortableDemo.a11yJson(SORTABLE_CSS, ORDER, "", 6, ""),
+  },
+  {
+    name: "sortable — a row picked up",
+    size: [1240, 560],
+    lint: () => SortableDemo.a11yProblems(SORTABLE_CSS, ORDER, "video"),
+    tree: () => SortableDemo.a11yJson(SORTABLE_CSS, ORDER, "video", 7, "sr-row-video"),
   },
   {
     name: "toolbar",

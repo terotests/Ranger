@@ -25,8 +25,8 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo } from "./generated-host.js";
-import { MENUBAR_CSS, TOOLBAR_CSS } from "./generated.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo } from "./generated-host.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -36,8 +36,15 @@ const MENUS = ["File", "Edit", "View", "Profiles"];
 const SUB_ROWS = { File: "row-Share", Edit: "row-Find" };
 const SUB_SURFACE = { File: "menu-share-content", Edit: "menu-find-content" };
 
+const SORTABLE_IDS = ["demo", "spec", "video", "audio", "extra"];
+
 const state = {
   which: "menubar",
+  // The sortable's whole state: an order, and what is being carried. There is
+  // no move and no animation — the tree is rebuilt from this list, which is
+  // the claim the rest of this directory makes about tree literals.
+  order: SORTABLE_IDS.slice(),
+  dragging: "",
   open: "File",
   submenu: true,
   // The bar at the bottom edge, where the menus have no room below their
@@ -78,7 +85,84 @@ const DEMOS = {
     hover: () => false,
     key: () => false,
   },
+  sortable: {
+    height: 560,
+    args: () => [SORTABLE_CSS, state.order, state.dragging],
+    module: SortableDemo,
+    press: pressSortable,
+    hover: () => false,
+    key: keySortable,
+    // The one demo with a gesture rather than a press: the pointer has to
+    // travel before anything moves, exactly as it does in dnd-kit.
+    drag: dragSortable,
+    drop: dropSortable,
+  },
 };
+
+// --- the sortable's gesture ---------------------------------------------------
+// Reordering is `arrayMove`, not a swap: the item is taken out and put back at
+// the new index, so dragging the first onto the third gives 2, 3, 1. A swap
+// would give 3, 2, 1, and it is the first thing a hand-written sortable gets
+// wrong.
+
+function idOfRow(hit) {
+  return hit && hit.startsWith("sr-row-") ? hit.slice("sr-row-".length) : "";
+}
+
+function arrayMove(list, from, to) {
+  const out = list.slice();
+  const [moved] = out.splice(from, 1);
+  out.splice(to, 0, moved);
+  return out;
+}
+
+function pressSortable(id) {
+  const value = idOfRow(id);
+  if (!value) return false;
+  state.dragging = value;
+  state.focus = id;
+  return true;
+}
+
+function dragSortable(id) {
+  const over = idOfRow(id);
+  if (!over || !state.dragging || over === state.dragging) return false;
+  const from = state.order.indexOf(state.dragging);
+  const to = state.order.indexOf(over);
+  if (from < 0 || to < 0) return false;
+  state.order = arrayMove(state.order, from, to);
+  return true;
+}
+
+function dropSortable() {
+  if (!state.dragging) return false;
+  state.dragging = "";
+  return true;
+}
+
+// Space picks up and drops, arrows move, Escape puts it back — the same
+// keyboard the conformance harness measures `SortableCtl` against.
+function keySortable(key) {
+  const focused = idOfRow(state.focus);
+  if (!focused) return false;
+  if (key === " " || key === "Enter") {
+    state.dragging = state.dragging ? "" : focused;
+    return true;
+  }
+  if (key === "Escape") {
+    if (!state.dragging) return false;
+    state.dragging = "";
+    return true;
+  }
+  if (!state.dragging) return false;
+  const step = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+  if (!step) return false;
+  const at = state.order.indexOf(state.dragging);
+  const next = at + step;
+  if (next < 0 || next >= state.order.length) return false;
+  state.order = arrayMove(state.order, at, next);
+  return true;
+}
 
 const canvas = document.getElementById("c");
 const stage = document.getElementById("stage");
@@ -337,6 +421,9 @@ function syncControls() {
   }
   document.getElementById("submenu").checked = state.submenu;
   document.getElementById("atbottom").checked = state.atBottom;
+  // The order, as a second view of the same state — the sidebar is where you
+  // check that what you dragged is what the page now holds.
+  document.getElementById("order").textContent = state.order.join(" → ");
 }
 
 function syncPanels() {
@@ -348,7 +435,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar"],
+  ["menubar", "toolbar", "sortable"],
   () => state.which,
   (v) => {
     state.which = v;
@@ -415,12 +502,35 @@ document.getElementById("atbottom").addEventListener("change", (e) => {
 // The canvas is where the picture is, so the canvas is where a press lands.
 // `offsetX/offsetY` are already in the page's own coordinates because the
 // canvas is laid out at exactly the size the display list was built for.
+let held = false;
 canvas.addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
+  const d = demo();
+  if (d.drag) {
+    // A demo with a gesture: the press picks up, the move carries, the release
+    // puts down. Nothing happens on a press that never travels.
+    held = d.press(hitAt(ev.offsetX, ev.offsetY));
+    if (held) {
+      canvas.setPointerCapture(ev.pointerId);
+      paint();
+    }
+    return;
+  }
   press(ev.offsetX, ev.offsetY);
 });
 canvas.addEventListener("pointermove", (ev) => {
-  if (demo().hover(hitAt(ev.offsetX, ev.offsetY))) paint();
+  const d = demo();
+  if (held && d.drag) {
+    if (d.drag(hitAt(ev.offsetX, ev.offsetY))) paint();
+    return;
+  }
+  if (d.hover(hitAt(ev.offsetX, ev.offsetY))) paint();
+});
+canvas.addEventListener("pointerup", () => {
+  const d = demo();
+  if (!held || !d.drop) return;
+  held = false;
+  if (d.drop()) paint();
 });
 canvas.addEventListener("pointerleave", () => {
   if (demo().hover("")) paint();

@@ -1,0 +1,125 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * ReUI's Sortable, as an EVG stylesheet. Class-first: every class here is one
+ * SortableDemo.rgr writes, and the literal carries no appearance at all.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so a compound class like
+ * "sr-badge sr-badge-video" is matched by its own token rather than by a
+ * compound rule — the same limit the other two sheets in this directory note.
+ */
+
+.sr-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #f1f5f9;
+  padding: 40px;
+  width: 1240px;
+  height: 560px;
+}
+
+.sr-list {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 720px;
+}
+
+/* A card. `space-between` puts the badge and the size at the far end without a
+   spacer element, which is what the toolbar demo established. */
+.sr-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  background-color: #ffffff;
+  height: 76px;
+}
+
+/* Being carried. The row stays where it is in the list and is lifted rather
+   than hidden — the reference moves it with a transform, and what the eye
+   should follow is the row, not the hole it left. */
+.sr-row-dragging {
+  border: 1px solid #6366f1;
+  background-color: #eef2ff;
+}
+
+/* The handle, the type glyph and everything else on the left. Widths are
+   numbers because a row child with no width takes the parent's full width in
+   EVG — the gap recorded in toolbar.css, and still true here. */
+.sr-grip {
+  width: 20px;
+  color: #94a3b8;
+  font-size: 17px;
+}
+
+.sr-icon {
+  width: 28px;
+  color: #64748b;
+  font-size: 19px;
+}
+
+.sr-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+  width: 380px;
+}
+
+.sr-title {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: bold;
+  height: 20px;
+}
+
+.sr-subtitle {
+  color: #64748b;
+  font-size: 13px;
+  height: 18px;
+}
+
+/* The right-hand pair. `fit-content` so the two sit together at the end
+   instead of the badge filling everything that is left. */
+.sr-right {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
+  width: fit-content;
+}
+
+.sr-badge {
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  height: 26px;
+  /* Hugs its word, like the reference's pill. It works because `fit-content`
+     leaves the width unset and a box holding only text is measured from the
+     text — pinned by a check in EVGOverlayTest, because nothing else says so. */
+  width: fit-content;
+  text-align: center;
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+/* Colour from the item's kind, chosen by the builder rather than by a rule
+   with a branch in it: the class IS the data. */
+.sr-badge-image    { background-color: #f1f5f9; color: #334155; }
+.sr-badge-document { background-color: #dcfce7; color: #166534; }
+.sr-badge-video    { background-color: #ede9fe; color: #5b21b6; }
+.sr-badge-audio    { background-color: #fee2e2; color: #991b1b; }
+
+.sr-size {
+  width: 72px;
+  text-align: right;
+  color: #475569;
+  font-size: 14px;
+}

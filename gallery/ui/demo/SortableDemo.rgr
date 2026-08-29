@@ -1,0 +1,240 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SortableDemo — a sortable file list, written with Ranger tree literals
+; =============================================================================
+; The reference is ReUI's Sortable (https://reui.io/components/sortable): a
+; column of cards, each with a drag handle, a type icon, a title with a line of
+; description under it, a coloured badge and a size at the far right. The
+; behaviour underneath it is @dnd-kit, which `SortableCtl` in gallery/ui/src is
+; measured against; this is the same interaction wearing the clothes the
+; reference wears, because "does it work" and "does it look like the thing"
+; are two different questions and the conformance host only answers the first.
+;
+; A third `treefactory`, and the tags say what a row is made of rather than
+; what it is made from: `Grip`, `Icon`, `Title`, `Subtitle`, `Badge`, `Size`.
+; None of them mean anything to the other two factories in this directory.
+;
+; What this one exercises that the menubar and toolbar did not:
+;
+;   * a row with three regions — a fixed left, a growing middle, a fixed right
+;     — which is `space-between` plus `fit-content`, and the first layout here
+;     that has to survive text of different lengths.
+;   * per-kind styling from data: the badge's colour is a class the builder
+;     picks from the item's kind, not a branch in the stylesheet.
+;   * ORDER as state. The page holds a list of ids and hands it over; the tree
+;     is rebuilt from it. There is no move, no animation and no reconciler —
+;     reordering is rebuilding, which is the whole claim of this directory.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Sortable {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "sr-page"))
+    ; A GROUP, not a list. `role="list"` demands `listitem` children and these
+    ; are buttons — axe called it critical, and it is right: a reader that is
+    ; promised a list and handed five buttons is told the wrong thing about
+    ; what it is walking. The reference does not name the container at all;
+    ; naming it costs nothing and gives the set an identity.
+    tag List     EVGElement (props (className "sr-list") (role "group") (a11yLabel "Product files"))
+    ; A row is what you pick up, so it carries the role, the tab stop and the
+    ; role description — the same three things dnd-kit puts on its items, and
+    ; the reason a reader is told "sortable" rather than just "button".
+    tag Row      EVGElement (props (className "sr-row") (role "button") (a11yFocusable true) (a11yRoleDescription "sortable"))
+    tag Grip     EVGElement (props (className "sr-grip") (elementType 1))
+    tag Icon     EVGElement (props (className "sr-icon") (elementType 1))
+    tag Body     EVGElement (props (className "sr-body"))
+    tag Title    EVGElement (props (className "sr-title") (elementType 1))
+    tag Subtitle EVGElement (props (className "sr-subtitle") (elementType 1))
+    tag Right    EVGElement (props (className "sr-right"))
+    tag Badge    EVGElement (props (className "sr-badge") (elementType 1))
+    tag Size     EVGElement (props (className "sr-size") (elementType 1))
+}
+
+class SortableDemo {
+
+    ; --- the catalogue ---------------------------------------------------------
+    ; Five files, in the order the reference shows them. The demo's state is a
+    ; list of these ids and nothing else.
+
+    sfn ids:[string] () {
+        return ([] _:string ( "demo" "spec" "video" "audio" "extra" ))
+    }
+
+    sfn titleOf:string (id:string) {
+        if (id == "demo")  { return "Product Demo" }
+        if (id == "spec")  { return "Product Specification" }
+        if (id == "video") { return "Product Demo Video" }
+        if (id == "audio") { return "Product Audio Guide" }
+        if (id == "extra") { return "Product Specification" }
+        return id
+    }
+
+    sfn subtitleOf:string (id:string) {
+        if (id == "demo")  { return "Main product image" }
+        if (id == "spec")  { return "Technical details document" }
+        if (id == "video") { return "How to use the product" }
+        if (id == "audio") { return "Audio instructions" }
+        if (id == "extra") { return "Additional product view" }
+        return ""
+    }
+
+    sfn kindOf:string (id:string) {
+        if (id == "video") { return "video" }
+        if (id == "audio") { return "audio" }
+        if (id == "spec")  { return "document" }
+        return "image"
+    }
+
+    sfn sizeOf:string (id:string) {
+        if (id == "demo")  { return "2.4 MB" }
+        if (id == "spec")  { return "1.2 MB" }
+        if (id == "video") { return "15.7 MB" }
+        if (id == "audio") { return "8.3 MB" }
+        if (id == "extra") { return "3.1 MB" }
+        return ""
+    }
+
+    ; The type glyph. Deliberately geometric characters rather than emoji: EVG
+    ; draws what the font has, and an emoji that falls back to a box is worse
+    ; than a square that was meant to be one.
+    sfn glyphOf:string (kind:string) {
+        if (kind == "video")    { return "▶" }
+        if (kind == "audio")    { return "♪" }
+        if (kind == "document") { return "▤" }
+        return "▣"
+    }
+
+    ; --- a row -----------------------------------------------------------------
+
+    sfn rowId:string (id:string) {
+        return ("sr-row-" + id)
+    }
+
+    ; `dragging` is the id being carried, "" for none. It only changes classes:
+    ; where the row is DRAWN is the page's business, and the order it is drawn
+    ; in is the list it was handed.
+    sfn row:EVGElement (id:string dragging:string) {
+        def kind:string (SortableDemo.kindOf(id))
+        def cls:string "sr-row"
+        if (id == dragging) {
+            cls = "sr-row sr-row-dragging"
+        }
+        return (tree Sortable
+            (Row (props (id (SortableDemo.rowId(id))) (className cls) (a11yLabel (SortableDemo.titleOf(id))))
+                ; Six dots, the handle every list like this has. It is not a
+                ; separate target here: the whole row is draggable, and the
+                ; grip says so rather than being the only place that works.
+                (Grip "⠿")
+                (Icon (SortableDemo.glyphOf(kind)))
+                (Body
+                    (Title (SortableDemo.titleOf(id)))
+                    (Subtitle (SortableDemo.subtitleOf(id))))
+                (Right
+                    (Badge (props (className ("sr-badge sr-badge-" + kind))) kind)
+                    (Size (SortableDemo.sizeOf(id))))))
+    }
+
+    sfn list:EVGElement (order:[string] dragging:string) {
+        def out (tree Sortable (List (props (id "sr-list"))))
+        def i:int 0
+        while (i < (array_length order)) {
+            def id:string (itemAt order i)
+            out.addChild((SortableDemo.row(id dragging)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn page:EVGElement (order:[string] dragging:string) {
+        return (tree Sortable
+            (Page (props (id "page"))
+                (child (SortableDemo.list(order dragging)))))
+    }
+
+    ; --- one pipeline, four answers --------------------------------------------
+
+    sfn laidOut:EVGLayout (root:EVGElement css:string) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        sheet.setViewport(1240.0 560.0 false)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(1240.0 560.0)
+        lay.layout(root)
+        return lay
+    }
+
+    sfn displayListJson:string (css:string order:[string] dragging:string) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        def lay:EVGLayout (SortableDemo.laidOut(root css))
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn hitId:string (css:string order:[string] dragging:string px:double py:double) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        SortableDemo.laidOut(root css)
+        def hit (new EVGHitTest())
+        return (hit.idAt(root px py))
+    }
+
+    sfn a11yJson:string (css:string order:[string] dragging:string generation:int focusId:string) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        SortableDemo.laidOut(root css)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "Sortable demo" generation focusId))
+        return (t.toJson())
+    }
+
+    sfn a11yProblems:[string] (css:string order:[string] dragging:string) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        SortableDemo.laidOut(root css)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "Sortable demo" 1 ""))
+        return (t.lint())
+    }
+
+    sfn styleErrors:int (css:string) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        return (sheet.getErrorCount())
+    }
+
+    sfn describe:string (el:EVGElement depth:int) {
+        def pad:string ""
+        def i:int 0
+        while (i < depth) {
+            pad = pad + "  "
+            i = (i + 1)
+        }
+        def line:string (pad + el.className)
+        if ((strlen el.textContent) > 0) {
+            line = ((line + " ") + el.textContent)
+        }
+        def out:string (line + "\n")
+        def j:int 0
+        while (j < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children j)
+            out = out + (SortableDemo.describe(kid (depth + 1)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn main:void () {
+        print (SortableDemo.describe((SortableDemo.page((SortableDemo.ids()) "")) 0))
+    }
+}

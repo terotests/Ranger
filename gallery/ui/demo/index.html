@@ -29,6 +29,7 @@
       aside section[hidden] { display: none; }
       label { display: flex; gap: 8px; align-items: center; color: var(--dim); font-size: 13px; padding: 3px 0; cursor: pointer; }
       label:hover { color: var(--ink); }
+      .hint { color: var(--dim); font-size: 12.5px; margin: 2px 0 0; line-height: 1.7; }
       .stage { padding: 20px; overflow: auto; }
       /* The canvas and the accessibility mirror share one positioned box: the
          mirror's elements sit at the rectangles EVG laid out, over the pixels
@@ -46,7 +47,7 @@
       <h1>Ranger tree literals — Radix components</h1>
       <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
-        Two <code>treefactory</code> declarations, each naming its own tags over the
+        Three <code>treefactory</code> declarations, each naming its own tags over the
         same <code>EVGElement</code>, painted by EVG's WebGL painter. Every control
         here calls back into Ranger and rebuilds the whole tree.
       </p>
@@ -85,10 +86,22 @@
           <h2>align</h2>
           <div id="align"></div>
         </section>
+        <section data-for="sortable">
+          <h2>order</h2>
+          <p class="hint" id="order"></p>
+        </section>
       </aside>
       <div class="stage">
         <div id="stage"><canvas id="c"></canvas></div>
         <div id="err"></div>
+        <p class="note" data-for="sortable">
+          <strong>Drag a row onto another</strong> and the list reorders — and it is
+          <em>rebuilt</em>, not moved: the page holds an order and hands it over, and the
+          tree literal builds whatever it is given. Click a row and use Space, &uarr;
+          &darr; and Escape for the same thing from the keyboard. The behaviour is the
+          one <code>gallery/ui/src/SortableCtl.rgr</code> is measured against, item for
+          item, with <code>@dnd-kit/sortable</code> as the reference.
+        </p>
         <p class="note">
           <strong>Click it.</strong> The canvas answers the pointer through EVG&rsquo;s own
           hit testing: a press is resolved against the same laid-out tree that was

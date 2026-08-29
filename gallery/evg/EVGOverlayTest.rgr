@@ -492,6 +492,46 @@ class EVGOverlayTest {
         c.eqInt("with nothing reported" (array_length (lay.getOverlayErrors())) 0)
     }
 
+    ; `fit-content` arrived for a floating panel, where what has to be measured
+    ; is a column of rows. A badge is the other half of the same idea: a pill
+    ; that hugs its word, where the content is TEXT and there are no children
+    ; to measure at all.
+    ;
+    ; It already worked, and not through `contentExtent` — which sees no
+    ; children and gives up — but because `fit-content` parses with `isSet`
+    ; false, and a width-less box holding only text is measured from the text.
+    ; That is worth a test rather than a shrug: it is load-bearing for every
+    ; badge in the sortable demo, and nothing else says so.
+    sfn testFitText:void (c:OverlayCheck) {
+        print "--- fit-content measures text, not only children ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def badge:EVGElement (EVGElement.createDiv())
+        badge.id = "badge"
+        badge.setAttribute("width" "fit-content")
+        badge.setAttribute("padding" "4px 12px")
+        badge.setAttribute("font-size" "13px")
+        badge.textContent = "document"
+        def wide:EVGElement (EVGElement.createDiv())
+        wide.id = "wide"
+        wide.setAttribute("width" "fit-content")
+        wide.setAttribute("padding" "4px 12px")
+        wide.setAttribute("font-size" "13px")
+        wide.textContent = "a much longer label"
+        page.addChild(badge)
+        page.addChild(wide)
+        EVGOverlayTest.laidOut(page)
+
+        def b:EVGElement (EVGOverlayTest.nodeById(page "badge"))
+        def w:EVGElement (EVGOverlayTest.nodeById(page "wide"))
+        ; Not the page's width, which is what a width-less box gets.
+        c.ok("a badge is narrower than the page it sits in" (b.calculatedWidth < 200.0))
+        ; And wide enough for the word plus its padding: 24px of padding, and a
+        ; 13px face is never wider than the string times the font size.
+        c.ok("but wide enough for its word" (b.calculatedWidth > 40.0))
+        c.ok("a longer label is wider" (w.calculatedWidth > b.calculatedWidth))
+        c.ok("and still not the whole page" (w.calculatedWidth < 400.0))
+    }
+
     sfn main:void () {
         def c (new OverlayCheck())
         print "=== EVG overlay surfaces ==="
@@ -507,6 +547,7 @@ class EVGOverlayTest {
         EVGOverlayTest.testShift(c)
         EVGOverlayTest.testNoRoomEitherWay(c)
         EVGOverlayTest.testCover(c)
+        EVGOverlayTest.testFitText(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {
