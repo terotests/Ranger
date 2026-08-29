@@ -2241,6 +2241,20 @@ class EvgBitmapTracer {
             ; unpainted so nothing is left as a hole.
             def seed:int (0 - 1)
             def empty:boolean false
+            ; Steepest-first alone starves the large smooth areas: a photograph
+            ; has thousands of sharp spots, they take the whole shape budget as
+            ; small overlays, and a face — which is nearly all low-contrast —
+            ; never reaches the front of the queue at all. Every fourth shape
+            ; is therefore taken from the plain sweep instead, so the big quiet
+            ; surfaces are laid down alongside the loud little ones.
+            if (((shapeNo % 4) == 3) && (sweepFrom < n)) {
+                while ((sweepFrom < n) && (seed < 0)) {
+                    if (((itemAt labels sweepFrom) >= 0) && ((itemAt painted sweepFrom) == 0)) {
+                        seed = sweepFrom
+                    }
+                    sweepFrom = (sweepFrom + 1)
+                }
+            }
             while ((seed < 0) && (empty == false)) {
                 def cand:int (this.popSeed(bucket seedPixel seedNext))
                 if (cand < 0) {
