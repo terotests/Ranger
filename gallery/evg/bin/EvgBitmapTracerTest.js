@@ -75,6 +75,7 @@ class EvgTraceOptions  {
     this.contourSpread = 48;
     this.gradientFill = false;
     this.gradientGain = 15;
+    this.radialCaution = 3;
     this.layerMode = "stacked";
     this.smooth = 0;
     this.minRegion = 6;
@@ -7308,7 +7309,11 @@ class EvgBitmapTracer  {
       useLin = true;
       useRad = false;
     }
-    if ( eRad < best ) {
+    let caution = this.options.radialCaution;
+    if ( caution < 1.0 ) {
+      caution = 1.0;
+    }
+    if ( eRad < (best - ((best * gain) * caution)) ) {
       best = eRad;
       useRad = true;
       useLin = false;
@@ -9291,6 +9296,10 @@ class EvgBitmapTracerTest  {
       i = i + 1;
     };
     t.eqInt("a gain of 100 leaves every fill flat", shaped, 0);
+    const bold = this.traceVanishing("overlay", true, 15);
+    const timid = EvgTraceOptions.defaults();
+    t.eqInt("radial caution has a default", timid.radialCaution, 3);
+    t.ok("and it is above one, so radial must win clearly", timid.radialCaution > 1);
   };
 }
 /* static JavaSript main routine at the end of the JS file */

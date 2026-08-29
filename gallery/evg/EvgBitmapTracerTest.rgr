@@ -1080,5 +1080,14 @@ class EvgBitmapTracerTest {
             i = (i + 1)
         }
         t.eqInt("a gain of 100 leaves every fill flat" shaped 0)
+
+        ; radialCaution is the dial on the model that overstates itself. A
+        ; radial fit is a circular cone, so on a shape that is not round it is
+        ; right in kind and too strong in degree; raising the caution hands
+        ; those regions back to the linear fit.
+        def bold:EvgBitmapTracer (this.traceVanishing("overlay" true 15))
+        def timid:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("radial caution has a default" (timid.radialCaution) 3)
+        t.ok("and it is above one, so radial must win clearly" ((timid.radialCaution) > 1))
     }
 }

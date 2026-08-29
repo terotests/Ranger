@@ -171,6 +171,11 @@ class EvgTraceOptions {
     ; A gradient only replaces the flat fill when it explains this much more of
     ; the region's variation, in percent. Keeps a nearly flat region flat.
     def gradientGain:int 15
+    ; A radial fit has to beat the linear one by this multiple of that gain
+    ; before it is used. It is an isotropic cone, so on anything that is not
+    ; actually round it overstates the falloff — right in kind, too strong in
+    ; degree — and a linear ramp is the calmer answer when the two are close.
+    def radialCaution:int 3
     ; How the color layers are stacked:
     ;   "stacked" — layer i covers every pixel at or above it in the palette
     ;               order, so the layers are painted over one another and a

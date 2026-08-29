@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   It wants `gradientFill` on with it, and the reason is worth recording. The similarity stop asks whether an overlay would show against what is beneath. Against a flat mean the answer is yes everywhere a ramp leaves that mean, so every gradient shatters into bands — 18 shapes and 42 KB on a test image. Painting each shape's *fitted model* into the map instead, the question becomes "is the model wrong here", and the same image comes back as **9 shapes and 22 KB** with the highlight in the middle of the tube where it belongs. The two features are one idea in two halves.
 
+  `radialCaution` dials back the model that overstates itself. A radial fit is a circular cone, so on anything that is not actually round it is right in kind and too strong in degree — reported as "a bit too aggressive, not entirely wrong". It now has to beat the linear fit by that multiple of `gradientGain` before it is used; at 10 it drops out of a test image entirely, at the default of 3 it keeps the one region where it wins by a factor of three. An elliptical radial fitted to the region's own proportions was tried first and was **worse** — the choice of model shifted and the output fragmented from 9 shapes into 13 with hard angular wedges — so the answer here is restraint, not a better cone.
+
   Both stay off by default and `gradientGain` is the restraint on the second: a fitted gradient replaces a flat fill only when it explains at least that much more of the region, and at 100 nothing can out-argue flat.
 
 ### Added

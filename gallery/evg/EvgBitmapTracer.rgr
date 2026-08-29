@@ -2103,7 +2103,12 @@ class EvgBitmapTracer {
             useLin = true
             useRad = false
         }
-        if (eRad < best) {
+        ; Radial only when it is decisively better, not merely better.
+        def caution:double (to_double options.radialCaution)
+        if (caution < 1.0) {
+            caution = 1.0
+        }
+        if (eRad < (best - ((best * gain) * caution))) {
             best = eRad
             useRad = true
             useLin = false
