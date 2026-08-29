@@ -77,6 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Overlay mode was not leaking, it was running out of shapes** — reported as a leak: on a portrait the US flag came out as bare background even though its stripes are about the strongest boundaries in the picture. It is not a leak. Raising the shape budget from 3000 to 60000 brought the flag, the curtains and the face all back, which settles it: those shapes were never made.
+
+  The budget was there because each shape cost the *whole frame*. A per-shape mask allocated a full width × height bitmap, `decompose` copied it, and the scan for the next ring swept it — so a photograph, which is thousands of shapes, paid the image area thousands of times over. That is now a mask over the shape's own bounding box with the traced path moved back afterwards, and the same portrait went from **26.5 s to 950 ms**, a factor of 52. With the cost gone the budget can be what the picture needs: it scales with the pixel count instead of sitting at a fixed 3000.
+
+  Steepest-first also starved the large quiet areas — a photograph has thousands of sharp spots and a face is nearly all low contrast — so every fourth shape is now taken from a plain sweep instead of the queue.
+
+  Overlay on a photograph is still not what `smooth` is: the face comes out speckled where `smooth` renders it cleanly, and the file is 1.4 MB against 221 KB. It no longer *loses* anything, which is the difference between a limitation and a defect.
+
+### Fixed
+
 - **The tracer bench could pass on code that never compiled** — `run_trace_bench.sh` checked the compiler's exit code, and the compiler prints `[FAIL]` and still exits 0. A test file with a syntax error therefore left the previous build in place and the script reported a pass for code that does not exist. Found by making exactly that mistake. It now greps the compile log the way `run-gallery-editor-tests.sh` already does.
 
 - **White hairlines between the traced shapes** — reported as the harder half of the noise problem: as `colorCount` grows, thin light lines open up along the seams where two colors meet. Not a tuning matter. Every layer was traced and curve-fitted **independently**, so the one pixel boundary two regions share got two different fitted curves, one approached from each side. They never agree exactly, and wherever they bow apart the page shows through.

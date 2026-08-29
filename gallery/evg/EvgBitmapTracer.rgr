@@ -2234,9 +2234,20 @@ class EvgBitmapTracer {
                 }
             }
         }
+        ; How many shapes are worth making scales with the picture: a fixed
+        ; ceiling starves a large photograph of exactly the shapes it needs,
+        ; and the flag in one test came out as bare background because its
+        ; stripes were never reached.
+        def budget:int (idiv n 4)
+        if (budget < 500) {
+            budget = 500
+        }
+        if (budget > 80000) {
+            budget = 80000
+        }
         def shapeNo:int 0
         def sweepFrom:int 0
-        while (shapeNo < 3000) {
+        while (shapeNo < budget) {
             ; Take the next seed; when they run out, sweep for anything still
             ; unpainted so nothing is left as a hole.
             def seed:int (0 - 1)
@@ -2276,7 +2287,7 @@ class EvgBitmapTracer {
                 }
             }
             if (seed < 0) {
-                shapeNo = 3000
+                shapeNo = budget
             } {
                 ; --- grow one surface to its end ---
                 def comp:[int]
@@ -2329,12 +2340,47 @@ class EvgBitmapTracer {
                 ; and nothing else will cover it. Only specks smaller than a
                 ; traceable ring are skipped — turdsize deals with those.
                 if ((array_length comp) >= 4) {
-                    def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+                    ; The mask covers the shape's own bounding box, not the
+                    ; frame. A full-size bitmap per shape is allocated, copied
+                    ; and scanned once each, so a photograph — which is
+                    ; thousands of shapes — was paying the whole image area
+                    ; thousands of times over. The path is moved back
+                    ; afterwards.
+                    def bx0:int width
+                    def by0:int height
+                    def bx1:int 0
+                    def by1:int 0
+                    c = 0
+                    while (c < (array_length comp)) {
+                        def q:int (itemAt comp c)
+                        def qy:int (idiv q width)
+                        def qx:int (q - (qy * width))
+                        if (qx < bx0) {
+                            bx0 = qx
+                        }
+                        if (qx > bx1) {
+                            bx1 = qx
+                        }
+                        if (qy < by0) {
+                            by0 = qy
+                        }
+                        if (qy > by1) {
+                            by1 = qy
+                        }
+                        c = (c + 1)
+                    }
+                    ; One cell of margin so a shape touching the box edge still
+                    ; closes a ring around itself.
+                    bx0 = (bx0 - 1)
+                    by0 = (by0 - 1)
+                    def bw:int ((bx1 - bx0) + 2)
+                    def bh:int ((by1 - by0) + 2)
+                    def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(bw bh))
                     c = 0
                     while (c < (array_length comp)) {
                         def p2:int (itemAt comp c)
                         def yy:int (idiv p2 width)
-                        bm.setBit((p2 - (yy * width)) yy true)
+                        bm.setBit(((p2 - (yy * width)) - bx0) (yy - by0) true)
                         c = (c + 1)
                     }
                     def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
@@ -2347,17 +2393,27 @@ class EvgBitmapTracer {
                     def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm layerOpts))
                     sub.trace()
                     if ((sub.ringCount()) > 0) {
+                        def cmds:[PathCommand] (sub.getCommands())
+                        def ox:double (to_double bx0)
+                        def oy:double (to_double by0)
+                        def ci:int 0
+                        while (ci < (array_length cmds)) {
+                            def cm:PathCommand (itemAt cmds ci)
+                            cm.x = (cm.x + ox)
+                            cm.y = (cm.y + oy)
+                            cm.x1 = (cm.x1 + ox)
+                            cm.y1 = (cm.y1 + oy)
+                            cm.x2 = (cm.x2 + ox)
+                            cm.y2 = (cm.y2 + oy)
+                            push allCmds cm
+                            ci = (ci + 1)
+                        }
                         def layer:EvgTraceLayer (itemAt sub.layers 0)
+                        layer.pathData = (VectorShapes.asPathData(cmds))
                         if options.gradientFill {
                             this.fitAndPaintShape(comp layer paintR paintG paintB)
                         }
                         push layers layer
-                        def cmds:[PathCommand] (sub.getCommands())
-                        def ci:int 0
-                        while (ci < (array_length cmds)) {
-                            push allCmds (itemAt cmds ci)
-                            ci = (ci + 1)
-                        }
                         rings = sub.rings
                     }
                 }
