@@ -26,6 +26,12 @@
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo } from "./generated-host.js";
+// The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
+// rest out of the same bundle the tree was built by. Two copies of a class
+// are two classes.
+import * as MenubarModule from "../bin/MenubarDemo.cjs";
+import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
+import * as SortableModule from "../bin/SortableDemo.cjs";
 import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS } from "./generated.js";
 
 const W = 1240;
@@ -61,6 +67,95 @@ const state = {
   focus: "",
 };
 
+
+/**
+ * A kept tree for a demo that otherwise rebuilds.
+ *
+ * The three original demos here rebuild on every change, and that is the claim
+ * the directory makes: reordering is rebuilding. It is still true — but it made
+ * them inert. A tree rebuilt between two frames has different ELEMENTS in it,
+ * and hover is a flag on an element while a transition is a memory held by one.
+ * So the demos had no hover colour, no press feedback and no motion at all, and
+ * the page could not have given them any.
+ *
+ * The fix is to be precise about what "a change" is. DATA — the order, which
+ * menu is open, whether the bar is at the bottom — is rebuilt, exactly as
+ * before. HOVER IS NOT DATA. It is a presentational state the stylesheet owns,
+ * so it sets a flag on the tree that is already there, and the transition
+ * machinery has the identity it needs.
+ *
+ * `key` is what decides which of the two happened: a string of everything the
+ * builder is handed except the stylesheet.
+ */
+function keptTree(mod, css, label, size) {
+  const sheet = new mod.EVGStyleSheet();
+  sheet.parse(css);
+  const transitions = new mod.EVGTransition();
+  let root = null;
+  let key = null;
+  let hovered = "";
+  let pressed = "";
+
+  // Hover and press are the element's own business, read off the one id under
+  // the pointer. Nothing walks up the tree: a row is hovered, its label is not.
+  const mark = (el) => {
+    const own = el.id !== "";
+    el.isHovered = own && el.id === hovered;
+    el.isPressed = own && el.id === pressed;
+    for (let i = 0; i < el.children.length; i++) mark(el.children[i]);
+  };
+
+  const laidOut = () => {
+    sheet.setViewport(size[0], size[1], false);
+    mark(root);
+    sheet.applyTree(root, "");
+    // The sheet has written what it WANTS; this leaves on the element what is
+    // actually showing, which for a property in flight is neither end.
+    transitions.reconcileTree(root);
+    const lay = new mod.EVGLayout();
+    lay.setPageSize(size[0], size[1]);
+    lay.layout(root);
+    return lay;
+  };
+
+  return {
+    /** Rebuild only if the data changed. */
+    sync(nextKey, build) {
+      if (nextKey === key) return;
+      key = nextKey;
+      root = build();
+    },
+    setHover(id) {
+      if (id === hovered) return false;
+      hovered = id;
+      return true;
+    },
+    setPressed(id) {
+      pressed = id;
+    },
+    tick(dt) {
+      transitions.advanceTree(root, dt);
+      return transitions.busy(root);
+    },
+    busy: () => transitions.busy(root),
+    list() {
+      const lay = laidOut();
+      const dl = new mod.EVGDisplayList();
+      dl.setTextEngine(lay.getTextEngine());
+      dl.build(root);
+      return dl.toJson();
+    },
+    hit(x, y) {
+      laidOut();
+      return new mod.EVGHitTest().idAt(root, x, y);
+    },
+    a11y(gen, focus) {
+      laidOut();
+      return new mod.EVGA11yFromTree().build(root, label, gen, focus).toJson();
+    },
+  };
+}
+
 let generation = 0;
 
 /**
@@ -77,6 +172,15 @@ let lastHover = "";
 const motion = new MotionDemo();
 motion.init(MOTION_CSS);
 
+// One kept tree per demo. The builders they are handed are the same static
+// `page()` functions the PNG snapshots and the accessibility audit call, so
+// there is one description of each demo and not two.
+const HOSTS = {
+  menubar: keptTree(MenubarModule, MENUBAR_CSS, "Menubar demo", [W, 560]),
+  toolbar: keptTree(ToolbarModule, TOOLBAR_CSS, "Toolbar demo", [W, 320]),
+  sortable: keptTree(SortableModule, SORTABLE_CSS, "Sortable demo", [W, 560]),
+};
+
 // Four demos, four factories, one page. Each one says how tall it is and
 // answers the same three questions — what to draw, what is under the pointer,
 // and what it all MEANS. Three of them answer by rebuilding their tree from
@@ -88,9 +192,14 @@ const DEMOS = {
     height: 560,
     args: () => [MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu, state.atBottom],
     module: MenubarDemo,
-    list: () => MenubarDemo.displayListJson(...DEMOS.menubar.args()),
-    hit: (x, y) => MenubarDemo.hitId(...DEMOS.menubar.args(), x, y),
-    a11y: (gen, focus) => MenubarDemo.a11yJson(...DEMOS.menubar.args(), gen, focus),
+    // Through the kept tree, so a hover does not rebuild and a
+    // transition has something to remember.
+    sync: () => HOSTS.menubar.sync(JSON.stringify([state.checked, state.profile, state.open, state.submenu, state.atBottom]), () => MenubarDemo.page(state.checked, state.profile, state.open, state.submenu, state.atBottom)),
+    list: () => HOSTS.menubar.list(),
+    hit: (x, y) => HOSTS.menubar.hit(x, y),
+    a11y: (gen, focus) => HOSTS.menubar.a11y(gen, focus),
+    host: () => HOSTS.menubar,
+    animated: true,
     press: pressMenubar,
     hover: hoverMenubar,
     key: keyMenubar,
@@ -102,9 +211,14 @@ const DEMOS = {
       "Edited 2 hours ago",
     ],
     module: ToolbarDemo,
-    list: () => ToolbarDemo.displayListJson(...DEMOS.toolbar.args()),
-    hit: (x, y) => ToolbarDemo.hitId(...DEMOS.toolbar.args(), x, y),
-    a11y: (gen, focus) => ToolbarDemo.a11yJson(...DEMOS.toolbar.args(), gen, focus),
+    // Through the kept tree, so a hover does not rebuild and a
+    // transition has something to remember.
+    sync: () => HOSTS.toolbar.sync(JSON.stringify([state.bold, state.italic, state.underline, state.align, "Edited 2 hours ago"]), () => ToolbarDemo.page(state.bold, state.italic, state.underline, state.align, "Edited 2 hours ago")),
+    list: () => HOSTS.toolbar.list(),
+    hit: (x, y) => HOSTS.toolbar.hit(x, y),
+    a11y: (gen, focus) => HOSTS.toolbar.a11y(gen, focus),
+    host: () => HOSTS.toolbar,
+    animated: true,
     press: pressToolbar,
     hover: () => false,
     key: () => false,
@@ -132,9 +246,14 @@ const DEMOS = {
     height: 560,
     args: () => [SORTABLE_CSS, state.order, state.dragging],
     module: SortableDemo,
-    list: () => SortableDemo.displayListJson(...DEMOS.sortable.args()),
-    hit: (x, y) => SortableDemo.hitId(...DEMOS.sortable.args(), x, y),
-    a11y: (gen, focus) => SortableDemo.a11yJson(...DEMOS.sortable.args(), gen, focus),
+    // Through the kept tree, so a hover does not rebuild and a
+    // transition has something to remember.
+    sync: () => HOSTS.sortable.sync(JSON.stringify([state.order, state.dragging]), () => SortableDemo.page(state.order, state.dragging)),
+    list: () => HOSTS.sortable.list(),
+    hit: (x, y) => HOSTS.sortable.hit(x, y),
+    a11y: (gen, focus) => HOSTS.sortable.a11y(gen, focus),
+    host: () => HOSTS.sortable,
+    animated: true,
     press: pressSortable,
     hover: () => false,
     key: keySortable,
@@ -219,7 +338,9 @@ function demo() {
 }
 
 function hitAt(x, y) {
-  return demo().hit(x, y);
+  const d = demo();
+  if (d.sync) d.sync();
+  return d.hit(x, y);
 }
 
 // --- what a press means ------------------------------------------------------
@@ -367,8 +488,15 @@ function paint() {
   try {
     errEl.textContent = "";
     const d = demo();
+    if (d.sync) d.sync();
     const H = typeof d.height === "function" ? d.height() : d.height;
-    const list = JSON.parse(d.list());
+    const listJson = d.list();
+    // The last frame's display list, for anything driving this page from
+    // outside: a browser check needs the COLOUR a control was painted, and
+    // only the list knows that. The playground exposes its host for the same
+    // reason.
+    window.__lastList = listJson;
+    const list = JSON.parse(listJson);
     const doc = { width: W, height: H, list };
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.style.width = W + "px";
@@ -548,10 +676,26 @@ document.getElementById("atbottom").addEventListener("change", (e) => {
 // The canvas is where the picture is, so the canvas is where a press lands.
 // `offsetX/offsetY` are already in the page's own coordinates because the
 // canvas is laid out at exactly the size the display list was built for.
+/**
+ * What the pointer is standing on, said by the cursor.
+ *
+ * A canvas has one cursor for the whole surface, so the page has to change it
+ * by hand — and without that a button in here looked exactly like the
+ * background, which is the first thing that makes a canvas UI feel like a
+ * picture rather than an interface. `activate` is the accessible tree's own
+ * word for "this can be pressed", so there is no second list of what counts.
+ */
+function setCursor(id) {
+  const node = id && lastTree && lastTree.byId && lastTree.byId.get(id);
+  canvas.style.cursor = node && node.activate ? "pointer" : "default";
+}
+
 let held = false;
 canvas.addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
   const d = demo();
+  const h = d.host && d.host();
+  if (h) h.setPressed(hitAt(ev.offsetX, ev.offsetY));
   if (d.drag) {
     // A demo with a gesture: the press picks up, the move carries, the release
     // puts down. Nothing happens on a press that never travels.
@@ -566,11 +710,21 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 canvas.addEventListener("pointermove", (ev) => {
   const d = demo();
+  const id = hitAt(ev.offsetX, ev.offsetY);
+  setCursor(id);
   if (held && d.drag) {
-    if (d.drag(hitAt(ev.offsetX, ev.offsetY))) paint();
+    if (d.drag(id)) paint();
     return;
   }
-  if (d.hover(hitAt(ev.offsetX, ev.offsetY))) {
+  // Two different things, and both have to happen. `d.hover` is the demo's own
+  // BEHAVIOUR — hovering Share opens the submenu — and `setHover` is the
+  // presentational flag the stylesheet reads. A demo with no hover behaviour
+  // still gets the second one, which is why the toolbar and the sortable now
+  // light up at all.
+  let changed = d.hover(id);
+  const h = d.host && d.host();
+  if (h && h.setHover(id)) changed = true;
+  if (changed) {
     paint();
     // A hover starts a transition, and a transition needs frames.
     if (d.animated) animate();
@@ -578,13 +732,23 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 canvas.addEventListener("pointerup", () => {
   const d = demo();
+  const h = d.host && d.host();
+  if (h) {
+    h.setPressed("");
+    paint();
+    if (d.animated) animate();
+  }
   if (!held || !d.drop) return;
   held = false;
   if (d.drop()) paint();
 });
 canvas.addEventListener("pointerleave", () => {
   const d = demo();
-  if (d.hover("")) {
+  setCursor("");
+  let changed = d.hover("");
+  const h = d.host && d.host();
+  if (h && h.setHover("")) changed = true;
+  if (changed) {
     paint();
     if (d.animated) animate();
   }
@@ -623,16 +787,24 @@ mirror = createA11yMirror(stage, {
 let animating = 0;
 let flipTimer = 0;
 
+/** Whatever the selected demo keeps a clock for. */
+function clockOf() {
+  const d = demo();
+  if (d.host) return d.host();
+  return { tick: (dt) => motion.tick(dt), busy: () => motion.busyNow() };
+}
+
 function animate() {
   if (animating) return;
+  const clock = clockOf();
   let last = performance.now();
   const step = () => {
     const now = performance.now();
     const dt = now - last;
     last = now;
-    motion.tick(dt);
+    clock.tick(dt);
     paint();
-    animating = motion.busyNow() ? requestAnimationFrame(step) : 0;
+    animating = clock.busy() ? requestAnimationFrame(step) : 0;
   };
   animating = requestAnimationFrame(step);
 }

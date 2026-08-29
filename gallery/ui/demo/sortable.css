@@ -140,3 +140,20 @@
   color: #475569;
   font-size: 14px;
 }
+
+/* --- the pointer -------------------------------------------------------------
+   A row you can pick up should say so before you pick it up. The lift is the
+   affordance; the border is what the reference uses while a row is actually
+   being carried, so hover stops short of it.
+
+   `transform` and not a margin: a margin would reflow every row below, and a
+   list that shuffles when the pointer crosses it is worse than one that does
+   nothing. */
+.sr-row {
+  transition: background-color 140ms ease-out, border-color 140ms ease-out,
+              transform 140ms ease-out;
+}
+.sr-row:hover  { background-color: #f8fafc; border-color: #cbd5e1; transform: translate(0, -2px); }
+/* Held: pressed into the page, and instant on the way in. A row that eases
+   into being grabbed feels like it did not hear the click. */
+.sr-row:active { transform: scale(0.995); }

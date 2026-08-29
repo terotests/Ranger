@@ -244,6 +244,32 @@ async function capture(page) {
         };
       })();
 
+      // --- 3b. fading in from `transparent`
+      //
+      // `transparent` is rgba(0, 0, 0, 0) — a BLACK with no alpha — so
+      // interpolating the four channels independently drags every fade-in
+      // through a dark grey before it arrives. CSS avoids that by
+      // interpolating in PREMULTIPLIED space, and the difference is visible on
+      // any hover that starts from no background at all.
+      out.transparentFade = (() => {
+        el.style.transition = "none";
+        el.style.backgroundColor = "transparent";
+        void el.offsetWidth;
+        el.style.transition = "background-color 200ms linear";
+        el.style.backgroundColor = "rgb(244, 241, 254)";
+        const a = document.getAnimations().find((x) => x.transitionProperty === "background-color");
+        if (!a) return null;
+        a.pause();
+        const rows = [0, 50, 100, 150, 200].map((ms) => {
+          a.currentTime = ms;
+          return { at: ms, value: cs().backgroundColor };
+        });
+        document.getAnimations().forEach((x) => x.cancel());
+        el.style.transition = "none";
+        el.style.backgroundColor = "rgb(248, 250, 252)";
+        return { from: "transparent", to: "rgb(244, 241, 254)", samples: rows };
+      })();
+
       // --- 4. transform: rotate
       el.style.transition = "none";
       el.style.transform = "rotate(0deg)";

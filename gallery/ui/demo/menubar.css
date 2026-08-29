@@ -113,3 +113,31 @@
 /* An inset row spends 22px on the indicator, so its label is narrower by that
  * much or the row wraps and the tick lands on its own line. */
 .mb-label-inset { width: 176px; }
+
+/* --- the pointer -------------------------------------------------------------
+   None of this existed. The page had a menubar that opened on a click and
+   looked identical whether or not anything was under the cursor, which is the
+   first thing that makes a canvas UI read as a picture of a UI.
+
+   The transitions go on the BASE rules and not on `:hover`, because a
+   transition describes the property and not the direction — declared only
+   under `:hover` a trigger tints in and snaps out.
+
+   Kept in the purple the rest of this sheet uses: `#ece7fd` is what an OPEN
+   menu already tints its trigger, so hover is a lighter step of the same
+   colour rather than a new one. */
+.mb-trigger,
+.mb-item,
+.mb-row {
+  transition: background-color 130ms ease-out, transform 130ms ease-out;
+}
+
+.mb-trigger:hover { background-color: #f4f1fe; }
+.mb-item:hover,
+.mb-row:hover { background-color: #f4f1fe; }
+
+/* Pressed is a step darker AND a small squeeze, so a click registers even on
+   a trigger that was already tinted by being open. */
+.mb-trigger:active,
+.mb-item:active,
+.mb-row:active { background-color: #ded4fb; transform: scale(0.97); }

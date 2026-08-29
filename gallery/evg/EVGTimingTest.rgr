@@ -897,6 +897,53 @@ class EVGTimingTest {
             (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
     }
 
+    ; Fading in from `transparent`, against the browser's own numbers.
+    ;
+    ; `transparent` is rgba(0, 0, 0, 0), so channel-by-channel interpolation
+    ; drags this through a dark grey. CSS interpolates in premultiplied alpha
+    ; instead and the RED STAYS AT 244 the whole way while only the opacity
+    ; moves — which is why the red is checked at every step and not just the
+    ; alpha.
+    sfn checkTransparentFade:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "background-color 200ms linear"
+        el.backgroundColor = (EVGColor.parse("transparent"))
+        tr.reconcile(el)
+        el.backgroundColor = (EVGColor.parse("rgb(244,241,254)"))
+        tr.reconcile(el)
+        c.near("at 0ms the red is 0" (EVGTimingTest.redOf(el)) 0.0)
+        c.near("at 0ms the alpha is 0" (EVGTimingTest.alphaOf(el)) 0.0)
+        tr.advance(el 50.0)
+        c.near("at 50ms the red is 244" (EVGTimingTest.redOf(el)) 244.0)
+        c.near("at 50ms the alpha is 0.25" (EVGTimingTest.alphaOf(el)) 0.25)
+        tr.advance(el 50.0)
+        c.near("at 100ms the red is 244" (EVGTimingTest.redOf(el)) 244.0)
+        c.near("at 100ms the alpha is 0.5" (EVGTimingTest.alphaOf(el)) 0.5)
+        tr.advance(el 50.0)
+        c.near("at 150ms the red is 244" (EVGTimingTest.redOf(el)) 244.0)
+        c.near("at 150ms the alpha is 0.75" (EVGTimingTest.alphaOf(el)) 0.75)
+        tr.advance(el 50.0)
+        c.near("at 200ms the red is 244" (EVGTimingTest.redOf(el)) 244.0)
+        c.near("at 200ms the alpha is 1" (EVGTimingTest.alphaOf(el)) 1.0)
+    }
+
+    sfn redOf:double (el:EVGElement) {
+        if el.backgroundColor {
+            def col:EVGColor (unwrap el.backgroundColor)
+            return col.r
+        }
+        return (0.0 - 1.0)
+    }
+
+    sfn alphaOf:double (el:EVGElement) {
+        if el.backgroundColor {
+            def col:EVGColor (unwrap el.backgroundColor)
+            return col.a
+        }
+        return (0.0 - 1.0)
+    }
+
     sfn main:void () {
         def c (new TimingCheck())
         print "=== EVG timing functions vs the captured browser oracle ==="
@@ -929,6 +976,7 @@ class EVGTimingTest {
         EVGTimingTest.checkOriginTransition(c)
         EVGTimingTest.checkOriginUnitChangeJumps(c)
         EVGTimingTest.checkOriginIsItsOwnProperty(c)
+        EVGTimingTest.checkTransparentFade(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

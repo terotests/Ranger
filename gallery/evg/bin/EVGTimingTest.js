@@ -3308,10 +3308,22 @@ EVGTransition.sameColor = function(a, b) {
 };
 EVGTransition.mixColor = function(from, to, t) {
   const c = new EVGColor();
-  c.r = from.r + ((to.r - from.r) * t);
-  c.g = from.g + ((to.g - from.g) * t);
-  c.b = from.b + ((to.b - from.b) * t);
-  c.a = from.a + ((to.a - from.a) * t);
+  const fa = from.a;
+  const ta = to.a;
+  const a = fa + ((ta - fa) * t);
+  const pr = (from.r * fa) + (((to.r * ta) - (from.r * fa)) * t);
+  const pg = (from.g * fa) + (((to.g * ta) - (from.g * fa)) * t);
+  const pb = (from.b * fa) + (((to.b * ta) - (from.b * fa)) * t);
+  if ( a > 0.0001 ) {
+    c.r = pr / a;
+    c.g = pg / a;
+    c.b = pb / a;
+  } else {
+    c.r = pr;
+    c.g = pg;
+    c.b = pb;
+  }
+  c.a = a;
   c.isSet = true;
   return c;
 };
@@ -11035,6 +11047,43 @@ EVGTimingTest.checkOriginIsItsOwnProperty = function(c) {
   tr.reconcile(el);
   c.near("transitioning transform does not transition the origin", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
 };
+EVGTimingTest.checkTransparentFade = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "background-color 200ms linear";
+  el.backgroundColor = EVGColor.parse("transparent");
+  tr.reconcile(el);
+  el.backgroundColor = EVGColor.parse("rgb(244,241,254)");
+  tr.reconcile(el);
+  c.near("at 0ms the red is 0", EVGTimingTest.redOf(el), 0.0);
+  c.near("at 0ms the alpha is 0", EVGTimingTest.alphaOf(el), 0.0);
+  tr.advance(el, 50.0);
+  c.near("at 50ms the red is 244", EVGTimingTest.redOf(el), 244.0);
+  c.near("at 50ms the alpha is 0.25", EVGTimingTest.alphaOf(el), 0.25);
+  tr.advance(el, 50.0);
+  c.near("at 100ms the red is 244", EVGTimingTest.redOf(el), 244.0);
+  c.near("at 100ms the alpha is 0.5", EVGTimingTest.alphaOf(el), 0.5);
+  tr.advance(el, 50.0);
+  c.near("at 150ms the red is 244", EVGTimingTest.redOf(el), 244.0);
+  c.near("at 150ms the alpha is 0.75", EVGTimingTest.alphaOf(el), 0.75);
+  tr.advance(el, 50.0);
+  c.near("at 200ms the red is 244", EVGTimingTest.redOf(el), 244.0);
+  c.near("at 200ms the alpha is 1", EVGTimingTest.alphaOf(el), 1.0);
+};
+EVGTimingTest.redOf = function(el) {
+  if ( typeof(el.backgroundColor) != "undefined" ) {
+    const col = el.backgroundColor;
+    return col.r;
+  }
+  return 0.0 - 1.0;
+};
+EVGTimingTest.alphaOf = function(el) {
+  if ( typeof(el.backgroundColor) != "undefined" ) {
+    const col = el.backgroundColor;
+    return col.a;
+  }
+  return 0.0 - 1.0;
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new TimingCheck();
@@ -11068,6 +11117,7 @@ function __js_main() {
   EVGTimingTest.checkOriginTransition(c);
   EVGTimingTest.checkOriginUnitChangeJumps(c);
   EVGTimingTest.checkOriginIsItsOwnProperty(c);
+  EVGTimingTest.checkTransparentFade(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {
