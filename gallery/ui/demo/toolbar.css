@@ -79,3 +79,23 @@
   width: 110px;
   height: 40px;
 }
+
+/* --- the pointer -------------------------------------------------------------
+   The toolbar had exactly one visible state, a pressed toggle, and no answer
+   to the pointer at all. `#ece7fd` is that toggled tint, so hover is a lighter
+   step of it and pressed is a darker one — three shades of one colour rather
+   than three colours.
+
+   The transition is on the base rule so a button tints in AND out; declared
+   under `:hover` alone it would snap off the moment the pointer left. */
+.tb-button {
+  transition: background-color 130ms ease-out, transform 130ms ease-out;
+}
+.tb-button:hover  { background-color: #f4f1fe; }
+.tb-button:active { background-color: #ded4fb; transform: scale(0.94); }
+
+.tb-share {
+  transition: background-color 130ms ease-out, transform 130ms ease-out;
+}
+.tb-share:hover  { background-color: #5b4bd6; }
+.tb-share:active { transform: scale(0.97); }

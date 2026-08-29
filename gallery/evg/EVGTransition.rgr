@@ -219,12 +219,45 @@ class EVGTransition {
         return true
     }
 
+    ; Colour interpolation, in PREMULTIPLIED alpha — which is what CSS does and
+    ; is not a detail anyone gets to skip.
+    ;
+    ; `transparent` is rgba(0, 0, 0, 0): a BLACK with no alpha. Mix the four
+    ; channels independently and every fade-in from no background at all drags
+    ; through a dark grey on its way to the colour — the classic "fade through
+    ; black", and it looks like dirt on the screen rather than like a bug.
+    ;
+    ; Multiplying by alpha first makes the invisible end carry no colour of its
+    ; own, so the mix travels along the visible colour and only its opacity
+    ; changes. Measured: Chromium fading `transparent` to rgb(244, 241, 254)
+    ; reports rgba(244, 241, 254, 0.25) a quarter of the way, not a grey.
+    ;
+    ; Where both ends are opaque the premultiplication is the identity, so
+    ; nothing about the ordinary case changes.
     sfn mixColor:EVGColor (from:EVGColor to:EVGColor t:double) {
         def c (new EVGColor())
-        c.r = (from.r + ((to.r - from.r) * t))
-        c.g = (from.g + ((to.g - from.g) * t))
-        c.b = (from.b + ((to.b - from.b) * t))
-        c.a = (from.a + ((to.a - from.a) * t))
+        def fa:double from.a
+        def ta:double to.a
+        def a:double (fa + ((ta - fa) * t))
+        def pr:double ((from.r * fa) + (((to.r * ta) - (from.r * fa)) * t))
+        def pg:double ((from.g * fa) + (((to.g * ta) - (from.g * fa)) * t))
+        def pb:double ((from.b * fa) + (((to.b * ta) - (from.b * fa)) * t))
+        if (a > 0.0001) {
+            c.r = (pr / a)
+            c.g = (pg / a)
+            c.b = (pb / a)
+        } {
+            ; Fully invisible, so there is nothing to divide out. The
+            ; premultiplied value is what is left, and it is also what the
+            ; browser reports: `transparent` at the very start of a fade comes
+            ; back as rgba(0, 0, 0, 0) and not as the destination at zero alpha.
+            ; Nothing is painted either way — this is about agreeing on the
+            ; number rather than about the picture.
+            c.r = pr
+            c.g = pg
+            c.b = pb
+        }
+        c.a = a
         c.isSet = true
         return c
     }

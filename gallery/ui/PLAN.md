@@ -499,6 +499,52 @@ destination. A browser does exactly the same, which is why Radix animates its
 entrances with `@keyframes` and not `transition`. That is the next thing to
 build, and the overlays are what should reach for it first.
 
+## The demo page had none of it
+
+The showcase moved and the conformance playground moved. The three demos on
+the same page did not: they had **no** `:hover` rule in any of their three
+stylesheets, no hover tracking at all for the toolbar and the sortable, and the
+canvas never changed the cursor. Reported by using it, which is the only way
+that gets noticed — a page that answers a click and looks identical whether or
+not anything is under the pointer reads as a picture of a UI.
+
+The reason was architectural, and fixing it meant being precise about a claim
+this directory makes rather than abandoning it. "Reordering is rebuilding" is
+still true. But a tree rebuilt between two frames has different ELEMENTS in it,
+and hover is a flag on an element while a transition is a memory held by one —
+so a rebuilt demo could not have had either, however much CSS was thrown at it.
+
+`keptTree` in `demo/main.js` splits the difference by splitting the meaning of
+"a change":
+
+- **Data** — the order, which menu is open, whether the bar sits at the bottom —
+  rebuilds, exactly as before, from the same static `page()` the PNG snapshots
+  and the accessibility audit call. One description of each demo, not two.
+- **Hover is not data.** It is a presentational state the stylesheet owns, so it
+  sets a flag on the tree that is already there.
+
+Then the three stylesheets got what they never had: hover, press and a small
+squeeze, in the purple the menubar and toolbar already use and with the lift
+the sortable's reference gives its rows. And the canvas cursor now says what is
+interactive, read from the accessible tree's own `activate` flag rather than
+from a second list of what counts as a button.
+
+### A colour bug the measurement caught
+
+Probing the toolbar mid-fade returned `rgba(156, 154, 162, 0.64)` — a grey —
+on the way to a pale lilac. `transparent` is `rgba(0, 0, 0, 0)`, a BLACK with
+no alpha, so interpolating the four channels independently drags every fade-in
+from no background through a dark middle. It is the classic "fade through
+black", and on screen it reads as dirt rather than as a bug.
+
+CSS interpolates colour in **premultiplied** alpha for exactly this reason, and
+the browser confirms it: fading `transparent` to `rgb(244, 241, 254)` reports
+`rgba(244, 241, 254, 0.25)` a quarter of the way — the hue is already right and
+only the opacity moves. `mixColor` premultiplies now. Where both ends are
+opaque the premultiplication is the identity, so nothing about the ordinary
+case changed; the toolbar's button now fades at the correct hue instead of
+through grey.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

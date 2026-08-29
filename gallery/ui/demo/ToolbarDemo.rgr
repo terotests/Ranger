@@ -39,6 +39,10 @@ Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+; Not used by the builders below — imported so the page can drive a
+; transition over the tree they produce. Hover is a presentational state and
+; belongs to the stylesheet; the demo just builds boxes with class names.
+Import "../../evg/EVGTransition.rgr"
 
 treefactory Toolbar {
     child addChild

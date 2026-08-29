@@ -356,6 +356,32 @@
       }
     ]
   },
+  "transparentFade": {
+    "from": "transparent",
+    "to": "rgb(244, 241, 254)",
+    "samples": [
+      {
+        "at": 0,
+        "value": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "at": 50,
+        "value": "rgba(244, 241, 254, 0.25)"
+      },
+      {
+        "at": 100,
+        "value": "rgba(244, 241, 254, 0.5)"
+      },
+      {
+        "at": 150,
+        "value": "rgba(244, 241, 254, 0.75)"
+      },
+      {
+        "at": 200,
+        "value": "rgb(244, 241, 254)"
+      }
+    ]
+  },
   "rotate": [
     {
       "at": 0,
