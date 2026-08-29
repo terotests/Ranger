@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The tracer finds where a picture needs fine work, and spends its precision
+  there** — asked for after the eyes of a portrait stayed coarse: could the
+  algorithm notice a spot where clearly different colors are doing exacting
+  work, and adapt? It can, and the detector is the solid half of this. A
+  neighbourhood counts as detail when it holds at least `detailSwatches` (4)
+  distinct swatches *and* spans `detailSpread` (120) levels of luma inside
+  `detailRadius` (2). Both halves are needed: a gradient passes a contrast test
+  and noise inside one flat color passes a variety test, and neither is detail.
+  Swept against landmarks on a portrait, the defaults mark **2.8% of the frame
+  and fire on both eyes while missing the cheek, the suit, the curtain and the
+  flag**. Inside it, overlay divides its smallest-area and similarity limits by
+  `detailBoost` and comes off the base-region leash.
+
+  **What that alone buys is nothing, and the measurement says so**: the finer
+  thresholds took the portrait from 37 overlay shapes to 54 and changed the
+  per-pixel error by 0.01. The reason is worth stating — an overlay is snapped
+  to the same swatches the base picture used, and a shape sitting inside one
+  region has a mean dominated by that region, so it snaps back to that region's
+  own swatch and repaints what is already there. `detailTrueColor` is the switch
+  that breaks that circle: inside a detail neighbourhood the shape keeps its own
+  measured color. The mouth's error then falls **14.46 → 13.20 (−8.7%)** and the
+  teeth come out as one white block instead of a segmented grey one. **The eyes
+  themselves barely move (13.80 → 13.78)** — their limit is the base
+  quantization, not the overlay. It costs the color count its meaning as a hard
+  ceiling (10 asked, 109 drawn), so it is off by default and offered as its own
+  checkbox.
+
 - **The continuity threshold moved to the top of the tracer's controls**, right
   under the algorithm picker, and shows only for the algorithms it affects. It
   is the main tuning knob for *jatkuvuus* — raising it collects scattered

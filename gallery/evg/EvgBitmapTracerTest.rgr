@@ -42,6 +42,7 @@ class EvgBitmapTracerTest {
         test.testEdgeFilterSeparatesNoiseFromBoundary(t)
         test.testOverlayStaysWithinItsPalette(t)
         test.testOverlaySimilarityDecidesHowManyStack(t)
+        test.testDetailMaskFindsTheEyeNotTheRamp(t)
         t.summary()
     }
 
@@ -1271,6 +1272,101 @@ class EvgBitmapTracerTest {
         def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) o))
         tr.trace()
         return (tr.layerCount())
+    }
+
+    ; Left half: a smooth ramp — busy, but busy in the way a gradient is busy.
+    ; Right half: a flat field with a small patch where black, white and a mid
+    ; tone meet inside a few pixels, the way they do in an eye.
+    fn makeRampAndEye:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(80 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 80) {
+                if (x < 40) {
+                    def v:int (idiv (x * 250) 40)
+                    img.setPixelRGB(x y v v v)
+                } {
+                    img.setPixelRGB(x y 130 130 130)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; the "eye": white sclera, black pupil, mid lash, inside 10x8 pixels
+        def ey:int 16
+        while (ey < 24) {
+            def ex:int 55
+            while (ex < 65) {
+                img.setPixelRGB(ex ey 255 255 255)
+                ex = (ex + 1)
+            }
+            ey = (ey + 1)
+        }
+        ey = 18
+        while (ey < 22) {
+            def ex2:int 58
+            while (ex2 < 62) {
+                img.setPixelRGB(ex2 ey 0 0 0)
+                ex2 = (ex2 + 1)
+            }
+            ey = (ey + 1)
+        }
+        def ex3:int 55
+        while (ex3 < 65) {
+            img.setPixelRGB(ex3 15 60 40 40)
+            ex3 = (ex3 + 1)
+        }
+        return img
+    }
+
+    ; The mode was asked to adapt: spend precision where several plainly
+    ; different colors meet in a few pixels, and not where the picture merely
+    ; changes smoothly. Both halves of the test matter — a gradient passes a
+    ; contrast test and a patch of noise inside one flat color passes a variety
+    ; test, and neither is detail.
+    fn testDetailMaskFindsTheEyeNotTheRamp:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("the detail window wants several swatches" (d.detailSwatches) 4)
+        t.ok("and true color inside it is opt-in" ((d.detailTrueColor) == false))
+
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 6
+        opts.bgMode = "none"
+        opts.contourMode = "overlay"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) opts))
+        tr.trace()
+
+        ; What the mask marks is where the different colors *meet* — the band
+        ; around the eye rather than the flat middle of the pupil, which on its
+        ; own is as plain as a cheek. That is the part a coarse pass rounds away.
+        def onEye:int 0
+        def y:int 12
+        while (y < 28) {
+            def x:int 50
+            while (x < 70) {
+                if ((itemAt tr.detailMask ((y * 80) + x)) == 1) {
+                    onEye = (onEye + 1)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        t.ok("the eye is marked as needing fine work" (onEye >= 8))
+
+        ; And nothing else in the picture is — not one pixel. The ramp is the
+        ; case that matters: it is the steepest thing here and it is still not
+        ; detail, because a gradient is one or two swatches wide at any window.
+        def total:int 0
+        def i:int 0
+        while (i < (array_length tr.detailMask)) {
+            if ((itemAt tr.detailMask i) == 1) {
+                total = (total + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("and nowhere else in the picture is, the ramp included" total onEye)
     }
 
     fn testOverlaySimilarityDecidesHowManyStack:void (t:RgTest) {

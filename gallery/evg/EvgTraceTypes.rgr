@@ -164,6 +164,36 @@ class EvgTraceOptions {
     ; bounds what any single shape can claim, since no shape outgrows its
     ; region.
     def overlayFollowBase:boolean true
+    ; Where the picture needs fine work, let overlay do fine work.
+    ;
+    ; An eye is a few pixels holding four plainly different colors — white,
+    ; iris, lash, skin — and a pass coarse enough to be sensible on a cheek
+    ; throws all of it away. A window counts as detail when it holds at least
+    ; detailSwatches distinct swatches *and* spans at least detailSpread levels
+    ; of luma: both halves are needed, or a gradient (few swatches, wide spread)
+    ; and noise inside one flat color (one swatch) both read as detail.
+    ; Inside such a window overlay divides its smallest-area and its similarity
+    ; limits by detailBoost, so small strong shapes are drawn there and nowhere
+    ; else. detailSwatches below 2, or detailBoost below 2, turns it off.
+    ; Swept against landmarks on a portrait: at 4 swatches / 120 luma / radius
+    ; 2 the mask covers 2.8% of the frame and fires on both eyes while missing
+    ; the cheek, the suit, the curtain and the flag. Three swatches lets the
+    ; flag in; five loses one of the eyes.
+    def detailSwatches:int 4
+    def detailSpread:int 120
+    def detailRadius:int 2
+    def detailBoost:int 4
+    ; In a detail neighbourhood, let an overlay keep its own measured color
+    ; instead of snapping it to the palette. This is the only way the mode can
+    ; add resolution rather than redraw what is already there: everywhere else
+    ; an overlay is snapped to the same swatches the base picture used, and a
+    ; shape sitting inside one region has a mean dominated by that region — so
+    ; it snaps back to that region's own swatch and repaints it. Unsnapped, the
+    ; white of an eye can be white and the pupil black even when neither is in
+    ; the palette. It costs the guarantee that the color count is a hard ceiling,
+    ; which is why it is a separate switch; the detail mask covers a few percent
+    ; of a frame, so the cost is bounded.
+    def detailTrueColor:boolean false
     ; A step only counts as a boundary when it is *unique* in its
     ; neighbourhood — the strongest one across its own direction, so a noisy
     ; pixel does not out-vote the ridge beside it — and *continuous*, part of a

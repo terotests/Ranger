@@ -57,6 +57,7 @@ class EvgBitmapTracer {
     ; 1 = a step that survived the uniqueness and continuity tests, i.e. a
     ; boundary rather than noise (buildEdgeMask).
     def edgeMask:[int]
+    def detailMask:[int]
     ; Continuity region id per pixel, -1 = none (buildContourRegions).
     def regionOf:[int]
     def regionCount:int 0
@@ -1273,6 +1274,100 @@ class EvgBitmapTracer {
     ;                noisy pixel loses to whatever it sits next to.
     ;   continuous — it belongs to a run of at least edgeMinRun such pixels.
     ;                A boundary is a line; noise is scattered.
+    ; Mark the neighbourhoods that need fine work.
+    ;
+    ; Not every busy patch of a picture is the same kind of busy. A gradient is
+    ; busy and wants to be left alone; an eye is busy because three or four
+    ; plainly different colors — the white, the iris, the lash, the skin — meet
+    ; inside a few pixels, and that is detail a coarse pass throws away. The
+    ; test is therefore both halves at once: several distinct swatches inside a
+    ; small window *and* a wide luma spread across it. A smooth ramp fails the
+    ; first (its window is one or two swatches), and a patch of noise in one
+    ; flat color fails the second.
+    ;
+    ; Overlay uses this to work at a finer grain where it finds it, and only
+    ; there, which is what lets the whites and the darks of an eye be resolved
+    ; without spending the same effort on a cheek.
+    fn buildDetailMask:void () {
+        def n:int (width * height)
+        def dm:[int]
+        def i:int 0
+        while (i < n) {
+            push dm 0
+            i = (i + 1)
+        }
+        detailMask = dm
+        def minSwatches:int options.detailSwatches
+        if (minSwatches < 2) {
+            return
+        }
+        def minSpread:int options.detailSpread
+        def r:int options.detailRadius
+        if (r < 1) {
+            r = 1
+        }
+        def lum:[int]
+        i = 0
+        while (i < n) {
+            push lum (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
+            i = (i + 1)
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def seen:[int]
+                def distinct:int 0
+                def lo:int 256
+                def hi:int (0 - 1)
+                def dy:int (0 - r)
+                while (dy <= r) {
+                    def yy:int (y + dy)
+                    if ((yy >= 0) && (yy < height)) {
+                        def dx:int (0 - r)
+                        while (dx <= r) {
+                            def xx:int (x + dx)
+                            if ((xx >= 0) && (xx < width)) {
+                                def q:int ((yy * width) + xx)
+                                def lab:int (itemAt labels q)
+                                if (lab >= 0) {
+                                    def known:boolean false
+                                    def si:int 0
+                                    while (si < (array_length seen)) {
+                                        if ((itemAt seen si) == lab) {
+                                            known = true
+                                        }
+                                        si = (si + 1)
+                                    }
+                                    if (known == false) {
+                                        push seen lab
+                                        distinct = (distinct + 1)
+                                    }
+                                    def lv:int (itemAt lum q)
+                                    if (lv < lo) {
+                                        lo = lv
+                                    }
+                                    if (lv > hi) {
+                                        hi = lv
+                                    }
+                                }
+                            }
+                            dx = (dx + 1)
+                        }
+                    }
+                    dy = (dy + 1)
+                }
+                if (distinct >= minSwatches) {
+                    if ((hi - lo) >= minSpread) {
+                        set dm ((y * width) + x) 1
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
     fn buildEdgeMask:void () {
         def n:int (width * height)
         def keep:[int]
@@ -2272,6 +2367,7 @@ class EvgBitmapTracer {
 
     fn traceOverlayShapes:void (palR:[int] palG:[int] palB:[int]) {
         this.buildEdgeMask()
+        this.buildDetailMask()
         def n:int (width * height)
         def edgeTol:int options.contourEdge
         if (edgeTol < 1) {
@@ -2445,7 +2541,11 @@ class EvgBitmapTracer {
                     empty = true
                 } {
                     if ((itemAt labels cand) >= 0) {
-                        if ((this.coveredAlready(cand paintR paintG paintB painted simTol)) == false) {
+                        def candSim:int simTol
+                        if (this.isDetail(cand)) {
+                            candSim = (idiv simTol (options.detailBoost))
+                        }
+                        if ((this.coveredAlready(cand paintR paintG paintB painted candSim)) == false) {
                             seed = cand
                         }
                     }
@@ -2507,15 +2607,23 @@ class EvgBitmapTracer {
                 ; approximately, the same color, which is what lets it be
                 ; dropped rather than drawn.
                 def pi:int (this.nearestIndex(mr mg mb palR palG palB))
+                def keepTrue:boolean false
+                if (options.detailTrueColor) {
+                    if (this.isDetail(seed)) {
+                        keepTrue = true
+                    }
+                }
                 ; Giving the shape its *region's* swatch instead was tried and
                 ; is provably useless: the base picture already paints that
                 ; swatch there, so every overlay would add nothing by
                 ; construction and the mode collapses to the plain result. A
                 ; shape earns its place by differing from what it sits on, so
                 ; the mean is what decides its color.
-                mr = (itemAt palR pi)
-                mg = (itemAt palG pi)
-                mb = (itemAt palB pi)
+                if (keepTrue == false) {
+                    mr = (itemAt palR pi)
+                    mg = (itemAt palG pi)
+                    mb = (itemAt palB pi)
+                }
                 ; Every shape marks its ground, whatever its size — a scrap too
                 ; small to be worth its own path still has to stop later shapes
                 ; from growing over it again.
@@ -2547,7 +2655,17 @@ class EvgBitmapTracer {
                 ; that was drawn, because the first shape to cover a pixel
                 ; always finds it unpainted and so is never dropped here.
                 def addsNothing:boolean (sameBelow == (array_length comp))
-                if (((array_length comp) >= minPx) && (addsNothing == false)) {
+                ; And a shape that sits in detail is allowed to be small. A
+                ; pupil is a handful of pixels; the area that is right for a
+                ; cheek discards it.
+                def needPx:int minPx
+                if (this.isDetail(seed)) {
+                    needPx = (idiv minPx (options.detailBoost))
+                    if (needPx < 4) {
+                        needPx = 4
+                    }
+                }
+                if (((array_length comp) >= needPx) && (addsNothing == false)) {
                     ; The mask covers the shape's own bounding box, not the
                     ; frame. A full-size bitmap per shape is allocated, copied
                     ; and scanned once each, so a photograph — which is
@@ -2635,6 +2753,17 @@ class EvgBitmapTracer {
         }
     }
 
+    ; True where the picture asks for fine work — see buildDetailMask.
+    fn isDetail:boolean (i:int) {
+        if ((options.detailBoost) < 2) {
+            return false
+        }
+        if ((array_length detailMask) != (width * height)) {
+            return false
+        }
+        return ((itemAt detailMask i) == 1)
+    }
+
     ; One step of an overlay's growth. Three things stop it: an edge, drifting
     ; too far from its own mean, and arriving somewhere it would look the same
     ; as what is already painted. An edge is not just a stop — it is where the
@@ -2703,9 +2832,20 @@ class EvgBitmapTracer {
         ; Checking the pair rather than the seed is the same test: every step
         ; preserves the label, so the whole component carries one. It is also
         ; what bounds a shape's area, since no shape can outgrow its region.
+        ; — except where the picture asks for precision. The leash and the
+        ; point of the mode are in tension: a shape confined to one region has a
+        ; mean dominated by that region, so it snaps back to that region's own
+        ; swatch and repaints what is already there. Measured: with the leash on
+        ; everywhere, 42 overlay shapes changed the per-pixel error by nothing
+        ; at all, to two decimals. Off everywhere, a face turns to mush. So it
+        ; comes off exactly where buildDetailMask says several plainly different
+        ; colors meet in a few pixels — an eye, a set of teeth — and stays on
+        ; across the cheeks and the curtains, which is where letting go hurt.
         if (options.overlayFollowBase) {
-            if ((itemAt labels i) != (itemAt labels from)) {
-                return
+            if ((this.isDetail(i)) == false) {
+                if ((itemAt labels i) != (itemAt labels from)) {
+                    return
+                }
             }
         }
         def step:int (this.pixelDelta(from i))
@@ -2726,7 +2866,14 @@ class EvgBitmapTracer {
             }
             return
         }
-        if (this.coveredAlready(i paintR paintG paintB painted simTol)) {
+        ; Inside a detail neighbourhood the bar for "this shows against what is
+        ; under it" is lower, so the small strong shapes an eye is made of are
+        ; drawn instead of being written off as near enough to the skin.
+        def useSim:int simTol
+        if (this.isDetail(i)) {
+            useSim = (idiv simTol (options.detailBoost))
+        }
+        if (this.coveredAlready(i paintR paintG paintB painted useSim)) {
             return
         }
         def cnt:int (itemAt acc 3)

@@ -241,6 +241,9 @@
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
           <span class="hint">Tätä lähempänä olevat sävyt yhdistetään.</span>
         </label>
+        <label class="check color-only hidden" id="row-detailTrue"><input id="detailTrueColor" type="checkbox"> Tarkat värit yksityiskohdissa
+          <span class="hint">Silmien ja hampaiden kaltaisissa kohdissa — missä selvästi eri värit kohtaavat muutaman pikselin sisällä — muoto saa pitää oman mitatun värinsä sen sijaan että se pyöristettäisiin palettiin. Vain näin tila voi lisätä tarkkuutta sen sijaan että piirtäisi uudelleen sen mikä jo on. Muotokuvassa suun virhe pieneni 8,7 %, mutta värejä tuli 10 sijaan 109 — eli värimäärä lakkaa olemasta katto.</span>
+        </label>
         <label class="row color-only hidden" id="row-oSim">Samankaltaisuuden raja <span class="val" id="v-overlaySimilar">8</span>
           <input id="overlaySimilar" type="range" min="1" max="40" step="1" value="8">
           <span class="hint">Muoto pysähtyy myös kun se on näin samanlainen kuin alla oleva. Käytä gradienttien kanssa.</span>
@@ -359,6 +362,7 @@
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
   var overlaySimilar = $("overlaySimilar"), edgeMinRun = $("edgeMinRun");
+  var detailTrueColor = $("detailTrueColor");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -508,6 +512,7 @@
     $("row-bgTol").classList.toggle("hidden", !color || !floods);
     var cont = contourMode.value !== "off";
     $("row-oSim").classList.toggle("hidden", !color || contourMode.value !== "overlay");
+    $("row-detailTrue").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-cEdge").classList.toggle("hidden", !color || !cont);
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
     $("row-eRun").classList.toggle("hidden", !color || !cont);
@@ -531,7 +536,7 @@
   renderPalEdit();
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor", "contourMode", "gradientFill"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor", "contourMode", "gradientFill", "detailTrueColor"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -683,6 +688,7 @@
         opts.gradientFill = !!gradientFill.checked;
         opts.gradientGain = +gradientGain.value;
         opts.overlaySimilar = +overlaySimilar.value;
+        opts.detailTrueColor = detailTrueColor.checked;
         opts.edgeMinRun = +edgeMinRun.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
