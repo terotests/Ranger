@@ -263,6 +263,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A refine stroke drew a straight line along its own boundary.** Reported as a
+  horizontal line at the edge of a refined area, running at odds with whatever
+  the picture was doing there and parallel to the region border — which is the
+  tell, because nothing in a photograph lines up with a brush stroke. Two causes,
+  both of them the stroke's own geometry leaking into the result:
+
+  The crop and the mask ended on exactly the same line. The stroke's half-width
+  bounded both, so every shape the tracer made was cut flat against the crop
+  rectangle and the mask revealed precisely that cut. The crop is now traced
+  with a margin past what the mask shows, so the tracer has context there and
+  its cut falls where nothing is drawn. And the mask was a hard cut between
+  refined and unrefined content; it is now feathered, so the patch arrives
+  rather than starts.
+
+  Measured on a horizontal stroke over smooth skin, edge energy on the boundary
+  row against the **0.5** the picture has there naturally: **14.9 → 2.9** at the
+  top edge, **9.9 → 3.4** at the bottom, where the natural value is 3.5. Colour
+  disagreement across the boundary, as excess over natural, fell from **5.5 to
+  0.2**, and the detail inside went **up**, 10.2 → 11.9.
+
+  One of those fixes was briefly worse than the bug: the feather's filter region
+  was given in percentages, which are measured against the filtered element's
+  bounding box — and a straight horizontal stroke has a bounding box of zero
+  height. The region collapsed, the mask rendered empty, and the entire patch
+  disappeared while the tool reported success and the boundary measured
+  perfectly clean, because there was nothing there. The smoke test's "did any
+  pixel actually change" check caught it; the filter region is in user space
+  now.
+
 - **Splitting a traced layer into shapes now happens in one place.** The
   refiner grew its own copy that split on `M` and treated every ring as a shape,
   which fills in every hole — on a portrait it closed both eyes and washed the

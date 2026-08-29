@@ -333,6 +333,18 @@ if (!ready) {
     // worth guarding — resolved in the wrong coordinate system it hides the
     // whole result, and the tool then reports success while changing nothing.
     await page.click("#toolRefine");
+    // Force the patch to differ from what is already there. With the palette
+    // seeded from the border and the mask feathered, a refine stroke can quite
+    // correctly change nothing — it had nothing to add — and then this test
+    // would pass a broken mask as a no-op. Given its own colors to invent and
+    // no edge snapping, it must change something, and that is what makes the
+    // "is the mask hiding everything" check mean anything.
+    await page.evaluate(() => {
+      const x = document.getElementById("refineExtra");
+      x.value = 12; x.dispatchEvent(new Event("input", { bubbles: true }));
+      const e = document.getElementById("edgeBlend");
+      e.value = 0; e.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     const refined = await page.evaluate(async () => {
       const svg = document.querySelector("#outStage svg");
       const rect = svg.getBoundingClientRect();

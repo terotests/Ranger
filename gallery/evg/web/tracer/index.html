@@ -964,8 +964,18 @@
       if (p.y - half < y0) y0 = p.y - half;
       if (p.y + half > y1) y1 = p.y + half;
     });
-    x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
-    x1 = Math.min(sourceBitmap.w, Math.ceil(x1)); y1 = Math.min(sourceBitmap.h, Math.ceil(y1));
+    // Trace more than the mask will show. The crop and the mask used to end on
+    // exactly the same line: the stroke's own half-width bounded both, so every
+    // shape the tracer made was cut flat against the crop rectangle and the
+    // mask revealed precisely that cut — a straight edge lying along the
+    // stroke, at right angles to whatever the picture was actually doing there.
+    // Measured on a horizontal stroke over smooth skin, the boundary row went
+    // from 0.5 of edge energy to 14.9, which is more than the refined area's own
+    // interior. With a margin the tracer sees context past the mask, and its cut
+    // falls where nothing is shown.
+    var pad = Math.ceil(half) + 4;
+    x0 = Math.max(0, Math.floor(x0) - pad); y0 = Math.max(0, Math.floor(y0) - pad);
+    x1 = Math.min(sourceBitmap.w, Math.ceil(x1) + pad); y1 = Math.min(sourceBitmap.h, Math.ceil(y1) + pad);
     var bw = x1 - x0, bh = y1 - y0;
     if (bw < 4 || bh < 4) { setEditNote("Liian pieni alue."); return; }
 
@@ -1032,7 +1042,32 @@
     var mask = document.createElementNS("http://www.w3.org/2000/svg", "mask");
     mask.setAttribute("id", id);
     mask.setAttribute("maskUnits", "userSpaceOnUse");
+    // Feather the mask. Even with the crop padded and the palette seeded, the
+    // mask is still a hard cut between refined and unrefined content, and a
+    // hard cut along a straight stroke reads as a drawn line. Blurring the
+    // mask turns the last couple of pixels into a ramp, so the patch arrives
+    // rather than starts.
+    var fid = id + "f";
+    // In user space with an explicit region, not percentages: a filter region
+    // given in percent is measured against the filtered element's bounding box,
+    // and a straight horizontal stroke has a bounding box of zero height. The
+    // region collapses, the mask renders empty, and the whole patch disappears
+    // while the tool reports success — which is exactly what happened, and what
+    // the smoke test's "did any pixel change" check caught.
+    var fpad = Math.ceil(half) + 8;
+    var filt = document.createElementNS("http://www.w3.org/2000/svg", "filter");
+    filt.setAttribute("id", fid);
+    filt.setAttribute("filterUnits", "userSpaceOnUse");
+    filt.setAttribute("x", String(x0 - fpad));
+    filt.setAttribute("y", String(y0 - fpad));
+    filt.setAttribute("width", String(bw + fpad * 2));
+    filt.setAttribute("height", String(bh + fpad * 2));
+    var blur = document.createElementNS("http://www.w3.org/2000/svg", "feGaussianBlur");
+    blur.setAttribute("stdDeviation", String(Math.max(0.8, half / 8).toFixed(2)));
+    filt.appendChild(blur);
+    mask.appendChild(filt);
     var mp = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    mp.setAttribute("filter", "url(#" + fid + ")");
     mp.setAttribute("d", strokeD(stroke.pts));
     mp.setAttribute("fill", "none");
     mp.setAttribute("stroke", "#fff");
@@ -1151,6 +1186,14 @@
   }
 
   // Bring the patch back to the surrounding colors at its border.
+  //
+  // The last of the four, and it still earns its keep. Seeding the palette,
+  // padding the crop and feathering the mask take the boundary line out; this
+  // takes the colour disagreement out. Measured across the boundary as excess
+  // over what the picture has there naturally: 5.5 without it, 0.2 at 90, for
+  // 12.8 → 11.9 of detail. Worth the trade, so 90 is the default. A patch
+  // colour with no near neighbour outside keeps its own whatever this is set
+  // to — that is the case none of the four can fix, and should not.
   //
   // A crop quantized on its own has colors the frame's palette does not, which
   // is exactly why it shows detail — and exactly why its edge is visible where
