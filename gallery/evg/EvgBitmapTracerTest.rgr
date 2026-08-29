@@ -43,6 +43,7 @@ class EvgBitmapTracerTest {
         test.testOverlayStaysWithinItsPalette(t)
         test.testOverlaySimilarityDecidesHowManyStack(t)
         test.testDetailMaskFindsTheEyeNotTheRamp(t)
+        test.testDetailNeighbourhoodGetsItsOwnPalette(t)
         t.summary()
     }
 
@@ -1326,6 +1327,55 @@ class EvgBitmapTracerTest {
     ; changes smoothly. Both halves of the test matter — a gradient passes a
     ; contrast test and a patch of noise inside one flat color passes a variety
     ; test, and neither is detail.
+    ; A detail neighbourhood quantizes itself with its own palette, which is
+    ; what "zoom in on it" means done in place — and it is the only way the eye
+    ; of a portrait keeps its lid and its opening instead of flattening into one
+    ; dark almond. The global palette cannot do it: it is counting a whole frame
+    ; and a face is mostly cheek, so an eye gets two swatches out of ten.
+    fn testDetailNeighbourhoodGetsItsOwnPalette:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("a detail neighbourhood quantizes itself in four" (d.detailColors) 4)
+
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 6
+        opts.bgMode = "none"
+        opts.contourMode = "overlay"
+        opts.detailMinShare = 0
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) opts))
+        tr.trace()
+
+        def off:EvgTraceOptions (EvgTraceOptions.defaults())
+        off.colorCount = 6
+        off.bgMode = "none"
+        off.contourMode = "overlay"
+        off.detailColors = 0
+        def bare:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampAndEye()) off))
+        bare.trace()
+
+        t.ok("the eye earns shapes the global palette did not pay for" ((tr.layerCount()) > (bare.layerCount())))
+
+        ; And they are the eye's own colors. The point is the extremes: six
+        ; swatches spread over a ramp leave nothing near white or near black for
+        ; an eye, so both its sclera and its pupil round to something mid-grey.
+        def darkest:int 256
+        def lightest:int (0 - 1)
+        def li:int 0
+        while (li < (tr.layerCount())) {
+            def l:EvgTraceLayer (itemAt tr.layers li)
+            def col:EVGColor (EVGColor.parse(l.fillHex))
+            def lv:int (EvgBitmapTracer.lumaOf((to_int col.r) (to_int col.g) (to_int col.b)))
+            if (lv < darkest) {
+                darkest = lv
+            }
+            if (lv > lightest) {
+                lightest = lv
+            }
+            li = (li + 1)
+        }
+        t.ok("with a darker shape than the global palette held" (darkest < 40))
+        t.ok("and a lighter one" (lightest > 200))
+    }
+
     fn testDetailMaskFindsTheEyeNotTheRamp:void (t:RgTest) {
         def d:EvgTraceOptions (EvgTraceOptions.defaults())
         t.eqInt("the detail window wants several swatches" (d.detailSwatches) 4)

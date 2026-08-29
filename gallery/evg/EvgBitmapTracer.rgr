@@ -1366,6 +1366,43 @@ class EvgBitmapTracer {
             }
             y = (y + 1)
         }
+        ; What the test marks is where the colors *meet* — a ring around an eye
+        ; rather than the eye. The flat middle of a pupil is as plain as a cheek
+        ; by this measure, and left out it would split the feature in two.
+        ; Growing the mark by the window radius closes the ring into the shape a
+        ; person would have drawn around the feature.
+        def grown:[int]
+        i = 0
+        while (i < n) {
+            push grown (itemAt dm i)
+            i = (i + 1)
+        }
+        def gy:int 0
+        while (gy < height) {
+            def gx:int 0
+            while (gx < width) {
+                if ((itemAt dm ((gy * width) + gx)) == 1) {
+                    def dy2:int (0 - r)
+                    while (dy2 <= r) {
+                        def yy2:int (gy + dy2)
+                        if ((yy2 >= 0) && (yy2 < height)) {
+                            def dx2:int (0 - r)
+                            while (dx2 <= r) {
+                                def xx2:int (gx + dx2)
+                                if ((xx2 >= 0) && (xx2 < width)) {
+                                    set grown ((yy2 * width) + xx2) 1
+                                }
+                                dx2 = (dx2 + 1)
+                            }
+                        }
+                        dy2 = (dy2 + 1)
+                    }
+                }
+                gx = (gx + 1)
+            }
+            gy = (gy + 1)
+        }
+        detailMask = grown
     }
 
     fn buildEdgeMask:void () {
@@ -2365,6 +2402,257 @@ class EvgBitmapTracer {
         layer.stopB = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 2 layer.gx1 layer.gy1))))
     }
 
+    ; Re-quantize each detail neighbourhood using only its own pixels, and draw
+    ; the result on top of the picture the global palette produced.
+    ;
+    ; This answers the complaint that an eye traced on its own comes out
+    ; beautifully while the same eye inside a whole face comes out a smudge.
+    ; Nothing is wrong with the tracer in either case: zoomed in, the entire
+    ; color budget is spent on an eye; in a portrait the eye gets two swatches
+    ; out of ten, because the quantizer counts the whole frame and a face is
+    ; mostly cheek. What survives that is the eye's outline; what is lost is the
+    ; lid, the lash line and the opening — everything that makes it read as an
+    ; eye rather than a dark almond. Giving the neighbourhood its own palette is
+    ; what "zoom in on it" means, done in place, and the shapes come out the way
+    ; the plain algorithm makes shapes — whole connected regions of one color —
+    ; rather than grown on a leash and fragmented.
+    fn traceDetailShapes:void (allCmds:[PathCommand] minPx:int) {
+        def k:int options.detailColors
+        if (k < 2) {
+            return
+        }
+        def n:int (width * height)
+        if ((array_length detailMask) != n) {
+            return
+        }
+        def seen:[int]
+        def i:int 0
+        while (i < n) {
+            push seen 0
+            i = (i + 1)
+        }
+        def needPx:int minPx
+        if ((options.detailBoost) >= 2) {
+            needPx = (idiv minPx (options.detailBoost))
+        }
+        if (needPx < 4) {
+            needPx = 4
+        }
+        def start:int 0
+        while (start < n) {
+            if (((itemAt detailMask start) == 1) && ((itemAt seen start) == 0)) {
+                def comp:[int]
+                def stack:[int]
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.detailVisit((cur - 1) seen stack)
+                    }
+                    if (cx < (width - 1)) {
+                        this.detailVisit((cur + 1) seen stack)
+                    }
+                    if (cy > 0) {
+                        this.detailVisit((cur - width) seen stack)
+                    }
+                    if (cy < (height - 1)) {
+                        this.detailVisit((cur + width) seen stack)
+                    }
+                }
+                ; A neighbourhood has to be able to hold the pieces it is being
+                ; split into, or the split is noise.
+                if ((array_length comp) >= (needPx * k)) {
+                    this.paintDetailCluster(comp k needPx allCmds)
+                }
+            }
+            start = (start + 1)
+        }
+    }
+
+    fn detailVisit:void (i:int seen:[int] stack:[int]) {
+        if ((itemAt seen i) == 1) {
+            return
+        }
+        if ((itemAt detailMask i) == 0) {
+            return
+        }
+        set seen i 1
+        push stack i
+    }
+
+    ; One neighbourhood: build a palette out of its own pixels, split it by that
+    ; palette, and emit each piece as a layer.
+    fn paintDetailCluster:void (comp:[int] k:int needPx:int allCmds:[PathCommand]) {
+        ; The local palette comes from equal shares of the neighbourhood's own
+        ; luma range. Bands rather than a k-means because what has to be
+        ; separated here is exactly light from dark — the white of an eye from
+        ; its pupil — and a band split does that by construction, cheaply, and
+        ; with the same answer every run.
+        def binN:[int]
+        def binR:[int]
+        def binG:[int]
+        def binB:[int]
+        def i:int 0
+        while (i < 256) {
+            push binN 0
+            push binR 0
+            push binG 0
+            push binB 0
+            i = (i + 1)
+        }
+        def c:int 0
+        while (c < (array_length comp)) {
+            def px:int (itemAt comp c)
+            def r:int (itemAt planeR px)
+            def g:int (itemAt planeG px)
+            def b:int (itemAt planeB px)
+            def l:int (EvgBitmapTracer.lumaOf(r g b))
+            set binN l ((itemAt binN l) + 1)
+            set binR l ((itemAt binR l) + r)
+            set binG l ((itemAt binG l) + g)
+            set binB l ((itemAt binB l) + b)
+            c = (c + 1)
+        }
+        def total:int (array_length comp)
+        def lpR:[int]
+        def lpG:[int]
+        def lpB:[int]
+        def acc:int 0
+        def sR:int 0
+        def sG:int 0
+        def sB:int 0
+        def sN:int 0
+        def band:int 1
+        i = 0
+        while (i < 256) {
+            def cnt:int (itemAt binN i)
+            if (cnt > 0) {
+                sR = (sR + (itemAt binR i))
+                sG = (sG + (itemAt binG i))
+                sB = (sB + (itemAt binB i))
+                sN = (sN + cnt)
+                acc = (acc + cnt)
+            }
+            def edge:int (idiv (total * band) k)
+            if ((acc >= edge) && (band < k)) {
+                if (sN > 0) {
+                    push lpR (idiv sR sN)
+                    push lpG (idiv sG sN)
+                    push lpB (idiv sB sN)
+                }
+                sR = 0
+                sG = 0
+                sB = 0
+                sN = 0
+                band = (band + 1)
+            }
+            i = (i + 1)
+        }
+        if (sN > 0) {
+            push lpR (idiv sR sN)
+            push lpG (idiv sG sN)
+            push lpB (idiv sB sN)
+        }
+        def lk:int (array_length lpR)
+        if (lk < 2) {
+            return
+        }
+        ; Speckle here is not whole bands that are too small — with equal-share
+        ; bands none ever is, each holds about 1/k of the neighbourhood by
+        ; construction, and gating on that was measured to do nothing until it
+        ; was high enough to delete real structure. It is the scatter *inside* a
+        ; band: a band traces to one big ring plus a spray of little ones. So
+        ; the share is spent where it bites, as the smallest ring a detail shape
+        ; may keep.
+        def speck:int (idiv (total * (options.detailMinShare)) 100)
+        def bx0:int width
+        def by0:int height
+        def bx1:int 0
+        def by1:int 0
+        c = 0
+        while (c < (array_length comp)) {
+            def q:int (itemAt comp c)
+            def qy:int (idiv q width)
+            def qx:int (q - (qy * width))
+            if (qx < bx0) {
+                bx0 = qx
+            }
+            if (qx > bx1) {
+                bx1 = qx
+            }
+            if (qy < by0) {
+                by0 = qy
+            }
+            if (qy > by1) {
+                by1 = qy
+            }
+            c = (c + 1)
+        }
+        bx0 = (bx0 - 1)
+        by0 = (by0 - 1)
+        def bw:int ((bx1 - bx0) + 2)
+        def bh:int ((by1 - by0) + 2)
+        def li:int 0
+        while (li < lk) {
+            def mask:EvgBinaryBitmap (EvgBinaryBitmap.create(bw bh))
+            def held:int 0
+            c = 0
+            while (c < (array_length comp)) {
+                def p2:int (itemAt comp c)
+                def py:int (idiv p2 width)
+                def pxx:int (p2 - (py * width))
+                def near:int (this.nearestIndex((itemAt planeR p2) (itemAt planeG p2) (itemAt planeB p2) lpR lpG lpB))
+                if (near == li) {
+                    mask.setBit((pxx - bx0) (py - by0) true)
+                    held = (held + 1)
+                }
+                c = (c + 1)
+            }
+            if (held >= needPx) {
+                def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+                layerOpts.turdsize = options.turdsize
+                if (speck > (options.turdsize)) {
+                    layerOpts.turdsize = speck
+                }
+                layerOpts.alphamax = options.alphamax
+                layerOpts.turnpolicy = options.turnpolicy
+                layerOpts.optcurve = options.optcurve
+                layerOpts.opttolerance = options.opttolerance
+                layerOpts.fillHex = (this.hexFromRgb((itemAt lpR li) (itemAt lpG li) (itemAt lpB li)))
+                def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+                sub.trace()
+                if ((sub.ringCount()) > 0) {
+                    def cmds:[PathCommand] (sub.getCommands())
+                    def ox:double (to_double bx0)
+                    def oy:double (to_double by0)
+                    def ci:int 0
+                    while (ci < (array_length cmds)) {
+                        def cm:PathCommand (itemAt cmds ci)
+                        cm.x = (cm.x + ox)
+                        cm.y = (cm.y + oy)
+                        cm.x1 = (cm.x1 + ox)
+                        cm.y1 = (cm.y1 + oy)
+                        cm.x2 = (cm.x2 + ox)
+                        cm.y2 = (cm.y2 + oy)
+                        push allCmds cm
+                        ci = (ci + 1)
+                    }
+                    def layer:EvgTraceLayer (itemAt sub.layers 0)
+                    layer.pathData = (VectorShapes.asPathData(cmds))
+                    push layers layer
+                    rings = sub.rings
+                }
+            }
+            li = (li + 1)
+        }
+    }
+
     fn traceOverlayShapes:void (palR:[int] palG:[int] palB:[int]) {
         this.buildEdgeMask()
         this.buildDetailMask()
@@ -2503,6 +2791,9 @@ class EvgBitmapTracer {
         ; costs nothing, and one that is wrong can only be as wrong as the
         ; shape it draws — never the whole frame.
         this.paintLabelLayers(palR palG palB allCmds)
+        ; Then the neighbourhoods that need a palette of their own, before the
+        ; grown overlays — those refine the picture, these re-read it.
+        this.traceDetailShapes(allCmds minPx)
         ; How many shapes are worth making scales with the picture: a fixed
         ; ceiling starves a large photograph of exactly the shapes it needs,
         ; and the flag in one test came out as bare background because its

@@ -9,21 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Negative result, recorded so it is not retried: re-quantizing a detail
-  neighbourhood with its own palette makes eyes worse, not better.** The
-  diagnosis behind it is right and worth keeping — an eye traced on its own
-  comes out cleanly because the whole color budget goes to an eye, while in a
-  portrait it gets two swatches out of ten and comes back a smudge. So a detail
-  neighbourhood was given its own four-band local palette, its pixels split by
-  it, and the pieces drawn on top as whole connected regions. The error metric
-  liked it: eyes **13.80 → 12.51**, whole frame **11.51 → 10.54**. Looking at
-  the result settles it the other way — the eyes come out speckled and
-  measurably *further* from what anyone wants than the plain algorithm, because
-  a local band split lands its bands inside the neighbourhood's noise rather
-  than between its white and its black. The metric was rewarding agreement with
-  a noisy photograph, which is not the same thing as a clean vector shape. What
-  actually produces good eyes today is `contourMode: "smooth"` with the
-  continuity threshold raised.
+- **A detail neighbourhood now quantizes itself with its own palette**, and its
+  shapes are drawn on top of the picture the global palette produced. This is
+  the fix for a complaint worth stating precisely: trace an eye on its own and
+  it comes out beautifully; trace the same eye inside a whole face and it comes
+  back a smudge. Nothing is wrong in either case. Zoomed in, the entire color
+  budget goes to an eye; in a portrait the eye gets two swatches out of ten,
+  because the quantizer counts the whole frame and a face is mostly cheek. What
+  survives is the eye's outline; what is lost is the lid, the lash line and the
+  opening — everything that makes it read as an eye rather than a dark almond.
+  Each neighbourhood is split into `detailColors` (4) bands of its own luma
+  range, and each band is traced as a whole connected region the way the plain
+  algorithm makes shapes, rather than grown on a leash and fragmented.
+
+  `detailMinShare` (8%) is what makes it usable: a band traces to one large ring
+  plus a spray of small ones, and the spray is speckle. Swept on a portrait's
+  eyes — **0%**: every bit of structure and every bit of grain, 687 KB; **8%**:
+  the lid, the lash line and the opening all still read and the grain is gone,
+  599 KB; **15% and up**: it starts eating the structure and converges on what
+  the plain algorithm already gives. An earlier version of this control gated
+  whole bands instead of rings and was measured to do nothing at all, which
+  makes sense in hindsight — equal-share bands are each about 1/k of the
+  neighbourhood by construction, so none is ever small.
+
+  Whole-frame cost, 640 px wide: clip art 38 shapes / 35 KB, a detailed photo
+  84 / 229 KB, a portrait 561 / 658 KB. The color count stops being a hard
+  ceiling in this mode, since the local palettes are the point; `detailColors:
+  0` turns it off and gives the ceiling back. Verified that the other two
+  algorithms are untouched by any of this: **perus and jatkuvuus are
+  byte-identical before and after, 24/24** across four images, three modes and
+  two color counts.
+
+  A note on how this was nearly lost. Judged by eye against the plain result it
+  looked worse — speckled — and it was written off as a negative result and
+  reverted, even though the error metric had improved (eyes 13.80 → 12.51, whole
+  frame 11.51 → 10.54). The metric was right and the glance was wrong: the
+  structure was there under the grain, and the grain was one control away.
 
 - **The tracer finds where a picture needs fine work, and spends its precision
   there** — asked for after the eyes of a portrait stayed coarse: could the

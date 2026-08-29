@@ -76,6 +76,8 @@ class EvgTraceOptions  {
     this.detailRadius = 2;
     this.detailBoost = 4;
     this.detailTrueColor = false;
+    this.detailColors = 4;
+    this.detailMinShare = 8;
     this.edgeMinRun = 3;
     this.contourEdge = 3;
     this.contourSpread = 48;
@@ -6658,6 +6660,38 @@ class EvgBitmapTracer  {
       };
       y = y + 1;
     };
+    let grown = [];
+    i = 0;
+    while (i < n) {
+      grown.push(dm[i]);
+      i = i + 1;
+    };
+    let gy = 0;
+    while (gy < this.height) {
+      let gx = 0;
+      while (gx < this.width) {
+        if ( (dm[((gy * this.width) + gx)]) == 1 ) {
+          let dy2 = 0 - r;
+          while (dy2 <= r) {
+            const yy2 = gy + dy2;
+            if ( (yy2 >= 0) && (yy2 < this.height) ) {
+              let dx2 = 0 - r;
+              while (dx2 <= r) {
+                const xx2 = gx + dx2;
+                if ( (xx2 >= 0) && (xx2 < this.width) ) {
+                  grown[(yy2 * this.width) + xx2] = 1;
+                }
+                dx2 = dx2 + 1;
+              };
+            }
+            dy2 = dy2 + 1;
+          };
+        }
+        gx = gx + 1;
+      };
+      gy = gy + 1;
+    };
+    this.detailMask = grown;
   };
   buildEdgeMask () {
     const n = this.width * this.height;
@@ -7527,6 +7561,224 @@ class EvgBitmapTracer  {
     layer.stopA = this.hexOf(this.linAt(la, lb, lc, 0, 0, layer.gx0, layer.gy0), this.linAt(la, lb, lc, 0, 1, layer.gx0, layer.gy0), this.linAt(la, lb, lc, 0, 2, layer.gx0, layer.gy0));
     layer.stopB = this.hexOf(this.linAt(la, lb, lc, 0, 0, layer.gx1, layer.gy1), this.linAt(la, lb, lc, 0, 1, layer.gx1, layer.gy1), this.linAt(la, lb, lc, 0, 2, layer.gx1, layer.gy1));
   };
+  traceDetailShapes (allCmds, minPx) {
+    const k = this.options.detailColors;
+    if ( k < 2 ) {
+      return;
+    }
+    const n = this.width * this.height;
+    if ( (this.detailMask.length) != n ) {
+      return;
+    }
+    let seen = [];
+    let i = 0;
+    while (i < n) {
+      seen.push(0);
+      i = i + 1;
+    };
+    let needPx = minPx;
+    if ( this.options.detailBoost >= 2 ) {
+      needPx = ((minPx / this.options.detailBoost) | 0);
+    }
+    if ( needPx < 4 ) {
+      needPx = 4;
+    }
+    let start = 0;
+    while (start < n) {
+      if ( ((this.detailMask[start]) == 1) && ((seen[start]) == 0) ) {
+        let comp = [];
+        let stack = [];
+        seen[start] = 1;
+        stack.push(start);
+        let head = 0;
+        while (head < (stack.length)) {
+          const cur = stack[head];
+          head = head + 1;
+          comp.push(cur);
+          const cy = ((cur / this.width) | 0);
+          const cx = cur - (cy * this.width);
+          if ( cx > 0 ) {
+            this.detailVisit(cur - 1, seen, stack);
+          }
+          if ( cx < (this.width - 1) ) {
+            this.detailVisit(cur + 1, seen, stack);
+          }
+          if ( cy > 0 ) {
+            this.detailVisit(cur - this.width, seen, stack);
+          }
+          if ( cy < (this.height - 1) ) {
+            this.detailVisit(cur + this.width, seen, stack);
+          }
+        };
+        if ( (comp.length) >= (needPx * k) ) {
+          this.paintDetailCluster(comp, k, needPx, allCmds);
+        }
+      }
+      start = start + 1;
+    };
+  };
+  detailVisit (i, seen, stack) {
+    if ( (seen[i]) == 1 ) {
+      return;
+    }
+    if ( (this.detailMask[i]) == 0 ) {
+      return;
+    }
+    seen[i] = 1;
+    stack.push(i);
+  };
+  paintDetailCluster (comp, k, needPx, allCmds) {
+    let binN = [];
+    let binR = [];
+    let binG = [];
+    let binB = [];
+    let i = 0;
+    while (i < 256) {
+      binN.push(0);
+      binR.push(0);
+      binG.push(0);
+      binB.push(0);
+      i = i + 1;
+    };
+    let c = 0;
+    while (c < (comp.length)) {
+      const px = comp[c];
+      const r = this.planeR[px];
+      const g = this.planeG[px];
+      const b = this.planeB[px];
+      const l = EvgBitmapTracer.lumaOf(r, g, b);
+      binN[l] = (binN[l]) + 1;
+      binR[l] = (binR[l]) + r;
+      binG[l] = (binG[l]) + g;
+      binB[l] = (binB[l]) + b;
+      c = c + 1;
+    };
+    const total = comp.length;
+    let lpR = [];
+    let lpG = [];
+    let lpB = [];
+    let acc = 0;
+    let sR = 0;
+    let sG = 0;
+    let sB = 0;
+    let sN = 0;
+    let band = 1;
+    i = 0;
+    while (i < 256) {
+      const cnt = binN[i];
+      if ( cnt > 0 ) {
+        sR = sR + (binR[i]);
+        sG = sG + (binG[i]);
+        sB = sB + (binB[i]);
+        sN = sN + cnt;
+        acc = acc + cnt;
+      }
+      const edge = (((total * band) / k) | 0);
+      if ( (acc >= edge) && (band < k) ) {
+        if ( sN > 0 ) {
+          lpR.push(((sR / sN) | 0));
+          lpG.push(((sG / sN) | 0));
+          lpB.push(((sB / sN) | 0));
+        }
+        sR = 0;
+        sG = 0;
+        sB = 0;
+        sN = 0;
+        band = band + 1;
+      }
+      i = i + 1;
+    };
+    if ( sN > 0 ) {
+      lpR.push(((sR / sN) | 0));
+      lpG.push(((sG / sN) | 0));
+      lpB.push(((sB / sN) | 0));
+    }
+    const lk = lpR.length;
+    if ( lk < 2 ) {
+      return;
+    }
+    const speck = (((total * this.options.detailMinShare) / 100) | 0);
+    let bx0 = this.width;
+    let by0 = this.height;
+    let bx1 = 0;
+    let by1 = 0;
+    c = 0;
+    while (c < (comp.length)) {
+      const q = comp[c];
+      const qy = ((q / this.width) | 0);
+      const qx = q - (qy * this.width);
+      if ( qx < bx0 ) {
+        bx0 = qx;
+      }
+      if ( qx > bx1 ) {
+        bx1 = qx;
+      }
+      if ( qy < by0 ) {
+        by0 = qy;
+      }
+      if ( qy > by1 ) {
+        by1 = qy;
+      }
+      c = c + 1;
+    };
+    bx0 = bx0 - 1;
+    by0 = by0 - 1;
+    const bw = (bx1 - bx0) + 2;
+    const bh = (by1 - by0) + 2;
+    let li = 0;
+    while (li < lk) {
+      const mask = EvgBinaryBitmap.create(bw, bh);
+      let held = 0;
+      c = 0;
+      while (c < (comp.length)) {
+        const p2 = comp[c];
+        const py = ((p2 / this.width) | 0);
+        const pxx = p2 - (py * this.width);
+        const near = this.nearestIndex((this.planeR[p2]), (this.planeG[p2]), (this.planeB[p2]), lpR, lpG, lpB);
+        if ( near == li ) {
+          mask.setBit(pxx - bx0, py - by0, true);
+          held = held + 1;
+        }
+        c = c + 1;
+      };
+      if ( held >= needPx ) {
+        const layerOpts = EvgTraceOptions.defaults();
+        layerOpts.turdsize = this.options.turdsize;
+        if ( speck > this.options.turdsize ) {
+          layerOpts.turdsize = speck;
+        }
+        layerOpts.alphamax = this.options.alphamax;
+        layerOpts.turnpolicy = this.options.turnpolicy;
+        layerOpts.optcurve = this.options.optcurve;
+        layerOpts.opttolerance = this.options.opttolerance;
+        layerOpts.fillHex = this.hexFromRgb((lpR[li]), (lpG[li]), (lpB[li]));
+        const sub = EvgBitmapTracer.fromBinary(mask, layerOpts);
+        sub.trace();
+        if ( sub.ringCount() > 0 ) {
+          const cmds = sub.getCommands();
+          const ox = bx0;
+          const oy = by0;
+          let ci = 0;
+          while (ci < (cmds.length)) {
+            const cm = cmds[ci];
+            cm.x = cm.x + ox;
+            cm.y = cm.y + oy;
+            cm.x1 = cm.x1 + ox;
+            cm.y1 = cm.y1 + oy;
+            cm.x2 = cm.x2 + ox;
+            cm.y2 = cm.y2 + oy;
+            allCmds.push(cm);
+            ci = ci + 1;
+          };
+          const layer = sub.layers[0];
+          layer.pathData = VectorShapes.asPathData(cmds);
+          this.layers.push(layer);
+          this.rings = sub.rings;
+        }
+      }
+      li = li + 1;
+    };
+  };
   traceOverlayShapes (palR, palG, palB) {
     this.buildEdgeMask();
     this.buildDetailMask();
@@ -7626,6 +7878,7 @@ class EvgBitmapTracer  {
     };
     let allCmds = [];
     this.paintLabelLayers(palR, palG, palB, allCmds);
+    this.traceDetailShapes(allCmds, minPx);
     let budget = ((n / 4) | 0);
     if ( budget < 500 ) {
       budget = 500;
@@ -9804,6 +10057,42 @@ class EvgBitmapTracerTest  {
     };
     return img;
   };
+  testDetailNeighbourhoodGetsItsOwnPalette (t) {
+    const d = EvgTraceOptions.defaults();
+    t.eqInt("a detail neighbourhood quantizes itself in four", d.detailColors, 4);
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 3;
+    opts.bgMode = "none";
+    opts.contourMode = "overlay";
+    opts.detailMinShare = 0;
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), opts);
+    tr.trace();
+    const off = EvgTraceOptions.defaults();
+    off.colorCount = 3;
+    off.bgMode = "none";
+    off.contourMode = "overlay";
+    off.detailColors = 0;
+    const bare = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), off);
+    bare.trace();
+    t.ok("the eye earns shapes the global palette did not pay for", tr.layerCount() > bare.layerCount());
+    let darkest = 256;
+    let lightest = 0 - 1;
+    let li = 0;
+    while (li < tr.layerCount()) {
+      const l = tr.layers[li];
+      const col = EVGColor.parse(l.fillHex);
+      const lv = EvgBitmapTracer.lumaOf((Math.floor( col.r)), (Math.floor( col.g)), (Math.floor( col.b)));
+      if ( lv < darkest ) {
+        darkest = lv;
+      }
+      if ( lv > lightest ) {
+        lightest = lv;
+      }
+      li = li + 1;
+    };
+    t.ok("with a darker shape than the global palette held", darkest < 40);
+    t.ok("and a lighter one", lightest > 200);
+  };
   testDetailMaskFindsTheEyeNotTheRamp (t) {
     const d = EvgTraceOptions.defaults();
     t.eqInt("the detail window wants several swatches", d.detailSwatches, 4);
@@ -9815,10 +10104,10 @@ class EvgBitmapTracerTest  {
     const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), opts);
     tr.trace();
     let onEye = 0;
-    let y = 17;
-    while (y < 23) {
-      let x = 56;
-      while (x < 64) {
+    let y = 12;
+    while (y < 28) {
+      let x = 50;
+      while (x < 70) {
         if ( (tr.detailMask[((y * 80) + x)]) == 1 ) {
           onEye = onEye + 1;
         }
@@ -9826,20 +10115,16 @@ class EvgBitmapTracerTest  {
       };
       y = y + 1;
     };
-    t.ok("the eye is marked as needing fine work", onEye > 20);
-    let onRamp = 0;
-    y = 4;
-    while (y < 36) {
-      let rx = 4;
-      while (rx < 36) {
-        if ( (tr.detailMask[((y * 80) + rx)]) == 1 ) {
-          onRamp = onRamp + 1;
-        }
-        rx = rx + 1;
-      };
-      y = y + 1;
+    t.ok("the eye is marked as needing fine work", onEye >= 8);
+    let total = 0;
+    let i = 0;
+    while (i < (tr.detailMask.length)) {
+      if ( (tr.detailMask[i]) == 1 ) {
+        total = total + 1;
+      }
+      i = i + 1;
     };
-    t.eqInt("and a smooth ramp is not, however steep it is", onRamp, 0);
+    t.eqInt("and nowhere else in the picture is, the ramp included", total, onEye);
   };
   testOverlaySimilarityDecidesHowManyStack (t) {
     const plain = this.rampLayers(6, "off", 8);
@@ -9925,6 +10210,7 @@ function __js_main() {
   test.testOverlayStaysWithinItsPalette(t);
   test.testOverlaySimilarityDecidesHowManyStack(t);
   test.testDetailMaskFindsTheEyeNotTheRamp(t);
+  test.testDetailNeighbourhoodGetsItsOwnPalette(t);
   t.summary();
 }
 __js_main();

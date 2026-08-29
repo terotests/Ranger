@@ -194,6 +194,24 @@ class EvgTraceOptions {
     ; which is why it is a separate switch; the detail mask covers a few percent
     ; of a frame, so the cost is bounded.
     def detailTrueColor:boolean false
+    ; How many colors a detail neighbourhood gets to quantize itself into.
+    ; Zoom into an eye on its own and the tracer renders it beautifully, because
+    ; the whole color budget is spent on an eye. Give it the whole face and the
+    ; eye gets two swatches out of ten and comes back as a smudge that keeps the
+    ; outline and loses the lid, the lash line and the opening. A detail
+    ; neighbourhood therefore builds its own small palette out of its own pixels
+    ; — which is what "zoom in on it" means, done in place — and its shapes are
+    ; drawn on top of the picture the global palette produced. 0 turns it off.
+    def detailColors:int 4
+    ; Smallest ring a detail shape may keep, as a share of its neighbourhood, in
+    ; percent. The local palette buys structure inside a feature and speckle
+    ; along with it, and this is what separates them: each band traces to one
+    ; large ring plus a spray of small ones, and the spray is the speckle.
+    ; Swept on a portrait's eyes — 0%: every bit of structure and every bit of
+    ; grain, 687 KB. 8%: the lid, the lash line and the opening all still read,
+    ; the grain is gone, 599 KB. 15% and up: it starts eating the structure too
+    ; and converges on what the plain algorithm already gives.
+    def detailMinShare:int 8
     ; A step only counts as a boundary when it is *unique* in its
     ; neighbourhood — the strongest one across its own direction, so a noisy
     ; pixel does not out-vote the ridge beside it — and *continuous*, part of a
