@@ -141,6 +141,7 @@ class EVGA11yFromTree {
             def t:EVGA11yTree (unwrap tree)
             def n:EVGA11yNode (t.node(id parentId code))
             n.name = (this.nameOf(el))
+            n.roleDescription = el.a11yRoleDescription
             n.disabled = el.a11yDisabled
             n.checked = el.a11yChecked
             n.expanded = el.a11yExpanded

@@ -94,6 +94,16 @@ function contrastFailures(list, a11yNodes = [], pageBg = [255, 255, 255]) {
     for (let j = 0; j < i; j++) {
       const r = cmds[j];
       if (r.text) continue;
+      // Only things that FILL an area count as what is behind the text: a
+      // rectangle (0) or an image (2).
+      //
+      // A clip (4) and its pop (5) are state changes. They carry a colour
+      // field nobody sets, and counting one as a painted rectangle put black
+      // behind everything inside it — which is exactly what the first control
+      // that clips its content reported: four rows of 1:1 black-on-black
+      // inside a white box. A border (1) is not a fill either; it draws an
+      // outline around the area, not the area.
+      if (r.k !== 0 && r.k !== 2) continue;
       if (r.w <= 0 || r.h <= 0) continue;
       const covers =
         c.x >= r.x - 0.5 &&

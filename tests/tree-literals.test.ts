@@ -288,6 +288,96 @@ describe("tree literals", () => {
   });
 
   /**
+   * A THIRD factory, and the one that puts a picture next to a measurement.
+   *
+   * `SortableCtl` in gallery/ui/src is what the conformance harness compares
+   * against dnd-kit; this is the same interaction wearing the clothes ReUI's
+   * Sortable wears, and it is here because "does it behave" and "does it look
+   * like the thing" are different questions. The tags say what a row is made
+   * OF — Grip, Icon, Title, Subtitle, Badge, Size — and none of them mean
+   * anything to `Menubar` or `Toolbar`.
+   */
+  describe("the sortable demo", () => {
+    const DEMO = "gallery/ui/demo/SortableDemo.rgr";
+
+    it("builds a row out of the parts the reference has", () => {
+      const run = expectOutput(DEMO, "sr-list");
+      // The grip and the type icons carry no text at all: they are `path`
+      // elements with a `d`, because the reference's are line art and a font
+      // glyph is a shape the font chooses. Asserted below, on the drawing.
+      expect(run.output).toContain("sr-grip");
+      expect(run.output).toContain("sr-icon");
+      expect(run.output).toContain("sr-title Product Demo Video");
+      expect(run.output).toContain("sr-subtitle How to use the product");
+      // the badge's colour is a class the BUILDER picks from the item's kind,
+      // so the class is the data rather than a branch in the stylesheet
+      expect(run.output).toContain("sr-badge sr-badge-video video");
+      expect(run.output).toContain("sr-badge sr-badge-audio audio");
+      expect(run.output).toContain("sr-size 15.7 MB");
+      // five rows, in the order the catalogue lists them
+      expect(run.output.match(/sr-row/g)).toHaveLength(5);
+    });
+
+    it("reorders by being rebuilt, and says which row is carried", () => {
+      execSync(
+        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule " +
+          "./gallery/ui/demo/SortableDemo.rgr -d=./gallery/ui/bin -o=SortableDemo.cjs",
+        { cwd: process.cwd(), stdio: "pipe" },
+      );
+      const req = createRequire(path.join(process.cwd(), "package.json"));
+      const S = req("./gallery/ui/bin/SortableDemo.cjs").SortableDemo;
+      const css = fs.readFileSync("gallery/ui/demo/sortable.css", "utf8");
+      const order = ["demo", "spec", "video", "audio", "extra"];
+      const rows = (o: string[], dragging: string) =>
+        JSON.parse(S.a11yJson(css, o, dragging, 1, "")).nodes.filter((n: any) =>
+          n.id.startsWith("sr-row-"),
+        );
+
+      // There is no move and no reconciler: hand it a different list and the
+      // tree is a different tree.
+      const before = rows(order, "").map((n: any) => n.id);
+      const after = rows(["spec", "video", "audio", "demo", "extra"], "").map((n: any) => n.id);
+      expect(before[0]).toBe("sr-row-demo");
+      expect(after[3]).toBe("sr-row-demo");
+      expect(after).toHaveLength(5);
+
+      // Every row says it is sortable, which is the whole affordance, and it
+      // is on the TAG rather than repeated at five call sites.
+      for (const n of rows(order, "")) expect(n.roledesc).toBe("sortable");
+      expect(S.a11yProblems(css, order, "")).toEqual([]);
+
+      // The rectangle a reader is given is the one a press lands in.
+      const node = rows(order, "").find((n: any) => n.id === "sr-row-video");
+      const [x, y, w, h] = node.b;
+      expect(S.hitId(css, order, "", x + w / 2, y + h / 2)).toBe("sr-row-video");
+
+      // The icons are DRAWN. Twelve paths — a grip and a type icon per row —
+      // and the type icons are stroked outlines rather than filled shapes,
+      // which is the difference between Lucide's line art and a glyph that
+      // happens to look like a frame.
+      const cmds = JSON.parse(S.displayListJson(css, order, "")).cmds;
+      const fills = cmds.filter((c: any) => c.k === 6);
+      const strokes = cmds.filter((c: any) => c.k === 7);
+      expect(fills.length).toBe(5); // one grip per row
+      expect(strokes.length).toBe(5); // one type icon per row
+    }, 120_000);
+
+    it("carries no accessible weight for the drawings", () => {
+      const req = createRequire(path.join(process.cwd(), "package.json"));
+      const S = req("./gallery/ui/bin/SortableDemo.cjs").SortableDemo;
+      const css = fs.readFileSync("gallery/ui/demo/sortable.css", "utf8");
+      const order = ["demo", "spec", "video", "audio", "extra"];
+      const tree = JSON.parse(S.a11yJson(css, order, "", 1, ""));
+      // A grip and an icon are decoration: they say nothing, and a reader
+      // walking this list is told about five rows and a group, not fifteen
+      // nodes of which ten are pictures.
+      expect(tree.nodes).toHaveLength(7);
+      const row = tree.nodes.find((n: any) => n.id === "sr-row-video");
+      expect(row.name).toBe("Product Demo Video");
+    }, 120_000);
+  });
+
+  /**
    * Every one of these has to fail, and the point of listing them is that the
    * checking is not a second implementation of the type checker: a misspelled
    * property is an assignment to a field that does not exist, and a wrongly

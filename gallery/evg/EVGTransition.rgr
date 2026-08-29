@@ -1,0 +1,591 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGTransition — the stylesheet's values, arrived at over time
+; ==============================================================================
+;
+; `transition: background-color 150ms` means: when this property's value
+; changes, do not jump to the new one — leave from where you are and get there
+; in 150ms. That is the whole feature, and it is worth being precise about the
+; three things it needs, because a hand-rolled version usually gets the third
+; one wrong:
+;
+;   1. the value the sheet WANTS. That is what `applyTree` already writes.
+;   2. the value the element is SHOWING. That is what the painter reads, and
+;      while a flight is in the air it is neither end.
+;   3. where a REVERSAL starts. Not the original value — where the flight had
+;      actually got to. A hover that leaves half way through must fade back
+;      from half way, and starting from the target is the flicker every naive
+;      implementation has.
+;
+; So the caller does two things per frame, and they are separate on purpose:
+;
+;   reconcile(el)   after applying the stylesheet: notice what changed, start
+;                   or retarget a flight, and put the SHOWING value back.
+;   advance(el dt)  move the clock and write the new showing value.
+;
+; It reads no clock of its own. A frame is however long the host says it is,
+; which is what makes every one of these testable to the millisecond and what
+; lets a PDF backend render frame 7 of an animation without a browser.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGColor.rgr"
+Import "EVGEasing.rgr"
+
+; One entry of the shorthand, resolved for one property.
+class EVGTimingSpec {
+    ; False when the property is not mentioned at all — which is a different
+    ; answer from "mentioned with a duration of zero", and the two have to stay
+    ; distinguishable or `transition: all 200ms, opacity 0s` cannot work.
+    def found:boolean false
+    def durationMs:double 0.0
+    def delayMs:double 0.0
+    ; The default really is linear here: an unset `EVGEasing` is
+    ; cubic-bezier(0, 0, 1, 1). CSS's own default is `ease`, but that applies
+    ; to the shorthand's missing value, not to a missing shorthand.
+    def easing:EVGEasing (new EVGEasing())
+    def ok:boolean true
+
+    Constructor () {
+    }
+}
+
+class EVGTransition {
+
+    Constructor () {
+    }
+
+    ; --- what the sheet asked for ------------------------------------------------
+
+    ; The full shorthand, per property:
+    ;
+    ;   transition: background-color 140ms ease-out 40ms, transform 200ms
+    ;
+    ; Order is the CSS one and it is only half positional: the property name
+    ; and the timing function can sit anywhere in an entry, but the two TIMES
+    ; are told apart by position — the first is the duration, the second the
+    ; delay. There is no other way to distinguish them, which is why
+    ; `transition: opacity 200ms` and `transition: opacity 0s 200ms` mean
+    ; completely different things.
+    ;
+    ; The list is scanned to the END rather than returning on the first hit, so
+    ; a later entry overrides an earlier one. That is what makes
+    ; `transition: all 200ms, opacity 0s` mean "everything but opacity", which
+    ; is a real and useful thing to write.
+    sfn specFor:EVGTimingSpec (spec:string property:string) {
+        def out (new EVGTimingSpec())
+        if ((strlen spec) == 0) {
+            return out
+        }
+        ; Splitting on commas has to respect parentheses: `cubic-bezier(0.25,
+        ; 0.1, 0.25, 1)` is one token with three commas inside it.
+        def parts:[string] (EVGEasing.splitTop(spec 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def one:string (trim (itemAt parts i))
+            def words:[string] (EVGEasing.splitWordsTop(one))
+            def name:string ""
+            def fnText:string ""
+            def times:[double]
+            def w:int 0
+            while (w < (array_length words)) {
+                def word:string (itemAt words w)
+                if (EVGEasing.looksLikeFunction(word)) {
+                    fnText = word
+                } {
+                    if (EVGTransition.isTime(word)) {
+                        push times (EVGTransition.parseMs(word))
+                    } {
+                        if ((strlen name) == 0) {
+                            name = word
+                        }
+                    }
+                }
+                w = (w + 1)
+            }
+            if ((name == property) || (name == "all")) {
+                out.found = true
+                out.durationMs = 0.0
+                out.delayMs = 0.0
+                if ((array_length times) > 0) {
+                    out.durationMs = (itemAt times 0)
+                }
+                if ((array_length times) > 1) {
+                    out.delayMs = (itemAt times 1)
+                }
+                out.easing = (EVGEasing.parse(fnText))
+                out.ok = out.easing.ok
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Kept because a great deal of code and several tests ask only "how long":
+    ; -1 means the property is not transitioned at all, which is a different
+    ; answer from 0.
+    sfn durationFor:double (spec:string property:string) {
+        def s:EVGTimingSpec (EVGTransition.specFor(spec property))
+        if (s.found == false) {
+            return (0.0 - 1.0)
+        }
+        return s.durationMs
+    }
+
+    ; A duration, or a property name? `200ms`, `0.15s` and a bare `0` are
+    ; times; `opacity` and `background-color` are not. Requiring the numeric
+    ; part to parse is what stops a property whose name happens to end in `s`
+    ; from being read as a duration.
+    sfn isTime:boolean (word:string) {
+        def t:string (trim word)
+        def n:int (strlen t)
+        if (n == 0) {
+            return false
+        }
+        if (n > 2) {
+            if ((substring t (n - 2) n) == "ms") {
+                def a@(optional):double (to_double (substring t 0 (n - 2)))
+                if a { return true }
+                return false
+            }
+        }
+        if (n > 1) {
+            if ((substring t (n - 1) n) == "s") {
+                def b@(optional):double (to_double (substring t 0 (n - 1)))
+                if b { return true }
+                return false
+            }
+        }
+        def c@(optional):double (to_double t)
+        if c { return true }
+        return false
+    }
+
+    ; "150ms" or "0.15s". A bare number is milliseconds, which is the reading
+    ; that cannot silently be a thousand times wrong.
+    sfn parseMs:double (text:string) {
+        def t:string (trim text)
+        def n:int (strlen t)
+        if (n == 0) {
+            return 0.0
+        }
+        if (n > 2) {
+            if ((substring t (n - 2) n) == "ms") {
+                def v@(optional):double (to_double (substring t 0 (n - 2)))
+                if v {
+                    return (unwrap v)
+                }
+                return 0.0
+            }
+        }
+        if (n > 1) {
+            if ((substring t (n - 1) n) == "s") {
+                def v2@(optional):double (to_double (substring t 0 (n - 1)))
+                if v2 {
+                    return ((unwrap v2) * 1000.0)
+                }
+                return 0.0
+            }
+        }
+        def v3@(optional):double (to_double t)
+        if v3 {
+            return (unwrap v3)
+        }
+        return 0.0
+    }
+
+    ; --- the flights on an element -------------------------------------------------
+
+    fn flightFor@(optional):EVGFlight (el:EVGElement property:string) {
+        def i:int 0
+        while (i < (array_length el.transitions)) {
+            def f:EVGFlight (itemAt el.transitions i)
+            if (f.property == property) {
+                def hit@(optional):EVGFlight f
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGFlight
+        return miss
+    }
+
+    sfn sameColor:boolean (a:EVGColor b:EVGColor) {
+        if ((to_int a.r) != (to_int b.r)) { return false }
+        if ((to_int a.g) != (to_int b.g)) { return false }
+        if ((to_int a.b) != (to_int b.b)) { return false }
+        if ((to_int (a.a * 255.0)) != (to_int (b.a * 255.0))) { return false }
+        return true
+    }
+
+    sfn mixColor:EVGColor (from:EVGColor to:EVGColor t:double) {
+        def c (new EVGColor())
+        c.r = (from.r + ((to.r - from.r) * t))
+        c.g = (from.g + ((to.g - from.g) * t))
+        c.b = (from.b + ((to.b - from.b) * t))
+        c.a = (from.a + ((to.a - from.a) * t))
+        c.isSet = true
+        return c
+    }
+
+    ; The value the element is SHOWING for a flight at its current progress.
+    fn showColor:EVGColor (f:EVGFlight) {
+        return (EVGTransition.mixColor((unwrap f.fromColor) (unwrap f.toColor) (f.eased())))
+    }
+
+    fn showNumber:double (f:EVGFlight) {
+        return (f.fromNumber + ((f.toNumber - f.fromNumber) * (f.eased())))
+    }
+
+    ; --- reconcile ------------------------------------------------------------------
+    ; Called after the stylesheet has written what it wants. The element's field
+    ; holds the TARGET; a flight, if there is one, holds where it is actually at.
+
+    fn reconcile:void (el:EVGElement) {
+        if el.backgroundColor {
+            this.reconcileColor(el "background-color" (unwrap el.backgroundColor))
+        }
+        if el.color {
+            this.reconcileColor(el "color" (unwrap el.color))
+        }
+        this.reconcileNumber(el "opacity" el.opacity)
+        ; `transform` is one CSS property and four interpolable numbers. They
+        ; are kept as separate flights under separate keys but all look the
+        ; DECLARED duration up under the name the sheet used, so
+        ; `transition: transform 200ms` drives all four and they stay in step.
+        ;
+        ; Interpolating the composed similarity rather than the function list is
+        ; what makes `rotate(0deg) scale(1)` to `rotate(15deg) scale(1.1)` work
+        ; without matching the two lists up term by term — which is the part of
+        ; CSS transform interpolation that carries all the special cases.
+        this.reconcileNumberAs(el "transform.rotate" "transform" el.rotate)
+        this.reconcileNumberAs(el "transform.scale" "transform" el.scale)
+        this.reconcileNumberAs(el "transform.tx" "transform" el.translateX)
+        this.reconcileNumberAs(el "transform.ty" "transform" el.translateY)
+        ; `transform-origin` is its own CSS property with its own entry in the
+        ; shorthand, and it does animate — measured: 0% 0% to 100% 100% passes
+        ; through 25px 10px on a 100x40 box at a quarter of the way.
+        this.reconcileOriginAxis(el "transform-origin.x" el.transformOriginX)
+        this.reconcileOriginAxis(el "transform-origin.y" el.transformOriginY)
+        ; Put the showing values back, so the painter draws the flight and not
+        ; the destination.
+        this.writeBack(el)
+    }
+
+    fn reconcileColor:void (el:EVGElement property:string target:EVGColor) {
+        def spec:EVGTimingSpec (EVGTransition.specFor(el.transitionSpec property))
+        if ((spec.found == false) || (spec.durationMs <= 0.0)) {
+            ; Not transitioned: the target IS what shows, and any flight for it
+            ; is abandoned rather than left to land on a value nobody asked for.
+            this.drop(el property)
+            return
+        }
+        if (target.isSet == false) {
+            return
+        }
+        def existing@(optional):EVGFlight (this.flightFor(el property))
+        if existing {
+            def f:EVGFlight (unwrap existing)
+            if (EVGTransition.sameColor((unwrap f.toColor) target)) {
+                return
+            }
+            ; Where the flight has actually got to, which is where anything new
+            ; has to leave from. Using the declared start instead is the flicker
+            ; every naive implementation has.
+            def here:EVGColor (this.showColor(f))
+            if (EVGTransition.sameColor(here target)) {
+                ; Already there. Landing it now rather than flying a
+                ; zero-distance flight matters to the host: `busy()` would
+                ; otherwise keep asking for frames to animate nothing.
+                f.fromColor = target
+                f.toColor = target
+                f.elapsedMs = f.durationMs
+                return
+            }
+            if (EVGTransition.sameColor((unwrap f.reversingStartColor) target)) {
+                this.reverse(f spec)
+                ; The value being turned back towards becomes the thing a
+                ; further reversal is measured against.
+                f.reversingStartColor = (unwrap f.toColor)
+            } {
+                f.reversingStartColor = here
+                f.reversingFactor = 1.0
+                f.durationMs = spec.durationMs
+            }
+            f.fromColor = here
+            f.toColor = target
+            f.elapsedMs = 0.0
+            f.delayMs = spec.delayMs
+            f.easing = spec.easing
+            return
+        }
+        ; The first apply on a fresh element establishes the value rather than
+        ; animating to it from black — nothing was on screen to leave from.
+        def created (new EVGFlight())
+        created.property = property
+        created.isColor = true
+        created.fromColor = target
+        created.toColor = target
+        created.reversingStartColor = target
+        created.durationMs = spec.durationMs
+        created.delayMs = spec.delayMs
+        created.easing = spec.easing
+        created.elapsedMs = (spec.durationMs + spec.delayMs)
+        push el.transitions created
+    }
+
+    ; CSS's rule for turning a transition round, and it is more particular than
+    ; "halve what is left".
+    ;
+    ; The shortening factor is the flight's OUTPUT progress — after the timing
+    ; function — not the fraction of the clock that has run. On `ease-in` at the
+    ; midpoint those differ by a factor of nearly two: the clock says 0.5 and
+    ; the eye says 0.315, and the eye is right, because the eye is what has to
+    ; travel back. Measured against Chromium: a 200ms `ease-in` reversed at
+    ; 100ms comes back in 63ms, not 100ms.
+    ;
+    ; And the factor COMPOUNDS rather than replacing. Reversing a reversal makes
+    ; the leg longer again, not shorter: 200ms reversed at half way gives 100ms,
+    ; and reversing that at a quarter gives 125ms, because the value is now
+    ; further from the target than it was. `f * p + (1 - f)` is that arithmetic,
+    ; and a fresh flight has f = 1 so the first reversal is simply p.
+    ;
+    ; The DELAY is not scaled. That is measured too, and it is not obvious:
+    ; a reversed `200ms linear 100ms` waits the full 100ms again and then runs
+    ; for the shortened 100ms.
+    fn reverse:void (f:EVGFlight spec:EVGTimingSpec) {
+        def p:double (f.eased())
+        def nf:double (fabs ((p * f.reversingFactor) + (1.0 - f.reversingFactor)))
+        if (nf < 0.0) { nf = 0.0 }
+        if (nf > 1.0) { nf = 1.0 }
+        f.reversingFactor = nf
+        f.durationMs = (spec.durationMs * nf)
+    }
+
+    fn reconcileNumber:void (el:EVGElement property:string target:double) {
+        this.reconcileNumberAs(el property property target)
+    }
+
+    ; `key` names the flight; `cssName` is what the shorthand is searched for.
+    ; They differ only where one CSS property animates several numbers.
+    fn reconcileNumberAs:void (el:EVGElement key:string cssName:string target:double) {
+        def property:string key
+        def spec:EVGTimingSpec (EVGTransition.specFor(el.transitionSpec cssName))
+        if ((spec.found == false) || (spec.durationMs <= 0.0)) {
+            this.drop(el property)
+            return
+        }
+        def existing@(optional):EVGFlight (this.flightFor(el property))
+        if existing {
+            def f:EVGFlight (unwrap existing)
+            if (EVGTransition.sameNumber(f.toNumber target)) {
+                return
+            }
+            def hereN:double (this.showNumber(f))
+            if (EVGTransition.sameNumber(hereN target)) {
+                f.fromNumber = target
+                f.toNumber = target
+                f.elapsedMs = f.durationMs
+                return
+            }
+            if (EVGTransition.sameNumber(f.reversingStartNumber target)) {
+                this.reverse(f spec)
+                f.reversingStartNumber = f.toNumber
+            } {
+                f.reversingStartNumber = hereN
+                f.reversingFactor = 1.0
+                f.durationMs = spec.durationMs
+            }
+            f.fromNumber = hereN
+            f.toNumber = target
+            f.elapsedMs = 0.0
+            f.delayMs = spec.delayMs
+            f.easing = spec.easing
+            return
+        }
+        def created (new EVGFlight())
+        created.property = property
+        created.isColor = false
+        created.fromNumber = target
+        created.toNumber = target
+        created.reversingStartNumber = target
+        created.durationMs = spec.durationMs
+        created.delayMs = spec.delayMs
+        created.easing = spec.easing
+        created.elapsedMs = (spec.durationMs + spec.delayMs)
+        push el.transitions created
+    }
+
+    sfn unitOf:EVGUnit (code:int value:double) {
+        def u (new EVGUnit())
+        u.unitType = code
+        u.value = value
+        u.pixels = value
+        u.isSet = true
+        return u
+    }
+
+    ; A thousandth is the resolution everything numeric here is compared at:
+    ; finer and floating point noise reads as a change worth animating.
+    sfn sameNumber:boolean (a:double b:double) {
+        return ((fabs (a - b)) < 0.001)
+    }
+
+    ; One axis of `transform-origin`.
+    ;
+    ; Separate from the plain number path because of the unit. The value is
+    ; kept as WRITTEN — a percentage stays a percentage — since the box it
+    ; resolves against is not known until the display list is built, and
+    ; resolving a frame early would use the previous layout's size. Two
+    ; percentages interpolate as percentages, two lengths as lengths, and both
+    ; give what the browser gives.
+    ;
+    ; A change of unit mid-flight is the case that cannot be interpolated
+    ; meaningfully, and it JUMPS rather than sliding through numbers that mean
+    ; nothing. CSS blends the resolved lengths there; nobody writes it, and
+    ; guessing quietly would be worse than the jump.
+    fn reconcileOriginAxis:void (el:EVGElement key:string u:EVGUnit) {
+        ; Unset is 50%, the same default the display list resolves — so an
+        ; element moving from no origin to `0%` travels from the centre, which
+        ; is where it visibly was.
+        def code:int 1
+        def target:double 50.0
+        if u.isSet {
+            code = u.unitType
+            target = u.value
+        }
+        def existing@(optional):EVGFlight (this.flightFor(el key))
+        if existing {
+            def f:EVGFlight (unwrap existing)
+            if (f.unitCode != code) {
+                this.drop(el key)
+            }
+        }
+        this.reconcileNumberAs(el key "transform-origin" target)
+        def now@(optional):EVGFlight (this.flightFor(el key))
+        if now {
+            def f2:EVGFlight (unwrap now)
+            f2.unitCode = code
+        }
+    }
+
+    fn drop:void (el:EVGElement property:string) {
+        def kept:[EVGFlight]
+        def i:int 0
+        while (i < (array_length el.transitions)) {
+            def f:EVGFlight (itemAt el.transitions i)
+            if (f.property != property) {
+                push kept f
+            }
+            i = (i + 1)
+        }
+        clear el.transitions
+        def j:int 0
+        while (j < (array_length kept)) {
+            push el.transitions (itemAt kept j)
+            j = (j + 1)
+        }
+    }
+
+    ; --- advance ---------------------------------------------------------------------
+
+    fn advance:void (el:EVGElement dtMs:double) {
+        def i:int 0
+        while (i < (array_length el.transitions)) {
+            def f:EVGFlight (itemAt el.transitions i)
+            if ((f.done()) == false) {
+                f.elapsedMs = (f.elapsedMs + dtMs)
+                def endsAt:double (f.delayMs + f.durationMs)
+                if (f.elapsedMs > endsAt) {
+                    f.elapsedMs = endsAt
+                }
+            }
+            i = (i + 1)
+        }
+        this.writeBack(el)
+    }
+
+    ; The showing values, into the fields the painter reads. This is the one
+    ; place a flight touches the element, and it happens after both reconcile
+    ; and advance so the two cannot disagree about what is on screen.
+    fn writeBack:void (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length el.transitions)) {
+            def f:EVGFlight (itemAt el.transitions i)
+            if (f.isColor) {
+                def c:EVGColor (this.showColor(f))
+                if (f.property == "background-color") {
+                    el.backgroundColor = c
+                }
+                if (f.property == "color") {
+                    el.color = c
+                }
+            } {
+                if (f.property == "opacity") {
+                    el.opacity = (this.showNumber(f))
+                }
+                if (f.property == "transform.rotate") {
+                    el.rotate = (this.showNumber(f))
+                }
+                if (f.property == "transform.scale") {
+                    el.scale = (this.showNumber(f))
+                }
+                if (f.property == "transform.tx") {
+                    el.translateX = (this.showNumber(f))
+                }
+                if (f.property == "transform.ty") {
+                    el.translateY = (this.showNumber(f))
+                }
+                if (f.property == "transform-origin.x") {
+                    el.transformOriginX = (EVGTransition.unitOf(f.unitCode (this.showNumber(f))))
+                }
+                if (f.property == "transform-origin.y") {
+                    el.transformOriginY = (EVGTransition.unitOf(f.unitCode (this.showNumber(f))))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- whole trees -------------------------------------------------------------------
+
+    fn reconcileTree:void (root:EVGElement) {
+        this.reconcile(root)
+        def i:int 0
+        while (i < (array_length root.children)) {
+            this.reconcileTree((itemAt root.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn advanceTree:void (root:EVGElement dtMs:double) {
+        this.advance(root dtMs)
+        def i:int 0
+        while (i < (array_length root.children)) {
+            this.advanceTree((itemAt root.children i) dtMs)
+            i = (i + 1)
+        }
+    }
+
+    ; Is anything still moving? A host that repaints on demand asks this to
+    ; know whether it needs another frame.
+    fn busy:boolean (root:EVGElement) {
+        def i:int 0
+        while (i < (array_length root.transitions)) {
+            def f:EVGFlight (itemAt root.transitions i)
+            if ((f.done()) == false) {
+                return true
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length root.children)) {
+            if (this.busy((itemAt root.children j))) {
+                return true
+            }
+            j = (j + 1)
+        }
+        return false
+    }
+}

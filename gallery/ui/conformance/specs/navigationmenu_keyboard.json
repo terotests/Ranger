@@ -1,0 +1,7 @@
+{ "name":"navigationmenu_keyboard","component":"navigationmenu",
+  "behaviours":["navmenu-every-trigger-tabbable","navmenu-pointer-open"],
+  "fixture":{"controls":[
+    {"type":"navigationmenu","tid":"nm","name":"Site","items":[
+      {"value":"products","name":"Products","links":[{"value":"one","name":"One"}]},
+      {"value":"about","name":"About","links":[{"value":"team","name":"Team"}]}]}]},
+  "steps":[{"focus":"nm-about-trigger"},{"key":" "},{"key":"Escape"}] }

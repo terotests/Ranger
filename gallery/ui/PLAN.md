@@ -166,6 +166,339 @@ The seven components still missing are `form`,
 typeahead and submenus, and one needs pointer drag — so the next component is
 cheapest after a `textfield` primitive, not after more overlay work.
 
+## Sortable — the first control whose reference is not Radix
+
+Radix has no sortable. ReUI's is `@dnd-kit/sortable` underneath, and so is
+every other in the shadcn family, so dnd-kit is the oracle and gets exactly the
+treatment Radix gets: the real library in a real browser, one fixture, one
+diff. It is in the trace as `sortable`, kept out of the Radix coverage fraction
+by a `beyond` bucket in `radix-inventory.json` — a component the denominator
+never contained must not inflate the number.
+
+The oracle was captured before a line of `SortableCtl` existed, and it said
+immediately that the harness could not see a sortable at all:
+
+- [x] **`roledescription`.** Every dnd-kit item is a `button` carrying
+      `aria-roledescription: sortable`, and that is the whole affordance: a
+      reader told "button" learns nothing about being able to move the thing.
+      Now a field on `UiRow`, on `EVGA11yNode`, on `EVGElement`, and mirrored
+      as the real attribute by `evg-a11y.js`.
+- [x] **`posinset`.** A reorder moves *nothing else* — every other field of
+      every item is identical before and after, and `diffNodes` keys by test
+      id. The one thing the component does was invisible.
+- [x] **The announcement.** A keyboard drag's arrow step changes nothing
+      observable: the item has not moved and the displacement is a picture.
+      `"observe": ["announce"]` puts the live region in the trace as a node, so
+      that step can fail.
+- [x] **A drag onto something.** The harness had `dragto: <fraction>`, which is
+      a slider's gesture. `dragover: <tid>` needs no geometry at all — what is
+      under the pointer is a test id, resolved by the same hit test a click
+      uses.
+
+`posinset` found a divergence on its first run and it was not a bug: the
+tooltip's content was 2nd on the Ranger side and 3rd on the Radix side, because
+Radix portals a floating surface to the end of the document while EVG keeps it
+the trigger's child. Position is therefore compared only inside a control,
+where both sides agree on the parent.
+
+The controller is 300 lines with no drag machinery in it. The interesting part
+is what it does NOT do: `rows()` reports the committed order while `build()`
+draws the prospective one, because dnd-kit leaves the DOM alone during a drag
+and moves items with transforms. What a reader is told and what the eye sees
+come apart on purpose, and only the drop reconciles them.
+
+Live in the playground: press an item on the canvas and drag it onto another,
+or click one and use Space / arrows / Escape. Both sides reorder together, and
+the panel says "traces agree" at every step.
+
+## Four more components, and the blockers that had held them
+
+The overlay layer and the pointer drag cleared what the plan said was in the
+way, so the four they were blocking are in: **menubar**, **navigation-menu**,
+**select** and **scroll-area**. Radix coverage is **28/31, 90.3%**, and the
+three still missing — `form`, `one-time-password-field`,
+`password-toggle-field` — all want the same thing, a text field.
+
+Each one was captured from the real component before a line of the controller
+existed, and each one corrected something that had been written from
+assumption:
+
+- **menubar** is not a row of dropdowns. An arrow at the top level moves which
+  menu is OPEN, not which trigger has focus, and the BAR holds the tab stop
+  until a menu has been opened — after that the one that was opened keeps it.
+  Passed on the first comparison run.
+- **navigation-menu** is deliberately not a menubar: triggers are `button`s,
+  every one of them is a tab stop, and opening a panel LEAVES FOCUS on the
+  trigger. It also renders its viewport only while something is open — the
+  first version kept an empty one in the page, and the diff said so.
+- **select** hides the page behind it: the list is modal, so with it open the
+  reference marks the trigger and its own value `aria-hidden`. And
+  `aria-selected` follows selected AND focused *together*, so arrowing off the
+  chosen row leaves nothing selected at all. Both were found by disagreeing
+  with the obvious implementation, and both were copied rather than corrected.
+- **scroll-area** is the honest thin one. Measured, the reference exposes no
+  roles and no names anywhere in it, and renders no scrollbar until the pointer
+  is over it. Scrolling is not observable in the fifteen fields either. What is
+  compared is that the content stays reachable and visible while the box does
+  not grow — and saying that plainly is better than inventing a field to make
+  the component look better measured.
+
+It also found a defect in the audit itself. The scroll area is the first
+control here that clips, and `a11y.mjs` counted a clip command as a painted
+rectangle — so every row inside it was reported as black-on-black at 1:1. Only
+fills count now.
+
+## CSS states and transitions
+
+A canvas UI that does not react to the pointer reads as a picture of a UI. The
+stylesheet could say what a button looks like; it could not say what it looks
+like *while you are on it*. So `EVGStyleSheet` grew pseudo-classes and EVG grew
+a clock.
+
+Four states, because these are the four an element already knows about itself:
+`:hover`, `:focus`, `:active`, `:disabled`. `EVGPseudo.holds` reads them off
+`isHovered`, `isFocused`, `isPressed` and `a11yDisabled` — nothing new is
+tracked to support them, and `:disabled` therefore agrees with what the
+accessibility tree publishes rather than being a second opinion about it.
+
+Two decisions are worth keeping written down:
+
+- **A state rule wins wherever it is written.** The obvious implementation
+  applies rules in file order, and it is wrong: a later base rule silently
+  undoes an earlier `:hover`. `applyTo` runs four passes instead — plain, then
+  theme-scoped, then the state rules in the same two groups — which is a
+  coarse stand-in for specificity, but it is the part of specificity these
+  selectors can actually express.
+- **An unknown pseudo-class is an error, not a rule that never matches.**
+  `.btn:focus-visible` used to parse into something that quietly did nothing.
+  Now it is reported. A rule that never fires and says nothing is a developer
+  looking at the wrong file.
+
+Transitions are `EVGTransition`, and the unit is a **flight**: one property of
+one element moving from a value to a value over a duration. `reconcileTree`
+compares what the stylesheet just wrote against what is on screen and starts,
+retargets or drops flights; `advanceTree` moves them by real elapsed time and
+writes back. Colours interpolate per channel, numbers linearly, and
+`transition: background-color 140ms, color 140ms` parses including the `all`
+form.
+
+The awkward case is reversing mid-flight, and CSS has a specific answer:
+leaving a half-faded button does not take the full duration to come back, it
+takes the fraction already travelled. So a reversal shortens the new flight to
+`ms * progress()`. That is one line, and it is the difference between a hover
+that feels attached to the pointer and one that feels like it is buffering.
+
+`EVGStyleStateTest.rgr` is 24 checks over all of it, and it was written before
+the implementation: states, ordering, an unknown pseudo-class, a transition
+starting, a reversal, the no-transition case being instant, opacity as a
+non-colour, and the whole subtree advancing. Four mutations were run against it
+and each produced the failure it should have.
+
+`UiHost` binds it to input — `markStates` sets the three flags from the hit
+test, `layout()` reconciles, `tick(dt)` advances, `busyNow()` says whether
+anything is still moving — and the playground drives a `requestAnimationFrame`
+loop from that.
+
+The loop was written wrong twice, in the same way, and the note now in
+`main.jsx` exists so it is not written wrong a third time: `observe()` is
+async, and the flight a hover creates does not exist until the stylesheet has
+been applied *inside* it. Asking `busyNow()` before awaiting it gives exactly
+one frame and a colour frozen where it started.
+
+Measured in the playground, a sortable row at rest is `rgb(248,250,252)`,
+`rgb(244,247,252)` forty milliseconds into a hover, `rgb(238,242,255)` settled,
+and back at rest after the pointer leaves.
+
+What is not there yet:
+
+- [x] Easing, the full shorthand, and `transform` — see below
+- [ ] `:focus-visible`, which needs a keyboard-versus-pointer distinction the
+      host does not currently keep
+- [ ] Transitions on layout geometry. `transform` moves and scales a subtree,
+      but a transition on `width` is still parsed and ignored — that one needs
+      a re-layout per frame, not a rewrite of the display list
+- [ ] `@keyframes`. `transition` covers state changes; an animation that runs
+      on its own does not exist
+
+## Easing, the transition shorthand, and transform
+
+Three things the first cut of transitions did not have, and the browser was
+asked about all three before any of them was written.
+`oracle/css_timing_oracle.mjs` drives a real `Animation` in Chromium, pauses it
+and sets `currentTime` by hand — sampling by waiting real milliseconds measures
+the scheduler as much as the engine — and `oracle/css-timing.json` is the
+capture. `EVGTimingTest.rgr` is 281 checks, most of them transcribed from it.
+
+**Easing** is `EVGEasing`: the four keywords, `linear`, `cubic-bezier()` and
+`steps()`. The curve is parametric, so the output cannot be read off directly —
+given x, the parameter has to be solved for first, Newton–Raphson with
+bisection where the derivative vanishes. That fallback looked like paranoia
+until the test was made to sample 0.499 as well as 0.5: on
+`cubic-bezier(1, 0, 0, 1)` a Newton-only solver is out by six orders of
+magnitude a hair either side of the midpoint, and lands exactly right ON it.
+Sampling round numbers hid a real defect completely, and that is the general
+lesson, not a fact about Bézier curves.
+
+**The shorthand** now carries duration, timing function and delay, per
+property, with `all` and later-entry-wins so `transition: all 200ms, opacity 0s`
+means what it says. The list parser counts parentheses, because
+`cubic-bezier(0.25, 0.1, 0.25, 1)` is one token with three commas in it and
+splitting on every comma yields four fragments that each still parse as
+something.
+
+Two measured results worth keeping, because neither is what you would guess:
+
+- **A reversal is shortened by the EASED progress, not the clock's.** A 200ms
+  `ease-in` reversed at 100ms comes back in 63ms, not 100ms — the clock says
+  half way and the eye says a third, and the eye is what has to travel back.
+- **The factor compounds; it does not replace.** Reversing a reversal makes the
+  leg LONGER again: 200 → 100 → 150. Halving each time is the obvious
+  implementation and it makes a jittery pointer converge on an instant snap.
+- And the **delay is not shortened** while the duration is. That one was
+  settled by sampling the colour on the screen rather than trusting a timing
+  object, since the two could have disagreed.
+
+**`transform`** is `rotate()`, `scale()`, `translate()` and the axis forms,
+composed at parse time into one similarity — an angle, a uniform scale and an
+offset. That is the largest family closed under composition that a display list
+of axis-aligned boxes can represent exactly, and composing rather than setting
+four fields independently is what makes order work: `rotate(90deg)
+translate(10px, 0)` goes down the page and the other order goes across. A skew
+or a non-uniform scale is reported, not approximated. It also makes the four
+numbers interpolable, so `transition: transform 200ms` is four ordinary number
+flights and needs no matrix decomposition per frame.
+
+**`transform-origin`** decides what all of that happens about, and it takes
+every spelling CSS has: keywords, percentages, lengths, and the one-value
+forms. Seventeen of them were put to a browser and the resolved pixel origin
+recorded, because the grammar is not the obvious one:
+
+- A lone LENGTH sets x and leaves y at 50%, but a lone `top` or `bottom` is a
+  Y keyword and sets the other axis. `transform-origin: 10px` is `10px 50%`;
+  `transform-origin: top` is `50% 0%`. Reading "the first value is x" gets
+  every length right and every keyword wrong.
+- With two keywords the ORDER IS FREE — `top left` and `left top` are the same
+  point.
+
+That second rule needed a better test than the one first written for it. `top
+left` cannot demonstrate a swap, because `left` and `top` both resolve to 0%
+and the two orderings agree; the mutation that removed the swap passed. The
+pairs that separate them are `top center` and `center right`, and they are in
+the table now.
+
+It is resolved late, in the display list, where the laid-out box exists — a
+percentage needs a size, and resolving when the stylesheet is applied would use
+the previous frame's box. It transitions too, since the browser says it does:
+0% 0% to 100% 100% passes through 25px 10px on a 100x40 box a quarter of the
+way through. The value is interpolated as WRITTEN, so percentages travel as
+percentages; a change of unit mid-flight jumps instead, which is a deliberate
+difference from CSS's blend of the resolved lengths and is written down where
+it happens.
+
+Applying it needed one new thing in the display list: a rotation ORIGIN.
+`EVGDrawCmd.rotate` used to turn a command about its own centre, which is right
+for a lone sideways axis label and wrong for anything else — a text quad is
+sized to its ink, not to the line box, so a box and its own words turned about
+their separate centres come apart. The pass that applies it is shaped like
+`fadeFrom`, and for the same reason: a transform is a property of a SUBTREE, and
+the list has already flattened the subtree by the time it is known what was in
+it. Paths are turned in their geometry instead, the way `PathBuilder` already
+does, so a backend that has never heard of a transform still draws a turned
+icon.
+
+`npm run evg:rotation:check` renders that through the real WebGL painter under
+SwiftShader and reads the pixels back, because the pivot lives in GLSL and the
+only honest way to check GLSL is to run it. Its first version passed under a
+mutation that removed the whole feature — every probe sampled a box centre,
+which is invariant under both pivots. The probe that actually separates them
+is the centroid of the white ink. A fourth panel turned 45 degrees about its
+top-left CORNER was added with `transform-origin`, for the same reason: it is
+indistinguishable from the centre-turned one unless the origin is really read.
+
+### The cascade bug this uncovered
+
+A property declared only under `:hover` never went away again. The colour came
+back because a base rule declares it; the transform did not, because nobody
+writes `transform: none` on a base rule. A browser recomputes a style from
+nothing every time; this stylesheet mutates the element in place, which is fast
+and which silently strands any property no rule is currently writing.
+
+`clearStateProps` now puts back the initial value of everything a state rule for
+this element *can* set, before deciding which states hold — that set being
+exactly the properties at risk, since a base rule's are rewritten a moment
+later anyway. Inline still outranks the sheet, so an inline value is never
+cleared. Only properties with an unambiguous initial value are covered and
+`initialValue` says which; `color` is deliberately absent, because its initial
+value is `inherit` and writing a literal would break inheritance rather than
+restore it.
+
+### And one in the playground
+
+The animation loop called `observe()` per frame — snapshot both trees, diff
+them, behind two `requestAnimationFrame` waits — so a 140ms transition got five
+frames and read as a stutter. It now repaints and takes the diff once, when
+everything has settled. `repaint()` goes through the layout that creates the
+flight in the first place, so the loop still has to paint BEFORE asking whether
+anything is moving; asking first gives exactly one frame and a colour frozen
+where it started, which it did, twice.
+
+## The motion showcase, and a kit that answers the pointer
+
+Everything above is measured. None of it was *visible* anywhere, and "does the
+motion feel right" is not a question a checker answers — so there is now a
+fourth demo, and the kit itself moves.
+
+**`MotionDemo.rgr`** is the showcase: seven timing functions racing side by
+side under the curve each one draws, a delay staggering three bars, nine tiles
+turning about nine different origins, and cards that answer the pointer. The
+curves are not pictures — each `d` is sampled from the very `EVGEasing` that
+moves the dot beside it, so the drawing and the motion cannot drift apart.
+
+It is the one demo in that directory that does **not** rebuild its tree, and
+the reason is worth stating plainly because it contradicts what the other three
+are there to demonstrate. A flight is a property of an ELEMENT: it remembers
+where a value was when the pointer arrived. Rebuild the tree and that memory is
+gone, so every transition would establish itself at its destination and nothing
+would ever move. So this one owns its tree, built once, and state changes only
+set flags on it — the same shape `UiHost` has, for the same reason.
+
+The flip that drives the self-running panels is a **theme**. `.theme-go .mo-dot`
+is the far end of a journey, and turning the theme over moves everything at
+once with no new mechanism and no element gaining or losing a class — which is
+also a fair test that theme scoping and state rules compose.
+
+Verified headlessly before it was ever looked at: the seven dots leave together
+from x=335 and arrive together at x=869, and at the midpoint they read 602,
+763.5, 503.4, 700.6, 602, 915.7 and 548.6 — each one exactly its own timing
+function, and the overshoot row genuinely past its target.
+
+**The kit** then got the same treatment in `theme/base.css`: hover, press and
+state transitions across checkbox, radio, switch, tabs, toggle group,
+accordion, collapsible, the slider thumb, progress and toast. Three rules held
+to throughout —
+
+- the transition goes on the BASE rule, never on `:hover`, or a control eases
+  in and snaps out;
+- in is faster than out and a press is fastest, because a control has to feel
+  attached to the finger;
+- nothing moves that would reflow, so every bit of movement is `transform`.
+
+Two things it found. `text-align` was parsed by `EVGElement` and read by
+**nothing** — a documented attribute that did not exist, which is the defect
+this file complains about by name a few sections down. It now reaches the
+display list, measured off the same text engine that broke the line. And the
+first hover colour written here was `#e2e8f0`, which is exactly where the
+checkbox and the switch already rest, so hovering them did nothing at all and
+looked like a broken transition rather than a palette mistake. Both were found
+by measuring the painted colour rather than by reading the sheet.
+
+What is deliberately NOT there: an entrance for the overlays. A dialog, a
+popover and a tooltip are CREATED when they open, and a transition needs a
+value to leave from — a new element has none, so it establishes at its
+destination. A browser does exactly the same, which is why Radix animates its
+entrances with `@keyframes` and not `transition`. That is the next thing to
+build, and the overlays are what should reach for it first.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -202,6 +535,9 @@ document-order focus model in `UiHost`.
 `inline` is still parsed into `EVGElement.isInline` and never read by
 `EVGLayout`. Either make it work or take it out of `evg/SPEC.md`; a documented
 attribute that does nothing costs an afternoon every time someone believes it.
+`text-align` was the other one and it cost exactly that — it is now read by the
+display list, found by a row of cards whose labels sat in the top-left corner
+however they were styled.
 
 
 The harness already names the limit: `EVGStyleSheet` matches one class token

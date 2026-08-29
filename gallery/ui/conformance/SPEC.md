@@ -42,6 +42,29 @@ exist because three components have no other input at all: a tooltip and a
 hover card open on the pointer arriving, and a context menu only on the
 secondary button.
 
+A drag is three steps, and there are two kinds of them:
+
+- `{"press": tid, "at": 0.8}` then `{"dragto": 0.2}` then `{"release": true}`
+  slides along the pressed element's own width. It is a fraction rather than a
+  pixel because the two systems lay out differently on purpose, and it is what
+  a slider needs.
+- `{"press": tid}` then `{"dragover": tid}` then `{"release": true}` drags one
+  thing ONTO another. No geometry at all: what is under the pointer is a test
+  id, and each side resolves it with the same hit test a click uses.
+
+`observe` names anything the spec wants looked at beyond the nodes themselves.
+Today there is one: `"observe": ["announce"]` adds a node with the reserved id
+`@announce` whose `name` is what the page's live region currently says.
+
+It is opt-in, and the measurement says why. dnd-kit announces every stage of a
+drag — "Draggable item a was moved over droppable area b." — and for a keyboard
+drag that is the *entire* interaction: pressing an arrow changes nothing else
+observable, because the item has not moved yet and the displacement is a
+picture. Without this the spec would contain a step that cannot fail. It is not
+global because Radix's toast also renders a live region, and what it says there
+is a concatenation of nodes the trace already carries ("Notification SavedAll
+goodUndo") — comparing that would be comparing one library's copy-writing.
+
 `behaviours` must name entries from `behaviours.json`; `report.mjs` refuses a
 spec that invents one, so the catalogue cannot rot quietly. Specs are kept
 small — one behaviour group each — because a failure marks exactly the
@@ -75,6 +98,7 @@ Both adapters derive these identically. A control `x`:
 | `contextmenu` | `x-trigger`, `x-content`, `x-item-<value>` per item |
 | `slider` | `x-track`, `x-range`, `x-thumb` |
 | `toast` | `x-trigger`, `x-region`, `x-viewport`, `x` (the toast), `x-title`, `x-description`, `x-action`, `x-close` |
+| `sortable` | `x` (the list), `x-item-<value>` per item |
 
 ## The observation
 
@@ -97,11 +121,30 @@ Per test id, fifteen fields:
 | `valuenow` | `UiRow.valueNow`, or null | `aria-valuenow` |
 | `valuemin` | `UiRow.valueMin`, or null | `aria-valuemin` |
 | `valuemax` | `UiRow.valueMax`, or null | `aria-valuemax` |
+| `roledescription` | `UiRow.roleDescription`, or null | `aria-roledescription` |
+| `posinset` | 1-based index among the rows sharing a parent | 1-based index among the tagged siblings |
+| `parent` | `UiRow.parentTid` | the nearest tagged ancestor — **reported, not compared** |
 
 The three numbers were added when `slider` was: none of the other twelve fields
 changes as a slider moves, so the first captured trace showed five steps of a
 thumb travelling from 0 to 100 with **not one observable difference**. They also
 tightened `progress`, which had been compared on its state word alone.
+
+`roledescription` and `posinset` arrived with the sortable, and each one exists
+because without it a real behaviour was invisible. A dnd-kit item is a `button`
+whose `aria-roledescription: sortable` is the whole affordance — a reader told
+"button" learns nothing about being able to move the thing. And a reorder moves
+*nothing else*: every other field of every item is identical before and after,
+and the diff keys by test id, so the one thing the component does was the one
+thing the harness could not see.
+
+`posinset` is compared only between nodes that agree on a non-empty `parent`,
+and the first run showed why. Radix portals a floating surface to the end of
+the document, so the tooltip's content landed *after* the button beside it;
+EVG keeps it the trigger's child and moves only where it is painted, so it
+stayed where it was declared. Both are deliberate, and the order of unrelated
+top-level controls is not a behaviour either way. Inside one control both sides
+agree on the parent, and that is where a sortable's items live.
 
 `valuenow` is null on an indeterminate progress bar, which reports a range with
 no position in it. That absence is the contract: it is how every platform spells

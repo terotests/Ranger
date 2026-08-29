@@ -1,0 +1,370 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGEasing — CSS timing functions
+; ==============================================================================
+;
+; A transition needs two numbers from the clock: how far through it is, and how
+; far along it therefore LOOKS. Those are not the same number, and the gap
+; between them is most of why a browser's motion feels different from a
+; hand-rolled `t += dt` one.
+;
+;   input progress    elapsed / duration. Linear, always.
+;   output progress   what the timing function makes of it. This is what the
+;                     value is actually interpolated by.
+;
+; Two families, which is all CSS has:
+;
+;   cubic-bezier(x1 y1 x2 y2)   a curve from (0,0) to (1,1) with two control
+;                               points. `ease`, `ease-in`, `ease-out` and
+;                               `ease-in-out` are named instances of it, and so
+;                               is `linear`.
+;   steps(n start|end)          n discrete jumps.
+;
+; The awkward part is that the curve is parametric — both x and y are functions
+; of a parameter that is NOT the input progress — so the output cannot be read
+; off directly. Given x, the parameter has to be solved for first. Newton–
+; Raphson converges in a handful of iterations over almost the whole range, and
+; where it does not (a control point outside [0,1] can flatten the derivative)
+; bisection finishes the job. This is the method every engine uses, and matching
+; it is the difference between 5e-6 of the browser and 1e-2 of it.
+;
+; The control points for the four keywords, and every number this file is
+; checked against, are CAPTURED rather than quoted: `oracle/css-timing.json`
+; holds samples taken off a real `Animation` at thirteen input progresses.
+; `EVGTimingTest.rgr` is those samples.
+; ==============================================================================
+
+class EVGEasing {
+
+    ; 0 = cubic-bezier, 1 = steps
+    def kind:int 0
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 1.0
+    def y2:double 1.0
+    def stepCount:int 1
+    ; `steps(n, start)` jumps at the beginning of each interval, so it leaves
+    ; zero immediately; `end` holds zero until the first boundary.
+    def jumpStart:boolean false
+    ; False when `parse` was handed something it did not understand. The caller
+    ; reports it: a timing function silently downgraded to linear is a bug you
+    ; find by squinting at motion.
+    def ok:boolean true
+
+    Constructor () {
+    }
+
+    sfn cubic:EVGEasing (x1:double y1:double x2:double y2:double) {
+        def e (new EVGEasing())
+        e.kind = 0
+        e.x1 = x1
+        e.y1 = y1
+        e.x2 = x2
+        e.y2 = y2
+        return e
+    }
+
+    sfn linear:EVGEasing () {
+        return (EVGEasing.cubic(0.0 0.0 1.0 1.0))
+    }
+
+    sfn steps:EVGEasing (count:int atStart:boolean) {
+        def e (new EVGEasing())
+        e.kind = 1
+        e.stepCount = count
+        if (count < 1) {
+            e.stepCount = 1
+        }
+        e.jumpStart = atStart
+        return e
+    }
+
+    ; --- parsing ----------------------------------------------------------------
+
+    ; The four keywords are cubic-beziers with the control points CSS names.
+    ; `ease` is not symmetric — it leaves fast and arrives slowly — which is why
+    ; it is the default and why a linear default feels mechanical beside it.
+    sfn parse:EVGEasing (text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return (EVGEasing.linear())
+        }
+        if (t == "linear")      { return (EVGEasing.cubic(0.0 0.0 1.0 1.0)) }
+        if (t == "ease")        { return (EVGEasing.cubic(0.25 0.1 0.25 1.0)) }
+        if (t == "ease-in")     { return (EVGEasing.cubic(0.42 0.0 1.0 1.0)) }
+        if (t == "ease-out")    { return (EVGEasing.cubic(0.0 0.0 0.58 1.0)) }
+        if (t == "ease-in-out") { return (EVGEasing.cubic(0.42 0.0 0.58 1.0)) }
+        ; `step-start` and `step-end` are the one-step shorthands.
+        if (t == "step-start")  { return (EVGEasing.steps(1 true)) }
+        if (t == "step-end")    { return (EVGEasing.steps(1 false)) }
+
+        def args:string (EVGEasing.argsOf(t "cubic-bezier"))
+        if ((strlen args) > 0) {
+            def nums:[double] (EVGEasing.numbers(args))
+            if ((array_length nums) == 4) {
+                ; x has to stay inside [0,1] — the curve is a function of the
+                ; input progress and a control point outside that range would
+                ; make it fold back on itself. y is free, and a y outside [0,1]
+                ; is the overshoot that makes a bounce.
+                def cx1:double (EVGEasing.clamp01((itemAt nums 0)))
+                def cx2:double (EVGEasing.clamp01((itemAt nums 2)))
+                return (EVGEasing.cubic(cx1 (itemAt nums 1) cx2 (itemAt nums 3)))
+            }
+            def bad:EVGEasing (EVGEasing.linear())
+            bad.ok = false
+            return bad
+        }
+
+        def sargs:string (EVGEasing.argsOf(t "steps"))
+        if ((strlen sargs) > 0) {
+            def parts:[string] (EVGEasing.splitTop(sargs 44))
+            def countTxt:string (trim (itemAt parts 0))
+            def n@(optional):double (to_double countTxt)
+            if n {
+                def atStart:boolean false
+                if ((array_length parts) > 1) {
+                    def word:string (trim (itemAt parts 1))
+                    if ((word == "start") || (word == "jump-start")) {
+                        atStart = true
+                    }
+                }
+                return (EVGEasing.steps((to_int (unwrap n)) atStart))
+            }
+        }
+
+        def unknown:EVGEasing (EVGEasing.linear())
+        unknown.ok = false
+        return unknown
+    }
+
+    ; Does this token look like a timing function at all? The transition
+    ; shorthand is order-tolerant about everything except its two times, so
+    ; telling a function from a duration is how the parts get sorted.
+    sfn looksLikeFunction:boolean (text:string) {
+        def t:string (trim text)
+        if (t == "linear")      { return true }
+        if (t == "ease")        { return true }
+        if (t == "ease-in")     { return true }
+        if (t == "ease-out")    { return true }
+        if (t == "ease-in-out") { return true }
+        if (t == "step-start")  { return true }
+        if (t == "step-end")    { return true }
+        if ((strlen (EVGEasing.argsOf(t "cubic-bezier"))) > 0) { return true }
+        if ((strlen (EVGEasing.argsOf(t "steps"))) > 0) { return true }
+        ; Anything else shaped like a call is an ATTEMPTED timing function, and
+        ; claiming it here is deliberate: `spring(1, 2)` then reaches `parse`,
+        ; which reports it. Refusing to recognise it instead makes the shorthand
+        ; parser mistake it for a property name and drop it in silence, and the
+        ; author gets linear motion with nothing anywhere saying why. No CSS
+        ; property name contains parentheses, so there is nothing to lose.
+        def n:int (strlen t)
+        if (n > 2) {
+            if ((charAt t (n - 1)) == 41) {
+                def i:int 0
+                while (i < n) {
+                    if ((charAt t i) == 40) {
+                        return true
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        return false
+    }
+
+    ; The inside of `name( ... )`, or "" when `t` is not that call.
+    sfn argsOf:string (t:string name:string) {
+        def nl:int (strlen name)
+        def tl:int (strlen t)
+        if (tl < (nl + 3)) {
+            return ""
+        }
+        if ((substring t 0 nl) != name) {
+            return ""
+        }
+        if ((charAt t nl) != 40) {
+            return ""
+        }
+        if ((charAt t (tl - 1)) != 41) {
+            return ""
+        }
+        return (substring t (nl + 1) (tl - 1))
+    }
+
+    sfn numbers:[double] (s:string) {
+        def out:[double]
+        def parts:[string] (EVGEasing.splitTop(s 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def v@(optional):double (to_double (trim (itemAt parts i)))
+            if v {
+                push out (unwrap v)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Split on `ch`, but only OUTSIDE parentheses. `cubic-bezier(0.25, 0.1,
+    ; 0.25, 1)` inside a comma-separated transition list is why: splitting the
+    ; list on every comma tears the function into four meaningless fragments,
+    ; and the failure is silent because each fragment still parses as something.
+    sfn splitTop:[string] (s:string ch:int) {
+        def out:[string]
+        def depth:int 0
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 40) { depth = (depth + 1) }
+            if (c == 41) { depth = (depth - 1) }
+            if ((c == ch) && (depth == 0)) {
+                push out (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s start n)
+        return out
+    }
+
+    ; Whitespace-separated words, outside parentheses for the same reason:
+    ; `steps(4, end)` is ONE word of the shorthand and has a space in it.
+    sfn splitWordsTop:[string] (s:string) {
+        def out:[string]
+        def depth:int 0
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 40) { depth = (depth + 1) }
+            if (c == 41) { depth = (depth - 1) }
+            def isSpace:boolean (((c == 32) || (c == 9)) || (c == 10))
+            if (isSpace && (depth == 0)) {
+                if (i > start) {
+                    push out (substring s start i)
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        if (n > start) {
+            push out (substring s start n)
+        }
+        return out
+    }
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) { return 0.0 }
+        if (v > 1.0) { return 1.0 }
+        return v
+    }
+
+    ; --- evaluation --------------------------------------------------------------
+
+    ; Input progress in, output progress out.
+    fn ease:double (t:double) {
+        def x:double t
+        if (x < 0.0) { x = 0.0 }
+        if (x > 1.0) { x = 1.0 }
+        if (kind == 1) {
+            return (this.stepAt(x))
+        }
+        ; The identity curve is worth short-circuiting: `linear` is the most
+        ; common easing there is and solving a cubic to be told t = t is waste
+        ; on every element of every frame.
+        if ((((x1 == 0.0) && (y1 == 0.0)) && (x2 == 1.0)) && (y2 == 1.0)) {
+            return x
+        }
+        return (this.sampleY((this.solveT(x))))
+    }
+
+    fn stepAt:double (x:double) {
+        def n:double (to_double stepCount)
+        def raw:double (x * n)
+        def k:int (floor raw)
+        if jumpStart {
+            k = (k + 1)
+        }
+        def v:double ((to_double k) / n)
+        if (v < 0.0) { return 0.0 }
+        if (v > 1.0) { return 1.0 }
+        return v
+    }
+
+    ; The polynomial form of a cubic Bézier with endpoints pinned at 0 and 1.
+    ; Writing it out beats evaluating the Bernstein basis three times a frame.
+    fn sampleX:double (t:double) {
+        def cx:double (3.0 * x1)
+        def bx:double (((3.0 * (x2 - x1))) - cx)
+        def a:double ((1.0 - cx) - bx)
+        return (((((a * t) + bx) * t) + cx) * t)
+    }
+
+    fn sampleY:double (t:double) {
+        def cy:double (3.0 * y1)
+        def by:double (((3.0 * (y2 - y1))) - cy)
+        def a:double ((1.0 - cy) - by)
+        return (((((a * t) + by) * t) + cy) * t)
+    }
+
+    fn slopeX:double (t:double) {
+        def cx:double (3.0 * x1)
+        def bx:double (((3.0 * (x2 - x1))) - cx)
+        def a:double ((1.0 - cx) - bx)
+        return (((((3.0 * a) * t) + (2.0 * bx)) * t) + cx)
+    }
+
+    ; Find the curve parameter whose x is the input progress.
+    ;
+    ; Newton first, from t = x, which is already close because x is monotonic
+    ; from 0 to 1. Where the derivative is near zero — which happens exactly
+    ; where a control point has been pushed outside [0,1] to make an overshoot —
+    ; Newton either crawls or leaves the interval, so bisection takes over. It
+    ; is slower and it always converges, and the combination is what keeps the
+    ; error at 5e-6 across the whole range instead of only the easy part of it.
+    fn solveT:double (x:double) {
+        def t:double x
+        def i:int 0
+        while (i < 8) {
+            def err:double ((this.sampleX(t)) - x)
+            if ((fabs err) < 0.0000001) {
+                return t
+            }
+            def d:double (this.slopeX(t))
+            if ((fabs d) < 0.000001) {
+                i = 8
+            } {
+                t = (t - (err / d))
+                if ((t < 0.0) || (t > 1.0)) {
+                    i = 8
+                }
+                i = (i + 1)
+            }
+        }
+        def lo:double 0.0
+        def hi:double 1.0
+        def m:double x
+        if ((m < lo) || (m > hi)) {
+            m = 0.5
+        }
+        def j:int 0
+        while (j < 64) {
+            def v:double (this.sampleX(m))
+            if ((fabs (v - x)) < 0.0000001) {
+                return m
+            }
+            if (v < x) {
+                lo = m
+            } {
+                hi = m
+            }
+            m = ((lo + hi) / 2.0)
+            j = (j + 1)
+        }
+        return m
+    }
+}

@@ -28,6 +28,14 @@ const DEMOS = {
       M.MenubarDemo.displayListJson(css, ["Always Show Full URLs"], "Luis", "File", true, false),
     errors: (M, css) => M.MenubarDemo.styleErrors(css),
   },
+  sortable: {
+    module: "gallery/ui/bin/SortableDemo.cjs",
+    css: "sortable.css",
+    height: 560,
+    list: (M, css) =>
+      M.SortableDemo.displayListJson(css, ["demo", "spec", "video", "audio", "extra"], ""),
+    errors: (M, css) => M.SortableDemo.styleErrors(css),
+  },
   toolbar: {
     module: "gallery/ui/bin/ToolbarDemo.cjs",
     css: "toolbar.css",

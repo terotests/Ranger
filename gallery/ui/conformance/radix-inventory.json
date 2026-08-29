@@ -3,7 +3,8 @@
     "Denominator for the Radix inventory. `packages` is refreshed from the npm org",
     "listing by inventory.mjs --refresh; `components` and `utilities` are human judgements",
     "meant to be reviewed in a diff. A package in NEITHER bucket fails the run, which is",
-    "the only thing stopping this number from flattering us as Radix grows."
+    "the only thing stopping this number from flattering us as Radix grows.",
+    "`beyond` is for controls built here that Radix does not have at all. They are kept OUT of the coverage fraction on purpose: the number is Radix coverage, and counting a component the denominator never contained would inflate it."
   ],
   "fetched": "2026-08-28",
   "packages": [
@@ -164,7 +165,11 @@
     "dropdown-menu": "dropdownmenu",
     "context-menu": "contextmenu",
     "slider": "slider",
-    "toast": "toast"
+    "toast": "toast",
+    "menubar": "menubar",
+    "select": "select",
+    "navigation-menu": "navigationmenu",
+    "scroll-area": "scrollarea"
   },
   "machinery": {
     "overlay layer": [
@@ -199,5 +204,8 @@
       "slider",
       "scroll-area"
     ]
+  },
+  "beyond": {
+    "sortable": "@dnd-kit/sortable \u2014 Radix has no sortable; ReUI's and every shadcn-family one is dnd-kit underneath"
   }
 }

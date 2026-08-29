@@ -1,0 +1,373 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MotionDemo — what the CSS engine can do with time, shown rather than claimed
+; =============================================================================
+; `EVGTimingTest` proves the numbers against a browser. Numbers are not what
+; anyone means by "does the motion feel right", so this is the same features
+; with an eye on them: seven timing functions racing side by side under the
+; curve each one draws, a delay staggering three bars, nine tiles turning about
+; nine different origins, and a row of cards that answer the pointer.
+;
+; ONE DIFFERENCE FROM THE OTHER THREE DEMOS IN THIS DIRECTORY, AND IT IS THE
+; WHOLE REASON THIS FILE IS A CLASS RATHER THAN A BAG OF STATIC FUNCTIONS.
+;
+; The menubar, toolbar and sortable demos rebuild their tree on every change —
+; "reordering is rebuilding" is the claim that directory makes. A transition
+; cannot survive that. A flight is a property of an ELEMENT: it remembers where
+; the colour was when the pointer arrived, and a tree rebuilt from scratch has
+; a different element in that position with no memory of anything. Rebuilt
+; every frame, every transition would establish itself at its destination and
+; nothing would ever move.
+;
+; So this one owns its tree, built once, and state changes only set flags on it.
+; That is the same shape `UiHost` has, and for the same reason.
+;
+; The flip that drives the self-running panels is a THEME. `EVGStyleSheet`
+; already scopes rules with `.theme-<name> .class`, so `theme = "go"` switches
+; every animated rule at once with no new mechanism — which is also a fair test
+; that theme scoping and state rules compose.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGEasing.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Motion {
+    child addChild
+    text  textContent
+
+    tag Page    EVGElement (props (className "mo-page"))
+    tag Panel   EVGElement (props (className "mo-panel"))
+    tag Head    EVGElement (props (className "mo-head") (elementType 1))
+    tag Sub     EVGElement (props (className "mo-sub") (elementType 1))
+    tag Rows    EVGElement (props (className "mo-rows"))
+    tag Row     EVGElement (props (className "mo-row"))
+    tag Name    EVGElement (props (className "mo-name") (elementType 1))
+    ; The timing function, drawn. A path and not a picture: the `d` is sampled
+    ; from the very `EVGEasing` the dot beside it is moved by, so the curve
+    ; cannot drift from the motion — they are the same function twice.
+    tag Curve   EVGElement (props (className "mo-curve") (tagName "path") (elementType 3) (viewBox "0 0 100 100"))
+    tag Track   EVGElement (props (className "mo-track"))
+    tag Dot     EVGElement (props (className "mo-dot"))
+    tag Bar     EVGElement (props (className "mo-bar"))
+    tag Grid    EVGElement (props (className "mo-grid"))
+    tag Cell    EVGElement (props (className "mo-cell"))
+    tag Tile    EVGElement (props (className "mo-tile"))
+    tag Cap     EVGElement (props (className "mo-cap") (elementType 1))
+    tag Cards   EVGElement (props (className "mo-cards"))
+    tag Card    EVGElement (props (className "mo-card") (role "button") (a11yFocusable true))
+}
+
+class MotionDemo {
+
+    ; The tree, built once and kept. Everything below only changes flags on it.
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def hovered:string ""
+    def pressed:string ""
+    def flipped:boolean false
+    def pageW:double 1180.0
+    def pageH:double 1580.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        root = (MotionDemo.page())
+    }
+
+    ; --- the timing functions on show ------------------------------------------
+    ;
+    ; The first five are CSS's own names. The sixth is the overshoot everyone
+    ; reaches for and few engines get right — its control points leave [0,1], so
+    ; it goes PAST the target and comes back, and a solver that clamps shows a
+    ; straight arrival instead. The seventh is discrete, which is worth seeing
+    ; beside six smooth ones.
+    sfn specs:[string] () {
+        return ([] _:string (
+            "linear" "ease" "ease-in" "ease-out" "ease-in-out"
+            "cubic-bezier(0.34, 1.56, 0.64, 1)" "steps(5, end)"))
+    }
+
+    ; A class-safe name for each, because a selector cannot hold brackets.
+    sfn slugs:[string] () {
+        return ([] _:string (
+            "linear" "ease" "ease-in" "ease-out" "ease-in-out" "overshoot" "steps"))
+    }
+
+    sfn labels:[string] () {
+        return ([] _:string (
+            "linear" "ease" "ease-in" "ease-out" "ease-in-out"
+            "cubic-bezier(.34,1.56,.64,1)" "steps(5, end)"))
+    }
+
+    ; The curve, sampled from the same `EVGEasing` that moves the dot.
+    ;
+    ; y is flipped because SVG counts down and progress counts up, and the
+    ; 1.15/1.3 window leaves room above and below the box for the overshoot
+    ; curve to actually leave it — squeezing that one into 0..1 would hide the
+    ; single most interesting thing on the panel.
+    sfn curvePath:string (spec:string) {
+        def e:EVGEasing (EVGEasing.parse(spec))
+        def d:string ""
+        def i:int 0
+        while (i <= 48) {
+            def t:double ((to_double i) / 48.0)
+            def x:double (t * 100.0)
+            def y:double ((100.0 * (1.15 - (e.ease(t)))) / 1.3)
+            if (i == 0) {
+                d = "M"
+            } {
+                d = (d + " L")
+            }
+            d = (((d + (MotionDemo.num(x))) + " ") + (MotionDemo.num(y)))
+            i = (i + 1)
+        }
+        return d
+    }
+
+    sfn num:string (v:double) {
+        def scaled:int (to_int ((v * 100.0) + 0.5))
+        return (to_string ((to_double scaled) / 100.0))
+    }
+
+    ; --- the panels --------------------------------------------------------------
+
+    sfn timingPanel:EVGElement () {
+        def rows (tree Motion (Rows (props (id "mo-timing-rows"))))
+        def specs:[string] (MotionDemo.specs())
+        def slugs:[string] (MotionDemo.slugs())
+        def labels:[string] (MotionDemo.labels())
+        def i:int 0
+        while (i < (array_length specs)) {
+            def slug:string (itemAt slugs i)
+            def label:string (itemAt labels i)
+            def one (tree Motion
+                (Row
+                    (Name label)
+                    (Curve (props (className ("mo-curve mo-curve-" + slug))
+                                  (svgPath (MotionDemo.curvePath((itemAt specs i))))))
+                    (Track
+                        (Dot (props (id ("mo-dot-" + slug))
+                                    (className ("mo-dot mo-dot-" + slug)))))))
+            rows.addChild(one)
+            i = (i + 1)
+        }
+        return (tree Motion
+            (Panel (props (id "mo-timing"))
+                (Head "Timing functions")
+                (Sub "The same 900ms journey, seven ways. Each curve is sampled from the function that moves the dot beside it.")
+                (child rows)))
+    }
+
+    sfn delayPanel:EVGElement () {
+        return (tree Motion
+            (Panel (props (id "mo-delay"))
+                (Head "Delay")
+                (Sub "One duration, three delays. A delay HOLDS — it is not a slow start, and the difference is the whole point of having one.")
+                (Rows
+                    (Row (Name "0ms")   (Track (Bar (props (className "mo-bar mo-bar-a")))))
+                    (Row (Name "180ms") (Track (Bar (props (className "mo-bar mo-bar-b")))))
+                    (Row (Name "360ms") (Track (Bar (props (className "mo-bar mo-bar-c"))))))))
+    }
+
+    ; Nine tiles, one rotation, nine origins. The point is that they are the
+    ; SAME rotation: everything different about where they end up is the pivot.
+    sfn originSlugs:[string] () {
+        return ([] _:string ("lt" "ct" "rt" "lc" "cc" "rc" "lb" "cb" "rb"))
+    }
+
+    sfn originLabels:[string] () {
+        return ([] _:string (
+            "left top" "center top" "right top"
+            "left center" "center" "right center"
+            "left bottom" "center bottom" "right bottom"))
+    }
+
+    sfn originPanel:EVGElement () {
+        def grid (tree Motion (Grid (props (id "mo-origin-grid"))))
+        def slugs:[string] (MotionDemo.originSlugs())
+        def labels:[string] (MotionDemo.originLabels())
+        def i:int 0
+        while (i < (array_length slugs)) {
+            def slug:string (itemAt slugs i)
+            def label:string (itemAt labels i)
+            def cell (tree Motion
+                (Cell
+                    (Tile (props (className ("mo-tile mo-tile-" + slug))))
+                    (Cap label)))
+            grid.addChild(cell)
+            i = (i + 1)
+        }
+        return (tree Motion
+            (Panel (props (id "mo-origin"))
+                (Head "transform-origin")
+                (Sub "One rotation of 35 degrees, nine pivots. Everything different about where a tile lands is the origin.")
+                (child grid)))
+    }
+
+    sfn hoverPanel:EVGElement () {
+        return (tree Motion
+            (Panel (props (id "mo-hover"))
+                (Head "Pointer states")
+                (Sub "Hover and press, answered by the stylesheet. No controller here knows what a pointer is.")
+                (Cards
+                    (Card (props (id "mo-card-lift") (className "mo-card mo-card-lift")
+                                 (a11yLabel "Lift on hover")) "lift")
+                    (Card (props (id "mo-card-grow") (className "mo-card mo-card-grow")
+                                 (a11yLabel "Grow on hover")) "grow")
+                    (Card (props (id "mo-card-turn") (className "mo-card mo-card-turn")
+                                 (a11yLabel "Turn on hover")) "turn")
+                    (Card (props (id "mo-card-slow") (className "mo-card mo-card-slow")
+                                 (a11yLabel "Leave slowly")) "ease-out")
+                    (Card (props (id "mo-card-off") (className "mo-card mo-card-off")
+                                 (a11yLabel "Disabled card") (a11yDisabled true)) "disabled"))))
+    }
+
+    sfn page:EVGElement () {
+        return (tree Motion
+            (Page (props (id "mo-page"))
+                (child (MotionDemo.timingPanel()))
+                (child (MotionDemo.delayPanel()))
+                (child (MotionDemo.originPanel()))
+                (child (MotionDemo.hoverPanel()))))
+    }
+
+    ; --- the host ------------------------------------------------------------------
+
+    fn setFlipped:void (v:boolean) {
+        flipped = v
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn isFlipped:boolean () {
+        return flipped
+    }
+
+    fn themeName:string () {
+        if flipped {
+            return "go"
+        }
+        return ""
+    }
+
+    ; Hover and press are the element's own business, read off the one id the
+    ; page says is under the pointer. Nothing walks up: a card is hovered, its
+    ; label is not.
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            this.markStates(kid)
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r (this.themeName()))
+        ; The sheet has written what it WANTS; this leaves on the element what
+        ; is actually showing, which for a property in flight is neither end.
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        return lay
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Motion showcase" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Motion showcase" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn widthPx:double () {
+        return pageW
+    }
+}

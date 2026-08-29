@@ -36,6 +36,25 @@ import * as Toggle from "@radix-ui/react-toggle";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import * as Menubar from "@radix-ui/react-menubar";
+import * as NavigationMenu from "@radix-ui/react-navigation-menu";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
+import * as Select from "@radix-ui/react-select";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 
 /**
  * Toast is the one control the fixture cannot express declaratively: it has no
@@ -74,6 +93,76 @@ function ToastControl({ spec, tid }) {
         }}
       />
     </Toast.Provider>
+  );
+}
+
+/**
+ * Sortable — the one control here that is not Radix.
+ *
+ * ReUI's Sortable, and every shadcn-family one, is @dnd-kit underneath, so
+ * that is the oracle: `SortableContext` + `useSortable`, the default sensors,
+ * and the DEFAULT accessibility contract, which is the part worth measuring.
+ * dnd-kit gives each item `role="button"`, `aria-roledescription="sortable"`,
+ * `aria-pressed` while it is picked up, and announces every stage into a live
+ * region — "Picked up draggable item A." and so on. None of that is decoration:
+ * for someone who cannot see the list move, it is the whole interaction.
+ *
+ * Nothing is styled, but the items are given a height, because a drag is
+ * resolved against rectangles and zero-height rows collide with nothing. That
+ * is geometry the harness needs, not appearance it compares.
+ */
+function SortableItem({ tid, id, name, disabled }) {
+  // No `data-state`: dnd-kit does not set one, and inventing an attribute on
+  // the reference side would make the harness compare this file's choices
+  // instead of the library's behaviour. Being picked up is observable through
+  // `aria-pressed`, which dnd-kit does set.
+  const { attributes, listeners, setNodeRef } = useSortable({ id, disabled });
+  // Divs, not <ul>/<li>: dnd-kit puts `role="button"` on each item, and a
+  // button is not a list item — real <li>s would make axe report a broken list
+  // on the REFERENCE side, a violation this file invented rather than measured.
+  return (
+    <div
+      ref={setNodeRef}
+      data-tid={tid}
+      style={{ height: 40, border: "1px solid #ccc" }}
+      {...attributes}
+      {...listeners}
+    >
+      {name}
+    </div>
+  );
+}
+
+function SortableControl({ spec, tid }) {
+  const [items, setItems] = React.useState(spec.items.map((it) => it.value));
+  const byValue = new Map(spec.items.map((it) => [it.value, it]));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 1 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={({ active, over }) => {
+        if (!over || active.id === over.id) return;
+        setItems((cur) => arrayMove(cur, cur.indexOf(active.id), cur.indexOf(over.id)));
+      }}
+    >
+      <SortableContext items={items} strategy={verticalListSortingStrategy}>
+        <div data-tid={tid} aria-label={spec.name} style={{ width: 200 }}>
+          {items.map((value) => (
+            <SortableItem
+              key={value}
+              id={value}
+              tid={tid + "-item-" + value}
+              name={byValue.get(value).name}
+              disabled={!!byValue.get(value).disabled}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 }
 
@@ -412,6 +501,120 @@ export function Control({ spec }) {
             </ContextMenu.Content>
           </ContextMenu.Portal>
         </ContextMenu.Root>
+      );
+
+    case "sortable":
+      return <SortableControl spec={spec} tid={tid} />;
+
+    /**
+     * A bar of menus. The parts follow the same rule the rest do — `x-<value>`
+     * for a menu, and its trigger and content beneath it — so a spec names a
+     * menu by the value it was given and never by position.
+     */
+    case "menubar":
+      return (
+        <Menubar.Root data-tid={tid} aria-label={spec.name}>
+          {spec.items.map((menu) => (
+            <Menubar.Menu key={menu.value}>
+              <Menubar.Trigger
+                data-tid={tid + "-" + menu.value + "-trigger"}
+                disabled={!!menu.disabled}
+              >
+                {menu.name}
+              </Menubar.Trigger>
+              <Menubar.Portal>
+                <Menubar.Content data-tid={tid + "-" + menu.value + "-content"}>
+                  {(menu.items || []).map((it) => (
+                    <Menubar.Item
+                      key={it.value}
+                      data-tid={tid + "-" + menu.value + "-item-" + it.value}
+                      disabled={!!it.disabled}
+                    >
+                      {it.name}
+                    </Menubar.Item>
+                  ))}
+                </Menubar.Content>
+              </Menubar.Portal>
+            </Menubar.Menu>
+          ))}
+        </Menubar.Root>
+      );
+
+    case "navigationmenu":
+      return (
+        <NavigationMenu.Root data-tid={tid} aria-label={spec.name}>
+          <NavigationMenu.List data-tid={tid + "-list"}>
+            {spec.items.map((it) => (
+              <NavigationMenu.Item key={it.value}>
+                <NavigationMenu.Trigger data-tid={tid + "-" + it.value + "-trigger"}>
+                  {it.name}
+                </NavigationMenu.Trigger>
+                <NavigationMenu.Content data-tid={tid + "-" + it.value + "-content"}>
+                  {(it.links || []).map((l) => (
+                    <NavigationMenu.Link
+                      key={l.value}
+                      data-tid={tid + "-" + it.value + "-link-" + l.value}
+                      href="#"
+                    >
+                      {l.name}
+                    </NavigationMenu.Link>
+                  ))}
+                </NavigationMenu.Content>
+              </NavigationMenu.Item>
+            ))}
+          </NavigationMenu.List>
+          <NavigationMenu.Viewport data-tid={tid + "-viewport"} />
+        </NavigationMenu.Root>
+      );
+
+    /**
+     * A scrolling box. The content is taller than the viewport on purpose —
+     * a scroll area with nothing to scroll has no scrollbar and no behaviour.
+     */
+    case "scrollarea":
+      return (
+        <ScrollArea.Root data-tid={tid} style={{ height: 120, width: 200, overflow: "hidden" }}>
+          <ScrollArea.Viewport
+            data-tid={tid + "-viewport"}
+            style={{ width: "100%", height: "100%" }}
+          >
+            <div data-tid={tid + "-content"} style={{ height: 480 }}>
+              {(spec.items || []).map((it) => (
+                <div key={it.value} data-tid={tid + "-item-" + it.value} style={{ height: 80 }}>
+                  {it.name}
+                </div>
+              ))}
+            </div>
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar orientation="vertical" data-tid={tid + "-scrollbar"}>
+            <ScrollArea.Thumb data-tid={tid + "-thumb"} />
+          </ScrollArea.Scrollbar>
+        </ScrollArea.Root>
+      );
+
+    case "select":
+      return (
+        <Select.Root defaultValue={spec.value}>
+          <Select.Trigger data-tid={tid + "-trigger"} aria-label={spec.name}>
+            <Select.Value data-tid={tid + "-value"} />
+          </Select.Trigger>
+          <Select.Portal>
+            <Select.Content data-tid={tid + "-content"}>
+              <Select.Viewport>
+                {spec.items.map((it) => (
+                  <Select.Item
+                    key={it.value}
+                    value={it.value}
+                    data-tid={tid + "-item-" + it.value}
+                    disabled={!!it.disabled}
+                  >
+                    <Select.ItemText>{it.name}</Select.ItemText>
+                  </Select.Item>
+                ))}
+              </Select.Viewport>
+            </Select.Content>
+          </Select.Portal>
+        </Select.Root>
       );
 
     default:

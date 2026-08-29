@@ -128,11 +128,41 @@ class EVGMediaQuery {
     }
 }
 
+; The interaction states a rule can ask for. Not an enum of every CSS
+; pseudo-class: these four are the ones an element can answer from what it
+; knows, and anything else is reported rather than silently never matching.
+class EVGPseudo {
+    sfn none:int ()     { return 0 }
+    sfn hover:int ()    { return 1 }
+    sfn focus:int ()    { return 2 }
+    sfn active:int ()   { return 3 }
+    sfn disabled:int () { return 4 }
+
+    sfn parse:int (name:string) {
+        if (name == "hover")    { return 1 }
+        if (name == "focus")    { return 2 }
+        if (name == "active")   { return 3 }
+        if (name == "disabled") { return 4 }
+        return -1
+    }
+
+    sfn holds:boolean (code:int el:EVGElement) {
+        if (code == 0) { return true }
+        if (code == 1) { return el.isHovered }
+        if (code == 2) { return el.isFocused }
+        if (code == 3) { return el.isPressed }
+        if (code == 4) { return el.a11yDisabled }
+        return false
+    }
+}
+
 class EVGStyleRule {
     ; Theme this rule is scoped to, or "" when it applies in every theme.
     def theme:string ""
     ; Class this rule selects. Always set — the subset has no other selectors.
     def className:string ""
+    ; EVGPseudo: 0 for a plain class rule, otherwise the state it asks for.
+    def pseudo:int 0
     def decls:[EVGStyleDecl]
     ; Source order, used to break ties between rules of equal specificity.
     def order:int 0
@@ -568,13 +598,27 @@ class EVGStyleSheet {
         def n:int (array_length parts)
 
         if (n == 1) {
-            def only:string (itemAt parts 0)
+            def whole:string (itemAt parts 0)
+            def bits:[string] (this.splitPseudo(whole))
+            def only:string (itemAt bits 0)
+            def pseudoName:string (itemAt bits 1)
             if ((this.isClassToken(only)) == false) {
                 push errors ("Unsupported selector (only .class and .theme-x .class are supported): " + sel)
                 return
             }
+            def code:int 0
+            if ((strlen pseudoName) > 0) {
+                code = (EVGPseudo.parse(pseudoName))
+                if (code < 0) {
+                    ; Reported rather than dropped: a rule that never fires and
+                    ; says nothing is a developer looking at the wrong file.
+                    push errors ("Unsupported pseudo-class (hover, focus, active, disabled): " + sel)
+                    return
+                }
+            }
             def rule (new EVGStyleRule())
             rule.className = (substring only 1 (strlen only))
+            rule.pseudo = code
             this.pushRule(rule decls)
             return
         }
@@ -582,7 +626,9 @@ class EVGStyleSheet {
         if (n == 2) {
             def scope:string (itemAt parts 0)
             def target:string (itemAt parts 1)
-            if (((this.isClassToken(scope)) == false) || ((this.isClassToken(target)) == false)) {
+            def targetBits:[string] (this.splitPseudo(target))
+            def targetOnly:string (itemAt targetBits 0)
+            if (((this.isClassToken(scope)) == false) || ((this.isClassToken(targetOnly)) == false)) {
                 push errors ("Unsupported selector (only .class and .theme-x .class are supported): " + sel)
                 return
             }
@@ -591,9 +637,21 @@ class EVGStyleSheet {
                 push errors ("Descendant selectors are only supported as `.theme-<name> .class`: " + sel)
                 return
             }
+            def bits2:[string] (this.splitPseudo(target))
+            def targetClass:string (itemAt bits2 0)
+            def pseudo2:string (itemAt bits2 1)
+            def code2:int 0
+            if ((strlen pseudo2) > 0) {
+                code2 = (EVGPseudo.parse(pseudo2))
+                if (code2 < 0) {
+                    push errors ("Unsupported pseudo-class (hover, focus, active, disabled): " + sel)
+                    return
+                }
+            }
             def rule2 (new EVGStyleRule())
             rule2.theme = (substring scopeName 6 (strlen scopeName))
-            rule2.className = (substring target 1 (strlen target))
+            rule2.className = (substring targetClass 1 (strlen targetClass))
+            rule2.pseudo = code2
             this.pushRule(rule2 decls)
             return
         }
@@ -607,6 +665,22 @@ class EVGStyleSheet {
         rule.order = ruleCounter
         ruleCounter = (ruleCounter + 1)
         push rules rule
+    }
+
+    ; ".btn:hover" -> ".btn" and "hover". The colon is the only place a
+    ; pseudo-class can appear in the selectors this engine supports, so finding
+    ; one is the whole parse.
+    fn splitPseudo:[string] (tok:string) {
+        def out:[string]
+        def at:int (this.findChar(tok 0 58))
+        if (at < 0) {
+            push out tok
+            push out ""
+            return out
+        }
+        push out (substring tok 0 at)
+        push out (substring tok (at + 1) (strlen tok))
+        return out
     }
 
     fn isClassToken:boolean (tok:string) {
@@ -641,6 +715,9 @@ class EVGStyleSheet {
                     d.name = (trim (substring part 0 colon))
                     d.value = (this.unquote((trim (substring part (colon + 1) (strlen part)))))
                     if (((strlen d.name) > 0) && ((strlen d.value) > 0)) {
+                        if (d.name == "transition") {
+                            this.checkTransition(d.value)
+                        }
                         push out d
                     } {
                         push errors ("Incomplete declaration ignored: " + part)
@@ -650,6 +727,30 @@ class EVGStyleSheet {
             i = (i + 1)
         }
         return out
+    }
+
+    ; A `transition` whose timing function does not parse is reported here, at
+    ; the sheet, rather than discovered as motion that looks subtly wrong.
+    ; `cubic-bezier(0.4, 0, 0.2, 1)` and `spring(1, 2)` are the same shape and
+    ; only one of them is CSS.
+    fn checkTransition:void (value:string) {
+        def parts:[string] (EVGEasing.splitTop(value 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def words:[string] (EVGEasing.splitWordsTop((trim (itemAt parts i))))
+            def w:int 0
+            while (w < (array_length words)) {
+                def word:string (itemAt words w)
+                if (EVGEasing.looksLikeFunction(word)) {
+                    def e:EVGEasing (EVGEasing.parse(word))
+                    if ((e.ok) == false) {
+                        push errors ("Unsupported timing function (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, cubic-bezier(), steps()): " + word)
+                    }
+                }
+                w = (w + 1)
+            }
+            i = (i + 1)
+        }
     }
 
     ; font-family: "Cinzel" — the quotes are CSS syntax, not part of the name.
@@ -752,22 +853,108 @@ class EVGStyleSheet {
             return
         }
         def classes:[string] (this.splitWhitespace(el.className))
-        this.applyGroup(el classes theme false)
-        this.applyGroup(el classes theme true)
+        this.clearStateProps(el classes theme)
+        ; Weakest first, so stronger overwrites: plain classes, then
+        ; theme-scoped ones, then the state rules in the same two groups.
+        ;
+        ; A state rule wins WHEREVER IT IS WRITTEN, which is why this is four
+        ; passes rather than one loop in file order: `:hover` is more specific
+        ; than the bare class, and the version that simply applied rules in
+        ; order let a base rule declared later undo it.
+        this.applyGroup(el classes theme false false)
+        this.applyGroup(el classes theme true false)
+        this.applyGroup(el classes theme false true)
+        this.applyGroup(el classes theme true true)
     }
 
-    fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean) {
+    ; Put back the initial value of everything a STATE rule for this element
+    ; can set, before deciding which states hold.
+    ;
+    ; The cascade in a browser recomputes a style from nothing every time. This
+    ; one mutates the element in place, which is fast and which quietly breaks
+    ; the moment a property is declared ONLY under `:hover`: the pointer leaves,
+    ; no rule writes the property, and the hover value stays on the element
+    ; forever. A row that lifts and never comes back down.
+    ;
+    ; The properties at risk are exactly those a state rule declares — a base
+    ; rule's are rewritten by the base pass a moment later — so that is the set
+    ; cleared here, whether or not the state currently holds.
+    ;
+    ; Only properties with an unambiguous initial value are cleared, and
+    ; `initialValue` says which those are. A property outside that table keeps
+    ; the old behaviour, so the fix cannot make anything worse than it was; the
+    ; workaround there is the one that has always worked, which is to declare
+    ; the property on the base rule too.
+    fn clearStateProps:void (el:EVGElement classes:[string] theme:string) {
         def i:int 0
         def n:int (array_length rules)
         while (i < n) {
             def rule:EVGStyleRule (itemAt rules i)
-            if ((rule.isThemeScoped()) == themeScoped) {
+            if (rule.pseudo != 0) {
+                def applies:boolean true
+                if (rule.isThemeScoped()) {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (this.matchesClass(classes rule.className))
+                }
+                if applies {
+                    def d:int 0
+                    while (d < (array_length rule.decls)) {
+                        def decl:EVGStyleDecl (itemAt rule.decls d)
+                        def init:string (EVGStyleSheet.initialValue(decl.name))
+                        if ((strlen init) > 0) {
+                            ; Inline still outranks the sheet, so an inline
+                            ; value is not something a state rule may clear.
+                            if ((el.hasInline(decl.name)) == false) {
+                                el.setAttribute(decl.name init)
+                            }
+                        }
+                        d = (d + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The CSS initial value, for the properties where it is unambiguous and
+    ; cheap to write back. "" means "no safe initial" and the property is left
+    ; alone.
+    ;
+    ; `color` is deliberately absent: its initial value is `inherit`, and
+    ; writing a literal here would break inheritance rather than restore it.
+    sfn initialValue:string (name:string) {
+        if (name == "transform")        { return "none" }
+        if (name == "transform-origin")  { return "50% 50%" }
+        if (name == "transformOrigin")   { return "50% 50%" }
+        if (name == "opacity")          { return "1" }
+        if (name == "background-color") { return "transparent" }
+        if (name == "backgroundColor")  { return "transparent" }
+        if (name == "rotate")           { return "0" }
+        if (name == "scale")            { return "1" }
+        return ""
+    }
+
+    fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean stateful:boolean) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            def isStateful:boolean (rule.pseudo != 0)
+            if ((isStateful == stateful) && ((rule.isThemeScoped()) == themeScoped)) {
                 def applies:boolean true
                 if themeScoped {
                     applies = (rule.theme == theme)
                 }
                 if applies {
                     applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (EVGPseudo.holds(rule.pseudo el))
                 }
                 if applies {
                     if (this.matchesClass(classes rule.className)) {

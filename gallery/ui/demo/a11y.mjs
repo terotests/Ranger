@@ -36,8 +36,19 @@ const domRequire = createRequire(path.join(ROOT, "gallery/ui/conformance/dom/pac
 
 const { MenubarDemo } = require(path.join(ROOT, "gallery/ui/bin/MenubarDemo.cjs"));
 const { ToolbarDemo } = require(path.join(ROOT, "gallery/ui/bin/ToolbarDemo.cjs"));
+const { SortableDemo } = require(path.join(ROOT, "gallery/ui/bin/SortableDemo.cjs"));
+const { MotionDemo } = require(path.join(ROOT, "gallery/ui/bin/MotionDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
+const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
+const MOTION_CSS = fs.readFileSync(path.join(HERE, "motion.css"), "utf8");
+
+// The showcase keeps its tree, so unlike the other three it is an instance and
+// the audit holds one — the same one for both states below, which is also a
+// small check that a hover leaves the accessible tree alone.
+const motion = new MotionDemo();
+motion.init(MOTION_CSS);
+const ORDER = ["demo", "spec", "video", "audio", "extra"];
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -71,6 +82,43 @@ const STATES = [
     size: [1240, 560],
     lint: () => MenubarDemo.a11yProblems(MENUBAR_CSS, CHECKED, "Luis", "File", true, true),
     tree: () => MenubarDemo.a11yJson(MENUBAR_CSS, CHECKED, "Luis", "File", true, true, 5, ""),
+  },
+  {
+    name: "sortable — at rest",
+    size: [1240, 560],
+    lint: () => SortableDemo.a11yProblems(SORTABLE_CSS, ORDER, ""),
+    tree: () => SortableDemo.a11yJson(SORTABLE_CSS, ORDER, "", 6, ""),
+  },
+  {
+    name: "sortable — a row picked up",
+    size: [1240, 560],
+    lint: () => SortableDemo.a11yProblems(SORTABLE_CSS, ORDER, "video"),
+    tree: () => SortableDemo.a11yJson(SORTABLE_CSS, ORDER, "video", 7, "sr-row-video"),
+  },
+  {
+    name: "motion — at rest",
+    size: [1180, 1580],
+    lint: () => {
+      motion.setHover("");
+      motion.setFlipped(false);
+      return motion.a11yProblems();
+    },
+    tree: () => motion.a11yJson(8, ""),
+  },
+  {
+    name: "motion — a card hovered, mid-flight",
+    size: [1180, 1580],
+    // Mid-transition on purpose. Contrast is measured off the display list, so
+    // a colour half way between two states is a colour that has to pass on its
+    // own — and a palette chosen only for its two ends can fail in between.
+    lint: () => {
+      motion.setHover("mo-card-lift");
+      motion.setFlipped(true);
+      motion.displayListJson();
+      motion.tick(80.0);
+      return motion.a11yProblems();
+    },
+    tree: () => motion.a11yJson(9, ""),
   },
   {
     name: "toolbar",

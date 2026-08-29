@@ -1,0 +1,6 @@
+{ "name":"select_pointer","component":"select",
+  "behaviours":["select-roles","select-pointer-open","select-choose-value"],
+  "fixture":{"controls":[
+    {"type":"select","tid":"sl","name":"Size","value":"m","items":[
+      {"value":"s","name":"Small"},{"value":"m","name":"Medium"},{"value":"l","name":"Large"}]}]},
+  "steps":[{"click":"sl-trigger"},{"click":"sl-item-l"}] }

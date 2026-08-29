@@ -32,6 +32,11 @@ Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ToastCtl.rgr"
+Import "SortableCtl.rgr"
+Import "MenubarCtl.rgr"
+Import "SelectCtl.rgr"
+Import "NavMenuCtl.rgr"
+Import "ScrollAreaCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -39,6 +44,7 @@ Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTransition.rgr"
 
 class UiHost {
     def root:EVGElement
@@ -52,6 +58,16 @@ class UiHost {
     ; an update whose generation it has already applied, which is what keeps a
     ; reader's cursor from being rebuilt out from under it.
     def a11yGen:int 0
+    ; The page's live region: the last thing any controller said out loud.
+    def announcement:string ""
+    ; What the pointer is over and what it is holding down, so a STYLESHEET can
+    ; say what those look like. The host knows both already — it hit-tests the
+    ; pointer and it owns focus — and publishing them as element state is what
+    ; lets `.ui-menubar-item:hover` exist at all, instead of every controller
+    ; writing a second class for a look it should not know about.
+    def hoverTid:string ""
+    def pressTidValue:string ""
+    def transitions:EVGTransition (new EVGTransition())
     def pageWidth:double 480.0
     def pageHeight:double 320.0
 
@@ -251,6 +267,46 @@ class UiHost {
         return c
     }
 
+    fn addMenubar:MenubarCtl (tid:string name:string) {
+        def c (new MenubarCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addSelect:SelectCtl (tid:string name:string) {
+        def c (new SelectCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addNavMenu:NavMenuCtl (tid:string name:string) {
+        def c (new NavMenuCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addScrollArea:ScrollAreaCtl (tid:string name:string) {
+        def c (new ScrollAreaCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addSortable:SortableCtl (tid:string name:string) {
+        def c (new SortableCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
     fn addLabel:LabelCtl (tid:string name:string) {
         def c (new LabelCtl())
         c.tid = tid
@@ -362,6 +418,7 @@ class UiHost {
     ; hover card have no other input, so without this there is nothing to test
     ; them with.
     fn hover:void (target:string) {
+        hoverTid = target
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -376,6 +433,7 @@ class UiHost {
     ; react is the one the pointer is no longer over — asking the new target
     ; would never reach it.
     fn unhover:void () {
+        hoverTid = ""
         def i:int 0
         while (i < (array_length ctls)) {
             def c:UiCtl (itemAt ctls i)
@@ -426,6 +484,20 @@ class UiHost {
         return 0.0
     }
 
+    ; The laid-out rectangle of a test id, as "x,y,w,h", or "" if the display
+    ; tree does not carry it. A canvas offers nothing to a query selector, so
+    ; anything driving this host from outside — a browser test pressing an item
+    ; — has to ask where the item IS.
+    fn rectOf:string (target:string) {
+        def r:EVGElement (unwrap root)
+        def maybe@(optional):EVGElement (this.findEl(r target))
+        if maybe {
+            def el:EVGElement (unwrap maybe)
+            return ((((((to_string (to_int el.calculatedX)) + ",") + (to_string (to_int el.calculatedY))) + ",") + (to_string (to_int el.calculatedWidth))) + ",") + (to_string (to_int el.calculatedHeight))
+        }
+        return ""
+    }
+
     ; Which element's rectangle a press on `target` would be measured against,
     ; or "" if pressing it is not a drag. Anything driving this host from the
     ; outside — the conformance adapter, the browser playground — asks first, so
@@ -451,6 +523,7 @@ class UiHost {
             return
         }
         dragTid = target
+        pressTidValue = target
         dragBounds = bounds
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
@@ -498,6 +571,7 @@ class UiHost {
     }
 
     fn pointerUp:void () {
+        pressTidValue = ""
         dragTid = ""
         dragBounds = ""
     }
@@ -533,17 +607,57 @@ class UiHost {
             if ((strlen next) > 0) {
                 focusId = next
             }
+            this.remember(c)
         }
         this.settleFocus()
     }
 
     ; Style, then lay out. Inline attributes written through UiTree.inline()
     ; are marked, so this pass cannot overwrite them.
+    ; Publish the interaction state onto the tree, so the stylesheet can match
+    ; on it. Before `applyTree`, because a rule cannot ask about a flag that is
+    ; set after it ran.
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hoverTid) > 0) && (el.id == hoverTid)
+        el.isFocused = ((strlen focusId) > 0) && (el.id == focusId)
+        el.isPressed = ((strlen pressTidValue) > 0) && (el.id == pressTidValue)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    ; Move every transition on by `dtMs` and say whether anything is still
+    ; going. A host that repaints on demand asks, rather than running a clock
+    ; nobody is watching.
+    ; Is anything still moving? Asked AFTER a frame has been applied, because
+    ; the flight a state change starts does not exist until the stylesheet has
+    ; been applied — a loop that asks before that stops on the frame the
+    ; animation begins, which is exactly what it did.
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
     fn layout:EVGElement () {
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageWidth pageHeight false)
+        this.markStates(r)
         s.applyTree(r theme)
+        ; The sheet has written what it WANTS; this leaves on the element what
+        ; is actually showing, which for a property in flight is neither end.
+        def t2:EVGTransition transitions
+        t2.reconcileTree(r)
         def page (EVGElement.createDiv())
         page.id = "page"
         page.width = (EVGUnit.px(pageWidth))
@@ -761,6 +875,7 @@ class UiHost {
                 if (row.role != (EVGA11yRole.none())) {
                     n.name = row.name
                 }
+                n.roleDescription = row.roleDescription
                 n.hasValueNow = row.hasValueNow
                 n.valueNow = row.valueNow
                 n.hasValueRange = row.hasRange
@@ -848,6 +963,100 @@ class UiHost {
         return false
     }
 
+    ; JSON string, or null for the empty one. `aria-roledescription` is absent
+    ; rather than "" on the DOM side, and an empty string would compare unequal
+    ; to null on every node in every spec.
+    sfn textOrNull:string (value:string) {
+        if ((strlen value) == 0) {
+            return "null"
+        }
+        return (EVGA11yTree.jsonString(value))
+    }
+
+    ; 1-based index among the rows that share this one's parent, counting in
+    ; the order the rows are emitted — which is display-tree order, the same
+    ; order the DOM side reads off the document.
+    fn posInSet:int (rows:[UiRow] index:int) {
+        def me:UiRow (itemAt rows index)
+        def n:int 0
+        def i:int 0
+        while (i <= index) {
+            def other:UiRow (itemAt rows i)
+            if (other.parentTid == me.parentTid) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- dragging one thing onto another ---------------------------------------
+    ; The host does the same thing for both ends of the gesture as it does for a
+    ; click: turn a target into a controller. What is under the cursor is the
+    ; paint-order hit test, so a drag and a click can never disagree about it.
+
+    ; Will pressing here start a drag onto something else? The playground asks
+    ; before it decides whether a press is a click.
+    fn dragsOntoFor:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragsOnto())
+        }
+        return false
+    }
+
+    fn pressOn:void (target:string) {
+        pressTidValue = target
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.press(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragOnto:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragOver(target)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn releaseDrag:void () {
+        pressTidValue = ""
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            c.release()
+            this.remember(c)
+            i = (i + 1)
+        }
+        this.settleFocus()
+    }
+
+    ; The page has ONE live region, so the host owns the last thing said. It is
+    ; kept rather than recomputed because that is what a live region does: the
+    ; text stays until something replaces it, and a reader that arrives late
+    ; still finds it.
+    fn remember:void (c:UiCtl) {
+        def text:string (c.said())
+        if ((strlen text) > 0) {
+            announcement = text
+        }
+    }
+
+    fn announcementText:string () {
+        return announcement
+    }
+
     fn traceJson:string () {
         def r:EVGElement (unwrap root)
         def rows:[UiRow] (this.allRows())
@@ -887,6 +1096,15 @@ class UiHost {
             out = out + ",\"valuemax\":" + (UiHost.numJson(row.hasRange row.valueMax))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
+            out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
+            ; Reported, not compared: the two systems disagree about the parent
+            ; of a floating surface on purpose. It is here so `posinset` can be
+            ; skipped where they do — see conformance/diff.mjs.
+            out = out + ",\"parent\":" + (EVGA11yTree.jsonString(row.parentTid))
+            ; Where this row sits among its siblings, 1-based. Derived from the
+            ; order the rows come in, not stored: position is a fact about the
+            ; tree, and a stored copy is a second truth to keep in step.
+            out = out + ",\"posinset\":" + (to_string (this.posInSet(rows i)))
             out = out + "}"
             i = (i + 1)
         }

@@ -1,0 +1,7 @@
+{ "name":"menubar_disabled","component":"menubar",
+  "behaviours":["menubar-roving-tabstop","menubar-role"],
+  "fixture":{"controls":[
+    {"type":"menubar","tid":"mb","name":"Main","items":[
+      {"value":"file","name":"File","items":[{"value":"new","name":"New"},{"value":"gone","name":"Gone","disabled":true},{"value":"open","name":"Open"}]},
+      {"value":"help","name":"Help","disabled":true,"items":[{"value":"about","name":"About"}]}]}]},
+  "steps":[{"click":"mb-file-trigger"},{"key":"ArrowDown"},{"key":"ArrowDown"}] }

@@ -25,8 +25,8 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo } from "./generated-host.js";
-import { MENUBAR_CSS, TOOLBAR_CSS } from "./generated.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo } from "./generated-host.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -36,8 +36,15 @@ const MENUS = ["File", "Edit", "View", "Profiles"];
 const SUB_ROWS = { File: "row-Share", Edit: "row-Find" };
 const SUB_SURFACE = { File: "menu-share-content", Edit: "menu-find-content" };
 
+const SORTABLE_IDS = ["demo", "spec", "video", "audio", "extra"];
+
 const state = {
   which: "menubar",
+  // The sortable's whole state: an order, and what is being carried. There is
+  // no move and no animation — the tree is rebuilt from this list, which is
+  // the claim the rest of this directory makes about tree literals.
+  order: SORTABLE_IDS.slice(),
+  dragging: "",
   open: "File",
   submenu: true,
   // The bar at the bottom edge, where the menus have no room below their
@@ -56,13 +63,34 @@ const state = {
 
 let generation = 0;
 
-// Two demos, two factories, one page. Each one says how tall it is and how to
-// ask Ranger the three questions; everything below is the same for both.
+/**
+ * The motion showcase, and the one demo on this page that does NOT rebuild.
+ *
+ * A transition is a property of an ELEMENT — it remembers where the colour was
+ * when the pointer arrived. Rebuild the tree and that memory is gone, so every
+ * transition would establish itself at its destination and nothing would ever
+ * move. This host is therefore built once and kept, and the page only sets
+ * flags on it. Everything else here still rebuilds, which is the claim the
+ * other three demos exist to make.
+ */
+let lastHover = "";
+const motion = new MotionDemo();
+motion.init(MOTION_CSS);
+
+// Four demos, four factories, one page. Each one says how tall it is and
+// answers the same three questions — what to draw, what is under the pointer,
+// and what it all MEANS. Three of them answer by rebuilding their tree from
+// `args()`; the motion showcase answers from a tree it keeps, because a
+// transition cannot survive being rebuilt. Behind these thunks the difference
+// stops mattering to the rest of the page.
 const DEMOS = {
   menubar: {
     height: 560,
     args: () => [MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu, state.atBottom],
     module: MenubarDemo,
+    list: () => MenubarDemo.displayListJson(...DEMOS.menubar.args()),
+    hit: (x, y) => MenubarDemo.hitId(...DEMOS.menubar.args(), x, y),
+    a11y: (gen, focus) => MenubarDemo.a11yJson(...DEMOS.menubar.args(), gen, focus),
     press: pressMenubar,
     hover: hoverMenubar,
     key: keyMenubar,
@@ -74,11 +102,113 @@ const DEMOS = {
       "Edited 2 hours ago",
     ],
     module: ToolbarDemo,
+    list: () => ToolbarDemo.displayListJson(...DEMOS.toolbar.args()),
+    hit: (x, y) => ToolbarDemo.hitId(...DEMOS.toolbar.args(), x, y),
+    a11y: (gen, focus) => ToolbarDemo.a11yJson(...DEMOS.toolbar.args(), gen, focus),
     press: pressToolbar,
     hover: () => false,
     key: () => false,
   },
+  motion: {
+    height: () => motion.heightPx(),
+    // Persistent: the three thunks below go to the kept host rather than
+    // rebuilding a tree from arguments.
+    list: () => motion.displayListJson(),
+    hit: (x, y) => motion.hitId(x, y),
+    a11y: (gen, focus) => motion.a11yJson(gen, focus),
+    press: () => false,
+    hover: (id) => {
+      if (id === lastHover) return false;
+      lastHover = id;
+      motion.setHover(id);
+      return true;
+    },
+    key: () => false,
+    // The only demo with a clock. `flip` is what the self-running panels
+    // travel between; the page turns it over and the stylesheet does the rest.
+    animated: true,
+  },
+  sortable: {
+    height: 560,
+    args: () => [SORTABLE_CSS, state.order, state.dragging],
+    module: SortableDemo,
+    list: () => SortableDemo.displayListJson(...DEMOS.sortable.args()),
+    hit: (x, y) => SortableDemo.hitId(...DEMOS.sortable.args(), x, y),
+    a11y: (gen, focus) => SortableDemo.a11yJson(...DEMOS.sortable.args(), gen, focus),
+    press: pressSortable,
+    hover: () => false,
+    key: keySortable,
+    // The one demo with a gesture rather than a press: the pointer has to
+    // travel before anything moves, exactly as it does in dnd-kit.
+    drag: dragSortable,
+    drop: dropSortable,
+  },
 };
+
+// --- the sortable's gesture ---------------------------------------------------
+// Reordering is `arrayMove`, not a swap: the item is taken out and put back at
+// the new index, so dragging the first onto the third gives 2, 3, 1. A swap
+// would give 3, 2, 1, and it is the first thing a hand-written sortable gets
+// wrong.
+
+function idOfRow(hit) {
+  return hit && hit.startsWith("sr-row-") ? hit.slice("sr-row-".length) : "";
+}
+
+function arrayMove(list, from, to) {
+  const out = list.slice();
+  const [moved] = out.splice(from, 1);
+  out.splice(to, 0, moved);
+  return out;
+}
+
+function pressSortable(id) {
+  const value = idOfRow(id);
+  if (!value) return false;
+  state.dragging = value;
+  state.focus = id;
+  return true;
+}
+
+function dragSortable(id) {
+  const over = idOfRow(id);
+  if (!over || !state.dragging || over === state.dragging) return false;
+  const from = state.order.indexOf(state.dragging);
+  const to = state.order.indexOf(over);
+  if (from < 0 || to < 0) return false;
+  state.order = arrayMove(state.order, from, to);
+  return true;
+}
+
+function dropSortable() {
+  if (!state.dragging) return false;
+  state.dragging = "";
+  return true;
+}
+
+// Space picks up and drops, arrows move, Escape puts it back — the same
+// keyboard the conformance harness measures `SortableCtl` against.
+function keySortable(key) {
+  const focused = idOfRow(state.focus);
+  if (!focused) return false;
+  if (key === " " || key === "Enter") {
+    state.dragging = state.dragging ? "" : focused;
+    return true;
+  }
+  if (key === "Escape") {
+    if (!state.dragging) return false;
+    state.dragging = "";
+    return true;
+  }
+  if (!state.dragging) return false;
+  const step = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+  if (!step) return false;
+  const at = state.order.indexOf(state.dragging);
+  const next = at + step;
+  if (next < 0 || next >= state.order.length) return false;
+  state.order = arrayMove(state.order, at, next);
+  return true;
+}
 
 const canvas = document.getElementById("c");
 const stage = document.getElementById("stage");
@@ -89,8 +219,7 @@ function demo() {
 }
 
 function hitAt(x, y) {
-  const d = demo();
-  return d.module.hitId(...d.args(), x, y);
+  return demo().hit(x, y);
 }
 
 // --- what a press means ------------------------------------------------------
@@ -238,8 +367,8 @@ function paint() {
   try {
     errEl.textContent = "";
     const d = demo();
-    const H = d.height;
-    const list = JSON.parse(d.module.displayListJson(...d.args()));
+    const H = typeof d.height === "function" ? d.height() : d.height;
+    const list = JSON.parse(d.list());
     const doc = { width: W, height: H, list };
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.style.width = W + "px";
@@ -268,7 +397,7 @@ function paint() {
     // knows the frame changed; it keeps its elements by id, which is why a
     // reader's cursor survives a repaint.
     generation += 1;
-    const tree = JSON.parse(d.module.a11yJson(...d.args(), generation, state.focus));
+    const tree = JSON.parse(d.a11y(generation, state.focus));
     tree.byId = new Map(tree.nodes.map((n) => [n.id, n]));
     lastTree = tree;
     mirror.update(tree);
@@ -337,6 +466,9 @@ function syncControls() {
   }
   document.getElementById("submenu").checked = state.submenu;
   document.getElementById("atbottom").checked = state.atBottom;
+  // The order, as a second view of the same state — the sidebar is where you
+  // check that what you dragged is what the page now holds.
+  document.getElementById("order").textContent = state.order.join(" → ");
 }
 
 function syncPanels() {
@@ -348,12 +480,13 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar"],
+  ["menubar", "toolbar", "sortable", "motion"],
   () => state.which,
   (v) => {
     state.which = v;
     state.focus = "";
     syncPanels();
+    syncMotionClock();
   },
 );
 boxes(
@@ -415,15 +548,46 @@ document.getElementById("atbottom").addEventListener("change", (e) => {
 // The canvas is where the picture is, so the canvas is where a press lands.
 // `offsetX/offsetY` are already in the page's own coordinates because the
 // canvas is laid out at exactly the size the display list was built for.
+let held = false;
 canvas.addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
+  const d = demo();
+  if (d.drag) {
+    // A demo with a gesture: the press picks up, the move carries, the release
+    // puts down. Nothing happens on a press that never travels.
+    held = d.press(hitAt(ev.offsetX, ev.offsetY));
+    if (held) {
+      canvas.setPointerCapture(ev.pointerId);
+      paint();
+    }
+    return;
+  }
   press(ev.offsetX, ev.offsetY);
 });
 canvas.addEventListener("pointermove", (ev) => {
-  if (demo().hover(hitAt(ev.offsetX, ev.offsetY))) paint();
+  const d = demo();
+  if (held && d.drag) {
+    if (d.drag(hitAt(ev.offsetX, ev.offsetY))) paint();
+    return;
+  }
+  if (d.hover(hitAt(ev.offsetX, ev.offsetY))) {
+    paint();
+    // A hover starts a transition, and a transition needs frames.
+    if (d.animated) animate();
+  }
+});
+canvas.addEventListener("pointerup", () => {
+  const d = demo();
+  if (!held || !d.drop) return;
+  held = false;
+  if (d.drop()) paint();
 });
 canvas.addEventListener("pointerleave", () => {
-  if (demo().hover("")) paint();
+  const d = demo();
+  if (d.hover("")) {
+    paint();
+    if (d.animated) animate();
+  }
 });
 // Keys are the window's: the canvas is not focusable, and the mirror element
 // that has the focus is inside this page.
@@ -444,5 +608,58 @@ mirror = createA11yMirror(stage, {
   onActivate: (node) => pressAtCentre(node, press),
 });
 
+// --- the motion showcase's clock ---------------------------------------------
+//
+// Two loops, and they are different things.
+//
+// `animate` is the frame loop: while anything is in flight it advances the
+// engine by the REAL elapsed time and repaints, and it stops the moment
+// nothing is moving. Handing it the real dt rather than a fixed step is what
+// makes a dropped frame shorten the animation instead of stretching it.
+//
+// `flip` is the demonstration itself: the self-running panels travel between
+// two ends, so something has to turn the page over. It is a theme change and
+// nothing else — no element gains or loses a class.
+let animating = 0;
+let flipTimer = 0;
+
+function animate() {
+  if (animating) return;
+  let last = performance.now();
+  const step = () => {
+    const now = performance.now();
+    const dt = now - last;
+    last = now;
+    motion.tick(dt);
+    paint();
+    animating = motion.busyNow() ? requestAnimationFrame(step) : 0;
+  };
+  animating = requestAnimationFrame(step);
+}
+
+function startFlipping() {
+  stopFlipping();
+  // Long enough for the slowest row (900ms plus the 360ms delay) to arrive and
+  // be looked at before it leaves again.
+  flipTimer = setInterval(() => {
+    motion.setFlipped(!motion.isFlipped());
+    paint();
+    animate();
+  }, 1700);
+}
+
+function stopFlipping() {
+  if (flipTimer) clearInterval(flipTimer);
+  flipTimer = 0;
+  if (animating) cancelAnimationFrame(animating);
+  animating = 0;
+}
+
+function syncMotionClock() {
+  if (state.which === "motion") startFlipping();
+  else stopFlipping();
+}
+
 syncPanels();
+syncMotionClock();
 paint();

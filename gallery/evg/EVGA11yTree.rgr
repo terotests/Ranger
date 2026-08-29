@@ -94,6 +94,12 @@ class EVGA11yRole {
     sfn menuBar:int ()          { return 33 }
     sfn menuItemCheckbox:int () { return 34 }
     sfn menuItemRadio:int ()    { return 35 }
+    ; A select: a button that opens a list of options, and the list itself.
+    ; `combobox` even when nothing can be typed — it is what the reference
+    ; reports, and what every platform maps a picker onto.
+    sfn comboBox:int ()         { return 36 }
+    sfn listBox:int ()          { return 37 }
+    sfn option:int ()           { return 38 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -133,6 +139,9 @@ class EVGA11yRole {
         if (role == 33) { return "menubar" }
         if (role == 34) { return "menuitemcheckbox" }
         if (role == 35) { return "menuitemradio" }
+        if (role == 36) { return "combobox" }
+        if (role == 37) { return "listbox" }
+        if (role == 38) { return "option" }
         return "none"
     }
 }
@@ -167,6 +176,11 @@ class EVGA11yNode {
     ; Spoken after a pause, or on request: the formula behind a cell, the note
     ; attached to it, the shortcut on a button.
     def description:string ""
+    ; What a reader says INSTEAD of the role: "sortable" on a draggable row.
+    ; Every platform has it — aria-roledescription, UIA LocalizedControlType,
+    ; AT-SPI's localized role name — because some controls are a known role
+    ; doing an unfamiliar job, and the role name alone then says nothing useful.
+    def roleDescription:string ""
     ; A field's text, a cell's value — separate from the name, which is the
     ; label that does not change when the content does.
     def value:string ""
@@ -439,6 +453,9 @@ class EVGA11yTree {
         }
         if (n.colCount != 0) {
             out = (out + ",\"cols\":" + (to_string n.colCount))
+        }
+        if ((strlen n.roleDescription) > 0) {
+            out = (out + ",\"roledesc\":" + (EVGA11yTree.jsonString(n.roleDescription)))
         }
         if (n.posInSet != 0) {
             out = (out + ",\"pos\":" + (to_string n.posInSet))

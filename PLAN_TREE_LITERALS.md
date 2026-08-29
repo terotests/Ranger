@@ -244,6 +244,50 @@ Two EVG limits the menubar exposed, neither of them about the syntax:
   full width, so a filled label pushes its shortcut onto the next line. The
   demo's columns are therefore numbers.
 
+## A third factory: the sortable
+
+`SortableDemo.rgr` is ReUI's Sortable — a column of cards, each with a drag
+handle, a type icon, a title over a line of description, a coloured badge and a
+size at the far right — and it is the demo that answers a question the
+conformance harness cannot: the harness proves the *behaviour* matches
+`@dnd-kit/sortable`, and says nothing about whether the thing looks like the
+thing.
+
+What it added that the first two did not:
+
+- a row with three regions — a fixed left, a growing middle, a fixed right —
+  which is `space-between` plus `fit-content`, and the first layout here that
+  has to survive text of different lengths;
+- styling from data: the badge's colour is a class the builder picks from the
+  item's kind, so the class IS the data and the stylesheet has no branch in it;
+- **order as state.** The page holds a list of ids; the tree is rebuilt from
+  it. There is no move, no animation and no reconciler — reordering is
+  rebuilding, which is the whole claim this file makes.
+
+It is also the first thing in this repository to draw a VECTOR. EVG has had
+`path` with `d`, `viewBox`, `fill` and `stroke` all along and nothing here had
+used it, so the icons started as characters — ▣ for an image, ♪ for audio — and
+that is exactly as close as a character gets: a glyph that happens to look like
+a frame, at whatever weight the font decided. They are Lucide's shapes now,
+each written as one `d` with its circles and rounded rectangles expanded into
+arcs, stroked and not filled. The grip is six dots, drawn for the same reason.
+
+Three things it found, none of them about the syntax:
+
+- **`space-between` spreads ALL of a row's children**, so a handle, an icon,
+  a title block and a badge came out evenly spaced across the card instead of
+  three packed left and one at the end. Two groups, one gap — the same shape
+  the toolbar demo needed and the reason `Left` exists as a tag.
+
+- **`fit-content` on text already worked**, and not through `contentExtent`,
+  which sees no children and gives up: `fit-content` parses with `isSet` false,
+  and a box holding only text is measured from the text. Every badge here
+  depends on it, so `EVGOverlayTest` now pins it.
+- **`role="list"` with button children is a critical axe violation** — a reader
+  promised a list and handed five buttons is told the wrong thing. Caught by
+  `npm run ui:demo:a11y` the first time the demo was audited, and fixed by
+  making the container a labelled `group`, which is what it is.
+
 ## Two things trying it on EVG surfaced
 
 Building a real `EVGElement` tree works — `tests`-level proof is in the plan's
