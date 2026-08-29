@@ -53,20 +53,6 @@ class EvgTraceLayer {
     def pathData:string ""
     def ringCount:int 0
     def commandCount:int 0
-    ; How the layer is filled: "flat" uses fillHex alone; "linear" and "radial"
-    ; add a gradient, chosen per region by which one describes it best. Only
-    ; toSVG renders these — an EVGElement carries a single color, so
-    ; toEVGElements falls back to fillHex.
-    def fillKind:string "flat"
-    ; Linear: (x0,y0) → (x1,y1). Radial: centre (x0,y0), radius r.
-    def gx0:double 0.0
-    def gy0:double 0.0
-    def gx1:double 0.0
-    def gy1:double 0.0
-    def gr:double 0.0
-    ; Color at the start of the gradient and at its end.
-    def stopA:string "#000000"
-    def stopB:string "#000000"
 
     Constructor () {
     }
@@ -149,15 +135,6 @@ class EvgTraceOptions {
     ; growing. This is the leash on the failure above: without it one ramp can
     ; walk across the whole picture.
     def contourSpread:int 48
-    ; Fill each region with the gradient that describes it rather than one flat
-    ; color: fit a flat, a linear and a radial model per region and keep
-    ; whichever leaves the least error. Needs the continuity segmentation, so
-    ; turning this on runs it whether or not contourMode asked for it.
-    ; Rendered by toSVG only.
-    def gradientFill:boolean false
-    ; A gradient only replaces the flat fill when it explains this much more of
-    ; the region's variation, in percent. Keeps a nearly flat region flat.
-    def gradientGain:int 15
     ; How the color layers are stacked:
     ;   "stacked" — layer i covers every pixel at or above it in the palette
     ;               order, so the layers are painted over one another and a

@@ -37,7 +37,6 @@ class EvgBitmapTracerTest {
         test.testStackedLayersLeaveNoSeam(t)
         test.testNamedBackgroundColor(t)
         test.testContourSmoothing(t)
-        test.testGradientFills(t)
         t.summary()
     }
 
@@ -902,115 +901,5 @@ class EvgBitmapTracerTest {
         }
         ; Even with the leash off, the hard edge holds it together.
         t.eqInt("the block is whole" body 100)
-    }
-
-    ; Three fields side by side: one even, one that ramps in a straight line,
-    ; and one that is a bright spot falling off in every direction. A linear
-    ; model reads the second and gets the third wrong; a radial one reads the
-    ; third. Neither wins everywhere, which is why the fit is chosen per region.
-    fn makeThreeFields:ImageBuffer () {
-        def img (new ImageBuffer())
-        img.init(150 50)
-        def y:int 0
-        while (y < 50) {
-            def x:int 0
-            while (x < 150) {
-                def v:int 0
-                if (x < 50) {
-                    v = 60
-                } {
-                    if (x < 100) {
-                        ; Two levels per pixel: a real gradient is gentle, and
-                        ; a step above contourEdge would break the field into
-                        ; stripes before any of this got to look at it.
-                        v = (30 + ((x - 50) * 2))
-                    } {
-                        def dx:int (x - 125)
-                        def dy:int (y - 25)
-                        def r2:int ((dx * dx) + (dy * dy))
-                        def r:int (to_int (sqrt (to_double r2)))
-                        v = (240 - (r * 2))
-                        if (v < 20) {
-                            v = 20
-                        }
-                    }
-                }
-                img.setPixelRGB(x y v v v)
-                x = (x + 1)
-            }
-            y = (y + 1)
-        }
-        return img
-    }
-
-    fn countKind:int (tr:EvgBitmapTracer kind:string) {
-        def n:int 0
-        def i:int 0
-        while (i < (tr.layerCount())) {
-            def layer:EvgTraceLayer (itemAt tr.layers i)
-            if ((layer.fillKind) == kind) {
-                n = (n + 1)
-            }
-            i = (i + 1)
-        }
-        return n
-    }
-
-    fn testGradientFills:void (t:RgTest) {
-        def d:EvgTraceOptions (EvgTraceOptions.defaults())
-        t.ok("gradient fills are off by default" ((d.gradientFill) == false))
-
-        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
-        opts.colorCount = 6
-        opts.bgMode = "none"
-        opts.minRegion = 40
-        opts.gradientFill = true
-        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeThreeFields()) opts))
-        tr.trace()
-
-        ; Each model is picked where it belongs, and the flat field stays flat —
-        ; a gradient with two equal stops is just a bigger way of saying one
-        ; color, so gradientGain has to refuse it.
-        t.ok("the straight ramp gets a linear fill" ((this.countKind(tr "linear")) >= 1))
-        t.ok("the ridge gets a radial fill" ((this.countKind(tr "radial")) >= 1))
-        t.ok("the even field stays flat" ((this.countKind(tr "flat")) >= 1))
-
-        ; A linear layer must carry an axis with length, a radial one a radius.
-        def i:int 0
-        def checked:int 0
-        while (i < (tr.layerCount())) {
-            def layer:EvgTraceLayer (itemAt tr.layers i)
-            if ((layer.fillKind) == "linear") {
-                def dx:double (layer.gx1 - layer.gx0)
-                def dy:double (layer.gy1 - layer.gy0)
-                t.ok("the linear axis is not a point" (((dx * dx) + (dy * dy)) > 1.0))
-                t.ok("its two stops differ" ((layer.stopA) != (layer.stopB)))
-                checked = (checked + 1)
-            }
-            if ((layer.fillKind) == "radial") {
-                t.ok("the radius is positive" ((layer.gr) > 1.0))
-                t.ok("its two stops differ too" ((layer.stopA) != (layer.stopB)))
-                checked = (checked + 1)
-            }
-            i = (i + 1)
-        }
-        t.ok("both gradient kinds were checked" (checked >= 2))
-
-        ; The SVG has to declare what it references.
-        def svg:string (tr.toSVG())
-        t.ok("the SVG declares its gradients" ((indexOf svg "<defs>") >= 0))
-        t.ok("and a linear one among them" ((indexOf svg "<linearGradient") >= 0))
-        t.ok("and a radial one" ((indexOf svg "<radialGradient") >= 0))
-        t.ok("paths reference them by url()" ((indexOf svg "fill=\"url(#g") >= 0))
-
-        ; Off, the same image comes back as flat swatch layers and no defs.
-        def plain:EvgTraceOptions (EvgTraceOptions.defaults())
-        plain.colorCount = 6
-        plain.bgMode = "none"
-        plain.minRegion = 40
-        def flatTr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeThreeFields()) plain))
-        flatTr.trace()
-        t.eqInt("nothing but flat fills when it is off" (this.countKind(flatTr "flat")) (flatTr.layerCount()))
-        t.ok("and no defs block" ((indexOf (flatTr.toSVG()) "<defs>") < 0))
     }
 }

@@ -54,9 +54,6 @@ class EvgBitmapTracer {
     def flat:[int]
     ; Palette index per pixel, -1 = not painted (assignLabels).
     def labels:[int]
-    ; Continuity region id per pixel, -1 = none (buildContourRegions).
-    def regionOf:[int]
-    def regionCount:int 0
     ; 1 = page background flooded in from the border (detectBackground).
     def bgMask:[int]
     def bgActive:boolean false
@@ -83,8 +80,6 @@ class EvgBitmapTracer {
         labels = lb
         def bg:[int]
         bgMask = bg
-        def ro:[int]
-        regionOf = ro
         def ly:[EvgTraceLayer]
         layers = ly
     }
@@ -352,60 +347,16 @@ class EvgBitmapTracer {
         return out
     }
 
-    sfn num:string (v:double) {
-        ; Two decimals is plenty for a gradient axis and keeps the file small.
-        def scaled:int (to_int ((v * 100.0) + 0.5))
-        def whole:int (idiv scaled 100)
-        def frac:int (scaled - (whole * 100))
-        if (frac < 0) {
-            frac = (0 - frac)
-        }
-        def fs:string (to_string frac)
-        if (frac < 10) {
-            fs = ("0" + fs)
-        }
-        return ((to_string whole) + "." + fs)
-    }
-
     fn toSVG:string () {
         def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
         svg = (svg + "width=\"" + (to_string width) + "\" ")
         svg = (svg + "height=\"" + (to_string height) + "\" ")
         svg = (svg + "viewBox=\"0 0 " + (to_string width) + " " + (to_string height) + "\">")
         if ((array_length layers) > 0) {
-            ; Gradients have to be declared before they are referenced.
-            def defs:string ""
             def i:int 0
             while (i < (array_length layers)) {
                 def layer:EvgTraceLayer (itemAt layers i)
-                def id:string ("g" + (to_string i))
-                if ((layer.fillKind) == "linear") {
-                    defs = (defs + "<linearGradient id=\"" + id + "\" gradientUnits=\"userSpaceOnUse\"")
-                    defs = (defs + " x1=\"" + (EvgBitmapTracer.num(layer.gx0)) + "\" y1=\"" + (EvgBitmapTracer.num(layer.gy0)) + "\"")
-                    defs = (defs + " x2=\"" + (EvgBitmapTracer.num(layer.gx1)) + "\" y2=\"" + (EvgBitmapTracer.num(layer.gy1)) + "\">")
-                    defs = (defs + "<stop offset=\"0\" stop-color=\"" + layer.stopA + "\"/>")
-                    defs = (defs + "<stop offset=\"1\" stop-color=\"" + layer.stopB + "\"/></linearGradient>")
-                }
-                if ((layer.fillKind) == "radial") {
-                    defs = (defs + "<radialGradient id=\"" + id + "\" gradientUnits=\"userSpaceOnUse\"")
-                    defs = (defs + " cx=\"" + (EvgBitmapTracer.num(layer.gx0)) + "\" cy=\"" + (EvgBitmapTracer.num(layer.gy0)) + "\"")
-                    defs = (defs + " r=\"" + (EvgBitmapTracer.num(layer.gr)) + "\">")
-                    defs = (defs + "<stop offset=\"0\" stop-color=\"" + layer.stopA + "\"/>")
-                    defs = (defs + "<stop offset=\"1\" stop-color=\"" + layer.stopB + "\"/></radialGradient>")
-                }
-                i = (i + 1)
-            }
-            if ((strlen defs) > 0) {
-                svg = (svg + "<defs>" + defs + "</defs>")
-            }
-            i = 0
-            while (i < (array_length layers)) {
-                def layer2:EvgTraceLayer (itemAt layers i)
-                def fill:string layer2.fillHex
-                if ((layer2.fillKind) != "flat") {
-                    fill = ("url(#g" + (to_string i) + ")")
-                }
-                svg = (svg + "<path fill=\"" + fill + "\" fill-rule=\"evenodd\" d=\"" + layer2.pathData + "\"/>")
+                svg = (svg + "<path fill=\"" + layer.fillHex + "\" fill-rule=\"evenodd\" d=\"" + layer.pathData + "\"/>")
                 i = (i + 1)
             }
         } {
@@ -1259,11 +1210,12 @@ class EvgBitmapTracer {
         set acc 3 (cnt + 1)
     }
 
-    ; Grow every allowed pixel into a region of continuous color and record
-    ; which region it landed in. Both the banding fix and the gradient fills
-    ; read this; it is the segmentation, and everything downstream is a choice
-    ; of what to paint each region with.
-    fn buildContourRegions:void () {
+    ; Regrow the labels as regions of continuous color, then hand each region a
+    ; single swatch — the one nearest its own mean.
+    fn smoothContours:void (palR:[int] palG:[int] palB:[int]) {
+        if ((options.contourMode) != "smooth") {
+            return
+        }
         def edgeTol:int options.contourEdge
         if (edgeTol < 1) {
             edgeTol = 1
@@ -1273,18 +1225,16 @@ class EvgBitmapTracer {
             spread = 1
         }
         def n:int (width * height)
-        def ro:[int]
         def seen:[int]
         def i:int 0
         while (i < n) {
-            push ro (0 - 1)
             push seen 0
             i = (i + 1)
         }
-        def rid:int 0
         def start:int 0
         while (start < n) {
             if (((itemAt seen start) == 0) && ((itemAt labels start) >= 0)) {
+                def comp:[int]
                 def stack:[int]
                 def acc:[int]
                 push acc (itemAt planeR start)
@@ -1297,7 +1247,7 @@ class EvgBitmapTracer {
                 while (head < (array_length stack)) {
                     def cur:int (itemAt stack head)
                     head = (head + 1)
-                    set ro cur rid
+                    push comp cur
                     def cy:int (idiv cur width)
                     def cx:int (cur - (cy * width))
                     if (cx > 0) {
@@ -1313,623 +1263,18 @@ class EvgBitmapTracer {
                         this.contourStep((cur + width) cur seen stack acc edgeTol spread)
                     }
                 }
-                rid = (rid + 1)
+                def cnt:int (itemAt acc 3)
+                if (cnt > 0) {
+                    def lab:int (this.nearestIndex((idiv (itemAt acc 0) cnt) (idiv (itemAt acc 1) cnt) (idiv (itemAt acc 2) cnt) palR palG palB))
+                    def c:int 0
+                    while (c < (array_length comp)) {
+                        set labels (itemAt comp c) lab
+                        c = (c + 1)
+                    }
+                }
             }
             start = (start + 1)
         }
-        regionOf = ro
-        regionCount = rid
-    }
-
-    ; Give each continuity region the one swatch nearest its own mean, so a
-    ; ramp stops being cut into bands.
-    fn smoothContours:void (palR:[int] palG:[int] palB:[int]) {
-        if ((options.contourMode) != "smooth") {
-            return
-        }
-        this.buildContourRegions()
-        def k:int regionCount
-        if (k == 0) {
-            return
-        }
-        def sumR:[int]
-        def sumG:[int]
-        def sumB:[int]
-        def cnt:[int]
-        def i:int 0
-        while (i < k) {
-            push sumR 0
-            push sumG 0
-            push sumB 0
-            push cnt 0
-            i = (i + 1)
-        }
-        def n:int (width * height)
-        i = 0
-        while (i < n) {
-            def r:int (itemAt regionOf i)
-            if (r >= 0) {
-                set sumR r ((itemAt sumR r) + (itemAt planeR i))
-                set sumG r ((itemAt sumG r) + (itemAt planeG i))
-                set sumB r ((itemAt sumB r) + (itemAt planeB i))
-                set cnt r ((itemAt cnt r) + 1)
-            }
-            i = (i + 1)
-        }
-        def lab:[int]
-        i = 0
-        while (i < k) {
-            def c:int (itemAt cnt i)
-            if (c > 0) {
-                push lab (this.nearestIndex((idiv (itemAt sumR i) c) (idiv (itemAt sumG i) c) (idiv (itemAt sumB i) c) palR palG palB))
-            } {
-                push lab 0
-            }
-            i = (i + 1)
-        }
-        i = 0
-        while (i < n) {
-            def r2:int (itemAt regionOf i)
-            if (r2 >= 0) {
-                set labels i (itemAt lab r2)
-            }
-            i = (i + 1)
-        }
-    }
-
-    ; ----------------------------------------------------------------------
-    ; Gradient fills (options.gradientFill)
-    ;
-    ; Each continuity region is fitted with three models — one flat color, a
-    ; linear ramp and a radial one — and keeps whichever leaves the least
-    ; error. Neither wins everywhere: a sky is linear, and a tube lit down its
-    ; middle is radial and comes out badly wrong as a linear ramp.
-    ; ----------------------------------------------------------------------
-
-    sfn clamp255:int (v:double) {
-        if (v < 0.0) {
-            return 0
-        }
-        if (v > 255.0) {
-            return 255
-        }
-        return (to_int v)
-    }
-
-    ; Merge any region below minPx into whichever neighbour it shares the most
-    ; boundary with, then renumber what is left from zero.
-    fn absorbTinyRegions:void (minPx:int) {
-        def k:int regionCount
-        if (k == 0) {
-            return
-        }
-        def n:int (width * height)
-        def size:[int]
-        def i:int 0
-        while (i < k) {
-            push size 0
-            i = (i + 1)
-        }
-        i = 0
-        while (i < n) {
-            def r:int (itemAt regionOf i)
-            if (r >= 0) {
-                set size r ((itemAt size r) + 1)
-            }
-            i = (i + 1)
-        }
-        ; One pass: every small region takes the neighbour it touches most.
-        def target:[int]
-        i = 0
-        while (i < k) {
-            push target i
-            i = (i + 1)
-        }
-        def bestN:[int]
-        def bestR:[int]
-        i = 0
-        while (i < k) {
-            push bestN 0
-            push bestR (0 - 1)
-            i = (i + 1)
-        }
-        def y:int 0
-        while (y < height) {
-            def x:int 0
-            while (x < width) {
-                def idx:int ((y * width) + x)
-                def r0:int (itemAt regionOf idx)
-                if ((r0 >= 0) && ((itemAt size r0) < minPx)) {
-                    if (x < (width - 1)) {
-                        this.tallyNeighbour(r0 (itemAt regionOf (idx + 1)) size minPx bestN bestR)
-                    }
-                    if (x > 0) {
-                        this.tallyNeighbour(r0 (itemAt regionOf (idx - 1)) size minPx bestN bestR)
-                    }
-                    if (y < (height - 1)) {
-                        this.tallyNeighbour(r0 (itemAt regionOf (idx + width)) size minPx bestN bestR)
-                    }
-                    if (y > 0) {
-                        this.tallyNeighbour(r0 (itemAt regionOf (idx - width)) size minPx bestN bestR)
-                    }
-                }
-                x = (x + 1)
-            }
-            y = (y + 1)
-        }
-        i = 0
-        while (i < k) {
-            if ((itemAt bestR i) >= 0) {
-                set target i (itemAt bestR i)
-            }
-            i = (i + 1)
-        }
-        ; Renumber: only regions that still hold pixels get an id.
-        def remap:[int]
-        i = 0
-        while (i < k) {
-            push remap (0 - 1)
-            i = (i + 1)
-        }
-        def next:int 0
-        i = 0
-        while (i < n) {
-            def r2:int (itemAt regionOf i)
-            if (r2 >= 0) {
-                def t:int (itemAt target r2)
-                if ((itemAt remap t) < 0) {
-                    set remap t next
-                    next = (next + 1)
-                }
-                set regionOf i (itemAt remap t)
-            }
-            i = (i + 1)
-        }
-        regionCount = next
-    }
-
-    ; The biggest neighbour wins. Requiring it to clear minPx would strand a
-    ; chain of small regions that only ever touch each other — which is most of
-    ; a photograph — so any different neighbour will do, and repeated passes
-    ; then cascade the small ones into the large.
-    fn tallyNeighbour:void (mine:int other:int size:[int] minPx:int bestN:[int] bestR:[int]) {
-        if (other < 0) {
-            return
-        }
-        if (other == mine) {
-            return
-        }
-        def sz:int (itemAt size other)
-        if ((itemAt bestR mine) < 0) {
-            set bestR mine other
-            set bestN mine sz
-            return
-        }
-        if (sz > (itemAt bestN mine)) {
-            set bestR mine other
-            set bestN mine sz
-        }
-    }
-
-    ; Least squares for  v = a + b·x + c·y  over one region, by Cramer's rule
-    ; on the normal equations. out = [ok, a, b, c].
-    sfn solveLinear:void (n:double sx:double sy:double sxx:double sxy:double syy:double v0:double v1:double v2:double out:[double]) {
-        def det:double (((n * ((sxx * syy) - (sxy * sxy))) - (sx * ((sx * syy) - (sxy * sy)))) + (sy * ((sx * sxy) - (sxx * sy))))
-        if ((EvgBitmapTracer.absD(det)) < 0.000001) {
-            set out 0 0.0
-            return
-        }
-        def da:double (((v0 * ((sxx * syy) - (sxy * sxy))) - (sx * ((v1 * syy) - (sxy * v2)))) + (sy * ((v1 * sxy) - (sxx * v2))))
-        def db:double (((n * ((v1 * syy) - (v2 * sxy))) - (v0 * ((sx * syy) - (sxy * sy)))) + (sy * ((sx * v2) - (v1 * sy))))
-        def dc:double (((n * ((sxx * v2) - (sxy * v1))) - (sx * ((sx * v2) - (v1 * sy)))) + (v0 * ((sx * sxy) - (sxx * sy))))
-        set out 0 1.0
-        set out 1 (da / det)
-        set out 2 (db / det)
-        set out 3 (dc / det)
-    }
-
-    fn hexOf:string (r:double g:double b:double) {
-        return (this.hexFromRgb((EvgBitmapTracer.clamp255(r)) (EvgBitmapTracer.clamp255(g)) (EvgBitmapTracer.clamp255(b))))
-    }
-
-    ; One layer per continuity region, filled with whichever of flat / linear /
-    ; radial explains it best. Regions are painted largest first and each mask
-    ; is grown by a pixel, so the smaller shape laid on top covers the join —
-    ; the same reason the swatch layers are stacked rather than butted together.
-    fn traceGradientRegions:void () {
-        this.buildContourRegions()
-        def floorPx:int options.minRegion
-        if (floorPx < 8) {
-            floorPx = 8
-        }
-        this.absorbTinyRegions(floorPx)
-        ; A photograph can segment into tens of thousands of scraps; each one
-        ; would be its own traced path. Raise the floor until that is sane.
-        def guard:int 0
-        while ((regionCount > 2000) && (guard < 8)) {
-            floorPx = (floorPx * 2)
-            this.absorbTinyRegions(floorPx)
-            guard = (guard + 1)
-        }
-        def k:int regionCount
-        if (k == 0) {
-            return
-        }
-        def n:int (width * height)
-        ; --- pass 1: geometry and the linear normal equations ---
-        def rn:[double]
-        def rsx:[double]
-        def rsy:[double]
-        def rsxx:[double]
-        def rsyy:[double]
-        def rsxy:[double]
-        def sv:[double]
-        def sxv:[double]
-        def syv:[double]
-        def svv:[double]
-        def i:int 0
-        while (i < k) {
-            push rn 0.0
-            push rsx 0.0
-            push rsy 0.0
-            push rsxx 0.0
-            push rsyy 0.0
-            push rsxy 0.0
-            def c:int 0
-            while (c < 3) {
-                push sv 0.0
-                push sxv 0.0
-                push syv 0.0
-                push svv 0.0
-                c = (c + 1)
-            }
-            i = (i + 1)
-        }
-        def y:int 0
-        while (y < height) {
-            def x:int 0
-            while (x < width) {
-                def idx:int ((y * width) + x)
-                def r:int (itemAt regionOf idx)
-                if (r >= 0) {
-                    def dx:double (to_double x)
-                    def dy:double (to_double y)
-                    set rn r ((itemAt rn r) + 1.0)
-                    set rsx r ((itemAt rsx r) + dx)
-                    set rsy r ((itemAt rsy r) + dy)
-                    set rsxx r ((itemAt rsxx r) + (dx * dx))
-                    set rsyy r ((itemAt rsyy r) + (dy * dy))
-                    set rsxy r ((itemAt rsxy r) + (dx * dy))
-                    def c2:int 0
-                    while (c2 < 3) {
-                        def v:double (to_double (this.planeAt(c2 idx)))
-                        def j:int ((r * 3) + c2)
-                        set sv j ((itemAt sv j) + v)
-                        set sxv j ((itemAt sxv j) + (dx * v))
-                        set syv j ((itemAt syv j) + (dy * v))
-                        set svv j ((itemAt svv j) + (v * v))
-                        c2 = (c2 + 1)
-                    }
-                }
-                x = (x + 1)
-            }
-            y = (y + 1)
-        }
-        ; --- solve the linear model, per region per channel ---
-        def la:[double]
-        def lb:[double]
-        def lc:[double]
-        def lok:[double]
-        i = 0
-        while (i < k) {
-            def sol:[double]
-            push sol 0.0
-            push sol 0.0
-            push sol 0.0
-            push sol 0.0
-            def okAll:double 1.0
-            def c3:int 0
-            while (c3 < 3) {
-                def j2:int ((i * 3) + c3)
-                EvgBitmapTracer.solveLinear((itemAt rn i) (itemAt rsx i) (itemAt rsy i) (itemAt rsxx i) (itemAt rsxy i) (itemAt rsyy i) (itemAt sv j2) (itemAt sxv j2) (itemAt syv j2) sol)
-                if ((itemAt sol 0) < 0.5) {
-                    okAll = 0.0
-                }
-                push la (itemAt sol 1)
-                push lb (itemAt sol 2)
-                push lc (itemAt sol 3)
-                c3 = (c3 + 1)
-            }
-            push lok okAll
-            i = (i + 1)
-        }
-        ; --- pass 2: radial sums and the extents, both centroid-based ---
-        def rsd:[double]
-        def rsdd:[double]
-        def rsdv:[double]
-        def tmin:[double]
-        def tmax:[double]
-        def dmax:[double]
-        def ux:[double]
-        def uy:[double]
-        i = 0
-        while (i < k) {
-            push rsd 0.0
-            push rsdd 0.0
-            push tmin 1000000.0
-            push tmax (0.0 - 1000000.0)
-            push dmax 0.0
-            def c4:int 0
-            while (c4 < 3) {
-                push rsdv 0.0
-                c4 = (c4 + 1)
-            }
-            ; The gradient's direction is the one luma runs along — the three
-            ; channels each have their own slope, but the SVG has one axis.
-            def bl:double (((0.299 * (itemAt lb ((i * 3) + 0))) + (0.587 * (itemAt lb ((i * 3) + 1)))) + (0.114 * (itemAt lb ((i * 3) + 2))))
-            def cl:double (((0.299 * (itemAt lc ((i * 3) + 0))) + (0.587 * (itemAt lc ((i * 3) + 1)))) + (0.114 * (itemAt lc ((i * 3) + 2))))
-            def mag:double (sqrt ((bl * bl) + (cl * cl)))
-            if (mag < 0.000001) {
-                push ux 1.0
-                push uy 0.0
-            } {
-                push ux (bl / mag)
-                push uy (cl / mag)
-            }
-            i = (i + 1)
-        }
-        y = 0
-        while (y < height) {
-            def x2:int 0
-            while (x2 < width) {
-                def idx2:int ((y * width) + x2)
-                def r2:int (itemAt regionOf idx2)
-                if (r2 >= 0) {
-                    def cnt:double (itemAt rn r2)
-                    def mx:double ((itemAt rsx r2) / cnt)
-                    def my:double ((itemAt rsy r2) / cnt)
-                    def ddx:double ((to_double x2) - mx)
-                    def ddy:double ((to_double y) - my)
-                    def dist:double (sqrt ((ddx * ddx) + (ddy * ddy)))
-                    set rsd r2 ((itemAt rsd r2) + dist)
-                    set rsdd r2 ((itemAt rsdd r2) + (dist * dist))
-                    if (dist > (itemAt dmax r2)) {
-                        set dmax r2 dist
-                    }
-                    def tproj:double ((ddx * (itemAt ux r2)) + (ddy * (itemAt uy r2)))
-                    if (tproj < (itemAt tmin r2)) {
-                        set tmin r2 tproj
-                    }
-                    if (tproj > (itemAt tmax r2)) {
-                        set tmax r2 tproj
-                    }
-                    def c5:int 0
-                    while (c5 < 3) {
-                        def j3:int ((r2 * 3) + c5)
-                        set rsdv j3 ((itemAt rsdv j3) + (dist * (to_double (this.planeAt(c5 idx2)))))
-                        c5 = (c5 + 1)
-                    }
-                }
-                x2 = (x2 + 1)
-            }
-            y = (y + 1)
-        }
-        this.emitRegionLayers(k rn rsx rsy sv svv sxv syv la lb lc lok rsd rsdd rsdv tmin tmax dmax ux uy)
-    }
-
-    fn planeAt:int (c:int i:int) {
-        if (c == 0) {
-            return (itemAt planeR i)
-        }
-        if (c == 1) {
-            return (itemAt planeG i)
-        }
-        return (itemAt planeB i)
-    }
-
-    ; Pick the model for each region and trace it. Sum of squared error comes
-    ; straight out of the sums already gathered, so choosing costs no extra
-    ; pass over the pixels.
-    fn emitRegionLayers:void (k:int rn:[double] rsx:[double] rsy:[double] sv:[double] svv:[double] sxv:[double] syv:[double] la:[double] lb:[double] lc:[double] lok:[double] rsd:[double] rsdd:[double] rsdv:[double] tmin:[double] tmax:[double] dmax:[double] ux:[double] uy:[double]) {
-        ; Largest region first: a smaller shape drawn later covers the join.
-        def order:[int]
-        def i:int 0
-        while (i < k) {
-            push order i
-            i = (i + 1)
-        }
-        def a:int 0
-        while (a < k) {
-            def b:int (a + 1)
-            while (b < k) {
-                if ((itemAt rn (itemAt order b)) > (itemAt rn (itemAt order a))) {
-                    def tmp:int (itemAt order a)
-                    set order a (itemAt order b)
-                    set order b tmp
-                }
-                b = (b + 1)
-            }
-            a = (a + 1)
-        }
-        def gain:double ((to_double options.gradientGain) / 100.0)
-        def allCmds:[PathCommand]
-        def oi:int 0
-        while (oi < k) {
-            def r:int (itemAt order oi)
-            def cnt:double (itemAt rn r)
-            if (cnt > 0.0) {
-                def mx:double ((itemAt rsx r) / cnt)
-                def my:double ((itemAt rsy r) / cnt)
-                ; --- error of each model, summed over the three channels ---
-                def eFlat:double 0.0
-                def eLin:double 0.0
-                def eRad:double 0.0
-                def ra:[double]
-                def rb:[double]
-                def c:int 0
-                while (c < 3) {
-                    def j:int ((r * 3) + c)
-                    def n2:double cnt
-                    def s1:double (itemAt sv j)
-                    eFlat = (eFlat + ((itemAt svv j) - ((s1 * s1) / n2)))
-                    if ((itemAt lok r) > 0.5) {
-                        eLin = (eLin + ((itemAt svv j) - ((((itemAt la j) * s1) + ((itemAt lb j) * (itemAt sxv j))) + ((itemAt lc j) * (itemAt syv j)))))
-                    } {
-                        eLin = (eLin + 1000000000.0)
-                    }
-                    def den:double ((n2 * (itemAt rsdd r)) - ((itemAt rsd r) * (itemAt rsd r)))
-                    if ((EvgBitmapTracer.absD(den)) > 0.000001) {
-                        def bb:double (((n2 * (itemAt rsdv j)) - ((itemAt rsd r) * s1)) / den)
-                        def aa:double ((s1 - (bb * (itemAt rsd r))) / n2)
-                        push ra aa
-                        push rb bb
-                        eRad = (eRad + ((itemAt svv j) - ((aa * s1) + (bb * (itemAt rsdv j)))))
-                    } {
-                        push ra 0.0
-                        push rb 0.0
-                        eRad = (eRad + 1000000000.0)
-                    }
-                    c = (c + 1)
-                }
-                if (eFlat < 0.0) {
-                    eFlat = 0.0
-                }
-                ; A thin or tiny region gives an ill-conditioned fit: the normal
-                ; equations are near-singular along the missing direction and
-                ; Cramer's rule answers with wild coefficients whose residual
-                ; looks excellent and whose stop colors are nonsense. Below a
-                ; useful size, and whenever the arithmetic returns something a
-                ; sum of squares cannot be, stay flat.
-                if (cnt < 64.0) {
-                    eLin = 1000000000.0
-                    eRad = 1000000000.0
-                }
-                if (eLin < 0.0) {
-                    eLin = 1000000000.0
-                }
-                if (eRad < 0.0) {
-                    eRad = 1000000000.0
-                }
-                ; --- choose ---
-                def kind:string "flat"
-                def best:double eFlat
-                if (eLin < best) {
-                    best = eLin
-                    kind = "linear"
-                }
-                if (eRad < best) {
-                    best = eRad
-                    kind = "radial"
-                }
-                ; A gradient has to earn its place: a nearly flat region stays
-                ; flat. Both tests are needed — the relative one alone lets a
-                ; perfectly even region through, because zero is not 15% worse
-                ; than zero, and it would emit a gradient with two equal stops.
-                if (kind != "flat") {
-                    if ((eFlat - best) < (eFlat * gain)) {
-                        kind = "flat"
-                    }
-                    if (eFlat < (cnt * 3.0)) {
-                        kind = "flat"
-                    }
-                }
-                def mask:EvgBinaryBitmap (this.maskForRegion(r))
-                def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
-                layerOpts.turdsize = options.turdsize
-                layerOpts.alphamax = options.alphamax
-                layerOpts.turnpolicy = options.turnpolicy
-                layerOpts.optcurve = options.optcurve
-                layerOpts.opttolerance = options.opttolerance
-                def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
-                sub.trace()
-                if ((sub.ringCount()) > 0) {
-                    def layer:EvgTraceLayer (itemAt sub.layers 0)
-                    def meanR:double ((itemAt sv ((r * 3) + 0)) / cnt)
-                    def meanG:double ((itemAt sv ((r * 3) + 1)) / cnt)
-                    def meanB:double ((itemAt sv ((r * 3) + 2)) / cnt)
-                    layer.fillHex = (this.hexOf(meanR meanG meanB))
-                    layer.fillKind = kind
-                    if (kind == "linear") {
-                        def t0:double (itemAt tmin r)
-                        def t1:double (itemAt tmax r)
-                        ; A region with no extent along its own gradient axis
-                        ; would emit a zero-length linearGradient, which SVG
-                        ; leaves undefined — and an axis a pixel or two long is
-                        ; a flat color written the long way. One says it better.
-                        if ((t1 - t0) < 2.0) {
-                            kind = "flat"
-                            layer.fillKind = "flat"
-                        }
-                        layer.gx0 = (mx + ((itemAt ux r) * t0))
-                        layer.gy0 = (my + ((itemAt uy r) * t0))
-                        layer.gx1 = (mx + ((itemAt ux r) * t1))
-                        layer.gy1 = (my + ((itemAt uy r) * t1))
-                        layer.stopA = (this.hexOf((this.linAt(la lb lc r 0 layer.gx0 layer.gy0)) (this.linAt(la lb lc r 1 layer.gx0 layer.gy0)) (this.linAt(la lb lc r 2 layer.gx0 layer.gy0))))
-                        layer.stopB = (this.hexOf((this.linAt(la lb lc r 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc r 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc r 2 layer.gx1 layer.gy1))))
-                    }
-                    if (kind == "radial") {
-                        if ((itemAt dmax r) < 2.0) {
-                            kind = "flat"
-                            layer.fillKind = "flat"
-                        }
-                        layer.gx0 = mx
-                        layer.gy0 = my
-                        layer.gr = (itemAt dmax r)
-                        layer.stopA = (this.hexOf((itemAt ra 0) (itemAt ra 1) (itemAt ra 2)))
-                        layer.stopB = (this.hexOf(((itemAt ra 0) + ((itemAt rb 0) * layer.gr)) ((itemAt ra 1) + ((itemAt rb 1) * layer.gr)) ((itemAt ra 2) + ((itemAt rb 2) * layer.gr))))
-                    }
-                    push layers layer
-                    def cmds:[PathCommand] (sub.getCommands())
-                    def ci:int 0
-                    while (ci < (array_length cmds)) {
-                        push allCmds (itemAt cmds ci)
-                        ci = (ci + 1)
-                    }
-                    pathData = layer.pathData
-                    rings = sub.rings
-                }
-            }
-            oi = (oi + 1)
-        }
-        commands = allCmds
-        if ((array_length layers) > 0) {
-            def first:EvgTraceLayer (itemAt layers 0)
-            pathData = first.pathData
-        }
-    }
-
-    fn linAt:double (la:[double] lb:[double] lc:[double] r:int c:int x:double y:double) {
-        def j:int ((r * 3) + c)
-        return (((itemAt la j) + ((itemAt lb j) * x)) + ((itemAt lc j) * y))
-    }
-
-    ; The region's own pixels, grown by one so the neighbour drawn on top of it
-    ; has something to cover rather than the page.
-    fn maskForRegion:EvgBinaryBitmap (rid:int) {
-        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
-        def n:int (width * height)
-        def i:int 0
-        while (i < n) {
-            if ((itemAt regionOf i) == rid) {
-                def y:int (idiv i width)
-                def x:int (i - (y * width))
-                bm.setBit(x y true)
-                if (x > 0) {
-                    bm.setBit((x - 1) y true)
-                }
-                if (x < (width - 1)) {
-                    bm.setBit((x + 1) y true)
-                }
-                if (y > 0) {
-                    bm.setBit(x (y - 1) true)
-                }
-                if (y < (height - 1)) {
-                    bm.setBit(x (y + 1) true)
-                }
-            }
-            i = (i + 1)
-        }
-        return bm
     }
 
     ; Absorb connected runs below options.minRegion into the region that
@@ -2237,10 +1582,6 @@ class EvgBitmapTracer {
             return
         }
         this.assignLabels(palR palG palB)
-        if options.gradientFill {
-            this.traceGradientRegions()
-            return
-        }
         def li:int 0
         def allCmds:[PathCommand]
         while (li < k) {
