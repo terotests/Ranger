@@ -302,7 +302,11 @@ describe("tree literals", () => {
 
     it("builds a row out of the parts the reference has", () => {
       const run = expectOutput(DEMO, "sr-list");
-      expect(run.output).toContain("sr-grip ⠿");
+      // The grip and the type icons carry no text at all: they are `path`
+      // elements with a `d`, because the reference's are line art and a font
+      // glyph is a shape the font chooses. Asserted below, on the drawing.
+      expect(run.output).toContain("sr-grip");
+      expect(run.output).toContain("sr-icon");
       expect(run.output).toContain("sr-title Product Demo Video");
       expect(run.output).toContain("sr-subtitle How to use the product");
       // the badge's colour is a class the BUILDER picks from the item's kind,
@@ -346,6 +350,30 @@ describe("tree literals", () => {
       const node = rows(order, "").find((n: any) => n.id === "sr-row-video");
       const [x, y, w, h] = node.b;
       expect(S.hitId(css, order, "", x + w / 2, y + h / 2)).toBe("sr-row-video");
+
+      // The icons are DRAWN. Twelve paths — a grip and a type icon per row —
+      // and the type icons are stroked outlines rather than filled shapes,
+      // which is the difference between Lucide's line art and a glyph that
+      // happens to look like a frame.
+      const cmds = JSON.parse(S.displayListJson(css, order, "")).cmds;
+      const fills = cmds.filter((c: any) => c.k === 6);
+      const strokes = cmds.filter((c: any) => c.k === 7);
+      expect(fills.length).toBe(5); // one grip per row
+      expect(strokes.length).toBe(5); // one type icon per row
+    }, 120_000);
+
+    it("carries no accessible weight for the drawings", () => {
+      const req = createRequire(path.join(process.cwd(), "package.json"));
+      const S = req("./gallery/ui/bin/SortableDemo.cjs").SortableDemo;
+      const css = fs.readFileSync("gallery/ui/demo/sortable.css", "utf8");
+      const order = ["demo", "spec", "video", "audio", "extra"];
+      const tree = JSON.parse(S.a11yJson(css, order, "", 1, ""));
+      // A grip and an icon are decoration: they say nothing, and a reader
+      // walking this list is told about five rows and a group, not fifteen
+      // nodes of which ten are pictures.
+      expect(tree.nodes).toHaveLength(7);
+      const row = tree.nodes.find((n: any) => n.id === "sr-row-video");
+      expect(row.name).toBe("Product Demo Video");
     }, 120_000);
   });
 

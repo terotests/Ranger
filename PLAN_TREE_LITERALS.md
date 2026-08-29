@@ -264,7 +264,20 @@ What it added that the first two did not:
   it. There is no move, no animation and no reconciler — reordering is
   rebuilding, which is the whole claim this file makes.
 
-Two things it found, neither of them about the syntax:
+It is also the first thing in this repository to draw a VECTOR. EVG has had
+`path` with `d`, `viewBox`, `fill` and `stroke` all along and nothing here had
+used it, so the icons started as characters — ▣ for an image, ♪ for audio — and
+that is exactly as close as a character gets: a glyph that happens to look like
+a frame, at whatever weight the font decided. They are Lucide's shapes now,
+each written as one `d` with its circles and rounded rectangles expanded into
+arcs, stroked and not filled. The grip is six dots, drawn for the same reason.
+
+Three things it found, none of them about the syntax:
+
+- **`space-between` spreads ALL of a row's children**, so a handle, an icon,
+  a title block and a badge came out evenly spaced across the card instead of
+  three packed left and one at the end. Two groups, one gap — the same shape
+  the toolbar demo needed and the reason `Left` exists as a tag.
 
 - **`fit-content` on text already worked**, and not through `contentExtent`,
   which sees no children and gives up: `fit-content` parses with `isSet` false,
