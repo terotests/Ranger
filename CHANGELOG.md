@@ -263,6 +263,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Redundant work removed from the overlay algorithm's inner loop**, from a
+  profile of a photograph. Three things were being paid for repeatedly and are
+  not any more: `isDetail` and `isBoundary` each re-derived whether their mask
+  was in play at all — an options lookup and an `array_length` against
+  `width * height` — on every call, which is once per neighbour per pixel per
+  shape for an answer that cannot change during a trace; the growth loop
+  measured the step between two pixels, compared it to the tolerance, and then
+  called `isBoundary`, which measured the same step again; and `buildDetailMask`
+  allocated a list per pixel and searched it linearly to count how many swatches
+  sat in a small window, a quarter of a million allocations for a question a
+  256-slot table stamped with the window number answers directly.
+
+  Honest about the size of it: **3503 ms → 3396 ms** over three 640-pixel images,
+  about 3%, with identical output (same shapes, same colors). The profile
+  afterwards is flat — no line above 10% — so the remaining time is the
+  algorithm's own work rather than waste. One further 8% sits in copying a
+  bitmap per emitted shape that the sub-tracer owns outright and could consume
+  in place; Ranger's optionality rules will not pass the field as a value or an
+  argument, and it was left alone rather than worked around.
+
 - **The overlay algorithm still picked an enormous number of colors**, reported
   from the page with a palette strip hundreds of squares long. Two separate
   causes, and the strip was the louder of them: it drew **one swatch per layer**,
