@@ -354,7 +354,7 @@
         "sort-three-states": "a header cycles first direction, other direction, then unsorted — not a two-way toggle",
         "sort-numeric-descends-first": "a numeric column's first click sorts DESCENDING, a text column's ascending",
         "aria-sort": "the sorted header exposes aria-sort and the others do not",
-        "sort-keeps-page": "sorting while paged stays on the page it was on",
+        "sort-resets-page": "re-ordering puts you back on the first page — page two of the old order is a window onto rows that moved",
         "select-row": "a row can be selected and says so with aria-selected",
         "select-all-page": "the header checkbox selects and clears THIS PAGE's rows, leaving others alone",
         "select-all-mixed": "the header checkbox is mixed when some but not all of the page is selected",

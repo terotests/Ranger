@@ -687,6 +687,50 @@ that touches every row — and each is exactly a mistake a real table makes.
 else about any node, so without it the one thing the control does is the one
 thing the diff cannot see.
 
+### Six specs, and what they cost to make pass
+
+The DOM side is a real `<table>` driven by TanStack, and the snapshot could not
+see it: it derived a role from the tag for `<button>` and `<a>` and called
+everything else `none`, so a whole table reported as nothing at all. Implicit
+roles are the rule here and the attribute is the exception — `<tr>`, `<th>`,
+`<td>` and `<input type=checkbox>` all know what they are. A native checkbox
+also keeps `checked` and `indeterminate` as DOM PROPERTIES with no attribute
+behind them, so reading only `aria-checked` reported the select-all box as
+saying nothing.
+
+`cell` and `gridcell` turned out to be different roles rather than two
+spellings, and the distinction is the same one as `table` versus `grid`: a
+gridcell is something you steer a cursor onto.
+
+Three accessibility defects the audit caught, all of them structural:
+
+- `role="table"` may contain only rows. The paging buttons were parented to it
+  and a reader walking by row would have found something that is not one, so
+  the controller's root is now a wrapper and `tid` belongs to the table inside
+  it — the same shape the DOM reference has.
+- A row's children have to be cells, so the select-all lives inside a column
+  header rather than beside one.
+- A focusable row has no name to announce, and giving it one means reading
+  every cell twice. Rows are not focus targets; selection is a **checkbox in
+  the row**, which is what ReUI does and the only way a keyboard reaches it.
+  Selecting by clicking the row went out with it: it is a choice with no oracle
+  behind it, and inventing behaviour is exactly what this harness exists to
+  stop.
+
+### The probe was wrong twice more
+
+`sort-keeps-page` was in the catalogue and it was wrong. The bare probe said
+sorting keeps the page; the reference component resets it. Chasing the
+difference found `autoResetPageIndex`, which defaults to **on** — and whether
+it fires depends on how the table is WIRED, which is precisely the part a
+headless library leaves to its caller.
+
+So the oracle now renders `dom/app.jsx`'s own component and clicks the same
+test ids a person would, instead of building a little TanStack table beside it.
+One source of truth, and the question cannot come back. The clamping difference
+noted earlier disappeared with it: measured through the real UI, paging past
+the end does not happen at all, because the button is disabled.
+
 Two flaws in the probe itself, both found because the numbers looked wrong:
 every mutation goes through React state, so reading the table object back
 synchronously reads the previous one and reports that nothing happened; and

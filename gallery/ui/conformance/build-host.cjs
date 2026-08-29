@@ -182,6 +182,7 @@ function buildHost(M, fixture, css) {
         }
         for (const r of c.rows || []) ctl.addRecord(r.key, r.cells || []);
         if (c.pageSize) ctl.pageSize = c.pageSize;
+        ctl.build();
         break;
       }
 

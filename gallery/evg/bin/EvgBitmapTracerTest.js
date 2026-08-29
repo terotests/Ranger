@@ -4917,14 +4917,14 @@ class EVGElement  {
       return;
     }
     if ( (name == "aria-sort") || (name == "a11ySorted") ) {
-      if ( (value == "ascending") || (value == "1") ) {
+      if ( value == "none" ) {
         this.a11ySorted = 1;
       }
-      if ( (value == "descending") || (value == "2") ) {
+      if ( value == "ascending" ) {
         this.a11ySorted = 2;
       }
-      if ( (value == "none") || (value == "0") ) {
-        this.a11ySorted = 0;
+      if ( value == "descending" ) {
+        this.a11ySorted = 3;
       }
       return;
     }

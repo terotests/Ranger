@@ -107,6 +107,11 @@ class EVGA11yRole {
     ; cell cursor — and a native `<table>`, which is what the reference
     ; renders, reports exactly this.
     sfn table:int ()            { return 39 }
+    ; `cell` and `gridcell` are different roles, not two spellings. A cell
+    ; belongs to a table, a gridcell to a grid — and a reader announces the
+    ; second as something you can steer around with the arrow keys. `cell()`
+    ; keeps its old meaning so the datagrid is untouched.
+    sfn tableCell:int ()        { return 40 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -121,6 +126,7 @@ class EVGA11yRole {
         if (role == 8)  { return "img" }
         if (role == 9)  { return "link" }
         if (role == 39) { return "table" }
+        if (role == 40) { return "cell" }
         if (role == 10) { return "grid" }
         if (role == 11) { return "row" }
         if (role == 12) { return "columnheader" }

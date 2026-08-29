@@ -20,7 +20,40 @@ export function snapshotDom(options) {
     "checkbox",
     "radio",
     "switch",
+    // A cell's name IS its text. Nothing writes an aria-label on a table cell
+    // and a trace that reported them all nameless would compare two blanks.
+    "columnheader",
+    "rowheader",
+    "cell",
   ]);
+  /**
+   * The role an element has WITHOUT anyone writing one.
+   *
+   * A browser's accessibility tree gives `<table>`, `<tr>`, `<th>` and `<td>`
+   * their roles from the tag, and nobody writing a table writes them out — so
+   * a snapshot that only knew about `<button>` and `<a>` reported a whole
+   * table as `none` and made the reference look like it had no accessibility
+   * at all. It is the tag that carries the meaning here; the attribute is the
+   * exception.
+   *
+   * `<th>` is a columnheader only in a header row. In a body row it labels the
+   * row, which is a different role and a different thing for a reader to hear.
+   */
+  const IMPLICIT_ROLE = (el, tag) => {
+    if (tag === "button") return "button";
+    if (tag === "a") return "link";
+    if (tag === "table") return "table";
+    if (tag === "tr") return "row";
+    if (tag === "td") return "cell";
+    if (tag === "th") return el.closest("thead") ? "columnheader" : "rowheader";
+    if (tag === "input") {
+      const t = (el.getAttribute("type") || "text").toLowerCase();
+      if (t === "checkbox") return "checkbox";
+      if (t === "radio") return "radio";
+      return "textbox";
+    }
+    return "none";
+  };
   // aria-checked and aria-selected are tri-state: "mixed" is a real value.
   const tri = (v) => (v == null ? null : v === "mixed" ? "mixed" : v === "true");
   const tagged = [...document.querySelectorAll("[data-tid]")];
@@ -49,7 +82,7 @@ export function snapshotDom(options) {
     const explicit = el.getAttribute("role");
     const tag = el.tagName.toLowerCase();
     let role = explicit;
-    if (!role) role = tag === "button" ? "button" : tag === "a" ? "link" : "none";
+    if (!role) role = IMPLICIT_ROLE(el, tag);
     const label = el.getAttribute("aria-label");
     // Accessible name from text: aria-hidden subtrees do not contribute. An
     // icon button is glyph + visually-hidden label, and counting the glyph
@@ -85,7 +118,17 @@ export function snapshotDom(options) {
       state: el.getAttribute("data-state") || "",
       expanded: expanded == null ? null : expanded === "true",
       pressed: pressed == null ? null : pressed === "true",
-      checked: tri(el.getAttribute("aria-checked")),
+      // A native checkbox carries none of this in an attribute: `checked` and
+      // `indeterminate` are DOM properties. Reading only `aria-checked` made
+      // the reference's select-all box report nothing at all.
+      checked:
+        el.getAttribute("aria-checked") != null
+          ? tri(el.getAttribute("aria-checked"))
+          : tag === "input" && el.type === "checkbox"
+            ? el.indeterminate
+              ? "mixed"
+              : el.checked
+            : null,
       selected: tri(el.getAttribute("aria-selected")),
       disabled,
       // Would Tab land here? Roving focus is exactly this going false on the

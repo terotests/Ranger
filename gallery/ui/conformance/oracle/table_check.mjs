@@ -37,7 +37,11 @@ const mk = () => {
   return t;
 };
 const ids = (t) => t.pageRecords().map((r) => r.key).join(" ");
-const dir = (t, k) => ({ 0: "false", 1: "asc", 2: "desc" })[t.sortStateOf(k)];
+// `sortStateOf` speaks aria-sort's vocabulary: 1 none, 2 ascending, 3
+// descending, and 0 for something that has no aria-sort at all. TanStack's
+// `getIsSorted()` says `false` where ARIA says "none", so the two are mapped
+// here rather than either side bending to the other.
+const dir = (t, k) => ({ 0: "false", 1: "false", 2: "asc", 3: "desc" })[t.sortStateOf(k)];
 let bad = 0;
 const check = (what, got, want) => {
   const ok = String(got) === String(want);
@@ -49,7 +53,7 @@ console.log("sort cycle, text column (oracle vs TableCtl)");
 {
   const t = mk();
   for (const row of oracle.sortCycle) {
-    if (row.click > 0) t.toggleSort("name");
+    if (row.click > 0) t.press("tbl-col-name");
     check(`click ${row.click} direction`, dir(t, "name"), row.isSorted);
     check(`click ${row.click} order`, ids(t), row.order.join(" "));
   }
@@ -58,7 +62,7 @@ console.log("sort cycle, numeric column");
 {
   const t = mk();
   for (const row of oracle.numericSortCycle) {
-    if (row.click > 0) t.toggleSort("size");
+    if (row.click > 0) t.press("tbl-col-size");
     check(`click ${row.click} direction`, dir(t, "size"), row.isSorted);
     if (row.order) check(`click ${row.click} order`, ids(t), row.order.join(" "));
   }
@@ -67,46 +71,69 @@ console.log("selection");
 {
   const t = mk();
   const st = () => ({
-    sel: t.records.filter((r) => r.selected).map((r) => r.key).sort().join(","),
-    all: t.selectAllState() === 2,
-    some: t.selectAllState() === 3,
-    n: t.selectedCount(),
+    selected: t.records.filter((r) => r.selected).map((r) => r.key).sort(),
+    allPageRows: t.selectAllState() === 2,
+    somePageRows: t.selectAllState() === 3,
+    selectedCount: t.selectedCount(),
   });
-  const want = oracle.selection;
-  check("nothing selected", JSON.stringify(st()), JSON.stringify({ sel: "", all: false, some: false, n: 0 }));
-  t.setRowSelected("r1", true);
-  check("one row", JSON.stringify(st()), JSON.stringify({ sel: "r1", all: false, some: true, n: 1 }));
-  t.toggleAllOnPage();
-  check("all on page", JSON.stringify(st()), JSON.stringify({ sel: "r1,r2,r3,r4", all: true, some: false, n: 4 }));
-  for (const r of ["r5", "r6"]) t.setRowSelected(r, true);
-  check("then all rows", JSON.stringify(st()), JSON.stringify({ sel: "r1,r2,r3,r4,r5,r6", all: true, some: false, n: 6 }));
-  t.toggleAllOnPage();
-  check("clearing the page leaves the rest", JSON.stringify(st()), JSON.stringify({ sel: "r5,r6", all: false, some: false, n: 2 }));
+  // The same five moments the capture recorded, made by the same clicks.
+  const w = oracle.selection;
+  const same = (a, b) =>
+    JSON.stringify({
+      selected: a.selected, allPageRows: a.allPageRows,
+      somePageRows: a.somePageRows, selectedCount: a.selectedCount,
+    }) ===
+    JSON.stringify({
+      selected: b.selected, allPageRows: b.allPageRows,
+      somePageRows: b.somePageRows, selectedCount: b.selectedCount,
+    });
+  const step = (i, fn) => {
+    if (fn) fn();
+    const got = st();
+    const ok = same(got, w[i]);
+    if (!ok) bad++;
+    console.log(
+      `  ${ok ? "PASS" : "FAIL"} ${w[i].after}: ${JSON.stringify(got.selected)}` +
+        (ok ? "" : `   want ${JSON.stringify(w[i].selected)}`),
+    );
+  };
+  step(0, null);
+  // The CHECKBOX, not the row: selection is a control you can reach, not a
+  // click target that happens to be large.
+  step(1, () => t.press("tbl-check-r1"));
+  step(2, () => t.press("tbl-selectall"));
+  step(3, () => { t.press("tbl-next"); t.press("tbl-selectall"); });
+  step(4, () => { t.press("tbl-prev"); t.press("tbl-selectall"); });
 }
 console.log("pagination");
 {
   const t = mk();
-  const st = () => `idx=${t.pageIndex} count=${t.pageCount()} rows=${t.pageRecords().length} prev=${t.canPrevious()} next=${t.canNext()} ${ids(t)}`;
+  const st = () =>
+    `idx=${t.pageIndex} rows=${t.pageRecords().length} prev=${t.canPrevious()} next=${t.canNext()} ${ids(t)}`;
+  const fmt = (r) =>
+    `idx=${r.pageIndex} rows=${r.rowsOnPage} prev=${r.canPrevious} next=${r.canNext} ${r.ids.join(" ")}`;
   const w = oracle.pagination;
-  const fmt = (r) => `idx=${r.pageIndex} count=${r.pageCount} rows=${r.rowsOnPage} prev=${r.canPrevious} next=${r.canNext} ${r.ids.join(" ")}`;
-  check("start", st(), fmt(w[0]));
-  t.nextPage();
-  check("nextPage", st(), fmt(w[1]));
-  t.nextPage();
-  // The one deliberate difference: TanStack walks past the end, this clamps.
-  console.log(`  NOTE nextPage past the end: TanStack -> idx=${w[2].pageIndex} rows=${w[2].rowsOnPage}; TableCtl -> idx=${t.pageIndex} rows=${t.pageRecords().length}`);
-  t.previousPage();
-  t.previousPage();
-  check("back at the start", st(), fmt(w[4]));
+  // Clicked, including the two clicks that must do NOTHING because the control
+  // is at an end. That the button is disabled rather than the page running
+  // past the last row is the behaviour, not an implementation detail.
+  check(w[0].after, st(), fmt(w[0]));
+  t.press("tbl-next");
+  check(w[1].after, st(), fmt(w[1]));
+  t.press("tbl-next");
+  check(w[2].after, st(), fmt(w[2]));
+  t.press("tbl-prev");
+  check(w[3].after, st(), fmt(w[3]));
+  t.press("tbl-prev");
+  check(w[4].after, st(), fmt(w[4]));
 }
-console.log("sorting while paged keeps the page");
+console.log("sorting while paged");
 {
   const t = mk();
-  t.pageIndex = 1;
-  t.toggleSort("name");
-  check("page index", t.pageIndex, oracle.sortWhilePaged.pageIndexAfterSorting);
+  t.press("tbl-next");
+  check("page before sorting", t.pageIndex, oracle.sortWhilePaged.pageIndexBefore);
+  t.press("tbl-col-name");
+  check("page after sorting", t.pageIndex, oracle.sortWhilePaged.pageIndexAfterSorting);
   check("rows shown", ids(t), oracle.sortWhilePaged.ids.join(" "));
 }
-// `failed=0` is the marker `scripts/run-gallery-editor-tests.sh` looks for.
 console.log(bad ? `\nRESULT FAIL — failed=${bad}` : "\nRESULT OK — failed=0");
 process.exitCode = bad ? 1 : 0;

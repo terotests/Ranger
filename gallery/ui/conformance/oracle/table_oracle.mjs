@@ -21,6 +21,15 @@
  * So this file captures the two things TanStack really decides, and the ARIA
  * comes from the HTML table spec and the WAI-ARIA grid pattern instead:
  *
+ * IT DRIVES THE REFERENCE COMPONENT, NOT A STAND-IN. An earlier version built
+ * its own little TanStack table beside `dom/app.jsx`'s, and the two disagreed
+ * about whether sorting resets the page — twice, for two different reasons.
+ * Both times the stand-in was wrong: `autoResetPageIndex` defaults to ON, and
+ * whether it fires depends on how the table is WIRED, which is precisely the
+ * part a headless library leaves to its caller. So the oracle renders the same
+ * component the conformance harness compares against and clicks the same test
+ * ids a person would. One source of truth, and the question cannot come back.
+ *
  *   1. The SORT CYCLE. Three clicks on a header is the question, and the
  *      answer is not the obvious one — see `sortCycle` below.
  *   2. The SELECTION arithmetic, including what the header checkbox reads as
@@ -52,163 +61,147 @@ const ROWS = [
 const PROBE = `
 import React from "react";
 import { createRoot } from "react-dom/client";
-import {
-  useReactTable, getCoreRowModel, getSortedRowModel, getPaginationRowModel, flexRender,
-} from "@tanstack/react-table";
-
-const ROWS = ${JSON.stringify(ROWS)};
-const columns = [
-  { id: "name", accessorKey: "name", header: "Name" },
-  { id: "role", accessorKey: "role", header: "Role" },
-  { id: "size", accessorKey: "size", header: "Size" },
-];
-
-function App() {
-  const [sorting, setSorting] = React.useState([]);
-  const [rowSelection, setRowSelection] = React.useState({});
-  const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 4 });
-  const table = useReactTable({
-    data: ROWS,
-    columns,
-    state: { sorting, rowSelection, pagination },
-    onSortingChange: setSorting,
-    onRowSelectionChange: setRowSelection,
-    onPaginationChange: setPagination,
-    getRowId: (r) => r.id,
-    enableRowSelection: true,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-  });
-  window.__table = table;
-  window.__ready = true;
-  return null;
-}
-createRoot(document.getElementById("root")).render(React.createElement(App));
+import { App } from "__APP__";
+createRoot(document.getElementById("root")).render(
+  React.createElement(App, { fixture: window.__FIXTURE__ }),
+);
+window.__ready = true;
 `;
 
+const FIXTURE = {
+  controls: [
+    {
+      type: "table",
+      tid: "tb",
+      name: "People",
+      pageSize: 4,
+      columns: [
+        { key: "name", label: "Name" },
+        { key: "role", label: "Role" },
+        { key: "size", label: "Size", numeric: true },
+      ],
+      rows: ROWS.map((r) => ({ key: r.id, cells: [r.name, r.role, String(r.size)] })),
+    },
+  ],
+};
+
 async function capture(page) {
-  return page.evaluate(async () => {
-    const out = {};
-    // Every mutation goes through React state, so the table object is REPLACED
-    // on the next render. Reading it back synchronously reads the old one and
-    // reports that nothing happened — which is exactly what the first run of
-    // this file said: five clicks on a header and the sorting still `[]`.
-    const t = () => window.__table;
-    const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const step = async (fn) => { fn(); await settle(); };
-    const order = () => t().getRowModel().rows.map((r) => r.id);
-    const sortState = () => JSON.stringify(t().getState().sorting);
-
-    // --- 1. the sort cycle
-    //
-    // Three clicks on one header. A hand-written table almost always toggles
-    // between two states forever; this records whether there is a third.
-    const cycle = [
-      { click: 0, sorting: sortState(), order: order(), isSorted: t().getColumn("name").getIsSorted() },
-    ];
-    for (let i = 1; i <= 4; i++) {
-      await step(() => t().getColumn("name").toggleSorting());
-      cycle.push({
-        click: i, sorting: sortState(), order: order(),
-        isSorted: t().getColumn("name").getIsSorted(),
-      });
-    }
-    out.sortCycle = cycle;
-
-    // Which way a NUMERIC column starts, versus a text one. They differ, and
-    // the reason is that "first click" means "most useful first click".
-    await step(() => t().resetSorting());
-    await step(() => t().getColumn("name").toggleSorting());
-    const textFirst = t().getColumn("name").getIsSorted();
-    await step(() => t().resetSorting());
-    await step(() => t().getColumn("size").toggleSorting());
-    const numberFirst = t().getColumn("size").getIsSorted();
-    out.firstClickDirection = { text: textFirst, number: numberFirst };
-
-    // The NUMERIC column's whole cycle, not just its first click. A three-state
-    // cycle that starts the other way round could plausibly be
-    // desc -> asc -> none or desc -> none -> asc, and choosing by taste is how
-    // a table ends up disagreeing with every other table.
-    await step(() => t().resetSorting());
-    const numCycle = [{ click: 0, isSorted: t().getColumn("size").getIsSorted() }];
-    for (let i = 1; i <= 4; i++) {
-      await step(() => t().getColumn("size").toggleSorting());
-      numCycle.push({
-        click: i,
-        isSorted: t().getColumn("size").getIsSorted(),
-        order: t().getRowModel().rows.map((r) => r.id),
-      });
-    }
-    out.numericSortCycle = numCycle;
-    await step(() => t().resetSorting());
-
-    // --- 2. selection
-    await step(() => t().resetRowSelection());
-    // NOT `resetPagination()`. Pagination is controlled here, so reset puts
-    // back TanStack's own default of ten per page rather than the four this
-    // probe was set up with — and the whole capture then measured a one-page
-    // table: `toggleAllPageRowsSelected` selected all six rows and looked like
-    // a bug in the library.
-    await step(() => t().setPagination({ pageIndex: 0, pageSize: 4 }));
-    const selState = () => ({
-      selected: Object.keys(t().getState().rowSelection).sort(),
-      allPageRows: t().getIsAllPageRowsSelected(),
-      somePageRows: t().getIsSomePageRowsSelected(),
-      allRows: t().getIsAllRowsSelected(),
-      someRows: t().getIsSomeRowsSelected(),
-      selectedCount: t().getSelectedRowModel().rows.length,
+  // Every question is asked by clicking, and every answer is read off the
+  // table object the component publishes. Nothing here reaches past the
+  // component to call a library method — that is the door that gave the wrong
+  // answers.
+  const click = async (tid) => {
+    await page.locator(`[data-tid="${tid}"]`).click({ force: true });
+    await page.waitForTimeout(40);
+  };
+  const read = () =>
+    page.evaluate(() => {
+      const t = window.__tableProbe;
+      const s = t.getState();
+      return {
+        sorting: JSON.stringify(s.sorting),
+        nameSorted: t.getColumn("name").getIsSorted(),
+        sizeSorted: t.getColumn("size").getIsSorted(),
+        order: t.getRowModel().rows.map((r) => r.id),
+        pageIndex: s.pagination.pageIndex,
+        pageCount: t.getPageCount(),
+        rowsOnPage: t.getRowModel().rows.length,
+        canPrevious: t.getCanPreviousPage(),
+        canNext: t.getCanNextPage(),
+        selected: Object.keys(s.rowSelection).sort(),
+        selectedCount: t.getSelectedRowModel().rows.length,
+        allPageRows: t.getIsAllPageRowsSelected(),
+        somePageRows: t.getIsSomePageRowsSelected(),
+        allRows: t.getIsAllRowsSelected(),
+      };
     });
-    const sel = [{ after: "nothing", ...selState() }];
-    await step(() => t().getRowModel().rows[0].toggleSelected(true));
-    sel.push({ after: "one row on page 1", ...selState() });
-    await step(() => t().toggleAllPageRowsSelected(true));
-    sel.push({ after: "toggleAllPageRows(true)", ...selState() });
-    await step(() => t().toggleAllRowsSelected(true));
-    sel.push({ after: "toggleAllRows(true)", ...selState() });
-    await step(() => t().toggleAllPageRowsSelected(false));
-    sel.push({ after: "toggleAllPageRows(false)", ...selState() });
-    out.selection = sel;
-    await step(() => t().resetRowSelection());
-
-    // --- 3. pagination
-    const pageState = () => ({
-      pageIndex: t().getState().pagination.pageIndex,
-      pageCount: t().getPageCount(),
-      rowsOnPage: t().getRowModel().rows.length,
-      canPrevious: t().getCanPreviousPage(),
-      canNext: t().getCanNextPage(),
-      ids: t().getRowModel().rows.map((r) => r.id),
+  const reset = () =>
+    page.evaluate(async () => {
+      const t = window.__tableProbe;
+      t.resetSorting();
+      t.resetRowSelection();
+      t.setPagination({ pageIndex: 0, pageSize: 4 });
+      await new Promise((r) => setTimeout(r, 60));
     });
-    await step(() => t().setPagination({ pageIndex: 0, pageSize: 4 }));
-    const pages = [{ after: "start", ...pageState() }];
-    await step(() => t().nextPage());
-    pages.push({ after: "nextPage", ...pageState() });
-    await step(() => t().nextPage());
-    pages.push({ after: "nextPage past the end", ...pageState() });
-    await step(() => t().previousPage());
-    pages.push({ after: "previousPage", ...pageState() });
-    await step(() => t().setPageIndex(0));
-    await step(() => t().previousPage());
-    pages.push({ after: "previousPage at the start", ...pageState() });
-    out.pagination = pages;
 
-    // --- 4. sorting and pagination together: does sorting reset the page?
-    await step(() => t().setPagination({ pageIndex: 1, pageSize: 4 }));
-    await step(() => t().getColumn("name").toggleSorting());
-    out.sortWhilePaged = {
-      pageIndexAfterSorting: t().getState().pagination.pageIndex,
-      ids: t().getRowModel().rows.map((r) => r.id),
-    };
+  const out = {};
 
-    // --- 5. what TanStack contributes to accessibility. Nothing, and saying so
-    // in the capture is the point: the ARIA below has to come from elsewhere.
-    out.ariaFromTanstack = {
-      headerHasAriaSort: "getColumn(...).columnDef has no aria anything",
-      keysOnHeaderContext: Object.keys(t().getHeaderGroups()[0].headers[0]).sort(),
-    };
-    return out;
-  });
+  // --- 1. the sort cycle, four clicks on one header
+  await reset();
+  const cycle = [{ click: 0, ...(await read()) }];
+  for (let i = 1; i <= 4; i++) {
+    await click("tb-col-name");
+    cycle.push({ click: i, ...(await read()) });
+  }
+  out.sortCycle = cycle.map((r) => ({
+    click: r.click, sorting: r.sorting, isSorted: r.nameSorted, order: r.order,
+  }));
+
+  // --- 2. and on a numeric one, which starts the other way round
+  await reset();
+  const numCycle = [{ click: 0, ...(await read()) }];
+  for (let i = 1; i <= 4; i++) {
+    await click("tb-col-size");
+    numCycle.push({ click: i, ...(await read()) });
+  }
+  out.numericSortCycle = numCycle.map((r) => ({
+    click: r.click, isSorted: r.sizeSorted, order: r.order,
+  }));
+  out.firstClickDirection = {
+    text: out.sortCycle[1].isSorted,
+    number: out.numericSortCycle[1].isSorted,
+  };
+
+  // --- 3. selection, through the checkbox and the rows
+  await reset();
+  const sel = [{ after: "nothing", ...(await read()) }];
+  await click("tb-check-r1");
+  sel.push({ after: "one row on page 1", ...(await read()) });
+  await click("tb-selectall");
+  sel.push({ after: "the header box", ...(await read()) });
+  await click("tb-next");
+  await click("tb-selectall");
+  sel.push({ after: "and again on page 2", ...(await read()) });
+  await click("tb-prev");
+  await click("tb-selectall");
+  sel.push({ after: "clearing page 1", ...(await read()) });
+  out.selection = sel.map((r) => ({
+    after: r.after, selected: r.selected, selectedCount: r.selectedCount,
+    allPageRows: r.allPageRows, somePageRows: r.somePageRows, allRows: r.allRows,
+  }));
+
+  // --- 4. paging, and what the controls say at the ends
+  await reset();
+  const pages = [{ after: "start", ...(await read()) }];
+  await click("tb-next");
+  pages.push({ after: "next", ...(await read()) });
+  await click("tb-next");
+  pages.push({ after: "next again, on the last page", ...(await read()) });
+  await click("tb-prev");
+  pages.push({ after: "prev", ...(await read()) });
+  await click("tb-prev");
+  pages.push({ after: "prev again, on the first page", ...(await read()) });
+  out.pagination = pages.map((r) => ({
+    after: r.after, pageIndex: r.pageIndex, pageCount: r.pageCount,
+    rowsOnPage: r.rowsOnPage, canPrevious: r.canPrevious, canNext: r.canNext, ids: r.order,
+  }));
+
+  // --- 5. sorting while paged
+  await reset();
+  await click("tb-next");
+  const before = await read();
+  await click("tb-col-name");
+  const after = await read();
+  out.sortWhilePaged = {
+    pageIndexBefore: before.pageIndex,
+    pageIndexAfterSorting: after.pageIndex,
+    ids: after.order,
+    $comment:
+      "autoResetPageIndex defaults to ON, so re-ordering puts you back on the " +
+      "first page. Page two of the old order means nothing.",
+  };
+
+  return out;
 }
 
 assertDomInstalled();
@@ -217,7 +210,10 @@ const { chromium } = requireDom("playwright-core");
 
 const entry = path.join(HERE, ".table-probe.jsx");
 const bundle = path.join(HERE, ".table-probe.js");
-fs.writeFileSync(entry, PROBE);
+fs.writeFileSync(
+  entry,
+  // A plain path, not a file:// URL: esbuild resolves imports as paths.
+  PROBE.replace("__APP__", path.join(DOM_DIR, "app.jsx").split(path.sep).join("/")));
 await esbuild.build({
   entryPoints: [entry],
   bundle: true,
@@ -229,7 +225,10 @@ await esbuild.build({
   logLevel: "silent",
 });
 
-const html = `<!doctype html><meta charset="utf-8"><div id="root"></div><script src="./.table-probe.js"></script>`;
+const html =
+  `<!doctype html><meta charset="utf-8">` +
+  `<script>window.__FIXTURE__ = ${JSON.stringify(FIXTURE)};</script>` +
+  `<div id="root"></div><script src="./.table-probe.js"></script>`;
 const pageFile = path.join(HERE, ".table-probe.html");
 fs.writeFileSync(pageFile, html);
 
@@ -237,7 +236,7 @@ const browser = await chromium.launch({ executablePath: findChromium() });
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.error("PAGEERROR:", e.message));
 await page.goto(pathToFileURL(pageFile).href);
-await page.waitForFunction("window.__ready === true", null, { timeout: 20000 });
+await page.waitForFunction("window.__tableProbe !== undefined", null, { timeout: 20000 });
 const data = await capture(page);
 const version = createRequire(path.join(DOM_DIR, "package.json"))("@tanstack/react-table/package.json").version;
 await browser.close();
@@ -246,4 +245,6 @@ for (const f of [entry, bundle, pageFile]) fs.rmSync(f, { force: true });
 const file = path.join(HERE, "table.json");
 fs.writeFileSync(file, JSON.stringify({ tanstack: version, rows: ROWS, ...data }, null, 2) + "\n");
 console.log("wrote " + path.relative(process.cwd(), file) + "  (@tanstack/react-table " + version + ")");
-console.log(JSON.stringify(data.sortCycle, null, 1));
+console.log("sort cycle:", data.sortCycle.map((r) => r.isSorted).join(" -> "));
+console.log("numeric   :", data.numericSortCycle.map((r) => r.isSorted).join(" -> "));
+console.log("sorting while paged:", JSON.stringify(data.sortWhilePaged));

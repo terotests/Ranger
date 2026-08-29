@@ -55,6 +55,12 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+} from "@tanstack/react-table";
 
 /**
  * Toast is the one control the fixture cannot express declaratively: it has no
@@ -93,6 +99,186 @@ function ToastControl({ spec, tid }) {
         }}
       />
     </Toast.Provider>
+  );
+}
+
+
+/**
+ * Table — the second control here that is not Radix.
+ *
+ * ReUI's is @tanstack/react-table underneath, as is every shadcn-family one,
+ * so that is the oracle. It is a NARROWER oracle than dnd-kit, and the markup
+ * below is where that shows: dnd-kit writes its own roles and announcements,
+ * TanStack writes nothing at all. Every role, every `aria-sort`, every
+ * `aria-selected` here is the HTML table spec's, and only the STATE is
+ * TanStack's.
+ *
+ * So this component is deliberately two things at once: TanStack driving what
+ * is shown, and a plain accessible `<table>` showing it. If it were written
+ * any other way the harness would be comparing EVG against a hand-written
+ * table rather than against the library everyone actually ships.
+ */
+function TableControl({ spec, tid }) {
+  const columns = React.useMemo(
+    () =>
+      (spec.columns || []).map((c) => ({
+        id: c.key,
+        accessorKey: c.key,
+        header: c.label || c.key,
+        enableSorting: c.sortable !== false,
+        // The one line that decides a numeric column sorts biggest-first.
+        // TanStack infers it from the value type, and the fixture's cells are
+        // strings, so it is said explicitly here rather than left to a guess
+        // about what "30" is.
+        sortDescFirst: !!c.numeric,
+        sortingFn: c.numeric ? "basic" : "alphanumeric",
+      })),
+    [spec],
+  );
+  const data = React.useMemo(
+    () =>
+      (spec.rows || []).map((r) => {
+        const row = { __id: r.key };
+        (spec.columns || []).forEach((c, i) => {
+          const raw = (r.cells || [])[i];
+          row[c.key] = c.numeric ? Number(raw) : raw;
+        });
+        return row;
+      }),
+    [spec],
+  );
+
+  const [sorting, setSorting] = React.useState([]);
+  const [rowSelection, setRowSelection] = React.useState({});
+  const [pagination, setPagination] = React.useState({
+    pageIndex: 0,
+    pageSize: spec.pageSize || 4,
+  });
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting, rowSelection, pagination },
+    onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    onPaginationChange: setPagination,
+    getRowId: (r) => r.__id,
+    enableRowSelection: true,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const allOnPage = table.getIsAllPageRowsSelected();
+  const someOnPage = table.getIsSomePageRowsSelected();
+  const selectAll = React.useRef(null);
+  React.useEffect(() => {
+    // `indeterminate` is a DOM property with no attribute, so React cannot set
+    // it and a ref is the only way. Without this the header box reads as
+    // unchecked while half the page is selected — the one state the control
+    // exists to show.
+    if (selectAll.current) selectAll.current.indeterminate = someOnPage;
+  }, [someOnPage, allOnPage]);
+
+  if (typeof window !== "undefined") window.__tableProbe = table;
+  const header = table.getHeaderGroups()[0];
+  return (
+    <div>
+      <table data-tid={tid} aria-label={spec.name}>
+        <thead>
+          <tr data-tid={tid + "-headrow"}>
+            <th data-tid={tid + "-selectcol"}>
+              <input
+                ref={selectAll}
+                data-tid={tid + "-selectall"}
+                type="checkbox"
+                aria-label="Select all"
+                checked={allOnPage}
+                onChange={() => table.toggleAllPageRowsSelected(!allOnPage)}
+              />
+            </th>
+            {header.headers.map((h) => {
+              const dir = h.column.getIsSorted();
+              return (
+                <th
+                  key={h.id}
+                  data-tid={tid + "-col-" + h.column.id}
+                  // Present-and-"none" on a sortable header, absent on one that
+                  // cannot be sorted. The two are different and the trace keeps
+                  // them apart.
+                  aria-sort={
+                    h.column.getCanSort()
+                      ? dir === "asc"
+                        ? "ascending"
+                        : dir === "desc"
+                          ? "descending"
+                          : "none"
+                      : undefined
+                  }
+                  tabIndex={h.column.getCanSort() ? 0 : undefined}
+                  onClick={h.column.getToggleSortingHandler()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      h.column.toggleSorting();
+                    }
+                  }}
+                >
+                  {String(h.column.columnDef.header)}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {table.getRowModel().rows.map((r) => (
+            <tr
+              key={r.id}
+              data-tid={tid + "-row-" + r.id}
+              aria-selected={r.getIsSelected()}
+            >
+              {/*
+                Selection is a checkbox IN the row, which is how ReUI does it
+                and the only way a keyboard reaches it. A focusable row would
+                also have no name to announce, and giving it one means reading
+                every cell twice.
+              */}
+              <td data-tid={tid + "-row-" + r.id + "-checkcell"}>
+                <input
+                  data-tid={tid + "-check-" + r.id}
+                  type="checkbox"
+                  aria-label={"Select " + String(r.getValue((spec.columns || [])[0].key))}
+                  checked={r.getIsSelected()}
+                  onChange={() => r.toggleSelected()}
+                />
+              </td>
+              {(spec.columns || []).map((c) => (
+                <td key={c.key} data-tid={tid + "-cell-" + r.id + "-" + c.key}>
+                  {String(r.getValue(c.key))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button
+        data-tid={tid + "-prev"}
+        type="button"
+        aria-label="Previous page"
+        disabled={!table.getCanPreviousPage()}
+        onClick={() => table.previousPage()}
+      >
+        Previous page
+      </button>
+      <button
+        data-tid={tid + "-next"}
+        type="button"
+        aria-label="Next page"
+        disabled={!table.getCanNextPage()}
+        onClick={() => table.nextPage()}
+      >
+        Next page
+      </button>
+    </div>
   );
 }
 
@@ -505,6 +691,9 @@ export function Control({ spec }) {
 
     case "sortable":
       return <SortableControl spec={spec} tid={tid} />;
+
+    case "table":
+      return <TableControl spec={spec} tid={tid} />;
 
     /**
      * A bar of menus. The parts follow the same rule the rest do — `x-<value>`

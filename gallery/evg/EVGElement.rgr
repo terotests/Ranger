@@ -1705,9 +1705,9 @@ class EVGElement {
             return
         }
         if ((name == "aria-sort") || (name == "a11ySorted")) {
-            if ((value == "ascending") || (value == "1"))  { a11ySorted = 1 }
-            if ((value == "descending") || (value == "2")) { a11ySorted = 2 }
-            if ((value == "none") || (value == "0"))       { a11ySorted = 0 }
+            if (value == "none")       { a11ySorted = 1 }
+            if (value == "ascending")  { a11ySorted = 2 }
+            if (value == "descending") { a11ySorted = 3 }
             return
         }
         if ((name == "aria-hidden") || (name == "a11yHidden")) {

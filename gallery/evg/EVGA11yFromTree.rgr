@@ -75,7 +75,7 @@ class EVGA11yFromTree {
         if (name == "row")              { return (EVGA11yRole.row()) }
         if (name == "columnheader")     { return (EVGA11yRole.columnHeader()) }
         if (name == "rowheader")        { return (EVGA11yRole.rowHeader()) }
-        if (name == "cell")             { return (EVGA11yRole.cell()) }
+        if (name == "cell")             { return (EVGA11yRole.tableCell()) }
         if (name == "gridcell")         { return (EVGA11yRole.cell()) }
         if (name == "switch")           { return (EVGA11yRole.switchControl()) }
         if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }

@@ -402,6 +402,14 @@ class UiHost {
                 if ((strlen next) > 0) {
                     focusId = next
                 }
+                ; An activation can take the ground out from under the focus:
+                ; the last page's Next button disables itself the moment it is
+                ; pressed. A browser drops focus from a control that becomes
+                ; disabled, and focus that stays on something unreachable is
+                ; focus a keyboard cannot get back from.
+                if ((c.isFocusable(focusId)) == false) {
+                    focusId = ""
+                }
                 return
             }
         }
@@ -777,17 +785,15 @@ class UiHost {
 
     ; 0 = not applicable → null, 1 = no, 2 = yes, 3 = mixed. `mixed` is a real
     ; ARIA value, not a third boolean, so it travels as a string.
+    ; A header that CAN be sorted but is not says "none"; anything that is not
+    ; a sortable column header says nothing at all. The two are different and
+    ; the DOM makes the same distinction — `aria-sort` is absent on a cell and
+    ; present-and-"none" on an unsorted header — so 0 has to mean "no such
+    ; attribute" and "none" needs a code of its own.
     sfn sortJson:string (v:int) {
-        if (v == 1) {
-            return "\"ascending\""
-        }
-        if (v == 2) {
-            return "\"descending\""
-        }
-        ; A header that can be sorted but is not says "none"; anything that is
-        ; not a column header says nothing at all. The two are different, and
-        ; the DOM makes the same distinction — `aria-sort` is absent on a cell
-        ; and present-and-none on an unsorted header.
+        if (v == 1) { return "\"none\"" }
+        if (v == 2) { return "\"ascending\"" }
+        if (v == 3) { return "\"descending\"" }
         return "null"
     }
 
