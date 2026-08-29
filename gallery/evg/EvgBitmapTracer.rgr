@@ -58,6 +58,13 @@ class EvgBitmapTracer {
     ; boundary rather than noise (buildEdgeMask).
     def edgeMask:[int]
     def detailMask:[int]
+    ; Whether the two masks are in play at all. Both were being re-derived on
+    ; every call — an options lookup and an array_length against width*height —
+    ; and both are asked once per neighbour per pixel per shape, which on a
+    ; photograph is millions of times for an answer that cannot change during a
+    ; trace.
+    def detailOn:boolean false
+    def edgeMaskOn:boolean false
     ; Continuity region id per pixel, -1 = none (buildContourRegions).
     def regionOf:[int]
     def regionCount:int 0
@@ -91,6 +98,7 @@ class EvgBitmapTracer {
         regionOf = ro
         def em:[int]
         edgeMask = em
+        edgeMaskOn = ((options.edgeMinRun) >= 1)
         def ly:[EvgTraceLayer]
         layers = ly
     }
@@ -1379,6 +1387,7 @@ class EvgBitmapTracer {
             i = (i + 1)
         }
         detailMask = dm
+        detailOn = ((options.detailBoost) >= 2)
         def minSwatches:int options.detailSwatches
         if (minSwatches < 2) {
             return
@@ -1394,11 +1403,24 @@ class EvgBitmapTracer {
             push lum (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
             i = (i + 1)
         }
+        ; One slot per swatch, stamped with the window it was last seen in,
+        ; instead of a fresh list per pixel searched linearly. The old form
+        ; allocated an array for every pixel in the image and scanned it once
+        ; per neighbour — a quarter of a million allocations to answer "how many
+        ; different swatches are in this little square".
+        def mark:[int]
+        def mi:int 0
+        def marks:int 256
+        while (mi < marks) {
+            push mark (0 - 1)
+            mi = (mi + 1)
+        }
+        def visit:int 0
         def y:int 0
         while (y < height) {
             def x:int 0
             while (x < width) {
-                def seen:[int]
+                visit = (visit + 1)
                 def distinct:int 0
                 def lo:int 256
                 def hi:int (0 - 1)
@@ -1413,17 +1435,11 @@ class EvgBitmapTracer {
                                 def q:int ((yy * width) + xx)
                                 def lab:int (itemAt labels q)
                                 if (lab >= 0) {
-                                    def known:boolean false
-                                    def si:int 0
-                                    while (si < (array_length seen)) {
-                                        if ((itemAt seen si) == lab) {
-                                            known = true
+                                    if (lab < marks) {
+                                        if ((itemAt mark lab) != visit) {
+                                            set mark lab visit
+                                            distinct = (distinct + 1)
                                         }
-                                        si = (si + 1)
-                                    }
-                                    if (known == false) {
-                                        push seen lab
-                                        distinct = (distinct + 1)
                                     }
                                     def lv:int (itemAt lum q)
                                     if (lv < lo) {
@@ -1485,6 +1501,7 @@ class EvgBitmapTracer {
             gy = (gy + 1)
         }
         detailMask = grown
+        detailOn = ((options.detailBoost) >= 2)
     }
 
     fn buildEdgeMask:void () {
@@ -1501,6 +1518,7 @@ class EvgBitmapTracer {
         }
         if ((options.edgeMinRun) < 1) {
             edgeMask = keep
+            edgeMaskOn = false
             return
         }
         def edgeTol:int options.contourEdge
@@ -1617,13 +1635,17 @@ class EvgBitmapTracer {
     ; True when the step from `a` to `b` should split two regions: big enough,
     ; and landing on a boundary that passed both tests rather than on noise.
     fn isBoundary:boolean (a:int b:int edgeTol:int) {
-        if ((this.pixelDelta(a b)) <= edgeTol) {
+        return (this.isBoundaryOf(a b edgeTol (this.pixelDelta(a b))))
+    }
+
+    ; The same test for a caller that has already measured the step. The growth
+    ; loop had measured it, compared it to the tolerance, and then called in
+    ; here — which measured it again. pixelDelta was a fifth of the trace.
+    fn isBoundaryOf:boolean (a:int b:int edgeTol:int delta:int) {
+        if (delta <= edgeTol) {
             return false
         }
-        if ((array_length edgeMask) != (width * height)) {
-            return true
-        }
-        if ((options.edgeMinRun) < 1) {
+        if (edgeMaskOn == false) {
             return true
         }
         if ((itemAt edgeMask b) == 1) {
@@ -1910,19 +1932,40 @@ class EvgBitmapTracer {
     ; a linear ramp explains it best. Regions are painted largest first, each mask
     ; is grown by a pixel, so the smaller shape laid on top covers the join —
     ; the same reason the swatch layers are stacked rather than butted together.
-    fn traceGradientRegions:void () {
+    fn traceGradientRegions:void (palR:[int] palG:[int] palB:[int]) {
         this.buildContourRegions()
         def floorPx:int options.minRegion
         if (floorPx < 8) {
             floorPx = 8
         }
-        this.absorbTinyRegions(floorPx)
-        ; A photograph can segment into tens of thousands of scraps; each one
-        ; would be its own traced path. Raise the floor until that is sane.
+        ; Absorb until it settles, not once. A pass lets a region below the
+        ; floor join the largest big-enough neighbour it touches — and on a
+        ; photograph a small region's neighbours are mostly small too, so one
+        ; pass moves almost nothing and the floor never bites. Measured before
+        ; this: minRegion from 6 to 4000 moved the region count from 1131 to
+        ; 1052, which is a control that does nothing. Each pass grows the
+        ; survivors, so neighbours that were too small last time are eligible
+        ; this time, and repeating until the count stops falling is what makes
+        ; the number the user set the number they get.
+        def prev:int (regionCount + 1)
         def guard:int 0
+        while ((regionCount < prev) && (guard < 24)) {
+            prev = regionCount
+            this.absorbTinyRegions(floorPx)
+            guard = (guard + 1)
+        }
+        ; A photograph can still segment into tens of thousands of scraps; each
+        ; one would be its own traced path. Raise the floor until that is sane.
+        guard = 0
         while ((regionCount > 2000) && (guard < 8)) {
             floorPx = (floorPx * 2)
-            this.absorbTinyRegions(floorPx)
+            prev = (regionCount + 1)
+            def inner:int 0
+            while ((regionCount < prev) && (inner < 24)) {
+                prev = regionCount
+                this.absorbTinyRegions(floorPx)
+                inner = (inner + 1)
+            }
             guard = (guard + 1)
         }
         def k:int regionCount
@@ -2088,7 +2131,7 @@ class EvgBitmapTracer {
             }
             y = (y + 1)
         }
-        this.emitRegionLayers(k rn rsx rsy sv svv sxv syv la lb lc lok rsd rsdd rsdv tmin tmax dmax ux uy)
+        this.emitRegionLayers(palR palG palB k rn rsx rsy sv svv sxv syv la lb lc lok rsd rsdd rsdv tmin tmax dmax ux uy)
     }
 
     fn planeAt:int (c:int i:int) {
@@ -2104,7 +2147,7 @@ class EvgBitmapTracer {
     ; Pick the model for each region and trace it. Sum of squared error comes
     ; straight out of the sums already gathered, so choosing costs no extra
     ; pass over the pixels.
-    fn emitRegionLayers:void (k:int rn:[double] rsx:[double] rsy:[double] sv:[double] svv:[double] sxv:[double] syv:[double] la:[double] lb:[double] lc:[double] lok:[double] rsd:[double] rsdd:[double] rsdv:[double] tmin:[double] tmax:[double] dmax:[double] ux:[double] uy:[double]) {
+    fn emitRegionLayers:void (palR:[int] palG:[int] palB:[int] k:int rn:[double] rsx:[double] rsy:[double] sv:[double] svv:[double] sxv:[double] syv:[double] la:[double] lb:[double] lc:[double] lok:[double] rsd:[double] rsdd:[double] rsdv:[double] tmin:[double] tmax:[double] dmax:[double] ux:[double] uy:[double]) {
         ; Largest region first: a smaller shape drawn later covers the join.
         def order:[int]
         def i:int 0
@@ -2222,7 +2265,16 @@ class EvgBitmapTracer {
                     def meanR:double ((itemAt sv ((r * 3) + 0)) / cnt)
                     def meanG:double ((itemAt sv ((r * 3) + 1)) / cnt)
                     def meanB:double ((itemAt sv ((r * 3) + 2)) / cnt)
-                    layer.fillHex = (this.hexOf(meanR meanG meanB))
+                    ; Snap the region's own mean onto the palette. It was
+                    ; written out raw, which meant one color per region and a
+                    ; thousand regions: a portrait asked for ten swatches came
+                    ; back with 1128, and nine in ten of those were flat fills —
+                    ; a mosaic, not a gradient render. A gradient's stops stay
+                    ; as measured, because describing a ramp is the whole point
+                    ; of the mode; this is the color the region falls back to,
+                    ; and the color the palette strip reads.
+                    def gi:int (this.nearestIndex((EvgBitmapTracer.clamp255(meanR)) (EvgBitmapTracer.clamp255(meanG)) (EvgBitmapTracer.clamp255(meanB)) palR palG palB))
+                    layer.fillHex = (this.hexFromRgb((itemAt palR gi) (itemAt palG gi) (itemAt palB gi)))
                     layer.fillKind = kind
                     if (kind == "linear") {
                         def t0:double (itemAt tmin r)
@@ -3158,7 +3210,7 @@ class EvgBitmapTracer {
                     layerOpts.opttolerance = options.opttolerance
                     layerOpts.fillHex = (this.hexFromRgb(mr mg mb))
                     def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm layerOpts))
-                    sub.trace()
+                        sub.trace()
                     if ((sub.ringCount()) > 0) {
                         def cmds:[PathCommand] (sub.getCommands())
                         def ox:double (to_double bx0)
@@ -3196,10 +3248,7 @@ class EvgBitmapTracer {
 
     ; True where the picture asks for fine work — see buildDetailMask.
     fn isDetail:boolean (i:int) {
-        if ((options.detailBoost) < 2) {
-            return false
-        }
-        if ((array_length detailMask) != (width * height)) {
+        if (detailOn == false) {
             return false
         }
         return ((itemAt detailMask i) == 1)
@@ -3301,7 +3350,7 @@ class EvgBitmapTracer {
             ; only hand the region a color it cannot describe — but it earns a
             ; new shape only when it is a boundary rather than a speck. That is
             ; the difference between finding edges and finding noise.
-            if (this.isBoundary(from i edgeTol)) {
+            if (this.isBoundaryOf(from i edgeTol step)) {
                 this.pushSeed(i step bucket seedPixel seedNext seedBest)
                 this.pushSeed(from step bucket seedPixel seedNext seedBest)
             }
@@ -3688,7 +3737,7 @@ class EvgBitmapTracer {
             return
         }
         if options.gradientFill {
-            this.traceGradientRegions()
+            this.traceGradientRegions(palR palG palB)
             return
         }
         def allCmds:[PathCommand]

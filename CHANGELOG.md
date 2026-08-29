@@ -263,6 +263,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gradient fill: the palette ran away, the smallest-area control did nothing,
+  and gradients barely appeared.** Three complaints, and measuring them found
+  two causes that between them explain all three.
+
+  Every region was painted `hexOf(mean)` — its own measured average, never
+  quantized. A portrait asked for ten swatches came back with **1128 distinct
+  fills**, one per region. The mean is snapped onto the palette now; a
+  gradient's *stops* stay as measured, since describing a ramp is the whole
+  point of the mode, but the color a region falls back to — and the color the
+  palette strip reads — is a swatch. **1128 → 10.**
+
+  And absorbing small regions ran a single pass, in which a region below the
+  floor may only join a neighbour that is already big enough. On a photograph a
+  small region's neighbours are small too, so almost nothing moved: `minRegion`
+  from **6 to 4000** shifted the region count from **1131 to 1052**, a control
+  that does nothing. It now repeats until the count stops falling — each pass
+  grows the survivors, so neighbours that were too small last time are eligible
+  this time.
+
+  That second fix is what makes gradients visible, which was the third
+  complaint. The mode was drowning in tiny flat scraps: 108 gradients among
+  1131 layers, **9.5%**. At the default it is now 106 among 568 (**19%**), and
+  at `minRegion` 200 it is **47 among 79 — 59%** — with the SVG down from 419 KB
+  to 120 KB. The control that does the work is the smallest area, and it works
+  now: 1131 → 568 → 117 → 79 → 20 → 7 layers across its range.
+
+- **The status line went on describing the file the tracer produced while you
+  edited a different one.** It quotes a shape count and a byte count, both of
+  which an edit changes — splitting the layers on entering edit mode alone takes
+  a portrait from 8 shapes to 424 and adds 19 KB — and neither was refreshed
+  again. The line is now in two halves: what the trace did (size, time, unused
+  swatches, whether a background was found) stays put, and what the drawing *is*
+  is re-read from the SVG on screen after every edit. Debounced, because the
+  smoothing brush reports on every dab and serializing half a megabyte a hundred
+  times a second would be worse than a stale number. The smoke test compares
+  what the line says against the live document.
+
+- **Redundant work removed from the overlay algorithm's inner loop**, from a
+  profile of a photograph. Three things were being paid for repeatedly and are
+  not any more: `isDetail` and `isBoundary` each re-derived whether their mask
+  was in play at all — an options lookup and an `array_length` against
+  `width * height` — on every call, which is once per neighbour per pixel per
+  shape for an answer that cannot change during a trace; the growth loop
+  measured the step between two pixels, compared it to the tolerance, and then
+  called `isBoundary`, which measured the same step again; and `buildDetailMask`
+  allocated a list per pixel and searched it linearly to count how many swatches
+  sat in a small window, a quarter of a million allocations for a question a
+  256-slot table stamped with the window number answers directly.
+
+  Honest about the size of it: **3503 ms → 3396 ms** over three 640-pixel images,
+  about 3%, with identical output (same shapes, same colors). The profile
+  afterwards is flat — no line above 10% — so the remaining time is the
+  algorithm's own work rather than waste. One further 8% sits in copying a
+  bitmap per emitted shape that the sub-tracer owns outright and could consume
+  in place; Ranger's optionality rules will not pass the field as a value or an
+  argument, and it was left alone rather than worked around.
+
 - **The overlay algorithm still picked an enormous number of colors**, reported
   from the page with a palette strip hundreds of squares long. Two separate
   causes, and the strip was the louder of them: it drew **one swatch per layer**,
