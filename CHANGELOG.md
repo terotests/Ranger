@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stacked overlay shapes, so a shape swallowed by a leak comes back** (`contourMode: "overlay"`, off by default) — the idea, and the diagnosis behind it, came from the report. The partitioning flood has one fatal weakness: a boundary only has to fade for a few pixels somewhere along its length, and the surface walks through that gap and takes everything behind it. Measured on a ramp with an inset block, `smooth` loses the block completely — the color inside it and outside it come out **identical**, a difference of 0.
+
+  Stacking removes the consequence instead of chasing the cause. A surface is grown to its end and keeps whatever it took; every edge it ran into becomes a seed for a shape started on the far side and drawn *on top*. An overlay may cover ground already claimed, so a leak costs nothing — the shape is simply painted again from above. It stops at an edge, and also where it has become indistinguishable from what is under it (`overlaySimilar`), so an overlay only exists where it shows. The block comes back: a difference of **21**, against 0.
+
+  It wants `gradientFill` on with it, and the reason is worth recording. The similarity stop asks whether an overlay would show against what is beneath. Against a flat mean the answer is yes everywhere a ramp leaves that mean, so every gradient shatters into bands — 18 shapes and 42 KB on a test image. Painting each shape's *fitted model* into the map instead, the question becomes "is the model wrong here", and the same image comes back as **9 shapes and 22 KB** with the highlight in the middle of the tube where it belongs. The two features are one idea in two halves.
+
+  Both stay off by default and `gradientGain` is the restraint on the second: a fitted gradient replaces a flat fill only when it explains at least that much more of the region, and at 100 nothing can out-argue flat.
+
+### Added
+
 - **Linear and radial gradient fills, chosen per region** (`gradientFill`, off by default) — asked for after the banding work: a ramp is *really* a gradient, and a flat fill is only the second-best answer. Each continuity region is now fitted with three models — one flat color, a linear ramp and a radial one — and keeps whichever leaves the least squared error, with `gradientGain` refusing a gradient that does not explain meaningfully more than flat. Measured before writing any of it: on a portrait the weighted mean absolute error is flat 8.95, linear 5.43, radial 8.71; on a sky-and-tube image it is flat 12.40, linear 4.47, radial 9.09 — **and best-of-both 1.82**. Neither model wins alone, which is the case for choosing per region: the tube is lit down its middle and is radial (4.90) where a linear fit is worse than useless (12.97).
 
   It reproduces a synthetic sky-and-tube almost exactly, in **1114 bytes against 4754** for the flat version, and the emitted stops are the source colors to the level: a 30 → 124 ramp comes out `#1E1E1E` → `#7C7C7C`. Coefficients come from the normal equations by Cramer's rule; the gradient's axis is the direction *luma* runs along, since the three channels each have their own slope and SVG has one axis.

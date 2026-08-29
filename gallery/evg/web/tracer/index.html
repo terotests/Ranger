@@ -231,12 +231,17 @@
           <select id="contourMode">
             <option value="off" selected>pois</option>
             <option value="smooth">jatkuvuus — vältä valereunoja</option>
+            <option value="overlay">päällekkäiset muodot (kokeellinen)</option>
           </select>
           <span class="hint">Lukee pienet muutokset jatkuvina ja suuret katkoksina: liukuväri ei saa keinotekoista raitaa, mutta aito jyrkkä reuna säilyy. Kokeellinen — voi myös sulauttaa pehmeäreunaisen kohteen taustaansa.</span>
         </label>
         <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
           <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
           <span class="hint">Tätä pienempi askel naapuriin luetaan jatkuvaksi. Nosta varovasti: 10 riitti jo sulauttamaan pehmeäreunaisen putken taustaan testikuvassa.</span>
+        </label>
+        <label class="row color-only hidden" id="row-oSim">Samankaltaisuuden raja <span class="val" id="v-overlaySimilar">8</span>
+          <input id="overlaySimilar" type="range" min="1" max="40" step="1" value="8">
+          <span class="hint">Vain päällekkäisissä muodoissa: uusi muoto pysähtyy myös silloin kun se on jo tämän verran samanlainen kuin alla oleva pinta — se ei siis piirry jos se ei näy. Kannattaa käyttää yhdessä gradienttitäyttöjen kanssa, muuten liukuväri pilkkoutuu kaistoiksi.</span>
         </label>
         <label class="row color-only hidden" id="row-cSpread">Alueen hajonta <span class="val" id="v-contourSpread">48</span>
           <input id="contourSpread" type="range" min="8" max="160" step="4" value="48">
@@ -347,6 +352,7 @@
   var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
+  var overlaySimilar = $("overlaySimilar");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -388,6 +394,7 @@
   bindRange(contourEdge, $("v-contourEdge"));
   bindRange(contourSpread, $("v-contourSpread"));
   bindRange(gradientGain, $("v-gradientGain"));
+  bindRange(overlaySimilar, $("v-overlaySimilar"));
 
   function syncChecker() {
     [srcStage, outStage].forEach(function (el) {
@@ -492,7 +499,8 @@
     $("row-bgColor").classList.toggle("hidden", !color || bgMode.value !== "color");
     var floods = bgMode.value === "auto" || bgMode.value === "color";
     $("row-bgTol").classList.toggle("hidden", !color || !floods);
-    var cont = contourMode.value === "smooth";
+    var cont = contourMode.value !== "off";
+    $("row-oSim").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-cEdge").classList.toggle("hidden", !color || !cont);
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
     gradientFill.closest("label").classList.toggle("hidden", !color);
@@ -666,6 +674,7 @@
         opts.contourSpread = +contourSpread.value;
         opts.gradientFill = !!gradientFill.checked;
         opts.gradientGain = +gradientGain.value;
+        opts.overlaySimilar = +overlaySimilar.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();

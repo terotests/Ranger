@@ -38,6 +38,7 @@ class EvgBitmapTracerTest {
         test.testNamedBackgroundColor(t)
         test.testContourSmoothing(t)
         test.testGradientFills(t)
+        test.testOverlayRecoversASwallowedShape(t)
         t.summary()
     }
 
@@ -1012,5 +1013,72 @@ class EvgBitmapTracerTest {
         flatTr.trace()
         t.eqInt("nothing but flat fills when it is off" (this.countKind(flatTr "flat")) (flatTr.layerCount()))
         t.ok("and no defs block" ((indexOf (flatTr.toSVG()) "<defs>") < 0))
+    }
+
+    ; A ramp with a block sitting on it whose own tone ramps too, so the
+    ; contrast between them passes through zero somewhere along the boundary.
+    ; A partitioning flood walks through that one weak spot and the block is
+    ; gone — it is inside the surface now, and nothing later can tell.
+    fn makeVanishingBoundary:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(120 80)
+        def y:int 0
+        while (y < 80) {
+            def x:int 0
+            while (x < 120) {
+                def v:int (150 + (idiv (x * 60) 120))
+                if ((y >= 24) && (y < 56) && (x >= 32) && (x < 88)) {
+                    v = (v + (idiv ((x - 60) * 9) 10))
+                }
+                img.setPixelRGB(x y v v v)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn traceVanishing:EvgBitmapTracer (mode:string grad:boolean gain:int) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 6
+        opts.bgMode = "none"
+        opts.minRegion = 20
+        opts.contourMode = mode
+        opts.gradientFill = grad
+        opts.gradientGain = gain
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeVanishingBoundary()) opts))
+        tr.trace()
+        return tr
+    }
+
+    fn testOverlayRecoversASwallowedShape:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.ok("overlay is not the default" ((d.contourMode) != "overlay"))
+        t.eqInt("the similarity stop has a default" (d.overlaySimilar) 8)
+
+        def smooth:EvgBitmapTracer (this.traceVanishing("smooth" false 15))
+        def overlay:EvgBitmapTracer (this.traceVanishing("overlay" true 15))
+        ; Partitioned, the block is swallowed and the picture collapses to the
+        ; surface that ate it. Stacked, it is drawn again on top.
+        t.ok("the block is lost when the shapes partition" ((smooth.layerCount()) <= 2))
+        t.ok("and comes back when they stack" ((overlay.layerCount()) > (smooth.layerCount())))
+
+        ; Every shape has its own fill, or the stack says nothing.
+        def a:EvgTraceLayer (itemAt overlay.layers 0)
+        def b:EvgTraceLayer (itemAt overlay.layers 1)
+        t.ok("stacked shapes differ from one another" ((a.fillHex) != (b.fillHex)))
+
+        ; gradientGain is the restraint: at 100% nothing can out-argue flat.
+        def strict:EvgBitmapTracer (this.traceVanishing("overlay" true 100))
+        def i:int 0
+        def shaped:int 0
+        while (i < (strict.layerCount())) {
+            def layer:EvgTraceLayer (itemAt strict.layers i)
+            if ((layer.fillKind) != "flat") {
+                shaped = (shaped + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("a gain of 100 leaves every fill flat" shaped 0)
     }
 }

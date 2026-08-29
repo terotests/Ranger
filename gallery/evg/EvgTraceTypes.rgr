@@ -138,10 +138,23 @@ class EvgTraceOptions {
     ;              contourEdge, then give the whole region the one swatch
     ;              nearest its mean. A ramp becomes one region and loses its
     ;              false contour; a step larger than contourEdge still splits.
+    ;   "overlay" — the same growth, but the shapes are stacked instead of
+    ;              partitioned. A surface is finished to its end; every edge it
+    ;              ran into becomes a seed for a shape started on the far side
+    ;              and drawn ON TOP of it. An overlay may cover ground the
+    ;              surface below already claimed, so a boundary that fades for
+    ;              a few pixels — which lets the flood leak and swallow the
+    ;              shape behind it — is no longer a lost shape: it is repainted
+    ;              from above. It stops at an edge, and it also stops where it
+    ;              has become indistinguishable from what is under it, so an
+    ;              overlay only exists where it shows.
     ; Off by default because it is a real segmentation, and segmentation has
     ; failure modes: where two areas are joined by a gradual path it will merge
     ; them, and that mistake is a large one.
     def contourMode:string "off"
+    ; "overlay": how close to the color already painted underneath is close
+    ; enough to stop. An overlay that matches its background adds nothing.
+    def overlaySimilar:int 8
     ; Largest per-channel step still counted as continuous. Small on purpose:
     ; at 10 a soft-edged object merges into the field behind it.
     def contourEdge:int 3

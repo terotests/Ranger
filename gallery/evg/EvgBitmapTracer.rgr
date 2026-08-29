@@ -1932,6 +1932,469 @@ class EvgBitmapTracer {
         return bm
     }
 
+    ; ----------------------------------------------------------------------
+    ; Overlay shapes (contourMode "overlay")
+    ;
+    ; The partition's weakness is that one weak pixel on a boundary lets the
+    ; flood through, and the shape behind it is gone for good. Stacking removes
+    ; the consequence rather than the cause: the surface below keeps whatever it
+    ; took, and the shape it swallowed is drawn again on top of it.
+    ; ----------------------------------------------------------------------
+
+    ; Is this pixel already covered by something it would not be told apart
+    ; from? Then an overlay has no reason to reach it.
+    fn coveredAlready:boolean (i:int paintR:[int] paintG:[int] paintB:[int] painted:[int] tol:int) {
+        if ((itemAt painted i) == 0) {
+            return false
+        }
+        def d:int (EvgBitmapTracer.absI((itemAt planeR i) - (itemAt paintR i)))
+        def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - (itemAt paintG i)))
+        if (dg > d) {
+            d = dg
+        }
+        def db:int (EvgBitmapTracer.absI((itemAt planeB i) - (itemAt paintB i)))
+        if (db > d) {
+            d = db
+        }
+        return (d <= tol)
+    }
+
+    ; Fit one shape's pixel list with flat / linear / radial, describe the
+    ; winner on the layer, and write what the model *predicts* into the paint
+    ; map. That last part is the whole reason the two features belong together:
+    ; the similarity stop asks "does an overlay show against what is under it",
+    ; and against a flat mean the answer is yes everywhere a ramp leaves the
+    ; mean — so every gradient shatters into bands. Against the model, it is
+    ; only yes where the model is actually wrong.
+    fn fitAndPaintShape:void (comp:[int] layer:EvgTraceLayer paintR:[int] paintG:[int] paintB:[int]) {
+        def n:int (array_length comp)
+        if (n == 0) {
+            return
+        }
+        def cnt:double (to_double n)
+        def sx:double 0.0
+        def sy:double 0.0
+        def sxx:double 0.0
+        def syy:double 0.0
+        def sxy:double 0.0
+        def sv:[double]
+        def sxv:[double]
+        def syv:[double]
+        def svv:[double]
+        def c:int 0
+        while (c < 3) {
+            push sv 0.0
+            push sxv 0.0
+            push syv 0.0
+            push svv 0.0
+            c = (c + 1)
+        }
+        def i:int 0
+        while (i < n) {
+            def idx:int (itemAt comp i)
+            def yy:int (idiv idx width)
+            def dx:double (to_double (idx - (yy * width)))
+            def dy:double (to_double yy)
+            sx = (sx + dx)
+            sy = (sy + dy)
+            sxx = (sxx + (dx * dx))
+            syy = (syy + (dy * dy))
+            sxy = (sxy + (dx * dy))
+            c = 0
+            while (c < 3) {
+                def v:double (to_double (this.planeAt(c idx)))
+                set sv c ((itemAt sv c) + v)
+                set sxv c ((itemAt sxv c) + (dx * v))
+                set syv c ((itemAt syv c) + (dy * v))
+                set svv c ((itemAt svv c) + (v * v))
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        def mx:double (sx / cnt)
+        def my:double (sy / cnt)
+        ; Radial sums need the centroid, so they take a second look at the list.
+        def sd:double 0.0
+        def sdd:double 0.0
+        def sdv:[double]
+        def dmax:double 0.0
+        def ci:int 0
+        while (ci < 3) {
+            push sdv 0.0
+            ci = (ci + 1)
+        }
+        i = 0
+        while (i < n) {
+            def q:int (itemAt comp i)
+            def qy:int (idiv q width)
+            def ddx:double ((to_double (q - (qy * width))) - mx)
+            def ddy:double ((to_double qy) - my)
+            def dist:double (sqrt ((ddx * ddx) + (ddy * ddy)))
+            sd = (sd + dist)
+            sdd = (sdd + (dist * dist))
+            if (dist > dmax) {
+                dmax = dist
+            }
+            ci = 0
+            while (ci < 3) {
+                set sdv ci ((itemAt sdv ci) + (dist * (to_double (this.planeAt(ci q)))))
+                ci = (ci + 1)
+            }
+            i = (i + 1)
+        }
+        def la:[double]
+        def lb:[double]
+        def lc:[double]
+        def ra:[double]
+        def rb:[double]
+        def eFlat:double 0.0
+        def eLin:double 0.0
+        def eRad:double 0.0
+        def rden:double ((cnt * sdd) - (sd * sd))
+        def sol:[double]
+        push sol 0.0
+        push sol 0.0
+        push sol 0.0
+        push sol 0.0
+        c = 0
+        while (c < 3) {
+            def s1:double (itemAt sv c)
+            eFlat = (eFlat + ((itemAt svv c) - ((s1 * s1) / cnt)))
+            EvgBitmapTracer.solveLinear(cnt sx sy sxx sxy syy s1 (itemAt sxv c) (itemAt syv c) sol)
+            if ((itemAt sol 0) > 0.5) {
+                push la (itemAt sol 1)
+                push lb (itemAt sol 2)
+                push lc (itemAt sol 3)
+                eLin = (eLin + ((itemAt svv c) - ((((itemAt sol 1) * s1) + ((itemAt sol 2) * (itemAt sxv c))) + ((itemAt sol 3) * (itemAt syv c)))))
+            } {
+                push la (s1 / cnt)
+                push lb 0.0
+                push lc 0.0
+                eLin = (eLin + 1000000000.0)
+            }
+            if ((EvgBitmapTracer.absD(rden)) > 0.000001) {
+                def bb:double (((cnt * (itemAt sdv c)) - (sd * s1)) / rden)
+                def aa:double ((s1 - (bb * sd)) / cnt)
+                push ra aa
+                push rb bb
+                eRad = (eRad + ((itemAt svv c) - ((aa * s1) + (bb * (itemAt sdv c)))))
+            } {
+                push ra (s1 / cnt)
+                push rb 0.0
+                eRad = (eRad + 1000000000.0)
+            }
+            c = (c + 1)
+        }
+        if (eFlat < 0.0) {
+            eFlat = 0.0
+        }
+        if ((eLin < 0.0) || (cnt < 64.0)) {
+            eLin = 1000000000.0
+        }
+        if ((eRad < 0.0) || (cnt < 64.0) || (dmax < 2.0)) {
+            eRad = 1000000000.0
+        }
+        def gain:double ((to_double options.gradientGain) / 100.0)
+        def best:double eFlat
+        def useLin:boolean false
+        def useRad:boolean false
+        if (eLin < best) {
+            best = eLin
+            useLin = true
+            useRad = false
+        }
+        if (eRad < best) {
+            best = eRad
+            useRad = true
+            useLin = false
+        }
+        if ((eFlat - best) < (eFlat * gain)) {
+            useLin = false
+            useRad = false
+        }
+        if (eFlat < (cnt * 3.0)) {
+            useLin = false
+            useRad = false
+        }
+        def mR:int (EvgBitmapTracer.clamp255((itemAt sv 0) / cnt))
+        def mG:int (EvgBitmapTracer.clamp255((itemAt sv 1) / cnt))
+        def mB:int (EvgBitmapTracer.clamp255((itemAt sv 2) / cnt))
+        layer.fillHex = (this.hexFromRgb(mR mG mB))
+        if (useRad) {
+            layer.fillKind = "radial"
+            layer.gx0 = mx
+            layer.gy0 = my
+            layer.gr = dmax
+            layer.stopA = (this.hexOf((itemAt ra 0) (itemAt ra 1) (itemAt ra 2)))
+            layer.stopB = (this.hexOf(((itemAt ra 0) + ((itemAt rb 0) * dmax)) ((itemAt ra 1) + ((itemAt rb 1) * dmax)) ((itemAt ra 2) + ((itemAt rb 2) * dmax))))
+            i = 0
+            while (i < n) {
+                def p3:int (itemAt comp i)
+                def y3:int (idiv p3 width)
+                def ex:double ((to_double (p3 - (y3 * width))) - mx)
+                def ey:double ((to_double y3) - my)
+                def dd:double (sqrt ((ex * ex) + (ey * ey)))
+                set paintR p3 (EvgBitmapTracer.clamp255((itemAt ra 0) + ((itemAt rb 0) * dd)))
+                set paintG p3 (EvgBitmapTracer.clamp255((itemAt ra 1) + ((itemAt rb 1) * dd)))
+                set paintB p3 (EvgBitmapTracer.clamp255((itemAt ra 2) + ((itemAt rb 2) * dd)))
+                i = (i + 1)
+            }
+            return
+        }
+        if (useLin == false) {
+            layer.fillKind = "flat"
+            i = 0
+            while (i < n) {
+                def p0:int (itemAt comp i)
+                set paintR p0 mR
+                set paintG p0 mG
+                set paintB p0 mB
+                i = (i + 1)
+            }
+            return
+        }
+        ; The axis is the direction luma runs along; the extent comes from the
+        ; shape's own pixels projected onto it.
+        def bl:double (((0.299 * (itemAt lb 0)) + (0.587 * (itemAt lb 1))) + (0.114 * (itemAt lb 2)))
+        def cl:double (((0.299 * (itemAt lc 0)) + (0.587 * (itemAt lc 1))) + (0.114 * (itemAt lc 2)))
+        def mag:double (sqrt ((bl * bl) + (cl * cl)))
+        def ux:double 1.0
+        def uy:double 0.0
+        if (mag > 0.000001) {
+            ux = (bl / mag)
+            uy = (cl / mag)
+        }
+        def tmin:double 1000000.0
+        def tmax:double (0.0 - 1000000.0)
+        i = 0
+        while (i < n) {
+            def p1:int (itemAt comp i)
+            def y1:int (idiv p1 width)
+            def t:double ((((to_double (p1 - (y1 * width))) - mx) * ux) + (((to_double y1) - my) * uy))
+            if (t < tmin) {
+                tmin = t
+            }
+            if (t > tmax) {
+                tmax = t
+            }
+            ; Paint the prediction, clamped, so the similarity test below sees
+            ; the ramp this shape actually describes.
+            set paintR p1 (EvgBitmapTracer.clamp255((this.linAt(la lb lc 0 0 (to_double (p1 - (y1 * width))) (to_double y1))))) 
+            set paintG p1 (EvgBitmapTracer.clamp255((this.linAt(la lb lc 0 1 (to_double (p1 - (y1 * width))) (to_double y1)))))
+            set paintB p1 (EvgBitmapTracer.clamp255((this.linAt(la lb lc 0 2 (to_double (p1 - (y1 * width))) (to_double y1)))))
+            i = (i + 1)
+        }
+        if ((tmax - tmin) < 2.0) {
+            layer.fillKind = "flat"
+            return
+        }
+        layer.fillKind = "linear"
+        layer.gx0 = (mx + (ux * tmin))
+        layer.gy0 = (my + (uy * tmin))
+        layer.gx1 = (mx + (ux * tmax))
+        layer.gy1 = (my + (uy * tmax))
+        layer.stopA = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx0 layer.gy0)) (this.linAt(la lb lc 0 1 layer.gx0 layer.gy0)) (this.linAt(la lb lc 0 2 layer.gx0 layer.gy0))))
+        layer.stopB = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 2 layer.gx1 layer.gy1))))
+    }
+
+    fn traceOverlayShapes:void () {
+        def n:int (width * height)
+        def edgeTol:int options.contourEdge
+        if (edgeTol < 1) {
+            edgeTol = 1
+        }
+        def spread:int options.contourSpread
+        if (spread < 1) {
+            spread = 1
+        }
+        def simTol:int options.overlaySimilar
+        def minPx:int options.minRegion
+        if (minPx < 4) {
+            minPx = 4
+        }
+        def paintR:[int]
+        def paintG:[int]
+        def paintB:[int]
+        def painted:[int]
+        def stamp:[int]
+        def i:int 0
+        while (i < n) {
+            push paintR 0
+            push paintG 0
+            push paintB 0
+            push painted 0
+            push stamp (0 - 1)
+            i = (i + 1)
+        }
+        def seeds:[int]
+        i = 0
+        while (i < n) {
+            if ((itemAt labels i) >= 0) {
+                push seeds i
+                i = n
+            }
+            i = (i + 1)
+        }
+        def allCmds:[PathCommand]
+        def head:int 0
+        def shapeNo:int 0
+        def sweepFrom:int 0
+        while (shapeNo < 3000) {
+            ; Take the next seed; when they run out, sweep for anything still
+            ; unpainted so nothing is left as a hole.
+            def seed:int (0 - 1)
+            while ((head < (array_length seeds)) && (seed < 0)) {
+                def cand:int (itemAt seeds head)
+                head = (head + 1)
+                if ((itemAt labels cand) >= 0) {
+                    if ((this.coveredAlready(cand paintR paintG paintB painted simTol)) == false) {
+                        seed = cand
+                    }
+                }
+            }
+            if (seed < 0) {
+                while ((sweepFrom < n) && (seed < 0)) {
+                    if (((itemAt labels sweepFrom) >= 0) && ((itemAt painted sweepFrom) == 0)) {
+                        seed = sweepFrom
+                    }
+                    sweepFrom = (sweepFrom + 1)
+                }
+            }
+            if (seed < 0) {
+                shapeNo = 3000
+            } {
+                ; --- grow one surface to its end ---
+                def comp:[int]
+                def stack:[int]
+                def acc:[int]
+                push acc (itemAt planeR seed)
+                push acc (itemAt planeG seed)
+                push acc (itemAt planeB seed)
+                push acc 1
+                set stamp seed shapeNo
+                push stack seed
+                def h2:int 0
+                while (h2 < (array_length stack)) {
+                    def cur:int (itemAt stack h2)
+                    h2 = (h2 + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.overlayStep((cur - 1) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                    if (cx < (width - 1)) {
+                        this.overlayStep((cur + 1) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                    if (cy > 0) {
+                        this.overlayStep((cur - width) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                    if (cy < (height - 1)) {
+                        this.overlayStep((cur + width) cur stamp stack acc seeds shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                }
+                def cnt:int (itemAt acc 3)
+                def mr:int (idiv (itemAt acc 0) cnt)
+                def mg:int (idiv (itemAt acc 1) cnt)
+                def mb:int (idiv (itemAt acc 2) cnt)
+                ; Every shape marks its ground, whatever its size — a scrap too
+                ; small to be worth its own path still has to stop later shapes
+                ; from growing over it again.
+                def c:int 0
+                while (c < (array_length comp)) {
+                    def px:int (itemAt comp c)
+                    set paintR px mr
+                    set paintG px mg
+                    set paintB px mb
+                    set painted px 1
+                    c = (c + 1)
+                }
+                if ((array_length comp) >= minPx) {
+                    def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+                    c = 0
+                    while (c < (array_length comp)) {
+                        def p2:int (itemAt comp c)
+                        def yy:int (idiv p2 width)
+                        bm.setBit((p2 - (yy * width)) yy true)
+                        c = (c + 1)
+                    }
+                    def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+                    layerOpts.turdsize = options.turdsize
+                    layerOpts.alphamax = options.alphamax
+                    layerOpts.turnpolicy = options.turnpolicy
+                    layerOpts.optcurve = options.optcurve
+                    layerOpts.opttolerance = options.opttolerance
+                    layerOpts.fillHex = (this.hexFromRgb(mr mg mb))
+                    def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm layerOpts))
+                    sub.trace()
+                    if ((sub.ringCount()) > 0) {
+                        def layer:EvgTraceLayer (itemAt sub.layers 0)
+                        if options.gradientFill {
+                            this.fitAndPaintShape(comp layer paintR paintG paintB)
+                        }
+                        push layers layer
+                        def cmds:[PathCommand] (sub.getCommands())
+                        def ci:int 0
+                        while (ci < (array_length cmds)) {
+                            push allCmds (itemAt cmds ci)
+                            ci = (ci + 1)
+                        }
+                        rings = sub.rings
+                    }
+                }
+                shapeNo = (shapeNo + 1)
+            }
+        }
+        commands = allCmds
+        if ((array_length layers) > 0) {
+            def first:EvgTraceLayer (itemAt layers 0)
+            pathData = first.pathData
+        }
+    }
+
+    ; One step of an overlay's growth. Three things stop it: an edge, drifting
+    ; too far from its own mean, and arriving somewhere it would look the same
+    ; as what is already painted. An edge is not just a stop — it is where the
+    ; next shape begins, on the far side and above.
+    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] seeds:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
+        if ((itemAt stamp i) == shapeNo) {
+            return
+        }
+        if ((itemAt labels i) < 0) {
+            return
+        }
+        if ((this.pixelDelta(from i)) > edgeTol) {
+            ; The far side of an edge is a shape of its own, drawn over this one.
+            push seeds i
+            return
+        }
+        if (this.coveredAlready(i paintR paintG paintB painted simTol)) {
+            return
+        }
+        def cnt:int (itemAt acc 3)
+        def mr:int (idiv (itemAt acc 0) cnt)
+        def mg:int (idiv (itemAt acc 1) cnt)
+        def mb:int (idiv (itemAt acc 2) cnt)
+        def d:int (EvgBitmapTracer.absI((itemAt planeR i) - mr))
+        def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - mg))
+        if (dg > d) {
+            d = dg
+        }
+        def db:int (EvgBitmapTracer.absI((itemAt planeB i) - mb))
+        if (db > d) {
+            d = db
+        }
+        if (d > spread) {
+            return
+        }
+        set stamp i shapeNo
+        push stack i
+        set acc 0 ((itemAt acc 0) + (itemAt planeR i))
+        set acc 1 ((itemAt acc 1) + (itemAt planeG i))
+        set acc 2 ((itemAt acc 2) + (itemAt planeB i))
+        set acc 3 (cnt + 1)
+    }
+
     ; Absorb connected runs below options.minRegion into the region that
     ; surrounds them. turdsize would otherwise drop those rings outright, which
     ; is why the painted area used to shrink every time colorCount went up.
@@ -2237,6 +2700,12 @@ class EvgBitmapTracer {
             return
         }
         this.assignLabels(palR palG palB)
+        ; Overlay shapes carry their own fits, so it takes precedence when both
+        ; are asked for — the two compose rather than compete.
+        if ((options.contourMode) == "overlay") {
+            this.traceOverlayShapes()
+            return
+        }
         if options.gradientFill {
             this.traceGradientRegions()
             return

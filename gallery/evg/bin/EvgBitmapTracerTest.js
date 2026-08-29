@@ -70,6 +70,7 @@ class EvgTraceOptions  {
     this.paletteBias = "area";
     this.minColorDelta = 10;
     this.contourMode = "off";
+    this.overlaySimilar = 8;
     this.contourEdge = 3;
     this.contourSpread = 48;
     this.gradientFill = false;
@@ -7156,6 +7157,431 @@ class EvgBitmapTracer  {
     };
     return bm;
   };
+  coveredAlready (i, paintR, paintG, paintB, painted, tol) {
+    if ( (painted[i]) == 0 ) {
+      return false;
+    }
+    let d = EvgBitmapTracer.absI(((this.planeR[i]) - (paintR[i])));
+    const dg = EvgBitmapTracer.absI(((this.planeG[i]) - (paintG[i])));
+    if ( dg > d ) {
+      d = dg;
+    }
+    const db = EvgBitmapTracer.absI(((this.planeB[i]) - (paintB[i])));
+    if ( db > d ) {
+      d = db;
+    }
+    return d <= tol;
+  };
+  fitAndPaintShape (comp, layer, paintR, paintG, paintB) {
+    const n = comp.length;
+    if ( n == 0 ) {
+      return;
+    }
+    const cnt = n;
+    let sx = 0.0;
+    let sy = 0.0;
+    let sxx = 0.0;
+    let syy = 0.0;
+    let sxy = 0.0;
+    let sv = [];
+    let sxv = [];
+    let syv = [];
+    let svv = [];
+    let c = 0;
+    while (c < 3) {
+      sv.push(0.0);
+      sxv.push(0.0);
+      syv.push(0.0);
+      svv.push(0.0);
+      c = c + 1;
+    };
+    let i = 0;
+    while (i < n) {
+      const idx = comp[i];
+      const yy = ((idx / this.width) | 0);
+      const dx = (idx - (yy * this.width));
+      const dy = yy;
+      sx = sx + dx;
+      sy = sy + dy;
+      sxx = sxx + (dx * dx);
+      syy = syy + (dy * dy);
+      sxy = sxy + (dx * dy);
+      c = 0;
+      while (c < 3) {
+        const v = this.planeAt(c, idx);
+        sv[c] = (sv[c]) + v;
+        sxv[c] = (sxv[c]) + (dx * v);
+        syv[c] = (syv[c]) + (dy * v);
+        svv[c] = (svv[c]) + (v * v);
+        c = c + 1;
+      };
+      i = i + 1;
+    };
+    const mx = sx / cnt;
+    const my = sy / cnt;
+    let sd = 0.0;
+    let sdd = 0.0;
+    let sdv = [];
+    let dmax = 0.0;
+    let ci = 0;
+    while (ci < 3) {
+      sdv.push(0.0);
+      ci = ci + 1;
+    };
+    i = 0;
+    while (i < n) {
+      const q = comp[i];
+      const qy = ((q / this.width) | 0);
+      const ddx = ((q - (qy * this.width))) - mx;
+      const ddy = (qy) - my;
+      const dist = Math.sqrt(((ddx * ddx) + (ddy * ddy)));
+      sd = sd + dist;
+      sdd = sdd + (dist * dist);
+      if ( dist > dmax ) {
+        dmax = dist;
+      }
+      ci = 0;
+      while (ci < 3) {
+        sdv[ci] = (sdv[ci]) + (dist * (this.planeAt(ci, q)));
+        ci = ci + 1;
+      };
+      i = i + 1;
+    };
+    let la = [];
+    let lb = [];
+    let lc = [];
+    let ra = [];
+    let rb = [];
+    let eFlat = 0.0;
+    let eLin = 0.0;
+    let eRad = 0.0;
+    const rden = (cnt * sdd) - (sd * sd);
+    let sol = [];
+    sol.push(0.0);
+    sol.push(0.0);
+    sol.push(0.0);
+    sol.push(0.0);
+    c = 0;
+    while (c < 3) {
+      const s1 = sv[c];
+      eFlat = eFlat + ((svv[c]) - ((s1 * s1) / cnt));
+      EvgBitmapTracer.solveLinear(cnt, sx, sy, sxx, sxy, syy, s1, sxv[c], syv[c], sol);
+      if ( (sol[0]) > 0.5 ) {
+        la.push(sol[1]);
+        lb.push(sol[2]);
+        lc.push(sol[3]);
+        eLin = eLin + ((svv[c]) - ((((sol[1]) * s1) + ((sol[2]) * (sxv[c]))) + ((sol[3]) * (syv[c]))));
+      } else {
+        la.push(s1 / cnt);
+        lb.push(0.0);
+        lc.push(0.0);
+        eLin = eLin + 1000000000.0;
+      }
+      if ( EvgBitmapTracer.absD(rden) > 0.000001 ) {
+        const bb = ((cnt * (sdv[c])) - (sd * s1)) / rden;
+        const aa = (s1 - (bb * sd)) / cnt;
+        ra.push(aa);
+        rb.push(bb);
+        eRad = eRad + ((svv[c]) - ((aa * s1) + (bb * (sdv[c]))));
+      } else {
+        ra.push(s1 / cnt);
+        rb.push(0.0);
+        eRad = eRad + 1000000000.0;
+      }
+      c = c + 1;
+    };
+    if ( eFlat < 0.0 ) {
+      eFlat = 0.0;
+    }
+    if ( (eLin < 0.0) || (cnt < 64.0) ) {
+      eLin = 1000000000.0;
+    }
+    if ( ((eRad < 0.0) || (cnt < 64.0)) || (dmax < 2.0) ) {
+      eRad = 1000000000.0;
+    }
+    const gain = (this.options.gradientGain) / 100.0;
+    let best = eFlat;
+    let useLin = false;
+    let useRad = false;
+    if ( eLin < best ) {
+      best = eLin;
+      useLin = true;
+      useRad = false;
+    }
+    if ( eRad < best ) {
+      best = eRad;
+      useRad = true;
+      useLin = false;
+    }
+    if ( (eFlat - best) < (eFlat * gain) ) {
+      useLin = false;
+      useRad = false;
+    }
+    if ( eFlat < (cnt * 3.0) ) {
+      useLin = false;
+      useRad = false;
+    }
+    const mR = EvgBitmapTracer.clamp255(((sv[0]) / cnt));
+    const mG = EvgBitmapTracer.clamp255(((sv[1]) / cnt));
+    const mB = EvgBitmapTracer.clamp255(((sv[2]) / cnt));
+    layer.fillHex = this.hexFromRgb(mR, mG, mB);
+    if ( useRad ) {
+      layer.fillKind = "radial";
+      layer.gx0 = mx;
+      layer.gy0 = my;
+      layer.gr = dmax;
+      layer.stopA = this.hexOf((ra[0]), (ra[1]), (ra[2]));
+      layer.stopB = this.hexOf(((ra[0]) + ((rb[0]) * dmax)), ((ra[1]) + ((rb[1]) * dmax)), ((ra[2]) + ((rb[2]) * dmax)));
+      i = 0;
+      while (i < n) {
+        const p3 = comp[i];
+        const y3 = ((p3 / this.width) | 0);
+        const ex = ((p3 - (y3 * this.width))) - mx;
+        const ey = (y3) - my;
+        const dd = Math.sqrt(((ex * ex) + (ey * ey)));
+        paintR[p3] = EvgBitmapTracer.clamp255(((ra[0]) + ((rb[0]) * dd)));
+        paintG[p3] = EvgBitmapTracer.clamp255(((ra[1]) + ((rb[1]) * dd)));
+        paintB[p3] = EvgBitmapTracer.clamp255(((ra[2]) + ((rb[2]) * dd)));
+        i = i + 1;
+      };
+      return;
+    }
+    if ( useLin == false ) {
+      layer.fillKind = "flat";
+      i = 0;
+      while (i < n) {
+        const p0 = comp[i];
+        paintR[p0] = mR;
+        paintG[p0] = mG;
+        paintB[p0] = mB;
+        i = i + 1;
+      };
+      return;
+    }
+    const bl = ((0.299 * (lb[0])) + (0.587 * (lb[1]))) + (0.114 * (lb[2]));
+    const cl = ((0.299 * (lc[0])) + (0.587 * (lc[1]))) + (0.114 * (lc[2]));
+    const mag = Math.sqrt(((bl * bl) + (cl * cl)));
+    let ux = 1.0;
+    let uy = 0.0;
+    if ( mag > 0.000001 ) {
+      ux = bl / mag;
+      uy = cl / mag;
+    }
+    let tmin = 1000000.0;
+    let tmax = 0.0 - 1000000.0;
+    i = 0;
+    while (i < n) {
+      const p1 = comp[i];
+      const y1 = ((p1 / this.width) | 0);
+      const t = ((((p1 - (y1 * this.width))) - mx) * ux) + (((y1) - my) * uy);
+      if ( t < tmin ) {
+        tmin = t;
+      }
+      if ( t > tmax ) {
+        tmax = t;
+      }
+      paintR[p1] = EvgBitmapTracer.clamp255(this.linAt(la, lb, lc, 0, 0, ((p1 - (y1 * this.width))), (y1)));
+      paintG[p1] = EvgBitmapTracer.clamp255(this.linAt(la, lb, lc, 0, 1, ((p1 - (y1 * this.width))), (y1)));
+      paintB[p1] = EvgBitmapTracer.clamp255(this.linAt(la, lb, lc, 0, 2, ((p1 - (y1 * this.width))), (y1)));
+      i = i + 1;
+    };
+    if ( (tmax - tmin) < 2.0 ) {
+      layer.fillKind = "flat";
+      return;
+    }
+    layer.fillKind = "linear";
+    layer.gx0 = mx + (ux * tmin);
+    layer.gy0 = my + (uy * tmin);
+    layer.gx1 = mx + (ux * tmax);
+    layer.gy1 = my + (uy * tmax);
+    layer.stopA = this.hexOf(this.linAt(la, lb, lc, 0, 0, layer.gx0, layer.gy0), this.linAt(la, lb, lc, 0, 1, layer.gx0, layer.gy0), this.linAt(la, lb, lc, 0, 2, layer.gx0, layer.gy0));
+    layer.stopB = this.hexOf(this.linAt(la, lb, lc, 0, 0, layer.gx1, layer.gy1), this.linAt(la, lb, lc, 0, 1, layer.gx1, layer.gy1), this.linAt(la, lb, lc, 0, 2, layer.gx1, layer.gy1));
+  };
+  traceOverlayShapes () {
+    const n = this.width * this.height;
+    let edgeTol = this.options.contourEdge;
+    if ( edgeTol < 1 ) {
+      edgeTol = 1;
+    }
+    let spread = this.options.contourSpread;
+    if ( spread < 1 ) {
+      spread = 1;
+    }
+    const simTol = this.options.overlaySimilar;
+    let minPx = this.options.minRegion;
+    if ( minPx < 4 ) {
+      minPx = 4;
+    }
+    let paintR = [];
+    let paintG = [];
+    let paintB = [];
+    let painted = [];
+    let stamp = [];
+    let i = 0;
+    while (i < n) {
+      paintR.push(0);
+      paintG.push(0);
+      paintB.push(0);
+      painted.push(0);
+      stamp.push(0 - 1);
+      i = i + 1;
+    };
+    let seeds = [];
+    i = 0;
+    while (i < n) {
+      if ( (this.labels[i]) >= 0 ) {
+        seeds.push(i);
+        i = n;
+      }
+      i = i + 1;
+    };
+    let allCmds = [];
+    let head = 0;
+    let shapeNo = 0;
+    let sweepFrom = 0;
+    while (shapeNo < 3000) {
+      let seed = 0 - 1;
+      while ((head < (seeds.length)) && (seed < 0)) {
+        const cand = seeds[head];
+        head = head + 1;
+        if ( (this.labels[cand]) >= 0 ) {
+          if ( this.coveredAlready(cand, paintR, paintG, paintB, painted, simTol) == false ) {
+            seed = cand;
+          }
+        }
+      };
+      if ( seed < 0 ) {
+        while ((sweepFrom < n) && (seed < 0)) {
+          if ( ((this.labels[sweepFrom]) >= 0) && ((painted[sweepFrom]) == 0) ) {
+            seed = sweepFrom;
+          }
+          sweepFrom = sweepFrom + 1;
+        };
+      }
+      if ( seed < 0 ) {
+        shapeNo = 3000;
+      } else {
+        let comp = [];
+        let stack = [];
+        let acc = [];
+        acc.push(this.planeR[seed]);
+        acc.push(this.planeG[seed]);
+        acc.push(this.planeB[seed]);
+        acc.push(1);
+        stamp[seed] = shapeNo;
+        stack.push(seed);
+        let h2 = 0;
+        while (h2 < (stack.length)) {
+          const cur = stack[h2];
+          h2 = h2 + 1;
+          comp.push(cur);
+          const cy = ((cur / this.width) | 0);
+          const cx = cur - (cy * this.width);
+          if ( cx > 0 ) {
+            this.overlayStep(cur - 1, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+          }
+          if ( cx < (this.width - 1) ) {
+            this.overlayStep(cur + 1, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+          }
+          if ( cy > 0 ) {
+            this.overlayStep(cur - this.width, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+          }
+          if ( cy < (this.height - 1) ) {
+            this.overlayStep(cur + this.width, cur, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted);
+          }
+        };
+        const cnt = acc[3];
+        const mr = (((acc[0]) / cnt) | 0);
+        const mg = (((acc[1]) / cnt) | 0);
+        const mb = (((acc[2]) / cnt) | 0);
+        let c = 0;
+        while (c < (comp.length)) {
+          const px = comp[c];
+          paintR[px] = mr;
+          paintG[px] = mg;
+          paintB[px] = mb;
+          painted[px] = 1;
+          c = c + 1;
+        };
+        if ( (comp.length) >= minPx ) {
+          const bm = EvgBinaryBitmap.create(this.width, this.height);
+          c = 0;
+          while (c < (comp.length)) {
+            const p2 = comp[c];
+            const yy = ((p2 / this.width) | 0);
+            bm.setBit(p2 - (yy * this.width), yy, true);
+            c = c + 1;
+          };
+          const layerOpts = EvgTraceOptions.defaults();
+          layerOpts.turdsize = this.options.turdsize;
+          layerOpts.alphamax = this.options.alphamax;
+          layerOpts.turnpolicy = this.options.turnpolicy;
+          layerOpts.optcurve = this.options.optcurve;
+          layerOpts.opttolerance = this.options.opttolerance;
+          layerOpts.fillHex = this.hexFromRgb(mr, mg, mb);
+          const sub = EvgBitmapTracer.fromBinary(bm, layerOpts);
+          sub.trace();
+          if ( sub.ringCount() > 0 ) {
+            const layer = sub.layers[0];
+            if ( this.options.gradientFill ) {
+              this.fitAndPaintShape(comp, layer, paintR, paintG, paintB);
+            }
+            this.layers.push(layer);
+            const cmds = sub.getCommands();
+            let ci = 0;
+            while (ci < (cmds.length)) {
+              allCmds.push(cmds[ci]);
+              ci = ci + 1;
+            };
+            this.rings = sub.rings;
+          }
+        }
+        shapeNo = shapeNo + 1;
+      }
+    };
+    this.commands = allCmds;
+    if ( (this.layers.length) > 0 ) {
+      const first = this.layers[0];
+      this.pathData = first.pathData;
+    }
+  };
+  overlayStep (i, from, stamp, stack, acc, seeds, shapeNo, edgeTol, spread, simTol, paintR, paintG, paintB, painted) {
+    if ( (stamp[i]) == shapeNo ) {
+      return;
+    }
+    if ( (this.labels[i]) < 0 ) {
+      return;
+    }
+    if ( this.pixelDelta(from, i) > edgeTol ) {
+      seeds.push(i);
+      return;
+    }
+    if ( this.coveredAlready(i, paintR, paintG, paintB, painted, simTol) ) {
+      return;
+    }
+    const cnt = acc[3];
+    const mr = (((acc[0]) / cnt) | 0);
+    const mg = (((acc[1]) / cnt) | 0);
+    const mb = (((acc[2]) / cnt) | 0);
+    let d = EvgBitmapTracer.absI(((this.planeR[i]) - mr));
+    const dg = EvgBitmapTracer.absI(((this.planeG[i]) - mg));
+    if ( dg > d ) {
+      d = dg;
+    }
+    const db = EvgBitmapTracer.absI(((this.planeB[i]) - mb));
+    if ( db > d ) {
+      d = db;
+    }
+    if ( d > spread ) {
+      return;
+    }
+    stamp[i] = shapeNo;
+    stack.push(i);
+    acc[0] = (acc[0]) + (this.planeR[i]);
+    acc[1] = (acc[1]) + (this.planeG[i]);
+    acc[2] = (acc[2]) + (this.planeB[i]);
+    acc[3] = cnt + 1;
+  };
   mergeTinyRegions (k) {
     const minPx = this.options.minRegion;
     if ( minPx < 2 ) {
@@ -7436,6 +7862,10 @@ class EvgBitmapTracer  {
       return;
     }
     this.assignLabels(palR, palG, palB);
+    if ( this.options.contourMode == "overlay" ) {
+      this.traceOverlayShapes();
+      return;
+    }
     if ( this.options.gradientFill ) {
       this.traceGradientRegions();
       return;
@@ -8809,6 +9239,59 @@ class EvgBitmapTracerTest  {
     t.eqInt("nothing but flat fills when it is off", this.countKind(flatTr, "flat"), flatTr.layerCount());
     t.ok("and no defs block", (flatTr.toSVG().indexOf("<defs>")) < 0);
   };
+  makeVanishingBoundary () {
+    const img = new ImageBuffer();
+    img.init(120, 80);
+    let y = 0;
+    while (y < 80) {
+      let x = 0;
+      while (x < 120) {
+        let v = 150 + ((((x * 60) / 120) | 0));
+        if ( (((y >= 24) && (y < 56)) && (x >= 32)) && (x < 88) ) {
+          v = v + (((((x - 60) * 9) / 10) | 0));
+        }
+        img.setPixelRGB(x, y, v, v, v);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  traceVanishing (mode, grad, gain) {
+    const opts = EvgTraceOptions.defaults();
+    opts.colorCount = 6;
+    opts.bgMode = "none";
+    opts.minRegion = 20;
+    opts.contourMode = mode;
+    opts.gradientFill = grad;
+    opts.gradientGain = gain;
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeVanishingBoundary(), opts);
+    tr.trace();
+    return tr;
+  };
+  testOverlayRecoversASwallowedShape (t) {
+    const d = EvgTraceOptions.defaults();
+    t.ok("overlay is not the default", d.contourMode != "overlay");
+    t.eqInt("the similarity stop has a default", d.overlaySimilar, 8);
+    const smooth = this.traceVanishing("smooth", false, 15);
+    const overlay = this.traceVanishing("overlay", true, 15);
+    t.ok("the block is lost when the shapes partition", smooth.layerCount() <= 2);
+    t.ok("and comes back when they stack", overlay.layerCount() > smooth.layerCount());
+    const a = overlay.layers[0];
+    const b = overlay.layers[1];
+    t.ok("stacked shapes differ from one another", a.fillHex != b.fillHex);
+    const strict = this.traceVanishing("overlay", true, 100);
+    let i = 0;
+    let shaped = 0;
+    while (i < strict.layerCount()) {
+      const layer = strict.layers[i];
+      if ( layer.fillKind != "flat" ) {
+        shaped = shaped + 1;
+      }
+      i = i + 1;
+    };
+    t.eqInt("a gain of 100 leaves every fill flat", shaped, 0);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -8837,6 +9320,7 @@ function __js_main() {
   test.testNamedBackgroundColor(t);
   test.testContourSmoothing(t);
   test.testGradientFills(t);
+  test.testOverlayRecoversASwallowedShape(t);
   t.summary();
 }
 __js_main();
