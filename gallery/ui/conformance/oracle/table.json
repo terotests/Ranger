@@ -1,0 +1,302 @@
+{
+  "tanstack": "8.21.3",
+  "rows": [
+    {
+      "id": "r1",
+      "name": "Ada",
+      "role": "Engineer",
+      "size": 30
+    },
+    {
+      "id": "r2",
+      "name": "Grace",
+      "role": "Admiral",
+      "size": 10
+    },
+    {
+      "id": "r3",
+      "name": "Alan",
+      "role": "Logician",
+      "size": 20
+    },
+    {
+      "id": "r4",
+      "name": "Edsger",
+      "role": "Engineer",
+      "size": 50
+    },
+    {
+      "id": "r5",
+      "name": "Barbara",
+      "role": "Geneticist",
+      "size": 40
+    },
+    {
+      "id": "r6",
+      "name": "Katherine",
+      "role": "Mathematician",
+      "size": 60
+    }
+  ],
+  "sortCycle": [
+    {
+      "click": 0,
+      "sorting": "[]",
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ],
+      "isSorted": false
+    },
+    {
+      "click": 1,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]",
+      "order": [
+        "r1",
+        "r3",
+        "r5",
+        "r4"
+      ],
+      "isSorted": "asc"
+    },
+    {
+      "click": 2,
+      "sorting": "[{\"id\":\"name\",\"desc\":true}]",
+      "order": [
+        "r6",
+        "r2",
+        "r4",
+        "r5"
+      ],
+      "isSorted": "desc"
+    },
+    {
+      "click": 3,
+      "sorting": "[]",
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ],
+      "isSorted": false
+    },
+    {
+      "click": 4,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]",
+      "order": [
+        "r1",
+        "r3",
+        "r5",
+        "r4"
+      ],
+      "isSorted": "asc"
+    }
+  ],
+  "firstClickDirection": {
+    "text": "asc",
+    "number": "desc"
+  },
+  "numericSortCycle": [
+    {
+      "click": 0,
+      "isSorted": false
+    },
+    {
+      "click": 1,
+      "isSorted": "desc",
+      "order": [
+        "r6",
+        "r4",
+        "r5",
+        "r1"
+      ]
+    },
+    {
+      "click": 2,
+      "isSorted": "asc",
+      "order": [
+        "r2",
+        "r3",
+        "r1",
+        "r5"
+      ]
+    },
+    {
+      "click": 3,
+      "isSorted": false,
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "click": 4,
+      "isSorted": "desc",
+      "order": [
+        "r6",
+        "r4",
+        "r5",
+        "r1"
+      ]
+    }
+  ],
+  "selection": [
+    {
+      "after": "nothing",
+      "selected": [],
+      "allPageRows": false,
+      "somePageRows": false,
+      "allRows": false,
+      "someRows": false,
+      "selectedCount": 0
+    },
+    {
+      "after": "one row on page 1",
+      "selected": [
+        "r1"
+      ],
+      "allPageRows": false,
+      "somePageRows": true,
+      "allRows": false,
+      "someRows": true,
+      "selectedCount": 1
+    },
+    {
+      "after": "toggleAllPageRows(true)",
+      "selected": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ],
+      "allPageRows": true,
+      "somePageRows": false,
+      "allRows": false,
+      "someRows": true,
+      "selectedCount": 4
+    },
+    {
+      "after": "toggleAllRows(true)",
+      "selected": [
+        "r1",
+        "r2",
+        "r3",
+        "r4",
+        "r5",
+        "r6"
+      ],
+      "allPageRows": true,
+      "somePageRows": false,
+      "allRows": true,
+      "someRows": false,
+      "selectedCount": 6
+    },
+    {
+      "after": "toggleAllPageRows(false)",
+      "selected": [
+        "r5",
+        "r6"
+      ],
+      "allPageRows": false,
+      "somePageRows": false,
+      "allRows": false,
+      "someRows": true,
+      "selectedCount": 2
+    }
+  ],
+  "pagination": [
+    {
+      "after": "start",
+      "pageIndex": 0,
+      "pageCount": 2,
+      "rowsOnPage": 4,
+      "canPrevious": false,
+      "canNext": true,
+      "ids": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "after": "nextPage",
+      "pageIndex": 1,
+      "pageCount": 2,
+      "rowsOnPage": 2,
+      "canPrevious": true,
+      "canNext": false,
+      "ids": [
+        "r5",
+        "r6"
+      ]
+    },
+    {
+      "after": "nextPage past the end",
+      "pageIndex": 2,
+      "pageCount": 2,
+      "rowsOnPage": 0,
+      "canPrevious": true,
+      "canNext": false,
+      "ids": []
+    },
+    {
+      "after": "previousPage",
+      "pageIndex": 1,
+      "pageCount": 2,
+      "rowsOnPage": 2,
+      "canPrevious": true,
+      "canNext": false,
+      "ids": [
+        "r5",
+        "r6"
+      ]
+    },
+    {
+      "after": "previousPage at the start",
+      "pageIndex": 0,
+      "pageCount": 2,
+      "rowsOnPage": 4,
+      "canPrevious": false,
+      "canNext": true,
+      "ids": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    }
+  ],
+  "sortWhilePaged": {
+    "pageIndexAfterSorting": 1,
+    "ids": [
+      "r2",
+      "r6"
+    ]
+  },
+  "ariaFromTanstack": {
+    "headerHasAriaSort": "getColumn(...).columnDef has no aria anything",
+    "keysOnHeaderContext": [
+      "colSpan",
+      "column",
+      "depth",
+      "getContext",
+      "getLeafHeaders",
+      "getResizeHandler",
+      "getSize",
+      "getStart",
+      "headerGroup",
+      "id",
+      "index",
+      "isPlaceholder",
+      "placeholderId",
+      "rowSpan",
+      "subHeaders"
+    ]
+  }
+}
