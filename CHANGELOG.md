@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Negative result, recorded so it is not retried: re-quantizing a detail
+  neighbourhood with its own palette makes eyes worse, not better.** The
+  diagnosis behind it is right and worth keeping — an eye traced on its own
+  comes out cleanly because the whole color budget goes to an eye, while in a
+  portrait it gets two swatches out of ten and comes back a smudge. So a detail
+  neighbourhood was given its own four-band local palette, its pixels split by
+  it, and the pieces drawn on top as whole connected regions. The error metric
+  liked it: eyes **13.80 → 12.51**, whole frame **11.51 → 10.54**. Looking at
+  the result settles it the other way — the eyes come out speckled and
+  measurably *further* from what anyone wants than the plain algorithm, because
+  a local band split lands its bands inside the neighbourhood's noise rather
+  than between its white and its black. The metric was rewarding agreement with
+  a noisy photograph, which is not the same thing as a clean vector shape. What
+  actually produces good eyes today is `contourMode: "smooth"` with the
+  continuity threshold raised.
+
 - **The tracer finds where a picture needs fine work, and spends its precision
   there** — asked for after the eyes of a portrait stayed coarse: could the
   algorithm notice a spot where clearly different colors are doing exacting
