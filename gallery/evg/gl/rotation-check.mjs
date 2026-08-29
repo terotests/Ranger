@@ -27,9 +27,15 @@ const BLUE = [37, 99, 235];
 const W = 620;
 const H = 260;
 
-/** One 160x60 box with a label in it, turned about its own centre. */
-function panel(x, y, deg) {
-  const rot = deg ? { rot: deg, rox: x + 80, roy: y + 30 } : {};
+/**
+ * One 160x60 box with a label in it, turned about `origin` — given as a
+ * fraction of the box on each axis, so [0.5, 0.5] is the centre and [0, 0] is
+ * the top-left corner. What `transform-origin` resolves to, in other words;
+ * this file checks the painter, and the resolution itself is checked in
+ * `EVGTimingTest` against the browser's own numbers.
+ */
+function panel(x, y, deg, origin = [0.5, 0.5]) {
+  const rot = deg ? { rot: deg, rox: x + 160 * origin[0], roy: y + 60 * origin[1] } : {};
   return [
     { k: 0, x, y, w: 160, h: 60, r: 8, c: [...BLUE, 1], ...rot },
     { k: 3, x: x + 14, y: y + 18, w: 132, h: 24, text: "Rotated", size: 22,
@@ -37,7 +43,20 @@ function panel(x, y, deg) {
   ];
 }
 
-const LIST = { width: W, height: H, cmds: [...panel(20, 30, 0), ...panel(230, 30, 20), ...panel(430, 30, 45)] };
+const LIST = {
+  width: W,
+  height: H,
+  cmds: [
+    ...panel(20, 30, 0),
+    ...panel(230, 30, 20),
+    ...panel(430, 30, 45),
+    // The same 45 degrees about the TOP-LEFT corner rather than the centre.
+    // Without a working origin this is indistinguishable from the panel above
+    // it, so it is what proves the field is read at all rather than being
+    // carried around and ignored.
+    ...panel(120, 150, 45, [0, 0]),
+  ],
+};
 
 // Each probe names a point and what must be there. The centre of a turned box
 // is still its centre — that is the whole claim — and the corner of the page
@@ -52,6 +71,14 @@ const PROBES = [
   // compare against a background this canvas never painted.
   { at: [5, 250], want: "blank", why: "nothing was flung to the page corner" },
   { at: [610, 250], want: "blank", why: "nor to the other one" },
+  // Turned about its top-left corner, the second panel's own corner stays put
+  // while the rest of it swings down and right. Its centre therefore is NOT
+  // where a centre-pivoted turn would leave it.
+  // Just inside the pivoted corner, not on it: the box has an 8px radius and
+  // an antialiased edge, so the corner pixel itself is legitimately empty.
+  { at: [120, 167], want: "blue", why: "a corner pivot leaves the corner where it was" },
+  { at: [120, 210], want: "blue", why: "and the box now hangs below that corner" },
+  { at: [190, 180], want: "blank", why: "instead of sitting where a centre pivot would put it" },
 ];
 
 const painter = fs.readFileSync(path.join(HERE, "evg-webgl.js"), "utf8").replace(/^export /gm, "");

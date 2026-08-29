@@ -368,6 +368,33 @@ or a non-uniform scale is reported, not approximated. It also makes the four
 numbers interpolable, so `transition: transform 200ms` is four ordinary number
 flights and needs no matrix decomposition per frame.
 
+**`transform-origin`** decides what all of that happens about, and it takes
+every spelling CSS has: keywords, percentages, lengths, and the one-value
+forms. Seventeen of them were put to a browser and the resolved pixel origin
+recorded, because the grammar is not the obvious one:
+
+- A lone LENGTH sets x and leaves y at 50%, but a lone `top` or `bottom` is a
+  Y keyword and sets the other axis. `transform-origin: 10px` is `10px 50%`;
+  `transform-origin: top` is `50% 0%`. Reading "the first value is x" gets
+  every length right and every keyword wrong.
+- With two keywords the ORDER IS FREE — `top left` and `left top` are the same
+  point.
+
+That second rule needed a better test than the one first written for it. `top
+left` cannot demonstrate a swap, because `left` and `top` both resolve to 0%
+and the two orderings agree; the mutation that removed the swap passed. The
+pairs that separate them are `top center` and `center right`, and they are in
+the table now.
+
+It is resolved late, in the display list, where the laid-out box exists — a
+percentage needs a size, and resolving when the stylesheet is applied would use
+the previous frame's box. It transitions too, since the browser says it does:
+0% 0% to 100% 100% passes through 25px 10px on a 100x40 box a quarter of the
+way through. The value is interpolated as WRITTEN, so percentages travel as
+percentages; a change of unit mid-flight jumps instead, which is a deliberate
+difference from CSS's blend of the resolved lengths and is written down where
+it happens.
+
 Applying it needed one new thing in the display list: a rotation ORIGIN.
 `EVGDrawCmd.rotate` used to turn a command about its own centre, which is right
 for a lone sideways axis label and wrong for anything else — a text quad is
@@ -384,7 +411,9 @@ SwiftShader and reads the pixels back, because the pivot lives in GLSL and the
 only honest way to check GLSL is to run it. Its first version passed under a
 mutation that removed the whole feature — every probe sampled a box centre,
 which is invariant under both pivots. The probe that actually separates them
-is the centroid of the white ink.
+is the centroid of the white ink. A fourth panel turned 45 degrees about its
+top-left CORNER was added with `transform-origin`, for the same reason: it is
+indistinguishable from the centre-turned one unless the origin is really read.
 
 ### The cascade bug this uncovered
 

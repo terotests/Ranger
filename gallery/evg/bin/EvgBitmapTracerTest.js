@@ -4206,6 +4206,7 @@ class EVGFlight  {
     this.fromNumber = 0.0;     /** note: unused */
     this.toNumber = 0.0;     /** note: unused */
     this.isColor = false;     /** note: unused */
+    this.unitCode = 0;     /** note: unused */
     this.reversingStartNumber = 0.0;     /** note: unused */
     this.reversingFactor = 1.0;     /** note: unused */
   }
@@ -4314,6 +4315,9 @@ class EVGElement  {
     this.translateX = 0.0;
     this.translateY = 0.0;
     this.transformSpec = "";
+    this.transformOriginX = new EVGUnit();
+    this.transformOriginY = new EVGUnit();
+    this.transformOriginSpec = "";
     this.backgroundGradient = "";
     this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
@@ -4735,6 +4739,42 @@ class EVGElement  {
     this.scale = sc;
     this.translateX = tx;
     this.translateY = ty;
+  };
+  applyTransformOrigin (value) {
+    this.transformOriginSpec = value.trim();
+    const words = EVGElement.splitWords(this.transformOriginSpec);
+    const n = words.length;
+    if ( n == 0 ) {
+      this.transformOriginX = new EVGUnit();
+      this.transformOriginY = new EVGUnit();
+      return;
+    }
+    const first = (words[0]).trim();
+    if ( n == 1 ) {
+      if ( EVGElement.isYKeyword(first) ) {
+        this.transformOriginX = EVGUnit.percent(50.0);
+        this.transformOriginY = EVGElement.originUnit(first);
+      } else {
+        this.transformOriginX = EVGElement.originUnit(first);
+        this.transformOriginY = EVGUnit.percent(50.0);
+      }
+      return;
+    }
+    const second = (words[1]).trim();
+    let swap = false;
+    if ( EVGElement.isYKeyword(first) ) {
+      swap = true;
+    }
+    if ( EVGElement.isXKeyword(second) ) {
+      swap = true;
+    }
+    if ( swap ) {
+      this.transformOriginX = EVGElement.originUnit(second);
+      this.transformOriginY = EVGElement.originUnit(first);
+    } else {
+      this.transformOriginX = EVGElement.originUnit(first);
+      this.transformOriginY = EVGElement.originUnit(second);
+    }
   };
   markInline (name) {
     const key = EVGElement.toKebab(name);
@@ -5199,6 +5239,10 @@ class EVGElement  {
       this.applyTransform(value);
       return;
     }
+    if ( (name == "transform-origin") || (name == "transformOrigin") ) {
+      this.applyTransformOrigin(value);
+      return;
+    }
     if ( (name == "translate-x") || (name == "translateX") ) {
       const tvx = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       if ( typeof(tvx) != "undefined" ) {
@@ -5382,6 +5426,33 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.isXKeyword = function(w) {
+  return (w == "left") || (w == "right");
+};
+EVGElement.isYKeyword = function(w) {
+  return (w == "top") || (w == "bottom");
+};
+EVGElement.originUnit = function(w) {
+  if ( (w == "left") || (w == "top") ) {
+    return EVGUnit.percent(0.0);
+  }
+  if ( (w == "right") || (w == "bottom") ) {
+    return EVGUnit.percent(100.0);
+  }
+  if ( w == "center" ) {
+    return EVGUnit.percent(50.0);
+  }
+  return EVGUnit.parse(w);
+};
+EVGElement.resolveOrigin = function(u, size) {
+  if ( u.isSet == false ) {
+    return size / 2.0;
+  }
+  if ( (u.unitType == 1) || (u.unitType == 3) ) {
+    return (u.value / 100.0) * size;
+  }
+  return u.value;
 };
 EVGElement.transformProblem = function(value) {
   const v = value.trim();

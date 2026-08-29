@@ -1391,6 +1391,7 @@ class EVGFlight  {
     this.fromNumber = 0.0;
     this.toNumber = 0.0;
     this.isColor = false;
+    this.unitCode = 0;
     this.reversingStartNumber = 0.0;
     this.reversingFactor = 1.0;
   }
@@ -1499,6 +1500,9 @@ class EVGElement  {
     this.translateX = 0.0;
     this.translateY = 0.0;
     this.transformSpec = "";
+    this.transformOriginX = new EVGUnit();
+    this.transformOriginY = new EVGUnit();
+    this.transformOriginSpec = "";
     this.backgroundGradient = "";
     this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
@@ -1920,6 +1924,42 @@ class EVGElement  {
     this.scale = sc;
     this.translateX = tx;
     this.translateY = ty;
+  };
+  applyTransformOrigin (value) {
+    this.transformOriginSpec = value.trim();
+    const words = EVGElement.splitWords(this.transformOriginSpec);
+    const n = words.length;
+    if ( n == 0 ) {
+      this.transformOriginX = new EVGUnit();
+      this.transformOriginY = new EVGUnit();
+      return;
+    }
+    const first = (words[0]).trim();
+    if ( n == 1 ) {
+      if ( EVGElement.isYKeyword(first) ) {
+        this.transformOriginX = EVGUnit.percent(50.0);
+        this.transformOriginY = EVGElement.originUnit(first);
+      } else {
+        this.transformOriginX = EVGElement.originUnit(first);
+        this.transformOriginY = EVGUnit.percent(50.0);
+      }
+      return;
+    }
+    const second = (words[1]).trim();
+    let swap = false;
+    if ( EVGElement.isYKeyword(first) ) {
+      swap = true;
+    }
+    if ( EVGElement.isXKeyword(second) ) {
+      swap = true;
+    }
+    if ( swap ) {
+      this.transformOriginX = EVGElement.originUnit(second);
+      this.transformOriginY = EVGElement.originUnit(first);
+    } else {
+      this.transformOriginX = EVGElement.originUnit(first);
+      this.transformOriginY = EVGElement.originUnit(second);
+    }
   };
   markInline (name) {
     const key = EVGElement.toKebab(name);
@@ -2384,6 +2424,10 @@ class EVGElement  {
       this.applyTransform(value);
       return;
     }
+    if ( (name == "transform-origin") || (name == "transformOrigin") ) {
+      this.applyTransformOrigin(value);
+      return;
+    }
     if ( (name == "translate-x") || (name == "translateX") ) {
       const tvx = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       if ( typeof(tvx) != "undefined" ) {
@@ -2567,6 +2611,33 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.isXKeyword = function(w) {
+  return (w == "left") || (w == "right");
+};
+EVGElement.isYKeyword = function(w) {
+  return (w == "top") || (w == "bottom");
+};
+EVGElement.originUnit = function(w) {
+  if ( (w == "left") || (w == "top") ) {
+    return EVGUnit.percent(0.0);
+  }
+  if ( (w == "right") || (w == "bottom") ) {
+    return EVGUnit.percent(100.0);
+  }
+  if ( w == "center" ) {
+    return EVGUnit.percent(50.0);
+  }
+  return EVGUnit.parse(w);
+};
+EVGElement.resolveOrigin = function(u, size) {
+  if ( u.isSet == false ) {
+    return size / 2.0;
+  }
+  if ( (u.unitType == 1) || (u.unitType == 3) ) {
+    return (u.value / 100.0) * size;
+  }
+  return u.value;
 };
 EVGElement.transformProblem = function(value) {
   const v = value.trim();
@@ -3651,6 +3722,12 @@ EVGStyleSheet.initialValue = function(name) {
   if ( name == "transform" ) {
     return "none";
   }
+  if ( name == "transform-origin" ) {
+    return "50% 50%";
+  }
+  if ( name == "transformOrigin" ) {
+    return "50% 50%";
+  }
   if ( name == "opacity" ) {
     return "1";
   }
@@ -3711,6 +3788,8 @@ class EVGTransition  {
     this.reconcileNumberAs(el, "transform.scale", "transform", el.scale);
     this.reconcileNumberAs(el, "transform.tx", "transform", el.translateX);
     this.reconcileNumberAs(el, "transform.ty", "transform", el.translateY);
+    this.reconcileOriginAxis(el, "transform-origin.x", el.transformOriginX);
+    this.reconcileOriginAxis(el, "transform-origin.y", el.transformOriginY);
     this.writeBack(el);
   };
   reconcileColor (el, property, target) {
@@ -3824,6 +3903,27 @@ class EVGTransition  {
     created.elapsedMs = spec.durationMs + spec.delayMs;
     el.transitions.push(created);
   };
+  reconcileOriginAxis (el, key, u) {
+    let code = 1;
+    let target = 50.0;
+    if ( u.isSet ) {
+      code = u.unitType;
+      target = u.value;
+    }
+    const existing = this.flightFor(el, key);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( f.unitCode != code ) {
+        this.drop(el, key);
+      }
+    }
+    this.reconcileNumberAs(el, key, "transform-origin", target);
+    const now = this.flightFor(el, key);
+    if ( typeof(now) != "undefined" ) {
+      const f2 = now;
+      f2.unitCode = code;
+    }
+  };
   drop (el, property) {
     let kept = [];
     let i = 0;
@@ -3883,6 +3983,12 @@ class EVGTransition  {
         }
         if ( f.property == "transform.ty" ) {
           el.translateY = this.showNumber(f);
+        }
+        if ( f.property == "transform-origin.x" ) {
+          el.transformOriginX = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
+        }
+        if ( f.property == "transform-origin.y" ) {
+          el.transformOriginY = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
         }
       }
       i = i + 1;
@@ -4060,6 +4166,14 @@ EVGTransition.mixColor = function(from, to, t) {
   c.isSet = true;
   return c;
 };
+EVGTransition.unitOf = function(code, value) {
+  const u = new EVGUnit();
+  u.unitType = code;
+  u.value = value;
+  u.pixels = value;
+  u.isSet = true;
+  return u;
+};
 EVGTransition.sameNumber = function(a, b) {
   return (Math.abs((a - b))) < 0.001;
 };
@@ -4190,6 +4304,18 @@ EVGStyleStateTest.testStateOnlyPropertyReverts = function(c) {
   c.ok("and the opacity", (Math.abs((el.opacity - 1.0))) < 0.001);
   c.eqInt("while the base colour is untouched", EVGStyleStateTest.bgRed(el), 0);
 };
+EVGStyleStateTest.testStateOnlyOriginReverts = function(c) {
+  console.log("--- a state-only transform-origin goes back to the centre ---");
+  const css = ".btn { background-color: rgb(0,0,0) }" + " .btn:hover { transform-origin: left top }";
+  const s = EVGStyleStateTest.sheetOf(css);
+  const el = EVGStyleStateTest.button();
+  el.isHovered = true;
+  s.applyTree(el, "");
+  c.ok("the corner while hovered", (Math.abs(EVGElement.resolveOrigin(el.transformOriginX, 100.0))) < 0.001);
+  el.isHovered = false;
+  s.applyTree(el, "");
+  c.ok("and the centre again after", (Math.abs((EVGElement.resolveOrigin(el.transformOriginX, 100.0) - 50.0))) < 0.001);
+};
 EVGStyleStateTest.testTransition = function(c) {
   console.log("--- a colour moves instead of jumping ---");
   const css = ".btn { background-color: rgb(0,0,0); transition: background-color 200ms }" + " .btn:hover { background-color: rgb(200,0,0) }";
@@ -4288,6 +4414,7 @@ function __js_main() {
   EVGStyleStateTest.testUnknownPseudo(c);
   EVGStyleStateTest.testUnknownTiming(c);
   EVGStyleStateTest.testStateOnlyPropertyReverts(c);
+  EVGStyleStateTest.testStateOnlyOriginReverts(c);
   EVGStyleStateTest.testTransition(c);
   EVGStyleStateTest.testReverseMidFlight(c);
   EVGStyleStateTest.testNoTransitionDeclared(c);

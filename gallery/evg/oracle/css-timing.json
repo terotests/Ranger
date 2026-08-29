@@ -440,5 +440,244 @@
       "w": 40,
       "h": 100
     }
+  },
+  "transformOrigin": [
+    {
+      "spec": "50% 50%",
+      "resolved": "50px 20px",
+      "boxAfterQuarterTurn": {
+        "x": 30,
+        "y": -30,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "0 0",
+      "resolved": "0px 0px",
+      "boxAfterQuarterTurn": {
+        "x": -40,
+        "y": 0,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "100% 100%",
+      "resolved": "100px 40px",
+      "boxAfterQuarterTurn": {
+        "x": 100,
+        "y": -60,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "0% 100%",
+      "resolved": "0px 40px",
+      "boxAfterQuarterTurn": {
+        "x": 0,
+        "y": 40,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "left top",
+      "resolved": "0px 0px",
+      "boxAfterQuarterTurn": {
+        "x": -40,
+        "y": 0,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "right bottom",
+      "resolved": "100px 40px",
+      "boxAfterQuarterTurn": {
+        "x": 100,
+        "y": -60,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "center bottom",
+      "resolved": "50px 40px",
+      "boxAfterQuarterTurn": {
+        "x": 50,
+        "y": -10,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "top left",
+      "resolved": "0px 0px",
+      "boxAfterQuarterTurn": {
+        "x": -40,
+        "y": 0,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "bottom left",
+      "resolved": "0px 40px",
+      "boxAfterQuarterTurn": {
+        "x": 0,
+        "y": 40,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "right top",
+      "resolved": "100px 0px",
+      "boxAfterQuarterTurn": {
+        "x": 60,
+        "y": -100,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "top center",
+      "resolved": "50px 0px",
+      "boxAfterQuarterTurn": {
+        "x": 10,
+        "y": -50,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "center right",
+      "resolved": "100px 20px",
+      "boxAfterQuarterTurn": {
+        "x": 80,
+        "y": -80,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "10px 4px",
+      "resolved": "10px 4px",
+      "boxAfterQuarterTurn": {
+        "x": -26,
+        "y": -6,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "25% 10px",
+      "resolved": "25px 10px",
+      "boxAfterQuarterTurn": {
+        "x": -5,
+        "y": -15,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "left",
+      "resolved": "0px 20px",
+      "boxAfterQuarterTurn": {
+        "x": -20,
+        "y": 20,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "right",
+      "resolved": "100px 20px",
+      "boxAfterQuarterTurn": {
+        "x": 80,
+        "y": -80,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "top",
+      "resolved": "50px 0px",
+      "boxAfterQuarterTurn": {
+        "x": 10,
+        "y": -50,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "bottom",
+      "resolved": "50px 40px",
+      "boxAfterQuarterTurn": {
+        "x": 50,
+        "y": -10,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "center",
+      "resolved": "50px 20px",
+      "boxAfterQuarterTurn": {
+        "x": 30,
+        "y": -30,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "10px",
+      "resolved": "10px 20px",
+      "boxAfterQuarterTurn": {
+        "x": -10,
+        "y": 10,
+        "w": 40,
+        "h": 100
+      }
+    },
+    {
+      "spec": "25%",
+      "resolved": "25px 20px",
+      "boxAfterQuarterTurn": {
+        "x": 5,
+        "y": -5,
+        "w": 40,
+        "h": 100
+      }
+    }
+  ],
+  "originTransition": {
+    "animatable": true,
+    "from": "0% 0%",
+    "to": "100% 100%",
+    "samples": [
+      {
+        "at": 0,
+        "resolved": "0px 0px"
+      },
+      {
+        "at": 50,
+        "resolved": "25px 10px"
+      },
+      {
+        "at": 100,
+        "resolved": "50px 20px"
+      },
+      {
+        "at": 150,
+        "resolved": "75px 30px"
+      },
+      {
+        "at": 200,
+        "resolved": "100px 40px"
+      }
+    ]
   }
 }

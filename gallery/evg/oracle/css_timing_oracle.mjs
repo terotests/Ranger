@@ -272,6 +272,74 @@ async function capture(page) {
       };
       el.style.transform = "none";
 
+      // --- 5. transform-origin, said every way CSS allows
+      //
+      // Two questions per case, and they are different questions. What does
+      // the engine RESOLVE the origin to (`getComputedStyle` gives it in
+      // pixels, so keywords and percentages come back already worked out), and
+      // where does the box actually END UP once it is turned about that point.
+      // The first can be right while the second is wrong, and only the second
+      // is what anyone sees.
+      //
+      // The single-value forms are the ones worth having in a table. CSS says
+      // a lone LENGTH sets x and leaves y at 50%, but a lone `top` or `bottom`
+      // is a Y keyword and sets the OTHER axis — so `transform-origin: top`
+      // means `50% 0%` and `transform-origin: 10px` means `10px 50%`. Reading
+      // "the first value is x" straight off is wrong for exactly the keyword
+      // half of the grammar.
+      const originCases = [
+        "50% 50%", "0 0", "100% 100%", "0% 100%",
+        "left top", "right bottom", "center bottom", "top left",
+        // Pairs where the two keywords resolve DIFFERENTLY, so the swap rule
+        // is observable. `top left` cannot show it: left and top are both 0%,
+        // so writing them either way round gives the same point and a swap
+        // that never happens looks correct.
+        "bottom left", "right top", "top center", "center right",
+        "10px 4px", "25% 10px",
+        "left", "right", "top", "bottom", "center", "10px", "25%",
+      ];
+      out.transformOrigin = originCases.map((spec) => {
+        el.style.transition = "none";
+        el.style.transformOrigin = spec;
+        el.style.transform = "none";
+        void el.offsetWidth;
+        const resolved = cs().transformOrigin;
+        el.style.transform = "rotate(90deg)";
+        const b = el.getBoundingClientRect();
+        el.style.transform = "none";
+        return {
+          spec,
+          resolved,
+          boxAfterQuarterTurn: { x: b.x, y: b.y, w: b.width, h: b.height },
+        };
+      });
+      el.style.transformOrigin = "";
+
+      // Is transform-origin itself animatable, and how does it interpolate
+      // between two percentages?
+      out.originTransition = (() => {
+        el.style.transition = "none";
+        el.style.transformOrigin = "0% 0%";
+        void el.offsetWidth;
+        el.style.transition = "transform-origin 200ms linear";
+        el.style.transformOrigin = "100% 100%";
+        const a = document.getAnimations().find((x) => x.transitionProperty === "transform-origin");
+        if (!a) {
+          el.style.transition = "none";
+          el.style.transformOrigin = "";
+          return { animatable: false };
+        }
+        a.pause();
+        const rows = [0, 50, 100, 150, 200].map((ms) => {
+          a.currentTime = ms;
+          return { at: ms, resolved: cs().transformOrigin };
+        });
+        document.getAnimations().forEach((x) => x.cancel());
+        el.style.transition = "none";
+        el.style.transformOrigin = "";
+        return { animatable: true, from: "0% 0%", to: "100% 100%", samples: rows };
+      })();
+
       return out;
     },
     [FUNCTIONS, AT],

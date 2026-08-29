@@ -263,6 +263,11 @@ class EVGTransition {
         this.reconcileNumberAs(el "transform.scale" "transform" el.scale)
         this.reconcileNumberAs(el "transform.tx" "transform" el.translateX)
         this.reconcileNumberAs(el "transform.ty" "transform" el.translateY)
+        ; `transform-origin` is its own CSS property with its own entry in the
+        ; shorthand, and it does animate — measured: 0% 0% to 100% 100% passes
+        ; through 25px 10px on a 100x40 box at a quarter of the way.
+        this.reconcileOriginAxis(el "transform-origin.x" el.transformOriginX)
+        this.reconcileOriginAxis(el "transform-origin.y" el.transformOriginY)
         ; Put the showing values back, so the painter draws the flight and not
         ; the destination.
         this.writeBack(el)
@@ -412,10 +417,57 @@ class EVGTransition {
         push el.transitions created
     }
 
+    sfn unitOf:EVGUnit (code:int value:double) {
+        def u (new EVGUnit())
+        u.unitType = code
+        u.value = value
+        u.pixels = value
+        u.isSet = true
+        return u
+    }
+
     ; A thousandth is the resolution everything numeric here is compared at:
     ; finer and floating point noise reads as a change worth animating.
     sfn sameNumber:boolean (a:double b:double) {
         return ((fabs (a - b)) < 0.001)
+    }
+
+    ; One axis of `transform-origin`.
+    ;
+    ; Separate from the plain number path because of the unit. The value is
+    ; kept as WRITTEN — a percentage stays a percentage — since the box it
+    ; resolves against is not known until the display list is built, and
+    ; resolving a frame early would use the previous layout's size. Two
+    ; percentages interpolate as percentages, two lengths as lengths, and both
+    ; give what the browser gives.
+    ;
+    ; A change of unit mid-flight is the case that cannot be interpolated
+    ; meaningfully, and it JUMPS rather than sliding through numbers that mean
+    ; nothing. CSS blends the resolved lengths there; nobody writes it, and
+    ; guessing quietly would be worse than the jump.
+    fn reconcileOriginAxis:void (el:EVGElement key:string u:EVGUnit) {
+        ; Unset is 50%, the same default the display list resolves — so an
+        ; element moving from no origin to `0%` travels from the centre, which
+        ; is where it visibly was.
+        def code:int 1
+        def target:double 50.0
+        if u.isSet {
+            code = u.unitType
+            target = u.value
+        }
+        def existing@(optional):EVGFlight (this.flightFor(el key))
+        if existing {
+            def f:EVGFlight (unwrap existing)
+            if (f.unitCode != code) {
+                this.drop(el key)
+            }
+        }
+        this.reconcileNumberAs(el key "transform-origin" target)
+        def now@(optional):EVGFlight (this.flightFor(el key))
+        if now {
+            def f2:EVGFlight (unwrap now)
+            f2.unitCode = code
+        }
     }
 
     fn drop:void (el:EVGElement property:string) {
@@ -484,6 +536,12 @@ class EVGTransition {
                 }
                 if (f.property == "transform.ty") {
                     el.translateY = (this.showNumber(f))
+                }
+                if (f.property == "transform-origin.x") {
+                    el.transformOriginX = (EVGTransition.unitOf(f.unitCode (this.showNumber(f))))
+                }
+                if (f.property == "transform-origin.y") {
+                    el.transformOriginY = (EVGTransition.unitOf(f.unitCode (this.showNumber(f))))
                 }
             }
             i = (i + 1)

@@ -35,6 +35,11 @@ class EVGFlight {
     def fromNumber:double 0.0
     def toNumber:double 0.0
     def isColor:boolean false
+    ; The EVGUnit type this number is expressed in, for the flights where that
+    ; can differ between the two ends. 25 per cent and 25 pixels are the same
+    ; number and not the same place, so a flight whose unit has changed is not
+    ; a flight at all.
+    def unitCode:int 0
 
     ; --- what a reversal needs to remember ------------------------------------
     ;
@@ -380,9 +385,6 @@ class EVGElement {
     ; flights, and a rotation that is also being scaled does the right thing
     ; without a matrix decomposition on every frame.
     ;
-    ; The origin is the element's own centre. Measured, not assumed: a 100x40
-    ; box at the origin turned a quarter turn lands at (30, -30, 40, 100), whose
-    ; centre is where it started. `transform-origin` is not supported.
     def rotate:double 0.0
     def scale:double 1.0
     def translateX:double 0.0
@@ -390,6 +392,21 @@ class EVGElement {
     ; Kept verbatim so the transform survives a round trip and so a reader can
     ; see what was written, not only what it reduced to.
     def transformSpec:string ""
+
+    ; --- transform-origin ----------------------------------------------------
+    ;
+    ; What the rotation and the scale happen ABOUT, as a length or a percentage
+    ; of the border box on each axis. Unset means CSS's default of 50% 50%,
+    ; which is the element's own centre — measured, not assumed: a 100x40 box
+    ; turned a quarter turn lands at (30, -30, 40, 100), whose centre is where
+    ; it started.
+    ;
+    ; Resolved LATE, in the display list, where the laid-out box is known.
+    ; Resolving at parse time would need a size nobody has yet, and resolving
+    ; when the stylesheet is applied would use the previous frame's box.
+    def transformOriginX:EVGUnit (new EVGUnit())
+    def transformOriginY:EVGUnit (new EVGUnit())
+    def transformOriginSpec:string ""
     
     ; Shadow
     def shadowRadius:EVGUnit
@@ -1125,6 +1142,93 @@ class EVGElement {
         scale = sc
         translateX = tx
         translateY = ty
+    }
+
+    ; --- transform-origin ---------------------------------------------------------
+
+    ; `transform-origin: left top`, `25% 10px`, `bottom`, `10px`.
+    ;
+    ; The grammar is not "first value is x". A lone LENGTH sets x and leaves y
+    ; at 50%, but a lone `top` or `bottom` is a Y keyword and sets the other
+    ; axis — so `transform-origin: 10px` is `10px 50%` while
+    ; `transform-origin: top` is `50% 0%`. And with two keywords the ORDER IS
+    ; FREE: `top left` and `left top` are the same point. Both of those are
+    ; measured, not read off a grammar: a browser was asked for the resolved
+    ; value of seventeen spellings and `oracle/css-timing.json` holds the
+    ; answers.
+    ;
+    ; A third value is the z origin. It is accepted and ignored; this is a 2-D
+    ; engine and rejecting the declaration outright would throw away the x and
+    ; y with it.
+    fn applyTransformOrigin:void (value:string) {
+        transformOriginSpec = (trim value)
+        def words:[string] (EVGElement.splitWords(transformOriginSpec))
+        def n:int (array_length words)
+        if (n == 0) {
+            transformOriginX = (new EVGUnit())
+            transformOriginY = (new EVGUnit())
+            return
+        }
+        def first:string (trim (itemAt words 0))
+        if (n == 1) {
+            if (EVGElement.isYKeyword(first)) {
+                transformOriginX = (EVGUnit.percent(50.0))
+                transformOriginY = (EVGElement.originUnit(first))
+            } {
+                transformOriginX = (EVGElement.originUnit(first))
+                transformOriginY = (EVGUnit.percent(50.0))
+            }
+            return
+        }
+        def second:string (trim (itemAt words 1))
+        ; Swap when the pair was written the other way round. Only a keyword can
+        ; say which axis it belongs to, so only a keyword can trigger this — two
+        ; lengths are always x then y.
+        def swap:boolean false
+        if (EVGElement.isYKeyword(first))  { swap = true }
+        if (EVGElement.isXKeyword(second)) { swap = true }
+        if swap {
+            transformOriginX = (EVGElement.originUnit(second))
+            transformOriginY = (EVGElement.originUnit(first))
+        } {
+            transformOriginX = (EVGElement.originUnit(first))
+            transformOriginY = (EVGElement.originUnit(second))
+        }
+    }
+
+    sfn isXKeyword:boolean (w:string) {
+        return ((w == "left") || (w == "right"))
+    }
+
+    sfn isYKeyword:boolean (w:string) {
+        return ((w == "top") || (w == "bottom"))
+    }
+
+    ; A keyword is a percentage of the box. `center` belongs to neither axis
+    ; and means the same on both, which is why it is not in either list above.
+    sfn originUnit:EVGUnit (w:string) {
+        if ((w == "left") || (w == "top"))     { return (EVGUnit.percent(0.0)) }
+        if ((w == "right") || (w == "bottom")) { return (EVGUnit.percent(100.0)) }
+        if (w == "center")                     { return (EVGUnit.percent(50.0)) }
+        return (EVGUnit.parse(w))
+    }
+
+    ; The origin in pixels, from the box's own top-left corner. `size` is that
+    ; edge of the border box.
+    ;
+    ; Unset is 50%, not 0: an element that never mentions `transform-origin`
+    ; turns about its centre, and reading an unset unit as zero would put every
+    ; untouched rotation on the top-left corner instead.
+    sfn resolveOrigin:double (u:EVGUnit size:double) {
+        if (u.isSet == false) {
+            return (size / 2.0)
+        }
+        ; 1 is PERCENT, 3 is HEIGHT_PERCENT. Both resolve against the edge
+        ; being asked about here, because the caller passes the right one.
+        if ((u.unitType == 1) || (u.unitType == 3)) {
+            return ((u.value / 100.0) * size)
+        }
+        return u.value
     }
 
     ; "" when the value is one this engine can represent exactly, otherwise the
@@ -1935,6 +2039,10 @@ class EVGElement {
         ; Transform
         if (name == "transform") {
             this.applyTransform(value)
+            return
+        }
+        if ((name == "transform-origin") || (name == "transformOrigin")) {
+            this.applyTransformOrigin(value)
             return
         }
         if ((name == "translate-x") || (name == "translateX")) {

@@ -687,6 +687,216 @@ class EVGTimingTest {
         c.ok("and then stops asking for frames" ((tr.busy(el)) == false))
     }
 
+    ; ==========================================================================
+    ; transform-origin
+    ; ==========================================================================
+
+    ; Seventeen spellings, and the pixel origin a browser resolved each one to
+    ; for a 100x40 box. Transcribed from `oracle/css-timing.json`.
+    ;
+    ; The single-value rows are the ones worth staring at. `10px` is
+    ; (10, 20) — a length sets x and leaves y at the middle — while `top` is
+    ; (50, 0), because `top` names the OTHER axis. An implementation that reads
+    ; "the first value is x" gets every length right and every keyword wrong,
+    ; and passes any test written only with two-value forms.
+    sfn checkOriginResolution:void (c:TimingCheck) {
+        def el (new EVGElement())
+        el.setAttribute("transform-origin" "50% 50%")
+        c.near("origin x of '50% 50%'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("origin y of '50% 50%'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        el.setAttribute("transform-origin" "0 0")
+        c.near("origin x of '0 0'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("origin y of '0 0'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        el.setAttribute("transform-origin" "100% 100%")
+        c.near("origin x of '100% 100%'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+        c.near("origin y of '100% 100%'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+        el.setAttribute("transform-origin" "0% 100%")
+        c.near("origin x of '0% 100%'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("origin y of '0% 100%'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+        el.setAttribute("transform-origin" "left top")
+        c.near("origin x of 'left top'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("origin y of 'left top'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        el.setAttribute("transform-origin" "right bottom")
+        c.near("origin x of 'right bottom'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+        c.near("origin y of 'right bottom'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+        el.setAttribute("transform-origin" "center bottom")
+        c.near("origin x of 'center bottom'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("origin y of 'center bottom'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+        el.setAttribute("transform-origin" "top left")
+        c.near("origin x of 'top left'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("origin y of 'top left'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        el.setAttribute("transform-origin" "bottom left")
+        c.near("origin x of 'bottom left'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("origin y of 'bottom left'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+        el.setAttribute("transform-origin" "right top")
+        c.near("origin x of 'right top'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+        c.near("origin y of 'right top'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        el.setAttribute("transform-origin" "top center")
+        c.near("origin x of 'top center'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("origin y of 'top center'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        el.setAttribute("transform-origin" "center right")
+        c.near("origin x of 'center right'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+        c.near("origin y of 'center right'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        el.setAttribute("transform-origin" "10px 4px")
+        c.near("origin x of '10px 4px'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 10.0)
+        c.near("origin y of '10px 4px'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 4.0)
+        el.setAttribute("transform-origin" "25% 10px")
+        c.near("origin x of '25% 10px'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 25.0)
+        c.near("origin y of '25% 10px'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 10.0)
+        el.setAttribute("transform-origin" "left")
+        c.near("origin x of 'left'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("origin y of 'left'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        el.setAttribute("transform-origin" "right")
+        c.near("origin x of 'right'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+        c.near("origin y of 'right'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        el.setAttribute("transform-origin" "top")
+        c.near("origin x of 'top'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("origin y of 'top'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        el.setAttribute("transform-origin" "bottom")
+        c.near("origin x of 'bottom'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("origin y of 'bottom'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+        el.setAttribute("transform-origin" "center")
+        c.near("origin x of 'center'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("origin y of 'center'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        el.setAttribute("transform-origin" "10px")
+        c.near("origin x of '10px'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 10.0)
+        c.near("origin y of '10px'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        el.setAttribute("transform-origin" "25%")
+        c.near("origin x of '25%'" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 25.0)
+        c.near("origin y of '25%'" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+
+        ; Never set at all is the default, and the default is the centre.
+        def fresh (new EVGElement())
+        c.near("an untouched element turns about its centre in x" (EVGElement.resolveOrigin(fresh.transformOriginX 100.0)) 50.0)
+        c.near("and in y" (EVGElement.resolveOrigin(fresh.transformOriginY 40.0)) 20.0)
+    }
+
+    ; And the box actually ENDS UP where the browser put it. Resolving the
+    ; origin correctly and then turning about something else is a live
+    ; possibility, so the pivot is checked twice: once as a number, once as the
+    ; place a quarter turn leaves the box.
+    ;
+    ; EVG paints an axis-aligned rectangle plus an angle rather than a turned
+    ; quad, so what is compared is the rectangle's CENTRE against the centre of
+    ; the browser's bounding box — the one point the two representations agree
+    ; on exactly.
+    sfn checkOriginTurnsTheBox:void (c:TimingCheck) {
+        EVGTimingTest.turnedCentre(c "0 0" -20.0000 50.0000)
+        EVGTimingTest.turnedCentre(c "100% 100%" 120.0000 -10.0000)
+        EVGTimingTest.turnedCentre(c "10px 4px" -6.0000 44.0000)
+        EVGTimingTest.turnedCentre(c "left" 0.0000 70.0000)
+        EVGTimingTest.turnedCentre(c "top" 30.0000 0.0000)
+    }
+
+    ; Lay out a 100x40 box at the page origin, turn it a quarter turn about
+    ; `spec`, and report where the background rectangle's centre ended up.
+    sfn turnedCentre:void (c:TimingCheck spec:string wantX:double wantY:double) {
+        def page (new EVGElement())
+        page.setAttribute("width" "300")
+        page.setAttribute("height" "300")
+        def kid (new EVGElement())
+        kid.setAttribute("width" "100")
+        kid.setAttribute("height" "40")
+        kid.setAttribute("background-color" "rgb(10,20,30)")
+        kid.setAttribute("transform-origin" spec)
+        kid.setAttribute("transform" "rotate(90deg)")
+        page.addChild(kid)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def i:int 0
+        def found:boolean false
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if ((cmd.kind == 0) && (cmd.w > 90.0)) {
+                ; A quarter turn about the pivot: the rectangle keeps its own
+                ; width and height in the list, and the ANGLE plus the ORIGIN
+                ; say where it lands. Work out the turned centre the way a
+                ; painter would.
+                def bx:double (cmd.x + (cmd.w / 2.0))
+                def by:double (cmd.y + (cmd.h / 2.0))
+                def rad:double ((cmd.rotate * 3.14159265358979) / 180.0)
+                def dx:double (bx - cmd.rotOriginX)
+                def dy:double (by - cmd.rotOriginY)
+                def tx:double (cmd.rotOriginX + ((dx * (cos rad)) - (dy * (sin rad))))
+                def ty:double (cmd.rotOriginY + ((dx * (sin rad)) + (dy * (cos rad))))
+                c.near(("turned about '" + spec + "' lands at x") tx wantX)
+                c.near(("turned about '" + spec + "' lands at y") ty wantY)
+                found = true
+            }
+            i = (i + 1)
+        }
+        c.ok(("a box was painted for '" + spec + "'") found)
+    }
+
+    ; `transition: transform-origin 200ms linear` from 0% 0% to 100% 100%, on
+    ; the same 100x40 box the browser was asked about. The resolved pixel
+    ; positions at five points are its answer.
+    ;
+    ; The percentages are what move; the pixels below are what those
+    ; percentages resolve to. Checking the resolved value rather than the raw
+    ; number is deliberate — it is the only form the two engines can be
+    ; compared in, and it is what the pivot actually uses.
+    sfn checkOriginTransition:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "transform-origin 200ms linear"
+        el.setAttribute("transform-origin" "0% 0%")
+        tr.reconcile(el)
+        el.setAttribute("transform-origin" "100% 100%")
+        tr.reconcile(el)
+        c.near("at 0ms the origin x is 0px" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 0.0)
+        c.near("at 0ms the origin y is 0px" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 0.0)
+        tr.advance(el 50.0)
+        c.near("at 50ms the origin x is 25px" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 25.0)
+        c.near("at 50ms the origin y is 10px" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 10.0)
+        tr.advance(el 50.0)
+        c.near("at 100ms the origin x is 50px" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 50.0)
+        c.near("at 100ms the origin y is 20px" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+        tr.advance(el 50.0)
+        c.near("at 150ms the origin x is 75px" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 75.0)
+        c.near("at 150ms the origin y is 30px" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 30.0)
+        tr.advance(el 50.0)
+        c.near("at 200ms the origin x is 100px" (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+        c.near("at 200ms the origin y is 40px" (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 40.0)
+    }
+
+    ; A unit change cannot be interpolated, so it lands at once instead of
+    ; sliding through numbers that mean nothing. Written down because it is a
+    ; deliberate difference from CSS, which blends the resolved lengths.
+    sfn checkOriginUnitChangeJumps:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "transform-origin 200ms linear"
+        el.setAttribute("transform-origin" "0% 0%")
+        tr.reconcile(el)
+        el.setAttribute("transform-origin" "80px 0%")
+        tr.reconcile(el)
+        c.near("a percentage becoming a length arrives at once"
+            (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 80.0)
+        ; The OTHER axis kept its unit, so it is still a transition.
+        el.setAttribute("transform-origin" "80px 100%")
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.near("while the axis that kept its unit still travels"
+            (EVGElement.resolveOrigin(el.transformOriginY 40.0)) 20.0)
+    }
+
+    ; And it is a separate property from `transform`: a sheet that transitions
+    ; one must not get the other for free.
+    sfn checkOriginIsItsOwnProperty:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "transform 200ms linear"
+        el.setAttribute("transform-origin" "0% 0%")
+        tr.reconcile(el)
+        el.setAttribute("transform-origin" "100% 100%")
+        tr.reconcile(el)
+        c.near("transitioning transform does not transition the origin"
+            (EVGElement.resolveOrigin(el.transformOriginX 100.0)) 100.0)
+    }
+
     sfn main:void () {
         def c (new TimingCheck())
         print "=== EVG timing functions vs the captured browser oracle ==="
@@ -714,6 +924,11 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
         EVGTimingTest.checkTransformTransition(c)
+        EVGTimingTest.checkOriginResolution(c)
+        EVGTimingTest.checkOriginTurnsTheBox(c)
+        EVGTimingTest.checkOriginTransition(c)
+        EVGTimingTest.checkOriginUnitChangeJumps(c)
+        EVGTimingTest.checkOriginIsItsOwnProperty(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

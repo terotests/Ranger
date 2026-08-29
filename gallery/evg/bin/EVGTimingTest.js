@@ -1391,6 +1391,7 @@ class EVGFlight  {
     this.fromNumber = 0.0;
     this.toNumber = 0.0;
     this.isColor = false;
+    this.unitCode = 0;
     this.reversingStartNumber = 0.0;
     this.reversingFactor = 1.0;
   }
@@ -1499,6 +1500,9 @@ class EVGElement  {
     this.translateX = 0.0;
     this.translateY = 0.0;
     this.transformSpec = "";
+    this.transformOriginX = new EVGUnit();
+    this.transformOriginY = new EVGUnit();
+    this.transformOriginSpec = "";
     this.backgroundGradient = "";
     this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
@@ -1920,6 +1924,42 @@ class EVGElement  {
     this.scale = sc;
     this.translateX = tx;
     this.translateY = ty;
+  };
+  applyTransformOrigin (value) {
+    this.transformOriginSpec = value.trim();
+    const words = EVGElement.splitWords(this.transformOriginSpec);
+    const n = words.length;
+    if ( n == 0 ) {
+      this.transformOriginX = new EVGUnit();
+      this.transformOriginY = new EVGUnit();
+      return;
+    }
+    const first = (words[0]).trim();
+    if ( n == 1 ) {
+      if ( EVGElement.isYKeyword(first) ) {
+        this.transformOriginX = EVGUnit.percent(50.0);
+        this.transformOriginY = EVGElement.originUnit(first);
+      } else {
+        this.transformOriginX = EVGElement.originUnit(first);
+        this.transformOriginY = EVGUnit.percent(50.0);
+      }
+      return;
+    }
+    const second = (words[1]).trim();
+    let swap = false;
+    if ( EVGElement.isYKeyword(first) ) {
+      swap = true;
+    }
+    if ( EVGElement.isXKeyword(second) ) {
+      swap = true;
+    }
+    if ( swap ) {
+      this.transformOriginX = EVGElement.originUnit(second);
+      this.transformOriginY = EVGElement.originUnit(first);
+    } else {
+      this.transformOriginX = EVGElement.originUnit(first);
+      this.transformOriginY = EVGElement.originUnit(second);
+    }
   };
   markInline (name) {
     const key = EVGElement.toKebab(name);
@@ -2384,6 +2424,10 @@ class EVGElement  {
       this.applyTransform(value);
       return;
     }
+    if ( (name == "transform-origin") || (name == "transformOrigin") ) {
+      this.applyTransformOrigin(value);
+      return;
+    }
     if ( (name == "translate-x") || (name == "translateX") ) {
       const tvx = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       if ( typeof(tvx) != "undefined" ) {
@@ -2567,6 +2611,33 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.isXKeyword = function(w) {
+  return (w == "left") || (w == "right");
+};
+EVGElement.isYKeyword = function(w) {
+  return (w == "top") || (w == "bottom");
+};
+EVGElement.originUnit = function(w) {
+  if ( (w == "left") || (w == "top") ) {
+    return EVGUnit.percent(0.0);
+  }
+  if ( (w == "right") || (w == "bottom") ) {
+    return EVGUnit.percent(100.0);
+  }
+  if ( w == "center" ) {
+    return EVGUnit.percent(50.0);
+  }
+  return EVGUnit.parse(w);
+};
+EVGElement.resolveOrigin = function(u, size) {
+  if ( u.isSet == false ) {
+    return size / 2.0;
+  }
+  if ( (u.unitType == 1) || (u.unitType == 3) ) {
+    return (u.value / 100.0) * size;
+  }
+  return u.value;
 };
 EVGElement.transformProblem = function(value) {
   const v = value.trim();
@@ -2866,6 +2937,8 @@ class EVGTransition  {
     this.reconcileNumberAs(el, "transform.scale", "transform", el.scale);
     this.reconcileNumberAs(el, "transform.tx", "transform", el.translateX);
     this.reconcileNumberAs(el, "transform.ty", "transform", el.translateY);
+    this.reconcileOriginAxis(el, "transform-origin.x", el.transformOriginX);
+    this.reconcileOriginAxis(el, "transform-origin.y", el.transformOriginY);
     this.writeBack(el);
   };
   reconcileColor (el, property, target) {
@@ -2979,6 +3052,27 @@ class EVGTransition  {
     created.elapsedMs = spec.durationMs + spec.delayMs;
     el.transitions.push(created);
   };
+  reconcileOriginAxis (el, key, u) {
+    let code = 1;
+    let target = 50.0;
+    if ( u.isSet ) {
+      code = u.unitType;
+      target = u.value;
+    }
+    const existing = this.flightFor(el, key);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( f.unitCode != code ) {
+        this.drop(el, key);
+      }
+    }
+    this.reconcileNumberAs(el, key, "transform-origin", target);
+    const now = this.flightFor(el, key);
+    if ( typeof(now) != "undefined" ) {
+      const f2 = now;
+      f2.unitCode = code;
+    }
+  };
   drop (el, property) {
     let kept = [];
     let i = 0;
@@ -3038,6 +3132,12 @@ class EVGTransition  {
         }
         if ( f.property == "transform.ty" ) {
           el.translateY = this.showNumber(f);
+        }
+        if ( f.property == "transform-origin.x" ) {
+          el.transformOriginX = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
+        }
+        if ( f.property == "transform-origin.y" ) {
+          el.transformOriginY = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
         }
       }
       i = i + 1;
@@ -3214,6 +3314,14 @@ EVGTransition.mixColor = function(from, to, t) {
   c.a = from.a + ((to.a - from.a) * t);
   c.isSet = true;
   return c;
+};
+EVGTransition.unitOf = function(code, value) {
+  const u = new EVGUnit();
+  u.unitType = code;
+  u.value = value;
+  u.pixels = value;
+  u.isSet = true;
+  return u;
 };
 EVGTransition.sameNumber = function(a, b) {
   return (Math.abs((a - b))) < 0.001;
@@ -7038,8 +7146,8 @@ class EVGDisplayList  {
     if ( ((turns == false) && (scales == false)) && (shifts == false) ) {
       return;
     }
-    const ox = el.calculatedX + (el.calculatedWidth / 2.0);
-    const oy = el.calculatedY + (el.calculatedHeight / 2.0);
+    const ox = el.calculatedX + EVGElement.resolveOrigin(el.transformOriginX, el.calculatedWidth);
+    const oy = el.calculatedY + EVGElement.resolveOrigin(el.transformOriginY, el.calculatedHeight);
     const rad = (deg * 3.14159265358979) / 180.0;
     const cs = Math.cos(rad);
     const sn = Math.sin(rad);
@@ -10757,6 +10865,164 @@ EVGTimingTest.checkTransformTransition = function(c) {
   c.near("and the scale", el.scale, 1.5);
   c.ok("and then stops asking for frames", tr.busy(el) == false);
 };
+EVGTimingTest.checkOriginResolution = function(c) {
+  const el = new EVGElement();
+  el.setAttribute("transform-origin", "50% 50%");
+  c.near("origin x of '50% 50%'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("origin y of '50% 50%'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  el.setAttribute("transform-origin", "0 0");
+  c.near("origin x of '0 0'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("origin y of '0 0'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  el.setAttribute("transform-origin", "100% 100%");
+  c.near("origin x of '100% 100%'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+  c.near("origin y of '100% 100%'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+  el.setAttribute("transform-origin", "0% 100%");
+  c.near("origin x of '0% 100%'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("origin y of '0% 100%'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+  el.setAttribute("transform-origin", "left top");
+  c.near("origin x of 'left top'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("origin y of 'left top'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  el.setAttribute("transform-origin", "right bottom");
+  c.near("origin x of 'right bottom'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+  c.near("origin y of 'right bottom'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+  el.setAttribute("transform-origin", "center bottom");
+  c.near("origin x of 'center bottom'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("origin y of 'center bottom'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+  el.setAttribute("transform-origin", "top left");
+  c.near("origin x of 'top left'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("origin y of 'top left'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  el.setAttribute("transform-origin", "bottom left");
+  c.near("origin x of 'bottom left'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("origin y of 'bottom left'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+  el.setAttribute("transform-origin", "right top");
+  c.near("origin x of 'right top'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+  c.near("origin y of 'right top'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  el.setAttribute("transform-origin", "top center");
+  c.near("origin x of 'top center'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("origin y of 'top center'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  el.setAttribute("transform-origin", "center right");
+  c.near("origin x of 'center right'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+  c.near("origin y of 'center right'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  el.setAttribute("transform-origin", "10px 4px");
+  c.near("origin x of '10px 4px'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 10.0);
+  c.near("origin y of '10px 4px'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 4.0);
+  el.setAttribute("transform-origin", "25% 10px");
+  c.near("origin x of '25% 10px'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 25.0);
+  c.near("origin y of '25% 10px'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 10.0);
+  el.setAttribute("transform-origin", "left");
+  c.near("origin x of 'left'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("origin y of 'left'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  el.setAttribute("transform-origin", "right");
+  c.near("origin x of 'right'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+  c.near("origin y of 'right'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  el.setAttribute("transform-origin", "top");
+  c.near("origin x of 'top'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("origin y of 'top'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  el.setAttribute("transform-origin", "bottom");
+  c.near("origin x of 'bottom'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("origin y of 'bottom'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+  el.setAttribute("transform-origin", "center");
+  c.near("origin x of 'center'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("origin y of 'center'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  el.setAttribute("transform-origin", "10px");
+  c.near("origin x of '10px'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 10.0);
+  c.near("origin y of '10px'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  el.setAttribute("transform-origin", "25%");
+  c.near("origin x of '25%'", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 25.0);
+  c.near("origin y of '25%'", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  const fresh = new EVGElement();
+  c.near("an untouched element turns about its centre in x", EVGElement.resolveOrigin(fresh.transformOriginX, 100.0), 50.0);
+  c.near("and in y", EVGElement.resolveOrigin(fresh.transformOriginY, 40.0), 20.0);
+};
+EVGTimingTest.checkOriginTurnsTheBox = function(c) {
+  EVGTimingTest.turnedCentre(c, "0 0", -20.0, 50.0);
+  EVGTimingTest.turnedCentre(c, "100% 100%", 120.0, -10.0);
+  EVGTimingTest.turnedCentre(c, "10px 4px", -6.0, 44.0);
+  EVGTimingTest.turnedCentre(c, "left", 0.0, 70.0);
+  EVGTimingTest.turnedCentre(c, "top", 30.0, 0.0);
+};
+EVGTimingTest.turnedCentre = function(c, spec, wantX, wantY) {
+  const page = new EVGElement();
+  page.setAttribute("width", "300");
+  page.setAttribute("height", "300");
+  const kid = new EVGElement();
+  kid.setAttribute("width", "100");
+  kid.setAttribute("height", "40");
+  kid.setAttribute("background-color", "rgb(10,20,30)");
+  kid.setAttribute("transform-origin", spec);
+  kid.setAttribute("transform", "rotate(90deg)");
+  page.addChild(kid);
+  const layout = new EVGLayout();
+  layout.layout(page);
+  const dl = new EVGDisplayList();
+  dl.build(page);
+  let i = 0;
+  let found = false;
+  while (i < (dl.cmds.length)) {
+    const cmd = dl.cmds[i];
+    if ( (cmd.kind == 0) && (cmd.w > 90.0) ) {
+      const bx = cmd.x + (cmd.w / 2.0);
+      const by = cmd.y + (cmd.h / 2.0);
+      const rad = (cmd.rotate * 3.14159265358979) / 180.0;
+      const dx = bx - cmd.rotOriginX;
+      const dy = by - cmd.rotOriginY;
+      const tx = cmd.rotOriginX + ((dx * (Math.cos(rad))) - (dy * (Math.sin(rad))));
+      const ty = cmd.rotOriginY + ((dx * (Math.sin(rad))) + (dy * (Math.cos(rad))));
+      c.near(("turned about '" + spec) + "' lands at x", tx, wantX);
+      c.near(("turned about '" + spec) + "' lands at y", ty, wantY);
+      found = true;
+    }
+    i = i + 1;
+  };
+  c.ok(("a box was painted for '" + spec) + "'", found);
+};
+EVGTimingTest.checkOriginTransition = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "transform-origin 200ms linear";
+  el.setAttribute("transform-origin", "0% 0%");
+  tr.reconcile(el);
+  el.setAttribute("transform-origin", "100% 100%");
+  tr.reconcile(el);
+  c.near("at 0ms the origin x is 0px", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 0.0);
+  c.near("at 0ms the origin y is 0px", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 0.0);
+  tr.advance(el, 50.0);
+  c.near("at 50ms the origin x is 25px", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 25.0);
+  c.near("at 50ms the origin y is 10px", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 10.0);
+  tr.advance(el, 50.0);
+  c.near("at 100ms the origin x is 50px", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 50.0);
+  c.near("at 100ms the origin y is 20px", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+  tr.advance(el, 50.0);
+  c.near("at 150ms the origin x is 75px", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 75.0);
+  c.near("at 150ms the origin y is 30px", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 30.0);
+  tr.advance(el, 50.0);
+  c.near("at 200ms the origin x is 100px", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+  c.near("at 200ms the origin y is 40px", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 40.0);
+};
+EVGTimingTest.checkOriginUnitChangeJumps = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "transform-origin 200ms linear";
+  el.setAttribute("transform-origin", "0% 0%");
+  tr.reconcile(el);
+  el.setAttribute("transform-origin", "80px 0%");
+  tr.reconcile(el);
+  c.near("a percentage becoming a length arrives at once", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 80.0);
+  el.setAttribute("transform-origin", "80px 100%");
+  tr.reconcile(el);
+  tr.advance(el, 100.0);
+  c.near("while the axis that kept its unit still travels", EVGElement.resolveOrigin(el.transformOriginY, 40.0), 20.0);
+};
+EVGTimingTest.checkOriginIsItsOwnProperty = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "transform 200ms linear";
+  el.setAttribute("transform-origin", "0% 0%");
+  tr.reconcile(el);
+  el.setAttribute("transform-origin", "100% 100%");
+  tr.reconcile(el);
+  c.near("transitioning transform does not transition the origin", EVGElement.resolveOrigin(el.transformOriginX, 100.0), 100.0);
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new TimingCheck();
@@ -10785,6 +11051,11 @@ function __js_main() {
   EVGTimingTest.checkTransformOrigin(c);
   EVGTimingTest.checkTransformScale(c);
   EVGTimingTest.checkTransformTransition(c);
+  EVGTimingTest.checkOriginResolution(c);
+  EVGTimingTest.checkOriginTurnsTheBox(c);
+  EVGTimingTest.checkOriginTransition(c);
+  EVGTimingTest.checkOriginUnitChangeJumps(c);
+  EVGTimingTest.checkOriginIsItsOwnProperty(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {

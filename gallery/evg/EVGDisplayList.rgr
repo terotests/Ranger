@@ -706,12 +706,15 @@ class EVGDisplayList {
         if (((turns == false) && (scales == false)) && (shifts == false)) {
             return
         }
-        ; The element's own centre. Measured against a browser rather than
-        ; assumed: it puts `transform-origin` at 50% 50%, and a 100x40 box
-        ; given a quarter turn comes back with its centre exactly where it
-        ; started.
-        def ox:double (el.calculatedX + (el.calculatedWidth / 2.0))
-        def oy:double (el.calculatedY + (el.calculatedHeight / 2.0))
+        ; What it turns about. `transform-origin` decides, and its default is
+        ; 50% 50% — the element's own centre. Measured against a browser rather
+        ; than assumed: a 100x40 box given a quarter turn about the default
+        ; comes back with its centre exactly where it started.
+        ;
+        ; Resolved HERE and not earlier, because a percentage needs the laid-out
+        ; box and this is the first place that exists.
+        def ox:double (el.calculatedX + (EVGElement.resolveOrigin(el.transformOriginX el.calculatedWidth)))
+        def oy:double (el.calculatedY + (EVGElement.resolveOrigin(el.transformOriginY el.calculatedHeight)))
         def rad:double ((deg * 3.14159265358979) / 180.0)
         def cs:double (cos rad)
         def sn:double (sin rad)

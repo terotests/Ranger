@@ -929,6 +929,8 @@ class EVGStyleSheet {
     ; writing a literal here would break inheritance rather than restore it.
     sfn initialValue:string (name:string) {
         if (name == "transform")        { return "none" }
+        if (name == "transform-origin")  { return "50% 50%" }
+        if (name == "transformOrigin")   { return "50% 50%" }
         if (name == "opacity")          { return "1" }
         if (name == "background-color") { return "transparent" }
         if (name == "backgroundColor")  { return "transparent" }
