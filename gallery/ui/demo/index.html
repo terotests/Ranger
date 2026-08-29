@@ -47,9 +47,11 @@
       <h1>Ranger tree literals — Radix components</h1>
       <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
-        Three <code>treefactory</code> declarations, each naming its own tags over the
-        same <code>EVGElement</code>, painted by EVG's WebGL painter. Every control
-        here calls back into Ranger and rebuilds the whole tree.
+        Four <code>treefactory</code> declarations, each naming its own tags over the
+        same <code>EVGElement</code>, painted by EVG's WebGL painter. Three of them
+        rebuild the whole tree on every control; the motion showcase keeps its tree,
+        because a transition remembers where a value was and a rebuilt element
+        remembers nothing.
       </p>
     </header>
     <main>
@@ -90,6 +92,19 @@
           <h2>order</h2>
           <p class="hint" id="order"></p>
         </section>
+        <section data-for="motion">
+          <h2>what to look at</h2>
+          <p class="hint">
+            The seven dots leave together and arrive together. Everything
+            between is the timing function, and the curve beside each one is
+            sampled from the very function that moves it.
+          </p>
+          <p class="hint">
+            The <strong>cubic-bezier</strong> row goes <em>past</em> its target
+            and comes back — its control points leave 0..1, and a solver that
+            clamps would show a straight arrival instead.
+          </p>
+        </section>
       </aside>
       <div class="stage">
         <div id="stage"><canvas id="c"></canvas></div>
@@ -101,6 +116,22 @@
           &darr; and Escape for the same thing from the keyboard. The behaviour is the
           one <code>gallery/ui/src/SortableCtl.rgr</code> is measured against, item for
           item, with <code>@dnd-kit/sortable</code> as the reference.
+        </p>
+        <p class="note" data-for="motion">
+          <strong>Hover the cards at the bottom.</strong> Nothing in
+          <code>MotionDemo.rgr</code> knows what a pointer is: the tree is boxes
+          with class names, and every hover, press and journey on this page is a
+          rule in <code>motion.css</code>. The page&rsquo;s only job is to turn a
+          theme over every 1.7 seconds and to hand the engine the real elapsed
+          time each frame.
+        </p>
+        <p class="note" data-for="motion">
+          <strong>Cross the slow card quickly.</strong> Its transition is 900ms,
+          and leaving half way through does not take another 900ms to come
+          back — a reversal is shortened by how far the value <em>actually</em>
+          got, measured after the easing curve rather than off the clock. On
+          <code>ease-in</code> at the midpoint those differ by nearly a factor of
+          two.
         </p>
         <p class="note">
           <strong>Click it.</strong> The canvas answers the pointer through EVG&rsquo;s own

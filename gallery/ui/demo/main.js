@@ -25,8 +25,8 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo } from "./generated-host.js";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS } from "./generated.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo } from "./generated-host.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -63,13 +63,34 @@ const state = {
 
 let generation = 0;
 
-// Two demos, two factories, one page. Each one says how tall it is and how to
-// ask Ranger the three questions; everything below is the same for both.
+/**
+ * The motion showcase, and the one demo on this page that does NOT rebuild.
+ *
+ * A transition is a property of an ELEMENT — it remembers where the colour was
+ * when the pointer arrived. Rebuild the tree and that memory is gone, so every
+ * transition would establish itself at its destination and nothing would ever
+ * move. This host is therefore built once and kept, and the page only sets
+ * flags on it. Everything else here still rebuilds, which is the claim the
+ * other three demos exist to make.
+ */
+let lastHover = "";
+const motion = new MotionDemo();
+motion.init(MOTION_CSS);
+
+// Four demos, four factories, one page. Each one says how tall it is and
+// answers the same three questions — what to draw, what is under the pointer,
+// and what it all MEANS. Three of them answer by rebuilding their tree from
+// `args()`; the motion showcase answers from a tree it keeps, because a
+// transition cannot survive being rebuilt. Behind these thunks the difference
+// stops mattering to the rest of the page.
 const DEMOS = {
   menubar: {
     height: 560,
     args: () => [MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu, state.atBottom],
     module: MenubarDemo,
+    list: () => MenubarDemo.displayListJson(...DEMOS.menubar.args()),
+    hit: (x, y) => MenubarDemo.hitId(...DEMOS.menubar.args(), x, y),
+    a11y: (gen, focus) => MenubarDemo.a11yJson(...DEMOS.menubar.args(), gen, focus),
     press: pressMenubar,
     hover: hoverMenubar,
     key: keyMenubar,
@@ -81,14 +102,39 @@ const DEMOS = {
       "Edited 2 hours ago",
     ],
     module: ToolbarDemo,
+    list: () => ToolbarDemo.displayListJson(...DEMOS.toolbar.args()),
+    hit: (x, y) => ToolbarDemo.hitId(...DEMOS.toolbar.args(), x, y),
+    a11y: (gen, focus) => ToolbarDemo.a11yJson(...DEMOS.toolbar.args(), gen, focus),
     press: pressToolbar,
     hover: () => false,
     key: () => false,
+  },
+  motion: {
+    height: () => motion.heightPx(),
+    // Persistent: the three thunks below go to the kept host rather than
+    // rebuilding a tree from arguments.
+    list: () => motion.displayListJson(),
+    hit: (x, y) => motion.hitId(x, y),
+    a11y: (gen, focus) => motion.a11yJson(gen, focus),
+    press: () => false,
+    hover: (id) => {
+      if (id === lastHover) return false;
+      lastHover = id;
+      motion.setHover(id);
+      return true;
+    },
+    key: () => false,
+    // The only demo with a clock. `flip` is what the self-running panels
+    // travel between; the page turns it over and the stylesheet does the rest.
+    animated: true,
   },
   sortable: {
     height: 560,
     args: () => [SORTABLE_CSS, state.order, state.dragging],
     module: SortableDemo,
+    list: () => SortableDemo.displayListJson(...DEMOS.sortable.args()),
+    hit: (x, y) => SortableDemo.hitId(...DEMOS.sortable.args(), x, y),
+    a11y: (gen, focus) => SortableDemo.a11yJson(...DEMOS.sortable.args(), gen, focus),
     press: pressSortable,
     hover: () => false,
     key: keySortable,
@@ -173,8 +219,7 @@ function demo() {
 }
 
 function hitAt(x, y) {
-  const d = demo();
-  return d.module.hitId(...d.args(), x, y);
+  return demo().hit(x, y);
 }
 
 // --- what a press means ------------------------------------------------------
@@ -322,8 +367,8 @@ function paint() {
   try {
     errEl.textContent = "";
     const d = demo();
-    const H = d.height;
-    const list = JSON.parse(d.module.displayListJson(...d.args()));
+    const H = typeof d.height === "function" ? d.height() : d.height;
+    const list = JSON.parse(d.list());
     const doc = { width: W, height: H, list };
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.style.width = W + "px";
@@ -352,7 +397,7 @@ function paint() {
     // knows the frame changed; it keeps its elements by id, which is why a
     // reader's cursor survives a repaint.
     generation += 1;
-    const tree = JSON.parse(d.module.a11yJson(...d.args(), generation, state.focus));
+    const tree = JSON.parse(d.a11y(generation, state.focus));
     tree.byId = new Map(tree.nodes.map((n) => [n.id, n]));
     lastTree = tree;
     mirror.update(tree);
@@ -435,12 +480,13 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable"],
+  ["menubar", "toolbar", "sortable", "motion"],
   () => state.which,
   (v) => {
     state.which = v;
     state.focus = "";
     syncPanels();
+    syncMotionClock();
   },
 );
 boxes(
@@ -524,7 +570,11 @@ canvas.addEventListener("pointermove", (ev) => {
     if (d.drag(hitAt(ev.offsetX, ev.offsetY))) paint();
     return;
   }
-  if (d.hover(hitAt(ev.offsetX, ev.offsetY))) paint();
+  if (d.hover(hitAt(ev.offsetX, ev.offsetY))) {
+    paint();
+    // A hover starts a transition, and a transition needs frames.
+    if (d.animated) animate();
+  }
 });
 canvas.addEventListener("pointerup", () => {
   const d = demo();
@@ -533,7 +583,11 @@ canvas.addEventListener("pointerup", () => {
   if (d.drop()) paint();
 });
 canvas.addEventListener("pointerleave", () => {
-  if (demo().hover("")) paint();
+  const d = demo();
+  if (d.hover("")) {
+    paint();
+    if (d.animated) animate();
+  }
 });
 // Keys are the window's: the canvas is not focusable, and the mirror element
 // that has the focus is inside this page.
@@ -554,5 +608,58 @@ mirror = createA11yMirror(stage, {
   onActivate: (node) => pressAtCentre(node, press),
 });
 
+// --- the motion showcase's clock ---------------------------------------------
+//
+// Two loops, and they are different things.
+//
+// `animate` is the frame loop: while anything is in flight it advances the
+// engine by the REAL elapsed time and repaints, and it stops the moment
+// nothing is moving. Handing it the real dt rather than a fixed step is what
+// makes a dropped frame shorten the animation instead of stretching it.
+//
+// `flip` is the demonstration itself: the self-running panels travel between
+// two ends, so something has to turn the page over. It is a theme change and
+// nothing else — no element gains or loses a class.
+let animating = 0;
+let flipTimer = 0;
+
+function animate() {
+  if (animating) return;
+  let last = performance.now();
+  const step = () => {
+    const now = performance.now();
+    const dt = now - last;
+    last = now;
+    motion.tick(dt);
+    paint();
+    animating = motion.busyNow() ? requestAnimationFrame(step) : 0;
+  };
+  animating = requestAnimationFrame(step);
+}
+
+function startFlipping() {
+  stopFlipping();
+  // Long enough for the slowest row (900ms plus the 360ms delay) to arrive and
+  // be looked at before it leaves again.
+  flipTimer = setInterval(() => {
+    motion.setFlipped(!motion.isFlipped());
+    paint();
+    animate();
+  }, 1700);
+}
+
+function stopFlipping() {
+  if (flipTimer) clearInterval(flipTimer);
+  flipTimer = 0;
+  if (animating) cancelAnimationFrame(animating);
+  animating = 0;
+}
+
+function syncMotionClock() {
+  if (state.which === "motion") startFlipping();
+  else stopFlipping();
+}
+
 syncPanels();
+syncMotionClock();
 paint();

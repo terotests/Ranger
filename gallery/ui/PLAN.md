@@ -442,6 +442,63 @@ flight in the first place, so the loop still has to paint BEFORE asking whether
 anything is moving; asking first gives exactly one frame and a colour frozen
 where it started, which it did, twice.
 
+## The motion showcase, and a kit that answers the pointer
+
+Everything above is measured. None of it was *visible* anywhere, and "does the
+motion feel right" is not a question a checker answers — so there is now a
+fourth demo, and the kit itself moves.
+
+**`MotionDemo.rgr`** is the showcase: seven timing functions racing side by
+side under the curve each one draws, a delay staggering three bars, nine tiles
+turning about nine different origins, and cards that answer the pointer. The
+curves are not pictures — each `d` is sampled from the very `EVGEasing` that
+moves the dot beside it, so the drawing and the motion cannot drift apart.
+
+It is the one demo in that directory that does **not** rebuild its tree, and
+the reason is worth stating plainly because it contradicts what the other three
+are there to demonstrate. A flight is a property of an ELEMENT: it remembers
+where a value was when the pointer arrived. Rebuild the tree and that memory is
+gone, so every transition would establish itself at its destination and nothing
+would ever move. So this one owns its tree, built once, and state changes only
+set flags on it — the same shape `UiHost` has, for the same reason.
+
+The flip that drives the self-running panels is a **theme**. `.theme-go .mo-dot`
+is the far end of a journey, and turning the theme over moves everything at
+once with no new mechanism and no element gaining or losing a class — which is
+also a fair test that theme scoping and state rules compose.
+
+Verified headlessly before it was ever looked at: the seven dots leave together
+from x=335 and arrive together at x=869, and at the midpoint they read 602,
+763.5, 503.4, 700.6, 602, 915.7 and 548.6 — each one exactly its own timing
+function, and the overshoot row genuinely past its target.
+
+**The kit** then got the same treatment in `theme/base.css`: hover, press and
+state transitions across checkbox, radio, switch, tabs, toggle group,
+accordion, collapsible, the slider thumb, progress and toast. Three rules held
+to throughout —
+
+- the transition goes on the BASE rule, never on `:hover`, or a control eases
+  in and snaps out;
+- in is faster than out and a press is fastest, because a control has to feel
+  attached to the finger;
+- nothing moves that would reflow, so every bit of movement is `transform`.
+
+Two things it found. `text-align` was parsed by `EVGElement` and read by
+**nothing** — a documented attribute that did not exist, which is the defect
+this file complains about by name a few sections down. It now reaches the
+display list, measured off the same text engine that broke the line. And the
+first hover colour written here was `#e2e8f0`, which is exactly where the
+checkbox and the switch already rest, so hovering them did nothing at all and
+looked like a broken transition rather than a palette mistake. Both were found
+by measuring the painted colour rather than by reading the sheet.
+
+What is deliberately NOT there: an entrance for the overlays. A dialog, a
+popover and a tooltip are CREATED when they open, and a transition needs a
+value to leave from — a new element has none, so it establishes at its
+destination. A browser does exactly the same, which is why Radix animates its
+entrances with `@keyframes` and not `transition`. That is the next thing to
+build, and the overlays are what should reach for it first.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -478,6 +535,9 @@ document-order focus model in `UiHost`.
 `inline` is still parsed into `EVGElement.isInline` and never read by
 `EVGLayout`. Either make it work or take it out of `evg/SPEC.md`; a documented
 attribute that does nothing costs an afternoon every time someone believes it.
+`text-align` was the other one and it cost exactly that — it is now read by the
+display list, found by a row of cards whose labels sat in the top-left corner
+however they were styled.
 
 
 The harness already names the limit: `EVGStyleSheet` matches one class token

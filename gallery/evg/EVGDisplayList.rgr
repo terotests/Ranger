@@ -904,7 +904,28 @@ class EVGDisplayList {
             while (li < (array_length lines)) {
                 def c4 (new EVGDrawCmd())
                 c4.kind = 3
-                c4.x = (x + el.box.paddingLeftPx)
+                ; `text-align`, which until now was parsed by EVGElement and
+                ; read by absolutely nothing — a documented attribute that did
+                ; not exist, which costs an afternoon every time someone
+                ; believes it.
+                ;
+                ; The offset is measured, not guessed: the painter draws a run
+                ; at c.x and sizes the quad to the ink, so centring means
+                ; asking the same engine that broke the line how wide the line
+                ; came out and moving the start by the slack.
+                def indent:double 0.0
+                if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                    def m:EVGTextMetrics (textEngine.measureRun((itemAt lines li) face fs))
+                    def slack:double (avail - m.width)
+                    if (slack > 0.0) {
+                        if (el.textAlign == "center") {
+                            indent = (slack / 2.0)
+                        } {
+                            indent = slack
+                        }
+                    }
+                }
+                c4.x = ((x + el.box.paddingLeftPx) + indent)
                 c4.y = ((y + el.box.paddingTopPx) + ((to_double li) * (fs * lh)))
                 c4.w = avail
                 c4.h = (fs * lh)

@@ -604,3 +604,129 @@
 .ui-sortable-item:focus,
 .ui-dropdownmenu-item:focus,
 .ui-contextmenu-item:focus { background-color: #e0e7ff; }
+
+/* --- motion ------------------------------------------------------------------
+   Everything above says what a control LOOKS like. This says what it looks
+   like while it is changing, which is the difference between a kit that reads
+   as a picture of a UI and one that reads as a UI.
+
+   Three rules held to throughout, and they are the ones that separate motion
+   from fidgeting:
+
+   THE TRANSITION GOES ON THE BASE RULE. A transition describes the property,
+   not the direction. Declared only under `:hover` or only under a state class,
+   a control eases in and snaps out — which looks broken without looking
+   obviously wrong, and is the single most common way this is got wrong.
+
+   IN IS FASTER THAN OUT, AND PRESS IS FASTEST. A control has to feel attached
+   to the finger. Anything over about 200ms on a press reads as lag; anything
+   under about 80ms on a settle reads as a flicker.
+
+   NOTHING MOVES THAT WOULD REFLOW. Every bit of movement here is `transform`,
+   which is painted rather than laid out, so a control that grows under the
+   pointer does not shove its neighbours sideways. That is also why a lift is
+   `translate` and not a margin.
+
+   What is NOT here: an entrance for the overlays. A dialog, a popover and a
+   tooltip are CREATED when they open, and a transition needs a value to leave
+   from — a brand-new element has none, so it establishes at its destination
+   and does not travel. A browser behaves exactly the same way, which is why
+   Radix animates its entrances with `@keyframes` rather than `transition`.
+   EVG has no `@keyframes` yet; when it does, the overlays are the first thing
+   to reach for it. */
+
+/* The two-state controls. Colour AND border move together — a checkbox whose
+   fill arrives before its border reads as two things happening. */
+.ui-checkbox,
+.ui-radio,
+.ui-switch,
+.ui-tab,
+.ui-togglegroup-item,
+.ui-accordion-trigger,
+.ui-collapsible-trigger,
+.ui-slider-thumb,
+.ui-progress-indicator,
+.ui-toast-item {
+  transition: background-color 150ms ease-out, color 150ms ease-out,
+              border-color 150ms ease-out, transform 150ms ease-out;
+}
+
+/* Hover on the things that had none. One step of the same grey the rest of the
+   kit uses, rather than a new colour per component.
+ 
+   TWO groups, because a hover has to be a step from where the control ALREADY
+   is. The checkbox and the switch rest at #e2e8f0, which was the first hover
+   colour written here — so hovering them did precisely nothing, and it looked
+   like the transition was broken rather than the palette. Measured before it
+   was believed: the row came back 226,232,240 at rest, at 60ms and settled. */
+.ui-radio:hover,
+.ui-tab:hover,
+.ui-togglegroup-item:hover,
+.ui-accordion-trigger:hover,
+.ui-collapsible-trigger:hover { background-color: #e2e8f0; }
+
+.ui-checkbox:hover,
+.ui-switch:hover { background-color: #cbd5e1; }
+
+/* A press is a small squeeze, and it is on the transform rather than the
+   colour so it works on the controls whose colour is already carrying their
+   state. `scale` and not `translate`: a button that moves down under the
+   finger looks like it was nudged, one that shrinks looks pushed. */
+.ui-checkbox:active,
+.ui-radio:active,
+.ui-switch:active,
+.ui-tab:active,
+.ui-togglegroup-item:active,
+.ui-accordion-trigger:active,
+.ui-collapsible-trigger:active,
+.ui-toolbar-button:active,
+.ui-toggle:active { transform: scale(0.96); }
+
+/* Checking something is the one moment worth a flourish, so the indicator
+   overshoots very slightly and settles. The control's own centre is the pivot,
+   which is what keeps a row of checkboxes on their baseline. */
+.ui-checkbox-state-checked,
+.ui-radio-state-checked,
+.ui-switch-state-checked {
+  transition: background-color 180ms cubic-bezier(0.34, 1.4, 0.64, 1),
+              border-color 180ms ease-out,
+              transform 180ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  transform: scale(1.06);
+}
+
+/* The slider's thumb answers the pointer by growing, which is the affordance
+   that says it can be taken hold of. Bigger again while it is actually held. */
+.ui-slider-thumb:hover  { transform: scale(1.18); }
+.ui-slider-thumb:active { transform: scale(1.28); }
+
+/* The open half of a disclosure leans on its background rather than moving:
+   the panel below it is about to change height, and two things moving at once
+   is one too many. */
+.ui-accordion-trigger-state-open,
+.ui-collapsible-trigger-state-open { transition: background-color 200ms ease-out; }
+
+/* A tab that becomes active arrives from the resting colour rather than
+   appearing in the new one, and its neighbour leaves the same way. */
+.ui-tab-state-active,
+.ui-togglegroup-item-state-on,
+.ui-toggle-state-on { transition: background-color 200ms ease-out, color 200ms ease-out, border-color 200ms ease-out; }
+
+/* Progress is the one thing here that should NOT be quick. The bar is
+   reporting a real quantity, and a fast interpolation invites reading it as
+   further along than it is. */
+.ui-progress-indicator { transition: background-color 300ms linear; }
+
+/* Disabled: no hover, no press, no motion. A control that animates while
+   refusing to do anything is worse than one that sits still — it promises
+   something and then declines. Repeating the resting values under the state
+   pseudo-classes is how that is said with the selectors this engine has. */
+.ui-checkbox:disabled,
+.ui-radio:disabled,
+.ui-switch:disabled,
+.ui-tab:disabled,
+.ui-togglegroup-item:disabled,
+.ui-accordion-trigger:disabled,
+.ui-collapsible-trigger:disabled,
+.ui-toolbar-button:disabled,
+.ui-toggle:disabled,
+.ui-slider-thumb:disabled { transform: none; }

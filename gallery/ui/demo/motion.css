@@ -1,0 +1,236 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The motion showcase, as an EVG stylesheet.
+ *
+ * Everything that moves on that page moves because of a rule in this file.
+ * `MotionDemo.rgr` builds a tree of boxes with class names and no appearance
+ * at all — it does not know what a hover is, how long anything takes, or which
+ * way a tile turns.
+ *
+ * Two limits of EVGStyleSheet shape how this is written, and both are worth
+ * knowing before editing it:
+ *
+ *   ONE CLASS TOKEN PER SELECTOR. There is no `.mo-dot.mo-dot-ease`, so a
+ *   variant is its own token on the same element: `class="mo-dot mo-dot-ease"`
+ *   and two rules, one for what every dot has and one for what this one does
+ *   differently.
+ *
+ *   THEME SCOPING IS THE ONLY DESCENDANT SELECTOR, as `.theme-<name> .class`.
+ *   That is what drives the self-running panels here: the page sets the theme
+ *   to "go" and back, and every `.theme-go` rule below is the far end of a
+ *   journey. No element gets a class added or removed to make this happen.
+ */
+
+.mo-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background-color: #0b1020;
+  padding: 26px;
+  width: 1180px;
+  height: 1580px;
+}
+
+.mo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background-color: #131a2e;
+  border: 1px solid #263049;
+  border-radius: 14px;
+  padding: 18px 22px;
+  width: 1128px;
+}
+
+.mo-head {
+  color: #e6ebf5;
+  font-size: 15px;
+  font-weight: 600;
+  height: 20px;
+}
+
+.mo-sub {
+  color: #93a0bd;
+  font-size: 12.5px;
+  height: 18px;
+}
+
+.mo-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mo-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  height: 46px;
+}
+
+.mo-name {
+  color: #93a0bd;
+  font-size: 12px;
+  width: 210px;
+  height: 16px;
+}
+
+/* The curve. Stroked and not filled — it is a graph, not a shape. */
+.mo-curve {
+  width: 44px;
+  height: 44px;
+  fill: none;
+  stroke: #8b7bf0;
+  stroke-width: 5;
+}
+
+.mo-track {
+  background-color: #0e1526;
+  border: 1px solid #263049;
+  border-radius: 999px;
+  width: 560px;
+  height: 26px;
+  padding: 3px;
+}
+
+.mo-dot {
+  background-color: #8b7bf0;
+  border-radius: 999px;
+  width: 18px;
+  height: 18px;
+}
+
+/* Each dot differs only in HOW it is timed. The distance, the duration and
+   the colour are shared above; a reader comparing two rows is comparing two
+   timing functions and nothing else. */
+.mo-dot-linear      { transition: transform 900ms linear; }
+.mo-dot-ease        { transition: transform 900ms ease; }
+.mo-dot-ease-in     { transition: transform 900ms ease-in; }
+.mo-dot-ease-out    { transition: transform 900ms ease-out; }
+.mo-dot-ease-in-out { transition: transform 900ms ease-in-out; }
+.mo-dot-overshoot   { transition: transform 900ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.mo-dot-steps       { transition: transform 900ms steps(5, end); }
+
+/* The far end of the journey, for every dot at once. */
+.theme-go .mo-dot { transform: translate(534px, 0); }
+
+/* --- delay -------------------------------------------------------------------
+   Same duration, same easing, three delays. The bars leave in turn and arrive
+   in turn, which is what a delay is for and what a slow start could never
+   look like. */
+.mo-bar {
+  background-color: #38bdf8;
+  border-radius: 6px;
+  width: 26px;
+  height: 18px;
+}
+
+.mo-bar-a { transition: transform 600ms ease-out 0ms; }
+.mo-bar-b { transition: transform 600ms ease-out 180ms; }
+.mo-bar-c { transition: transform 600ms ease-out 360ms; }
+
+.theme-go .mo-bar { transform: translate(526px, 0); }
+
+/* --- transform-origin ---------------------------------------------------------
+   Nine cells, nine pivots, one rotation. */
+.mo-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 1080px;
+}
+
+/* Tall, and the caption pushed to the floor.
+   A rotated tile keeps its LAYOUT box — 84 by 40 — while the ink it covers is
+   the bounding box of the turn, which at 35 degrees is 81px deep. Layout knows
+   nothing about that, so the room has to be left by hand or the tile lands on
+   its own caption. */
+.mo-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #0e1526;
+  border: 1px solid #263049;
+  border-radius: 10px;
+  padding: 26px 0 10px 0;
+  width: 340px;
+  height: 172px;
+}
+
+.mo-tile {
+  background-color: #34d399;
+  border-radius: 8px;
+  width: 84px;
+  height: 40px;
+  transition: transform 700ms ease-in-out;
+}
+
+.mo-cap {
+  color: #93a0bd;
+  font-size: 11.5px;
+  height: 16px;
+}
+
+.mo-tile-lt { transform-origin: left top; }
+.mo-tile-ct { transform-origin: center top; }
+.mo-tile-rt { transform-origin: right top; }
+.mo-tile-lc { transform-origin: left center; }
+.mo-tile-cc { transform-origin: center; }
+.mo-tile-rc { transform-origin: right center; }
+.mo-tile-lb { transform-origin: left bottom; }
+.mo-tile-cb { transform-origin: center bottom; }
+.mo-tile-rb { transform-origin: right bottom; }
+
+.theme-go .mo-tile { transform: rotate(35deg); }
+
+/* --- pointer states -----------------------------------------------------------
+   The transition lives on the BASE rule, not on `:hover`. A transition
+   describes the property, not the direction — declared only under `:hover` a
+   card fades in and snaps out, and it looks broken without looking obviously
+   wrong. */
+.mo-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 14px;
+  height: 92px;
+}
+
+/* The label is the card's own text, not a child, so flex centring does not
+   reach it — `text-align` and the top padding are what put it in the middle. */
+.mo-card {
+  text-align: center;
+  padding: 28px 0 0 0;
+  background-color: #1c2540;
+  border: 1px solid #2f3b5c;
+  border-radius: 12px;
+  color: #e6ebf5;
+  font-size: 13px;
+  width: 200px;
+  height: 76px;
+  transition: background-color 160ms ease-out, transform 160ms ease-out;
+}
+
+.mo-card-lift:hover { background-color: #26325a; transform: translate(0, -6px); }
+.mo-card-grow:hover { background-color: #26325a; transform: scale(1.08); }
+.mo-card-turn:hover { background-color: #26325a; transform: rotate(-4deg); }
+
+/* The one card whose transition is slower on purpose, so the reversing rule
+   is visible by hand: cross it quickly and it comes back quickly, because the
+   return is shortened by how far it actually got. */
+.mo-card-slow {
+  transition: background-color 900ms ease-out, transform 900ms ease-out;
+}
+.mo-card-slow:hover { background-color: #3b2f6b; transform: translate(0, -10px); }
+
+/* Pressed is instant on the way in and darker than hovered. */
+.mo-card:active { background-color: #151d36; transform: scale(0.97); }
+
+/* Disabled answers nothing, and says so in grey rather than by not reacting —
+   a control that simply ignores the pointer reads as broken. */
+.mo-card-off { background-color: #151b2e; color: #5b6784; }
+.mo-card-off:disabled { background-color: #151b2e; color: #5b6784; }

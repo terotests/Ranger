@@ -7302,7 +7302,19 @@ class EVGDisplayList  {
       while (li < (lines.length)) {
         const c4 = new EVGDrawCmd();
         c4.kind = 3;
-        c4.x = x + el.box.paddingLeftPx;
+        let indent = 0.0;
+        if ( (el.textAlign == "center") || (el.textAlign == "right") ) {
+          const m = this.textEngine.measureRun((lines[li]), face, fs);
+          const slack = avail - m.width;
+          if ( slack > 0.0 ) {
+            if ( el.textAlign == "center" ) {
+              indent = slack / 2.0;
+            } else {
+              indent = slack;
+            }
+          }
+        }
+        c4.x = (x + el.box.paddingLeftPx) + indent;
         c4.y = (y + el.box.paddingTopPx) + ((li) * (fs * lh));
         c4.w = avail;
         c4.h = fs * lh;

@@ -25,6 +25,8 @@ Import "EVGElement.rgr"
 Import "EVGUnit.rgr"
 Import "EVGStyleSheet.rgr"
 Import "EVGTransition.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
 
 class StyleCheck {
     def passed:int 0
@@ -215,6 +217,60 @@ class EVGStyleStateTest {
         c.ok("and the centre again after" ((fabs ((EVGElement.resolveOrigin(el.transformOriginX 100.0)) - 50.0)) < 0.001))
     }
 
+    ; `text-align` was parsed by EVGElement and read by NOTHING — a documented
+    ; attribute that did nothing at all, which is the defect PLAN.md complains
+    ; about by name. It was found by using it: a row of cards whose labels sat
+    ; stubbornly in the top-left corner.
+    ;
+    ; What is checked is the painted position, not the attribute: the whole
+    ; point is that the value now reaches the display list.
+    sfn testTextAlign:void (c:StyleCheck) {
+        print "--- text-align moves the text, not just the attribute ---"
+        def lefts:[double] (EVGStyleStateTest.labelXs("left"))
+        def centres:[double] (EVGStyleStateTest.labelXs("center"))
+        def rights:[double] (EVGStyleStateTest.labelXs("right"))
+        c.ok("a label was painted at all" ((array_length lefts) > 0))
+        if ((array_length lefts) > 0) {
+            def l:double (itemAt lefts 0)
+            def m:double (itemAt centres 0)
+            def r:double (itemAt rights 0)
+            c.ok("centred starts right of left-aligned" (m > (l + 1.0)))
+            c.ok("and right-aligned right of centred" (r > (m + 1.0)))
+            ; Centred is the MIDDLE of the two, not merely somewhere between:
+            ; the slack is halved, so the offset is half the right-aligned one.
+            def half:double ((l + r) / 2.0)
+            c.ok("and centred is exactly half the slack" ((fabs (m - half)) < 1.0))
+        }
+    }
+
+    ; The x of every text command in a 300px-wide box aligned this way.
+    sfn labelXs:[double] (align:string) {
+        def page (new EVGElement())
+        page.setAttribute("width" "400")
+        page.setAttribute("height" "100")
+        def card (new EVGElement())
+        card.setAttribute("width" "300")
+        card.setAttribute("height" "40")
+        card.setAttribute("text-align" align)
+        card.textContent = "hi"
+        page.addChild(card)
+        def lay (new EVGLayout())
+        lay.layout(page)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(page)
+        def out:[double]
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                push out cmd.x
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; --- transitions -------------------------------------------------------------
 
     sfn testTransition:void (c:StyleCheck) {
@@ -334,6 +390,7 @@ class EVGStyleStateTest {
         EVGStyleStateTest.testUnknownTiming(c)
         EVGStyleStateTest.testStateOnlyPropertyReverts(c)
         EVGStyleStateTest.testStateOnlyOriginReverts(c)
+        EVGStyleStateTest.testTextAlign(c)
         EVGStyleStateTest.testTransition(c)
         EVGStyleStateTest.testReverseMidFlight(c)
         EVGStyleStateTest.testNoTransitionDeclared(c)
