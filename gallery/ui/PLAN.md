@@ -311,13 +311,107 @@ and back at rest after the pointer leaves.
 
 What is not there yet:
 
+- [x] Easing, the full shorthand, and `transform` — see below
 - [ ] `:focus-visible`, which needs a keyboard-versus-pointer distinction the
       host does not currently keep
-- [ ] Easing. Everything is linear; CSS defaults to `ease`
-- [ ] Transitions on geometry. Only colours and plain numbers move, so a
-      transition on `width` is parsed and ignored
+- [ ] Transitions on layout geometry. `transform` moves and scales a subtree,
+      but a transition on `width` is still parsed and ignored — that one needs
+      a re-layout per frame, not a rewrite of the display list
 - [ ] `@keyframes`. `transition` covers state changes; an animation that runs
       on its own does not exist
+
+## Easing, the transition shorthand, and transform
+
+Three things the first cut of transitions did not have, and the browser was
+asked about all three before any of them was written.
+`oracle/css_timing_oracle.mjs` drives a real `Animation` in Chromium, pauses it
+and sets `currentTime` by hand — sampling by waiting real milliseconds measures
+the scheduler as much as the engine — and `oracle/css-timing.json` is the
+capture. `EVGTimingTest.rgr` is 281 checks, most of them transcribed from it.
+
+**Easing** is `EVGEasing`: the four keywords, `linear`, `cubic-bezier()` and
+`steps()`. The curve is parametric, so the output cannot be read off directly —
+given x, the parameter has to be solved for first, Newton–Raphson with
+bisection where the derivative vanishes. That fallback looked like paranoia
+until the test was made to sample 0.499 as well as 0.5: on
+`cubic-bezier(1, 0, 0, 1)` a Newton-only solver is out by six orders of
+magnitude a hair either side of the midpoint, and lands exactly right ON it.
+Sampling round numbers hid a real defect completely, and that is the general
+lesson, not a fact about Bézier curves.
+
+**The shorthand** now carries duration, timing function and delay, per
+property, with `all` and later-entry-wins so `transition: all 200ms, opacity 0s`
+means what it says. The list parser counts parentheses, because
+`cubic-bezier(0.25, 0.1, 0.25, 1)` is one token with three commas in it and
+splitting on every comma yields four fragments that each still parse as
+something.
+
+Two measured results worth keeping, because neither is what you would guess:
+
+- **A reversal is shortened by the EASED progress, not the clock's.** A 200ms
+  `ease-in` reversed at 100ms comes back in 63ms, not 100ms — the clock says
+  half way and the eye says a third, and the eye is what has to travel back.
+- **The factor compounds; it does not replace.** Reversing a reversal makes the
+  leg LONGER again: 200 → 100 → 150. Halving each time is the obvious
+  implementation and it makes a jittery pointer converge on an instant snap.
+- And the **delay is not shortened** while the duration is. That one was
+  settled by sampling the colour on the screen rather than trusting a timing
+  object, since the two could have disagreed.
+
+**`transform`** is `rotate()`, `scale()`, `translate()` and the axis forms,
+composed at parse time into one similarity — an angle, a uniform scale and an
+offset. That is the largest family closed under composition that a display list
+of axis-aligned boxes can represent exactly, and composing rather than setting
+four fields independently is what makes order work: `rotate(90deg)
+translate(10px, 0)` goes down the page and the other order goes across. A skew
+or a non-uniform scale is reported, not approximated. It also makes the four
+numbers interpolable, so `transition: transform 200ms` is four ordinary number
+flights and needs no matrix decomposition per frame.
+
+Applying it needed one new thing in the display list: a rotation ORIGIN.
+`EVGDrawCmd.rotate` used to turn a command about its own centre, which is right
+for a lone sideways axis label and wrong for anything else — a text quad is
+sized to its ink, not to the line box, so a box and its own words turned about
+their separate centres come apart. The pass that applies it is shaped like
+`fadeFrom`, and for the same reason: a transform is a property of a SUBTREE, and
+the list has already flattened the subtree by the time it is known what was in
+it. Paths are turned in their geometry instead, the way `PathBuilder` already
+does, so a backend that has never heard of a transform still draws a turned
+icon.
+
+`npm run evg:rotation:check` renders that through the real WebGL painter under
+SwiftShader and reads the pixels back, because the pivot lives in GLSL and the
+only honest way to check GLSL is to run it. Its first version passed under a
+mutation that removed the whole feature — every probe sampled a box centre,
+which is invariant under both pivots. The probe that actually separates them
+is the centroid of the white ink.
+
+### The cascade bug this uncovered
+
+A property declared only under `:hover` never went away again. The colour came
+back because a base rule declares it; the transform did not, because nobody
+writes `transform: none` on a base rule. A browser recomputes a style from
+nothing every time; this stylesheet mutates the element in place, which is fast
+and which silently strands any property no rule is currently writing.
+
+`clearStateProps` now puts back the initial value of everything a state rule for
+this element *can* set, before deciding which states hold — that set being
+exactly the properties at risk, since a base rule's are rewritten a moment
+later anyway. Inline still outranks the sheet, so an inline value is never
+cleared. Only properties with an unambiguous initial value are covered and
+`initialValue` says which; `color` is deliberately absent, because its initial
+value is `inherit` and writing a literal would break inheritance rather than
+restore it.
+
+### And one in the playground
+
+The animation loop called `observe()` per frame — snapshot both trees, diff
+them, behind two `requestAnimationFrame` waits — so a 140ms transition got five
+frames and read as a stutter. It now repaints and takes the diff once, when
+everything has settled. `repaint()` goes through the layout that creates the
+flight in the first place, so the loop still has to paint BEFORE asking whether
+anything is moving; asking first gives exactly one frame and a colour frozen
+where it started, which it did, twice.
 
 ## Next — the playground
 

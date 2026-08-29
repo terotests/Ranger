@@ -94,9 +94,22 @@ class EVGDrawCmd {
     def pts:[double]
     def ringEnds:[int]
     def evenOdd:boolean false
-    ; Rotation about the command's own box centre, in degrees, as the element
-    ; asked for it. Text is what needs this — an axis title on its side.
+    ; Rotation in degrees, as the element asked for it. Text is what first
+    ; needed this — an axis title on its side.
     def rotate:double 0.0
+    ; What it turns ABOUT. Unset means the command's own box centre, which is
+    ; right for a lone rotated label and wrong for everything else: a box, its
+    ; text and its children have to turn about ONE point or they come apart.
+    ;
+    ; A text command is where that shows first and worst. The painter draws
+    ; glyphs in a quad sized to the ink, not to the line box the command
+    ; carries, so "rotate each command about its own centre" puts the words
+    ; somewhere the box is not. A backend that ignores these two fields keeps
+    ; the old behaviour exactly, which is why they are additive rather than a
+    ; change to `rotate`.
+    def rotOriginX:double 0.0
+    def rotOriginY:double 0.0
+    def hasRotOrigin:boolean false
 
     Constructor () {
     }
@@ -659,13 +672,130 @@ class EVGDisplayList {
         }
     }
 
+    ; A `transform` applied to everything this element and its children drew.
+    ;
+    ; The same shape as `fadeFrom` and for the same reason: a transform is a
+    ; property of a SUBTREE, and the display list has already flattened the
+    ; subtree by the time it is known what was in it. Recording where the
+    ; element's output began and rewriting that range afterwards is how both are
+    ; expressed without a transform stack in every backend. Nested transforms
+    ; compose because an outer element's range covers the inner one's output and
+    ; is rewritten after it.
+    ;
+    ; It is a similarity — rotation, uniform scale, translation — so each
+    ; command survives as a command rather than needing a matrix in the wire
+    ; format. Two different treatments, for two different kinds of command:
+    ;
+    ;   a box (rect, border, image, text) keeps its axis-aligned rectangle,
+    ;   moved and resized, and carries the ANGLE with the origin it turns
+    ;   about. The painter does the turning.
+    ;
+    ;   a path is turned in its GEOMETRY, here, because its shape does not live
+    ;   in `x/y/w/h` and no backend's quad rotation would reach it. That is the
+    ;   same choice `PathBuilder.rotateAbout` already makes, and it means SVG,
+    ;   PDF and raster all draw a turned icon without knowing what a transform
+    ;   is.
+    fn transformFrom:void (start:int el:EVGElement) {
+        def deg:double el.rotate
+        def sc:double el.scale
+        def tx:double el.translateX
+        def ty:double el.translateY
+        def turns:boolean (deg != 0.0)
+        def scales:boolean ((fabs (sc - 1.0)) > 0.000001)
+        def shifts:boolean ((tx != 0.0) || (ty != 0.0))
+        if (((turns == false) && (scales == false)) && (shifts == false)) {
+            return
+        }
+        ; The element's own centre. Measured against a browser rather than
+        ; assumed: it puts `transform-origin` at 50% 50%, and a 100x40 box
+        ; given a quarter turn comes back with its centre exactly where it
+        ; started.
+        def ox:double (el.calculatedX + (el.calculatedWidth / 2.0))
+        def oy:double (el.calculatedY + (el.calculatedHeight / 2.0))
+        def rad:double ((deg * 3.14159265358979) / 180.0)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def i:int start
+        def n:int (array_length cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if ((array_length c.pts) > 0) {
+                this.mapPoints(c ox oy sc cs sn tx ty)
+            } {
+                if scales {
+                    c.x = (ox + ((c.x - ox) * sc))
+                    c.y = (oy + ((c.y - oy) * sc))
+                    c.w = (c.w * sc)
+                    c.h = (c.h * sc)
+                    c.radius = (c.radius * sc)
+                    c.thickness = (c.thickness * sc)
+                    ; Type scales with the box. A button that grows on hover
+                    ; and keeps its old type size looks like a rendering fault.
+                    c.fontSize = (c.fontSize * sc)
+                }
+                if turns {
+                    ; A command already carrying its own rotation — a sideways
+                    ; axis label inside a turned panel — adds the two angles and
+                    ; has its pivot carried round by the outer one. Its own
+                    ; centre stops being the pivot, which is right: it is being
+                    ; carried, not spun in place.
+                    c.rotate = (c.rotate + deg)
+                    if (c.hasRotOrigin == false) {
+                        c.rotOriginX = ox
+                        c.rotOriginY = oy
+                        c.hasRotOrigin = true
+                    } {
+                        def rx:double (c.rotOriginX - ox)
+                        def ry:double (c.rotOriginY - oy)
+                        c.rotOriginX = (ox + ((rx * cs) - (ry * sn)))
+                        c.rotOriginY = (oy + ((rx * sn) + (ry * cs)))
+                    }
+                }
+                if shifts {
+                    c.x = (c.x + tx)
+                    c.y = (c.y + ty)
+                    if c.hasRotOrigin {
+                        c.rotOriginX = (c.rotOriginX + tx)
+                        c.rotOriginY = (c.rotOriginY + ty)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The whole similarity applied to a path's points. Rebuilt rather than
+    ; written in place: the array has no element assignment, and a fresh list
+    ; pushed back is clearer than an index dance anyway.
+    fn mapPoints:void (c:EVGDrawCmd ox:double oy:double sc:double cs:double sn:double tx:double ty:double) {
+        def moved:[double]
+        def i:int 0
+        def n:int (array_length c.pts)
+        while ((i + 1) < n) {
+            def px:double ((itemAt c.pts i) - ox)
+            def py:double ((itemAt c.pts (i + 1)) - oy)
+            def sx:double (px * sc)
+            def sy:double (py * sc)
+            push moved (((ox + ((sx * cs) - (sy * sn))) + tx))
+            push moved (((oy + ((sx * sn) + (sy * cs))) + ty))
+            i = (i + 2)
+        }
+        clear c.pts
+        def j:int 0
+        while (j < (array_length moved)) {
+            push c.pts (itemAt moved j)
+            j = (j + 1)
+        }
+    }
+
     fn walk:void (el:EVGElement) {
         ; Where this element's own output begins, so `opacity` can scale
         ; exactly what it and its children add — nested fades then multiply as
-        ; the recursion unwinds.
+        ; the recursion unwinds. A transform uses the same range.
         def emitStart:int (array_length cmds)
         this.walkOpaque(el)
         this.fadeFrom(emitStart el.opacity)
+        this.transformFrom(emitStart el)
     }
 
     fn walkOpaque:void (el:EVGElement) {
@@ -778,7 +908,6 @@ class EVGDisplayList {
                 c4.text = (itemAt lines li)
                 c4.fontFamily = face
                 c4.fontSize = fs
-                c4.rotate = el.rotate
                 c4.r = tr
                 c4.g = tg
                 c4.b = tb
@@ -824,9 +953,11 @@ class EVGDisplayList {
     ; it, which is what lets the WebGL renderer be plain JavaScript while the
     ; SDL2 one is the same list decoded in C++.
     ; How many ints one command occupies. Fixed, so a reader indexes rather
-    ; than walks: command `i` starts at `i * 24`.
+    ; than walks: command `i` starts at `i * stride()`. Read it through this
+    ; function and never inline the number — it has changed once already, when
+    ; a rotation needed an origin to turn about.
     sfn stride:int () {
-        return 24
+        return 26
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -906,12 +1037,20 @@ class EVGDisplayList {
             if c2.evenOdd {
                 flags = (flags + 16)
             }
+            ; Whether slots 24 and 25 mean anything. A zero origin is a legal
+            ; place to turn about, so the flag cannot be inferred from the
+            ; numbers being zero.
+            if c2.hasRotOrigin {
+                flags = (flags + 32)
+            }
             int_buffer_set recs (base + 9) flags
             int_buffer_set recs (base + 10) c2.gradDir
             int_buffer_set recs (base + 11) (EVGDisplayList.packRgb(c2.r2 c2.g2 c2.b2))
             int_buffer_set recs (base + 12) (EVGDisplayList.fixed(c2.a2))
             int_buffer_set recs (base + 13) (EVGDisplayList.fixed(c2.fontSize))
             int_buffer_set recs (base + 14) (EVGDisplayList.fixed(c2.rotate))
+            int_buffer_set recs (base + 24) (EVGDisplayList.fixed(c2.rotOriginX))
+            int_buffer_set recs (base + 25) (EVGDisplayList.fixed(c2.rotOriginY))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -1035,6 +1174,10 @@ class EVGDisplayList {
             }
             if (c.rotate != 0.0) {
                 out = out + ",\"rot\":" + (EVGDisplayList.num(c.rotate))
+                if c.hasRotOrigin {
+                    out = out + ",\"rox\":" + (EVGDisplayList.num(c.rotOriginX))
+                    out = out + ",\"roy\":" + (EVGDisplayList.num(c.rotOriginY))
+                }
             }
             ; The GEOMETRY decides whether there is a path, not the ring list:
             ; a command built by hand — and there are several, in this gallery

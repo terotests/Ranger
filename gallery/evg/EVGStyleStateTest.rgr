@@ -147,6 +147,54 @@ class EVGStyleStateTest {
         c.ok("and an error says why" ((s.getErrorCount()) > 0))
     }
 
+    sfn testUnknownTiming:void (c:StyleCheck) {
+        print "--- an unsupported timing function is reported too ---"
+        def bad:EVGStyleSheet (EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms spring(1, 2) }"))
+        c.ok("a made-up easing is an error" ((bad.getErrorCount()) > 0))
+        ; And the shape that IS legal has to survive the same check, or the
+        ; report is just noise: a function with commas inside it is normal CSS.
+        def good:EVGStyleSheet (EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1) }"))
+        c.eqInt("a real one is not" (good.getErrorCount()) 0)
+        c.eqInt("and the rule survives" (good.getRuleCount()) 1)
+    }
+
+    ; A property declared ONLY under a state has to go away again when the
+    ; state does.
+    ;
+    ; This is the case a stylesheet that mutates the element in place gets
+    ; wrong, and `transform` is where it bites, because nobody writes
+    ; `transform: none` on a base rule the way they always write a base colour.
+    ; The symptom is a row that lifts under the pointer and never comes back
+    ; down — the colour returns, so it looks like a transform bug rather than a
+    ; cascade one.
+    sfn testStateOnlyPropertyReverts:void (c:StyleCheck) {
+        print "--- a state-only property goes away with the state ---"
+        def css:string (".btn { background-color: rgb(0,0,0) }"
+            + " .btn:hover { transform: scale(2) translate(4, 0); opacity: 0.5 }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+
+        s.applyTree(el "")
+        c.ok("no scale at rest" ((fabs (el.scale - 1.0)) < 0.001))
+
+        el.isHovered = true
+        s.applyTree(el "")
+        c.ok("scaled under the pointer" ((fabs (el.scale - 2.0)) < 0.001))
+        ; EIGHT, not four: `scale(2) translate(4, 0)` scales the translation
+        ; too, because the functions compose. Writing the four here and being
+        ; told otherwise is how that got checked.
+        c.ok("and moved by the SCALED offset" ((fabs (el.translateX - 8.0)) < 0.001))
+        c.ok("and faded" ((fabs (el.opacity - 0.5)) < 0.001))
+
+        el.isHovered = false
+        s.applyTree(el "")
+        c.ok("the scale goes back" ((fabs (el.scale - 1.0)) < 0.001))
+        c.ok("so does the offset" ((fabs el.translateX) < 0.001))
+        c.ok("and the opacity" ((fabs (el.opacity - 1.0)) < 0.001))
+        ; And the base rule is still in charge of what it does declare.
+        c.eqInt("while the base colour is untouched" (EVGStyleStateTest.bgRed(el)) 0)
+    }
+
     ; --- transitions -------------------------------------------------------------
 
     sfn testTransition:void (c:StyleCheck) {
@@ -263,6 +311,8 @@ class EVGStyleStateTest {
         EVGStyleStateTest.testOrder(c)
         EVGStyleStateTest.testStates(c)
         EVGStyleStateTest.testUnknownPseudo(c)
+        EVGStyleStateTest.testUnknownTiming(c)
+        EVGStyleStateTest.testStateOnlyPropertyReverts(c)
         EVGStyleStateTest.testTransition(c)
         EVGStyleStateTest.testReverseMidFlight(c)
         EVGStyleStateTest.testNoTransitionDeclared(c)

@@ -31,6 +31,25 @@
 
 Import "EVGElement.rgr"
 Import "EVGColor.rgr"
+Import "EVGEasing.rgr"
+
+; One entry of the shorthand, resolved for one property.
+class EVGTimingSpec {
+    ; False when the property is not mentioned at all — which is a different
+    ; answer from "mentioned with a duration of zero", and the two have to stay
+    ; distinguishable or `transition: all 200ms, opacity 0s` cannot work.
+    def found:boolean false
+    def durationMs:double 0.0
+    def delayMs:double 0.0
+    ; The default really is linear here: an unset `EVGEasing` is
+    ; cubic-bezier(0, 0, 1, 1). CSS's own default is `ease`, but that applies
+    ; to the shorthand's missing value, not to a missing shorthand.
+    def easing:EVGEasing (new EVGEasing())
+    def ok:boolean true
+
+    Constructor () {
+    }
+}
 
 class EVGTransition {
 
@@ -39,30 +58,108 @@ class EVGTransition {
 
     ; --- what the sheet asked for ------------------------------------------------
 
-    ; "background-color 150ms" or "opacity 100ms, background-color 200ms".
-    ; Returns the duration for `property`, or -1 when it is not transitioned.
+    ; The full shorthand, per property:
     ;
-    ; `all` is honoured, because a stylesheet that says `transition: all 150ms`
-    ; means it — and refusing it silently would be the same defect as dropping
-    ; an unsupported pseudo-class.
-    sfn durationFor:double (spec:string property:string) {
+    ;   transition: background-color 140ms ease-out 40ms, transform 200ms
+    ;
+    ; Order is the CSS one and it is only half positional: the property name
+    ; and the timing function can sit anywhere in an entry, but the two TIMES
+    ; are told apart by position — the first is the duration, the second the
+    ; delay. There is no other way to distinguish them, which is why
+    ; `transition: opacity 200ms` and `transition: opacity 0s 200ms` mean
+    ; completely different things.
+    ;
+    ; The list is scanned to the END rather than returning on the first hit, so
+    ; a later entry overrides an earlier one. That is what makes
+    ; `transition: all 200ms, opacity 0s` mean "everything but opacity", which
+    ; is a real and useful thing to write.
+    sfn specFor:EVGTimingSpec (spec:string property:string) {
+        def out (new EVGTimingSpec())
         if ((strlen spec) == 0) {
-            return (0.0 - 1.0)
+            return out
         }
-        def parts:[string] (EVGTransition.splitOn(spec 44))
+        ; Splitting on commas has to respect parentheses: `cubic-bezier(0.25,
+        ; 0.1, 0.25, 1)` is one token with three commas inside it.
+        def parts:[string] (EVGEasing.splitTop(spec 44))
         def i:int 0
         while (i < (array_length parts)) {
             def one:string (trim (itemAt parts i))
-            def words:[string] (EVGTransition.splitWords(one))
-            if ((array_length words) >= 2) {
-                def name:string (itemAt words 0)
-                if ((name == property) || (name == "all")) {
-                    return (EVGTransition.parseMs((itemAt words 1)))
+            def words:[string] (EVGEasing.splitWordsTop(one))
+            def name:string ""
+            def fnText:string ""
+            def times:[double]
+            def w:int 0
+            while (w < (array_length words)) {
+                def word:string (itemAt words w)
+                if (EVGEasing.looksLikeFunction(word)) {
+                    fnText = word
+                } {
+                    if (EVGTransition.isTime(word)) {
+                        push times (EVGTransition.parseMs(word))
+                    } {
+                        if ((strlen name) == 0) {
+                            name = word
+                        }
+                    }
                 }
+                w = (w + 1)
+            }
+            if ((name == property) || (name == "all")) {
+                out.found = true
+                out.durationMs = 0.0
+                out.delayMs = 0.0
+                if ((array_length times) > 0) {
+                    out.durationMs = (itemAt times 0)
+                }
+                if ((array_length times) > 1) {
+                    out.delayMs = (itemAt times 1)
+                }
+                out.easing = (EVGEasing.parse(fnText))
+                out.ok = out.easing.ok
             }
             i = (i + 1)
         }
-        return (0.0 - 1.0)
+        return out
+    }
+
+    ; Kept because a great deal of code and several tests ask only "how long":
+    ; -1 means the property is not transitioned at all, which is a different
+    ; answer from 0.
+    sfn durationFor:double (spec:string property:string) {
+        def s:EVGTimingSpec (EVGTransition.specFor(spec property))
+        if (s.found == false) {
+            return (0.0 - 1.0)
+        }
+        return s.durationMs
+    }
+
+    ; A duration, or a property name? `200ms`, `0.15s` and a bare `0` are
+    ; times; `opacity` and `background-color` are not. Requiring the numeric
+    ; part to parse is what stops a property whose name happens to end in `s`
+    ; from being read as a duration.
+    sfn isTime:boolean (word:string) {
+        def t:string (trim word)
+        def n:int (strlen t)
+        if (n == 0) {
+            return false
+        }
+        if (n > 2) {
+            if ((substring t (n - 2) n) == "ms") {
+                def a@(optional):double (to_double (substring t 0 (n - 2)))
+                if a { return true }
+                return false
+            }
+        }
+        if (n > 1) {
+            if ((substring t (n - 1) n) == "s") {
+                def b@(optional):double (to_double (substring t 0 (n - 1)))
+                if b { return true }
+                return false
+            }
+        }
+        def c@(optional):double (to_double t)
+        if c { return true }
+        return false
     }
 
     ; "150ms" or "0.15s". A bare number is milliseconds, which is the reading
@@ -96,43 +193,6 @@ class EVGTransition {
             return (unwrap v3)
         }
         return 0.0
-    }
-
-    sfn splitOn:[string] (s:string ch:int) {
-        def out:[string]
-        def start:int 0
-        def i:int 0
-        def n:int (strlen s)
-        while (i < n) {
-            if ((charAt s i) == ch) {
-                push out (substring s start i)
-                start = (i + 1)
-            }
-            i = (i + 1)
-        }
-        push out (substring s start n)
-        return out
-    }
-
-    sfn splitWords:[string] (s:string) {
-        def out:[string]
-        def start:int 0
-        def i:int 0
-        def n:int (strlen s)
-        while (i < n) {
-            def c:int (charAt s i)
-            if (((c == 32) || (c == 9)) || (c == 10)) {
-                if (i > start) {
-                    push out (substring s start i)
-                }
-                start = (i + 1)
-            }
-            i = (i + 1)
-        }
-        if (n > start) {
-            push out (substring s start n)
-        }
-        return out
     }
 
     ; --- the flights on an element -------------------------------------------------
@@ -171,11 +231,11 @@ class EVGTransition {
 
     ; The value the element is SHOWING for a flight at its current progress.
     fn showColor:EVGColor (f:EVGFlight) {
-        return (EVGTransition.mixColor((unwrap f.fromColor) (unwrap f.toColor) (f.progress())))
+        return (EVGTransition.mixColor((unwrap f.fromColor) (unwrap f.toColor) (f.eased())))
     }
 
     fn showNumber:double (f:EVGFlight) {
-        return (f.fromNumber + ((f.toNumber - f.fromNumber) * (f.progress())))
+        return (f.fromNumber + ((f.toNumber - f.fromNumber) * (f.eased())))
     }
 
     ; --- reconcile ------------------------------------------------------------------
@@ -190,14 +250,27 @@ class EVGTransition {
             this.reconcileColor(el "color" (unwrap el.color))
         }
         this.reconcileNumber(el "opacity" el.opacity)
+        ; `transform` is one CSS property and four interpolable numbers. They
+        ; are kept as separate flights under separate keys but all look the
+        ; DECLARED duration up under the name the sheet used, so
+        ; `transition: transform 200ms` drives all four and they stay in step.
+        ;
+        ; Interpolating the composed similarity rather than the function list is
+        ; what makes `rotate(0deg) scale(1)` to `rotate(15deg) scale(1.1)` work
+        ; without matching the two lists up term by term — which is the part of
+        ; CSS transform interpolation that carries all the special cases.
+        this.reconcileNumberAs(el "transform.rotate" "transform" el.rotate)
+        this.reconcileNumberAs(el "transform.scale" "transform" el.scale)
+        this.reconcileNumberAs(el "transform.tx" "transform" el.translateX)
+        this.reconcileNumberAs(el "transform.ty" "transform" el.translateY)
         ; Put the showing values back, so the painter draws the flight and not
         ; the destination.
         this.writeBack(el)
     }
 
     fn reconcileColor:void (el:EVGElement property:string target:EVGColor) {
-        def ms:double (EVGTransition.durationFor(el.transitionSpec property))
-        if (ms <= 0.0) {
+        def spec:EVGTimingSpec (EVGTransition.specFor(el.transitionSpec property))
+        if ((spec.found == false) || (spec.durationMs <= 0.0)) {
             ; Not transitioned: the target IS what shows, and any flight for it
             ; is abandoned rather than left to land on a value nobody asked for.
             this.drop(el property)
@@ -212,22 +285,34 @@ class EVGTransition {
             if (EVGTransition.sameColor((unwrap f.toColor) target)) {
                 return
             }
-            ; Retarget from where it HAS GOT TO, which is the whole reason a
-            ; reversal does not flicker.
+            ; Where the flight has actually got to, which is where anything new
+            ; has to leave from. Using the declared start instead is the flicker
+            ; every naive implementation has.
             def here:EVGColor (this.showColor(f))
-            ; A true REVERSAL — the new target is where this flight started —
-            ; takes only as long as it has already run. That is CSS's rule and
-            ; it is not a nicety: a pointer that crosses a row and leaves takes
-            ; the full duration to fade back otherwise, so a quick pass leaves a
-            ; trail of rows still cooling down long after the pointer has gone.
-            def span:double ms
-            if (EVGTransition.sameColor((unwrap f.fromColor) target)) {
-                span = (ms * (f.progress()))
+            if (EVGTransition.sameColor(here target)) {
+                ; Already there. Landing it now rather than flying a
+                ; zero-distance flight matters to the host: `busy()` would
+                ; otherwise keep asking for frames to animate nothing.
+                f.fromColor = target
+                f.toColor = target
+                f.elapsedMs = f.durationMs
+                return
+            }
+            if (EVGTransition.sameColor((unwrap f.reversingStartColor) target)) {
+                this.reverse(f spec)
+                ; The value being turned back towards becomes the thing a
+                ; further reversal is measured against.
+                f.reversingStartColor = (unwrap f.toColor)
+            } {
+                f.reversingStartColor = here
+                f.reversingFactor = 1.0
+                f.durationMs = spec.durationMs
             }
             f.fromColor = here
             f.toColor = target
             f.elapsedMs = 0.0
-            f.durationMs = span
+            f.delayMs = spec.delayMs
+            f.easing = spec.easing
             return
         }
         ; The first apply on a fresh element establishes the value rather than
@@ -237,32 +322,81 @@ class EVGTransition {
         created.isColor = true
         created.fromColor = target
         created.toColor = target
-        created.durationMs = ms
-        created.elapsedMs = ms
+        created.reversingStartColor = target
+        created.durationMs = spec.durationMs
+        created.delayMs = spec.delayMs
+        created.easing = spec.easing
+        created.elapsedMs = (spec.durationMs + spec.delayMs)
         push el.transitions created
     }
 
+    ; CSS's rule for turning a transition round, and it is more particular than
+    ; "halve what is left".
+    ;
+    ; The shortening factor is the flight's OUTPUT progress — after the timing
+    ; function — not the fraction of the clock that has run. On `ease-in` at the
+    ; midpoint those differ by a factor of nearly two: the clock says 0.5 and
+    ; the eye says 0.315, and the eye is right, because the eye is what has to
+    ; travel back. Measured against Chromium: a 200ms `ease-in` reversed at
+    ; 100ms comes back in 63ms, not 100ms.
+    ;
+    ; And the factor COMPOUNDS rather than replacing. Reversing a reversal makes
+    ; the leg longer again, not shorter: 200ms reversed at half way gives 100ms,
+    ; and reversing that at a quarter gives 125ms, because the value is now
+    ; further from the target than it was. `f * p + (1 - f)` is that arithmetic,
+    ; and a fresh flight has f = 1 so the first reversal is simply p.
+    ;
+    ; The DELAY is not scaled. That is measured too, and it is not obvious:
+    ; a reversed `200ms linear 100ms` waits the full 100ms again and then runs
+    ; for the shortened 100ms.
+    fn reverse:void (f:EVGFlight spec:EVGTimingSpec) {
+        def p:double (f.eased())
+        def nf:double (fabs ((p * f.reversingFactor) + (1.0 - f.reversingFactor)))
+        if (nf < 0.0) { nf = 0.0 }
+        if (nf > 1.0) { nf = 1.0 }
+        f.reversingFactor = nf
+        f.durationMs = (spec.durationMs * nf)
+    }
+
     fn reconcileNumber:void (el:EVGElement property:string target:double) {
-        def ms:double (EVGTransition.durationFor(el.transitionSpec property))
-        if (ms <= 0.0) {
+        this.reconcileNumberAs(el property property target)
+    }
+
+    ; `key` names the flight; `cssName` is what the shorthand is searched for.
+    ; They differ only where one CSS property animates several numbers.
+    fn reconcileNumberAs:void (el:EVGElement key:string cssName:string target:double) {
+        def property:string key
+        def spec:EVGTimingSpec (EVGTransition.specFor(el.transitionSpec cssName))
+        if ((spec.found == false) || (spec.durationMs <= 0.0)) {
             this.drop(el property)
             return
         }
         def existing@(optional):EVGFlight (this.flightFor(el property))
         if existing {
             def f:EVGFlight (unwrap existing)
-            if ((to_int (f.toNumber * 1000.0)) == (to_int (target * 1000.0))) {
+            if (EVGTransition.sameNumber(f.toNumber target)) {
                 return
             }
             def hereN:double (this.showNumber(f))
-            def spanN:double ms
-            if ((to_int (f.fromNumber * 1000.0)) == (to_int (target * 1000.0))) {
-                spanN = (ms * (f.progress()))
+            if (EVGTransition.sameNumber(hereN target)) {
+                f.fromNumber = target
+                f.toNumber = target
+                f.elapsedMs = f.durationMs
+                return
+            }
+            if (EVGTransition.sameNumber(f.reversingStartNumber target)) {
+                this.reverse(f spec)
+                f.reversingStartNumber = f.toNumber
+            } {
+                f.reversingStartNumber = hereN
+                f.reversingFactor = 1.0
+                f.durationMs = spec.durationMs
             }
             f.fromNumber = hereN
             f.toNumber = target
             f.elapsedMs = 0.0
-            f.durationMs = spanN
+            f.delayMs = spec.delayMs
+            f.easing = spec.easing
             return
         }
         def created (new EVGFlight())
@@ -270,9 +404,18 @@ class EVGTransition {
         created.isColor = false
         created.fromNumber = target
         created.toNumber = target
-        created.durationMs = ms
-        created.elapsedMs = ms
+        created.reversingStartNumber = target
+        created.durationMs = spec.durationMs
+        created.delayMs = spec.delayMs
+        created.easing = spec.easing
+        created.elapsedMs = (spec.durationMs + spec.delayMs)
         push el.transitions created
+    }
+
+    ; A thousandth is the resolution everything numeric here is compared at:
+    ; finer and floating point noise reads as a change worth animating.
+    sfn sameNumber:boolean (a:double b:double) {
+        return ((fabs (a - b)) < 0.001)
     }
 
     fn drop:void (el:EVGElement property:string) {
@@ -301,8 +444,9 @@ class EVGTransition {
             def f:EVGFlight (itemAt el.transitions i)
             if ((f.done()) == false) {
                 f.elapsedMs = (f.elapsedMs + dtMs)
-                if (f.elapsedMs > f.durationMs) {
-                    f.elapsedMs = f.durationMs
+                def endsAt:double (f.delayMs + f.durationMs)
+                if (f.elapsedMs > endsAt) {
+                    f.elapsedMs = endsAt
                 }
             }
             i = (i + 1)
@@ -328,6 +472,18 @@ class EVGTransition {
             } {
                 if (f.property == "opacity") {
                     el.opacity = (this.showNumber(f))
+                }
+                if (f.property == "transform.rotate") {
+                    el.rotate = (this.showNumber(f))
+                }
+                if (f.property == "transform.scale") {
+                    el.scale = (this.showNumber(f))
+                }
+                if (f.property == "transform.tx") {
+                    el.translateX = (this.showNumber(f))
+                }
+                if (f.property == "transform.ty") {
+                    el.translateY = (this.showNumber(f))
                 }
             }
             i = (i + 1)

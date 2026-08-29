@@ -80,7 +80,8 @@ in vec4 aColor2;          // far gradient stop, rgba 0..1
 in vec3 aShape;           // radius, thickness (0 = fill), mode
 in float aGrad;           // 0 = flat, 1 = down the box, 2 = across it
 in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
-in float aRot;            // radians, about the rect's own centre
+in float aRot;            // radians
+in vec3 aOrigin;          // pivot x, y, and 1 when the list named one
 uniform vec2 uPage;
 out vec4 vColor;
 out vec4 vColor2;
@@ -98,7 +99,16 @@ void main() {
   // and the raster transform both do — an axis title on its side has to land in
   // the same place in all three.
   if (aRot != 0.0) {
-    vec2 c = aRect.xy + aRect.zw * 0.5;
+    // What the quad turns ABOUT. aOrigin.z is 1 when the display list named a
+    // point and 0 when it did not; without one the pivot is the quad's own
+    // centre, which is right for a lone sideways label and wrong for a whole
+    // element being turned. A box, its text and its children have to share one
+    // pivot or they come apart -- and a text quad is sized to its ink, not to
+    // the line box, so its own centre is nowhere near the element's.
+    //
+    // No backticks in here: this comment lives inside a JS template literal,
+    // and one would end the shader source mid-word.
+    vec2 c = aOrigin.z > 0.5 ? aOrigin.xy : (aRect.xy + aRect.zw * 0.5);
     float s = sin(aRot), co = cos(aRot);
     vec2 d = p - c;
     p = c + vec2(d.x * co - d.y * s, d.x * s + d.y * co);
@@ -693,6 +703,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // A run is a stretch of instances that share a texture binding; an image
   // ends the run before it and forms one of its own.
   const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [];
+  // Three floats per command, not two: a pivot at (0, 0) is a legal place to
+  // turn about, so "is there one" cannot be read off the coordinates.
+  const origins = [];
   const runs = [];
   let missingImages = 0, drawnImages = 0;
   // The clip in force, as a rectangle or null. A clip is a scissor here, and a
@@ -770,6 +783,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       uvs.push(u0, v0, u1, v1);
       shapes.push(c.r || 0, 0, MODE.IMAGE);
       rots.push(((c.rot || 0) * Math.PI) / 180);
+      origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
       colors.push(1, 1, 1, 1);
       colors2.push(1, 1, 1, 1);
       grads.push(0);
@@ -795,6 +809,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);
     }
     rots.push(((c.rot || 0) * Math.PI) / 180);
+    origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
     const col = c.c || [0, 0, 0, 1];
     colors.push(col[0] / 255, col[1] / 255, col[2] / 255, col[3]);
     // `gd` is the display list's gradient direction: 1 means across the box,
@@ -830,6 +845,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
     { name: "aShape", data: shapes, size: 3 },
     { name: "aUV", data: uvs, size: 4 },
     { name: "aRot", data: rots, size: 1 },
+    { name: "aOrigin", data: origins, size: 3 },
   ];
   for (const a of instanced) {
     a.buf = gl.createBuffer();

@@ -166,14 +166,24 @@ function Playground() {
    * stretching it, which is what makes a hover feel the same on a slow machine.
    */
   const animating = useRef(0);
-  // `observe` is async — it waits for React to commit and for the canvas to
-  // repaint — so the loop has to AWAIT it before asking whether anything is
-  // still moving. Twice this was got wrong in the same way, and both times the
-  // symptom was identical: exactly one frame, then a colour frozen where it
-  // started. The flight a hover creates does not exist until the stylesheet
-  // has been applied, and the stylesheet is applied inside `observe`.
+  // Repaint, not observe.
+  //
+  // `repaint()` goes through `host.displayList()`, which lays out — which is
+  // where `markStates`, the stylesheet and `reconcileTree` run, and therefore
+  // where the flight a hover creates comes into existence. So the loop must
+  // paint BEFORE asking whether anything is still moving; asking first gives
+  // exactly one frame and a colour frozen where it started, which it did,
+  // twice.
+  //
+  // What the loop must NOT do is call `observe()`. That snapshots both trees
+  // and diffs them behind two `requestAnimationFrame` waits, so an animation
+  // driven through it advanced once every ~33ms — five frames for a 140ms
+  // transition, which reads as a stutter rather than a fade. The diff is a
+  // property of the settled state anyway, so it is taken once at the end.
   const observeRef = useRef(observe);
   observeRef.current = observe;
+  const repaintRef = useRef(repaint);
+  repaintRef.current = repaint;
   const animate = useCallback(() => {
     if (animating.current) return;
     let last = performance.now();
@@ -182,8 +192,14 @@ function Playground() {
       const dt = now - last;
       last = now;
       host.tick(dt);
-      await observeRef.current();
-      animating.current = host.busyNow() ? requestAnimationFrame(step) : 0;
+      await repaintRef.current();
+      if (host.busyNow()) {
+        animating.current = requestAnimationFrame(step);
+      } else {
+        animating.current = 0;
+        // Settled: now the trace and the diff are worth recomputing.
+        observeRef.current();
+      }
     };
     animating.current = requestAnimationFrame(step);
   }, [host]);

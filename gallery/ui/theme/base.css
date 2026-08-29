@@ -561,7 +561,7 @@
 .ui-toolbar-button,
 .ui-toggle,
 .ui-dialog-trigger,
-.ui-popover-trigger { transition: background-color 140ms, color 140ms; }
+.ui-popover-trigger { transition: background-color 140ms ease-out, color 140ms ease-out; }
 
 .ui-menubar-trigger:hover,
 .ui-navmenu-trigger:hover,
@@ -576,7 +576,13 @@
 .ui-toolbar-button:hover,
 .ui-toggle:hover { background-color: #e2e8f0; }
 
-.ui-sortable-item:hover { background-color: #eef2ff; }
+/* A sortable row lifts very slightly under the pointer, which is the one
+   affordance that says "this can be picked up" before anything is picked up.
+   `ease-out` because a lift should leave quickly and settle slowly, and
+   `translate` rather than a margin because a margin would reflow every row
+   below it. */
+.ui-sortable-item { transition: background-color 140ms ease-out, transform 140ms ease-out; }
+.ui-sortable-item:hover { background-color: #eef2ff; transform: translate(0, -1px) scale(1.01); }
 
 /* Pressed is darker than hovered, and instant on the way in: a button that
    eases into its pressed colour feels unresponsive, which is why the

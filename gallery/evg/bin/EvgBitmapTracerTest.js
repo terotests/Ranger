@@ -3593,6 +3593,322 @@ EVGColor.parseNamed = function(name) {
   }
   return EVGColor.noColor();
 };
+class EVGEasing  {
+  constructor() {
+    this.kind = 0;
+    this.x1 = 0.0;
+    this.y1 = 0.0;
+    this.x2 = 1.0;
+    this.y2 = 1.0;
+    this.stepCount = 1;
+    this.jumpStart = false;
+    this.ok = true;
+  }
+  ease (t) {
+    let x = t;
+    if ( x < 0.0 ) {
+      x = 0.0;
+    }
+    if ( x > 1.0 ) {
+      x = 1.0;
+    }
+    if ( this.kind == 1 ) {
+      return this.stepAt(x);
+    }
+    if ( (((this.x1 == 0.0) && (this.y1 == 0.0)) && (this.x2 == 1.0)) && (this.y2 == 1.0) ) {
+      return x;
+    }
+    return this.sampleY(this.solveT(x));
+  };
+  stepAt (x) {
+    const n = this.stepCount;
+    const raw = x * n;
+    let k = Math.floor(raw);
+    if ( this.jumpStart ) {
+      k = k + 1;
+    }
+    const v = (k) / n;
+    if ( v < 0.0 ) {
+      return 0.0;
+    }
+    if ( v > 1.0 ) {
+      return 1.0;
+    }
+    return v;
+  };
+  sampleX (t) {
+    const cx = 3.0 * this.x1;
+    const bx = (3.0 * (this.x2 - this.x1)) - cx;
+    const a = (1.0 - cx) - bx;
+    return ((((a * t) + bx) * t) + cx) * t;
+  };
+  sampleY (t) {
+    const cy = 3.0 * this.y1;
+    const by = (3.0 * (this.y2 - this.y1)) - cy;
+    const a = (1.0 - cy) - by;
+    return ((((a * t) + by) * t) + cy) * t;
+  };
+  slopeX (t) {
+    const cx = 3.0 * this.x1;
+    const bx = (3.0 * (this.x2 - this.x1)) - cx;
+    const a = (1.0 - cx) - bx;
+    return ((((3.0 * a) * t) + (2.0 * bx)) * t) + cx;
+  };
+  solveT (x) {
+    let t = x;
+    let i = 0;
+    while (i < 8) {
+      const err = this.sampleX(t) - x;
+      if ( (Math.abs(err)) < 1e-7 ) {
+        return t;
+      }
+      const d = this.slopeX(t);
+      if ( (Math.abs(d)) < 0.000001 ) {
+        i = 8;
+      } else {
+        t = t - (err / d);
+        if ( (t < 0.0) || (t > 1.0) ) {
+          i = 8;
+        }
+        i = i + 1;
+      }
+    };
+    let lo = 0.0;
+    let hi = 1.0;
+    let m = x;
+    if ( (m < lo) || (m > hi) ) {
+      m = 0.5;
+    }
+    let j = 0;
+    while (j < 64) {
+      const v = this.sampleX(m);
+      if ( (Math.abs((v - x))) < 1e-7 ) {
+        return m;
+      }
+      if ( v < x ) {
+        lo = m;
+      } else {
+        hi = m;
+      }
+      m = (lo + hi) / 2.0;
+      j = j + 1;
+    };
+    return m;
+  };
+}
+EVGEasing.cubic = function(x1, y1, x2, y2) {
+  const e = new EVGEasing();
+  e.kind = 0;
+  e.x1 = x1;
+  e.y1 = y1;
+  e.x2 = x2;
+  e.y2 = y2;
+  return e;
+};
+EVGEasing.linear = function() {
+  return EVGEasing.cubic(0.0, 0.0, 1.0, 1.0);
+};
+EVGEasing.steps = function(count, atStart) {
+  const e = new EVGEasing();
+  e.kind = 1;
+  e.stepCount = count;
+  if ( count < 1 ) {
+    e.stepCount = 1;
+  }
+  e.jumpStart = atStart;
+  return e;
+};
+EVGEasing.parse = function(text) {
+  const t = text.trim();
+  if ( (t.length) == 0 ) {
+    return EVGEasing.linear();
+  }
+  if ( t == "linear" ) {
+    return EVGEasing.cubic(0.0, 0.0, 1.0, 1.0);
+  }
+  if ( t == "ease" ) {
+    return EVGEasing.cubic(0.25, 0.1, 0.25, 1.0);
+  }
+  if ( t == "ease-in" ) {
+    return EVGEasing.cubic(0.42, 0.0, 1.0, 1.0);
+  }
+  if ( t == "ease-out" ) {
+    return EVGEasing.cubic(0.0, 0.0, 0.58, 1.0);
+  }
+  if ( t == "ease-in-out" ) {
+    return EVGEasing.cubic(0.42, 0.0, 0.58, 1.0);
+  }
+  if ( t == "step-start" ) {
+    return EVGEasing.steps(1, true);
+  }
+  if ( t == "step-end" ) {
+    return EVGEasing.steps(1, false);
+  }
+  const args = EVGEasing.argsOf(t, "cubic-bezier");
+  if ( (args.length) > 0 ) {
+    const nums = EVGEasing.numbers(args);
+    if ( (nums.length) == 4 ) {
+      const cx1 = EVGEasing.clamp01((nums[0]));
+      const cx2 = EVGEasing.clamp01((nums[2]));
+      return EVGEasing.cubic(cx1, (nums[1]), cx2, (nums[3]));
+    }
+    const bad = EVGEasing.linear();
+    bad.ok = false;
+    return bad;
+  }
+  const sargs = EVGEasing.argsOf(t, "steps");
+  if ( (sargs.length) > 0 ) {
+    const parts = EVGEasing.splitTop(sargs, 44);
+    const countTxt = (parts[0]).trim();
+    const n = isNaN( parseFloat(countTxt) ) ? undefined : parseFloat(countTxt);
+    if ( typeof(n) != "undefined" ) {
+      let atStart = false;
+      if ( (parts.length) > 1 ) {
+        const word = (parts[1]).trim();
+        if ( (word == "start") || (word == "jump-start") ) {
+          atStart = true;
+        }
+      }
+      return EVGEasing.steps((Math.floor( (n))), atStart);
+    }
+  }
+  const unknown = EVGEasing.linear();
+  unknown.ok = false;
+  return unknown;
+};
+EVGEasing.looksLikeFunction = function(text) {
+  const t = text.trim();
+  if ( t == "linear" ) {
+    return true;
+  }
+  if ( t == "ease" ) {
+    return true;
+  }
+  if ( t == "ease-in" ) {
+    return true;
+  }
+  if ( t == "ease-out" ) {
+    return true;
+  }
+  if ( t == "ease-in-out" ) {
+    return true;
+  }
+  if ( t == "step-start" ) {
+    return true;
+  }
+  if ( t == "step-end" ) {
+    return true;
+  }
+  if ( (EVGEasing.argsOf(t, "cubic-bezier").length) > 0 ) {
+    return true;
+  }
+  if ( (EVGEasing.argsOf(t, "steps").length) > 0 ) {
+    return true;
+  }
+  const n = t.length;
+  if ( n > 2 ) {
+    if ( (t.charCodeAt((n - 1) )) == 41 ) {
+      let i = 0;
+      while (i < n) {
+        if ( (t.charCodeAt(i )) == 40 ) {
+          return true;
+        }
+        i = i + 1;
+      };
+    }
+  }
+  return false;
+};
+EVGEasing.argsOf = function(t, name) {
+  const nl = name.length;
+  const tl = t.length;
+  if ( tl < (nl + 3) ) {
+    return "";
+  }
+  if ( (t.substring(0, nl )) != name ) {
+    return "";
+  }
+  if ( (t.charCodeAt(nl )) != 40 ) {
+    return "";
+  }
+  if ( (t.charCodeAt((tl - 1) )) != 41 ) {
+    return "";
+  }
+  return t.substring((nl + 1), (tl - 1) );
+};
+EVGEasing.numbers = function(s) {
+  let out = [];
+  const parts = EVGEasing.splitTop(s, 44);
+  let i = 0;
+  while (i < (parts.length)) {
+    const v = isNaN( parseFloat(((parts[i]).trim())) ) ? undefined : parseFloat(((parts[i]).trim()));
+    if ( typeof(v) != "undefined" ) {
+      out.push(v);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+EVGEasing.splitTop = function(s, ch) {
+  let out = [];
+  let depth = 0;
+  let start = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( c == 40 ) {
+      depth = depth + 1;
+    }
+    if ( c == 41 ) {
+      depth = depth - 1;
+    }
+    if ( (c == ch) && (depth == 0) ) {
+      out.push(s.substring(start, i ));
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  out.push(s.substring(start, n ));
+  return out;
+};
+EVGEasing.splitWordsTop = function(s) {
+  let out = [];
+  let depth = 0;
+  let start = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( c == 40 ) {
+      depth = depth + 1;
+    }
+    if ( c == 41 ) {
+      depth = depth - 1;
+    }
+    const isSpace = ((c == 32) || (c == 9)) || (c == 10);
+    if ( isSpace && (depth == 0) ) {
+      if ( i > start ) {
+        out.push(s.substring(start, i ));
+      }
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  if ( n > start ) {
+    out.push(s.substring(start, n ));
+  }
+  return out;
+};
+EVGEasing.clamp01 = function(v) {
+  if ( v < 0.0 ) {
+    return 0.0;
+  }
+  if ( v > 1.0 ) {
+    return 1.0;
+  }
+  return v;
+};
 class EVGBox  {
   constructor() {
     this.marginTopPx = 0.0;
@@ -3884,16 +4200,20 @@ class EVGFlight  {
   constructor() {
     this.property = "";     /** note: unused */
     this.durationMs = 0.0;
+    this.delayMs = 0.0;
     this.elapsedMs = 0.0;
+    this.easing = new EVGEasing();
     this.fromNumber = 0.0;     /** note: unused */
     this.toNumber = 0.0;     /** note: unused */
     this.isColor = false;     /** note: unused */
+    this.reversingStartNumber = 0.0;     /** note: unused */
+    this.reversingFactor = 1.0;     /** note: unused */
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {
       return 1.0;
     }
-    const t = this.elapsedMs / this.durationMs;
+    const t = (this.elapsedMs - this.delayMs) / this.durationMs;
     if ( t < 0.0 ) {
       return 0.0;
     }
@@ -3902,8 +4222,11 @@ class EVGFlight  {
     }
     return t;
   };
+  eased () {
+    return this.easing.ease(this.progress());
+  };
   done () {
-    return this.elapsedMs >= this.durationMs;
+    return this.elapsedMs >= (this.delayMs + this.durationMs);
   };
 }
 class EVGElement  {
@@ -3988,6 +4311,9 @@ class EVGElement  {
     this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
+    this.translateX = 0.0;
+    this.translateY = 0.0;
+    this.transformSpec = "";
     this.backgroundGradient = "";
     this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
@@ -4335,6 +4661,80 @@ class EVGElement  {
     this.shadowOffsetX.resolve(parentWidth, fs);
     this.shadowOffsetY.resolve(parentHeight, fs);
     this.isAbsolute = this.hasAbsolutePosition();
+  };
+  applyTransform (value) {
+    this.transformSpec = value.trim();
+    this.rotate = 0.0;
+    this.scale = 1.0;
+    this.translateX = 0.0;
+    this.translateY = 0.0;
+    if ( (this.transformSpec == "none") || ((this.transformSpec.length) == 0) ) {
+      return;
+    }
+    const parts = EVGElement.splitWords(this.transformSpec);
+    let a = 0.0;
+    let sc = 1.0;
+    let tx = 0.0;
+    let ty = 0.0;
+    let i = 0;
+    while (i < (parts.length)) {
+      const one = (parts[i]).trim();
+      let b = 0.0;
+      let s2 = 1.0;
+      let ux = 0.0;
+      let uy = 0.0;
+      const args = EVGElement.callArgs(one, "rotate");
+      if ( (args.length) > 0 ) {
+        b = EVGElement.parseAngleDeg(args);
+      } else {
+        const sargs = EVGElement.callArgs(one, "scale");
+        if ( (sargs.length) > 0 ) {
+          const nums = EVGElement.numberList(sargs);
+          if ( (nums.length) > 0 ) {
+            s2 = nums[0];
+          }
+        } else {
+          const targs = EVGElement.callArgs(one, "translate");
+          if ( (targs.length) > 0 ) {
+            const tn = EVGElement.numberList(targs);
+            if ( (tn.length) > 0 ) {
+              ux = tn[0];
+            }
+            if ( (tn.length) > 1 ) {
+              uy = tn[1];
+            }
+          } else {
+            const xargs = EVGElement.callArgs(one, "translateX");
+            if ( (xargs.length) > 0 ) {
+              const xn = EVGElement.numberList(xargs);
+              if ( (xn.length) > 0 ) {
+                ux = xn[0];
+              }
+            } else {
+              const yargs = EVGElement.callArgs(one, "translateY");
+              if ( (yargs.length) > 0 ) {
+                const yn = EVGElement.numberList(yargs);
+                if ( (yn.length) > 0 ) {
+                  uy = yn[0];
+                }
+              }
+            }
+          }
+        }
+      }
+      const rad = (a * 3.14159265358979) / 180.0;
+      const cs = Math.cos(rad);
+      const sn = Math.sin(rad);
+      tx = tx + (sc * ((ux * cs) - (uy * sn)));
+      ty = ty + (sc * ((ux * sn) + (uy * cs)));
+      a = a + b;
+      sc = sc * s2;
+      i = i + 1;
+    };
+    this.rotate = a;
+    this.scale = sc;
+    this.translateX = tx;
+    this.translateY = ty;
   };
   markInline (name) {
     const key = EVGElement.toKebab(name);
@@ -4795,6 +5195,24 @@ class EVGElement  {
       }
       return;
     }
+    if ( name == "transform" ) {
+      this.applyTransform(value);
+      return;
+    }
+    if ( (name == "translate-x") || (name == "translateX") ) {
+      const tvx = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(tvx) != "undefined" ) {
+        this.translateX = tvx;
+      }
+      return;
+    }
+    if ( (name == "translate-y") || (name == "translateY") ) {
+      const tvy = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(tvy) != "undefined" ) {
+        this.translateY = tvy;
+      }
+      return;
+    }
     if ( name == "rotate" ) {
       const val_2 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       this.rotate = val_2;
@@ -4964,6 +5382,141 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.transformProblem = function(value) {
+  const v = value.trim();
+  if ( (v == "none") || ((v.length) == 0) ) {
+    return "";
+  }
+  const parts = EVGElement.splitWords(v);
+  let i = 0;
+  while (i < (parts.length)) {
+    const one = (parts[i]).trim();
+    let known = false;
+    if ( (EVGElement.callArgs(one, "rotate").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "scale").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "translate").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "translateX").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "translateY").length) > 0 ) {
+      known = true;
+    }
+    if ( known == false ) {
+      return "Unsupported transform (rotate, scale, translate, translateX, translateY): " + one;
+    }
+    const sargs = EVGElement.callArgs(one, "scale");
+    if ( (sargs.length) > 0 ) {
+      const nums = EVGElement.numberList(sargs);
+      if ( (nums.length) > 1 ) {
+        if ( (Math.abs(((nums[0]) - (nums[1])))) > 0.0001 ) {
+          return "Only a uniform scale is supported: " + one;
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return "";
+};
+EVGElement.callArgs = function(one, name) {
+  const nl2 = name.length;
+  const tl = one.length;
+  if ( tl < (nl2 + 3) ) {
+    return "";
+  }
+  if ( (one.substring(0, nl2 )) != name ) {
+    return "";
+  }
+  if ( (one.charCodeAt(nl2 )) != 40 ) {
+    return "";
+  }
+  if ( (one.charCodeAt((tl - 1) )) != 41 ) {
+    return "";
+  }
+  const inner = one.substring((nl2 + 1), (tl - 1) );
+  if ( (inner.length) == 0 ) {
+    return "";
+  }
+  return inner;
+};
+EVGElement.numberList = function(s) {
+  let out = [];
+  const parts = EVGElement.splitOnChar(s, 44);
+  let i = 0;
+  while (i < (parts.length)) {
+    out.push(EVGElement.leadingNumber((parts[i])));
+    i = i + 1;
+  };
+  return out;
+};
+EVGElement.splitOnChar = function(s, ch) {
+  let out = [];
+  let start = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    if ( (s.charCodeAt(i )) == ch ) {
+      out.push(s.substring(start, i ));
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  out.push(s.substring(start, n ));
+  return out;
+};
+EVGElement.leadingNumber = function(s) {
+  const t = s.trim();
+  const n = t.length;
+  let stop = 0;
+  let scanning = true;
+  while (scanning && (stop < n)) {
+    const c = t.charCodeAt(stop );
+    const digit = (c >= 48) && (c <= 57);
+    const signOrDot = ((c == 45) || (c == 43)) || (c == 46);
+    if ( digit || signOrDot ) {
+      stop = stop + 1;
+    } else {
+      scanning = false;
+    }
+  };
+  if ( stop == 0 ) {
+    return 0.0;
+  }
+  const v = isNaN( parseFloat((t.substring(0, stop ))) ) ? undefined : parseFloat((t.substring(0, stop )));
+  if ( typeof(v) != "undefined" ) {
+    return v;
+  }
+  return 0.0;
+};
+EVGElement.parseAngleDeg = function(text) {
+  const t = text.trim();
+  const v = EVGElement.leadingNumber(t);
+  const n = t.length;
+  if ( n > 4 ) {
+    const four = t.substring((n - 4), n );
+    if ( four == "turn" ) {
+      return v * 360.0;
+    }
+    if ( four == "grad" ) {
+      return (v * 360.0) / 400.0;
+    }
+  }
+  if ( n > 3 ) {
+    const three = t.substring((n - 3), n );
+    if ( three == "rad" ) {
+      return (v * 180.0) / 3.14159265358979;
+    }
+    if ( three == "deg" ) {
+      return v;
+    }
+  }
+  return v;
 };
 EVGElement.splitWords = function(s) {
   let out = [];

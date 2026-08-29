@@ -4,6 +4,7 @@
 
 Import "EVGUnit.rgr"
 Import "EVGColor.rgr"
+Import "EVGEasing.rgr"
 Import "EVGBox.rgr"
 Import "EVGGradient.rgr"
 
@@ -20,8 +21,13 @@ Import "EVGGradient.rgr"
 ; read back out. Splitting them would double the bookkeeping to save one field.
 class EVGFlight {
     def property:string ""
+    ; The duration this flight is actually running for. Not the one the sheet
+    ; declared — a reversal shortens it, and `reversingFactor` is the record of
+    ; by how much.
     def durationMs:double 0.0
+    def delayMs:double 0.0
     def elapsedMs:double 0.0
+    def easing:EVGEasing (new EVGEasing())
     ; Colours, when the property is one.
     def fromColor:EVGColor
     def toColor:EVGColor
@@ -30,16 +36,36 @@ class EVGFlight {
     def toNumber:double 0.0
     def isColor:boolean false
 
+    ; --- what a reversal needs to remember ------------------------------------
+    ;
+    ; CSS calls this the "reversing-adjusted start value": the value that, if
+    ; the property is asked to go back to it, means this is a REVERSAL rather
+    ; than a new journey somewhere else. For a fresh transition it is where the
+    ; flight left from; after a reversal it is the target the flight was
+    ; heading for before it turned round.
+    ;
+    ; The distinction matters. A hover that leaves half way is a reversal and
+    ; must come back in half the time; a hover that leaves and lands on a THIRD
+    ; colour is not, and gets the full duration. Comparing against the start
+    ; value alone gets the second case right and the first case wrong as soon
+    ; as the pointer changes its mind twice.
+    def reversingStartColor:EVGColor
+    def reversingStartNumber:double 0.0
+    def reversingFactor:double 1.0
+
     Constructor () {
     }
 
-    ; 0 at the start, 1 at the end. Linear: an easing curve is a function of
-    ; this and can be added without touching anything that reads it.
+    ; Where the clock is, 0 to 1, before the timing function has its say.
+    ; The delay is part of the clock — a flight in its delay has not started
+    ; moving and reads 0 — which is what the browser does and what makes
+    ; `transition: opacity 200ms 100ms` hold still for its first tenth of a
+    ; second instead of easing very slowly through it.
     fn progress:double () {
         if (durationMs <= 0.0) {
             return 1.0
         }
-        def t:double (elapsedMs / durationMs)
+        def t:double ((elapsedMs - delayMs) / durationMs)
         if (t < 0.0) {
             return 0.0
         }
@@ -49,8 +75,14 @@ class EVGFlight {
         return t
     }
 
+    ; What the value is actually interpolated by. Every reader wants this one;
+    ; `progress()` is only the clock.
+    fn eased:double () {
+        return (easing.ease((this.progress())))
+    }
+
     fn done:boolean () {
-        return (elapsedMs >= durationMs)
+        return (elapsedMs >= (delayMs + durationMs))
     }
 }
 
@@ -333,9 +365,31 @@ class EVGElement {
     def imageQuality:int 0          ; JPEG quality 1-100 (0 = use default)
     def maxImageSize:int 0          ; Max image dimension in pixels (0 = use default)
     
-    ; Transform
+    ; --- Transform --------------------------------------------------------------
+    ;
+    ; `transform: rotate(15deg) scale(1.05) translate(4px, 0)` is composed at
+    ; parse time into ONE similarity — an angle, a uniform scale and an offset —
+    ; because that is the largest family closed under composition that a display
+    ; list of axis-aligned boxes can still represent exactly. Rotation, uniform
+    ; scale and translation compose to another rotation, uniform scale and
+    ; translation, in any order and to any depth. `scale(2, 1)` and `skew()` do
+    ; not; they are reported rather than approximated.
+    ;
+    ; Composing here rather than in the painter is what makes the four numbers
+    ; INTERPOLABLE: `transition: transform 200ms` is then four ordinary number
+    ; flights, and a rotation that is also being scaled does the right thing
+    ; without a matrix decomposition on every frame.
+    ;
+    ; The origin is the element's own centre. Measured, not assumed: a 100x40
+    ; box at the origin turned a quarter turn lands at (30, -30, 40, 100), whose
+    ; centre is where it started. `transform-origin` is not supported.
     def rotate:double 0.0
     def scale:double 1.0
+    def translateX:double 0.0
+    def translateY:double 0.0
+    ; Kept verbatim so the transform survives a round trip and so a reader can
+    ; see what was written, not only what it reduced to.
+    def transformSpec:string ""
     
     ; Shadow
     def shadowRadius:EVGUnit
@@ -983,6 +1037,242 @@ class EVGElement {
             i = (i + 1)
         }
         return out
+    }
+
+    ; --- transform ---------------------------------------------------------------
+
+    ; Compose the function list into one similarity: angle, uniform scale,
+    ; offset. Left to right, the way CSS reads them, and the composition is the
+    ; reason order is honoured for free:
+    ;
+    ;   M = (a, s, t)  means  p -> R(a)·s·p + t
+    ;   M ∘ N          means  angle a+b, scale s·s2, offset t + R(a)·s·u
+    ;
+    ; which is why `rotate(90deg) translate(10px, 0)` moves DOWN the page and
+    ; `translate(10px, 0) rotate(90deg)` moves right. Applying the pieces
+    ; independently gets both of those wrong and looks correct whenever only one
+    ; of them is present, which is most of the time.
+    fn applyTransform:void (value:string) {
+        transformSpec = (trim value)
+        rotate = 0.0
+        scale = 1.0
+        translateX = 0.0
+        translateY = 0.0
+        if ((transformSpec == "none") || ((strlen transformSpec) == 0)) {
+            return
+        }
+        def parts:[string] (EVGElement.splitWords(transformSpec))
+        def a:double 0.0
+        def sc:double 1.0
+        def tx:double 0.0
+        def ty:double 0.0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def one:string (trim (itemAt parts i))
+            def b:double 0.0
+            def s2:double 1.0
+            def ux:double 0.0
+            def uy:double 0.0
+            def args:string (EVGElement.callArgs(one "rotate"))
+            if ((strlen args) > 0) {
+                b = (EVGElement.parseAngleDeg(args))
+            } {
+                def sargs:string (EVGElement.callArgs(one "scale"))
+                if ((strlen sargs) > 0) {
+                    def nums:[double] (EVGElement.numberList(sargs))
+                    if ((array_length nums) > 0) {
+                        s2 = (itemAt nums 0)
+                    }
+                } {
+                    def targs:string (EVGElement.callArgs(one "translate"))
+                    if ((strlen targs) > 0) {
+                        def tn:[double] (EVGElement.numberList(targs))
+                        if ((array_length tn) > 0) {
+                            ux = (itemAt tn 0)
+                        }
+                        if ((array_length tn) > 1) {
+                            uy = (itemAt tn 1)
+                        }
+                    } {
+                        def xargs:string (EVGElement.callArgs(one "translateX"))
+                        if ((strlen xargs) > 0) {
+                            def xn:[double] (EVGElement.numberList(xargs))
+                            if ((array_length xn) > 0) {
+                                ux = (itemAt xn 0)
+                            }
+                        } {
+                            def yargs:string (EVGElement.callArgs(one "translateY"))
+                            if ((strlen yargs) > 0) {
+                                def yn:[double] (EVGElement.numberList(yargs))
+                                if ((array_length yn) > 0) {
+                                    uy = (itemAt yn 0)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            def rad:double ((a * 3.14159265358979) / 180.0)
+            def cs:double (cos rad)
+            def sn:double (sin rad)
+            tx = (tx + (sc * ((ux * cs) - (uy * sn))))
+            ty = (ty + (sc * ((ux * sn) + (uy * cs))))
+            a = (a + b)
+            sc = (sc * s2)
+            i = (i + 1)
+        }
+        rotate = a
+        scale = sc
+        translateX = tx
+        translateY = ty
+    }
+
+    ; "" when the value is one this engine can represent exactly, otherwise the
+    ; reason. A stylesheet reports it; approximating a skew as a rotation would
+    ; be worse than saying no.
+    sfn transformProblem:string (value:string) {
+        def v:string (trim value)
+        if ((v == "none") || ((strlen v) == 0)) {
+            return ""
+        }
+        def parts:[string] (EVGElement.splitWords(v))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def one:string (trim (itemAt parts i))
+            def known:boolean false
+            if ((strlen (EVGElement.callArgs(one "rotate"))) > 0)     { known = true }
+            if ((strlen (EVGElement.callArgs(one "scale"))) > 0)      { known = true }
+            if ((strlen (EVGElement.callArgs(one "translate"))) > 0)  { known = true }
+            if ((strlen (EVGElement.callArgs(one "translateX"))) > 0) { known = true }
+            if ((strlen (EVGElement.callArgs(one "translateY"))) > 0) { known = true }
+            if (known == false) {
+                return ("Unsupported transform (rotate, scale, translate, translateX, translateY): " + one)
+            }
+            ; A non-uniform scale is not a similarity, so the display list
+            ; cannot carry it as an angle and a factor. Two arguments that
+            ; differ is exactly that case.
+            def sargs:string (EVGElement.callArgs(one "scale"))
+            if ((strlen sargs) > 0) {
+                def nums:[double] (EVGElement.numberList(sargs))
+                if ((array_length nums) > 1) {
+                    if ((fabs ((itemAt nums 0) - (itemAt nums 1))) > 0.0001) {
+                        return ("Only a uniform scale is supported: " + one)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The inside of `name(...)`, or "" if `one` is not that call. The name has
+    ; to match WHOLE: `translateX(4px)` is not a `translate`, and accepting it
+    ; as one silently drops the X.
+    sfn callArgs:string (one:string name:string) {
+        def nl2:int (strlen name)
+        def tl:int (strlen one)
+        if (tl < (nl2 + 3)) {
+            return ""
+        }
+        if ((substring one 0 nl2) != name) {
+            return ""
+        }
+        if ((charAt one nl2) != 40) {
+            return ""
+        }
+        if ((charAt one (tl - 1)) != 41) {
+            return ""
+        }
+        def inner:string (substring one (nl2 + 1) (tl - 1))
+        if ((strlen inner) == 0) {
+            return ""
+        }
+        return inner
+    }
+
+    ; Comma-separated numbers with a unit suffix that is ignored: everything
+    ; here is already in device pixels and a percentage would need the box.
+    sfn numberList:[double] (s:string) {
+        def out:[double]
+        def parts:[string] (EVGElement.splitOnChar(s 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            push out (EVGElement.leadingNumber((itemAt parts i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn splitOnChar:[string] (s:string ch:int) {
+        def out:[string]
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            if ((charAt s i) == ch) {
+                push out (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s start n)
+        return out
+    }
+
+    ; The number at the front, unit discarded. `4px` and `4` are the same
+    ; length here; a bare `0` is legal CSS and has to parse.
+    sfn leadingNumber:double (s:string) {
+        def t:string (trim s)
+        def n:int (strlen t)
+        def stop:int 0
+        def scanning:boolean true
+        while (scanning && (stop < n)) {
+            def c:int (charAt t stop)
+            def digit:boolean ((c >= 48) && (c <= 57))
+            def signOrDot:boolean (((c == 45) || (c == 43)) || (c == 46))
+            if (digit || signOrDot) {
+                stop = (stop + 1)
+            } {
+                scanning = false
+            }
+        }
+        if (stop == 0) {
+            return 0.0
+        }
+        def v@(optional):double (to_double (substring t 0 stop))
+        if v {
+            return (unwrap v)
+        }
+        return 0.0
+    }
+
+    ; deg, rad, turn and grad, because a stylesheet that says `0.25turn` means
+    ; a quarter circle and reading it as a quarter of a degree is a bug nobody
+    ; would think to look for. `turn` and `grad` are checked BEFORE `rad`: both
+    ; of them end in those three letters.
+    sfn parseAngleDeg:double (text:string) {
+        def t:string (trim text)
+        def v:double (EVGElement.leadingNumber(t))
+        def n:int (strlen t)
+        if (n > 4) {
+            def four:string (substring t (n - 4) n)
+            if (four == "turn") {
+                return (v * 360.0)
+            }
+            if (four == "grad") {
+                return ((v * 360.0) / 400.0)
+            }
+        }
+        if (n > 3) {
+            def three:string (substring t (n - 3) n)
+            if (three == "rad") {
+                return ((v * 180.0) / 3.14159265358979)
+            }
+            if (three == "deg") {
+                return v
+            }
+        }
+        return v
     }
 
     ; Split a CSS value on whitespace, but never inside parentheses —
@@ -1643,6 +1933,20 @@ class EVGElement {
         }
         
         ; Transform
+        if (name == "transform") {
+            this.applyTransform(value)
+            return
+        }
+        if ((name == "translate-x") || (name == "translateX")) {
+            def tvx@(optional):double (to_double value)
+            if tvx { translateX = (unwrap tvx) }
+            return
+        }
+        if ((name == "translate-y") || (name == "translateY")) {
+            def tvy@(optional):double (to_double value)
+            if tvy { translateY = (unwrap tvy) }
+            return
+        }
         if (name == "rotate") {
             def val@(optional):double (to_double value)
             rotate = (unwrap val)

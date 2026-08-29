@@ -778,6 +778,322 @@ EVGColor.parseNamed = function(name) {
   }
   return EVGColor.noColor();
 };
+class EVGEasing  {
+  constructor() {
+    this.kind = 0;
+    this.x1 = 0.0;
+    this.y1 = 0.0;
+    this.x2 = 1.0;
+    this.y2 = 1.0;
+    this.stepCount = 1;
+    this.jumpStart = false;
+    this.ok = true;
+  }
+  ease (t) {
+    let x = t;
+    if ( x < 0.0 ) {
+      x = 0.0;
+    }
+    if ( x > 1.0 ) {
+      x = 1.0;
+    }
+    if ( this.kind == 1 ) {
+      return this.stepAt(x);
+    }
+    if ( (((this.x1 == 0.0) && (this.y1 == 0.0)) && (this.x2 == 1.0)) && (this.y2 == 1.0) ) {
+      return x;
+    }
+    return this.sampleY(this.solveT(x));
+  };
+  stepAt (x) {
+    const n = this.stepCount;
+    const raw = x * n;
+    let k = Math.floor(raw);
+    if ( this.jumpStart ) {
+      k = k + 1;
+    }
+    const v = (k) / n;
+    if ( v < 0.0 ) {
+      return 0.0;
+    }
+    if ( v > 1.0 ) {
+      return 1.0;
+    }
+    return v;
+  };
+  sampleX (t) {
+    const cx = 3.0 * this.x1;
+    const bx = (3.0 * (this.x2 - this.x1)) - cx;
+    const a = (1.0 - cx) - bx;
+    return ((((a * t) + bx) * t) + cx) * t;
+  };
+  sampleY (t) {
+    const cy = 3.0 * this.y1;
+    const by = (3.0 * (this.y2 - this.y1)) - cy;
+    const a = (1.0 - cy) - by;
+    return ((((a * t) + by) * t) + cy) * t;
+  };
+  slopeX (t) {
+    const cx = 3.0 * this.x1;
+    const bx = (3.0 * (this.x2 - this.x1)) - cx;
+    const a = (1.0 - cx) - bx;
+    return ((((3.0 * a) * t) + (2.0 * bx)) * t) + cx;
+  };
+  solveT (x) {
+    let t = x;
+    let i = 0;
+    while (i < 8) {
+      const err = this.sampleX(t) - x;
+      if ( (Math.abs(err)) < 1e-7 ) {
+        return t;
+      }
+      const d = this.slopeX(t);
+      if ( (Math.abs(d)) < 0.000001 ) {
+        i = 8;
+      } else {
+        t = t - (err / d);
+        if ( (t < 0.0) || (t > 1.0) ) {
+          i = 8;
+        }
+        i = i + 1;
+      }
+    };
+    let lo = 0.0;
+    let hi = 1.0;
+    let m = x;
+    if ( (m < lo) || (m > hi) ) {
+      m = 0.5;
+    }
+    let j = 0;
+    while (j < 64) {
+      const v = this.sampleX(m);
+      if ( (Math.abs((v - x))) < 1e-7 ) {
+        return m;
+      }
+      if ( v < x ) {
+        lo = m;
+      } else {
+        hi = m;
+      }
+      m = (lo + hi) / 2.0;
+      j = j + 1;
+    };
+    return m;
+  };
+}
+EVGEasing.cubic = function(x1, y1, x2, y2) {
+  const e = new EVGEasing();
+  e.kind = 0;
+  e.x1 = x1;
+  e.y1 = y1;
+  e.x2 = x2;
+  e.y2 = y2;
+  return e;
+};
+EVGEasing.linear = function() {
+  return EVGEasing.cubic(0.0, 0.0, 1.0, 1.0);
+};
+EVGEasing.steps = function(count, atStart) {
+  const e = new EVGEasing();
+  e.kind = 1;
+  e.stepCount = count;
+  if ( count < 1 ) {
+    e.stepCount = 1;
+  }
+  e.jumpStart = atStart;
+  return e;
+};
+EVGEasing.parse = function(text) {
+  const t = text.trim();
+  if ( (t.length) == 0 ) {
+    return EVGEasing.linear();
+  }
+  if ( t == "linear" ) {
+    return EVGEasing.cubic(0.0, 0.0, 1.0, 1.0);
+  }
+  if ( t == "ease" ) {
+    return EVGEasing.cubic(0.25, 0.1, 0.25, 1.0);
+  }
+  if ( t == "ease-in" ) {
+    return EVGEasing.cubic(0.42, 0.0, 1.0, 1.0);
+  }
+  if ( t == "ease-out" ) {
+    return EVGEasing.cubic(0.0, 0.0, 0.58, 1.0);
+  }
+  if ( t == "ease-in-out" ) {
+    return EVGEasing.cubic(0.42, 0.0, 0.58, 1.0);
+  }
+  if ( t == "step-start" ) {
+    return EVGEasing.steps(1, true);
+  }
+  if ( t == "step-end" ) {
+    return EVGEasing.steps(1, false);
+  }
+  const args = EVGEasing.argsOf(t, "cubic-bezier");
+  if ( (args.length) > 0 ) {
+    const nums = EVGEasing.numbers(args);
+    if ( (nums.length) == 4 ) {
+      const cx1 = EVGEasing.clamp01((nums[0]));
+      const cx2 = EVGEasing.clamp01((nums[2]));
+      return EVGEasing.cubic(cx1, (nums[1]), cx2, (nums[3]));
+    }
+    const bad = EVGEasing.linear();
+    bad.ok = false;
+    return bad;
+  }
+  const sargs = EVGEasing.argsOf(t, "steps");
+  if ( (sargs.length) > 0 ) {
+    const parts = EVGEasing.splitTop(sargs, 44);
+    const countTxt = (parts[0]).trim();
+    const n = isNaN( parseFloat(countTxt) ) ? undefined : parseFloat(countTxt);
+    if ( typeof(n) != "undefined" ) {
+      let atStart = false;
+      if ( (parts.length) > 1 ) {
+        const word = (parts[1]).trim();
+        if ( (word == "start") || (word == "jump-start") ) {
+          atStart = true;
+        }
+      }
+      return EVGEasing.steps((Math.floor( (n))), atStart);
+    }
+  }
+  const unknown = EVGEasing.linear();
+  unknown.ok = false;
+  return unknown;
+};
+EVGEasing.looksLikeFunction = function(text) {
+  const t = text.trim();
+  if ( t == "linear" ) {
+    return true;
+  }
+  if ( t == "ease" ) {
+    return true;
+  }
+  if ( t == "ease-in" ) {
+    return true;
+  }
+  if ( t == "ease-out" ) {
+    return true;
+  }
+  if ( t == "ease-in-out" ) {
+    return true;
+  }
+  if ( t == "step-start" ) {
+    return true;
+  }
+  if ( t == "step-end" ) {
+    return true;
+  }
+  if ( (EVGEasing.argsOf(t, "cubic-bezier").length) > 0 ) {
+    return true;
+  }
+  if ( (EVGEasing.argsOf(t, "steps").length) > 0 ) {
+    return true;
+  }
+  const n = t.length;
+  if ( n > 2 ) {
+    if ( (t.charCodeAt((n - 1) )) == 41 ) {
+      let i = 0;
+      while (i < n) {
+        if ( (t.charCodeAt(i )) == 40 ) {
+          return true;
+        }
+        i = i + 1;
+      };
+    }
+  }
+  return false;
+};
+EVGEasing.argsOf = function(t, name) {
+  const nl = name.length;
+  const tl = t.length;
+  if ( tl < (nl + 3) ) {
+    return "";
+  }
+  if ( (t.substring(0, nl )) != name ) {
+    return "";
+  }
+  if ( (t.charCodeAt(nl )) != 40 ) {
+    return "";
+  }
+  if ( (t.charCodeAt((tl - 1) )) != 41 ) {
+    return "";
+  }
+  return t.substring((nl + 1), (tl - 1) );
+};
+EVGEasing.numbers = function(s) {
+  let out = [];
+  const parts = EVGEasing.splitTop(s, 44);
+  let i = 0;
+  while (i < (parts.length)) {
+    const v = isNaN( parseFloat(((parts[i]).trim())) ) ? undefined : parseFloat(((parts[i]).trim()));
+    if ( typeof(v) != "undefined" ) {
+      out.push(v);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+EVGEasing.splitTop = function(s, ch) {
+  let out = [];
+  let depth = 0;
+  let start = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( c == 40 ) {
+      depth = depth + 1;
+    }
+    if ( c == 41 ) {
+      depth = depth - 1;
+    }
+    if ( (c == ch) && (depth == 0) ) {
+      out.push(s.substring(start, i ));
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  out.push(s.substring(start, n ));
+  return out;
+};
+EVGEasing.splitWordsTop = function(s) {
+  let out = [];
+  let depth = 0;
+  let start = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( c == 40 ) {
+      depth = depth + 1;
+    }
+    if ( c == 41 ) {
+      depth = depth - 1;
+    }
+    const isSpace = ((c == 32) || (c == 9)) || (c == 10);
+    if ( isSpace && (depth == 0) ) {
+      if ( i > start ) {
+        out.push(s.substring(start, i ));
+      }
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  if ( n > start ) {
+    out.push(s.substring(start, n ));
+  }
+  return out;
+};
+EVGEasing.clamp01 = function(v) {
+  if ( v < 0.0 ) {
+    return 0.0;
+  }
+  if ( v > 1.0 ) {
+    return 1.0;
+  }
+  return v;
+};
 class EVGBox  {
   constructor() {
     this.marginTopPx = 0.0;
@@ -1069,16 +1385,20 @@ class EVGFlight  {
   constructor() {
     this.property = "";
     this.durationMs = 0.0;
+    this.delayMs = 0.0;
     this.elapsedMs = 0.0;
+    this.easing = new EVGEasing();
     this.fromNumber = 0.0;
     this.toNumber = 0.0;
     this.isColor = false;
+    this.reversingStartNumber = 0.0;
+    this.reversingFactor = 1.0;
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {
       return 1.0;
     }
-    const t = this.elapsedMs / this.durationMs;
+    const t = (this.elapsedMs - this.delayMs) / this.durationMs;
     if ( t < 0.0 ) {
       return 0.0;
     }
@@ -1087,8 +1407,11 @@ class EVGFlight  {
     }
     return t;
   };
+  eased () {
+    return this.easing.ease(this.progress());
+  };
   done () {
-    return this.elapsedMs >= this.durationMs;
+    return this.elapsedMs >= (this.delayMs + this.durationMs);
   };
 }
 class EVGElement  {
@@ -1173,6 +1496,9 @@ class EVGElement  {
     this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
+    this.translateX = 0.0;
+    this.translateY = 0.0;
+    this.transformSpec = "";
     this.backgroundGradient = "";
     this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
@@ -1520,6 +1846,80 @@ class EVGElement  {
     this.shadowOffsetX.resolve(parentWidth, fs);
     this.shadowOffsetY.resolve(parentHeight, fs);
     this.isAbsolute = this.hasAbsolutePosition();
+  };
+  applyTransform (value) {
+    this.transformSpec = value.trim();
+    this.rotate = 0.0;
+    this.scale = 1.0;
+    this.translateX = 0.0;
+    this.translateY = 0.0;
+    if ( (this.transformSpec == "none") || ((this.transformSpec.length) == 0) ) {
+      return;
+    }
+    const parts = EVGElement.splitWords(this.transformSpec);
+    let a = 0.0;
+    let sc = 1.0;
+    let tx = 0.0;
+    let ty = 0.0;
+    let i = 0;
+    while (i < (parts.length)) {
+      const one = (parts[i]).trim();
+      let b = 0.0;
+      let s2 = 1.0;
+      let ux = 0.0;
+      let uy = 0.0;
+      const args = EVGElement.callArgs(one, "rotate");
+      if ( (args.length) > 0 ) {
+        b = EVGElement.parseAngleDeg(args);
+      } else {
+        const sargs = EVGElement.callArgs(one, "scale");
+        if ( (sargs.length) > 0 ) {
+          const nums = EVGElement.numberList(sargs);
+          if ( (nums.length) > 0 ) {
+            s2 = nums[0];
+          }
+        } else {
+          const targs = EVGElement.callArgs(one, "translate");
+          if ( (targs.length) > 0 ) {
+            const tn = EVGElement.numberList(targs);
+            if ( (tn.length) > 0 ) {
+              ux = tn[0];
+            }
+            if ( (tn.length) > 1 ) {
+              uy = tn[1];
+            }
+          } else {
+            const xargs = EVGElement.callArgs(one, "translateX");
+            if ( (xargs.length) > 0 ) {
+              const xn = EVGElement.numberList(xargs);
+              if ( (xn.length) > 0 ) {
+                ux = xn[0];
+              }
+            } else {
+              const yargs = EVGElement.callArgs(one, "translateY");
+              if ( (yargs.length) > 0 ) {
+                const yn = EVGElement.numberList(yargs);
+                if ( (yn.length) > 0 ) {
+                  uy = yn[0];
+                }
+              }
+            }
+          }
+        }
+      }
+      const rad = (a * 3.14159265358979) / 180.0;
+      const cs = Math.cos(rad);
+      const sn = Math.sin(rad);
+      tx = tx + (sc * ((ux * cs) - (uy * sn)));
+      ty = ty + (sc * ((ux * sn) + (uy * cs)));
+      a = a + b;
+      sc = sc * s2;
+      i = i + 1;
+    };
+    this.rotate = a;
+    this.scale = sc;
+    this.translateX = tx;
+    this.translateY = ty;
   };
   markInline (name) {
     const key = EVGElement.toKebab(name);
@@ -1980,6 +2380,24 @@ class EVGElement  {
       }
       return;
     }
+    if ( name == "transform" ) {
+      this.applyTransform(value);
+      return;
+    }
+    if ( (name == "translate-x") || (name == "translateX") ) {
+      const tvx = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(tvx) != "undefined" ) {
+        this.translateX = tvx;
+      }
+      return;
+    }
+    if ( (name == "translate-y") || (name == "translateY") ) {
+      const tvy = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(tvy) != "undefined" ) {
+        this.translateY = tvy;
+      }
+      return;
+    }
     if ( name == "rotate" ) {
       const val_2 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       this.rotate = val_2;
@@ -2149,6 +2567,141 @@ EVGElement.toKebab = function(name) {
     i = i + 1;
   };
   return out;
+};
+EVGElement.transformProblem = function(value) {
+  const v = value.trim();
+  if ( (v == "none") || ((v.length) == 0) ) {
+    return "";
+  }
+  const parts = EVGElement.splitWords(v);
+  let i = 0;
+  while (i < (parts.length)) {
+    const one = (parts[i]).trim();
+    let known = false;
+    if ( (EVGElement.callArgs(one, "rotate").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "scale").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "translate").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "translateX").length) > 0 ) {
+      known = true;
+    }
+    if ( (EVGElement.callArgs(one, "translateY").length) > 0 ) {
+      known = true;
+    }
+    if ( known == false ) {
+      return "Unsupported transform (rotate, scale, translate, translateX, translateY): " + one;
+    }
+    const sargs = EVGElement.callArgs(one, "scale");
+    if ( (sargs.length) > 0 ) {
+      const nums = EVGElement.numberList(sargs);
+      if ( (nums.length) > 1 ) {
+        if ( (Math.abs(((nums[0]) - (nums[1])))) > 0.0001 ) {
+          return "Only a uniform scale is supported: " + one;
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return "";
+};
+EVGElement.callArgs = function(one, name) {
+  const nl2 = name.length;
+  const tl = one.length;
+  if ( tl < (nl2 + 3) ) {
+    return "";
+  }
+  if ( (one.substring(0, nl2 )) != name ) {
+    return "";
+  }
+  if ( (one.charCodeAt(nl2 )) != 40 ) {
+    return "";
+  }
+  if ( (one.charCodeAt((tl - 1) )) != 41 ) {
+    return "";
+  }
+  const inner = one.substring((nl2 + 1), (tl - 1) );
+  if ( (inner.length) == 0 ) {
+    return "";
+  }
+  return inner;
+};
+EVGElement.numberList = function(s) {
+  let out = [];
+  const parts = EVGElement.splitOnChar(s, 44);
+  let i = 0;
+  while (i < (parts.length)) {
+    out.push(EVGElement.leadingNumber((parts[i])));
+    i = i + 1;
+  };
+  return out;
+};
+EVGElement.splitOnChar = function(s, ch) {
+  let out = [];
+  let start = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    if ( (s.charCodeAt(i )) == ch ) {
+      out.push(s.substring(start, i ));
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+  out.push(s.substring(start, n ));
+  return out;
+};
+EVGElement.leadingNumber = function(s) {
+  const t = s.trim();
+  const n = t.length;
+  let stop = 0;
+  let scanning = true;
+  while (scanning && (stop < n)) {
+    const c = t.charCodeAt(stop );
+    const digit = (c >= 48) && (c <= 57);
+    const signOrDot = ((c == 45) || (c == 43)) || (c == 46);
+    if ( digit || signOrDot ) {
+      stop = stop + 1;
+    } else {
+      scanning = false;
+    }
+  };
+  if ( stop == 0 ) {
+    return 0.0;
+  }
+  const v = isNaN( parseFloat((t.substring(0, stop ))) ) ? undefined : parseFloat((t.substring(0, stop )));
+  if ( typeof(v) != "undefined" ) {
+    return v;
+  }
+  return 0.0;
+};
+EVGElement.parseAngleDeg = function(text) {
+  const t = text.trim();
+  const v = EVGElement.leadingNumber(t);
+  const n = t.length;
+  if ( n > 4 ) {
+    const four = t.substring((n - 4), n );
+    if ( four == "turn" ) {
+      return v * 360.0;
+    }
+    if ( four == "grad" ) {
+      return (v * 360.0) / 400.0;
+    }
+  }
+  if ( n > 3 ) {
+    const three = t.substring((n - 3), n );
+    if ( three == "rad" ) {
+      return (v * 180.0) / 3.14159265358979;
+    }
+    if ( three == "deg" ) {
+      return v;
+    }
+  }
+  return v;
 };
 EVGElement.splitWords = function(s) {
   let out = [];
@@ -2873,6 +3426,9 @@ class EVGStyleSheet  {
           d.name = (part.substring(0, colon )).trim();
           d.value = this.unquote(((part.substring((colon + 1), (part.length) )).trim()));
           if ( ((d.name.length) > 0) && ((d.value.length) > 0) ) {
+            if ( d.name == "transition" ) {
+              this.checkTransition(d.value);
+            }
             out.push(d);
           } else {
             this.errors.push("Incomplete declaration ignored: " + part);
@@ -2882,6 +3438,25 @@ class EVGStyleSheet  {
       i = i + 1;
     };
     return out;
+  };
+  checkTransition (value) {
+    const parts = EVGEasing.splitTop(value, 44);
+    let i = 0;
+    while (i < (parts.length)) {
+      const words = EVGEasing.splitWordsTop(((parts[i]).trim()));
+      let w = 0;
+      while (w < (words.length)) {
+        const word = words[w];
+        if ( EVGEasing.looksLikeFunction(word) ) {
+          const e = EVGEasing.parse(word);
+          if ( e.ok == false ) {
+            this.errors.push("Unsupported timing function (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, cubic-bezier(), steps()): " + word);
+          }
+        }
+        w = w + 1;
+      };
+      i = i + 1;
+    };
   };
   unquote (s) {
     const __len = s.length;
@@ -2962,10 +3537,44 @@ class EVGStyleSheet  {
       return;
     }
     const classes = this.splitWhitespace(el.className);
+    this.clearStateProps(el, classes, theme);
     this.applyGroup(el, classes, theme, false, false);
     this.applyGroup(el, classes, theme, true, false);
     this.applyGroup(el, classes, theme, false, true);
     this.applyGroup(el, classes, theme, true, true);
+  };
+  clearStateProps (el, classes, theme) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      if ( rule.pseudo != 0 ) {
+        let applies = true;
+        if ( rule.isThemeScoped() ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = this.matchesClass(classes, rule.className);
+        }
+        if ( applies ) {
+          let d = 0;
+          while (d < (rule.decls.length)) {
+            const decl = rule.decls[d];
+            const init = EVGStyleSheet.initialValue(decl.name);
+            if ( (init.length) > 0 ) {
+              if ( el.hasInline(decl.name) == false ) {
+                el.setAttribute(decl.name, init);
+              }
+            }
+            d = d + 1;
+          };
+        }
+      }
+      i = i + 1;
+    };
   };
   applyGroup (el, classes, theme, themeScoped, stateful) {
     let i = 0;
@@ -3038,6 +3647,36 @@ EVGStyleSheet.smaller = function(a, b) {
   }
   return b;
 };
+EVGStyleSheet.initialValue = function(name) {
+  if ( name == "transform" ) {
+    return "none";
+  }
+  if ( name == "opacity" ) {
+    return "1";
+  }
+  if ( name == "background-color" ) {
+    return "transparent";
+  }
+  if ( name == "backgroundColor" ) {
+    return "transparent";
+  }
+  if ( name == "rotate" ) {
+    return "0";
+  }
+  if ( name == "scale" ) {
+    return "1";
+  }
+  return "";
+};
+class EVGTimingSpec  {
+  constructor() {
+    this.found = false;
+    this.durationMs = 0.0;
+    this.delayMs = 0.0;
+    this.easing = new EVGEasing();
+    this.ok = true;
+  }
+}
 class EVGTransition  {
   constructor() {
   }
@@ -3055,10 +3694,10 @@ class EVGTransition  {
     return miss;
   };
   showColor (f) {
-    return EVGTransition.mixColor((f.fromColor), (f.toColor), f.progress());
+    return EVGTransition.mixColor((f.fromColor), (f.toColor), f.eased());
   };
   showNumber (f) {
-    return f.fromNumber + ((f.toNumber - f.fromNumber) * f.progress());
+    return f.fromNumber + ((f.toNumber - f.fromNumber) * f.eased());
   };
   reconcile (el) {
     if ( typeof(el.backgroundColor) != "undefined" ) {
@@ -3068,11 +3707,15 @@ class EVGTransition  {
       this.reconcileColor(el, "color", el.color);
     }
     this.reconcileNumber(el, "opacity", el.opacity);
+    this.reconcileNumberAs(el, "transform.rotate", "transform", el.rotate);
+    this.reconcileNumberAs(el, "transform.scale", "transform", el.scale);
+    this.reconcileNumberAs(el, "transform.tx", "transform", el.translateX);
+    this.reconcileNumberAs(el, "transform.ty", "transform", el.translateY);
     this.writeBack(el);
   };
   reconcileColor (el, property, target) {
-    const ms = EVGTransition.durationFor(el.transitionSpec, property);
-    if ( ms <= 0.0 ) {
+    const spec = EVGTransition.specFor(el.transitionSpec, property);
+    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
       this.drop(el, property);
       return;
     }
@@ -3086,14 +3729,25 @@ class EVGTransition  {
         return;
       }
       const here = this.showColor(f);
-      let span = ms;
-      if ( EVGTransition.sameColor((f.fromColor), target) ) {
-        span = ms * f.progress();
+      if ( EVGTransition.sameColor(here, target) ) {
+        f.fromColor = target;
+        f.toColor = target;
+        f.elapsedMs = f.durationMs;
+        return;
+      }
+      if ( EVGTransition.sameColor((f.reversingStartColor), target) ) {
+        (this).reverse(f, spec);
+        f.reversingStartColor = f.toColor;
+      } else {
+        f.reversingStartColor = here;
+        f.reversingFactor = 1.0;
+        f.durationMs = spec.durationMs;
       }
       f.fromColor = here;
       f.toColor = target;
       f.elapsedMs = 0.0;
-      f.durationMs = span;
+      f.delayMs = spec.delayMs;
+      f.easing = spec.easing;
       return;
     }
     const created = new EVGFlight();
@@ -3101,31 +3755,61 @@ class EVGTransition  {
     created.isColor = true;
     created.fromColor = target;
     created.toColor = target;
-    created.durationMs = ms;
-    created.elapsedMs = ms;
+    created.reversingStartColor = target;
+    created.durationMs = spec.durationMs;
+    created.delayMs = spec.delayMs;
+    created.easing = spec.easing;
+    created.elapsedMs = spec.durationMs + spec.delayMs;
     el.transitions.push(created);
   };
+  reverse (f, spec) {
+    const p = f.eased();
+    let nf = Math.abs(((p * f.reversingFactor) + (1.0 - f.reversingFactor)));
+    if ( nf < 0.0 ) {
+      nf = 0.0;
+    }
+    if ( nf > 1.0 ) {
+      nf = 1.0;
+    }
+    f.reversingFactor = nf;
+    f.durationMs = spec.durationMs * nf;
+  };
   reconcileNumber (el, property, target) {
-    const ms = EVGTransition.durationFor(el.transitionSpec, property);
-    if ( ms <= 0.0 ) {
+    this.reconcileNumberAs(el, property, property, target);
+  };
+  reconcileNumberAs (el, key, cssName, target) {
+    const property = key;
+    const spec = EVGTransition.specFor(el.transitionSpec, cssName);
+    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
       this.drop(el, property);
       return;
     }
     const existing = this.flightFor(el, property);
     if ( typeof(existing) != "undefined" ) {
       const f = existing;
-      if ( (Math.floor( (f.toNumber * 1000.0))) == (Math.floor( (target * 1000.0))) ) {
+      if ( EVGTransition.sameNumber(f.toNumber, target) ) {
         return;
       }
       const hereN = this.showNumber(f);
-      let spanN = ms;
-      if ( (Math.floor( (f.fromNumber * 1000.0))) == (Math.floor( (target * 1000.0))) ) {
-        spanN = ms * f.progress();
+      if ( EVGTransition.sameNumber(hereN, target) ) {
+        f.fromNumber = target;
+        f.toNumber = target;
+        f.elapsedMs = f.durationMs;
+        return;
+      }
+      if ( EVGTransition.sameNumber(f.reversingStartNumber, target) ) {
+        (this).reverse(f, spec);
+        f.reversingStartNumber = f.toNumber;
+      } else {
+        f.reversingStartNumber = hereN;
+        f.reversingFactor = 1.0;
+        f.durationMs = spec.durationMs;
       }
       f.fromNumber = hereN;
       f.toNumber = target;
       f.elapsedMs = 0.0;
-      f.durationMs = spanN;
+      f.delayMs = spec.delayMs;
+      f.easing = spec.easing;
       return;
     }
     const created = new EVGFlight();
@@ -3133,8 +3817,11 @@ class EVGTransition  {
     created.isColor = false;
     created.fromNumber = target;
     created.toNumber = target;
-    created.durationMs = ms;
-    created.elapsedMs = ms;
+    created.reversingStartNumber = target;
+    created.durationMs = spec.durationMs;
+    created.delayMs = spec.delayMs;
+    created.easing = spec.easing;
+    created.elapsedMs = spec.durationMs + spec.delayMs;
     el.transitions.push(created);
   };
   drop (el, property) {
@@ -3160,8 +3847,9 @@ class EVGTransition  {
       const f = el.transitions[i];
       if ( f.done() == false ) {
         f.elapsedMs = f.elapsedMs + dtMs;
-        if ( f.elapsedMs > f.durationMs ) {
-          f.elapsedMs = f.durationMs;
+        const endsAt = f.delayMs + f.durationMs;
+        if ( f.elapsedMs > endsAt ) {
+          f.elapsedMs = endsAt;
         }
       }
       i = i + 1;
@@ -3183,6 +3871,18 @@ class EVGTransition  {
       } else {
         if ( f.property == "opacity" ) {
           el.opacity = this.showNumber(f);
+        }
+        if ( f.property == "transform.rotate" ) {
+          el.rotate = this.showNumber(f);
+        }
+        if ( f.property == "transform.scale" ) {
+          el.scale = this.showNumber(f);
+        }
+        if ( f.property == "transform.tx" ) {
+          el.translateX = this.showNumber(f);
+        }
+        if ( f.property == "transform.ty" ) {
+          el.translateY = this.showNumber(f);
         }
       }
       i = i + 1;
@@ -3223,24 +3923,88 @@ class EVGTransition  {
     return false;
   };
 }
-EVGTransition.durationFor = function(spec, property) {
+EVGTransition.specFor = function(spec, property) {
+  const out = new EVGTimingSpec();
   if ( (spec.length) == 0 ) {
-    return 0.0 - 1.0;
+    return out;
   }
-  const parts = EVGTransition.splitOn(spec, 44);
+  const parts = EVGEasing.splitTop(spec, 44);
   let i = 0;
   while (i < (parts.length)) {
     const one = (parts[i]).trim();
-    const words = EVGTransition.splitWords(one);
-    if ( (words.length) >= 2 ) {
-      const name = words[0];
-      if ( (name == property) || (name == "all") ) {
-        return EVGTransition.parseMs((words[1]));
+    const words = EVGEasing.splitWordsTop(one);
+    let name = "";
+    let fnText = "";
+    let times = [];
+    let w = 0;
+    while (w < (words.length)) {
+      const word = words[w];
+      if ( EVGEasing.looksLikeFunction(word) ) {
+        fnText = word;
+      } else {
+        if ( EVGTransition.isTime(word) ) {
+          times.push(EVGTransition.parseMs(word));
+        } else {
+          if ( (name.length) == 0 ) {
+            name = word;
+          }
+        }
       }
+      w = w + 1;
+    };
+    if ( (name == property) || (name == "all") ) {
+      out.found = true;
+      out.durationMs = 0.0;
+      out.delayMs = 0.0;
+      if ( (times.length) > 0 ) {
+        out.durationMs = times[0];
+      }
+      if ( (times.length) > 1 ) {
+        out.delayMs = times[1];
+      }
+      out.easing = EVGEasing.parse(fnText);
+      out.ok = out.easing.ok;
     }
     i = i + 1;
   };
-  return 0.0 - 1.0;
+  return out;
+};
+EVGTransition.durationFor = function(spec, property) {
+  const s = EVGTransition.specFor(spec, property);
+  if ( s.found == false ) {
+    return 0.0 - 1.0;
+  }
+  return s.durationMs;
+};
+EVGTransition.isTime = function(word) {
+  const t = word.trim();
+  const n = t.length;
+  if ( n == 0 ) {
+    return false;
+  }
+  if ( n > 2 ) {
+    if ( (t.substring((n - 2), n )) == "ms" ) {
+      const a = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
+      if ( typeof(a) != "undefined" ) {
+        return true;
+      }
+      return false;
+    }
+  }
+  if ( n > 1 ) {
+    if ( (t.substring((n - 1), n )) == "s" ) {
+      const b = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
+      if ( typeof(b) != "undefined" ) {
+        return true;
+      }
+      return false;
+    }
+  }
+  const c = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
+  if ( typeof(c) != "undefined" ) {
+    return true;
+  }
+  return false;
 };
 EVGTransition.parseMs = function(text) {
   const t = text.trim();
@@ -3272,41 +4036,6 @@ EVGTransition.parseMs = function(text) {
   }
   return 0.0;
 };
-EVGTransition.splitOn = function(s, ch) {
-  let out = [];
-  let start = 0;
-  let i = 0;
-  const n = s.length;
-  while (i < n) {
-    if ( (s.charCodeAt(i )) == ch ) {
-      out.push(s.substring(start, i ));
-      start = i + 1;
-    }
-    i = i + 1;
-  };
-  out.push(s.substring(start, n ));
-  return out;
-};
-EVGTransition.splitWords = function(s) {
-  let out = [];
-  let start = 0;
-  let i = 0;
-  const n = s.length;
-  while (i < n) {
-    const c = s.charCodeAt(i );
-    if ( ((c == 32) || (c == 9)) || (c == 10) ) {
-      if ( i > start ) {
-        out.push(s.substring(start, i ));
-      }
-      start = i + 1;
-    }
-    i = i + 1;
-  };
-  if ( n > start ) {
-    out.push(s.substring(start, n ));
-  }
-  return out;
-};
 EVGTransition.sameColor = function(a, b) {
   if ( (Math.floor( a.r)) != (Math.floor( b.r)) ) {
     return false;
@@ -3330,6 +4059,9 @@ EVGTransition.mixColor = function(from, to, t) {
   c.a = from.a + ((to.a - from.a) * t);
   c.isSet = true;
   return c;
+};
+EVGTransition.sameNumber = function(a, b) {
+  return (Math.abs((a - b))) < 0.001;
 };
 class StyleCheck  {
   constructor() {
@@ -3431,6 +4163,33 @@ EVGStyleStateTest.testUnknownPseudo = function(c) {
   c.eqInt("no rule was made", s.getRuleCount(), 0);
   c.ok("and an error says why", s.getErrorCount() > 0);
 };
+EVGStyleStateTest.testUnknownTiming = function(c) {
+  console.log("--- an unsupported timing function is reported too ---");
+  const bad = EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms spring(1, 2) }");
+  c.ok("a made-up easing is an error", bad.getErrorCount() > 0);
+  const good = EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1) }");
+  c.eqInt("a real one is not", good.getErrorCount(), 0);
+  c.eqInt("and the rule survives", good.getRuleCount(), 1);
+};
+EVGStyleStateTest.testStateOnlyPropertyReverts = function(c) {
+  console.log("--- a state-only property goes away with the state ---");
+  const css = ".btn { background-color: rgb(0,0,0) }" + " .btn:hover { transform: scale(2) translate(4, 0); opacity: 0.5 }";
+  const s = EVGStyleStateTest.sheetOf(css);
+  const el = EVGStyleStateTest.button();
+  s.applyTree(el, "");
+  c.ok("no scale at rest", (Math.abs((el.scale - 1.0))) < 0.001);
+  el.isHovered = true;
+  s.applyTree(el, "");
+  c.ok("scaled under the pointer", (Math.abs((el.scale - 2.0))) < 0.001);
+  c.ok("and moved by the SCALED offset", (Math.abs((el.translateX - 8.0))) < 0.001);
+  c.ok("and faded", (Math.abs((el.opacity - 0.5))) < 0.001);
+  el.isHovered = false;
+  s.applyTree(el, "");
+  c.ok("the scale goes back", (Math.abs((el.scale - 1.0))) < 0.001);
+  c.ok("so does the offset", (Math.abs(el.translateX)) < 0.001);
+  c.ok("and the opacity", (Math.abs((el.opacity - 1.0))) < 0.001);
+  c.eqInt("while the base colour is untouched", EVGStyleStateTest.bgRed(el), 0);
+};
 EVGStyleStateTest.testTransition = function(c) {
   console.log("--- a colour moves instead of jumping ---");
   const css = ".btn { background-color: rgb(0,0,0); transition: background-color 200ms }" + " .btn:hover { background-color: rgb(200,0,0) }";
@@ -3527,6 +4286,8 @@ function __js_main() {
   EVGStyleStateTest.testOrder(c);
   EVGStyleStateTest.testStates(c);
   EVGStyleStateTest.testUnknownPseudo(c);
+  EVGStyleStateTest.testUnknownTiming(c);
+  EVGStyleStateTest.testStateOnlyPropertyReverts(c);
   EVGStyleStateTest.testTransition(c);
   EVGStyleStateTest.testReverseMidFlight(c);
   EVGStyleStateTest.testNoTransitionDeclared(c);

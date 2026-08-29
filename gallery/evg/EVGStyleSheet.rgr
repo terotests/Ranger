@@ -715,6 +715,9 @@ class EVGStyleSheet {
                     d.name = (trim (substring part 0 colon))
                     d.value = (this.unquote((trim (substring part (colon + 1) (strlen part)))))
                     if (((strlen d.name) > 0) && ((strlen d.value) > 0)) {
+                        if (d.name == "transition") {
+                            this.checkTransition(d.value)
+                        }
                         push out d
                     } {
                         push errors ("Incomplete declaration ignored: " + part)
@@ -724,6 +727,30 @@ class EVGStyleSheet {
             i = (i + 1)
         }
         return out
+    }
+
+    ; A `transition` whose timing function does not parse is reported here, at
+    ; the sheet, rather than discovered as motion that looks subtly wrong.
+    ; `cubic-bezier(0.4, 0, 0.2, 1)` and `spring(1, 2)` are the same shape and
+    ; only one of them is CSS.
+    fn checkTransition:void (value:string) {
+        def parts:[string] (EVGEasing.splitTop(value 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def words:[string] (EVGEasing.splitWordsTop((trim (itemAt parts i))))
+            def w:int 0
+            while (w < (array_length words)) {
+                def word:string (itemAt words w)
+                if (EVGEasing.looksLikeFunction(word)) {
+                    def e:EVGEasing (EVGEasing.parse(word))
+                    if ((e.ok) == false) {
+                        push errors ("Unsupported timing function (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, cubic-bezier(), steps()): " + word)
+                    }
+                }
+                w = (w + 1)
+            }
+            i = (i + 1)
+        }
     }
 
     ; font-family: "Cinzel" — the quotes are CSS syntax, not part of the name.
@@ -826,6 +853,7 @@ class EVGStyleSheet {
             return
         }
         def classes:[string] (this.splitWhitespace(el.className))
+        this.clearStateProps(el classes theme)
         ; Weakest first, so stronger overwrites: plain classes, then
         ; theme-scoped ones, then the state rules in the same two groups.
         ;
@@ -837,6 +865,76 @@ class EVGStyleSheet {
         this.applyGroup(el classes theme true false)
         this.applyGroup(el classes theme false true)
         this.applyGroup(el classes theme true true)
+    }
+
+    ; Put back the initial value of everything a STATE rule for this element
+    ; can set, before deciding which states hold.
+    ;
+    ; The cascade in a browser recomputes a style from nothing every time. This
+    ; one mutates the element in place, which is fast and which quietly breaks
+    ; the moment a property is declared ONLY under `:hover`: the pointer leaves,
+    ; no rule writes the property, and the hover value stays on the element
+    ; forever. A row that lifts and never comes back down.
+    ;
+    ; The properties at risk are exactly those a state rule declares — a base
+    ; rule's are rewritten by the base pass a moment later — so that is the set
+    ; cleared here, whether or not the state currently holds.
+    ;
+    ; Only properties with an unambiguous initial value are cleared, and
+    ; `initialValue` says which those are. A property outside that table keeps
+    ; the old behaviour, so the fix cannot make anything worse than it was; the
+    ; workaround there is the one that has always worked, which is to declare
+    ; the property on the base rule too.
+    fn clearStateProps:void (el:EVGElement classes:[string] theme:string) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            if (rule.pseudo != 0) {
+                def applies:boolean true
+                if (rule.isThemeScoped()) {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (this.matchesClass(classes rule.className))
+                }
+                if applies {
+                    def d:int 0
+                    while (d < (array_length rule.decls)) {
+                        def decl:EVGStyleDecl (itemAt rule.decls d)
+                        def init:string (EVGStyleSheet.initialValue(decl.name))
+                        if ((strlen init) > 0) {
+                            ; Inline still outranks the sheet, so an inline
+                            ; value is not something a state rule may clear.
+                            if ((el.hasInline(decl.name)) == false) {
+                                el.setAttribute(decl.name init)
+                            }
+                        }
+                        d = (d + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The CSS initial value, for the properties where it is unambiguous and
+    ; cheap to write back. "" means "no safe initial" and the property is left
+    ; alone.
+    ;
+    ; `color` is deliberately absent: its initial value is `inherit`, and
+    ; writing a literal here would break inheritance rather than restore it.
+    sfn initialValue:string (name:string) {
+        if (name == "transform")        { return "none" }
+        if (name == "opacity")          { return "1" }
+        if (name == "background-color") { return "transparent" }
+        if (name == "backgroundColor")  { return "transparent" }
+        if (name == "rotate")           { return "0" }
+        if (name == "scale")            { return "1" }
+        return ""
     }
 
     fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean stateful:boolean) {

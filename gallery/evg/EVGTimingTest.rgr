@@ -1,0 +1,725 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGTimingTest — the timing functions, against the browser's own numbers
+; ==============================================================================
+;
+; Every expected value in this file was MEASURED, not derived. `npm run
+; evg:timing:oracle` drives a real `Animation` in Chromium, pauses it, sets
+; `currentTime` by hand and reads the interpolated value back at thirteen input
+; progresses; `oracle/css-timing.json` is that capture and the tables below are
+; transcribed from it.
+;
+; Which is the point. The control points behind `ease` are quotable from a
+; specification, but whether an implementation of the Bézier solver actually
+; lands on the same curve is a question only numbers can answer — and a solver
+; that is right at t=0.5 and wrong at t=0.05 looks perfect in a demo. The
+; tolerance is 1e-4, comfortably inside the browser's own rounding and far
+; tighter than a wrong solver could sneak through.
+;
+; `left` was the animated property in the capture, not `opacity`, because a
+; cubic-bezier with a control point outside [0,1] OVERSHOOTS and opacity
+; clamps. The overshoot row below has values above 1 and below 0 in it, and
+; those are the rows a naively clamped implementation fails.
+; ==============================================================================
+
+Import "EVGEasing.rgr"
+Import "EVGElement.rgr"
+Import "EVGTransition.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGLayout.rgr"
+
+class TimingCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; 1e-4: looser than the capture's five decimals, tighter than any
+    ; disagreement that would matter to an eye or hide a wrong curve.
+    fn eqStr:void (name:string got:boolean want:string) {
+        def good:boolean (((to_string got)) == want)
+        this.ok(name good)
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def good:boolean ((fabs (got - want)) < 0.0001)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGTimingTest {
+    sfn check_linear:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("linear"))
+        c.ok("linear parses" (e.ok))
+        c.near("linear at 0" (e.ease(0.0000)) 0.000000)
+        c.near("linear at 0.05" (e.ease(0.0500)) 0.050000)
+        c.near("linear at 0.1" (e.ease(0.1000)) 0.100000)
+        c.near("linear at 0.2" (e.ease(0.2000)) 0.200000)
+        c.near("linear at 0.25" (e.ease(0.2500)) 0.250000)
+        c.near("linear at 0.3" (e.ease(0.3000)) 0.300000)
+        c.near("linear at 0.4" (e.ease(0.4000)) 0.400000)
+        c.near("linear at 0.499" (e.ease(0.4990)) 0.499000)
+        c.near("linear at 0.5" (e.ease(0.5000)) 0.500000)
+        c.near("linear at 0.501" (e.ease(0.5010)) 0.501000)
+        c.near("linear at 0.6" (e.ease(0.6000)) 0.600000)
+        c.near("linear at 0.7" (e.ease(0.7000)) 0.700000)
+        c.near("linear at 0.75" (e.ease(0.7500)) 0.750000)
+        c.near("linear at 0.8" (e.ease(0.8000)) 0.800000)
+        c.near("linear at 0.9" (e.ease(0.9000)) 0.900000)
+        c.near("linear at 0.95" (e.ease(0.9500)) 0.950000)
+        c.near("linear at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_ease:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("ease"))
+        c.ok("ease parses" (e.ok))
+        c.near("ease at 0" (e.ease(0.0000)) 0.000000)
+        c.near("ease at 0.05" (e.ease(0.0500)) 0.032950)
+        c.near("ease at 0.1" (e.ease(0.1000)) 0.094800)
+        c.near("ease at 0.2" (e.ease(0.2000)) 0.295240)
+        c.near("ease at 0.25" (e.ease(0.2500)) 0.408510)
+        c.near("ease at 0.3" (e.ease(0.3000)) 0.513320)
+        c.near("ease at 0.4" (e.ease(0.4000)) 0.682540)
+        c.near("ease at 0.499" (e.ease(0.4990)) 0.801410)
+        c.near("ease at 0.5" (e.ease(0.5000)) 0.802400)
+        c.near("ease at 0.501" (e.ease(0.5010)) 0.803400)
+        c.near("ease at 0.6" (e.ease(0.6000)) 0.885230)
+        c.near("ease at 0.7" (e.ease(0.7000)) 0.940760)
+        c.near("ease at 0.75" (e.ease(0.7500)) 0.960460)
+        c.near("ease at 0.8" (e.ease(0.8000)) 0.975620)
+        c.near("ease at 0.9" (e.ease(0.9000)) 0.994320)
+        c.near("ease at 0.95" (e.ease(0.9500)) 0.998620)
+        c.near("ease at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_ease_in:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("ease-in"))
+        c.ok("ease-in parses" (e.ok))
+        c.near("ease-in at 0" (e.ease(0.0000)) 0.000000)
+        c.near("ease-in at 0.05" (e.ease(0.0500)) 0.004470)
+        c.near("ease-in at 0.1" (e.ease(0.1000)) 0.017030)
+        c.near("ease-in at 0.2" (e.ease(0.2000)) 0.062280)
+        c.near("ease-in at 0.25" (e.ease(0.2500)) 0.093460)
+        c.near("ease-in at 0.3" (e.ease(0.3000)) 0.129580)
+        c.near("ease-in at 0.4" (e.ease(0.4000)) 0.214860)
+        c.near("ease-in at 0.499" (e.ease(0.4990)) 0.314280)
+        c.near("ease-in at 0.5" (e.ease(0.5000)) 0.315360)
+        c.near("ease-in at 0.501" (e.ease(0.5010)) 0.316430)
+        c.near("ease-in at 0.6" (e.ease(0.6000)) 0.429120)
+        c.near("ease-in at 0.7" (e.ease(0.7000)) 0.554810)
+        c.near("ease-in at 0.75" (e.ease(0.7500)) 0.621860)
+        c.near("ease-in at 0.8" (e.ease(0.8000)) 0.691630)
+        c.near("ease-in at 0.9" (e.ease(0.9000)) 0.839430)
+        c.near("ease-in at 0.95" (e.ease(0.9500)) 0.917760)
+        c.near("ease-in at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_ease_out:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("ease-out"))
+        c.ok("ease-out parses" (e.ok))
+        c.near("ease-out at 0" (e.ease(0.0000)) 0.000000)
+        c.near("ease-out at 0.05" (e.ease(0.0500)) 0.082240)
+        c.near("ease-out at 0.1" (e.ease(0.1000)) 0.160570)
+        c.near("ease-out at 0.2" (e.ease(0.2000)) 0.308370)
+        c.near("ease-out at 0.25" (e.ease(0.2500)) 0.378140)
+        c.near("ease-out at 0.3" (e.ease(0.3000)) 0.445190)
+        c.near("ease-out at 0.4" (e.ease(0.4000)) 0.570880)
+        c.near("ease-out at 0.499" (e.ease(0.4990)) 0.683570)
+        c.near("ease-out at 0.5" (e.ease(0.5000)) 0.684640)
+        c.near("ease-out at 0.501" (e.ease(0.5010)) 0.685720)
+        c.near("ease-out at 0.6" (e.ease(0.6000)) 0.785140)
+        c.near("ease-out at 0.7" (e.ease(0.7000)) 0.870420)
+        c.near("ease-out at 0.75" (e.ease(0.7500)) 0.906530)
+        c.near("ease-out at 0.8" (e.ease(0.8000)) 0.937720)
+        c.near("ease-out at 0.9" (e.ease(0.9000)) 0.982970)
+        c.near("ease-out at 0.95" (e.ease(0.9500)) 0.995520)
+        c.near("ease-out at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_ease_in_out:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("ease-in-out"))
+        c.ok("ease-in-out parses" (e.ok))
+        c.near("ease-in-out at 0" (e.ease(0.0000)) 0.000000)
+        c.near("ease-in-out at 0.05" (e.ease(0.0500)) 0.004830)
+        c.near("ease-in-out at 0.1" (e.ease(0.1000)) 0.019720)
+        c.near("ease-in-out at 0.2" (e.ease(0.2000)) 0.081660)
+        c.near("ease-in-out at 0.25" (e.ease(0.2500)) 0.129160)
+        c.near("ease-in-out at 0.3" (e.ease(0.3000)) 0.187400)
+        c.near("ease-in-out at 0.4" (e.ease(0.4000)) 0.331880)
+        c.near("ease-in-out at 0.499" (e.ease(0.4990)) 0.498280)
+        c.near("ease-in-out at 0.5" (e.ease(0.5000)) 0.500000)
+        c.near("ease-in-out at 0.501" (e.ease(0.5010)) 0.501720)
+        c.near("ease-in-out at 0.6" (e.ease(0.6000)) 0.668120)
+        c.near("ease-in-out at 0.7" (e.ease(0.7000)) 0.812600)
+        c.near("ease-in-out at 0.75" (e.ease(0.7500)) 0.870840)
+        c.near("ease-in-out at 0.8" (e.ease(0.8000)) 0.918340)
+        c.near("ease-in-out at 0.9" (e.ease(0.9000)) 0.980280)
+        c.near("ease-in-out at 0.95" (e.ease(0.9500)) 0.995170)
+        c.near("ease-in-out at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_cubic_bezier_0_68___0_55__0_27__1_55_:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("cubic-bezier(0.68, -0.55, 0.27, 1.55)"))
+        c.ok("cubic-bezier(0.68, -0.55, 0.27, 1.55) parses" (e.ok))
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0" (e.ease(0.0000)) 0.000000)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.05" (e.ease(0.0500)) -0.037040)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.1" (e.ease(0.1000)) -0.066270)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.2" (e.ease(0.2000)) -0.092700)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.25" (e.ease(0.2500)) -0.082940)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.3" (e.ease(0.3000)) -0.049800)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.4" (e.ease(0.4000)) 0.139360)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.499" (e.ease(0.4990)) 0.591590)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.5" (e.ease(0.5000)) 0.596600)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.501" (e.ease(0.5010)) 0.601580)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.6" (e.ease(0.6000)) 0.943070)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.7" (e.ease(0.7000)) 1.068130)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.75" (e.ease(0.7500)) 1.088820)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.8" (e.ease(0.8000)) 1.092190)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.9" (e.ease(0.9000)) 1.062700)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 0.95" (e.ease(0.9500)) 1.034700)
+        c.near("cubic-bezier(0.68, -0.55, 0.27, 1.55) at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_steps_4__end_:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("steps(4, end)"))
+        c.ok("steps(4, end) parses" (e.ok))
+        c.near("steps(4, end) at 0" (e.ease(0.0000)) 0.000000)
+        c.near("steps(4, end) at 0.05" (e.ease(0.0500)) 0.000000)
+        c.near("steps(4, end) at 0.1" (e.ease(0.1000)) 0.000000)
+        c.near("steps(4, end) at 0.2" (e.ease(0.2000)) 0.000000)
+        c.near("steps(4, end) at 0.25" (e.ease(0.2500)) 0.250000)
+        c.near("steps(4, end) at 0.3" (e.ease(0.3000)) 0.250000)
+        c.near("steps(4, end) at 0.4" (e.ease(0.4000)) 0.250000)
+        c.near("steps(4, end) at 0.499" (e.ease(0.4990)) 0.250000)
+        c.near("steps(4, end) at 0.5" (e.ease(0.5000)) 0.500000)
+        c.near("steps(4, end) at 0.501" (e.ease(0.5010)) 0.500000)
+        c.near("steps(4, end) at 0.6" (e.ease(0.6000)) 0.500000)
+        c.near("steps(4, end) at 0.7" (e.ease(0.7000)) 0.500000)
+        c.near("steps(4, end) at 0.75" (e.ease(0.7500)) 0.750000)
+        c.near("steps(4, end) at 0.8" (e.ease(0.8000)) 0.750000)
+        c.near("steps(4, end) at 0.9" (e.ease(0.9000)) 0.750000)
+        c.near("steps(4, end) at 0.95" (e.ease(0.9500)) 0.750000)
+        c.near("steps(4, end) at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_steps_4__start_:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("steps(4, start)"))
+        c.ok("steps(4, start) parses" (e.ok))
+        c.near("steps(4, start) at 0" (e.ease(0.0000)) 0.250000)
+        c.near("steps(4, start) at 0.05" (e.ease(0.0500)) 0.250000)
+        c.near("steps(4, start) at 0.1" (e.ease(0.1000)) 0.250000)
+        c.near("steps(4, start) at 0.2" (e.ease(0.2000)) 0.250000)
+        c.near("steps(4, start) at 0.25" (e.ease(0.2500)) 0.500000)
+        c.near("steps(4, start) at 0.3" (e.ease(0.3000)) 0.500000)
+        c.near("steps(4, start) at 0.4" (e.ease(0.4000)) 0.500000)
+        c.near("steps(4, start) at 0.499" (e.ease(0.4990)) 0.500000)
+        c.near("steps(4, start) at 0.5" (e.ease(0.5000)) 0.750000)
+        c.near("steps(4, start) at 0.501" (e.ease(0.5010)) 0.750000)
+        c.near("steps(4, start) at 0.6" (e.ease(0.6000)) 0.750000)
+        c.near("steps(4, start) at 0.7" (e.ease(0.7000)) 0.750000)
+        c.near("steps(4, start) at 0.75" (e.ease(0.7500)) 1.000000)
+        c.near("steps(4, start) at 0.8" (e.ease(0.8000)) 1.000000)
+        c.near("steps(4, start) at 0.9" (e.ease(0.9000)) 1.000000)
+        c.near("steps(4, start) at 0.95" (e.ease(0.9500)) 1.000000)
+        c.near("steps(4, start) at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_cubic_bezier_1__0__0__1_:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("cubic-bezier(1, 0, 0, 1)"))
+        c.ok("cubic-bezier(1, 0, 0, 1) parses" (e.ok))
+        c.near("cubic-bezier(1, 0, 0, 1) at 0" (e.ease(0.0000)) 0.000000)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.05" (e.ease(0.0500)) 0.000880)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.1" (e.ease(0.1000)) 0.003760)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.2" (e.ease(0.2000)) 0.017430)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.25" (e.ease(0.2500)) 0.029720)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.3" (e.ease(0.3000)) 0.047400)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.4" (e.ease(0.4000)) 0.111400)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.499" (e.ease(0.4990)) 0.406010)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.5" (e.ease(0.5000)) 0.500000)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.501" (e.ease(0.5010)) 0.594000)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.6" (e.ease(0.6000)) 0.888600)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.7" (e.ease(0.7000)) 0.952610)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.75" (e.ease(0.7500)) 0.970270)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.8" (e.ease(0.8000)) 0.982580)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.9" (e.ease(0.9000)) 0.996240)
+        c.near("cubic-bezier(1, 0, 0, 1) at 0.95" (e.ease(0.9500)) 0.999120)
+        c.near("cubic-bezier(1, 0, 0, 1) at 1" (e.ease(1.0000)) 1.000000)
+    }
+
+    sfn check_cubic_bezier_0_999__0__0_001__1_:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("cubic-bezier(0.999, 0, 0.001, 1)"))
+        c.ok("cubic-bezier(0.999, 0, 0.001, 1) parses" (e.ok))
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0" (e.ease(0.0000)) 0.000000)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.05" (e.ease(0.0500)) 0.000880)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.1" (e.ease(0.1000)) 0.003770)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.2" (e.ease(0.2000)) 0.017460)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.25" (e.ease(0.2500)) 0.029790)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.3" (e.ease(0.3000)) 0.047500)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.4" (e.ease(0.4000)) 0.111670)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.499" (e.ease(0.4990)) 0.408890)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.5" (e.ease(0.5000)) 0.500000)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.501" (e.ease(0.5010)) 0.591110)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.6" (e.ease(0.6000)) 0.888330)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.7" (e.ease(0.7000)) 0.952500)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.75" (e.ease(0.7500)) 0.970210)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.8" (e.ease(0.8000)) 0.982540)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.9" (e.ease(0.9000)) 0.996230)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 0.95" (e.ease(0.9500)) 0.999110)
+        c.near("cubic-bezier(0.999, 0, 0.001, 1) at 1" (e.ease(1.0000)) 1.000000)
+    }
+    ; --- the shorthand's own parsing ------------------------------------------
+    ;
+    ; A timing function can contain commas and spaces, so the list parser has to
+    ; count parentheses. Splitting `transition: opacity 1s cubic-bezier(0, 0,
+    ; 1, 1)` on every comma yields four fragments that each still parse as
+    ; something, which is the worst kind of wrong.
+    sfn checkTopLevelSplitting:void (c:TimingCheck) {
+        def parts:[string] (EVGEasing.splitTop("opacity 1s cubic-bezier(0, 0, 1, 1), color 2s" 44))
+        c.ok("a comma inside a function does not split the list" ((array_length parts) == 2))
+        def words:[string] (EVGEasing.splitWordsTop("opacity 200ms steps(4, end) 50ms"))
+        c.ok("a space inside a function does not split the words" ((array_length words) == 4))
+        c.ok("and the function is one word" ((itemAt words 2) == "steps(4, end)"))
+        c.ok("a function is recognised as one" (EVGEasing.looksLikeFunction("cubic-bezier(0,0,1,1)")))
+        c.ok("a duration is not" ((EVGEasing.looksLikeFunction("200ms")) == false))
+    }
+
+    ; An unknown timing function is REPORTED, for the same reason an unknown
+    ; pseudo-class is: silently becoming linear is motion that looks subtly
+    ; wrong with nothing anywhere saying why.
+    sfn checkUnknown:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("spring(1, 2)"))
+        c.ok("an unknown timing function is not ok" ((e.ok) == false))
+        c.near("and falls back to linear" (e.ease(0.5)) 0.5)
+        def keyword:EVGEasing (EVGEasing.parse("ease-in-out"))
+        c.ok("a real one is ok" (keyword.ok))
+    }
+
+    ; step-start / step-end are steps(1, …), which is worth a check because a
+    ; one-step function is where an off-by-one in the jump shows up plainly.
+    sfn checkStepKeywords:void (c:TimingCheck) {
+        def se:EVGEasing (EVGEasing.parse("step-end"))
+        c.near("step-end holds at 0 until the end" (se.ease(0.99)) 0.0)
+        c.near("step-end arrives at 1" (se.ease(1.0)) 1.0)
+        def ss:EVGEasing (EVGEasing.parse("step-start"))
+        c.near("step-start is already at 1" (ss.ease(0.01)) 1.0)
+    }
+
+    ; The curve is monotonic in x even when it overshoots in y, so the solver
+    ; must never be handed a parameter outside [0,1] and must be stable at the
+    ; ends. These are the inputs that made a Newton-only solver wander.
+    sfn checkSolverEdges:void (c:TimingCheck) {
+        def e:EVGEasing (EVGEasing.parse("cubic-bezier(0.68, -0.55, 0.27, 1.55)"))
+        c.near("pinned at the start" (e.ease(0.0)) 0.0)
+        c.near("pinned at the end" (e.ease(1.0)) 1.0)
+        c.near("clamped below" (e.ease(0.0 - 1.0)) 0.0)
+        c.near("clamped above" (e.ease(2.0)) 1.0)
+        ; 0.5 EXACTLY is the one input a Newton-only solver gets right on a
+        ; stiff curve — it converges on the first iteration — so checking that
+        ; and stopping is how the missing fallback stayed invisible. The table
+        ; above samples 0.499 and 0.501 for this reason.
+        def flat:EVGEasing (EVGEasing.parse("cubic-bezier(1, 0, 0, 1)"))
+        c.near("a flat-derivative curve solves at the middle" (flat.ease(0.5)) 0.5)
+        c.near("and a hair below it" (flat.ease(0.499)) 0.40601)
+        c.near("and a hair above it" (flat.ease(0.501)) 0.594)
+    }
+
+
+    ; ==========================================================================
+    ; The shorthand, and the clock it drives
+    ; ==========================================================================
+
+    ; An element whose background is transitioned by `spec`, already settled at
+    ; `from`. Settled matters: the first apply on a fresh element establishes a
+    ; value rather than animating to it out of nowhere.
+    sfn probe:EVGElement (spec:string from:string) {
+        def el (new EVGElement())
+        el.transitionSpec = spec
+        el.backgroundColor = (EVGColor.parse(from))
+        return el
+    }
+
+    sfn red:int (el:EVGElement) {
+        if el.backgroundColor {
+            def c:EVGColor (unwrap el.backgroundColor)
+            return (to_int (c.r + 0.5))
+        }
+        return (0 - 1)
+    }
+
+    sfn flightMs:double (tr:EVGTransition el:EVGElement) {
+        def f@(optional):EVGFlight (tr.flightFor(el "background-color"))
+        if f {
+            def one:EVGFlight (unwrap f)
+            return one.durationMs
+        }
+        return (0.0 - 1.0)
+    }
+
+    sfn flightDelay:double (tr:EVGTransition el:EVGElement) {
+        def f@(optional):EVGFlight (tr.flightFor(el "background-color"))
+        if f {
+            def one:EVGFlight (unwrap f)
+            return one.delayMs
+        }
+        return (0.0 - 1.0)
+    }
+
+    sfn checkShorthand:void (c:TimingCheck) {
+        def a:EVGTimingSpec (EVGTransition.specFor("background-color 200ms linear 100ms" "background-color"))
+        c.ok("the property is found" (a.found))
+        c.near("the FIRST time is the duration" a.durationMs 200.0)
+        c.near("the SECOND is the delay" a.delayMs 100.0)
+
+        ; Order-tolerant except for the times. This is CSS's rule, not a
+        ; convenience: the parser cannot tell a duration from a delay any other
+        ; way.
+        def b:EVGTimingSpec (EVGTransition.specFor("ease-out 0.2s opacity" "opacity"))
+        c.ok("the name can come last" (b.found))
+        c.near("seconds become milliseconds" b.durationMs 200.0)
+        c.near("and one time is a duration, not a delay" b.delayMs 0.0)
+
+        def cc:EVGTimingSpec (EVGTransition.specFor("opacity 1s cubic-bezier(0.42, 0, 1, 1)" "opacity"))
+        c.near("a function's own commas do not split the list" cc.durationMs 1000.0)
+        c.near("and it is the function it said" (cc.easing.ease(0.5)) 0.31536)
+
+        ; `all` matches anything, and a later entry overrides an earlier one —
+        ; which together are what let a sheet say "everything except this".
+        def all:EVGTimingSpec (EVGTransition.specFor("all 200ms, opacity 0s" "color"))
+        c.near("all covers a property it does not name" all.durationMs 200.0)
+        def none:EVGTimingSpec (EVGTransition.specFor("all 200ms, opacity 0s" "opacity"))
+        c.ok("a later entry overrides an earlier one" (none.found))
+        c.near("so opacity is opted out" none.durationMs 0.0)
+
+        def missing:EVGTimingSpec (EVGTransition.specFor("color 200ms" "transform"))
+        c.ok("an unmentioned property is not found at all" ((missing.found) == false))
+        c.near("which is a different answer from zero" (EVGTransition.durationFor("color 200ms" "transform")) (0.0 - 1.0))
+
+        def bad:EVGTimingSpec (EVGTransition.specFor("color 200ms spring(1,2)" "color"))
+        c.ok("an unparsable timing function is reported" ((bad.ok) == false))
+    }
+
+    ; Measured: `background-color 200ms linear 100ms` driven from black to
+    ; rgb(200,200,200) does not move at all for its first 100ms, then runs.
+    ; A delay implemented as "start slowly" passes a midpoint check and fails
+    ; every one of these.
+    sfn checkDelay:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el:EVGElement (EVGTimingTest.probe("background-color 200ms linear 100ms" "rgb(0,0,0)"))
+        tr.reconcile(el)
+        el.backgroundColor = (EVGColor.parse("rgb(200,200,200)"))
+        tr.reconcile(el)
+        c.ok("at 0ms the value is 0" ((EVGTimingTest.red(el)) == 0))
+        tr.advance(el 50.0)
+        c.ok("at 50ms the value is 0" ((EVGTimingTest.red(el)) == 0))
+        tr.advance(el 50.0)
+        c.ok("at 100ms the value is 0" ((EVGTimingTest.red(el)) == 0))
+        tr.advance(el 50.0)
+        c.ok("at 150ms the value is 50" ((EVGTimingTest.red(el)) == 50))
+        tr.advance(el 50.0)
+        c.ok("at 200ms the value is 100" ((EVGTimingTest.red(el)) == 100))
+        tr.advance(el 50.0)
+        c.ok("at 250ms the value is 150" ((EVGTimingTest.red(el)) == 150))
+        tr.advance(el 50.0)
+        c.ok("at 300ms the value is 200" ((EVGTimingTest.red(el)) == 200))
+        c.ok("and only then is it done" ((tr.busy(el)) == false))
+    }
+
+    ; The reversal durations, straight off the capture. The `linear` row is the
+    ; one an implementation using CLOCK progress also passes, which is why it
+    ; is not the only row.
+    sfn reversedAfter:double (easing:string dur:double at:double) {
+        def tr (new EVGTransition())
+        def spec:string ("background-color " + (to_string (to_int dur)) + "ms " + easing)
+        def el:EVGElement (EVGTimingTest.probe(spec "rgb(0,0,0)"))
+        tr.reconcile(el)
+        el.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr.reconcile(el)
+        tr.advance(el at)
+        el.backgroundColor = (EVGColor.parse("rgb(0,0,0)"))
+        tr.reconcile(el)
+        return (EVGTimingTest.flightMs(tr el))
+    }
+
+    sfn checkReversal:void (c:TimingCheck) {
+        c.near("linear reversed at 100ms of 200ms" (EVGTimingTest.reversedAfter("linear" 200.0 100.0)) 100.0000)
+        c.near("ease-in reversed at 100ms of 200ms" (EVGTimingTest.reversedAfter("ease-in" 200.0 100.0)) 63.0713)
+        c.near("ease-out reversed at 100ms of 200ms" (EVGTimingTest.reversedAfter("ease-out" 200.0 100.0)) 136.9287)
+        c.near("ease reversed at 50ms of 200ms" (EVGTimingTest.reversedAfter("ease" 200.0 50.0)) 81.7021)
+    }
+
+    ; Reversing a reversal. The factor compounds, so the third leg is LONGER
+    ; than the second — 200 → 100 → 150, not 200 → 100 → 50. Halving again is
+    ; the obvious implementation and it makes a jittery pointer converge to an
+    ; instant snap.
+    sfn checkDoubleReversal:void (c:TimingCheck) {
+        def tr50 (new EVGTransition())
+        def el50:EVGElement (EVGTimingTest.probe("background-color 200ms linear" "rgb(0,0,0)"))
+        tr50.reconcile(el50)
+        el50.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr50.reconcile(el50)
+        tr50.advance(el50 100.0)
+        el50.backgroundColor = (EVGColor.parse("rgb(0,0,0)"))
+        tr50.reconcile(el50)
+        c.near("leg 2 of the 0.5 case" (EVGTimingTest.flightMs(tr50 el50)) 100.0000)
+        tr50.advance(el50 50.0000)
+        c.ok("and its colour there is 64" ((EVGTimingTest.red(el50)) == 64))
+        el50.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr50.reconcile(el50)
+        c.near("leg 3 of the 0.5 case is LONGER than leg 2" (EVGTimingTest.flightMs(tr50 el50)) 150.0000)
+
+        def tr25 (new EVGTransition())
+        def el25:EVGElement (EVGTimingTest.probe("background-color 200ms linear" "rgb(0,0,0)"))
+        tr25.reconcile(el25)
+        el25.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr25.reconcile(el25)
+        tr25.advance(el25 100.0)
+        el25.backgroundColor = (EVGColor.parse("rgb(0,0,0)"))
+        tr25.reconcile(el25)
+        c.near("leg 2 of the 0.25 case" (EVGTimingTest.flightMs(tr25 el25)) 100.0000)
+        tr25.advance(el25 25.0000)
+        c.ok("and its colour there is 96" ((EVGTimingTest.red(el25)) == 96))
+        el25.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr25.reconcile(el25)
+        c.near("leg 3 of the 0.25 case is LONGER than leg 2" (EVGTimingTest.flightMs(tr25 el25)) 125.0000)
+    }
+
+    ; A delay survives a reversal at full length while the duration is
+    ; shortened. Both halves of that were read off the screen, not off a
+    ; timing object: the reversed leg holds its colour for 100ms and then runs
+    ; for 100ms.
+    sfn checkDelayedReversal:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el:EVGElement (EVGTimingTest.probe("background-color 200ms linear 100ms" "rgb(0,0,0)"))
+        tr.reconcile(el)
+        el.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr.reconcile(el)
+        tr.advance(el 200.0)
+        c.ok("half way, after the delay" ((EVGTimingTest.red(el)) == 128))
+        el.backgroundColor = (EVGColor.parse("rgb(0,0,0)"))
+        tr.reconcile(el)
+        c.near("the duration is shortened" (EVGTimingTest.flightMs(tr el)) 100.0000)
+        c.near("the delay is NOT" (EVGTimingTest.flightDelay(tr el)) 100.0000)
+        c.ok("reversed: 0ms in, the value is 128" ((EVGTimingTest.red(el)) == 128))
+        tr.advance(el 50.0)
+        c.ok("reversed: 50ms in, the value is 128" ((EVGTimingTest.red(el)) == 128))
+        tr.advance(el 50.0)
+        c.ok("reversed: 100ms in, the value is 128" ((EVGTimingTest.red(el)) == 128))
+        tr.advance(el 25.0)
+        c.ok("reversed: 125ms in, the value is 96" ((EVGTimingTest.red(el)) == 96))
+        tr.advance(el 25.0)
+        c.ok("reversed: 150ms in, the value is 64" ((EVGTimingTest.red(el)) == 64))
+        tr.advance(el 25.0)
+        c.ok("reversed: 175ms in, the value is 32" ((EVGTimingTest.red(el)) == 32))
+        tr.advance(el 25.0)
+        c.ok("reversed: 200ms in, the value is 0" ((EVGTimingTest.red(el)) == 0))
+    }
+
+    ; Not a reversal: a third value. It gets the full duration, because the
+    ; value has to travel a full journey to somewhere it has never been.
+    sfn checkThirdValue:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el:EVGElement (EVGTimingTest.probe("background-color 200ms linear" "rgb(0,0,0)"))
+        tr.reconcile(el)
+        el.backgroundColor = (EVGColor.parse("rgb(255,255,255)"))
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        el.backgroundColor = (EVGColor.parse("rgb(60,60,60)"))
+        tr.reconcile(el)
+        c.near("a new destination is not a reversal" (EVGTimingTest.flightMs(tr el)) 200.0)
+        c.ok("and it leaves from where it had got to" ((EVGTimingTest.red(el)) == 128))
+    }
+
+
+    ; ==========================================================================
+    ; transform
+    ; ==========================================================================
+
+    sfn checkTransformParsing:void (c:TimingCheck) {
+        def el (new EVGElement())
+        el.setAttribute("transform" "rotate(90deg)")
+        c.near("degrees" el.rotate 90.0)
+        el.setAttribute("transform" "rotate(0.25turn)")
+        c.near("a quarter turn is 90 degrees" el.rotate 90.0)
+        el.setAttribute("transform" "rotate(1.5707963268rad)")
+        c.near("and so is pi over two radians" el.rotate 90.0)
+        el.setAttribute("transform" "rotate(100grad)")
+        c.near("and a hundred gradians" el.rotate 90.0)
+
+        el.setAttribute("transform" "scale(1.25)")
+        c.near("a uniform scale" el.scale 1.25)
+        c.near("and it leaves the angle alone" el.rotate 0.0)
+
+        el.setAttribute("transform" "translate(4px, -2px)")
+        c.near("translate x" el.translateX 4.0)
+        c.near("translate y" el.translateY (0.0 - 2.0))
+        el.setAttribute("transform" "translateY(7)")
+        c.near("translateY on its own" el.translateY 7.0)
+        c.near("and it is not read as a translate" el.translateX 0.0)
+
+        el.setAttribute("transform" "none")
+        c.near("none resets the angle" el.rotate 0.0)
+        c.near("and the scale" el.scale 1.0)
+
+        ; Order matters, and this is the pair that proves the composition is
+        ; real rather than four fields set independently. Turning a quarter
+        ; turn and THEN moving 10 along x moves down the page; moving first and
+        ; then turning moves along x. Both orders give the same angle, so an
+        ; implementation that ignores order looks perfect until something is
+        ; both turned and offset.
+        el.setAttribute("transform" "rotate(90deg) translate(10px, 0)")
+        c.near("rotate then translate goes down the page" el.translateY 10.0)
+        c.near("and not across it" el.translateX 0.0)
+        el.setAttribute("transform" "translate(10px, 0) rotate(90deg)")
+        c.near("translate then rotate goes across" el.translateX 10.0)
+        c.near("and not down" el.translateY 0.0)
+
+        c.eqStr("a skew is refused, not approximated"
+            (EVGElement.transformProblem("skewX(10deg)") != "") "true")
+        c.eqStr("so is a non-uniform scale"
+            (EVGElement.transformProblem("scale(2, 1)") != "") "true")
+        c.eqStr("a uniform one written twice is fine"
+            (EVGElement.transformProblem("scale(2, 2)") == "") "true")
+        c.eqStr("and the supported set is accepted"
+            (EVGElement.transformProblem("rotate(9deg) scale(1.1) translate(1px, 2px)") == "") "true")
+    }
+
+    ; The pivot, measured: Chromium reports `transform-origin: 50px 20px` for a
+    ; 100x40 box and a quarter turn leaves it at (30, -30, 40, 100) — centred
+    ; where it began. So every command of the subtree must name the ELEMENT's
+    ; centre, not its own.
+    sfn checkTransformOrigin:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def kid (new EVGElement())
+        kid.setAttribute("width" "100")
+        kid.setAttribute("height" "40")
+        kid.setAttribute("background-color" "rgb(10,20,30)")
+        kid.textContent = "turned"
+        kid.setAttribute("transform" "rotate(90deg)")
+        page.addChild(kid)
+
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+
+        def found:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.rotate != 0.0) {
+                found = (found + 1)
+                c.ok("every turned command names an origin" cmd.hasRotOrigin)
+                ; The box was laid out at (0,0) 100x40, so its centre is
+                ; (50, 20) — the same two numbers the browser reported.
+                c.near("and it is the element centre in x" cmd.rotOriginX 50.0)
+                c.near("and in y" cmd.rotOriginY 20.0)
+                c.near("with the angle the sheet asked for" cmd.rotate 90.0)
+            }
+            i = (i + 1)
+        }
+        ; The background AND the text, not just one of them: the text quad's
+        ; own centre is nowhere near the box's, and that is the case a
+        ; per-command pivot gets visibly wrong.
+        c.ok("the box and its text are both turned" (found >= 2))
+    }
+
+    ; A scaled subtree keeps its proportions, type included.
+    sfn checkTransformScale:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def kid (new EVGElement())
+        kid.setAttribute("width" "100")
+        kid.setAttribute("height" "40")
+        kid.setAttribute("background-color" "rgb(10,20,30)")
+        kid.setAttribute("transform" "scale(2)")
+        page.addChild(kid)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def i:int 0
+        def checked:boolean false
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if ((cmd.kind == 0) && (cmd.w > 50.0)) {
+                c.near("twice as wide" cmd.w 200.0)
+                c.near("twice as tall" cmd.h 80.0)
+                ; Grown about the centre, so it spreads BOTH ways: a 100x40 box
+                ; at the origin doubled about (50, 20) starts at (-50, -20).
+                c.near("and grown about its centre in x" cmd.x (0.0 - 50.0))
+                c.near("and in y" cmd.y (0.0 - 20.0))
+                checked = true
+            }
+            i = (i + 1)
+        }
+        c.ok("a scaled rectangle was found at all" checked)
+    }
+
+    ; `transition: transform 200ms` drives all four numbers off one entry.
+    sfn checkTransformTransition:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "transform 200ms linear"
+        el.setAttribute("transform" "rotate(0deg) scale(1)")
+        tr.reconcile(el)
+        el.setAttribute("transform" "rotate(20deg) scale(1.5)")
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.near("the angle is half way" el.rotate 10.0)
+        c.near("and so is the scale" el.scale 1.25)
+        tr.advance(el 100.0)
+        c.near("it arrives at the angle" el.rotate 20.0)
+        c.near("and the scale" el.scale 1.5)
+        c.ok("and then stops asking for frames" ((tr.busy(el)) == false))
+    }
+
+    sfn main:void () {
+        def c (new TimingCheck())
+        print "=== EVG timing functions vs the captured browser oracle ==="
+        EVGTimingTest.check_linear(c)
+        EVGTimingTest.check_ease(c)
+        EVGTimingTest.check_ease_in(c)
+        EVGTimingTest.check_ease_out(c)
+        EVGTimingTest.check_ease_in_out(c)
+        EVGTimingTest.check_cubic_bezier_0_68___0_55__0_27__1_55_(c)
+        EVGTimingTest.check_steps_4__end_(c)
+        EVGTimingTest.check_steps_4__start_(c)
+        EVGTimingTest.check_cubic_bezier_1__0__0__1_(c)
+        EVGTimingTest.check_cubic_bezier_0_999__0__0_001__1_(c)
+        EVGTimingTest.checkTopLevelSplitting(c)
+        EVGTimingTest.checkUnknown(c)
+        EVGTimingTest.checkStepKeywords(c)
+        EVGTimingTest.checkSolverEdges(c)
+        EVGTimingTest.checkShorthand(c)
+        EVGTimingTest.checkDelay(c)
+        EVGTimingTest.checkReversal(c)
+        EVGTimingTest.checkDoubleReversal(c)
+        EVGTimingTest.checkDelayedReversal(c)
+        EVGTimingTest.checkThirdValue(c)
+        EVGTimingTest.checkTransformParsing(c)
+        EVGTimingTest.checkTransformOrigin(c)
+        EVGTimingTest.checkTransformScale(c)
+        EVGTimingTest.checkTransformTransition(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}
