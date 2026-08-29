@@ -440,6 +440,22 @@
   function setStatus(msg, kind) {
     statusEl.textContent = msg;
     statusEl.className = kind || "";
+    statusHead = "";
+  }
+
+  // The half of the status line that describes the drawing rather than the
+  // trace. An edit changes the shapes and the bytes, and the line said what
+  // they were when the tracer finished — so after an hour of editing it was
+  // quoting a file that no longer existed.
+  var statusHead = "";
+  function refreshSize() {
+    if (!statusHead) return;
+    var live = outStage.querySelector("svg");
+    if (!live) return;
+    var text = new XMLSerializer().serializeToString(live);
+    var shapes = live.querySelectorAll("path").length;
+    statusEl.innerHTML = statusHead.replace(/layers=\d+/, "layers=" + shapes)
+      + " · svg=" + text.length + " B";
   }
 
   function bindRange(input, label, fmt) {
@@ -822,7 +838,17 @@
 
   function outSvg() { return outStage.querySelector("svg"); }
 
-  function setEditNote(msg) { editNote.textContent = msg; }
+  // Every edit path already reports what it did here, so this is where the
+  // status line's live half gets refreshed too. Debounced, because the smooth
+  // brush says something on every dab and serializing half a megabyte of SVG a
+  // hundred times a second would make the tool feel worse than the stale number
+  // ever did.
+  var sizeTimer = 0;
+  function setEditNote(msg) {
+    editNote.textContent = msg;
+    if (sizeTimer) clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(function () { sizeTimer = 0; refreshSize(); }, 120);
+  }
 
   function refreshEditUi() {
     toolMerge.classList.toggle("active", editTool === "merge" && !picking);
@@ -1687,10 +1713,14 @@
             tr.backgroundRemoved && !tr.backgroundRemoved()) {
           bgNote = " · tausta jäi (reuna ei yhtenäinen — kokeile Tausta: väri)";
         }
-        statusEl.innerHTML = "<b>OK</b> · " + sourceBitmap.w + "×" + sourceBitmap.h
+        // Everything up to the shape count is a fact about the trace and stays
+        // put; the shape count and the byte count are facts about the drawing,
+        // and edit mode changes the drawing. Keeping the two apart is what lets
+        // the live half be refreshed without re-running anything.
+        statusHead = "<b>OK</b> · " + sourceBitmap.w + "×" + sourceBitmap.h
           + " · " + ms + " ms · layers=" + layerN + collapsed + bgNote
-          + (rings ? " · rings=" + rings : "")
-          + " · svg=" + svg.length + " B";
+          + (rings ? " · rings=" + rings : "");
+        statusEl.innerHTML = statusHead + " · svg=" + svg.length + " B";
         statusEl.className = "good";
       } catch (e) {
         console.error(e);

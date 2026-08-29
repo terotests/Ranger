@@ -300,6 +300,20 @@ if (!ready) {
     await page.click("#editToggle");
     const exploded = await page.evaluate(() => document.querySelectorAll("#outStage svg path").length);
 
+    // The status line quotes a shape count and a byte count, and editing
+    // changes both — it used to go on quoting the file the tracer produced,
+    // which after a few edits describes something that no longer exists.
+    await page.waitForTimeout(250);
+    const statusLive = await page.evaluate(() => {
+      const m = document.getElementById("status").textContent.match(/layers=(\d+).*svg=(\d+)/);
+      const live = document.querySelector("#outStage svg");
+      return {
+        saysLayers: +m[1], saysBytes: +m[2],
+        realLayers: live.querySelectorAll("path").length,
+        realBytes: new XMLSerializer().serializeToString(live).length
+      };
+    });
+
     // merge: set the picker, click the biggest shape, count what took the color
     await page.evaluate(() => {
       const c = document.getElementById("editColor");
@@ -453,7 +467,7 @@ if (!ready) {
     await page.waitForTimeout(400);
     const stillEditing = await page.evaluate(() =>
       document.getElementById("editbar").classList.contains("on"));
-    return { before, exploded, merged, undone, picked, want, groups, groupsUndone, stillEditing,
+    return { before, exploded, statusLive, merged, undone, picked, want, groups, groupsUndone, stillEditing,
              masks, masksUndone, preview: refined.preview, previewLeft: refined.previewLeft,
              refineChangedPixels: refined.changed,
              smoothBefore: smooth.before, smoothAfter: smooth.after, smoothUndone };
@@ -461,6 +475,12 @@ if (!ready) {
   console.log(JSON.stringify(edit));
   if (!(edit.exploded > edit.before)) {
     console.error("edit mode must split color layers into individual shapes");
+    process.exitCode = 1;
+  }
+  if (edit.statusLive.saysLayers !== edit.statusLive.realLayers
+    || edit.statusLive.saysBytes !== edit.statusLive.realBytes) {
+    console.error("the status line must describe the drawing on screen, got "
+      + JSON.stringify(edit.statusLive));
     process.exitCode = 1;
   }
   if (edit.merged !== 1 || edit.undone !== 0) {

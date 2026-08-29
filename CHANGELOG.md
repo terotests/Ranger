@@ -263,6 +263,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The status line went on describing the file the tracer produced while you
+  edited a different one.** It quotes a shape count and a byte count, both of
+  which an edit changes — splitting the layers on entering edit mode alone takes
+  a portrait from 8 shapes to 424 and adds 19 KB — and neither was refreshed
+  again. The line is now in two halves: what the trace did (size, time, unused
+  swatches, whether a background was found) stays put, and what the drawing *is*
+  is re-read from the SVG on screen after every edit. Debounced, because the
+  smoothing brush reports on every dab and serializing half a megabyte a hundred
+  times a second would be worse than a stale number. The smoke test compares
+  what the line says against the live document.
+
 - **Redundant work removed from the overlay algorithm's inner loop**, from a
   profile of a photograph. Three things were being paid for repeatedly and are
   not any more: `isDetail` and `isBoundary` each re-derived whether their mask
