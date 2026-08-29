@@ -178,6 +178,76 @@ class EVGA11yTest {
         c.ok("the old one is not" (f.focused == false))
         c.eqStr("and the tree agrees" t.focusId "app/ok")
 
+        print "== aria-hidden prunes decoration out of the tree AND the name =="
+        ; A menu row with a label and a chevron beside it. The chevron is drawn
+        ; for the eye and says nothing a reader needs: `aria-expanded` on the
+        ; row already carries "there is more this way". Without the flag the row
+        ; announces as "Share >", which a reader says out loud as "Share
+        ; greater-than".
+        def deco (new EVGElement())
+        deco.setAttribute("width" "300")
+        deco.setAttribute("height" "100")
+        def rowEl (new EVGElement())
+        rowEl.setAttribute("role" "menuitem")
+        rowEl.setAttribute("width" "280")
+        rowEl.setAttribute("height" "30")
+        def labelEl (new EVGElement())
+        labelEl.textContent = "Share"
+        rowEl.addChild(labelEl)
+        def chevron (new EVGElement())
+        chevron.textContent = ">"
+        chevron.setAttribute("aria-hidden" "true")
+        rowEl.addChild(chevron)
+        deco.addChild(rowEl)
+
+        def dl (new EVGLayout())
+        dl.layout(deco)
+        def db (new EVGA11yFromTree())
+        def dt:EVGA11yTree (db.build(deco "Decoration" 1 ""))
+        def found:string ""
+        def di:int 0
+        while (di < (dt.count())) {
+            def nd:EVGA11yNode (dt.at(di))
+            if ((EVGA11yRole.ariaName(nd.role)) == "menuitem") {
+                found = nd.name
+            }
+            di = (di + 1)
+        }
+        c.eqStr("the chevron is not part of the name" found "Share")
+
+        ; And the whole BRANCH goes, not just the element. A glyph with no role
+        ; makes no node either way, so proving the prune needs something that
+        ; would otherwise have been reported: a hidden wrapper with a real
+        ; button inside it. `aria-hidden` in a browser removes both, and a
+        ; button a reader is told about but cannot see is worse than one it is
+        ; not told about at all.
+        def ghostWrap (new EVGElement())
+        ghostWrap.setAttribute("aria-hidden" "true")
+        ghostWrap.setAttribute("width" "100")
+        ghostWrap.setAttribute("height" "30")
+        def ghostBtn (new EVGElement())
+        ghostBtn.setAttribute("role" "button")
+        ghostBtn.setAttribute("width" "80")
+        ghostBtn.setAttribute("height" "20")
+        ghostBtn.textContent = "Invisible"
+        ghostWrap.addChild(ghostBtn)
+        deco.addChild(ghostWrap)
+
+        def dl2 (new EVGLayout())
+        dl2.layout(deco)
+        def db2 (new EVGA11yFromTree())
+        def dt2:EVGA11yTree (db2.build(deco "Decoration" 2 ""))
+        def hiddenSeen:boolean false
+        def dj:int 0
+        while (dj < (dt2.count())) {
+            def nd2:EVGA11yNode (dt2.at(dj))
+            if (nd2.name == "Invisible") {
+                hiddenSeen = true
+            }
+            dj = (dj + 1)
+        }
+        c.ok("a button inside hidden decoration is not reported" (hiddenSeen == false))
+
         print "== roles are spelled the way ARIA spells them =="
         c.eqStr("button" (EVGA11yRole.ariaName((EVGA11yRole.button()))) "button")
         c.eqStr("text field" (EVGA11yRole.ariaName((EVGA11yRole.textField()))) "textbox")

@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -72,6 +72,9 @@ const state = {
   italic: false,
   underline: false,
   align: "center",
+  // A row asked for by a key press that has not been built yet — see
+  // `settlePendingRow`.
+  pendingRow: "",
   // The app's focus, and the app's alone. The mirror never reports focus back:
   // a mirror that does gets into a loop with the app that is setting it.
   focus: "",
@@ -189,8 +192,43 @@ let generation = 0;
  * other three demos exist to make.
  */
 let lastHover = "";
+let lastTableHover = "";
 const motion = new MotionDemo();
 motion.init(MOTION_CSS);
+
+/**
+ * The table, and the second demo here that keeps its tree.
+ *
+ * A PRESS changes the data and rebuilds; the pointer moving does not, so it
+ * only sets a flag. That is the same split `keptTree` makes for the other
+ * three, and the reason both of them can animate at all.
+ *
+ * Its state is `TableCtl`'s — the controller the conformance harness measures
+ * against TanStack — so the demo owns the look and nothing else. Writing the
+ * sort cycle again here would be writing an untested second copy of the only
+ * hard part of a table.
+ */
+const table = new TableDemo();
+table.init(TABLE_CSS);
+
+/**
+ * The dropdown menu, and the third demo here that keeps its tree.
+ *
+ * The one whose state is not its own AT ALL. `MenuCtl` — the controller the
+ * conformance harness measures against @radix-ui/react-dropdown-menu — owns
+ * open/closed, the roving focus, the submenu stack and every key; this file
+ * routes the pointer and the keyboard into it and paints what it says. So the
+ * demo's keyboard is not a demo keyboard: it is the measured one, and the
+ * menubar demo above it (which has its own, written by hand and matched
+ * against nothing) is the counter-example this exists to retire.
+ *
+ * It is also the first demo with a clock the CONTROLLER owns: a submenu opens
+ * 100ms after the pointer settles on its row, so `tick` has to keep running
+ * while that wait is outstanding even though nothing is moving on screen.
+ */
+const dropdown = new DropdownDemo();
+dropdown.init(DROPDOWN_CSS);
+let lastDropdownHover = "";
 
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
@@ -201,12 +239,12 @@ const HOSTS = {
   sortable: keptTree(SortableModule, SORTABLE_CSS, "Sortable demo", [W, 560]),
 };
 
-// Four demos, four factories, one page. Each one says how tall it is and
+// Six demos, six factories, one page. Each one says how tall it is and
 // answers the same three questions — what to draw, what is under the pointer,
 // and what it all MEANS. Three of them answer by rebuilding their tree from
-// `args()`; the motion showcase answers from a tree it keeps, because a
-// transition cannot survive being rebuilt. Behind these thunks the difference
-// stops mattering to the rest of the page.
+// `args()`; the motion showcase, the table and the dropdown answer from a tree
+// they keep, because a transition cannot survive being rebuilt. Behind these
+// thunks the difference stops mattering to the rest of the page.
 const DEMOS = {
   menubar: {
     height: 560,
@@ -243,6 +281,65 @@ const DEMOS = {
     hover: () => false,
     key: () => false,
   },
+  table: {
+    height: () => table.heightPx(),
+    list: () => table.displayListJson(),
+    hit: (x, y) => table.hit ? table.hit(x, y) : table.hitId(x, y),
+    a11y: (gen, focus) => table.a11yJson(gen, focus),
+    press: (id) => table.press(id),
+    hover: (id) => {
+      if (id === lastTableHover) return false;
+      lastTableHover = id;
+      table.setHover(id);
+      return true;
+    },
+    key: () => false,
+    host: () => ({
+      tick: (dt) => table.tick(dt),
+      busy: () => table.busyNow(),
+      setHover: (id) => {
+        if (id === lastTableHover) return false;
+        lastTableHover = id;
+        table.setHover(id);
+        return true;
+      },
+      setPressed: (id) => table.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  dropdown: {
+    height: () => dropdown.heightPx(),
+    list: () => dropdown.displayListJson(),
+    hit: (x, y) => dropdown.hitId(x, y),
+    a11y: (gen, focus) => dropdown.a11yJson(gen, focus),
+    press: (id) => dropdown.press(id),
+    hover: (id) => {
+      if (id === lastDropdownHover) return false;
+      lastDropdownHover = id;
+      dropdown.setHover(id);
+      return true;
+    },
+    // Straight through to MenuCtl. Every arrow, Enter and Escape on this demo
+    // is answered by the controller five conformance specs are run against —
+    // which is the whole point of the demo owning no state.
+    key: (k) => dropdown.key(k),
+    host: () => ({
+      tick: (dt) => dropdown.tick(dt),
+      busy: () => dropdown.busyNow(),
+      setHover: (id) => {
+        if (id === lastDropdownHover) return false;
+        lastDropdownHover = id;
+        dropdown.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dropdown.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
   motion: {
     height: () => motion.heightPx(),
     // Persistent: the three thunks below go to the kept host rather than
@@ -312,9 +409,21 @@ const DEMOS = {
  * preview is a picture; the list is what answers.
  */
 // Handles for a browser check driving this page from outside; the playground
-// exposes its host for the same reason.
+// exposes its host for the same reason. A drag and a keyboard walk are both
+// things whose CORRECTNESS is a sequence of internal states, and reading them
+// off the pixels would test the screenshot rather than the behaviour.
 window.__sortRoot = () => HOSTS.sortable.root();
 window.__sortState = () => ({ dragging: state.dragging, over: state.over, order: state.order });
+window.__mbState = () => ({ open: state.open, focus: state.focus, which: state.which });
+// The dropdown's state is MenuCtl's, so this reads the controller rather than
+// the page: what is open, where focus is, and how deep the submenu stack goes.
+window.__ddState = () => ({
+  open: dropdown.model.open,
+  focus: dropdown.focused,
+  depth: dropdown.model.openPath.length,
+  status: dropdown.status,
+  theme: dropdown.theme,
+});
 
 function movePreview() {
   const root = HOSTS.sortable.root();
@@ -554,40 +663,174 @@ function isInside(id, surfaceId) {
 
 // --- keys --------------------------------------------------------------------
 
-function keyMenubar(key) {
-  if (key === "Escape") {
-    if (!state.open) return false;
-    state.open = "";
-    state.focus = "";
-    return true;
-  }
-  if (key === "ArrowRight" || key === "ArrowLeft") {
-    if (!state.open) return false;
-    const i = MENUS.indexOf(state.open);
-    const n = MENUS.length;
-    state.open = MENUS[(i + (key === "ArrowRight" ? 1 : n - 1)) % n];
-    state.focus = `trigger-${state.open}`;
-    return true;
-  }
-  if (key === "ArrowDown" || key === "ArrowUp") {
-    // Within an open menu, move the reader's cursor over the rows. The rows
-    // are the focusable children of the open surface, in tree order.
-    const rows = focusableRows();
-    if (!rows.length) return false;
-    const at = rows.indexOf(state.focus);
-    const step = key === "ArrowDown" ? 1 : rows.length - 1;
-    state.focus = rows[(at < 0 ? 0 : (at + step) % rows.length)];
-    return true;
-  }
-  return false;
-}
-
-function focusableRows() {
-  if (!lastTree) return [];
-  const surface = `menu-${state.open.toLowerCase()}-content`;
+/**
+ * The menubar keyboard, as WAI-ARIA's menubar pattern describes it.
+ *
+ * What was here handled two of the eight keys and gave up. The hole that
+ * mattered was that every branch began `if (!state.open) return false` — so
+ * pressing Escape, or arriving with nothing open, left the component
+ * completely dead to the keyboard. A pointer user would never find it; a
+ * keyboard user finds nothing else.
+ *
+ * The pattern in full:
+ *
+ *   ON THE BAR       Left/Right walk the triggers and wrap. They only OPEN a
+ *                    menu if one was already open, which is what lets you look
+ *                    along the bar without pulling menus down.
+ *                    Down opens and lands on the first row, Up on the last.
+ *                    Enter and Space open and land on the first.
+ *                    Home/End jump to the ends of the bar.
+ *
+ *   IN A MENU        Up/Down walk the rows and wrap, skipping the disabled
+ *                    ones — a row you cannot use is a row the cursor should
+ *                    not stop on.
+ *                    Right opens a submenu when the row has one, and otherwise
+ *                    moves to the next menu. Left closes a submenu and returns
+ *                    to the row that owns it, and otherwise moves to the
+ *                    previous menu. That double meaning is the pattern's, and
+ *                    it is why Right on `Share` used to jump to Edit.
+ *                    Home/End jump to the ends of the menu.
+ *                    Enter and Space do what a click does.
+ *                    Escape closes one level and puts focus back where it came
+ *                    from, which is the part that makes it recoverable.
+ */
+function rowsIn(surface) {
+  if (!lastTree || !surface) return [];
   return lastTree.nodes
     .filter((n) => n.p === surface && n.focusable && !n.disabled)
     .map((n) => n.id);
+}
+
+const menuSurface = (label) => `menu-${String(label).toLowerCase()}-content`;
+
+function focusableRows() {
+  return rowsIn(menuSurface(state.open));
+}
+
+/** Is the keyboard inside the open menu's submenu? */
+function inSubmenu() {
+  const sub = SUB_SURFACE[state.open];
+  return !!sub && state.submenu && rowsIn(sub).includes(state.focus);
+}
+
+/** The rows the cursor is currently walking: a submenu's, or the menu's. */
+function currentRows() {
+  return inSubmenu() ? rowsIn(SUB_SURFACE[state.open]) : focusableRows();
+}
+
+function keyMenubar(key) {
+  // An empty focus means "on the bar", which is where a Tab into the component
+  // lands and where the page starts. Normalising here rather than at load
+  // matters: writing a focus into the state before the user has pressed
+  // anything would take the browser's focus off whatever they were on.
+  const focus = state.focus || `trigger-${state.open || MENUS[0]}`;
+  const onTrigger = focus.startsWith("trigger-");
+  const label = onTrigger ? focus.slice("trigger-".length) : state.open;
+  const at = Math.max(0, MENUS.indexOf(label));
+
+  const goToTrigger = (i) => {
+    const next = MENUS[(i + MENUS.length) % MENUS.length];
+    // Only follow with the menu if one was already down. Walking the bar with
+    // everything closed should not start opening things.
+    if (state.open) state.open = next;
+    state.focus = `trigger-${next}`;
+    return true;
+  };
+
+  const openMenu = (name, which) => {
+    state.open = name;
+    state.submenu = false;
+    const rows = rowsIn(menuSurface(name));
+    // The tree for a menu that is not open yet has no rows in it, so the
+    // landing place is decided on the next frame instead. Focusing the trigger
+    // is not a fallback nobody sees: it is where a menu opened by a pointer
+    // leaves the cursor too.
+    state.focus = rows.length
+      ? rows[which === "last" ? rows.length - 1 : 0]
+      : `trigger-${name}`;
+    state.pendingRow = rows.length ? "" : which || "first";
+    return true;
+  };
+
+  if (key === "Escape") {
+    if (inSubmenu()) {
+      state.submenu = false;
+      state.focus = SUB_ROWS[state.open] || `trigger-${state.open}`;
+      return true;
+    }
+    if (state.open) {
+      state.focus = `trigger-${state.open}`;
+      state.open = "";
+      return true;
+    }
+    return false;
+  }
+
+  if (key === "Enter" || key === " ") {
+    if (onTrigger) return openMenu(label, "first");
+    return pressMenubar(state.focus);
+  }
+
+  if (key === "Home" || key === "End") {
+    if (onTrigger) return goToTrigger(key === "Home" ? 0 : MENUS.length - 1);
+    const rows = currentRows();
+    if (!rows.length) return false;
+    state.focus = key === "Home" ? rows[0] : rows[rows.length - 1];
+    return true;
+  }
+
+  if (key === "ArrowDown" || key === "ArrowUp") {
+    if (onTrigger) return openMenu(label, key === "ArrowDown" ? "first" : "last");
+    const rows = currentRows();
+    if (!rows.length) return false;
+    const i = rows.indexOf(state.focus);
+    const step = key === "ArrowDown" ? 1 : rows.length - 1;
+    state.focus = rows[(i < 0 ? 0 : (i + step) % rows.length)];
+    return true;
+  }
+
+  if (key === "ArrowRight") {
+    // A row that owns a submenu opens it rather than leaving the menu. This is
+    // the case that used to jump to the next menu instead.
+    if (!onTrigger && state.focus === SUB_ROWS[state.open]) {
+      state.submenu = true;
+      const rows = rowsIn(SUB_SURFACE[state.open]);
+      if (rows.length) state.focus = rows[0];
+      else state.pendingRow = "first";
+      return true;
+    }
+    return goToTrigger(at + 1);
+  }
+
+  if (key === "ArrowLeft") {
+    if (inSubmenu()) {
+      state.submenu = false;
+      state.focus = SUB_ROWS[state.open] || `trigger-${state.open}`;
+      return true;
+    }
+    return goToTrigger(at - 1);
+  }
+
+  return false;
+}
+
+/**
+ * Land on the row a key asked for once the tree that holds it exists.
+ *
+ * Opening a menu and choosing a row inside it are one keystroke but two
+ * frames: the rows are read off the accessible tree, and the tree for a menu
+ * that was closed a moment ago has none. So the request is remembered and
+ * settled after the paint that built them.
+ */
+function settlePendingRow() {
+  if (!state.pendingRow || state.which !== "menubar") return false;
+  const rows = state.submenu && SUB_SURFACE[state.open]
+    ? rowsIn(SUB_SURFACE[state.open])
+    : focusableRows();
+  if (!rows.length) return false;
+  state.focus = state.pendingRow === "last" ? rows[rows.length - 1] : rows[0];
+  state.pendingRow = "";
+  return true;
 }
 
 // --- painting ----------------------------------------------------------------
@@ -724,7 +967,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "dropdown", "motion"],
   () => state.which,
   (v) => {
     state.which = v;
@@ -881,10 +1124,12 @@ canvas.addEventListener("pointerleave", () => {
 // that has the focus is inside this page.
 window.addEventListener("keydown", (ev) => {
   if (ev.target instanceof HTMLInputElement) return;
-  if (demo().key(ev.key)) {
-    ev.preventDefault();
-    paint();
-  }
+  if (!demo().key(ev.key)) return;
+  ev.preventDefault();
+  paint();
+  // A key that opened a menu asked for a row inside it, and the rows only
+  // exist once that paint has built them. One more pass settles it.
+  if (settlePendingRow()) paint();
 });
 
 mirror = createA11yMirror(stage, {

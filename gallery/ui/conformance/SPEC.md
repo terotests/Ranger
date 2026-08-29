@@ -37,7 +37,8 @@ input steps live in the spec, and both adapters build from it.
 ```
 
 A step is one of `{"click": tid}`, `{"key": name}`, `{"focus": tid}`,
-`{"hover": tid}`, `{"unhover": true}` or `{"rightclick": tid}`. The last three
+`{"hover": tid}` (optionally with `"settle": <ms>`, see below), `{"unhover":
+true}` or `{"rightclick": tid}`. The last three
 exist because three components have no other input at all: a tooltip and a
 hover card open on the pointer arriving, and a context menu only on the
 secondary button.
@@ -170,6 +171,25 @@ radio-group spec disagreed about which item was selected. An unsettled oracle
 turns the whole benchmark into a race detector.
 
 The Ranger side has no async, so it is settled by construction.
+
+### A step that has to wait longer
+
+A hover step may carry `"settle": <ms>`, and one surface needs it: a submenu
+opens **100ms** after the pointer lands on its parent row — measured in the
+browser at 25ms intervals, closed through 75 and open at 100 — so that dragging
+the pointer down a menu does not flash every submenu on the way past.
+
+Two animation frames is about 32ms, which lands in the MIDDLE of that wait. A
+spec that observed there would be measuring the machine, and would pass and
+fail on different runs. `settle` puts the observation firmly on one side of the
+delay: the DOM side waits that long in wall-clock time, and the Ranger side is
+told the same number and advances its controller clock by it.
+
+It is not a way to measure the delay. **An exact time belongs where time is
+exact** — the delay itself is checked in `npm run ui:test`, where the clock is
+a number the test hands over, and the browser stays the authority on behaviour.
+Without those checks a submenu that opened INSTANTLY passed every conformance
+spec, which it did until they were written.
 
 `unhover` moves the mouse to the corner **in steps**, for a related reason. A
 tooltip keeps itself up over a "grace area" between the trigger and its content

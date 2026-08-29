@@ -71,6 +71,12 @@ class EVGA11yFromTree {
         if (name == "region")           { return (EVGA11yRole.region()) }
         if (name == "list")             { return (EVGA11yRole.list()) }
         if (name == "listitem")         { return (EVGA11yRole.listItem()) }
+        if (name == "table")            { return (EVGA11yRole.table()) }
+        if (name == "row")              { return (EVGA11yRole.row()) }
+        if (name == "columnheader")     { return (EVGA11yRole.columnHeader()) }
+        if (name == "rowheader")        { return (EVGA11yRole.rowHeader()) }
+        if (name == "cell")             { return (EVGA11yRole.tableCell()) }
+        if (name == "gridcell")         { return (EVGA11yRole.cell()) }
         if (name == "switch")           { return (EVGA11yRole.switchControl()) }
         if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }
         if (name == "slider")           { return (EVGA11yRole.slider()) }
@@ -86,7 +92,7 @@ class EVGA11yFromTree {
         def i:int 0
         while (i < (array_length el.children)) {
             def kid:EVGElement (itemAt el.children i)
-            if ((strlen kid.role) == 0) {
+            if (((strlen kid.role) == 0) && ((kid.a11yHidden) == false)) {
                 def t:string (trim kid.textContent)
                 if ((strlen t) > 0) {
                     if ((strlen out) > 0) {
@@ -134,6 +140,12 @@ class EVGA11yFromTree {
     }
 
     fn walk:void (el:EVGElement parentId:string index:int) {
+        ; Decoration, and everything under it. Not "skip the node but keep the
+        ; children": `aria-hidden` prunes the whole branch, and a chevron with
+        ; a label inside it would otherwise put the label back.
+        if el.a11yHidden {
+            return
+        }
         def nextParent:string parentId
         def code:int (EVGA11yFromTree.roleCode(el.role))
         if (code != (EVGA11yRole.none())) {
@@ -145,6 +157,7 @@ class EVGA11yFromTree {
             n.disabled = el.a11yDisabled
             n.checked = el.a11yChecked
             n.expanded = el.a11yExpanded
+            n.sorted = el.a11ySorted
             if (el.a11ySelected == 2) {
                 n.selected = true
             }

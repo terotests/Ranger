@@ -145,7 +145,16 @@ export async function run(spec) {
         // Tooltip and hover-card open on a real pointer entering the trigger;
         // there is no click to stand in for it, so the harness moves the mouse.
         await page.locator(sel(step.hover)).hover().catch(() => {});
-        await observe("hover " + step.hover);
+        // Some hover-driven surfaces are on a TIMER — a submenu waits 100ms
+        // before opening, so that dragging the pointer down a menu does not
+        // flash every submenu on the way past. The two rAFs below are ~32ms,
+        // which lands in the middle of that wait: without `settle` the step
+        // would observe a race and the same spec would pass and fail on
+        // different machines. `settle` puts the observation firmly on one side
+        // of the delay. It is not a substitute for measuring the delay itself
+        // — that is done where the clock is exact, in the Ranger tests.
+        if (step.settle) await page.waitForTimeout(step.settle);
+        await observe("hover " + step.hover + (step.settle ? " +" + step.settle + "ms" : ""));
       } else if ("unhover" in step) {
         // Park the pointer in the corner, away from every control, so a
         // hover-driven surface sees the pointer leave. In steps, because a

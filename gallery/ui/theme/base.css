@@ -730,3 +730,115 @@
 .ui-toolbar-button:disabled,
 .ui-toggle:disabled,
 .ui-slider-thumb:disabled { transform: none; }
+
+/* --- table ---------------------------------------------------------------------
+   Enough geometry for the thing to be real: the accessibility audit measures
+   contrast off the display list and lints a focusable node with no rectangle,
+   so a control with no size here fails for reasons that have nothing to do
+   with the control. */
+
+.ui-table-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+}
+
+.ui-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  width: 380px;
+}
+
+.ui-table-headrow,
+.ui-table-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  gap: 8px;
+}
+
+.ui-table-headrow {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+.ui-table-row { color: #1e293b; }
+
+/* A selected row is tinted, and the tint is the only thing that says so to
+   someone not using a reader — `aria-selected` says it to everyone else. */
+.ui-table-row-state-selected { background-color: #eef2ff; }
+
+.ui-table-col,
+.ui-table-cell {
+  width: 96px;
+  height: 22px;
+  font-size: 13px;
+}
+
+.ui-table-col { color: #334155; font-weight: 600; }
+
+.ui-table-col-select,
+.ui-table-cell-select { width: 26px; }
+
+.ui-table-col-label { width: 74px; height: 20px; }
+.ui-table-col-arrow { width: 12px; height: 20px; color: #6366f1; }
+
+.ui-table-selectall,
+.ui-table-check {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background-color: #ffffff;
+  color: #ffffff;
+  text-align: center;
+}
+
+.ui-table-selectall-state-checked,
+.ui-table-check-state-checked,
+.ui-table-selectall-state-indeterminate {
+  background-color: #2563eb;
+  border-color: #2563eb;
+}
+
+.ui-table-selectall-mark,
+.ui-table-check-mark { width: 16px; height: 16px; font-size: 12px; }
+
+.ui-table-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+}
+
+.ui-table-prev,
+.ui-table-next {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #0f172a;
+  width: 76px;
+  height: 24px;
+  font-size: 12px;
+  text-align: center;
+  transition: background-color 140ms ease-out;
+}
+
+.ui-table-prev:hover,
+.ui-table-next:hover { background-color: #e2e8f0; }
+/* Greyed, but still READABLE. WCAG exempts text in a disabled control from
+   the contrast minimum, and taking the exemption is how a kit ends up with
+   controls nobody can read the labels of — the state is carried by
+   `aria-disabled` and by the tone, not by making the words vanish. */
+.ui-table-prev:disabled,
+.ui-table-next:disabled { color: #64748b; background-color: #f1f5f9; }
+
+.ui-table-col:hover { color: #1e293b; }

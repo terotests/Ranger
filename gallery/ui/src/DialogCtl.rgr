@@ -216,6 +216,10 @@ class DialogCtl extends UiCtl {
 
         def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
         trigRow.state = word
+        ; A trigger that opens a dialog says so, and says WHICH kind: Radix
+        ; writes `aria-haspopup="dialog"` here rather than the "menu" a menu
+        ; trigger gets. The two are different promises to a reader.
+        trigRow.hasPopup = "dialog"
         trigRow.disabled = disabled
         ; Radix's trigger says whether the dialog it owns is showing.
         if open {

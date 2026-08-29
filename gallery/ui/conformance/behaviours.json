@@ -3,7 +3,7 @@
     "The Radix surface this kit intends to match, one entry per behaviour.",
     "A behaviour counts as MATCHED only when a spec exercises it and every",
     "observation in that spec agrees with Radix. Behaviours with no spec are",
-    "reported as UNCOVERED \u2014 the catalogue is the denominator, so adding a",
+    "reported as UNCOVERED — the catalogue is the denominator, so adding a",
     "component here lowers the score until the work is actually done."
   ],
   "components": {
@@ -108,7 +108,7 @@
         "content-unmounted": "closed content is not in the tree at all",
         "focus-trap": {
           "note": "Tab and Shift+Tab cycle inside the open dialog",
-          "disputed": "No spec can prove this yet: the harness has no Tab step, and UiHost has no document-order focus model to answer one with. Catalogued so the gap is counted rather than assumed away \u2014 see PLAN.md."
+          "disputed": "No spec can prove this yet: the harness has no Tab step, and UiHost has no document-order focus model to answer one with. Catalogued so the gap is counted rather than assumed away — see PLAN.md."
         }
       }
     },
@@ -249,7 +249,20 @@
         "escape-closes": "Escape closes it",
         "focus-restore": "closing returns focus to the trigger",
         "background-hidden": "everything outside is out of the accessibility tree",
-        "content-unmounted": "a closed menu is not in the tree at all"
+        "content-unmounted": "a closed menu is not in the tree at all",
+        "sub-haspopup": "a row that opens a submenu says so with aria-haspopup",
+        "sub-trigger-role": "a sub-trigger is a menuitem, with an expanded state of its own",
+        "sub-right-opens": "ArrowRight on a sub-trigger opens its submenu",
+        "sub-first-item": "opening a submenu by name puts focus on its FIRST item, unlike opening the root menu",
+        "sub-left-closes": "ArrowLeft closes the submenu and returns focus to the sub-trigger",
+        "sub-left-unwinds-one": "ArrowLeft unwinds one level, not all of them",
+        "sub-nested": "a submenu may itself contain one",
+        "sub-disabled": "a disabled sub-trigger is skipped and opens nothing",
+        "sub-escape-closes-all": "Escape closes every level at once and returns focus to the trigger",
+        "sub-hover-opens": "resting the pointer on a sub-trigger opens it after 100ms, leaving focus on the row",
+        "sub-hover-away-closes": "moving the pointer to another row closes it at once — slow to open, instant to close",
+        "sub-content-menu": "the submenu surface is a menu whose children are menuitems",
+        "sub-item-closes-all": "choosing a leaf at any depth closes the whole menu"
       }
     },
     "context-menu": {
@@ -297,7 +310,7 @@
     },
     "sortable": {
       "radix": "@dnd-kit/sortable",
-      "$comment": "Not Radix \u2014 Radix has no sortable. ReUI's, and every shadcn-family one, is dnd-kit underneath, so dnd-kit is the oracle.",
+      "$comment": "Not Radix — Radix has no sortable. ReUI's, and every shadcn-family one, is dnd-kit underneath, so dnd-kit is the oracle.",
       "behaviours": {
         "sortable-roledescription": "every item says it is sortable, so a reader learns the affordance",
         "sortable-pointer-reorder": "dragging an item onto another reorders the list on release",
@@ -335,7 +348,7 @@
       "behaviours": {
         "navmenu-roles": "the triggers are buttons and the panel holds links",
         "navmenu-pointer-open": "clicking a trigger opens its panel and leaves focus on the trigger",
-        "navmenu-every-trigger-tabbable": "every trigger is a tab stop \u2014 there is no roving focus"
+        "navmenu-every-trigger-tabbable": "every trigger is a tab stop — there is no roving focus"
       }
     },
     "scrollarea": {
@@ -344,6 +357,22 @@
       "behaviours": {
         "scrollarea-roles": "nothing is given a role the reference does not give it",
         "scrollarea-content-reachable": "the content is in the tree and visible even though it does not fit"
+      }
+    },
+    "table": {
+      "radix": "@tanstack/react-table",
+      "$comment": "Not Radix — Radix has no table. ReUI's, and every shadcn-family one, is TanStack Table underneath, so TanStack is the oracle. It is a NARROWER oracle than dnd-kit: TanStack is headless and contributes no roles, no aria-sort and no announcements at all, so only the state machine below is copied from it and the ARIA comes from the HTML table spec. Captured in oracle/table.json.",
+      "behaviours": {
+        "table-roles": "the grid reports as a table of rows, column headers and cells",
+        "sort-three-states": "a header cycles first direction, other direction, then unsorted — not a two-way toggle",
+        "sort-numeric-descends-first": "a numeric column's first click sorts DESCENDING, a text column's ascending",
+        "aria-sort": "the sorted header exposes aria-sort and the others do not",
+        "sort-resets-page": "re-ordering puts you back on the first page — page two of the old order is a window onto rows that moved",
+        "select-row": "a row can be selected and says so with aria-selected",
+        "select-all-page": "the header checkbox selects and clears THIS PAGE's rows, leaving others alone",
+        "select-all-mixed": "the header checkbox is mixed when some but not all of the page is selected",
+        "page-next-prev": "paging moves a window over the rows and reports how many pages there are",
+        "page-edges": "the paging controls are disabled at the ends rather than running past them"
       }
     }
   }

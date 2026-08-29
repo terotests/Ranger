@@ -597,6 +597,301 @@ new declaration. `EVGTimingTest` has the case in both a number and a colour,
 plus the check that a genuine mid-flight change is still heard — which is what
 would fail if the memory were applied too broadly.
 
+## The menubar keyboard, and a chevron read out loud
+
+Two accessibility defects in the demo menubar, both reported by using it.
+
+**The keyboard was a dead end.** Every branch of the key handler began
+`if (!state.open) return false`, so pressing Escape — or arriving with nothing
+open — left the component completely unreachable. A pointer user would never
+notice; a keyboard user finds nothing else. It handled two of the eight keys
+the WAI-ARIA menubar pattern names and gave up.
+
+All of it is there now, and three parts of the pattern are worth writing down
+because they are the ones an implementation invents wrongly:
+
+- **Left/Right on the bar move focus without opening anything** — unless a menu
+  is already down, in which case they bring it along. That is what lets you
+  look along a menubar without pulling every menu out of it.
+- **Right means two different things.** On a row that owns a submenu it opens
+  that submenu; anywhere else it leaves for the next menu. Right on `Share`
+  used to jump to Edit, which is the bug that distinction exists to prevent.
+- **Escape closes one level and puts focus back where it came from** — out of a
+  submenu onto the row that owns it, out of a menu onto its trigger. That is
+  the part that makes the component recoverable rather than a trap.
+
+Opening a menu and choosing a row inside it is one keystroke but two frames:
+the rows are read off the accessible tree, and the tree for a menu that was
+closed a moment ago has none. The request is remembered and settled after the
+paint that builds them.
+
+**And `Share` announced as "Share greater-than".** The chevron beside the label
+is decoration, and the accessible name is built from the text of an element's
+roleless descendants — so the glyph went into the name as if it were a word.
+`aria-expanded` on the row already says "there is more this way", properly.
+
+EVG had no way to say "this is decoration", so it has one now: `aria-hidden`
+prunes an element and everything under it out of the accessible tree and out of
+any ancestor's name. The whole BRANCH, not just the element — a hidden wrapper
+with a real button inside it must not report the button, and a button a reader
+is told about but cannot see is worse than one it is never told about. Proving
+that needed a better fixture than the chevron itself: a glyph with no role
+makes no node either way, so the first version of the test passed under a
+mutation that removed the pruning entirely.
+
+## Table — the second control whose reference is not Radix
+
+Radix has no table. ReUI's is `@tanstack/react-table` underneath, as is every
+shadcn-family one, so TanStack is the oracle — exactly as dnd-kit is for the
+sortable, and declared the same way in `beyond` so the coverage number cannot
+quietly count it as Radix.
+
+But it is a **narrower** oracle, and saying so is half the work. dnd-kit owns
+its accessibility: it writes the roledescription, the aria-pressed and the
+announcements, so copying it gets those right for free. TanStack is headless.
+It computes state and hands you nothing to render — no roles, no `aria-sort`,
+not one attribute. So the state machine is TanStack's and the ARIA is the HTML
+table spec's, and `oracle/table.json` is where the first half was captured
+before a line of Ranger existed.
+
+Four measured answers, three of which are not what you would write:
+
+- **The sort cycle has three states**, not two: first direction, other
+  direction, then unsorted again. A hand-written table toggles between two
+  forever, and the order the data arrived in becomes unreachable.
+- **A numeric column sorts descending first** and a text column ascending.
+  "First click" means "most useful first click" — biggest-first for a quantity,
+  A-to-Z for a name. Both full cycles were captured rather than assuming the
+  numeric one mirrors the text one.
+- **The header checkbox is page-scoped.** Select everything on page one, then
+  clear it, and page two's rows stay selected — it never touched them. "Some
+  but not all" is a third state, which is the indeterminate the box has to
+  show.
+- **Sorting while paged stays on the page it was on.**
+
+And one that will bite an implementation: TanStack's `nextPage()` does **not**
+clamp. Called on the last page it moves to an index with no rows in it, and
+only `getCanNextPage()` says not to. `TableCtl.nextPage` gates itself instead —
+a control that can put itself somewhere empty is a control every caller has to
+remember to guard — and the check prints that difference rather than asserting
+it away.
+
+`npm run ui:table:check` runs the controller over the same six rows and the
+same clicks and compares against TanStack's recorded answers. It needs no
+browser, so it is in the CI suite. Three mutations were run against it — a
+two-state toggle, a numeric column sorting ascending first, and a select-all
+that touches every row — and each is exactly a mistake a real table makes.
+
+`aria-sort` needed a field of its own in the trace, for the same reason
+`valuenow` did for the slider: sorting changes which rows are where and nothing
+else about any node, so without it the one thing the control does is the one
+thing the diff cannot see.
+
+### Six specs, and what they cost to make pass
+
+The DOM side is a real `<table>` driven by TanStack, and the snapshot could not
+see it: it derived a role from the tag for `<button>` and `<a>` and called
+everything else `none`, so a whole table reported as nothing at all. Implicit
+roles are the rule here and the attribute is the exception — `<tr>`, `<th>`,
+`<td>` and `<input type=checkbox>` all know what they are. A native checkbox
+also keeps `checked` and `indeterminate` as DOM PROPERTIES with no attribute
+behind them, so reading only `aria-checked` reported the select-all box as
+saying nothing.
+
+`cell` and `gridcell` turned out to be different roles rather than two
+spellings, and the distinction is the same one as `table` versus `grid`: a
+gridcell is something you steer a cursor onto.
+
+Three accessibility defects the audit caught, all of them structural:
+
+- `role="table"` may contain only rows. The paging buttons were parented to it
+  and a reader walking by row would have found something that is not one, so
+  the controller's root is now a wrapper and `tid` belongs to the table inside
+  it — the same shape the DOM reference has.
+- A row's children have to be cells, so the select-all lives inside a column
+  header rather than beside one.
+- A focusable row has no name to announce, and giving it one means reading
+  every cell twice. Rows are not focus targets; selection is a **checkbox in
+  the row**, which is what ReUI does and the only way a keyboard reaches it.
+  Selecting by clicking the row went out with it: it is a choice with no oracle
+  behind it, and inventing behaviour is exactly what this harness exists to
+  stop.
+
+### The probe was wrong twice more
+
+`sort-keeps-page` was in the catalogue and it was wrong. The bare probe said
+sorting keeps the page; the reference component resets it. Chasing the
+difference found `autoResetPageIndex`, which defaults to **on** — and whether
+it fires depends on how the table is WIRED, which is precisely the part a
+headless library leaves to its caller.
+
+So the oracle now renders `dom/app.jsx`'s own component and clicks the same
+test ids a person would, instead of building a little TanStack table beside it.
+One source of truth, and the question cannot come back. The clamping difference
+noted earlier disappeared with it: measured through the real UI, paging past
+the end does not happen at all, because the button is disabled.
+
+Two flaws in the probe itself, both found because the numbers looked wrong:
+every mutation goes through React state, so reading the table object back
+synchronously reads the previous one and reports that nothing happened; and
+`resetPagination()` restores TanStack's default of ten per page rather than the
+four the probe was set up with, which made the whole selection capture measure
+a one-page table.
+
+### The demo, and the shorthand it broke
+
+`demo/TableDemo.rgr` is the table wearing ReUI's clothes: a bordered card, a
+muted header whose sortable columns carry a chevron, rows that light under the
+pointer, coloured status badges, and a footer that says how many are selected
+and which page you are on. It reuses `TableCtl` unchanged — the controller
+decides what is true, the tree literal decides what it looks like, and neither
+knows about the other. Writing the sort cycle and the page-scoped selection a
+second time for the demo would be writing an untested copy of the only part of
+a table that is hard.
+
+Like the motion showcase, the tree is **kept**. Hover is a flag on an element,
+and a rebuilt tree has a different element in that position with no memory of
+anything, so a demo that rebuilds every frame can have no hover and no
+transitions at all. A press rebuilds, because a press changes the data; the
+pointer moving does not.
+
+And then the footer wrapped onto a second line, which is how a defect four
+months old finally surfaced.
+
+`.tb-foot` declares `padding: 0 16px`, and the row's contents sat flush against
+the card's edge. EVG was reading the whole declaration as **one** unit:
+`EVGUnit.parse("0 16px")` sees the leading `0`, stops there, and the box was
+given zero on all four sides. Every two-, three- and four-value box shorthand
+in the gallery had been wrong since the sheets were written — 30 declarations
+across five stylesheets, every one of them silently dropping its horizontal
+padding. Nobody had reported it because a padding that is too small does not
+look like a bug. It looks like a layout someone chose.
+
+`oracle/css_box_oracle.mjs` put each form on a real element and read back the
+four computed sides, and the rejections are the half worth capturing: a browser
+drops the whole **declaration** on a five-value list, a junk component or a
+negative padding, rather than dropping the component — so an element keeps what
+it had, which is a different observable outcome from zero. A negative *margin*
+is ordinary CSS and survives. `EVGBoxShorthandTest.rgr` is those 17 rows plus a
+laid-out row proving it reaches the geometry and not just the box; four
+mutations were run against it, and the two-value one alone fails seven checks.
+
+This is the third defect this month found by looking at painted output rather
+than at code, after the non-idempotent transition reconcile and a `text-align`
+that was parsed and read by nothing. None of the three would have been found by
+reading; all three had passing tests around them.
+
+## Dropdown menu — submenus, and one attribute nobody was looking at
+
+The dropdown had been at 100% for thirteen behaviours since the first pass, and
+it was a flat list. Nothing in the gallery nested: `MenuCtl` had no submenu,
+`MenubarCtl` had none, and the menubar DEMO drew one that no controller backed
+and no spec measured. So "the menu works" meant "the menu works as far as we
+had asked".
+
+### The field that was not there
+
+Before any of it, `aria-haspopup` was added to the trace, for the reason
+`aria-sort` was: a submenu's parent row is a `menuitem` like the one beside it,
+carries the same name, and differs by exactly one attribute. Without the field
+the diff cannot see the only thing that separates them, and the chevron is not
+something a reader can see either.
+
+Adding it found four gaps in one run, none of them in a submenu:
+
+- the dialog, alert-dialog and popover triggers all carry
+  `aria-haspopup="dialog"` on the reference and carried nothing here — a
+  reader was not told the button opens a dialog, and "dialog" is a different
+  promise from "menu";
+- every menubar trigger carries `aria-haspopup="menu"`, and ours did not;
+- the CONTEXT menu trigger carries **none** — and the first version here gave
+  it one. That is right, and it is the same split `aria-expanded` already
+  makes: a context menu cannot be summoned from the keyboard, so promising a
+  reader a popup would promise something it cannot reach.
+
+One field, four defects, and three of them in components that had been at 100%
+for weeks.
+
+### What Radix actually does with a submenu
+
+Read off the reference, and two of these are not what the WAI-ARIA prose would
+lead you to write:
+
+- **Opening by name puts you inside.** ArrowRight, or Enter on the row, opens
+  the submenu and focuses its FIRST item. That is the opposite of opening the
+  root menu, where focus lands on the surface and the first item is only
+  reached by arrowing. The asymmetry is real: you asked for this submenu by
+  name, so it puts you in it.
+- **Opening by pointer does not.** Resting on the row opens the submenu and
+  leaves focus on the row — the pointer is still there and you have not said
+  you are going in. Getting this one backwards makes a menu that jumps out
+  from under the cursor.
+- **The horizontal arrows are for nesting only.** ArrowRight on an ordinary
+  row does nothing; ArrowLeft in a dropdown's root menu does nothing. A
+  vertical menu does not step sideways, which is why `isNextKey`/`isPrevKey`
+  are not used in `MenuCtl.keyDown`.
+- **Escape closes every level**, not one, and ArrowLeft unwinds exactly one.
+- **Each menu keeps its own roving tab stop.** With focus inside a submenu the
+  sub-trigger is STILL the tab stop of the menu it lives in, so two rows carry
+  it. The first version kept one across the whole tree; the diff said so.
+
+### The delay, and where a delay can honestly be tested
+
+A hovered submenu opens after **100ms** — measured in the browser at 25ms
+intervals, closed through 75 and open at 100 — and closes **instantly** when
+the pointer moves to another row. The asymmetry is the whole design: slow to
+open so that dragging down a menu does not flash every submenu on the way
+past, instant to close so the menu keeps up with you.
+
+The conformance harness cannot check that number. Its steps settle for two
+animation frames, about 32ms, which lands in the middle of the wait: a spec
+that observed there would be measuring the machine and would pass and fail on
+different runs. So a `settle` was added to the `hover` step, both specs observe
+firmly past the delay, and the delay ITSELF is checked in `ui:test`, where the
+clock is a number the test hands over. That split is the rule: the browser is
+the authority on behaviour, and an exact time belongs where time is exact.
+
+Which is not a nicety. Without those four checks a submenu that opened
+INSTANTLY passed every conformance spec — and did, until they were written.
+
+### Five specs and six mutations
+
+`dropdownmenu_submenu_keyboard`, `_pointer` and `_nested` join the two that
+were there; the nested one reaches three levels deep, skips a disabled
+sub-trigger and unwinds a level at a time. Six mutations were run against the
+set — an instant hover-open, a hover-open that steals focus, ArrowRight as a
+next key, ArrowLeft closing everything, a sub-trigger with no `aria-haspopup`,
+and a hover that leaves the old submenu open — and every one is caught, the
+first by `ui:test` and the rest by the diff.
+
+`MenuCtl` also gained the one thing `overlayAnchor` exists for. A submenu
+surface is its parent ROW's child, so ownership, events, the accessibility
+walk and paint order all follow the tree; but the overlay pass finds an anchor
+among a surface's SIBLINGS, and this surface has none. Nothing in the gallery
+had used the explicit field, so the submenu laid out at the origin — invisible
+to a harness that compares ARIA and not geometry, and obvious the moment one
+opened on a page.
+
+### The demo, and the two defects it had
+
+`demo/DropdownDemo.rgr` is ReUI's account menu: the signed-in user at the top,
+a segmented theme picker, rows with icons and counts, a status row that opens
+a submenu beside it, a destructive Logout. It owns **no** state — open/closed,
+the roving focus, the submenu stack, the 100ms clock and every key are
+`MenuCtl`'s — so its keyboard is the measured one. The menubar demo beside it,
+whose keyboard is hand-written and matched against nothing, is the
+counter-example.
+
+Two structural defects, both caught by the audit and both worth naming:
+
+- `role="menu"` may contain only menu things, and a `radiogroup` is not one.
+  The theme picker is a `group` of `menuitemradio`s instead — which is what
+  Radix's own `DropdownMenu.RadioGroup` renders, for this reason.
+- The surface was the trigger's CHILD, which put a whole menu inside a button:
+  `nested-interactive`. It is the trigger's sibling now, inside a roleless
+  wrapper — which is also how the overlay pass finds its anchor without being
+  told, so the explicit `overlayAnchor` is back to being the submenu's alone.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

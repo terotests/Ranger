@@ -1,0 +1,900 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TableCtl — measured against @tanstack/react-table
+; =============================================================================
+; Radix has no table. ReUI's is TanStack Table underneath, as is every
+; shadcn-family one, so TanStack is the oracle — and a NARROWER one than
+; dnd-kit was for the sortable.
+;
+; dnd-kit owns its accessibility: it writes the roledescription, the
+; aria-pressed and the announcements, so copying it gets those right for free.
+; TanStack is headless. It computes state and hands you nothing to render — no
+; roles, no `aria-sort`, not one attribute. So the STATE MACHINE below is
+; TanStack's, captured in `conformance/oracle/table.json`, and the ARIA is the
+; HTML table spec's.
+;
+; Parity contract (see conformance/SPEC.md):
+;   root       role table, not a tab stop
+;   header row role row, holding one columnheader per column
+;   columns    role columnheader, `sorted` none | ascending | descending, a tab
+;              stop when the column can be sorted
+;   body rows  role row, selected no | yes
+;   cells      role cell, no ARIA state of their own
+;   selectall  role checkbox, mixed when some but not all of THE PAGE is chosen
+;
+; Three things from the capture that an implementation invents wrongly:
+;
+;   THE SORT CYCLE HAS THREE STATES. First direction, other direction, then
+;   unsorted again. A hand-written table toggles between two forever, and a
+;   reader can then never get back to the order the data arrived in.
+;
+;   A NUMERIC COLUMN SORTS DESCENDING FIRST, a text column ascending. "First
+;   click" means "most useful first click": biggest-first for a quantity,
+;   A-to-Z for a name. The full cycle was captured for both rather than
+;   assuming the numeric one mirrors the text one.
+;
+;   THE HEADER CHECKBOX IS PAGE-SCOPED. Selecting everything on page one and
+;   then clearing it leaves page two's rows selected, because it never touched
+;   them. "Some but not all" is a third state, not a shade of "none".
+;
+; And one that will bite: TanStack's `nextPage()` does NOT clamp. Called on the
+; last page it moves to an index with no rows in it, and only `getCanNextPage()`
+; says not to. Here the gate is inside `nextPage`, because a control that can
+; put itself somewhere empty is a control every caller has to remember to
+; guard.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; A column: what it is called, and whether it holds numbers. `numeric` decides
+; two things — which way the first click sorts, and whether the values compare
+; as numbers or as text.
+class UiColumn {
+    def key:string ""
+    def label:string ""
+    def numeric:boolean false
+    def sortable:boolean true
+
+    Constructor () {
+    }
+}
+
+; A row: an id, and one cell value per column, in column order.
+class UiRecord {
+    def key:string ""
+    def cells:[string]
+    def selected:boolean false
+
+    Constructor () {
+    }
+}
+
+class TableCtl extends UiCtl {
+    def columns:[UiColumn]
+    def records:[UiRecord]
+
+    ; --- sorting -----------------------------------------------------------
+    ; "" when nothing is sorted, which is a state the cycle can return to.
+    def sortKey:string ""
+    def sortDesc:boolean false
+
+    ; --- paging ------------------------------------------------------------
+    def pageIndex:int 0
+    def pageSize:int 4
+
+    ; The wrapper is the controller's root and carries no role. `tid` belongs
+    ; to the TABLE inside it, because `role="table"` may contain only rows —
+    ; paging buttons parented to it are a critical `aria-required-children`
+    ; failure, and a reader walking the table by row would find them where rows
+    ; should be. The DOM reference has the same shape for the same reason.
+    def tableEl:EVGElement
+    def headEl:EVGElement
+    def bodyEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        tableEl = (EVGElement.createDiv())
+        headEl = (EVGElement.createDiv())
+        bodyEl = (EVGElement.createDiv())
+        def noCols:[UiColumn]
+        columns = noCols
+        def noRows:[UiRecord]
+        records = noRows
+    }
+
+    fn addColumn:void (key:string label:string numeric:boolean sortable:boolean) {
+        def c (new UiColumn())
+        c.key = key
+        c.label = label
+        c.numeric = numeric
+        c.sortable = sortable
+        push columns c
+    }
+
+    fn addRecord:void (key:string cells:[string]) {
+        def r (new UiRecord())
+        r.key = key
+        def i:int 0
+        while (i < (array_length cells)) {
+            push r.cells (itemAt cells i)
+            i = (i + 1)
+        }
+        push records r
+    }
+
+    ; --- test ids ------------------------------------------------------------
+
+    fn headRowTid:string ()               { return (tid + "-headrow") }
+    fn colTid:string (key:string)         { return ((tid + "-col-") + key) }
+    fn rowTid:string (key:string)         { return ((tid + "-row-") + key) }
+    fn cellTid:string (rk:string ck:string) { return ((((tid + "-cell-") + rk) + "-") + ck) }
+    fn selectAllTid:string ()             { return (tid + "-selectall") }
+    fn selectColTid:string ()             { return (tid + "-selectcol") }
+    fn checkTid:string (rk:string)        { return ((tid + "-check-") + rk) }
+    fn prevTid:string ()                  { return (tid + "-prev") }
+    fn nextTid:string ()                  { return (tid + "-next") }
+
+    ; --- sorting -------------------------------------------------------------
+
+    fn columnAt:int (key:string) {
+        def i:int 0
+        while (i < (array_length columns)) {
+            def c:UiColumn (itemAt columns i)
+            if (c.key == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The direction a first click sorts this column. Descending for a number,
+    ; ascending for text — captured, not chosen.
+    fn firstDescFor:boolean (key:string) {
+        def at:int (this.columnAt(key))
+        if (at < 0) {
+            return false
+        }
+        def c:UiColumn (itemAt columns at)
+        return c.numeric
+    }
+
+    ; The three-state cycle: first direction, other direction, unsorted.
+    fn toggleSort:void (key:string) {
+        def at:int (this.columnAt(key))
+        if (at < 0) {
+            return
+        }
+        def col:UiColumn (itemAt columns at)
+        if (col.sortable == false) {
+            return
+        }
+        def first:boolean (this.firstDescFor(key))
+        ; Back to the first page. Page two of the OLD order is a window onto
+        ; rows that are no longer there, and TanStack's `autoResetPageIndex`
+        ; defaults to on for exactly this reason. Measured through the
+        ; reference component rather than by calling its methods — the two
+        ; give different answers, and the click is the one a person makes.
+        pageIndex = 0
+        if (sortKey != key) {
+            sortKey = key
+            sortDesc = first
+            return
+        }
+        if (sortDesc == first) {
+            ; One click in: turn round.
+            sortDesc = (first == false)
+            return
+        }
+        ; Two clicks in: back to the order the data arrived in. This is the
+        ; state a two-way toggle can never reach.
+        sortKey = ""
+        sortDesc = false
+    }
+
+    ; 1 none, 2 ascending, 3 descending — and 0 nowhere, because every column
+    ; this is asked about can be sorted. 0 means "no aria-sort at all", which
+    ; is what a cell has and a sortable header never does.
+    fn sortStateOf:int (key:string) {
+        if (sortKey != key) {
+            return 1
+        }
+        if sortDesc {
+            return 3
+        }
+        return 2
+    }
+
+    ; --- the rows, in the order they are shown ---------------------------------
+
+    fn compareAt:int (a:UiRecord b:UiRecord at:int numeric:boolean) {
+        def av:string ""
+        def bv:string ""
+        if (at < (array_length a.cells)) { av = (itemAt a.cells at) }
+        if (at < (array_length b.cells)) { bv = (itemAt b.cells at) }
+        if numeric {
+            def an@(optional):double (to_double av)
+            def bn@(optional):double (to_double bv)
+            def ad:double 0.0
+            def bd:double 0.0
+            if an { ad = (unwrap an) }
+            if bn { bd = (unwrap bn) }
+            if (ad < bd) { return (0 - 1) }
+            if (ad > bd) { return 1 }
+            return 0
+        }
+        return (TableCtl.compareText(av bv))
+    }
+
+    ; Ranger has no relational operator on strings, so text order is spelled
+    ; out. Code-unit order, which is what a browser's default comparator does
+    ; too — a locale-aware collation is a different feature and would be a
+    ; different oracle.
+    sfn compareText:int (a:string b:string) {
+        def an:int (strlen a)
+        def bn:int (strlen b)
+        def n:int an
+        if (bn < n) {
+            n = bn
+        }
+        def i:int 0
+        while (i < n) {
+            def ac:int (charAt a i)
+            def bc:int (charAt b i)
+            if (ac < bc) { return (0 - 1) }
+            if (ac > bc) { return 1 }
+            i = (i + 1)
+        }
+        if (an < bn) { return (0 - 1) }
+        if (an > bn) { return 1 }
+        return 0
+    }
+
+    ; Sorted, but STABLE: equal rows keep the order they were given in. An
+    ; unstable sort makes a table shuffle rows that did not change, which reads
+    ; as a bug in the data.
+    fn sortedRecords:[UiRecord] () {
+        def out:[UiRecord]
+        def i:int 0
+        while (i < (array_length records)) {
+            push out (itemAt records i)
+            i = (i + 1)
+        }
+        if ((strlen sortKey) == 0) {
+            return out
+        }
+        def at:int (this.columnAt(sortKey))
+        if (at < 0) {
+            return out
+        }
+        def col:UiColumn (itemAt columns at)
+        ; Insertion sort. The lists here are page-sized and the point is the
+        ; stability, not the asymptotics.
+        def n:int (array_length out)
+        def k:int 1
+        while (k < n) {
+            def key:UiRecord (itemAt out k)
+            def j:int (k - 1)
+            def placed:boolean false
+            while ((j >= 0) && (placed == false)) {
+                def other:UiRecord (itemAt out j)
+                def cmp:int (this.compareAt(other key at col.numeric))
+                if sortDesc {
+                    cmp = (0 - cmp)
+                }
+                if (cmp > 0) {
+                    out = (this.setAt(out (j + 1) other))
+                    j = (j - 1)
+                } {
+                    placed = true
+                }
+            }
+            out = (this.setAt(out (j + 1) key))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Ranger's arrays have no element assignment, so a write is a rebuild.
+    fn setAt:[UiRecord] (list:[UiRecord] at:int value:UiRecord) {
+        def out:[UiRecord]
+        def i:int 0
+        while (i < (array_length list)) {
+            if (i == at) {
+                push out value
+            } {
+                push out (itemAt list i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn pageCount:int () {
+        def n:int (array_length records)
+        if (pageSize <= 0) {
+            return 1
+        }
+        ; `idiv`: plain `/` on two ints gives a double in Ranger.
+        def full:int (idiv n pageSize)
+        if ((full * pageSize) < n) {
+            full = (full + 1)
+        }
+        if (full < 1) {
+            full = 1
+        }
+        return full
+    }
+
+    ; The rows actually on screen: sorted, then the current page's window.
+    fn pageRecords:[UiRecord] () {
+        def all:[UiRecord] (this.sortedRecords())
+        def out:[UiRecord]
+        def from:int (pageIndex * pageSize)
+        def i:int from
+        def until:int (from + pageSize)
+        while ((i < until) && (i < (array_length all))) {
+            push out (itemAt all i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- paging ---------------------------------------------------------------
+
+    fn canPrevious:boolean () {
+        return (pageIndex > 0)
+    }
+
+    fn canNext:boolean () {
+        return (pageIndex < ((this.pageCount()) - 1))
+    }
+
+    ; Gated HERE rather than at every call site. TanStack leaves `nextPage()`
+    ; unclamped and expects the button to be disabled; a control that can put
+    ; itself on an empty page is one every caller has to remember to guard.
+    fn nextPage:void () {
+        if (this.canNext()) {
+            pageIndex = (pageIndex + 1)
+        }
+    }
+
+    fn previousPage:void () {
+        if (this.canPrevious()) {
+            pageIndex = (pageIndex - 1)
+        }
+    }
+
+    ; --- selection -------------------------------------------------------------
+
+    fn recordAt:int (key:string) {
+        def i:int 0
+        while (i < (array_length records)) {
+            def r:UiRecord (itemAt records i)
+            if (r.key == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn toggleRow:void (key:string) {
+        def at:int (this.recordAt(key))
+        if (at < 0) {
+            return
+        }
+        def r:UiRecord (itemAt records at)
+        r.selected = (r.selected == false)
+    }
+
+    fn setRowSelected:void (key:string on:boolean) {
+        def at:int (this.recordAt(key))
+        if (at < 0) {
+            return
+        }
+        def r:UiRecord (itemAt records at)
+        r.selected = on
+    }
+
+    fn selectedOnPage:int () {
+        def page:[UiRecord] (this.pageRecords())
+        def n:int 0
+        def i:int 0
+        while (i < (array_length page)) {
+            def r:UiRecord (itemAt page i)
+            if r.selected {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn selectedCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length records)) {
+            def r:UiRecord (itemAt records i)
+            if r.selected {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; 2 yes, 3 mixed, 1 no. Mixed is the state a checkbox that is only ever
+    ; on-or-off cannot say, and it is the whole reason the header one is a
+    ; tri-state.
+    fn selectAllState:int () {
+        def page:[UiRecord] (this.pageRecords())
+        def total:int (array_length page)
+        if (total == 0) {
+            return 1
+        }
+        def n:int (this.selectedOnPage())
+        if (n == 0) {
+            return 1
+        }
+        if (n == total) {
+            return 2
+        }
+        return 3
+    }
+
+    ; Page-scoped, exactly as captured: it never touches a row it is not
+    ; showing. And clicking it while it is MIXED selects the rest rather than
+    ; clearing — the half-filled box means "there is more to take".
+    fn toggleAllOnPage:void () {
+        def wantOn:boolean ((this.selectAllState()) != 2)
+        def page:[UiRecord] (this.pageRecords())
+        def i:int 0
+        while (i < (array_length page)) {
+            def r:UiRecord (itemAt page i)
+            r.selected = wantOn
+            i = (i + 1)
+        }
+    }
+
+    ; --- input -----------------------------------------------------------------
+
+    ; What the host can put focus on. The header buttons and the paging
+    ; controls; a cell is not focusable, because this is a `table` and not a
+    ; `grid` — you tab to the controls inside it rather than steering a cursor
+    ; around the cells.
+    ;
+    ; A paging control at its end is NOT focusable, which is what makes it
+    ; disappear from the tab order the way a disabled button does.
+    fn isFocusable:boolean (target:string) {
+        if (target == (this.selectAllTid())) {
+            return true
+        }
+        if (target == (this.prevTid())) {
+            return (this.canPrevious())
+        }
+        if (target == (this.nextTid())) {
+            return (this.canNext())
+        }
+        def ci:int 0
+        while (ci < (array_length columns)) {
+            def c:UiColumn (itemAt columns ci)
+            if (target == (this.colTid(c.key))) {
+                return c.sortable
+            }
+            ci = (ci + 1)
+        }
+        def ri:int 0
+        while (ri < (array_length records)) {
+            def r:UiRecord (itemAt records ri)
+            if (target == (this.checkTid(r.key))) {
+                return true
+            }
+            ri = (ri + 1)
+        }
+        return false
+    }
+
+    ; The host's activation hook. Returns "" because nothing here moves focus
+    ; somewhere else — every activation leaves the pointer where it was, which
+    ; is what a table should do.
+    fn activate:string (target:string) {
+        this.press(target)
+        this.build()
+        return ""
+    }
+
+    fn press:boolean (target:string) {
+        if (target == (this.selectAllTid())) {
+            this.toggleAllOnPage()
+            return true
+        }
+        if (target == (this.prevTid())) {
+            this.previousPage()
+            return true
+        }
+        if (target == (this.nextTid())) {
+            this.nextPage()
+            return true
+        }
+        def ci:int 0
+        while (ci < (array_length columns)) {
+            def c:UiColumn (itemAt columns ci)
+            if (target == (this.colTid(c.key))) {
+                this.toggleSort(c.key)
+                return true
+            }
+            ci = (ci + 1)
+        }
+        def ri:int 0
+        while (ri < (array_length records)) {
+            def r:UiRecord (itemAt records ri)
+            ; The CHECKBOX selects, not the row. Clicking a row to select it is
+            ; a choice with no oracle behind it — TanStack has no opinion, and
+            ; ReUI puts a checkbox in the row precisely so a keyboard can reach
+            ; the selection at all.
+            if (target == (this.checkTid(r.key))) {
+                this.toggleRow(r.key)
+                return true
+            }
+            ri = (ri + 1)
+        }
+        return false
+    }
+
+    fn key:boolean (target:string keyName:string) {
+        if ((keyName == "Enter") || (keyName == " ")) {
+            return (this.press(target))
+        }
+        return false
+    }
+
+    ; --- the display tree ---------------------------------------------------------
+    ;
+    ; Rebuilt from the state each time, like every other controller here. It is
+    ; only ever a page's worth of rows, and the alternative — patching — is a
+    ; reconciler nobody asked for.
+    ;
+    ; The class names are the ones a stylesheet hooks: the state travels as
+    ; `state-*` and `<base>-state-*` exactly as it does everywhere else, so a
+    ; sorted header and a selected row are styled by the sheet and not by this
+    ; file deciding what either should look like.
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.className = "ui-table-wrap"
+        UiTree.clearChildren(root)
+
+        def table:EVGElement (unwrap tableEl)
+        table.id = tid
+        table.className = "ui-table"
+        table.setAttribute("role" "table")
+        table.setAttribute("aria-label" name)
+        UiTree.clearChildren(table)
+        root.addChild(table)
+
+        ; The header row.
+        def head:EVGElement (unwrap headEl)
+        head.id = (this.headRowTid())
+        head.className = "ui-table-headrow"
+        head.setAttribute("role" "row")
+        UiTree.clearChildren(head)
+
+        def selCol (EVGElement.createDiv())
+        selCol.id = (this.selectColTid())
+        selCol.className = "ui-table-col ui-table-col-select"
+        selCol.setAttribute("role" "columnheader")
+
+        def sel (EVGElement.createDiv())
+        sel.id = (this.selectAllTid())
+        sel.className = "ui-table-selectall"
+        sel.setAttribute("role" "checkbox")
+        sel.setAttribute("aria-label" "Select all")
+        def selState:int (this.selectAllState())
+        sel.a11yChecked = selState
+        sel.a11yFocusable = true
+        UiTree.setState(sel "ui-table-selectall" (TableCtl.checkedName(selState)))
+        ; A box, a tick and a dash, decided by the sheet — the glyph is
+        ; decoration and says nothing `aria-checked` has not already said.
+        def mark (EVGElement.createDiv())
+        mark.className = "ui-table-selectall-mark"
+        mark.a11yHidden = true
+        UiTree.leafText(mark (TableCtl.checkGlyph(selState)))
+        sel.addChild(mark)
+        selCol.addChild(sel)
+        head.addChild(selCol)
+
+        def ci:int 0
+        while (ci < (array_length columns)) {
+            def c:UiColumn (itemAt columns ci)
+            def h (EVGElement.createDiv())
+            h.id = (this.colTid(c.key))
+            h.className = "ui-table-col"
+            h.setAttribute("role" "columnheader")
+            if c.sortable {
+                def st:int (this.sortStateOf(c.key))
+                h.a11ySorted = st
+                h.a11yFocusable = true
+                UiTree.setState(h "ui-table-col" (TableCtl.sortName(st)))
+            }
+            def label (EVGElement.createDiv())
+            label.className = "ui-table-col-label"
+            UiTree.leafText(label c.label)
+            h.addChild(label)
+            if c.sortable {
+                ; The arrow. Decoration: `aria-sort` on the header already says
+                ; which way, and a reader announcing "Name up-arrow" would be
+                ; told the same thing twice, once as a symbol.
+                def arrow (EVGElement.createDiv())
+                arrow.className = "ui-table-col-arrow"
+                arrow.a11yHidden = true
+                UiTree.leafText(arrow (TableCtl.sortGlyph((this.sortStateOf(c.key)))))
+                h.addChild(arrow)
+            }
+            head.addChild(h)
+            ci = (ci + 1)
+        }
+        table.addChild(head)
+
+        ; The rows hang off the TABLE, not off a wrapper.
+        ;
+        ; `role="table"` requires row children, and a roleless div in between
+        ; breaks the chain — axe calls it a critical `aria-required-children`
+        ; failure. A `<tbody>` would work because it is a rowgroup; a plain box
+        ; is not, and adding a role to a box that exists only for layout would
+        ; be inventing structure for the checker rather than for the reader.
+        def body:EVGElement (unwrap bodyEl)
+        body.className = "ui-table-body"
+        UiTree.clearChildren(body)
+        def page:[UiRecord] (this.pageRecords())
+        def ri:int 0
+        while (ri < (array_length page)) {
+            def r:UiRecord (itemAt page ri)
+            def rowEl (EVGElement.createDiv())
+            rowEl.id = (this.rowTid(r.key))
+            rowEl.className = "ui-table-row"
+            rowEl.setAttribute("role" "row")
+            rowEl.a11ySelected = (EVGA11yTri.no())
+            if r.selected {
+                rowEl.a11ySelected = (EVGA11yTri.yes())
+            }
+            UiTree.setState(rowEl "ui-table-row" (TableCtl.selectedName(r.selected)))
+
+            def checkCell (EVGElement.createDiv())
+            checkCell.id = ((this.rowTid(r.key)) + "-checkcell")
+            checkCell.className = "ui-table-cell ui-table-cell-select"
+            checkCell.setAttribute("role" "cell")
+            def check (EVGElement.createDiv())
+            check.id = (this.checkTid(r.key))
+            check.className = "ui-table-check"
+            check.setAttribute("role" "checkbox")
+            check.setAttribute("aria-label" ("Select " + (itemAt r.cells 0)))
+            def rowChecked:int (EVGA11yTri.no())
+            if r.selected {
+                rowChecked = (EVGA11yTri.yes())
+            }
+            check.a11yChecked = rowChecked
+            check.a11yFocusable = true
+            UiTree.setState(check "ui-table-check" (TableCtl.checkedName(rowChecked)))
+            def rowMark (EVGElement.createDiv())
+            rowMark.className = "ui-table-check-mark"
+            rowMark.a11yHidden = true
+            UiTree.leafText(rowMark (TableCtl.checkGlyph(rowChecked)))
+            check.addChild(rowMark)
+            checkCell.addChild(check)
+            rowEl.addChild(checkCell)
+
+            def cj:int 0
+            while (cj < (array_length columns)) {
+                def c2:UiColumn (itemAt columns cj)
+                def cellEl (EVGElement.createDiv())
+                cellEl.id = (this.cellTid(r.key c2.key))
+                cellEl.className = "ui-table-cell"
+                cellEl.setAttribute("role" "cell")
+                def text:string ""
+                if (cj < (array_length r.cells)) {
+                    text = (itemAt r.cells cj)
+                }
+                UiTree.leafText(cellEl text)
+                rowEl.addChild(cellEl)
+                cj = (cj + 1)
+            }
+            table.addChild(rowEl)
+            ri = (ri + 1)
+        }
+
+        ; The paging controls. Disabled at the ends rather than allowed to run
+        ; past them — see `nextPage`.
+        def foot (EVGElement.createDiv())
+        foot.className = "ui-table-foot"
+        def prev (EVGElement.createDiv())
+        prev.id = (this.prevTid())
+        prev.className = "ui-table-prev"
+        prev.setAttribute("role" "button")
+        prev.setAttribute("aria-label" "Previous page")
+        prev.a11yDisabled = ((this.canPrevious()) == false)
+        prev.a11yFocusable = (this.canPrevious())
+        UiTree.leafText(prev "Previous")
+        foot.addChild(prev)
+        def next (EVGElement.createDiv())
+        next.id = (this.nextTid())
+        next.className = "ui-table-next"
+        next.setAttribute("role" "button")
+        next.setAttribute("aria-label" "Next page")
+        next.a11yDisabled = ((this.canNext()) == false)
+        next.a11yFocusable = (this.canNext())
+        UiTree.leafText(next "Next")
+        foot.addChild(next)
+        root.addChild(foot)
+    }
+
+    sfn checkedName:string (state:int) {
+        if (state == 2) { return "checked" }
+        if (state == 3) { return "indeterminate" }
+        return "unchecked"
+    }
+
+    sfn checkGlyph:string (state:int) {
+        if (state == 2) { return "✓" }
+        if (state == 3) { return "–" }
+        return ""
+    }
+
+    sfn sortName:string (state:int) {
+        if (state == 2) { return "ascending" }
+        if (state == 3) { return "descending" }
+        return "unsorted"
+    }
+
+    sfn sortGlyph:string (state:int) {
+        if (state == 2) { return "▲" }
+        if (state == 3) { return "▼" }
+        return ""
+    }
+
+    sfn selectedName:string (on:boolean) {
+        if on { return "selected" }
+        return "unselected"
+    }
+
+    fn tids:[string] () {
+        def out:[string]
+        push out tid
+        push out (this.headRowTid())
+        push out (this.selectColTid())
+        push out (this.selectAllTid())
+        def ci:int 0
+        while (ci < (array_length columns)) {
+            def c:UiColumn (itemAt columns ci)
+            push out (this.colTid(c.key))
+            ci = (ci + 1)
+        }
+        def ri:int 0
+        while (ri < (array_length records)) {
+            def r:UiRecord (itemAt records ri)
+            push out (this.rowTid(r.key))
+            push out ((this.rowTid(r.key)) + "-checkcell")
+            push out (this.checkTid(r.key))
+            def cj:int 0
+            while (cj < (array_length columns)) {
+                def c2:UiColumn (itemAt columns cj)
+                push out (this.cellTid(r.key c2.key))
+                cj = (cj + 1)
+            }
+            ri = (ri + 1)
+        }
+        push out (this.prevTid())
+        push out (this.nextTid())
+        return out
+    }
+
+    ; --- the trace ---------------------------------------------------------------
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def root (UiRow.of(tid (EVGA11yRole.table()) name))
+        push out root
+
+        ; The header row, and one columnheader per column.
+        def head (UiRow.of((this.headRowTid()) (EVGA11yRole.row()) ""))
+        head.parentTid = tid
+        push out head
+
+        ; The select-all lives INSIDE a column header, not beside one. A row's
+        ; children have to be cells — axe calls a checkbox parented straight to
+        ; a row a critical `aria-required-children` failure, and it is right:
+        ; a reader walking a table by column lands on nothing there.
+        def selCol (UiRow.of((this.selectColTid()) (EVGA11yRole.columnHeader()) ""))
+        selCol.parentTid = (this.headRowTid())
+        push out selCol
+
+        def sel (UiRow.of((this.selectAllTid()) (EVGA11yRole.checkbox()) "Select all"))
+        sel.parentTid = (this.selectColTid())
+        sel.checked = (this.selectAllState())
+        sel.focusable = true
+        sel.tabStop = true
+        push out sel
+
+        def ci:int 0
+        while (ci < (array_length columns)) {
+            def c:UiColumn (itemAt columns ci)
+            def h (UiRow.of((this.colTid(c.key)) (EVGA11yRole.columnHeader()) c.label))
+            h.parentTid = (this.headRowTid())
+            if c.sortable {
+                h.sorted = (this.sortStateOf(c.key))
+                h.focusable = true
+                h.tabStop = true
+            }
+            push out h
+            ci = (ci + 1)
+        }
+
+        ; The rows on THIS page, in the order they are shown.
+        def page:[UiRecord] (this.pageRecords())
+        def ri:int 0
+        while (ri < (array_length page)) {
+            def r:UiRecord (itemAt page ri)
+            def rr (UiRow.of((this.rowTid(r.key)) (EVGA11yRole.row()) ""))
+            rr.parentTid = tid
+            rr.selected = (EVGA11yTri.no())
+            if r.selected {
+                rr.selected = (EVGA11yTri.yes())
+            }
+            ; A row is NOT a focus target. This is a `table`, not a `grid`: you
+            ; tab to the controls inside it and never steer a cursor over the
+            ; rows. A focusable row also has no name to announce — the lint
+            ; said so — and giving it one would mean reading every cell twice.
+            push out rr
+
+            ; Selection is a checkbox in the row, which is how ReUI does it and
+            ; the only way a keyboard reaches it at all.
+            def checkCell (UiRow.of(((this.rowTid(r.key)) + "-checkcell") (EVGA11yRole.tableCell()) ""))
+            checkCell.parentTid = (this.rowTid(r.key))
+            push out checkCell
+            def check (UiRow.of((this.checkTid(r.key)) (EVGA11yRole.checkbox()) ("Select " + (itemAt r.cells 0))))
+            check.parentTid = ((this.rowTid(r.key)) + "-checkcell")
+            check.checked = (EVGA11yTri.no())
+            if r.selected {
+                check.checked = (EVGA11yTri.yes())
+            }
+            check.focusable = true
+            check.tabStop = true
+            push out check
+
+            def cj:int 0
+            while (cj < (array_length columns)) {
+                def c2:UiColumn (itemAt columns cj)
+                def text:string ""
+                if (cj < (array_length r.cells)) {
+                    text = (itemAt r.cells cj)
+                }
+                def cell (UiRow.of((this.cellTid(r.key c2.key)) (EVGA11yRole.tableCell()) text))
+                cell.parentTid = (this.rowTid(r.key))
+                push out cell
+                cj = (cj + 1)
+            }
+            ri = (ri + 1)
+        }
+
+        ; OUTSIDE the table, like the DOM reference. `role="table"` may contain
+        ; only rows, and a button parented to it is where a reader walking by
+        ; row would find something that is not one.
+        def prev (UiRow.of((this.prevTid()) (EVGA11yRole.button()) "Previous page"))
+        prev.disabled = ((this.canPrevious()) == false)
+        prev.focusable = ((this.canPrevious()))
+        prev.tabStop = ((this.canPrevious()))
+        push out prev
+
+        def next (UiRow.of((this.nextTid()) (EVGA11yRole.button()) "Next page"))
+        next.disabled = ((this.canNext()) == false)
+        next.focusable = ((this.canNext()))
+        next.tabStop = ((this.canNext()))
+        push out next
+
+        return out
+    }
+}

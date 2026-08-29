@@ -126,7 +126,11 @@ class MenubarDemo {
         return (tree Menubar
             (SubRow (props (id (MenubarDemo.rowId(label))) (a11yExpanded state))
                 (Label label)
-                (Shortcut ">")))
+                ; Decoration, and marked as such. The chevron says "there is
+                ; more this way" to the eye; `aria-expanded` on the row already
+                ; says it to a reader, and without `aria-hidden` here the row
+                ; announces as "Share greater-than".
+                (Shortcut (props (a11yHidden true)) ">")))
     }
 
     ; The indicator is always present and always the same width, so the labels

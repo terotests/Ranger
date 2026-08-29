@@ -547,6 +547,17 @@ class EVGElement {
     def a11yLabel:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
+    ; `aria-hidden`: this element and everything under it is DECORATION and
+    ; contributes nothing to the accessible tree — no node, and no words to an
+    ; ancestor's name.
+    ;
+    ; The chevron on a submenu row is the case that asked for it. It is a ">"
+    ; drawn beside the label, and without this the row announces as "Share
+    ; greater-than" — the glyph read aloud as if it were part of the name, when
+    ; `aria-haspopup` has already said the same thing properly.
+    def a11yHidden:boolean false
+    ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
+    def a11ySorted:int 0
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
@@ -1402,6 +1413,75 @@ class EVGElement {
     ; Split a CSS value on whitespace, but never inside parentheses —
     ; `rgb(203, 213, 225)` is ONE token, and splitting it would hand the
     ; border shorthand three pieces of nonsense.
+    ; CSS box shorthands take one to four values, and EVG used to read the
+    ; whole declaration as ONE unit: `padding: 0 16px` put nothing on the sides
+    ; at all, because the parser saw the leading `0` and applied it four times.
+    ; Every two-, three- and four-value shorthand in the gallery had been wrong
+    ; since the sheets were written, which nobody noticed because a padding
+    ; that is too small looks like a layout someone chose.
+    ;
+    ; The mapping and the failure rules are measured in `oracle/css-box.json`:
+    ; one value is all four sides, two are vertical then horizontal, three are
+    ; top/horizontal/bottom, four are top/right/bottom/left. Anything else —
+    ; five values, a component that is not a length, a negative PADDING — drops
+    ; the whole declaration rather than the offending component, so the element
+    ; keeps whatever it had. An empty result here means exactly that.
+    sfn boxSides:[EVGUnit] (value:string isMargin:boolean) {
+        def out:[EVGUnit]
+        def words:[string] (EVGElement.splitWords(value))
+        def n:int (array_length words)
+        if (n < 1) {
+            return out
+        }
+        if (n > 4) {
+            return out
+        }
+        def parts:[EVGUnit]
+        def i:int 0
+        while (i < n) {
+            def w:string (itemAt words i)
+            def u:EVGUnit (EVGUnit.parse(w))
+            if (u.isSet == false) {
+                ; `auto` is the one word that legally parses to no length, and
+                ; only on a margin. EVG has no auto-margin centring, so it lands
+                ; where an unset margin lands: at zero.
+                if (isMargin == false) {
+                    return out
+                }
+                if (w != "auto") {
+                    return out
+                }
+            } {
+                if (u.value < 0.0) {
+                    if (isMargin == false) {
+                        return out
+                    }
+                }
+            }
+            push parts u
+            i = (i + 1)
+        }
+        def top:EVGUnit (itemAt parts 0)
+        def right:EVGUnit top
+        def bottom:EVGUnit top
+        def left:EVGUnit top
+        if (n > 1) {
+            right = (itemAt parts 1)
+            left = right
+        }
+        if (n > 2) {
+            bottom = (itemAt parts 2)
+        }
+        if (n > 3) {
+            left = (itemAt parts 3)
+        }
+        push out top
+        push out right
+        push out bottom
+        push out left
+        return out
+    }
+
     sfn splitWords:[string] (s:string) {
         def out:[string]
         def cur:string ""
@@ -1693,6 +1773,16 @@ class EVGElement {
             a11yLabel = value
             return
         }
+        if ((name == "aria-sort") || (name == "a11ySorted")) {
+            if (value == "none")       { a11ySorted = 1 }
+            if (value == "ascending")  { a11ySorted = 2 }
+            if (value == "descending") { a11ySorted = 3 }
+            return
+        }
+        if ((name == "aria-hidden") || (name == "a11yHidden")) {
+            a11yHidden = (EVGElement.truthy(value))
+            return
+        }
         if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {
             a11yRoleDescription = value
             return
@@ -1746,7 +1836,10 @@ class EVGElement {
         
         ; Margin
         if (name == "margin") {
-            box.setMargin((EVGUnit.parse(value)))
+            def ms:[EVGUnit] (EVGElement.boxSides(value true))
+            if ((array_length ms) == 4) {
+                box.setMarginValues((itemAt ms 0) (itemAt ms 1) (itemAt ms 2) (itemAt ms 3))
+            }
             return
         }
         if ((name == "margin-left") || (name == "marginLeft")) {
@@ -1768,7 +1861,10 @@ class EVGElement {
         
         ; Padding
         if (name == "padding") {
-            box.setPadding((EVGUnit.parse(value)))
+            def ps:[EVGUnit] (EVGElement.boxSides(value false))
+            if ((array_length ps) == 4) {
+                box.setPaddingValues((itemAt ps 0) (itemAt ps 1) (itemAt ps 2) (itemAt ps 3))
+            }
             return
         }
         if ((name == "padding-left") || (name == "paddingLeft")) {

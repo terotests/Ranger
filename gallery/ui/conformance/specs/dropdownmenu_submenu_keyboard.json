@@ -1,0 +1,18 @@
+{ "name":"dropdownmenu_submenu_keyboard","component":"dropdown-menu",
+  "behaviours":["sub-trigger-role","sub-right-opens","sub-left-closes","sub-first-item","sub-escape-closes-all"],
+  "fixture":{"controls":[
+    {"type":"dropdownmenu","tid":"dm","name":"Menu","items":[
+      {"value":"a","name":"Alpha"},
+      {"value":"share","name":"Share","items":[
+        {"value":"mail","name":"Email Link"},
+        {"value":"sms","name":"Messages"},
+        {"value":"note","name":"Notes"}]},
+      {"value":"c","name":"Gamma"}]}]},
+  "steps":[
+    {"click":"dm-trigger"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowRight"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowLeft"},
+    {"key":"Escape"}] }

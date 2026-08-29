@@ -4382,6 +4382,8 @@ class EVGElement  {
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
+    this.a11yHidden = false;
+    this.a11ySorted = 0;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -4944,6 +4946,22 @@ class EVGElement  {
       this.a11yLabel = value;
       return;
     }
+    if ( (name == "aria-sort") || (name == "a11ySorted") ) {
+      if ( value == "none" ) {
+        this.a11ySorted = 1;
+      }
+      if ( value == "ascending" ) {
+        this.a11ySorted = 2;
+      }
+      if ( value == "descending" ) {
+        this.a11ySorted = 3;
+      }
+      return;
+    }
+    if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
+      this.a11yHidden = EVGElement.truthy(value);
+      return;
+    }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
       this.a11yRoleDescription = value;
       return;
@@ -4993,7 +5011,10 @@ class EVGElement  {
       return;
     }
     if ( name == "margin" ) {
-      this.box.setMargin(EVGUnit.parse(value));
+      const ms = EVGElement.boxSides(value, true);
+      if ( (ms.length) == 4 ) {
+        this.box.setMarginValues(ms[0], ms[1], ms[2], ms[3]);
+      }
       return;
     }
     if ( (name == "margin-left") || (name == "marginLeft") ) {
@@ -5013,7 +5034,10 @@ class EVGElement  {
       return;
     }
     if ( name == "padding" ) {
-      this.box.setPadding(EVGUnit.parse(value));
+      const ps = EVGElement.boxSides(value, false);
+      if ( (ps.length) == 4 ) {
+        this.box.setPaddingValues(ps[0], ps[1], ps[2], ps[3]);
+      }
       return;
     }
     if ( (name == "padding-left") || (name == "paddingLeft") ) {
@@ -5620,6 +5644,58 @@ EVGElement.parseAngleDeg = function(text) {
     }
   }
   return v;
+};
+EVGElement.boxSides = function(value, isMargin) {
+  let out = [];
+  const words = EVGElement.splitWords(value);
+  const n = words.length;
+  if ( n < 1 ) {
+    return out;
+  }
+  if ( n > 4 ) {
+    return out;
+  }
+  let parts = [];
+  let i = 0;
+  while (i < n) {
+    const w = words[i];
+    const u = EVGUnit.parse(w);
+    if ( u.isSet == false ) {
+      if ( isMargin == false ) {
+        return out;
+      }
+      if ( w != "auto" ) {
+        return out;
+      }
+    } else {
+      if ( u.value < 0.0 ) {
+        if ( isMargin == false ) {
+          return out;
+        }
+      }
+    }
+    parts.push(u);
+    i = i + 1;
+  };
+  const top = parts[0];
+  let right = top;
+  let bottom = top;
+  let left = top;
+  if ( n > 1 ) {
+    right = parts[1];
+    left = right;
+  }
+  if ( n > 2 ) {
+    bottom = parts[2];
+  }
+  if ( n > 3 ) {
+    left = parts[3];
+  }
+  out.push(top);
+  out.push(right);
+  out.push(bottom);
+  out.push(left);
+  return out;
 };
 EVGElement.splitWords = function(s) {
   let out = [];

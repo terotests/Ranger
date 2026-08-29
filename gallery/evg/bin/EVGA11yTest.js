@@ -120,6 +120,9 @@ EVGA11yRole.listBox = function() {
 EVGA11yRole.option = function() {
   return 38;
 };
+EVGA11yRole.table = function() {
+  return 39;
+};
 EVGA11yRole.ariaName = function(role) {
   if ( role == 1 ) {
     return "group";
@@ -147,6 +150,9 @@ EVGA11yRole.ariaName = function(role) {
   }
   if ( role == 9 ) {
     return "link";
+  }
+  if ( role == 39 ) {
+    return "table";
   }
   if ( role == 10 ) {
     return "grid";
@@ -287,6 +293,7 @@ class EVGA11yNode  {
     this.modal = false;
     this.checked = 0;
     this.expanded = 0;
+    this.sorted = 0;
     this.hasValueNow = false;
     this.valueNow = 0;
     this.hasValueRange = false;
@@ -463,6 +470,9 @@ class EVGA11yTree  {
     }
     if ( n.checked != 0 ) {
       out = (out + ",\"checked\":") + ((n.checked.toString()));
+    }
+    if ( n.sorted != 0 ) {
+      out = (out + ",\"sorted\":") + ((n.sorted.toString()));
     }
     if ( n.expanded != 0 ) {
       out = (out + ",\"expanded\":") + ((n.expanded.toString()));
@@ -2108,6 +2118,8 @@ class EVGFlight  {
     this.unitCode = 0;     /** note: unused */
     this.reversingStartNumber = 0.0;     /** note: unused */
     this.reversingFactor = 1.0;     /** note: unused */
+    this.wroteNumber = 0.0;     /** note: unused */
+    this.hasWrote = false;     /** note: unused */
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {
@@ -2249,6 +2261,8 @@ class EVGElement  {
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
+    this.a11yHidden = false;
+    this.a11ySorted = 0;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2809,6 +2823,22 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-sort") || (name == "a11ySorted") ) {
+      if ( (value == "ascending") || (value == "1") ) {
+        this.a11ySorted = 1;
+      }
+      if ( (value == "descending") || (value == "2") ) {
+        this.a11ySorted = 2;
+      }
+      if ( (value == "none") || (value == "0") ) {
+        this.a11ySorted = 0;
+      }
+      return;
+    }
+    if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
+      this.a11yHidden = EVGElement.truthy(value);
       return;
     }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
@@ -7584,7 +7614,19 @@ class EVGDisplayList  {
       while (li < (lines.length)) {
         const c4 = new EVGDrawCmd();
         c4.kind = 3;
-        c4.x = x + el.box.paddingLeftPx;
+        let indent = 0.0;
+        if ( (el.textAlign == "center") || (el.textAlign == "right") ) {
+          const m = this.textEngine.measureRun((lines[li]), face, fs);
+          const slack = avail - m.width;
+          if ( slack > 0.0 ) {
+            if ( el.textAlign == "center" ) {
+              indent = slack / 2.0;
+            } else {
+              indent = slack;
+            }
+          }
+        }
+        c4.x = (x + el.box.paddingLeftPx) + indent;
         c4.y = (y + el.box.paddingTopPx) + ((li) * (fs * lh));
         c4.w = avail;
         c4.h = fs * lh;
@@ -17429,7 +17471,7 @@ class EVGA11yFromTree  {
     let i = 0;
     while (i < (el.children.length)) {
       const kid = el.children[i];
-      if ( (kid.role.length) == 0 ) {
+      if ( ((kid.role.length) == 0) && (kid.a11yHidden == false) ) {
         const t = kid.textContent.trim();
         if ( (t.length) > 0 ) {
           if ( (out.length) > 0 ) {
@@ -17467,6 +17509,9 @@ class EVGA11yFromTree  {
     return (((parentId + "/") + el.role) + "@") + ((index.toString()));
   };
   walk (el, parentId, index) {
+    if ( el.a11yHidden ) {
+      return;
+    }
     let nextParent = parentId;
     const code = EVGA11yFromTree.roleCode(el.role);
     if ( code != EVGA11yRole.none() ) {
@@ -17478,6 +17523,7 @@ class EVGA11yFromTree  {
       n.disabled = el.a11yDisabled;
       n.checked = el.a11yChecked;
       n.expanded = el.a11yExpanded;
+      n.sorted = el.a11ySorted;
       if ( el.a11ySelected == 2 ) {
         n.selected = true;
       }
@@ -17587,6 +17633,24 @@ EVGA11yFromTree.roleCode = function(name) {
   }
   if ( name == "listitem" ) {
     return EVGA11yRole.listItem();
+  }
+  if ( name == "table" ) {
+    return EVGA11yRole.table();
+  }
+  if ( name == "row" ) {
+    return EVGA11yRole.row();
+  }
+  if ( name == "columnheader" ) {
+    return EVGA11yRole.columnHeader();
+  }
+  if ( name == "rowheader" ) {
+    return EVGA11yRole.rowHeader();
+  }
+  if ( name == "cell" ) {
+    return EVGA11yRole.cell();
+  }
+  if ( name == "gridcell" ) {
+    return EVGA11yRole.cell();
   }
   if ( name == "switch" ) {
     return EVGA11yRole.switchControl();
@@ -20425,6 +20489,61 @@ function __js_main() {
   c.ok("the new one is focused", b.focused);
   c.ok("the old one is not", f.focused == false);
   c.eqStr("and the tree agrees", t.focusId, "app/ok");
+  console.log("== aria-hidden prunes decoration out of the tree AND the name ==");
+  const deco = new EVGElement();
+  deco.setAttribute("width", "300");
+  deco.setAttribute("height", "100");
+  const rowEl = new EVGElement();
+  rowEl.setAttribute("role", "menuitem");
+  rowEl.setAttribute("width", "280");
+  rowEl.setAttribute("height", "30");
+  const labelEl = new EVGElement();
+  labelEl.textContent = "Share";
+  rowEl.addChild(labelEl);
+  const chevron = new EVGElement();
+  chevron.textContent = ">";
+  chevron.setAttribute("aria-hidden", "true");
+  rowEl.addChild(chevron);
+  deco.addChild(rowEl);
+  const dl = new EVGLayout();
+  dl.layout(deco);
+  const db = new EVGA11yFromTree();
+  const dt = db.build(deco, "Decoration", 1, "");
+  let found = "";
+  let di = 0;
+  while (di < (dt).count()) {
+    const nd = (dt).at(di);
+    if ( EVGA11yRole.ariaName(nd.role) == "menuitem" ) {
+      found = nd.name;
+    }
+    di = di + 1;
+  };
+  c.eqStr("the chevron is not part of the name", found, "Share");
+  const ghostWrap = new EVGElement();
+  ghostWrap.setAttribute("aria-hidden", "true");
+  ghostWrap.setAttribute("width", "100");
+  ghostWrap.setAttribute("height", "30");
+  const ghostBtn = new EVGElement();
+  ghostBtn.setAttribute("role", "button");
+  ghostBtn.setAttribute("width", "80");
+  ghostBtn.setAttribute("height", "20");
+  ghostBtn.textContent = "Invisible";
+  ghostWrap.addChild(ghostBtn);
+  deco.addChild(ghostWrap);
+  const dl2 = new EVGLayout();
+  dl2.layout(deco);
+  const db2 = new EVGA11yFromTree();
+  const dt2 = db2.build(deco, "Decoration", 2, "");
+  let hiddenSeen = false;
+  let dj = 0;
+  while (dj < (dt2).count()) {
+    const nd2 = (dt2).at(dj);
+    if ( nd2.name == "Invisible" ) {
+      hiddenSeen = true;
+    }
+    dj = dj + 1;
+  };
+  c.ok("a button inside hidden decoration is not reported", hiddenSeen == false);
   console.log("== roles are spelled the way ARIA spells them ==");
   c.eqStr("button", EVGA11yRole.ariaName(EVGA11yRole.button()), "button");
   c.eqStr("text field", EVGA11yRole.ariaName(EVGA11yRole.textField()), "textbox");
@@ -20507,23 +20626,23 @@ function __js_main() {
   lay.setPageSize(800.0, 600.0);
   lay.layout(page);
   const b_2 = new EVGA11yFromTree();
-  const dt = b_2.build(page, "Ranger UI", 7, "trigger-file");
-  const bar = EVGA11yTest.nodeById(dt, "bar");
+  const dt_2 = b_2.build(page, "Ranger UI", 7, "trigger-file");
+  const bar = EVGA11yTest.nodeById(dt_2, "bar");
   c.eqStr("the bar is a menubar", EVGA11yRole.ariaName(bar.role), "menubar");
   c.eqStr("named by its label", bar.name, "Main");
-  const trig = EVGA11yTest.nodeById(dt, "trigger-file");
+  const trig = EVGA11yTest.nodeById(dt_2, "trigger-file");
   c.eqStr("the trigger hangs off the menubar, not off the layout box", trig.parentId, "bar");
   c.eqInt("and says it is open", trig.expanded, 2);
   c.ok("and can be focused", trig.focusable);
-  const row = EVGA11yTest.nodeById(dt, "row-new-tab");
+  const row = EVGA11yTest.nodeById(dt_2, "row-new-tab");
   c.eqStr("a row is named by what it contains", row.name, "New Tab ⌘ T");
-  const chk = EVGA11yTest.nodeById(dt, "row-urls");
+  const chk = EVGA11yTest.nodeById(dt_2, "row-urls");
   c.eqStr("a checkbox row is a menuitemcheckbox", EVGA11yRole.ariaName(chk.role), "menuitemcheckbox");
   c.eqInt("and it is ticked", chk.checked, 2);
-  const menuNode = EVGA11yTest.nodeById(dt, "menu-file-content");
+  const menuNode = EVGA11yTest.nodeById(dt_2, "menu-file-content");
   c.ok("the surface reports the rectangle it was moved to", menuNode.y > 30);
-  c.eqInt("focus is where the caller put it", EVGA11yTest.focusedCount(dt), 1);
-  c.lintsClean("a derived tree", dt);
+  c.eqInt("focus is where the caller put it", EVGA11yTest.focusedCount(dt_2), 1);
+  c.lintsClean("a derived tree", dt_2);
   console.log("");
   console.log((("passed " + ((c.passed.toString()))) + ", failed ") + ((c.failed.toString())));
   if ( c.failed > 0 ) {
