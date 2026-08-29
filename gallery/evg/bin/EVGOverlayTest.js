@@ -1173,6 +1173,7 @@ class EVGElement  {
     this.overlayPlacedSide = "";
     this.role = "";
     this.a11yLabel = "";
+    this.a11yRoleDescription = "";
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -1619,6 +1620,10 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
+      this.a11yRoleDescription = value;
       return;
     }
     if ( (name == "aria-checked") || (name == "a11yChecked") ) {

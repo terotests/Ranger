@@ -198,6 +198,10 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     }
 
     setAttr(el, "aria-description", node.desc);
+    // Some controls are a known role doing an unfamiliar job. A sortable row
+    // is a `button`, and a reader told only that learns nothing about being
+    // able to move it.
+    setAttr(el, "aria-roledescription", node.roledesc);
     // Open or closed. A trigger that never says which is a trigger a reader
     // cannot tell has already been pressed.
     setAttr(el, "aria-expanded", node.expanded ? TRI[node.expanded] || null : null);

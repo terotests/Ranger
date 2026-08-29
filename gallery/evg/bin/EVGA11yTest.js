@@ -255,6 +255,7 @@ class EVGA11yNode  {
     this.role = 0;
     this.name = "";
     this.description = "";
+    this.roleDescription = "";
     this.value = "";
     this.x = 0;
     this.y = 0;
@@ -459,6 +460,9 @@ class EVGA11yTree  {
     }
     if ( n.colCount != 0 ) {
       out = (out + ",\"cols\":") + ((n.colCount.toString()));
+    }
+    if ( (n.roleDescription.length) > 0 ) {
+      out = (out + ",\"roledesc\":") + EVGA11yTree.jsonString(n.roleDescription);
     }
     if ( n.posInSet != 0 ) {
       out = (out + ",\"pos\":") + ((n.posInSet.toString()));
@@ -1862,8 +1866,10 @@ class EVGElement  {
     this.overlayGap = 4.0;
     this.overlayX = 0.0;
     this.overlayY = 0.0;
+    this.overlayPlacedSide = "";
     this.role = "";
     this.a11yLabel = "";
+    this.a11yRoleDescription = "";
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2310,6 +2316,10 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
+      this.a11yRoleDescription = value;
       return;
     }
     if ( (name == "aria-checked") || (name == "a11yChecked") ) {
@@ -16698,6 +16708,7 @@ class EVGA11yFromTree  {
       const t = this.tree;
       const n = t.node(id, parentId, code);
       n.name = this.nameOf(el);
+      n.roleDescription = el.a11yRoleDescription;
       n.disabled = el.a11yDisabled;
       n.checked = el.a11yChecked;
       n.expanded = el.a11yExpanded;
@@ -18795,40 +18806,91 @@ class EVGLayout  {
     let miss;
     return miss;
   };
+  overlayRoom (side, ax, ay, aw, ah, w, h, gap) {
+    if ( side == "top" ) {
+      return (ay - gap) - h;
+    }
+    if ( side == "bottom" ) {
+      return (this.pageHeight - ((ay + ah) + gap)) - h;
+    }
+    if ( side == "left" ) {
+      return (ax - gap) - w;
+    }
+    if ( side == "right" ) {
+      return (this.pageWidth - ((ax + aw) + gap)) - w;
+    }
+    return 0.0;
+  };
   placeOverlay (surface, parent) {
-    const w = surface.calculatedWidth;
-    const h = surface.calculatedHeight;
+    let w = surface.calculatedWidth;
+    let h = surface.calculatedHeight;
     let x = 0.0;
     let y = 0.0;
-    if ( surface.overlaySide == "center" ) {
-      x = (this.pageWidth - w) / 2.0;
-      y = (this.pageHeight - h) / 2.0;
+    if ( surface.overlaySide == "cover" ) {
+      x = 0.0;
+      y = 0.0;
+      surface.calculatedWidth = this.pageWidth;
+      surface.calculatedHeight = this.pageHeight;
+      surface.calculatedInnerWidth = surface.box.getInnerWidth(this.pageWidth);
+      surface.calculatedInnerHeight = surface.box.getInnerHeight(this.pageHeight);
+      w = this.pageWidth;
+      h = this.pageHeight;
+      surface.overlayPlacedSide = "cover";
+      let kid = 0;
+      while (kid < surface.getChildCount()) {
+        const kc = surface.getChild(kid);
+        kc.resetLayoutState();
+        kid = kid + 1;
+      };
+      if ( surface.getChildCount() > 0 ) {
+        this.layoutChildren(surface);
+        this.mirrorChildren(surface);
+      }
     } else {
-      const maybe = this.findOverlayAnchor(surface, parent);
-      if ( typeof(maybe) === "undefined" ) {
-        this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
-        return;
-      }
-      const a = maybe;
-      const ax = a.calculatedX;
-      const ay = a.calculatedY;
-      const aw = a.calculatedWidth;
-      const ah = a.calculatedHeight;
-      if ( surface.overlaySide == "top" ) {
-        x = this.overlayCross(ax, aw, w, surface.overlayAlign);
-        y = (ay - h) - surface.overlayGap;
-      }
-      if ( surface.overlaySide == "bottom" ) {
-        x = this.overlayCross(ax, aw, w, surface.overlayAlign);
-        y = (ay + ah) + surface.overlayGap;
-      }
-      if ( surface.overlaySide == "right" ) {
-        x = (ax + aw) + surface.overlayGap;
-        y = this.overlayCross(ay, ah, h, surface.overlayAlign);
-      }
-      if ( surface.overlaySide == "left" ) {
-        x = (ax - w) - surface.overlayGap;
-        y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+      if ( surface.overlaySide == "center" ) {
+        x = (this.pageWidth - w) / 2.0;
+        y = (this.pageHeight - h) / 2.0;
+        surface.overlayPlacedSide = "center";
+      } else {
+        const maybe = this.findOverlayAnchor(surface, parent);
+        if ( typeof(maybe) === "undefined" ) {
+          this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
+          return;
+        }
+        const a = maybe;
+        const ax = a.calculatedX;
+        const ay = a.calculatedY;
+        const aw = a.calculatedWidth;
+        const ah = a.calculatedHeight;
+        const gap = surface.overlayGap;
+        let side = surface.overlaySide;
+        const other = EVGLayout.oppositeSide(side);
+        const here = this.overlayRoom(side, ax, ay, aw, ah, w, h, gap);
+        if ( here < 0.0 ) {
+          const there = this.overlayRoom(other, ax, ay, aw, ah, w, h, gap);
+          if ( there > here ) {
+            side = other;
+          }
+        }
+        surface.overlayPlacedSide = side;
+        if ( side == "top" ) {
+          x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+          y = (ay - h) - gap;
+        }
+        if ( side == "bottom" ) {
+          x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+          y = (ay + ah) + gap;
+        }
+        if ( side == "right" ) {
+          x = (ax + aw) + gap;
+          y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+        }
+        if ( side == "left" ) {
+          x = (ax - w) - gap;
+          y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+        }
+        x = EVGLayout.clampTo(x, 0.0, (this.pageWidth - w));
+        y = EVGLayout.clampTo(y, 0.0, (this.pageHeight - h));
       }
     }
     surface.overlayX = x;
@@ -19395,6 +19457,33 @@ class EVGLayout  {
     return maxInnerWidth;
   };
 }
+EVGLayout.oppositeSide = function(side) {
+  if ( side == "top" ) {
+    return "bottom";
+  }
+  if ( side == "bottom" ) {
+    return "top";
+  }
+  if ( side == "left" ) {
+    return "right";
+  }
+  if ( side == "right" ) {
+    return "left";
+  }
+  return side;
+};
+EVGLayout.clampTo = function(v, lo, hi) {
+  if ( hi < lo ) {
+    return lo;
+  }
+  if ( v < lo ) {
+    return lo;
+  }
+  if ( v > hi ) {
+    return hi;
+  }
+  return v;
+};
 class A11yCheck  {
   constructor() {
     this.passed = 0;

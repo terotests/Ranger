@@ -264,6 +264,10 @@ class SortableCtl extends UiCtl {
     ; so a click that never travels leaves the list alone. Focus moves, which
     ; is what the reference does and what makes the keyboard path reachable
     ; from the mouse.
+    fn dragsOnto:boolean () {
+        return true
+    }
+
     fn press:string (target:string) {
         if disabled {
             return ""
@@ -307,14 +311,60 @@ class SortableCtl extends UiCtl {
 
     ; --- the tree --------------------------------------------------------------
 
+    ; The order to DRAW in: the carried item shown where it would land.
+    ;
+    ; The reference does the same thing and it is worth being precise about
+    ; why. dnd-kit leaves the DOM order alone during a drag and moves the items
+    ; with transforms — so what a reader is told and what the eye sees come
+    ; apart on purpose, and only the drop reconciles them. `rows()` therefore
+    ; reports the COMMITTED order while this reports the prospective one, and
+    ; the trace agrees with the reference precisely because they differ.
+    fn previewOrder:[UiItem] () {
+        def out:[UiItem]
+        def from:int (this.indexOf(activeValue))
+        def to:int (this.indexOf(overValue))
+        if ((from < 0) || ((to < 0) || (from == to))) {
+            def i:int 0
+            while (i < (array_length items)) {
+                push out (itemAt items i)
+                i = (i + 1)
+            }
+            return out
+        }
+        def moved:UiItem (itemAt items from)
+        def rest:[UiItem]
+        def j:int 0
+        while (j < (array_length items)) {
+            if (j != from) {
+                push rest (itemAt items j)
+            }
+            j = (j + 1)
+        }
+        def k:int 0
+        def placed:boolean false
+        while (k < (array_length rest)) {
+            if (k == to) {
+                push out moved
+                placed = true
+            }
+            push out (itemAt rest k)
+            k = (k + 1)
+        }
+        if (placed == false) {
+            push out moved
+        }
+        return out
+    }
+
     fn build:void () {
         def root:EVGElement (unwrap rootEl)
         root.id = tid
         root.className = "ui-sortable"
         UiTree.clearChildren(root)
+        def shown:[UiItem] (this.previewOrder())
         def i:int 0
-        while (i < (array_length items)) {
-            def it:UiItem (itemAt items i)
+        while (i < (array_length shown)) {
+            def it:UiItem (itemAt shown i)
             def el:EVGElement (unwrap it.el)
             el.id = (this.itemTid(it.value))
             el.className = "ui-sortable-item"

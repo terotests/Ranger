@@ -167,6 +167,11 @@ class EVGA11yNode {
     ; Spoken after a pause, or on request: the formula behind a cell, the note
     ; attached to it, the shortcut on a button.
     def description:string ""
+    ; What a reader says INSTEAD of the role: "sortable" on a draggable row.
+    ; Every platform has it — aria-roledescription, UIA LocalizedControlType,
+    ; AT-SPI's localized role name — because some controls are a known role
+    ; doing an unfamiliar job, and the role name alone then says nothing useful.
+    def roleDescription:string ""
     ; A field's text, a cell's value — separate from the name, which is the
     ; label that does not change when the content does.
     def value:string ""
@@ -439,6 +444,9 @@ class EVGA11yTree {
         }
         if (n.colCount != 0) {
             out = (out + ",\"cols\":" + (to_string n.colCount))
+        }
+        if ((strlen n.roleDescription) > 0) {
+            out = (out + ",\"roledesc\":" + (EVGA11yTree.jsonString(n.roleDescription)))
         }
         if (n.posInSet != 0) {
             out = (out + ",\"pos\":" + (to_string n.posInSet))

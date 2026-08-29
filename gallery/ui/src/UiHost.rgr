@@ -437,6 +437,20 @@ class UiHost {
         return 0.0
     }
 
+    ; The laid-out rectangle of a test id, as "x,y,w,h", or "" if the display
+    ; tree does not carry it. A canvas offers nothing to a query selector, so
+    ; anything driving this host from outside — a browser test pressing an item
+    ; — has to ask where the item IS.
+    fn rectOf:string (target:string) {
+        def r:EVGElement (unwrap root)
+        def maybe@(optional):EVGElement (this.findEl(r target))
+        if maybe {
+            def el:EVGElement (unwrap maybe)
+            return ((((((to_string (to_int el.calculatedX)) + ",") + (to_string (to_int el.calculatedY))) + ",") + (to_string (to_int el.calculatedWidth))) + ",") + (to_string (to_int el.calculatedHeight))
+        }
+        return ""
+    }
+
     ; Which element's rectangle a press on `target` would be measured against,
     ; or "" if pressing it is not a drag. Anything driving this host from the
     ; outside — the conformance adapter, the browser playground — asks first, so
@@ -773,6 +787,7 @@ class UiHost {
                 if (row.role != (EVGA11yRole.none())) {
                     n.name = row.name
                 }
+                n.roleDescription = row.roleDescription
                 n.hasValueNow = row.hasValueNow
                 n.valueNow = row.valueNow
                 n.hasValueRange = row.hasRange
@@ -891,6 +906,17 @@ class UiHost {
     ; The host does the same thing for both ends of the gesture as it does for a
     ; click: turn a target into a controller. What is under the cursor is the
     ; paint-order hit test, so a drag and a click can never disagree about it.
+
+    ; Will pressing here start a drag onto something else? The playground asks
+    ; before it decides whether a press is a click.
+    fn dragsOntoFor:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragsOnto())
+        }
+        return false
+    }
 
     fn pressOn:void (target:string) {
         def maybe@(optional):UiCtl (this.ctlFor(target))

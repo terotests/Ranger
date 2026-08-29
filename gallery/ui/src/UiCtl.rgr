@@ -183,6 +183,13 @@ class UiCtl {
     ; The host resolves the id with the same hit test a click uses, so the two
     ; gestures agree about what is under the cursor by construction.
 
+    ; Does this controller drag one thing ONTO another? A host with a real
+    ; pointer has to know before the gesture starts, because a press that will
+    ; become that kind of drag must not also be a click.
+    fn dragsOnto:boolean () {
+        return false
+    }
+
     fn press:string (target:string) {
         return ""
     }

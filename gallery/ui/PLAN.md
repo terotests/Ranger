@@ -166,6 +166,51 @@ The seven components still missing are `form`,
 typeahead and submenus, and one needs pointer drag — so the next component is
 cheapest after a `textfield` primitive, not after more overlay work.
 
+## Sortable — the first control whose reference is not Radix
+
+Radix has no sortable. ReUI's is `@dnd-kit/sortable` underneath, and so is
+every other in the shadcn family, so dnd-kit is the oracle and gets exactly the
+treatment Radix gets: the real library in a real browser, one fixture, one
+diff. It is in the trace as `sortable`, kept out of the Radix coverage fraction
+by a `beyond` bucket in `radix-inventory.json` — a component the denominator
+never contained must not inflate the number.
+
+The oracle was captured before a line of `SortableCtl` existed, and it said
+immediately that the harness could not see a sortable at all:
+
+- [x] **`roledescription`.** Every dnd-kit item is a `button` carrying
+      `aria-roledescription: sortable`, and that is the whole affordance: a
+      reader told "button" learns nothing about being able to move the thing.
+      Now a field on `UiRow`, on `EVGA11yNode`, on `EVGElement`, and mirrored
+      as the real attribute by `evg-a11y.js`.
+- [x] **`posinset`.** A reorder moves *nothing else* — every other field of
+      every item is identical before and after, and `diffNodes` keys by test
+      id. The one thing the component does was invisible.
+- [x] **The announcement.** A keyboard drag's arrow step changes nothing
+      observable: the item has not moved and the displacement is a picture.
+      `"observe": ["announce"]` puts the live region in the trace as a node, so
+      that step can fail.
+- [x] **A drag onto something.** The harness had `dragto: <fraction>`, which is
+      a slider's gesture. `dragover: <tid>` needs no geometry at all — what is
+      under the pointer is a test id, resolved by the same hit test a click
+      uses.
+
+`posinset` found a divergence on its first run and it was not a bug: the
+tooltip's content was 2nd on the Ranger side and 3rd on the Radix side, because
+Radix portals a floating surface to the end of the document while EVG keeps it
+the trigger's child. Position is therefore compared only inside a control,
+where both sides agree on the parent.
+
+The controller is 300 lines with no drag machinery in it. The interesting part
+is what it does NOT do: `rows()` reports the committed order while `build()`
+draws the prospective one, because dnd-kit leaves the DOM alone during a drag
+and moves items with transforms. What a reader is told and what the eye sees
+come apart on purpose, and only the drop reconciles them.
+
+Live in the playground: press an item on the canvas and drag it onto another,
+or click one and use Space / arrows / Escape. Both sides reorder together, and
+the panel says "traces agree" at every step.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

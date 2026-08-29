@@ -425,3 +425,27 @@
   background-color: #f1f5f9;
   color: #0f172a;
 }
+
+/* --- sortable ---------------------------------------------------------------
+   A list you can pick items up in. The dragged row is lifted rather than
+   hidden: the reference keeps it in place and moves it with a transform, and
+   what the eye should follow is the row, not a hole where it was. */
+
+.ui-sortable {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+}
+.ui-sortable-item {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+.ui-sortable-item-dragging {
+  border: 1px solid #2563eb;
+  background-color: #dbeafe;
+}
+.ui-sortable-item-disabled { opacity: 0.45; }

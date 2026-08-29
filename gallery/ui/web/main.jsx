@@ -56,6 +56,11 @@ function useEvgHost(fixture, theme) {
     host.setPageSize(PAGE_W, PAGE_H);
     host.setTheme(theme);
     host.layout();
+    // The EVG host, for anything driving this page from outside: a browser
+    // test needs an item's RECTANGLE to press, and only the host knows where
+    // layout put it. The same hook the accessibility audit page exposes, and
+    // for the same reason — a canvas offers nothing to a query selector.
+    window.__uiHost = host;
     return host;
   }, [fixture, theme]);
 }
@@ -223,6 +228,8 @@ function Playground() {
   const tabbing = useRef(false);
   /** The element a drag started in the Radix panel is measured against. */
   const domDragBounds = useRef("");
+  // A drag of one thing onto another, started on the reference side.
+  const domOnto = useRef(false);
   const drive = useCallback((fn) => {
     driving.current = true;
     try {
@@ -260,6 +267,14 @@ function Playground() {
       if (fromCanvas(e)) return;
       const tid = tidOf(e);
       if (tid === null && !radixRef.current.contains(e.target)) return;
+      if (tid && host.dragsOntoFor(tid)) {
+        // The same gesture from the other side: the reference is being dragged
+        // with the real pointer, and the EVG list follows it by test id.
+        domOnto.current = true;
+        host.pressOn(tid);
+        schedule();
+        return;
+      }
       const boundsTid = tid ? host.dragBoundsFor(tid) : "";
       if (boundsTid) {
         // A drag, not a click. Radix is already handling the real pointer; the
@@ -273,11 +288,24 @@ function Playground() {
       schedule();
     };
     const onMove = (e) => {
-      if (fromCanvas(e) || !domDragBounds.current) return;
+      if (fromCanvas(e)) return;
+      if (domOnto.current) {
+        const over = tidOf(e);
+        if (over) host.dragOnto(over);
+        schedule();
+        return;
+      }
+      if (!domDragBounds.current) return;
       host.dragFraction(fracFor(domDragBounds.current, e));
       schedule();
     };
     const onUp = () => {
+      if (domOnto.current) {
+        domOnto.current = false;
+        host.releaseDrag();
+        schedule();
+        return;
+      }
       if (!domDragBounds.current) return;
       domDragBounds.current = "";
       host.pointerUp();
@@ -394,23 +422,78 @@ function Playground() {
     [host, drive],
   );
 
+  /**
+   * The other kind of drag: one thing onto another.
+   *
+   * A slider's drag is a fraction of a track, and the mirror has to compute
+   * that fraction. This one is simpler and more robust — what matters is which
+   * ITEM the pointer is over, which is a test id on both sides, so the mirror
+   * dispatches at the centre of the element carrying the same id. Nothing has
+   * to agree about geometry for the two lists to reorder together.
+   */
+  const ontoDrag = useRef(false);
+  const mirrorOnto = useCallback(
+    (tid, kind) => {
+      const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
+      if (!el) return;
+      const b = el.getBoundingClientRect();
+      drive(() => {
+        // A real mousedown focuses what it lands on; a synthetic one does not,
+        // because focusing is the browser's default action and not part of the
+        // event. Without this the panel reported the pressed item as focused
+        // on the EVG side and not on the reference — a divergence the headless
+        // gate, which uses real input, does not have.
+        if (kind === "pointerdown" && el.focus) el.focus();
+        el.dispatchEvent(
+          new PointerEvent(kind, {
+            bubbles: true,
+            pointerType: "mouse",
+            clientX: b.x + b.width / 2,
+            clientY: b.y + b.height / 2,
+            buttons: kind === "pointerup" ? 0 : 1,
+            pointerId: 1,
+            isPrimary: true,
+          }),
+        );
+      });
+    },
+    [drive],
+  );
+
   const onCanvasDragMove = useCallback(
     (e) => {
       if (!dragging.current) return;
       const r = canvasRef.current.getBoundingClientRect();
+      if (ontoDrag.current) {
+        const over = host.hitTest(e.clientX - r.left, e.clientY - r.top);
+        if (over) {
+          host.dragOnto(over);
+          mirrorOnto(over, "pointermove");
+        }
+        schedule();
+        return;
+      }
       host.pointerMove(e.clientX - r.left, e.clientY - r.top);
       // The bounds come from what was PRESSED, not from what is under the
       // cursor now — a drag routinely leaves the control it started on.
       mirrorDrag(pressedTid.current, e);
       schedule();
     },
-    [host, mirrorDrag, schedule],
+    [host, mirrorDrag, mirrorOnto, schedule],
   );
 
   const onCanvasUp = useCallback(
     (e) => {
       if (!dragging.current) return;
       dragging.current = false;
+      if (ontoDrag.current) {
+        ontoDrag.current = false;
+        host.releaseDrag();
+        mirrorOnto(pressedTid.current, "pointerup");
+        stubPointerCapture(false);
+        schedule();
+        return;
+      }
       host.pointerUp();
       stubPointerCapture(false);
       drive(() => {
@@ -420,7 +503,7 @@ function Playground() {
       });
       schedule();
     },
-    [host, drive, schedule, stubPointerCapture],
+    [host, drive, schedule, stubPointerCapture, mirrorOnto],
   );
 
   const onCanvasPointer = useCallback(
@@ -429,6 +512,37 @@ function Playground() {
       // pressAt, not pointerDown: a slider's thumb is grabbed, not clicked, and
       // this is the one host with a real pointer to grab it with.
       const tid = host.pressAt(e.clientX - r.left, e.clientY - r.top);
+      if (tid && host.dragsOntoFor(tid)) {
+        // A press that will become a drag onto something else, so it is NOT
+        // also a click: dnd-kit waits for the pointer to travel before a press
+        // becomes a drag, and a click that never travels must leave the list
+        // alone on both sides.
+        //
+        // preventDefault, because focusing the canvas is the browser's default
+        // action for a press on it — and it happens AFTER this handler, so it
+        // would undo the focus the mirror just gave the item. Measured: the
+        // reference then never heard Space, because the element dnd-kit
+        // listens on did not have focus.
+        e.preventDefault();
+        pressedTid.current = tid;
+        ontoDrag.current = true;
+        dragging.current = true;
+        stubPointerCapture(true);
+        host.pressOn(tid);
+        mirrorOnto(tid, "pointerdown");
+        try {
+          canvasRef.current.setPointerCapture(e.pointerId);
+        } catch {
+          // A synthetic pointer has none to capture; the drag works without it.
+        }
+        // Focus stays on the MIRRORED element rather than moving to the canvas.
+        // A sortable's next input is usually a key — Space picks the item up —
+        // and the reference only hears it if the element it belongs to has
+        // focus. The EVG side is not affected: the key handler is on `window`,
+        // which sees the event wherever focus is.
+        schedule();
+        return;
+      }
       if (host.dragBoundsFor(tid)) {
         pressedTid.current = tid;
         stubPointerCapture(true);
@@ -455,7 +569,7 @@ function Playground() {
       canvasRef.current.focus();
       schedule();
     },
-    [host, schedule, drive, mirrorDrag, stubPointerCapture],
+    [host, schedule, drive, mirrorDrag, mirrorOnto, stubPointerCapture],
   );
 
   /**
