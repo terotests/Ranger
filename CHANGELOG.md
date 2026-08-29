@@ -21,6 +21,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A step counts as an edge only when it is unique and continuous** (`edgeMinRun`, default 3) — reported as the tracer being too eager to find edges, with a lot of noise as a result. On a photograph nearly every neighbouring pair differs by a few levels, so taking each one at face value stops the region growth everywhere and the picture comes apart. A boundary is now two things at once: **unique** — at least as strong as the steps either side of it across its own direction, so a ridge keeps its crest and a lone noisy pixel loses to whatever it sits next to — and **continuous**, part of a run of at least `edgeMinRun` such pixels, because a boundary is a line and noise is scattered.
+
+  On a portrait under `contourMode: "smooth"`: false contours **6855 → 2537 (−63%)**, rings 350 → 244, SVG 221 KB → 169 KB, and the skin comes out smooth where it was blotched. On the Hokusai print, rings 322 → 153 and 260 KB → 191 KB. On flat clip art it changes nothing at all, which is right — there is no noise there to filter. The test pins the mechanism rather than a number: with one straight boundary and five isolated specks of the same step size, the boundary is marked on all 36 of its rows and not one speck is.
+
+  It is used to decide where a *boundary* is, not where growth stops in overlay mode: relaxing the stop there let shapes run until the spread leash tripped in an arbitrary place, and a portrait fragmented into 42120 shapes and 37 MB. Measured, reverted, and the filter kept where it works.
+
+  **The previous algorithm is untouched and still the default.** `contourMode: "off"` produces byte-identical output — a portrait at 10 colors is 385 rings and 261100 bytes before and after. The new modes are additions, not replacements, and the page now says so: the choice of algorithm is the first control under the image buttons rather than buried among the fine adjustments, and the adjustments themselves only appear once a mode that uses them is chosen.
+
+### Added
+
+- **Stacked overlay shapes, so a shape swallowed by a leak comes back** (`contourMode: "overlay"`, off by default) — the idea, and the diagnosis behind it, came from the report. The partitioning flood has one fatal weakness: a boundary only has to fade for a few pixels somewhere along its length, and the surface walks through that gap and takes everything behind it. Measured on a ramp with an inset block, `smooth` loses the block completely — the color inside it and outside it come out **identical**, a difference of 0.
+
+  Stacking removes the consequence instead of chasing the cause. A surface is grown to its end and keeps whatever it took; every edge it ran into becomes a seed for a shape started on the far side and drawn *on top*. An overlay may cover ground already claimed, so a leak costs nothing — the shape is simply painted again from above. It stops at an edge, and also where it has become indistinguishable from what is under it (`overlaySimilar`), so an overlay only exists where it shows. The block comes back: a difference of **21**, against 0.
+
+  It wants `gradientFill` on with it, and the reason is worth recording. The similarity stop asks whether an overlay would show against what is beneath. Against a flat mean the answer is yes everywhere a ramp leaves that mean, so every gradient shatters into bands — 18 shapes and 42 KB on a test image. Painting each shape's *fitted model* into the map instead, the question becomes "is the model wrong here", and the same image comes back as **9 shapes and 22 KB** with the highlight in the middle of the tube where it belongs. The two features are one idea in two halves.
+
+  **Radial fits are not emitted.** They were, briefly, and the report on them was right: away from a genuinely round region an isotropic cone *infers* structure the picture does not contain, and the shapes it invents are strange rather than merely wrong. An elliptical radial fitted to the region's own proportions was tried and measured worse — the model choice shifted and a test image fragmented from 9 shapes into 13 with hard angular wedges. Holding it back behind a margin was tried too. Both are gone; only flat and linear are emitted, and a test asserts no `<radialGradient>` ever reaches the output. The cost is honest: a tube lit down its middle really is a ridge, and a linear ramp describes it poorly.
+
+  Both stay off by default and `gradientGain` is the restraint on the second: a fitted gradient replaces a flat fill only when it explains at least that much more of the region, and at 100 nothing can out-argue flat.
+
+### Added
+
+- **Overlay shapes: steepest edge first, both sides seeded, and a base underneath** — three fixes to `contourMode: "overlay"`, all from the report. Seeds now sit in 256 buckets by the strength of the edge that produced them and the steepest is always served first, and *every* steep pixel is queued up front rather than one: a figure can be star-shaped or in several pieces, and growing out from a single point does not reach the sharp corners of the others. Both sides of a crossing are seeded, not just the far one — seeding one side leaves the other to whichever surface arrives there, and at a boundary that fades that is the surface which already leaked through it.
+
+  And a base surface is drawn under the stack. The shape budget is finite and a photograph spends it on small overlays long before it has covered the frame; measured, **62% of a portrait came out unpainted**. The base is drawn but never entered into the paint map, so it changes nothing about where the shapes above it stop, and coverage is 100% with no seams.
+
+  What none of this fixes, measured rather than assumed: where a boundary's contrast reaches *zero* — the two sides passing through the same tone — the shape's outline on that side is not the real edge but wherever the similarity stop happened to cut it. On the test image the source itself scores 40% on a probe of the inset block, `smooth` scores 0% (the block is gone), and overlay scores 52% — the block is recovered, its light-side outline is not.
+
+- **Linear gradient fills, fitted per region** (`gradientFill`, off by default) — asked for after the banding work: a ramp is *really* a gradient, and a flat fill is only the second-best answer. Each continuity region is now fitted with three models — one flat color, a linear ramp and a radial one — and keeps whichever leaves the least squared error, with `gradientGain` refusing a gradient that does not explain meaningfully more than flat. Measured before writing any of it: on a portrait the weighted mean absolute error is flat 8.95, linear 5.43, radial 8.71; on a sky-and-tube image it is flat 12.40, linear 4.47, radial 9.09 — **and best-of-both 1.82**. Neither model wins alone, which is the case for choosing per region: the tube is lit down its middle and is radial (4.90) where a linear fit is worse than useless (12.97).
+
+  It reproduces a synthetic sky-and-tube almost exactly, in **1114 bytes against 4754** for the flat version, and the emitted stops are the source colors to the level: a 30 → 124 ramp comes out `#1E1E1E` → `#7C7C7C`. Coefficients come from the normal equations by Cramer's rule; the gradient's axis is the direction *luma* runs along, since the three channels each have their own slope and SVG has one axis.
+
+  **Where it fails, and it does**: a detailed photograph segments into ~1500 regions, each traced on its own, and the result is worse than the flat version, not better. It is for images with large smooth surfaces — skies, plastic, product shots, the playground tubing this came from. Fitting is refused below 64 pixels and for an axis under two pixels long: a thin region's normal equations are near-singular, Cramer answers with wild coefficients whose residual looks *excellent*, and the stop color comes out black. That was a real bug, found by a test asserting a linear axis has length. `toEVGElements` still returns flat fills — an EVGElement carries one color — so gradients are `toSVG` only.
+
+### Added
+
+- **Read small color changes as continuous and large ones as a break** (`contourMode: "smooth"`, off by default) — reported from a photograph of playground tubing and again from a portrait: a quantizer cuts a hard edge wherever a smooth ramp crosses the midpoint between two swatches, so a sky gains stripes and a cheek gains blotches, while a genuine edge between two *similar* colors can go unmarked. Both are the same missing distinction, and the fix is the one the report proposed: grow regions across neighbours that differ by at most `contourEdge`, then give the whole region the single swatch nearest its mean. A ramp becomes one region and loses its false contour; a step bigger than the threshold still splits.
+
+  Measured by counting adjacent pixel pairs whose labels differ, split by whether the image is actually discontinuous there. On a portrait at 10 colors, **false contours fell 22075 → 11667 (−47%) while real edges moved 34848 → 34820, that is by 0.1%** — the banding goes and the detail stays. With the photo preset as well it is −69%, and the SVG halves.
+
+  `contourSpread` is the leash, and it is the interesting part: without it one gradient walks across the whole picture and merges everything it touches. The tests pin both sides of that trade — a 110-level ramp is longer than the default leash of 48, so one seam is left in it, and only with the leash lengthened does the ramp come out unbroken.
+
+  It stays **off by default and is labelled experimental on the page**, because it is a segmentation and segmentations fail hard: at `contourEdge: 10` a soft-edged tube merged into the field behind it and disappeared entirely. The default of 3 is chosen against exactly that, and the slider's hint says so.
+
+### Added
+
+- **Remove a background color you name, and a checkerboard to see what is transparent** — `bgMode: "auto"` floods the page in from the border, but it first requires the border to be 80% one flat color, and it *declines silently* when it is not: a banner across the top, a drop shadow, a screenshot with the page furniture in it, and the background comes through painted with no explanation. `bgMode: "color"` is the same border flood from a color you name in `bgColor`, with no uniformity test to pass. It is still a flood rather than a "delete every white pixel", so white inside the subject survives — on a face with white eyes and a white page, the eyes come out as a real white layer of exactly their own pixels while the page goes. `bgTolerance` is now on the page too, for backgrounds with a gradient or compression noise in them. And `auto` no longer declines quietly: the status line says the background was left and points at the color mode.
+
+  The output stage now sits on a **checkerboard**, because a transparent hole and a painted cream background look identical against a cream stage — that is what made this hard to see in the first place. It is on by default for both the source and the result, and there is a checkbox to turn it off. `EvgBitmapTracer.backgroundRemoved()` reports whether a page color was actually flooded away.
+
+### Added
+
 - **Smoothing, so more colors stop meaning more noise** — reported from a tiger photograph: at a low `colorCount` the trace is clean and vector-like, and every color added past that fills it with speckle. The cause is that a photograph's per-pixel noise is real signal to a quantizer. Two adjacent pixels of fur differ by a level or two, land in different swatches, and each speck becomes its own ring — so the extra colors buy fragments instead of shapes.
 
   `smooth` is a count of 3×3 median passes run over the color planes before anything else looks at them. It moves whole pixels rather than filtering each channel: of the nine neighbours it takes the one whose *luma* is the median and copies its RGB, so it cannot invent a color that is nowhere in the image, and unlike a blur it leaves an edge where it found one. `minRegion` — which absorbs a small run of pixels into what surrounds it — already existed but its slider stopped at 40, far too low for a photograph; it now goes to 400.
@@ -34,6 +86,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **Overlay mode was not leaking, it was running out of shapes** — reported as a leak: on a portrait the US flag came out as bare background even though its stripes are about the strongest boundaries in the picture. It is not a leak. Raising the shape budget from 3000 to 60000 brought the flag, the curtains and the face all back, which settles it: those shapes were never made.
+
+  The budget was there because each shape cost the *whole frame*. A per-shape mask allocated a full width × height bitmap, `decompose` copied it, and the scan for the next ring swept it — so a photograph, which is thousands of shapes, paid the image area thousands of times over. That is now a mask over the shape's own bounding box with the traced path moved back afterwards, and the same portrait went from **26.5 s to 950 ms**, a factor of 52. With the cost gone the budget can be what the picture needs: it scales with the pixel count instead of sitting at a fixed 3000.
+
+  Steepest-first also starved the large quiet areas — a photograph has thousands of sharp spots and a face is nearly all low contrast — so every fourth shape is now taken from a plain sweep instead of the queue.
+
+  Overlay on a photograph is still not what `smooth` is: the face comes out speckled where `smooth` renders it cleanly, and the file is 1.4 MB against 221 KB. It no longer *loses* anything, which is the difference between a limitation and a defect.
+
+### Fixed
+
+- **The tracer bench could pass on code that never compiled** — `run_trace_bench.sh` checked the compiler's exit code, and the compiler prints `[FAIL]` and still exits 0. A test file with a syntax error therefore left the previous build in place and the script reported a pass for code that does not exist. Found by making exactly that mistake. It now greps the compile log the way `run-gallery-editor-tests.sh` already does.
 
 - **White hairlines between the traced shapes** — reported as the harder half of the noise problem: as `colorCount` grows, thin light lines open up along the seams where two colors meet. Not a tuning matter. Every layer was traced and curve-fitted **independently**, so the one pixel boundary two regions share got two different fitted curves, one approached from each side. They never agree exactly, and wherever they bow apart the page shows through.
 

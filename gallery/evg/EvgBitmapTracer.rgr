@@ -54,6 +54,12 @@ class EvgBitmapTracer {
     def flat:[int]
     ; Palette index per pixel, -1 = not painted (assignLabels).
     def labels:[int]
+    ; 1 = a step that survived the uniqueness and continuity tests, i.e. a
+    ; boundary rather than noise (buildEdgeMask).
+    def edgeMask:[int]
+    ; Continuity region id per pixel, -1 = none (buildContourRegions).
+    def regionOf:[int]
+    def regionCount:int 0
     ; 1 = page background flooded in from the border (detectBackground).
     def bgMask:[int]
     def bgActive:boolean false
@@ -80,6 +86,10 @@ class EvgBitmapTracer {
         labels = lb
         def bg:[int]
         bgMask = bg
+        def ro:[int]
+        regionOf = ro
+        def em:[int]
+        edgeMask = em
         def ly:[EvgTraceLayer]
         layers = ly
     }
@@ -292,6 +302,12 @@ class EvgBitmapTracer {
         return (array_length commands)
     }
 
+    ; True when a page color was actually flooded away — the page can say so,
+    ; because "auto" declining silently is indistinguishable from it failing.
+    fn backgroundRemoved:boolean () {
+        return bgActive
+    }
+
     fn layerCount:int () {
         return (array_length layers)
     }
@@ -341,16 +357,53 @@ class EvgBitmapTracer {
         return out
     }
 
+    sfn num:string (v:double) {
+        ; Two decimals is plenty for a gradient axis and keeps the file small.
+        def scaled:int (to_int ((v * 100.0) + 0.5))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = ("0" + fs)
+        }
+        return ((to_string whole) + "." + fs)
+    }
+
     fn toSVG:string () {
         def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
         svg = (svg + "width=\"" + (to_string width) + "\" ")
         svg = (svg + "height=\"" + (to_string height) + "\" ")
         svg = (svg + "viewBox=\"0 0 " + (to_string width) + " " + (to_string height) + "\">")
         if ((array_length layers) > 0) {
+            ; Gradients have to be declared before they are referenced.
+            def defs:string ""
             def i:int 0
             while (i < (array_length layers)) {
                 def layer:EvgTraceLayer (itemAt layers i)
-                svg = (svg + "<path fill=\"" + layer.fillHex + "\" fill-rule=\"evenodd\" d=\"" + layer.pathData + "\"/>")
+                def id:string ("g" + (to_string i))
+                if ((layer.fillKind) == "linear") {
+                    defs = (defs + "<linearGradient id=\"" + id + "\" gradientUnits=\"userSpaceOnUse\"")
+                    defs = (defs + " x1=\"" + (EvgBitmapTracer.num(layer.gx0)) + "\" y1=\"" + (EvgBitmapTracer.num(layer.gy0)) + "\"")
+                    defs = (defs + " x2=\"" + (EvgBitmapTracer.num(layer.gx1)) + "\" y2=\"" + (EvgBitmapTracer.num(layer.gy1)) + "\">")
+                    defs = (defs + "<stop offset=\"0\" stop-color=\"" + layer.stopA + "\"/>")
+                    defs = (defs + "<stop offset=\"1\" stop-color=\"" + layer.stopB + "\"/></linearGradient>")
+                }
+                i = (i + 1)
+            }
+            if ((strlen defs) > 0) {
+                svg = (svg + "<defs>" + defs + "</defs>")
+            }
+            i = 0
+            while (i < (array_length layers)) {
+                def layer2:EvgTraceLayer (itemAt layers i)
+                def fill:string layer2.fillHex
+                if ((layer2.fillKind) != "flat") {
+                    fill = ("url(#g" + (to_string i) + ")")
+                }
+                svg = (svg + "<path fill=\"" + fill + "\" fill-rule=\"evenodd\" d=\"" + layer2.pathData + "\"/>")
                 i = (i + 1)
             }
         } {
@@ -424,7 +477,9 @@ class EvgBitmapTracer {
 
     fn detectBackground:void () {
         bgActive = false
-        if ((options.bgMode) != "auto") {
+        def mode:string options.bgMode
+        def named:boolean (mode == "color")
+        if ((mode != "auto") && (named == false)) {
             return
         }
         def n:int (width * height)
@@ -503,20 +558,32 @@ class EvgBitmapTracer {
         if (tol < 0) {
             tol = 0
         }
-        ; How much of the border actually is that color?
-        def within:int 0
-        i = 0
-        while (i < bn) {
-            def idx2:int (itemAt border i)
-            if ((itemAt planeA idx2) >= 16) {
-                if (this.nearBg(idx2 bgR bgG bgB tol)) {
-                    within = (within + 1)
-                }
+        if named {
+            ; The caller named the color, so the border does not get a vote on
+            ; what it is — or on whether the flood happens at all.
+            def c:EVGColor (EVGColor.parse(options.bgColor))
+            if (c.isSet == false) {
+                return
             }
-            i = (i + 1)
-        }
-        if ((idiv (within * 100) opaqueBorder) < 80) {
-            return
+            bgR = (to_int c.r)
+            bgG = (to_int c.g)
+            bgB = (to_int c.b)
+        } {
+            ; How much of the border actually is that color?
+            def within:int 0
+            i = 0
+            while (i < bn) {
+                def idx2:int (itemAt border i)
+                if ((itemAt planeA idx2) >= 16) {
+                    if (this.nearBg(idx2 bgR bgG bgB tol)) {
+                        within = (within + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            if ((idiv (within * 100) opaqueBorder) < 80) {
+                return
+            }
         }
         ; Flood the page in from every matching border pixel.
         def mask:[int]
@@ -1142,7 +1209,1486 @@ class EvgBitmapTracer {
         }
         labels = outL
         this.despeckleLabels()
+        this.smoothContours(palR palG palB)
         this.mergeTinyRegions((array_length palR))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Banding suppression (options.contourMode)
+    ; ----------------------------------------------------------------------
+
+    ; One step of the continuity walk. A neighbour joins when the step to it is
+    ; small enough to read as continuous AND it has not drifted too far from
+    ; what the region has averaged so far — the second test is what stops a
+    ; gradient from walking off across the whole picture.
+    fn contourStep:void (i:int from:int seen:[int] stack:[int] acc:[int] edgeTol:int spread:int) {
+        if ((itemAt seen i) != 0) {
+            return
+        }
+        if ((itemAt labels i) < 0) {
+            return
+        }
+        ; A step stops the growth only when it is a boundary: strongest across
+        ; its own direction, and part of a run rather than a speck. On a
+        ; photograph nearly every neighbouring pair differs by a few levels, so
+        ; taking each one at face value stops the growth everywhere and the
+        ; picture comes apart into noise.
+        if (this.isBoundary(from i edgeTol)) {
+            return
+        }
+        def cnt:int (itemAt acc 3)
+        if (cnt > 0) {
+            def mr:int (idiv (itemAt acc 0) cnt)
+            def mg:int (idiv (itemAt acc 1) cnt)
+            def mb:int (idiv (itemAt acc 2) cnt)
+            def d:int (EvgBitmapTracer.absI((itemAt planeR i) - mr))
+            def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - mg))
+            if (dg > d) {
+                d = dg
+            }
+            def db:int (EvgBitmapTracer.absI((itemAt planeB i) - mb))
+            if (db > d) {
+                d = db
+            }
+            if (d > spread) {
+                return
+            }
+        }
+        set seen i 1
+        push stack i
+        set acc 0 ((itemAt acc 0) + (itemAt planeR i))
+        set acc 1 ((itemAt acc 1) + (itemAt planeG i))
+        set acc 2 ((itemAt acc 2) + (itemAt planeB i))
+        set acc 3 (cnt + 1)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Which steps are boundaries and which are noise
+    ; ----------------------------------------------------------------------
+
+    ; Mark the steps that are worth treating as boundaries. Two tests, and a
+    ; step has to pass both:
+    ;   unique     — it is at least as strong as the steps either side of it
+    ;                ACROSS its own direction. A ridge keeps its crest; a lone
+    ;                noisy pixel loses to whatever it sits next to.
+    ;   continuous — it belongs to a run of at least edgeMinRun such pixels.
+    ;                A boundary is a line; noise is scattered.
+    fn buildEdgeMask:void () {
+        def n:int (width * height)
+        def keep:[int]
+        def mag:[int]
+        def lum:[int]
+        def i:int 0
+        while (i < n) {
+            push keep 0
+            push mag 0
+            push lum (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
+            i = (i + 1)
+        }
+        if ((options.edgeMinRun) < 1) {
+            edgeMask = keep
+            return
+        }
+        def edgeTol:int options.contourEdge
+        if (edgeTol < 1) {
+            edgeTol = 1
+        }
+        ; --- magnitude ---
+        def y:int 1
+        while (y < (height - 1)) {
+            def x:int 1
+            while (x < (width - 1)) {
+                def idx:int ((y * width) + x)
+                def gx:int ((itemAt lum (idx + 1)) - (itemAt lum (idx - 1)))
+                def gy:int ((itemAt lum (idx + width)) - (itemAt lum (idx - width)))
+                set mag idx ((EvgBitmapTracer.absI(gx)) + (EvgBitmapTracer.absI(gy)))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; --- unique: strongest across its own direction ---
+        y = 1
+        while (y < (height - 1)) {
+            def x2:int 1
+            while (x2 < (width - 1)) {
+                def idx2:int ((y * width) + x2)
+                def m:int (itemAt mag idx2)
+                if (m > edgeTol) {
+                    def gx2:int ((itemAt lum (idx2 + 1)) - (itemAt lum (idx2 - 1)))
+                    def gy2:int ((itemAt lum (idx2 + width)) - (itemAt lum (idx2 - width)))
+                    def ax:int (EvgBitmapTracer.absI(gx2))
+                    def ay:int (EvgBitmapTracer.absI(gy2))
+                    def a:int 0
+                    def b:int 0
+                    if (ax > (ay * 2)) {
+                        a = (idx2 - 1)
+                        b = (idx2 + 1)
+                    } {
+                        if (ay > (ax * 2)) {
+                            a = (idx2 - width)
+                            b = (idx2 + width)
+                        } {
+                            if ((gx2 * gy2) > 0) {
+                                a = ((idx2 - width) - 1)
+                                b = ((idx2 + width) + 1)
+                            } {
+                                a = ((idx2 - width) + 1)
+                                b = ((idx2 + width) - 1)
+                            }
+                        }
+                    }
+                    if ((m >= (itemAt mag a)) && (m >= (itemAt mag b))) {
+                        set keep idx2 1
+                    }
+                }
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        ; --- continuous: drop runs shorter than edgeMinRun ---
+        def minRun:int options.edgeMinRun
+        def seen:[int]
+        i = 0
+        while (i < n) {
+            push seen 0
+            i = (i + 1)
+        }
+        def start:int 0
+        while (start < n) {
+            if (((itemAt keep start) == 1) && ((itemAt seen start) == 0)) {
+                def comp:[int]
+                def stack:[int]
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    def dy:int (0 - 1)
+                    while (dy <= 1) {
+                        def yy:int (cy + dy)
+                        if ((yy >= 0) && (yy < height)) {
+                            def dx:int (0 - 1)
+                            while (dx <= 1) {
+                                def xx:int (cx + dx)
+                                if ((xx >= 0) && (xx < width)) {
+                                    def j:int ((yy * width) + xx)
+                                    if (((itemAt keep j) == 1) && ((itemAt seen j) == 0)) {
+                                        set seen j 1
+                                        push stack j
+                                    }
+                                }
+                                dx = (dx + 1)
+                            }
+                        }
+                        dy = (dy + 1)
+                    }
+                }
+                if ((array_length comp) < minRun) {
+                    def c:int 0
+                    while (c < (array_length comp)) {
+                        set keep (itemAt comp c) 0
+                        c = (c + 1)
+                    }
+                }
+            }
+            start = (start + 1)
+        }
+        edgeMask = keep
+    }
+
+    ; True when the step from `a` to `b` should split two regions: big enough,
+    ; and landing on a boundary that passed both tests rather than on noise.
+    fn isBoundary:boolean (a:int b:int edgeTol:int) {
+        if ((this.pixelDelta(a b)) <= edgeTol) {
+            return false
+        }
+        if ((array_length edgeMask) != (width * height)) {
+            return true
+        }
+        if ((options.edgeMinRun) < 1) {
+            return true
+        }
+        if ((itemAt edgeMask b) == 1) {
+            return true
+        }
+        return ((itemAt edgeMask a) == 1)
+    }
+
+    ; Grow every allowed pixel into a region of continuous color and record
+    ; which region it landed in. Both the banding fix and the gradient fills
+    ; read this; it is the segmentation, and everything downstream is a choice
+    ; of what to paint each region with.
+    fn buildContourRegions:void () {
+        this.buildEdgeMask()
+        def edgeTol:int options.contourEdge
+        if (edgeTol < 1) {
+            edgeTol = 1
+        }
+        def spread:int options.contourSpread
+        if (spread < 1) {
+            spread = 1
+        }
+        def n:int (width * height)
+        def ro:[int]
+        def seen:[int]
+        def i:int 0
+        while (i < n) {
+            push ro (0 - 1)
+            push seen 0
+            i = (i + 1)
+        }
+        def rid:int 0
+        def start:int 0
+        while (start < n) {
+            if (((itemAt seen start) == 0) && ((itemAt labels start) >= 0)) {
+                def stack:[int]
+                def acc:[int]
+                push acc (itemAt planeR start)
+                push acc (itemAt planeG start)
+                push acc (itemAt planeB start)
+                push acc 1
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    set ro cur rid
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.contourStep((cur - 1) cur seen stack acc edgeTol spread)
+                    }
+                    if (cx < (width - 1)) {
+                        this.contourStep((cur + 1) cur seen stack acc edgeTol spread)
+                    }
+                    if (cy > 0) {
+                        this.contourStep((cur - width) cur seen stack acc edgeTol spread)
+                    }
+                    if (cy < (height - 1)) {
+                        this.contourStep((cur + width) cur seen stack acc edgeTol spread)
+                    }
+                }
+                rid = (rid + 1)
+            }
+            start = (start + 1)
+        }
+        regionOf = ro
+        regionCount = rid
+    }
+
+    ; Give each continuity region the one swatch nearest its own mean, so a
+    ; ramp stops being cut into bands.
+    fn smoothContours:void (palR:[int] palG:[int] palB:[int]) {
+        if ((options.contourMode) != "smooth") {
+            return
+        }
+        this.buildContourRegions()
+        def k:int regionCount
+        if (k == 0) {
+            return
+        }
+        def sumR:[int]
+        def sumG:[int]
+        def sumB:[int]
+        def cnt:[int]
+        def i:int 0
+        while (i < k) {
+            push sumR 0
+            push sumG 0
+            push sumB 0
+            push cnt 0
+            i = (i + 1)
+        }
+        def n:int (width * height)
+        i = 0
+        while (i < n) {
+            def r:int (itemAt regionOf i)
+            if (r >= 0) {
+                set sumR r ((itemAt sumR r) + (itemAt planeR i))
+                set sumG r ((itemAt sumG r) + (itemAt planeG i))
+                set sumB r ((itemAt sumB r) + (itemAt planeB i))
+                set cnt r ((itemAt cnt r) + 1)
+            }
+            i = (i + 1)
+        }
+        def lab:[int]
+        i = 0
+        while (i < k) {
+            def c:int (itemAt cnt i)
+            if (c > 0) {
+                push lab (this.nearestIndex((idiv (itemAt sumR i) c) (idiv (itemAt sumG i) c) (idiv (itemAt sumB i) c) palR palG palB))
+            } {
+                push lab 0
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            def r2:int (itemAt regionOf i)
+            if (r2 >= 0) {
+                set labels i (itemAt lab r2)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Gradient fills (options.gradientFill)
+    ;
+    ; Each continuity region is fitted with three models — one flat color, a
+    ; linear ramp — and keeps whichever leaves the least error. A radial model
+    ; is fitted alongside them but not used: away from a genuinely round region
+    ; its cone infers structure the picture does not contain.
+    ; ----------------------------------------------------------------------
+
+    sfn clamp255:int (v:double) {
+        if (v < 0.0) {
+            return 0
+        }
+        if (v > 255.0) {
+            return 255
+        }
+        return (to_int v)
+    }
+
+    ; Merge any region below minPx into whichever neighbour it shares the most
+    ; boundary with, then renumber what is left from zero.
+    fn absorbTinyRegions:void (minPx:int) {
+        def k:int regionCount
+        if (k == 0) {
+            return
+        }
+        def n:int (width * height)
+        def size:[int]
+        def i:int 0
+        while (i < k) {
+            push size 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            def r:int (itemAt regionOf i)
+            if (r >= 0) {
+                set size r ((itemAt size r) + 1)
+            }
+            i = (i + 1)
+        }
+        ; One pass: every small region takes the neighbour it touches most.
+        def target:[int]
+        i = 0
+        while (i < k) {
+            push target i
+            i = (i + 1)
+        }
+        def bestN:[int]
+        def bestR:[int]
+        i = 0
+        while (i < k) {
+            push bestN 0
+            push bestR (0 - 1)
+            i = (i + 1)
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def idx:int ((y * width) + x)
+                def r0:int (itemAt regionOf idx)
+                if ((r0 >= 0) && ((itemAt size r0) < minPx)) {
+                    if (x < (width - 1)) {
+                        this.tallyNeighbour(r0 (itemAt regionOf (idx + 1)) size minPx bestN bestR)
+                    }
+                    if (x > 0) {
+                        this.tallyNeighbour(r0 (itemAt regionOf (idx - 1)) size minPx bestN bestR)
+                    }
+                    if (y < (height - 1)) {
+                        this.tallyNeighbour(r0 (itemAt regionOf (idx + width)) size minPx bestN bestR)
+                    }
+                    if (y > 0) {
+                        this.tallyNeighbour(r0 (itemAt regionOf (idx - width)) size minPx bestN bestR)
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        i = 0
+        while (i < k) {
+            if ((itemAt bestR i) >= 0) {
+                set target i (itemAt bestR i)
+            }
+            i = (i + 1)
+        }
+        ; Renumber: only regions that still hold pixels get an id.
+        def remap:[int]
+        i = 0
+        while (i < k) {
+            push remap (0 - 1)
+            i = (i + 1)
+        }
+        def next:int 0
+        i = 0
+        while (i < n) {
+            def r2:int (itemAt regionOf i)
+            if (r2 >= 0) {
+                def t:int (itemAt target r2)
+                if ((itemAt remap t) < 0) {
+                    set remap t next
+                    next = (next + 1)
+                }
+                set regionOf i (itemAt remap t)
+            }
+            i = (i + 1)
+        }
+        regionCount = next
+    }
+
+    ; The biggest neighbour wins. Requiring it to clear minPx would strand a
+    ; chain of small regions that only ever touch each other — which is most of
+    ; a photograph — so any different neighbour will do, and repeated passes
+    ; then cascade the small ones into the large.
+    fn tallyNeighbour:void (mine:int other:int size:[int] minPx:int bestN:[int] bestR:[int]) {
+        if (other < 0) {
+            return
+        }
+        if (other == mine) {
+            return
+        }
+        def sz:int (itemAt size other)
+        if ((itemAt bestR mine) < 0) {
+            set bestR mine other
+            set bestN mine sz
+            return
+        }
+        if (sz > (itemAt bestN mine)) {
+            set bestR mine other
+            set bestN mine sz
+        }
+    }
+
+    ; Least squares for  v = a + b·x + c·y  over one region, by Cramer's rule
+    ; on the normal equations. out = [ok, a, b, c].
+    sfn solveLinear:void (n:double sx:double sy:double sxx:double sxy:double syy:double v0:double v1:double v2:double out:[double]) {
+        def det:double (((n * ((sxx * syy) - (sxy * sxy))) - (sx * ((sx * syy) - (sxy * sy)))) + (sy * ((sx * sxy) - (sxx * sy))))
+        if ((EvgBitmapTracer.absD(det)) < 0.000001) {
+            set out 0 0.0
+            return
+        }
+        def da:double (((v0 * ((sxx * syy) - (sxy * sxy))) - (sx * ((v1 * syy) - (sxy * v2)))) + (sy * ((v1 * sxy) - (sxx * v2))))
+        def db:double (((n * ((v1 * syy) - (v2 * sxy))) - (v0 * ((sx * syy) - (sxy * sy)))) + (sy * ((sx * v2) - (v1 * sy))))
+        def dc:double (((n * ((sxx * v2) - (sxy * v1))) - (sx * ((sx * v2) - (v1 * sy)))) + (v0 * ((sx * sxy) - (sxx * sy))))
+        set out 0 1.0
+        set out 1 (da / det)
+        set out 2 (db / det)
+        set out 3 (dc / det)
+    }
+
+    fn hexOf:string (r:double g:double b:double) {
+        return (this.hexFromRgb((EvgBitmapTracer.clamp255(r)) (EvgBitmapTracer.clamp255(g)) (EvgBitmapTracer.clamp255(b))))
+    }
+
+    ; One layer per continuity region, filled with whichever of flat / linear /
+    ; a linear ramp explains it best. Regions are painted largest first, each mask
+    ; is grown by a pixel, so the smaller shape laid on top covers the join —
+    ; the same reason the swatch layers are stacked rather than butted together.
+    fn traceGradientRegions:void () {
+        this.buildContourRegions()
+        def floorPx:int options.minRegion
+        if (floorPx < 8) {
+            floorPx = 8
+        }
+        this.absorbTinyRegions(floorPx)
+        ; A photograph can segment into tens of thousands of scraps; each one
+        ; would be its own traced path. Raise the floor until that is sane.
+        def guard:int 0
+        while ((regionCount > 2000) && (guard < 8)) {
+            floorPx = (floorPx * 2)
+            this.absorbTinyRegions(floorPx)
+            guard = (guard + 1)
+        }
+        def k:int regionCount
+        if (k == 0) {
+            return
+        }
+        def n:int (width * height)
+        ; --- pass 1: geometry and the linear normal equations ---
+        def rn:[double]
+        def rsx:[double]
+        def rsy:[double]
+        def rsxx:[double]
+        def rsyy:[double]
+        def rsxy:[double]
+        def sv:[double]
+        def sxv:[double]
+        def syv:[double]
+        def svv:[double]
+        def i:int 0
+        while (i < k) {
+            push rn 0.0
+            push rsx 0.0
+            push rsy 0.0
+            push rsxx 0.0
+            push rsyy 0.0
+            push rsxy 0.0
+            def c:int 0
+            while (c < 3) {
+                push sv 0.0
+                push sxv 0.0
+                push syv 0.0
+                push svv 0.0
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def idx:int ((y * width) + x)
+                def r:int (itemAt regionOf idx)
+                if (r >= 0) {
+                    def dx:double (to_double x)
+                    def dy:double (to_double y)
+                    set rn r ((itemAt rn r) + 1.0)
+                    set rsx r ((itemAt rsx r) + dx)
+                    set rsy r ((itemAt rsy r) + dy)
+                    set rsxx r ((itemAt rsxx r) + (dx * dx))
+                    set rsyy r ((itemAt rsyy r) + (dy * dy))
+                    set rsxy r ((itemAt rsxy r) + (dx * dy))
+                    def c2:int 0
+                    while (c2 < 3) {
+                        def v:double (to_double (this.planeAt(c2 idx)))
+                        def j:int ((r * 3) + c2)
+                        set sv j ((itemAt sv j) + v)
+                        set sxv j ((itemAt sxv j) + (dx * v))
+                        set syv j ((itemAt syv j) + (dy * v))
+                        set svv j ((itemAt svv j) + (v * v))
+                        c2 = (c2 + 1)
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; --- solve the linear model, per region per channel ---
+        def la:[double]
+        def lb:[double]
+        def lc:[double]
+        def lok:[double]
+        i = 0
+        while (i < k) {
+            def sol:[double]
+            push sol 0.0
+            push sol 0.0
+            push sol 0.0
+            push sol 0.0
+            def okAll:double 1.0
+            def c3:int 0
+            while (c3 < 3) {
+                def j2:int ((i * 3) + c3)
+                EvgBitmapTracer.solveLinear((itemAt rn i) (itemAt rsx i) (itemAt rsy i) (itemAt rsxx i) (itemAt rsxy i) (itemAt rsyy i) (itemAt sv j2) (itemAt sxv j2) (itemAt syv j2) sol)
+                if ((itemAt sol 0) < 0.5) {
+                    okAll = 0.0
+                }
+                push la (itemAt sol 1)
+                push lb (itemAt sol 2)
+                push lc (itemAt sol 3)
+                c3 = (c3 + 1)
+            }
+            push lok okAll
+            i = (i + 1)
+        }
+        ; --- pass 2: radial sums and the extents, both centroid-based ---
+        def rsd:[double]
+        def rsdd:[double]
+        def rsdv:[double]
+        def tmin:[double]
+        def tmax:[double]
+        def dmax:[double]
+        def ux:[double]
+        def uy:[double]
+        i = 0
+        while (i < k) {
+            push rsd 0.0
+            push rsdd 0.0
+            push tmin 1000000.0
+            push tmax (0.0 - 1000000.0)
+            push dmax 0.0
+            def c4:int 0
+            while (c4 < 3) {
+                push rsdv 0.0
+                c4 = (c4 + 1)
+            }
+            ; The gradient's direction is the one luma runs along — the three
+            ; channels each have their own slope, but the SVG has one axis.
+            def bl:double (((0.299 * (itemAt lb ((i * 3) + 0))) + (0.587 * (itemAt lb ((i * 3) + 1)))) + (0.114 * (itemAt lb ((i * 3) + 2))))
+            def cl:double (((0.299 * (itemAt lc ((i * 3) + 0))) + (0.587 * (itemAt lc ((i * 3) + 1)))) + (0.114 * (itemAt lc ((i * 3) + 2))))
+            def mag:double (sqrt ((bl * bl) + (cl * cl)))
+            if (mag < 0.000001) {
+                push ux 1.0
+                push uy 0.0
+            } {
+                push ux (bl / mag)
+                push uy (cl / mag)
+            }
+            i = (i + 1)
+        }
+        y = 0
+        while (y < height) {
+            def x2:int 0
+            while (x2 < width) {
+                def idx2:int ((y * width) + x2)
+                def r2:int (itemAt regionOf idx2)
+                if (r2 >= 0) {
+                    def cnt:double (itemAt rn r2)
+                    def mx:double ((itemAt rsx r2) / cnt)
+                    def my:double ((itemAt rsy r2) / cnt)
+                    def ddx:double ((to_double x2) - mx)
+                    def ddy:double ((to_double y) - my)
+                    def dist:double (sqrt ((ddx * ddx) + (ddy * ddy)))
+                    set rsd r2 ((itemAt rsd r2) + dist)
+                    set rsdd r2 ((itemAt rsdd r2) + (dist * dist))
+                    if (dist > (itemAt dmax r2)) {
+                        set dmax r2 dist
+                    }
+                    def tproj:double ((ddx * (itemAt ux r2)) + (ddy * (itemAt uy r2)))
+                    if (tproj < (itemAt tmin r2)) {
+                        set tmin r2 tproj
+                    }
+                    if (tproj > (itemAt tmax r2)) {
+                        set tmax r2 tproj
+                    }
+                    def c5:int 0
+                    while (c5 < 3) {
+                        def j3:int ((r2 * 3) + c5)
+                        set rsdv j3 ((itemAt rsdv j3) + (dist * (to_double (this.planeAt(c5 idx2)))))
+                        c5 = (c5 + 1)
+                    }
+                }
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        this.emitRegionLayers(k rn rsx rsy sv svv sxv syv la lb lc lok rsd rsdd rsdv tmin tmax dmax ux uy)
+    }
+
+    fn planeAt:int (c:int i:int) {
+        if (c == 0) {
+            return (itemAt planeR i)
+        }
+        if (c == 1) {
+            return (itemAt planeG i)
+        }
+        return (itemAt planeB i)
+    }
+
+    ; Pick the model for each region and trace it. Sum of squared error comes
+    ; straight out of the sums already gathered, so choosing costs no extra
+    ; pass over the pixels.
+    fn emitRegionLayers:void (k:int rn:[double] rsx:[double] rsy:[double] sv:[double] svv:[double] sxv:[double] syv:[double] la:[double] lb:[double] lc:[double] lok:[double] rsd:[double] rsdd:[double] rsdv:[double] tmin:[double] tmax:[double] dmax:[double] ux:[double] uy:[double]) {
+        ; Largest region first: a smaller shape drawn later covers the join.
+        def order:[int]
+        def i:int 0
+        while (i < k) {
+            push order i
+            i = (i + 1)
+        }
+        def a:int 0
+        while (a < k) {
+            def b:int (a + 1)
+            while (b < k) {
+                if ((itemAt rn (itemAt order b)) > (itemAt rn (itemAt order a))) {
+                    def tmp:int (itemAt order a)
+                    set order a (itemAt order b)
+                    set order b tmp
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        def gain:double ((to_double options.gradientGain) / 100.0)
+        def allCmds:[PathCommand]
+        def oi:int 0
+        while (oi < k) {
+            def r:int (itemAt order oi)
+            def cnt:double (itemAt rn r)
+            if (cnt > 0.0) {
+                def mx:double ((itemAt rsx r) / cnt)
+                def my:double ((itemAt rsy r) / cnt)
+                ; --- error of each model, summed over the three channels ---
+                def eFlat:double 0.0
+                def eLin:double 0.0
+                def eRad:double 0.0
+                def ra:[double]
+                def rb:[double]
+                def c:int 0
+                while (c < 3) {
+                    def j:int ((r * 3) + c)
+                    def n2:double cnt
+                    def s1:double (itemAt sv j)
+                    eFlat = (eFlat + ((itemAt svv j) - ((s1 * s1) / n2)))
+                    if ((itemAt lok r) > 0.5) {
+                        eLin = (eLin + ((itemAt svv j) - ((((itemAt la j) * s1) + ((itemAt lb j) * (itemAt sxv j))) + ((itemAt lc j) * (itemAt syv j)))))
+                    } {
+                        eLin = (eLin + 1000000000.0)
+                    }
+                    def den:double ((n2 * (itemAt rsdd r)) - ((itemAt rsd r) * (itemAt rsd r)))
+                    if ((EvgBitmapTracer.absD(den)) > 0.000001) {
+                        def bb:double (((n2 * (itemAt rsdv j)) - ((itemAt rsd r) * s1)) / den)
+                        def aa:double ((s1 - (bb * (itemAt rsd r))) / n2)
+                        push ra aa
+                        push rb bb
+                        eRad = (eRad + ((itemAt svv j) - ((aa * s1) + (bb * (itemAt rsdv j)))))
+                    } {
+                        push ra 0.0
+                        push rb 0.0
+                        eRad = (eRad + 1000000000.0)
+                    }
+                    c = (c + 1)
+                }
+                if (eFlat < 0.0) {
+                    eFlat = 0.0
+                }
+                ; A thin or tiny region gives an ill-conditioned fit: the normal
+                ; equations are near-singular along the missing direction and
+                ; Cramer's rule answers with wild coefficients whose residual
+                ; looks excellent and whose stop colors are nonsense. Below a
+                ; useful size, and whenever the arithmetic returns something a
+                ; sum of squares cannot be, stay flat.
+                if (cnt < 64.0) {
+                    eLin = 1000000000.0
+                    eRad = 1000000000.0
+                }
+                if (eLin < 0.0) {
+                    eLin = 1000000000.0
+                }
+                if (eRad < 0.0) {
+                    eRad = 1000000000.0
+                }
+                ; --- choose ---
+                def kind:string "flat"
+                def best:double eFlat
+                if (eLin < best) {
+                    best = eLin
+                    kind = "linear"
+                }
+                ; Radial is fitted but never chosen: an isotropic cone
+                ; invents structure that is not in the picture wherever the
+                ; region is not actually round, and the shapes it infers are
+                ; strange rather than merely wrong. Kept out until it can be
+                ; fitted to the region's real geometry.
+                ; A gradient has to earn its place: a nearly flat region stays
+                ; flat. Both tests are needed — the relative one alone lets a
+                ; perfectly even region through, because zero is not 15% worse
+                ; than zero, and it would emit a gradient with two equal stops.
+                if (kind != "flat") {
+                    if ((eFlat - best) < (eFlat * gain)) {
+                        kind = "flat"
+                    }
+                    if (eFlat < (cnt * 3.0)) {
+                        kind = "flat"
+                    }
+                }
+                def mask:EvgBinaryBitmap (this.maskForRegion(r))
+                def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+                layerOpts.turdsize = options.turdsize
+                layerOpts.alphamax = options.alphamax
+                layerOpts.turnpolicy = options.turnpolicy
+                layerOpts.optcurve = options.optcurve
+                layerOpts.opttolerance = options.opttolerance
+                def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
+                sub.trace()
+                if ((sub.ringCount()) > 0) {
+                    def layer:EvgTraceLayer (itemAt sub.layers 0)
+                    def meanR:double ((itemAt sv ((r * 3) + 0)) / cnt)
+                    def meanG:double ((itemAt sv ((r * 3) + 1)) / cnt)
+                    def meanB:double ((itemAt sv ((r * 3) + 2)) / cnt)
+                    layer.fillHex = (this.hexOf(meanR meanG meanB))
+                    layer.fillKind = kind
+                    if (kind == "linear") {
+                        def t0:double (itemAt tmin r)
+                        def t1:double (itemAt tmax r)
+                        ; A region with no extent along its own gradient axis
+                        ; would emit a zero-length linearGradient, which SVG
+                        ; leaves undefined — and an axis a pixel or two long is
+                        ; a flat color written the long way. One says it better.
+                        if ((t1 - t0) < 2.0) {
+                            kind = "flat"
+                            layer.fillKind = "flat"
+                        }
+                        layer.gx0 = (mx + ((itemAt ux r) * t0))
+                        layer.gy0 = (my + ((itemAt uy r) * t0))
+                        layer.gx1 = (mx + ((itemAt ux r) * t1))
+                        layer.gy1 = (my + ((itemAt uy r) * t1))
+                        layer.stopA = (this.hexOf((this.linAt(la lb lc r 0 layer.gx0 layer.gy0)) (this.linAt(la lb lc r 1 layer.gx0 layer.gy0)) (this.linAt(la lb lc r 2 layer.gx0 layer.gy0))))
+                        layer.stopB = (this.hexOf((this.linAt(la lb lc r 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc r 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc r 2 layer.gx1 layer.gy1))))
+                    }
+                    push layers layer
+                    def cmds:[PathCommand] (sub.getCommands())
+                    def ci:int 0
+                    while (ci < (array_length cmds)) {
+                        push allCmds (itemAt cmds ci)
+                        ci = (ci + 1)
+                    }
+                    pathData = layer.pathData
+                    rings = sub.rings
+                }
+            }
+            oi = (oi + 1)
+        }
+        commands = allCmds
+        if ((array_length layers) > 0) {
+            def first:EvgTraceLayer (itemAt layers 0)
+            pathData = first.pathData
+        }
+    }
+
+    fn linAt:double (la:[double] lb:[double] lc:[double] r:int c:int x:double y:double) {
+        def j:int ((r * 3) + c)
+        return (((itemAt la j) + ((itemAt lb j) * x)) + ((itemAt lc j) * y))
+    }
+
+    ; The region's own pixels, grown by one so the neighbour drawn on top of it
+    ; has something to cover rather than the page.
+    fn maskForRegion:EvgBinaryBitmap (rid:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+        def n:int (width * height)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt regionOf i) == rid) {
+                def y:int (idiv i width)
+                def x:int (i - (y * width))
+                bm.setBit(x y true)
+                if (x > 0) {
+                    bm.setBit((x - 1) y true)
+                }
+                if (x < (width - 1)) {
+                    bm.setBit((x + 1) y true)
+                }
+                if (y > 0) {
+                    bm.setBit(x (y - 1) true)
+                }
+                if (y < (height - 1)) {
+                    bm.setBit(x (y + 1) true)
+                }
+            }
+            i = (i + 1)
+        }
+        return bm
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Overlay shapes (contourMode "overlay")
+    ;
+    ; The partition's weakness is that one weak pixel on a boundary lets the
+    ; flood through, and the shape behind it is gone for good. Stacking removes
+    ; the consequence rather than the cause: the surface below keeps whatever it
+    ; took, and the shape it swallowed is drawn again on top of it.
+    ; ----------------------------------------------------------------------
+
+    ; Is this pixel already covered by something it would not be told apart
+    ; from? Then an overlay has no reason to reach it.
+    fn coveredAlready:boolean (i:int paintR:[int] paintG:[int] paintB:[int] painted:[int] tol:int) {
+        if ((itemAt painted i) == 0) {
+            return false
+        }
+        def d:int (EvgBitmapTracer.absI((itemAt planeR i) - (itemAt paintR i)))
+        def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - (itemAt paintG i)))
+        if (dg > d) {
+            d = dg
+        }
+        def db:int (EvgBitmapTracer.absI((itemAt planeB i) - (itemAt paintB i)))
+        if (db > d) {
+            d = db
+        }
+        return (d <= tol)
+    }
+
+    ; Fit one shape's pixel list with flat or linear, describe the
+    ; winner on the layer, and write what the model *predicts* into the paint
+    ; map. That last part is the whole reason the two features belong together:
+    ; the similarity stop asks "does an overlay show against what is under it",
+    ; and against a flat mean the answer is yes everywhere a ramp leaves the
+    ; mean — so every gradient shatters into bands. Against the model, it is
+    ; only yes where the model is actually wrong.
+    fn fitAndPaintShape:void (comp:[int] layer:EvgTraceLayer paintR:[int] paintG:[int] paintB:[int]) {
+        def n:int (array_length comp)
+        if (n == 0) {
+            return
+        }
+        def cnt:double (to_double n)
+        def sx:double 0.0
+        def sy:double 0.0
+        def sxx:double 0.0
+        def syy:double 0.0
+        def sxy:double 0.0
+        def sv:[double]
+        def sxv:[double]
+        def syv:[double]
+        def svv:[double]
+        def c:int 0
+        while (c < 3) {
+            push sv 0.0
+            push sxv 0.0
+            push syv 0.0
+            push svv 0.0
+            c = (c + 1)
+        }
+        def i:int 0
+        while (i < n) {
+            def idx:int (itemAt comp i)
+            def yy:int (idiv idx width)
+            def dx:double (to_double (idx - (yy * width)))
+            def dy:double (to_double yy)
+            sx = (sx + dx)
+            sy = (sy + dy)
+            sxx = (sxx + (dx * dx))
+            syy = (syy + (dy * dy))
+            sxy = (sxy + (dx * dy))
+            c = 0
+            while (c < 3) {
+                def v:double (to_double (this.planeAt(c idx)))
+                set sv c ((itemAt sv c) + v)
+                set sxv c ((itemAt sxv c) + (dx * v))
+                set syv c ((itemAt syv c) + (dy * v))
+                set svv c ((itemAt svv c) + (v * v))
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        def mx:double (sx / cnt)
+        def my:double (sy / cnt)
+        def la:[double]
+        def lb:[double]
+        def lc:[double]
+        def eFlat:double 0.0
+        def eLin:double 0.0
+        def sol:[double]
+        push sol 0.0
+        push sol 0.0
+        push sol 0.0
+        push sol 0.0
+        c = 0
+        while (c < 3) {
+            def s1:double (itemAt sv c)
+            eFlat = (eFlat + ((itemAt svv c) - ((s1 * s1) / cnt)))
+            EvgBitmapTracer.solveLinear(cnt sx sy sxx sxy syy s1 (itemAt sxv c) (itemAt syv c) sol)
+            if ((itemAt sol 0) > 0.5) {
+                push la (itemAt sol 1)
+                push lb (itemAt sol 2)
+                push lc (itemAt sol 3)
+                eLin = (eLin + ((itemAt svv c) - ((((itemAt sol 1) * s1) + ((itemAt sol 2) * (itemAt sxv c))) + ((itemAt sol 3) * (itemAt syv c)))))
+            } {
+                push la (s1 / cnt)
+                push lb 0.0
+                push lc 0.0
+                eLin = (eLin + 1000000000.0)
+            }
+            c = (c + 1)
+        }
+        if (eFlat < 0.0) {
+            eFlat = 0.0
+        }
+        if ((eLin < 0.0) || (cnt < 64.0)) {
+            eLin = 1000000000.0
+        }
+        def gain:double ((to_double options.gradientGain) / 100.0)
+        def best:double eFlat
+        def useLin:boolean false
+        if (eLin < best) {
+            best = eLin
+            useLin = true
+        }
+        if ((eFlat - best) < (eFlat * gain)) {
+            useLin = false
+        }
+        if (eFlat < (cnt * 3.0)) {
+            useLin = false
+        }
+        def mR:int (EvgBitmapTracer.clamp255((itemAt sv 0) / cnt))
+        def mG:int (EvgBitmapTracer.clamp255((itemAt sv 1) / cnt))
+        def mB:int (EvgBitmapTracer.clamp255((itemAt sv 2) / cnt))
+        layer.fillHex = (this.hexFromRgb(mR mG mB))
+        if (useLin == false) {
+            layer.fillKind = "flat"
+            i = 0
+            while (i < n) {
+                def p0:int (itemAt comp i)
+                set paintR p0 mR
+                set paintG p0 mG
+                set paintB p0 mB
+                i = (i + 1)
+            }
+            return
+        }
+        ; The axis is the direction luma runs along; the extent comes from the
+        ; shape's own pixels projected onto it.
+        def bl:double (((0.299 * (itemAt lb 0)) + (0.587 * (itemAt lb 1))) + (0.114 * (itemAt lb 2)))
+        def cl:double (((0.299 * (itemAt lc 0)) + (0.587 * (itemAt lc 1))) + (0.114 * (itemAt lc 2)))
+        def mag:double (sqrt ((bl * bl) + (cl * cl)))
+        def ux:double 1.0
+        def uy:double 0.0
+        if (mag > 0.000001) {
+            ux = (bl / mag)
+            uy = (cl / mag)
+        }
+        def tmin:double 1000000.0
+        def tmax:double (0.0 - 1000000.0)
+        i = 0
+        while (i < n) {
+            def p1:int (itemAt comp i)
+            def y1:int (idiv p1 width)
+            def t:double ((((to_double (p1 - (y1 * width))) - mx) * ux) + (((to_double y1) - my) * uy))
+            if (t < tmin) {
+                tmin = t
+            }
+            if (t > tmax) {
+                tmax = t
+            }
+            ; Paint the prediction, clamped, so the similarity test below sees
+            ; the ramp this shape actually describes.
+            set paintR p1 (EvgBitmapTracer.clamp255((this.linAt(la lb lc 0 0 (to_double (p1 - (y1 * width))) (to_double y1))))) 
+            set paintG p1 (EvgBitmapTracer.clamp255((this.linAt(la lb lc 0 1 (to_double (p1 - (y1 * width))) (to_double y1)))))
+            set paintB p1 (EvgBitmapTracer.clamp255((this.linAt(la lb lc 0 2 (to_double (p1 - (y1 * width))) (to_double y1)))))
+            i = (i + 1)
+        }
+        if ((tmax - tmin) < 2.0) {
+            layer.fillKind = "flat"
+            return
+        }
+        layer.fillKind = "linear"
+        layer.gx0 = (mx + (ux * tmin))
+        layer.gy0 = (my + (uy * tmin))
+        layer.gx1 = (mx + (ux * tmax))
+        layer.gy1 = (my + (uy * tmax))
+        layer.stopA = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx0 layer.gy0)) (this.linAt(la lb lc 0 1 layer.gx0 layer.gy0)) (this.linAt(la lb lc 0 2 layer.gx0 layer.gy0))))
+        layer.stopB = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 2 layer.gx1 layer.gy1))))
+    }
+
+    fn traceOverlayShapes:void () {
+        this.buildEdgeMask()
+        def n:int (width * height)
+        def edgeTol:int options.contourEdge
+        if (edgeTol < 1) {
+            edgeTol = 1
+        }
+        def spread:int options.contourSpread
+        if (spread < 1) {
+            spread = 1
+        }
+        def simTol:int options.overlaySimilar
+        def minPx:int options.minRegion
+        if (minPx < 4) {
+            minPx = 4
+        }
+        def paintR:[int]
+        def paintG:[int]
+        def paintB:[int]
+        def painted:[int]
+        def stamp:[int]
+        def i:int 0
+        while (i < n) {
+            push paintR 0
+            push paintG 0
+            push paintB 0
+            push painted 0
+            push stamp (0 - 1)
+            i = (i + 1)
+        }
+        ; Seeds are held in 256 buckets by the strength of the edge that
+        ; produced them, and the steepest is always served first. Order is not
+        ; a detail here: a smooth surface started first spreads across weak
+        ; boundaries and claims what lies behind them, and the shape it took can
+        ; then only come back as whatever part of itself still differs — half a
+        ; rectangle, with the other half sitting inside the surface that ate it.
+        ; Started from the sharpest edge, the shapes with an identity are laid
+        ; down before the smooth ones get to move.
+        def bucket:[int]
+        def seedPixel:[int]
+        def seedNext:[int]
+        i = 0
+        while (i < 256) {
+            push bucket (0 - 1)
+            i = (i + 1)
+        }
+        ; Every steep pixel goes in up front, not just the steepest one. A
+        ; figure can be star-shaped, or in several pieces, and growing outward
+        ; from one point does not necessarily reach the sharp corners of the
+        ; others. Queued together and served steepest-first, the question
+        ; "have all the steep points been dealt with" answers itself: the queue
+        ; is empty when they have.
+        def y0:int 0
+        while (y0 < height) {
+            def x0:int 0
+            while (x0 < width) {
+                def idx0:int ((y0 * width) + x0)
+                ; Only a step that passed the uniqueness and continuity tests
+                ; earns a seed. Seeding every raw step means seeding every
+                ; speck, and the shape budget goes to noise.
+                if ((itemAt labels idx0) >= 0) {
+                    def st:int 0
+                    if (x0 > 0) {
+                        if (this.isBoundary(idx0 (idx0 - 1) edgeTol)) {
+                            st = (this.pixelDelta(idx0 (idx0 - 1)))
+                        }
+                    }
+                    if (x0 < (width - 1)) {
+                        if (this.isBoundary(idx0 (idx0 + 1) edgeTol)) {
+                            def s1:int (this.pixelDelta(idx0 (idx0 + 1)))
+                            if (s1 > st) {
+                                st = s1
+                            }
+                        }
+                    }
+                    if (y0 > 0) {
+                        if (this.isBoundary(idx0 (idx0 - width) edgeTol)) {
+                            def s2:int (this.pixelDelta(idx0 (idx0 - width)))
+                            if (s2 > st) {
+                                st = s2
+                            }
+                        }
+                    }
+                    if (y0 < (height - 1)) {
+                        if (this.isBoundary(idx0 (idx0 + width) edgeTol)) {
+                            def s3:int (this.pixelDelta(idx0 (idx0 + width)))
+                            if (s3 > st) {
+                                st = s3
+                            }
+                        }
+                    }
+                    if (st > 0) {
+                        this.pushSeed(idx0 st bucket seedPixel seedNext)
+                    }
+                }
+                x0 = (x0 + 1)
+            }
+            y0 = (y0 + 1)
+        }
+        def allCmds:[PathCommand]
+        ; A base surface under everything, so the picture is never part
+        ; transparent. The shape budget is finite and a photograph will spend it
+        ; on small overlays long before it has covered the frame; whatever is
+        ; left then shows this rather than the page. It is drawn but not entered
+        ; into the paint map, so it changes nothing about how the shapes above
+        ; it decide where to stop.
+        def baseMask:EvgBinaryBitmap (EvgBinaryBitmap.create(width height))
+        def bsR:int 0
+        def bsG:int 0
+        def bsB:int 0
+        def bsN:int 0
+        def bi:int 0
+        while (bi < n) {
+            if ((itemAt labels bi) >= 0) {
+                def by:int (idiv bi width)
+                baseMask.setBit((bi - (by * width)) by true)
+                bsR = (bsR + (itemAt planeR bi))
+                bsG = (bsG + (itemAt planeG bi))
+                bsB = (bsB + (itemAt planeB bi))
+                bsN = (bsN + 1)
+            }
+            bi = (bi + 1)
+        }
+        if (bsN > 0) {
+            def baseOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            baseOpts.turdsize = options.turdsize
+            baseOpts.alphamax = options.alphamax
+            baseOpts.turnpolicy = options.turnpolicy
+            baseOpts.optcurve = options.optcurve
+            baseOpts.opttolerance = options.opttolerance
+            baseOpts.fillHex = (this.hexFromRgb((idiv bsR bsN) (idiv bsG bsN) (idiv bsB bsN)))
+            def baseTr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(baseMask baseOpts))
+            baseTr.trace()
+            if ((baseTr.ringCount()) > 0) {
+                push layers (itemAt baseTr.layers 0)
+                def bcmds:[PathCommand] (baseTr.getCommands())
+                def bc:int 0
+                while (bc < (array_length bcmds)) {
+                    push allCmds (itemAt bcmds bc)
+                    bc = (bc + 1)
+                }
+            }
+        }
+        ; How many shapes are worth making scales with the picture: a fixed
+        ; ceiling starves a large photograph of exactly the shapes it needs,
+        ; and the flag in one test came out as bare background because its
+        ; stripes were never reached.
+        def budget:int (idiv n 4)
+        if (budget < 500) {
+            budget = 500
+        }
+        if (budget > 80000) {
+            budget = 80000
+        }
+        def shapeNo:int 0
+        def sweepFrom:int 0
+        while (shapeNo < budget) {
+            ; Take the next seed; when they run out, sweep for anything still
+            ; unpainted so nothing is left as a hole.
+            def seed:int (0 - 1)
+            def empty:boolean false
+            ; Steepest-first alone starves the large smooth areas: a photograph
+            ; has thousands of sharp spots, they take the whole shape budget as
+            ; small overlays, and a face — which is nearly all low-contrast —
+            ; never reaches the front of the queue at all. Every fourth shape
+            ; is therefore taken from the plain sweep instead, so the big quiet
+            ; surfaces are laid down alongside the loud little ones.
+            if (((shapeNo % 4) == 3) && (sweepFrom < n)) {
+                while ((sweepFrom < n) && (seed < 0)) {
+                    if (((itemAt labels sweepFrom) >= 0) && ((itemAt painted sweepFrom) == 0)) {
+                        seed = sweepFrom
+                    }
+                    sweepFrom = (sweepFrom + 1)
+                }
+            }
+            while ((seed < 0) && (empty == false)) {
+                def cand:int (this.popSeed(bucket seedPixel seedNext))
+                if (cand < 0) {
+                    empty = true
+                } {
+                    if ((itemAt labels cand) >= 0) {
+                        if ((this.coveredAlready(cand paintR paintG paintB painted simTol)) == false) {
+                            seed = cand
+                        }
+                    }
+                }
+            }
+            if (seed < 0) {
+                while ((sweepFrom < n) && (seed < 0)) {
+                    if (((itemAt labels sweepFrom) >= 0) && ((itemAt painted sweepFrom) == 0)) {
+                        seed = sweepFrom
+                    }
+                    sweepFrom = (sweepFrom + 1)
+                }
+            }
+            if (seed < 0) {
+                shapeNo = budget
+            } {
+                ; --- grow one surface to its end ---
+                def comp:[int]
+                def stack:[int]
+                def acc:[int]
+                push acc (itemAt planeR seed)
+                push acc (itemAt planeG seed)
+                push acc (itemAt planeB seed)
+                push acc 1
+                set stamp seed shapeNo
+                push stack seed
+                def h2:int 0
+                while (h2 < (array_length stack)) {
+                    def cur:int (itemAt stack h2)
+                    h2 = (h2 + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    if (cx > 0) {
+                        this.overlayStep((cur - 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                    if (cx < (width - 1)) {
+                        this.overlayStep((cur + 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                    if (cy > 0) {
+                        this.overlayStep((cur - width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                    if (cy < (height - 1)) {
+                        this.overlayStep((cur + width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                    }
+                }
+                def cnt:int (itemAt acc 3)
+                def mr:int (idiv (itemAt acc 0) cnt)
+                def mg:int (idiv (itemAt acc 1) cnt)
+                def mb:int (idiv (itemAt acc 2) cnt)
+                ; Every shape marks its ground, whatever its size — a scrap too
+                ; small to be worth its own path still has to stop later shapes
+                ; from growing over it again.
+                def c:int 0
+                while (c < (array_length comp)) {
+                    def px:int (itemAt comp c)
+                    set paintR px mr
+                    set paintG px mg
+                    set paintB px mb
+                    set painted px 1
+                    c = (c + 1)
+                }
+                ; Every shape that marks the map has to be drawn, or it is a
+                ; hole: the shapes below it have already stopped at its border
+                ; and nothing else will cover it. Only specks smaller than a
+                ; traceable ring are skipped — turdsize deals with those.
+                if ((array_length comp) >= 4) {
+                    ; The mask covers the shape's own bounding box, not the
+                    ; frame. A full-size bitmap per shape is allocated, copied
+                    ; and scanned once each, so a photograph — which is
+                    ; thousands of shapes — was paying the whole image area
+                    ; thousands of times over. The path is moved back
+                    ; afterwards.
+                    def bx0:int width
+                    def by0:int height
+                    def bx1:int 0
+                    def by1:int 0
+                    c = 0
+                    while (c < (array_length comp)) {
+                        def q:int (itemAt comp c)
+                        def qy:int (idiv q width)
+                        def qx:int (q - (qy * width))
+                        if (qx < bx0) {
+                            bx0 = qx
+                        }
+                        if (qx > bx1) {
+                            bx1 = qx
+                        }
+                        if (qy < by0) {
+                            by0 = qy
+                        }
+                        if (qy > by1) {
+                            by1 = qy
+                        }
+                        c = (c + 1)
+                    }
+                    ; One cell of margin so a shape touching the box edge still
+                    ; closes a ring around itself.
+                    bx0 = (bx0 - 1)
+                    by0 = (by0 - 1)
+                    def bw:int ((bx1 - bx0) + 2)
+                    def bh:int ((by1 - by0) + 2)
+                    def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(bw bh))
+                    c = 0
+                    while (c < (array_length comp)) {
+                        def p2:int (itemAt comp c)
+                        def yy:int (idiv p2 width)
+                        bm.setBit(((p2 - (yy * width)) - bx0) (yy - by0) true)
+                        c = (c + 1)
+                    }
+                    def layerOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+                    layerOpts.turdsize = options.turdsize
+                    layerOpts.alphamax = options.alphamax
+                    layerOpts.turnpolicy = options.turnpolicy
+                    layerOpts.optcurve = options.optcurve
+                    layerOpts.opttolerance = options.opttolerance
+                    layerOpts.fillHex = (this.hexFromRgb(mr mg mb))
+                    def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm layerOpts))
+                    sub.trace()
+                    if ((sub.ringCount()) > 0) {
+                        def cmds:[PathCommand] (sub.getCommands())
+                        def ox:double (to_double bx0)
+                        def oy:double (to_double by0)
+                        def ci:int 0
+                        while (ci < (array_length cmds)) {
+                            def cm:PathCommand (itemAt cmds ci)
+                            cm.x = (cm.x + ox)
+                            cm.y = (cm.y + oy)
+                            cm.x1 = (cm.x1 + ox)
+                            cm.y1 = (cm.y1 + oy)
+                            cm.x2 = (cm.x2 + ox)
+                            cm.y2 = (cm.y2 + oy)
+                            push allCmds cm
+                            ci = (ci + 1)
+                        }
+                        def layer:EvgTraceLayer (itemAt sub.layers 0)
+                        layer.pathData = (VectorShapes.asPathData(cmds))
+                        if options.gradientFill {
+                            this.fitAndPaintShape(comp layer paintR paintG paintB)
+                        }
+                        push layers layer
+                        rings = sub.rings
+                    }
+                }
+                shapeNo = (shapeNo + 1)
+            }
+        }
+        commands = allCmds
+        if ((array_length layers) > 0) {
+            def first:EvgTraceLayer (itemAt layers 0)
+            pathData = first.pathData
+        }
+    }
+
+    ; One step of an overlay's growth. Three things stop it: an edge, drifting
+    ; too far from its own mean, and arriving somewhere it would look the same
+    ; as what is already painted. An edge is not just a stop — it is where the
+    ; next shape begins, on the far side and above.
+    ; Push one seed into the bucket for its edge strength.
+    fn pushSeed:void (px:int strength:int bucket:[int] seedPixel:[int] seedNext:[int]) {
+        def s:int strength
+        if (s < 0) {
+            s = 0
+        }
+        if (s > 255) {
+            s = 255
+        }
+        def idx:int (array_length seedPixel)
+        push seedPixel px
+        push seedNext (itemAt bucket s)
+        set bucket s idx
+    }
+
+    ; Take the steepest seed still waiting, or -1 when there are none.
+    fn popSeed:int (bucket:[int] seedPixel:[int] seedNext:[int]) {
+        def s:int 255
+        while (s >= 0) {
+            def idx:int (itemAt bucket s)
+            if (idx >= 0) {
+                set bucket s (itemAt seedNext idx)
+                return (itemAt seedPixel idx)
+            }
+            s = (s - 1)
+        }
+        return (0 - 1)
+    }
+
+    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] bucket:[int] seedPixel:[int] seedNext:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
+        if ((itemAt stamp i) == shapeNo) {
+            return
+        }
+        if ((itemAt labels i) < 0) {
+            return
+        }
+        def step:int (this.pixelDelta(from i))
+        if (step > edgeTol) {
+            ; Both sides of an edge are shapes of their own. Seeding only the
+            ; far side leaves the near side to whichever surface happens to
+            ; arrive there, and at a boundary that fades that is the surface
+            ; which already leaked through it — which is how half a shape goes
+            ; missing while the other half is drawn.
+            ;
+            ; A step still stops the growth whatever it is — crossing it would
+            ; only hand the region a color it cannot describe — but it earns a
+            ; new shape only when it is a boundary rather than a speck. That is
+            ; the difference between finding edges and finding noise.
+            if (this.isBoundary(from i edgeTol)) {
+                this.pushSeed(i step bucket seedPixel seedNext)
+                this.pushSeed(from step bucket seedPixel seedNext)
+            }
+            return
+        }
+        if (this.coveredAlready(i paintR paintG paintB painted simTol)) {
+            return
+        }
+        def cnt:int (itemAt acc 3)
+        def mr:int (idiv (itemAt acc 0) cnt)
+        def mg:int (idiv (itemAt acc 1) cnt)
+        def mb:int (idiv (itemAt acc 2) cnt)
+        def d:int (EvgBitmapTracer.absI((itemAt planeR i) - mr))
+        def dg:int (EvgBitmapTracer.absI((itemAt planeG i) - mg))
+        if (dg > d) {
+            d = dg
+        }
+        def db:int (EvgBitmapTracer.absI((itemAt planeB i) - mb))
+        if (db > d) {
+            d = db
+        }
+        if (d > spread) {
+            return
+        }
+        set stamp i shapeNo
+        push stack i
+        set acc 0 ((itemAt acc 0) + (itemAt planeR i))
+        set acc 1 ((itemAt acc 1) + (itemAt planeG i))
+        set acc 2 ((itemAt acc 2) + (itemAt planeB i))
+        set acc 3 (cnt + 1)
     }
 
     ; Absorb connected runs below options.minRegion into the region that
@@ -1450,6 +2996,16 @@ class EvgBitmapTracer {
             return
         }
         this.assignLabels(palR palG palB)
+        ; Overlay shapes carry their own fits, so it takes precedence when both
+        ; are asked for — the two compose rather than compete.
+        if ((options.contourMode) == "overlay") {
+            this.traceOverlayShapes()
+            return
+        }
+        if options.gradientFill {
+            this.traceGradientRegions()
+            return
+        }
         def li:int 0
         def allCmds:[PathCommand]
         while (li < k) {

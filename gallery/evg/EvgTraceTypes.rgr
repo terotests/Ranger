@@ -53,6 +53,20 @@ class EvgTraceLayer {
     def pathData:string ""
     def ringCount:int 0
     def commandCount:int 0
+    ; How the layer is filled: "flat" uses fillHex alone; "linear" and "radial"
+    ; add a gradient, chosen per region by which one describes it best. Only
+    ; toSVG renders these — an EVGElement carries a single color, so
+    ; toEVGElements falls back to fillHex.
+    def fillKind:string "flat"
+    ; Linear: (x0,y0) → (x1,y1). Only linear gradients are emitted; a radial
+    ; one infers shapes the picture does not have unless the region is round.
+    def gx0:double 0.0
+    def gy0:double 0.0
+    def gx1:double 0.0
+    def gy1:double 0.0
+    ; Color at the start of the gradient and at its end.
+    def stopA:string "#000000"
+    def stopB:string "#000000"
 
     Constructor () {
     }
@@ -115,6 +129,55 @@ class EvgTraceOptions {
     ; otherwise splits one region between two near-identical swatches, and each
     ; half then falls under turdsize — which is how outlines turn into dashes.
     def minColorDelta:int 10
+    ; Banding suppression. A quantizer cuts a hard edge wherever a smooth ramp
+    ; crosses the midpoint between two swatches, which is a contour the picture
+    ; does not have; meanwhile a real edge between two *similar* colors can go
+    ; unmarked. Read small differences as continuous and large ones as a break:
+    ;   "off"    — every pixel takes its own nearest swatch (the default)
+    ;   "smooth" — grow regions across neighbours that differ by at most
+    ;              contourEdge, then give the whole region the one swatch
+    ;              nearest its mean. A ramp becomes one region and loses its
+    ;              false contour; a step larger than contourEdge still splits.
+    ;   "overlay" — the same growth, but the shapes are stacked instead of
+    ;              partitioned. A surface is finished to its end; every edge it
+    ;              ran into becomes a seed for a shape started on the far side
+    ;              and drawn ON TOP of it. An overlay may cover ground the
+    ;              surface below already claimed, so a boundary that fades for
+    ;              a few pixels — which lets the flood leak and swallow the
+    ;              shape behind it — is no longer a lost shape: it is repainted
+    ;              from above. It stops at an edge, and it also stops where it
+    ;              has become indistinguishable from what is under it, so an
+    ;              overlay only exists where it shows.
+    ; Off by default because it is a real segmentation, and segmentation has
+    ; failure modes: where two areas are joined by a gradual path it will merge
+    ; them, and that mistake is a large one.
+    def contourMode:string "off"
+    ; "overlay": how close to the color already painted underneath is close
+    ; enough to stop. An overlay that matches its background adds nothing.
+    def overlaySimilar:int 8
+    ; A step only counts as a boundary when it is *unique* in its
+    ; neighbourhood — the strongest one across its own direction, so a noisy
+    ; pixel does not out-vote the ridge beside it — and *continuous*, part of a
+    ; run at least this many pixels long. Without both, every speck in a
+    ; photograph is a boundary, and the tracer spends its shapes on them.
+    ; 0 turns the filter off and takes every step at face value.
+    def edgeMinRun:int 3
+    ; Largest per-channel step still counted as continuous. Small on purpose:
+    ; at 10 a soft-edged object merges into the field behind it.
+    def contourEdge:int 3
+    ; How far a region may drift from its own running mean before it stops
+    ; growing. This is the leash on the failure above: without it one ramp can
+    ; walk across the whole picture.
+    def contourSpread:int 48
+    ; Fill each region with the gradient that describes it rather than one flat
+    ; color: fit a flat, a linear and a radial model per region and keep
+    ; whichever leaves the least error. Needs the continuity segmentation, so
+    ; turning this on runs it whether or not contourMode asked for it.
+    ; Rendered by toSVG only.
+    def gradientFill:boolean false
+    ; A gradient only replaces the flat fill when it explains this much more of
+    ; the region's variation, in percent. Keeps a nearly flat region flat.
+    def gradientGain:int 15
     ; How the color layers are stacked:
     ;   "stacked" — layer i covers every pixel at or above it in the palette
     ;               order, so the layers are painted over one another and a
@@ -138,9 +201,15 @@ class EvgTraceOptions {
     ;   "auto" — flood the page color in from the border and drop only that,
     ;            so a white belly or highlight inside the subject survives.
     ;            Falls back to "luma" when the border is not one flat color.
+    ;   "color" — the same flood, but from a color you name in bgColor rather
+    ;             than the one the border happens to hold, and with no
+    ;             uniformity test to pass. What to reach for when "auto"
+    ;             declines because the border is not flat enough.
     ;   "luma" — the old rule: drop every pixel with luma >= skipLuma.
     ;   "none" — paint everything opaque.
     def bgMode:string "auto"
+    ; The background color for bgMode "color". Anything EVGColor.parse accepts.
+    def bgColor:string "#ffffff"
     ; Per-channel tolerance for the "auto" background flood.
     def bgTolerance:int 24
 
