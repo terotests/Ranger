@@ -51,6 +51,16 @@ const state = {
   // the claim the rest of this directory makes about tree literals.
   order: SORTABLE_IDS.slice(),
   dragging: "",
+  // Where the carried row would land if the pointer let go now, and where its
+  // floating copy currently is. The ORDER is not touched until the drop — see
+  // `dragSortable`.
+  over: "",
+  previewX: 0,
+  previewY: 0,
+  // Only a POINTER drag floats a copy. A keyboard pick-up moves the row with
+  // the arrow keys and never leaves the list, so there is nothing following
+  // anything and a preview would be a lie about where the row is.
+  floating: false,
   open: "File",
   submenu: true,
   // The bar at the bottom edge, where the menus have no room below their
@@ -138,6 +148,16 @@ function keptTree(mod, css, label, size) {
       return transitions.busy(root);
     },
     busy: () => transitions.busy(root),
+    /**
+     * The kept tree itself, for the one thing a rebuild cannot express: a
+     * value that changes on every pointer move. Putting it in the sync key
+     * rebuilds the tree sixty times a second, and then NOTHING on the page can
+     * animate — every element is new every frame, so every flight establishes
+     * at its destination. Measured before it was believed: the rows making
+     * room for a dragged item were at their final positions 40ms after the
+     * pointer crossed, having travelled through nothing.
+     */
+    root: () => root,
     list() {
       const lay = laidOut();
       const dl = new mod.EVGDisplayList();
@@ -248,7 +268,25 @@ const DEMOS = {
     module: SortableDemo,
     // Through the kept tree, so a hover does not rebuild and a
     // transition has something to remember.
-    sync: () => HOSTS.sortable.sync(JSON.stringify([state.order, state.dragging]), () => SortableDemo.page(state.order, state.dragging)),
+    // The preview's position is deliberately NOT in the key. It changes on
+    // every pointer move, and a tree rebuilt every frame has new elements in
+    // it, so the rows opening a gap would have no flight to travel along and
+    // would simply appear where they were going. What the key holds is
+    // STRUCTURE — the order, what is being carried, and where it is headed —
+    // and the preview is then moved by hand below.
+    sync: () => {
+      HOSTS.sortable.sync(
+        JSON.stringify([state.order, state.dragging, state.floating]),
+        () => SortableDemo.dragPage(state.order, state.dragging, state.over, 0, 0, state.floating),
+      );
+      // The TARGET is not in the key either. It changes every time the pointer
+      // crosses a row, which is exactly the moment the gap has to open — and a
+      // rebuild there would hand every row a new element with no flight to
+      // travel along, so the gap would appear rather than open.
+      const root = HOSTS.sortable.root();
+      if (root) SortableDemo.applyShift(root, state.order, state.dragging, state.over);
+      movePreview();
+    },
     list: () => HOSTS.sortable.list(),
     hit: (x, y) => HOSTS.sortable.hit(x, y),
     a11y: (gen, focus) => HOSTS.sortable.a11y(gen, focus),
@@ -263,6 +301,34 @@ const DEMOS = {
     drop: dropSortable,
   },
 };
+
+/**
+ * Put the floating copy under the pointer, by mutating the element rather than
+ * rebuilding the tree around it.
+ *
+ * It is found by its class and not by an id, because it deliberately has none:
+ * hit testing scans the display list backwards, and an id here would put the
+ * preview under the cursor so the row beneath it could never be found. The
+ * preview is a picture; the list is what answers.
+ */
+// Handles for a browser check driving this page from outside; the playground
+// exposes its host for the same reason.
+window.__sortRoot = () => HOSTS.sortable.root();
+window.__sortState = () => ({ dragging: state.dragging, over: state.over, order: state.order });
+
+function movePreview() {
+  const root = HOSTS.sortable.root();
+  if (!root) return;
+  for (let i = 0; i < root.children.length; i++) {
+    const kid = root.children[i];
+    if ((kid.className || "").indexOf("sr-row-preview") < 0) continue;
+    kid.setAttribute("left", state.previewX + "px");
+    kid.setAttribute("top", state.previewY + "px");
+    kid.markInline("left");
+    kid.markInline("top");
+    return;
+  }
+}
 
 // --- the sortable's gesture ---------------------------------------------------
 // Reordering is `arrayMove`, not a swap: the item is taken out and put back at
@@ -281,27 +347,73 @@ function arrayMove(list, from, to) {
   return out;
 }
 
+// Where the row was when it was picked up, and where the pointer was. The
+// preview's position is the first plus how far the second has travelled — so
+// the row stays exactly under the part of it that was grabbed, rather than
+// jumping its own centre to the cursor.
+let grab = null;
+let grabPointer = { x: 0, y: 0 };
+
 function pressSortable(id) {
   const value = idOfRow(id);
   if (!value) return false;
   state.dragging = value;
+  state.over = value;
+  state.floating = true;
   state.focus = id;
+  // `left`/`top` are measured from the PARENT's content box, and the preview's
+  // parent is the padded page — so a page-absolute rectangle put it forty
+  // pixels down and right of the row it is a copy of. The list's own corner is
+  // that content origin, so subtracting it needs no knowledge of the padding.
+  const node = lastTree && lastTree.byId && lastTree.byId.get(id);
+  const list = lastTree && lastTree.byId && lastTree.byId.get("sr-list");
+  if (node && node.b && list && list.b) {
+    grab = { x: node.b[0] - list.b[0], y: node.b[1] - list.b[1] };
+    state.previewX = grab.x;
+    state.previewY = grab.y;
+  }
   return true;
 }
 
-function dragSortable(id) {
+/**
+ * A pointer move during a drag.
+ *
+ * The ORDER IS NOT TOUCHED. That is the change, and it is what dnd-kit does:
+ * reordering live means rebuilding the list on every move, and the rows then
+ * teleport into their new places with nothing to watch. Instead the target is
+ * recorded, the rows between here and there are shifted a place by the
+ * stylesheet, and the array is rearranged once, on the drop.
+ */
+function dragSortable(id, ev) {
+  let changed = false;
+  if (grab && ev) {
+    const px = grab.x + (ev.offsetX - grabPointer.x);
+    const py = grab.y + (ev.offsetY - grabPointer.y);
+    if (px !== state.previewX || py !== state.previewY) {
+      state.previewX = px;
+      state.previewY = py;
+      changed = true;
+    }
+  }
   const over = idOfRow(id);
-  if (!over || !state.dragging || over === state.dragging) return false;
-  const from = state.order.indexOf(state.dragging);
-  const to = state.order.indexOf(over);
-  if (from < 0 || to < 0) return false;
-  state.order = arrayMove(state.order, from, to);
-  return true;
+  if (over && state.dragging && over !== state.over) {
+    state.over = over;
+    changed = true;
+  }
+  return changed;
 }
 
 function dropSortable() {
   if (!state.dragging) return false;
+  const from = state.order.indexOf(state.dragging);
+  const to = state.order.indexOf(state.over);
+  // One `arrayMove`, at the end. The rows are already sitting where this puts
+  // them, so the swap is invisible — which is the point of having shifted them.
+  if (from >= 0 && to >= 0 && from !== to) state.order = arrayMove(state.order, from, to);
   state.dragging = "";
+  state.over = "";
+  state.floating = false;
+  grab = null;
   return true;
 }
 
@@ -312,11 +424,15 @@ function keySortable(key) {
   if (!focused) return false;
   if (key === " " || key === "Enter") {
     state.dragging = state.dragging ? "" : focused;
+    state.floating = false;
+    state.over = "";
     return true;
   }
   if (key === "Escape") {
     if (!state.dragging) return false;
     state.dragging = "";
+    state.floating = false;
+    state.over = "";
     return true;
   }
   if (!state.dragging) return false;
@@ -699,6 +815,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (d.drag) {
     // A demo with a gesture: the press picks up, the move carries, the release
     // puts down. Nothing happens on a press that never travels.
+    grabPointer = { x: ev.offsetX, y: ev.offsetY };
     held = d.press(hitAt(ev.offsetX, ev.offsetY));
     if (held) {
       canvas.setPointerCapture(ev.pointerId);
@@ -713,7 +830,14 @@ canvas.addEventListener("pointermove", (ev) => {
   const id = hitAt(ev.offsetX, ev.offsetY);
   setCursor(id);
   if (held && d.drag) {
-    if (d.drag(id)) paint();
+    if (d.drag(id, ev)) {
+      paint();
+      // The gap opening is a transition like any other, and a transition needs
+      // FRAMES. This branch returns early, so without this the flights were
+      // started and never advanced: the classes were right, the rules were
+      // right, and every row sat at zero progress for the whole drag.
+      if (d.animated) animate();
+    }
     return;
   }
   // Two different things, and both have to happen. `d.hover` is the demo's own

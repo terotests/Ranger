@@ -323,6 +323,15 @@ class EVGTransition {
             if (EVGTransition.sameColor((unwrap f.toColor) target)) {
                 return
             }
+            ; The element still holds what this flight last wrote there, so
+            ; nobody has re-declared anything and there is nothing to react to.
+            ; See `hasWrote` on EVGFlight for why reading one's own output back
+            ; would otherwise stop the animation dead.
+            if f.hasWrote {
+                if (EVGTransition.sameColor((unwrap f.wroteColor) target)) {
+                    return
+                }
+            }
             ; Where the flight has actually got to, which is where anything new
             ; has to leave from. Using the declared start instead is the flicker
             ; every naive implementation has.
@@ -414,6 +423,13 @@ class EVGTransition {
             def f:EVGFlight (unwrap existing)
             if (EVGTransition.sameNumber(f.toNumber target)) {
                 return
+            }
+            ; As above: this is our own showing value coming back, not a new
+            ; declaration.
+            if f.hasWrote {
+                if (EVGTransition.sameNumber(f.wroteNumber target)) {
+                    return
+                }
             }
             def hereN:double (this.showNumber(f))
             if (EVGTransition.sameNumber(hereN target)) {
@@ -548,6 +564,8 @@ class EVGTransition {
             def f:EVGFlight (itemAt el.transitions i)
             if (f.isColor) {
                 def c:EVGColor (this.showColor(f))
+                f.wroteColor = c
+                f.hasWrote = true
                 if (f.property == "background-color") {
                     el.backgroundColor = c
                 }
@@ -555,26 +573,29 @@ class EVGTransition {
                     el.color = c
                 }
             } {
+                def n:double (this.showNumber(f))
+                f.wroteNumber = n
+                f.hasWrote = true
                 if (f.property == "opacity") {
-                    el.opacity = (this.showNumber(f))
+                    el.opacity = n
                 }
                 if (f.property == "transform.rotate") {
-                    el.rotate = (this.showNumber(f))
+                    el.rotate = n
                 }
                 if (f.property == "transform.scale") {
-                    el.scale = (this.showNumber(f))
+                    el.scale = n
                 }
                 if (f.property == "transform.tx") {
-                    el.translateX = (this.showNumber(f))
+                    el.translateX = n
                 }
                 if (f.property == "transform.ty") {
-                    el.translateY = (this.showNumber(f))
+                    el.translateY = n
                 }
                 if (f.property == "transform-origin.x") {
-                    el.transformOriginX = (EVGTransition.unitOf(f.unitCode (this.showNumber(f))))
+                    el.transformOriginX = (EVGTransition.unitOf(f.unitCode n))
                 }
                 if (f.property == "transform-origin.y") {
-                    el.transformOriginY = (EVGTransition.unitOf(f.unitCode (this.showNumber(f))))
+                    el.transformOriginY = (EVGTransition.unitOf(f.unitCode n))
                 }
             }
             i = (i + 1)

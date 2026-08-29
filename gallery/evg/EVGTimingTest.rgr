@@ -944,6 +944,75 @@ class EVGTimingTest {
         return (0.0 - 1.0)
     }
 
+    ; Reconciling twice in one frame must not stop the animation.
+    ;
+    ; `reconcile` reads the target off the element and `writeBack` writes the
+    ; showing value to the same field, so a second reconcile before the next
+    ; tick reads its own output back — and without a memory of what it wrote it
+    ; concludes the target has moved to wherever the animation has got to, and
+    ; retargets there. The flight then converges to a standstill on the frame it
+    ; started.
+    ;
+    ; This is not a contrived call order. A host asks its tree three questions a
+    ; frame — what to draw, what is under the pointer, what it means — and each
+    ; one lays out and reconciles. It stayed hidden because the stylesheet
+    ; rewrites its own values at the top of every one of them; a property set
+    ; INLINE, which nothing rewrites, simply refused to move.
+    sfn checkReconcileIsIdempotent:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "transform 200ms linear"
+        el.setAttribute("transform" "translate(0, 0)")
+        tr.reconcile(el)
+        el.setAttribute("transform" "translate(0, 100px)")
+        tr.reconcile(el)
+        ; Two more, exactly as a host laying out three times would produce, and
+        ; with nothing re-declaring the target in between.
+        tr.reconcile(el)
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.near("still half way after three reconciles" el.translateY 50.0)
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.near("and it still arrives" el.translateY 100.0)
+    }
+
+    ; The same for a colour, and for the same reason.
+    sfn checkColourReconcileIsIdempotent:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "background-color 200ms linear"
+        el.backgroundColor = (EVGColor.parse("rgb(0,0,0)"))
+        tr.reconcile(el)
+        el.backgroundColor = (EVGColor.parse("rgb(200,200,200)"))
+        tr.reconcile(el)
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.ok("half way after two reconciles" ((EVGTimingTest.red(el)) == 100))
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.ok("and it arrives" ((EVGTimingTest.red(el)) == 200))
+    }
+
+    ; A value the sheet DOES rewrite still reacts to a real change, so the
+    ; memory above must not make the engine deaf. This is the check that would
+    ; fail if "ignore what I wrote" were applied too broadly.
+    sfn checkStillReactsToARealChange:void (c:TimingCheck) {
+        def tr (new EVGTransition())
+        def el (new EVGElement())
+        el.transitionSpec = "transform 200ms linear"
+        el.setAttribute("transform" "translate(0, 0)")
+        tr.reconcile(el)
+        el.setAttribute("transform" "translate(0, 100px)")
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        ; A third destination, declared while the first is still in flight.
+        el.setAttribute("transform" "translate(0, 20px)")
+        tr.reconcile(el)
+        tr.advance(el 200.0)
+        c.near("a new declaration mid-flight is still heard" el.translateY 20.0)
+    }
+
     sfn main:void () {
         def c (new TimingCheck())
         print "=== EVG timing functions vs the captured browser oracle ==="
@@ -977,6 +1046,9 @@ class EVGTimingTest {
         EVGTimingTest.checkOriginUnitChangeJumps(c)
         EVGTimingTest.checkOriginIsItsOwnProperty(c)
         EVGTimingTest.checkTransparentFade(c)
+        EVGTimingTest.checkReconcileIsIdempotent(c)
+        EVGTimingTest.checkColourReconcileIsIdempotent(c)
+        EVGTimingTest.checkStillReactsToARealChange(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

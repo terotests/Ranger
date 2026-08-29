@@ -4239,6 +4239,8 @@ class EVGFlight  {
     this.unitCode = 0;     /** note: unused */
     this.reversingStartNumber = 0.0;     /** note: unused */
     this.reversingFactor = 1.0;     /** note: unused */
+    this.wroteNumber = 0.0;     /** note: unused */
+    this.hasWrote = false;     /** note: unused */
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {

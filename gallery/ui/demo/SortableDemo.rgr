@@ -159,13 +159,35 @@ class SortableDemo {
     ; where the row is DRAWN is the page's business, and the order it is drawn
     ; in is the list it was handed.
     sfn row:EVGElement (id:string dragging:string) {
+        return (SortableDemo.rowAt(id dragging 0 false))
+    }
+
+    ; One row.
+    ;
+    ; `shift` is -1, 0 or +1: whether this row has to make room for the one
+    ; being carried, and in which direction. It is a CLASS and not a number,
+    ; because a row only ever moves by exactly one place — pick a row up and
+    ; drop it three down and the three it passes each move up ONE, they do not
+    ; move three. Two classes are therefore the whole vocabulary.
+    ;
+    ; `floating` builds the copy that follows the pointer. It carries no id, on
+    ; purpose: hit testing scans the display list backwards, so an id here
+    ; would put the preview under the cursor and the row beneath it would never
+    ; be found. The preview is a picture; the list is what answers.
+    sfn rowAt:EVGElement (id:string dragging:string shift:int floating:boolean) {
         def kind:string (SortableDemo.kindOf(id))
-        def cls:string "sr-row"
-        if (id == dragging) {
-            cls = "sr-row sr-row-dragging"
+        ; What a dragged row leaves BEHIND is a faded outline holding the
+        ; place. dnd-kit calls it the placeholder, and it is the thing that
+        ; makes a drag legible — without it the list has a hole and nothing
+        ; says what came out of it.
+        def cls:string (SortableDemo.rowClass(id dragging shift))
+        def rowKey:string (SortableDemo.rowId(id))
+        if floating {
+            cls = "sr-row sr-row-preview"
+            rowKey = ""
         }
         return (tree Sortable
-            (Row (props (id (SortableDemo.rowId(id))) (className cls) (a11yLabel (SortableDemo.titleOf(id))))
+            (Row (props (id rowKey) (className cls) (a11yLabel (SortableDemo.titleOf(id))))
                 ; Six dots, the handle every list like this has. It is not a
                 ; separate target here: the whole row is draggable, and the
                 ; grip says so rather than being the only place that works.
@@ -181,20 +203,173 @@ class SortableDemo {
     }
 
     sfn list:EVGElement (order:[string] dragging:string) {
+        return (SortableDemo.listOver(order dragging ""))
+    }
+
+    ; Which way row `i` has to move to open a gap, given that the row at `a` is
+    ; being carried towards `b`.
+    ;
+    ; The order itself does NOT change while a drag is in flight — that is the
+    ; whole point, and it is what dnd-kit does. Reordering live means rebuilding
+    ; the list on every pointer move, and a rebuilt list has different elements
+    ; in it, so nothing can glide anywhere: the rows teleport. Keeping the order
+    ; still and moving the rows with transforms is what lets the gap OPEN before
+    ; the drop rather than after it.
+    sfn shiftFor:int (i:int a:int b:int) {
+        if ((a < 0) || (b < 0)) {
+            return 0
+        }
+        if (a < b) {
+            if ((i > a) && (i <= b)) {
+                return (0 - 1)
+            }
+            return 0
+        }
+        if (a > b) {
+            if ((i >= b) && (i < a)) {
+                return 1
+            }
+            return 0
+        }
+        return 0
+    }
+
+    ; One row's height plus the list's gap: how far a row moves when it steps
+    ; one place. It has to agree with `.sr-row`'s height and `.sr-list`'s gap in
+    ; sortable.css, and it is the one number here that a change over there can
+    ; silently break.
+    sfn stride:double () {
+        return 88.0
+    }
+
+    sfn listOver:EVGElement (order:[string] dragging:string overId:string) {
         def out (tree Sortable (List (props (id "sr-list"))))
+        def a:int (SortableDemo.slotOf(order dragging))
+        def b:int (SortableDemo.slotOf(order overId))
         def i:int 0
         while (i < (array_length order)) {
             def id:string (itemAt order i)
-            out.addChild((SortableDemo.row(id dragging)))
+            def shift:int (SortableDemo.shiftFor(i a b))
+            def one:EVGElement (SortableDemo.rowAt(id dragging shift false))
+            ; The placeholder travels to the slot it will land in, so the gap
+            ; the other rows opened has the ghost sitting in it rather than a
+            ; hole. It moves by however many places it is going — unlike every
+            ; other row, which only ever steps one — so this is the one
+            ; transform here that cannot be a class.
+            if ((i == a) && (b >= 0)) {
+                def dy:double ((to_double (b - a)) * (SortableDemo.stride()))
+                one.setAttribute("transform" ("translate(0, " + (to_string (to_int dy)) + "px)"))
+                one.markInline("transform")
+            }
+            out.addChild(one)
             i = (i + 1)
         }
         return out
     }
 
+    ; The class a row wears, given what is being carried and where it is going.
+    ; One place, so the vocabulary cannot drift between the builder and the
+    ; updater below.
+    sfn rowClass:string (id:string dragging:string shift:int) {
+        def cls:string "sr-row"
+        if (id == dragging) {
+            cls = "sr-row sr-row-dragging"
+        }
+        if (shift < 0) {
+            cls = (cls + " sr-row-up")
+        }
+        if (shift > 0) {
+            cls = (cls + " sr-row-down")
+        }
+        return cls
+    }
+
+    ; Re-aim an EXISTING list at a new target, without rebuilding it.
+    ;
+    ; This is the whole reason the gap can open smoothly. The target changes
+    ; every time the pointer crosses a row, and rebuilding the list there gives
+    ; every row a brand-new element — which has no flight, so it appears at its
+    ; destination instead of travelling to it. Measured: the rows were at their
+    ; final positions 40ms after the crossing, having gone through nothing.
+    ;
+    ; So the tree is built once per drag and this changes two things on it: the
+    ; class that says which way each row steps, and the placeholder's own
+    ; transform, which is the one that moves more than a single place.
+    sfn applyShift:void (root:EVGElement order:[string] dragging:string overId:string) {
+        if ((array_length root.children) == 0) {
+            return
+        }
+        def list:EVGElement (itemAt root.children 0)
+        def a:int (SortableDemo.slotOf(order dragging))
+        def b:int (SortableDemo.slotOf(order overId))
+        def n:int (array_length order)
+        def i:int 0
+        while (i < n) {
+            if (i < (array_length list.children)) {
+                def row:EVGElement (itemAt list.children i)
+                def id:string (itemAt order i)
+                def shift:int (SortableDemo.shiftFor(i a b))
+                row.className = (SortableDemo.rowClass(id dragging shift))
+                if ((i == a) && (b >= 0)) {
+                    def dy:double ((to_double (b - a)) * (SortableDemo.stride()))
+                    row.setAttribute("transform" ("translate(0, " + (to_string (to_int dy)) + "px)"))
+                    ; INLINE, and the placeholder stays where it was put without
+                    ; it. `.sr-row:hover` declares `transform`, so the cascade
+                    ; puts that property in the set it clears before deciding
+                    ; which states hold — and an attribute written straight onto
+                    ; the element is exactly what `markInline` protects from
+                    ; that. Set it without saying so and the ghost is wiped back
+                    ; to its old slot on the very next frame, silently.
+                    row.markInline("transform")
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn slotOf:int (order:[string] id:string) {
+        if ((strlen id) == 0) {
+            return (0 - 1)
+        }
+        def i:int 0
+        while (i < (array_length order)) {
+            if ((itemAt order i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     sfn page:EVGElement (order:[string] dragging:string) {
-        return (tree Sortable
+        return (SortableDemo.dragPage(order dragging "" 0.0 0.0 false))
+    }
+
+    ; The list, plus the copy that follows the pointer.
+    ;
+    ; The preview is positioned with `left`/`top`, which takes it out of the
+    ; flow — so it does not disturb the column — and it is added LAST, which is
+    ; what puts it on top: the display list paints children in order and there
+    ; is no z-index to get wrong. Without both of those a dragged row is drawn
+    ; UNDER the row it is passing, which is the one thing a drag must never
+    ; look like.
+    sfn dragPage:EVGElement (order:[string] dragging:string overId:string px:double py:double floating:boolean) {
+        def root (tree Sortable
             (Page (props (id "page"))
-                (child (SortableDemo.list(order dragging)))))
+                (child (SortableDemo.listOver(order dragging overId)))))
+        ; Only a POINTER drag floats a copy. Picking a row up from the
+        ; keyboard moves it with the arrow keys and never leaves the list, so
+        ; there is nothing following anything and a preview would be a lie
+        ; about where the row is.
+        if (floating && ((strlen dragging) > 0)) {
+            def preview:EVGElement (SortableDemo.rowAt(dragging dragging 0 true))
+            preview.setAttribute("left" ((to_string (to_int px)) + "px"))
+            preview.setAttribute("top" ((to_string (to_int py)) + "px"))
+            preview.markInline("left")
+            preview.markInline("top")
+            root.addChild(preview)
+        }
+        return root
     }
 
     ; --- one pipeline, four answers --------------------------------------------

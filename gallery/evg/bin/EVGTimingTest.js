@@ -1394,6 +1394,8 @@ class EVGFlight  {
     this.unitCode = 0;
     this.reversingStartNumber = 0.0;
     this.reversingFactor = 1.0;
+    this.wroteNumber = 0.0;
+    this.hasWrote = false;
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {
@@ -2956,6 +2958,11 @@ class EVGTransition  {
       if ( EVGTransition.sameColor((f.toColor), target) ) {
         return;
       }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameColor((f.wroteColor), target) ) {
+          return;
+        }
+      }
       const here = this.showColor(f);
       if ( EVGTransition.sameColor(here, target) ) {
         f.fromColor = target;
@@ -3017,6 +3024,11 @@ class EVGTransition  {
       const f = existing;
       if ( EVGTransition.sameNumber(f.toNumber, target) ) {
         return;
+      }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameNumber(f.wroteNumber, target) ) {
+          return;
+        }
       }
       const hereN = this.showNumber(f);
       if ( EVGTransition.sameNumber(hereN, target) ) {
@@ -3111,6 +3123,8 @@ class EVGTransition  {
       const f = el.transitions[i];
       if ( f.isColor ) {
         const c = this.showColor(f);
+        f.wroteColor = c;
+        f.hasWrote = true;
         if ( f.property == "background-color" ) {
           el.backgroundColor = c;
         }
@@ -3118,26 +3132,29 @@ class EVGTransition  {
           el.color = c;
         }
       } else {
+        const n = this.showNumber(f);
+        f.wroteNumber = n;
+        f.hasWrote = true;
         if ( f.property == "opacity" ) {
-          el.opacity = this.showNumber(f);
+          el.opacity = n;
         }
         if ( f.property == "transform.rotate" ) {
-          el.rotate = this.showNumber(f);
+          el.rotate = n;
         }
         if ( f.property == "transform.scale" ) {
-          el.scale = this.showNumber(f);
+          el.scale = n;
         }
         if ( f.property == "transform.tx" ) {
-          el.translateX = this.showNumber(f);
+          el.translateX = n;
         }
         if ( f.property == "transform.ty" ) {
-          el.translateY = this.showNumber(f);
+          el.translateY = n;
         }
         if ( f.property == "transform-origin.x" ) {
-          el.transformOriginX = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
+          el.transformOriginX = EVGTransition.unitOf(f.unitCode, n);
         }
         if ( f.property == "transform-origin.y" ) {
-          el.transformOriginY = EVGTransition.unitOf(f.unitCode, this.showNumber(f));
+          el.transformOriginY = EVGTransition.unitOf(f.unitCode, n);
         }
       }
       i = i + 1;
@@ -11084,6 +11101,51 @@ EVGTimingTest.alphaOf = function(el) {
   }
   return 0.0 - 1.0;
 };
+EVGTimingTest.checkReconcileIsIdempotent = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "transform 200ms linear";
+  el.setAttribute("transform", "translate(0, 0)");
+  tr.reconcile(el);
+  el.setAttribute("transform", "translate(0, 100px)");
+  tr.reconcile(el);
+  tr.reconcile(el);
+  tr.reconcile(el);
+  tr.advance(el, 100.0);
+  c.near("still half way after three reconciles", el.translateY, 50.0);
+  tr.reconcile(el);
+  tr.advance(el, 100.0);
+  c.near("and it still arrives", el.translateY, 100.0);
+};
+EVGTimingTest.checkColourReconcileIsIdempotent = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "background-color 200ms linear";
+  el.backgroundColor = EVGColor.parse("rgb(0,0,0)");
+  tr.reconcile(el);
+  el.backgroundColor = EVGColor.parse("rgb(200,200,200)");
+  tr.reconcile(el);
+  tr.reconcile(el);
+  tr.advance(el, 100.0);
+  c.ok("half way after two reconciles", EVGTimingTest.red(el) == 100);
+  tr.reconcile(el);
+  tr.advance(el, 100.0);
+  c.ok("and it arrives", EVGTimingTest.red(el) == 200);
+};
+EVGTimingTest.checkStillReactsToARealChange = function(c) {
+  const tr = new EVGTransition();
+  const el = new EVGElement();
+  el.transitionSpec = "transform 200ms linear";
+  el.setAttribute("transform", "translate(0, 0)");
+  tr.reconcile(el);
+  el.setAttribute("transform", "translate(0, 100px)");
+  tr.reconcile(el);
+  tr.advance(el, 100.0);
+  el.setAttribute("transform", "translate(0, 20px)");
+  tr.reconcile(el);
+  tr.advance(el, 200.0);
+  c.near("a new declaration mid-flight is still heard", el.translateY, 20.0);
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new TimingCheck();
@@ -11118,6 +11180,9 @@ function __js_main() {
   EVGTimingTest.checkOriginUnitChangeJumps(c);
   EVGTimingTest.checkOriginIsItsOwnProperty(c);
   EVGTimingTest.checkTransparentFade(c);
+  EVGTimingTest.checkReconcileIsIdempotent(c);
+  EVGTimingTest.checkColourReconcileIsIdempotent(c);
+  EVGTimingTest.checkStillReactsToARealChange(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {

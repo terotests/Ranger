@@ -41,12 +41,15 @@
   height: 76px;
 }
 
-/* Being carried. The row stays where it is in the list and is lifted rather
-   than hidden — the reference moves it with a transform, and what the eye
-   should follow is the row, not the hole it left. */
+/* What is left BEHIND while a row is carried: a faded outline holding the
+   place. dnd-kit calls it the placeholder, and it is what makes a drag
+   legible — without it the list has a hole and nothing says what came out of
+   it. Faded rather than emptied, so the eye can still read which row is in
+   flight once the pointer has taken the copy somewhere else. */
 .sr-row-dragging {
-  border: 1px solid #6366f1;
-  background-color: #eef2ff;
+  border: 1px dashed #a5b4fc;
+  background-color: #f8faff;
+  opacity: 0.5;
 }
 
 /* The handle, the type glyph and everything else on the left. Widths are
@@ -151,9 +154,41 @@
    nothing. */
 .sr-row {
   transition: background-color 140ms ease-out, border-color 140ms ease-out,
-              transform 140ms ease-out;
+              opacity 140ms ease-out, transform 180ms ease-out;
 }
 .sr-row:hover  { background-color: #f8fafc; border-color: #cbd5e1; transform: translate(0, -2px); }
 /* Held: pressed into the page, and instant on the way in. A row that eases
    into being grabbed feels like it did not hear the click. */
 .sr-row:active { transform: scale(0.995); }
+
+/* --- making room --------------------------------------------------------------
+   A row only ever moves by ONE place, whichever way. Pick a row up and drop it
+   three down and the three it passes each step up one; they do not step three.
+   So two classes are the whole vocabulary, and the distance is a constant.
+
+   88px is the stride: the row's own 76 plus the list's 12 gap. It has to match
+   those two numbers above, and it is the one piece of arithmetic in this sheet
+   that a change elsewhere can silently break.
+
+   The 180ms comes from `.sr-row` above and is slower than the hover on purpose:
+   this is the list saying where the row will land, and it should read as a
+   deliberate opening rather than a twitch. */
+.sr-row-up   { transform: translate(0, -88px); }
+.sr-row-down { transform: translate(0, 88px); }
+
+/* The copy that follows the pointer.
+ *
+ * `transition: none` is the important line. Everything else here glides; this
+ * must not, because it is tracking a finger, and any easing at all reads as
+ * the row lagging behind the cursor rather than as motion. dnd-kit turns the
+ * transition off on the active item for the same reason.
+ *
+ * The width is repeated because the preview is positioned rather than laid out
+ * in the column, so it has no parent to take a width from. */
+.sr-row-preview {
+  transition: none;
+  border: 1px solid #6366f1;
+  background-color: #ffffff;
+  transform: scale(1.02) rotate(-0.4deg);
+  width: 720px;
+}
