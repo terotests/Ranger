@@ -34,6 +34,14 @@ class UiRow {
     ; "button" learns nothing about being able to move the thing.
     def roleDescription:string ""
     def expanded:int 0
+    ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
+    ;
+    ; Its own field for the same reason `valueNow` has one. Sorting a table
+    ; changes which rows are where and NOTHING else about any node — every
+    ; header keeps its name, its role and its position — so without this the
+    ; one thing the control does is the one thing the trace cannot see. That is
+    ; the slider's lesson, repeated.
+    def sorted:int 0
     def pressed:int 0
     def checked:int 0
     def selected:int 0

@@ -206,6 +206,7 @@
     ]
   },
   "beyond": {
-    "sortable": "@dnd-kit/sortable \u2014 Radix has no sortable; ReUI's and every shadcn-family one is dnd-kit underneath"
+    "sortable": "@dnd-kit/sortable — Radix has no sortable; ReUI's and every shadcn-family one is dnd-kit underneath",
+    "table": "@tanstack/react-table — Radix has no table; ReUI's and every shadcn-family one is TanStack underneath. A narrower oracle than dnd-kit: TanStack is headless and contributes no ARIA at all, so only the state machine is copied from it."
   }
 }

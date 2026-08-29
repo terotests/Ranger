@@ -100,6 +100,13 @@ class EVGA11yRole {
     sfn comboBox:int ()         { return 36 }
     sfn listBox:int ()          { return 37 }
     sfn option:int ()           { return 38 }
+    ; `table` and not `grid`. They are different promises: a grid is a widget
+    ; you arrow around cell by cell, a table is tabular DATA with ordinary
+    ; controls inside it. A sortable, selectable table of the ReUI kind is the
+    ; second — you tab to the sort button and the checkbox, you do not steer a
+    ; cell cursor — and a native `<table>`, which is what the reference
+    ; renders, reports exactly this.
+    sfn table:int ()            { return 39 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
@@ -113,6 +120,7 @@ class EVGA11yRole {
         if (role == 7)  { return "textbox" }
         if (role == 8)  { return "img" }
         if (role == 9)  { return "link" }
+        if (role == 39) { return "table" }
         if (role == 10) { return "grid" }
         if (role == 11) { return "row" }
         if (role == 12) { return "columnheader" }
@@ -202,6 +210,13 @@ class EVGA11yNode {
     def modal:boolean false
     def checked:int 0
     def expanded:int 0
+    ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
+    ;
+    ; It needs its own field for the same reason `valuenow` did. Sorting a
+    ; table changes which rows are where and nothing else about any node — the
+    ; header keeps its name, its role and its position — so without this the
+    ; one thing the control does is the one thing the trace cannot see.
+    def sorted:int 0
 
     ; A number the platform announces: where a slider sits, how far a progress
     ; bar has got. `hasValueNow` is not decoration — a progress bar with a range
@@ -438,6 +453,9 @@ class EVGA11yTree {
         }
         if (n.checked != 0) {
             out = (out + ",\"checked\":" + (to_string n.checked))
+        }
+        if (n.sorted != 0) {
+            out = (out + ",\"sorted\":" + (to_string n.sorted))
         }
         if (n.expanded != 0) {
             out = (out + ",\"expanded\":" + (to_string n.expanded))

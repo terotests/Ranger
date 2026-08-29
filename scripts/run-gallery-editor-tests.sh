@@ -39,6 +39,7 @@ SUITES=(
   evg:overlay:test
   evg:style:test
   evg:timing:test
+  ui:table:check
 )
 
 failed=()

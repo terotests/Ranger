@@ -639,6 +639,61 @@ that needed a better fixture than the chevron itself: a glyph with no role
 makes no node either way, so the first version of the test passed under a
 mutation that removed the pruning entirely.
 
+## Table — the second control whose reference is not Radix
+
+Radix has no table. ReUI's is `@tanstack/react-table` underneath, as is every
+shadcn-family one, so TanStack is the oracle — exactly as dnd-kit is for the
+sortable, and declared the same way in `beyond` so the coverage number cannot
+quietly count it as Radix.
+
+But it is a **narrower** oracle, and saying so is half the work. dnd-kit owns
+its accessibility: it writes the roledescription, the aria-pressed and the
+announcements, so copying it gets those right for free. TanStack is headless.
+It computes state and hands you nothing to render — no roles, no `aria-sort`,
+not one attribute. So the state machine is TanStack's and the ARIA is the HTML
+table spec's, and `oracle/table.json` is where the first half was captured
+before a line of Ranger existed.
+
+Four measured answers, three of which are not what you would write:
+
+- **The sort cycle has three states**, not two: first direction, other
+  direction, then unsorted again. A hand-written table toggles between two
+  forever, and the order the data arrived in becomes unreachable.
+- **A numeric column sorts descending first** and a text column ascending.
+  "First click" means "most useful first click" — biggest-first for a quantity,
+  A-to-Z for a name. Both full cycles were captured rather than assuming the
+  numeric one mirrors the text one.
+- **The header checkbox is page-scoped.** Select everything on page one, then
+  clear it, and page two's rows stay selected — it never touched them. "Some
+  but not all" is a third state, which is the indeterminate the box has to
+  show.
+- **Sorting while paged stays on the page it was on.**
+
+And one that will bite an implementation: TanStack's `nextPage()` does **not**
+clamp. Called on the last page it moves to an index with no rows in it, and
+only `getCanNextPage()` says not to. `TableCtl.nextPage` gates itself instead —
+a control that can put itself somewhere empty is a control every caller has to
+remember to guard — and the check prints that difference rather than asserting
+it away.
+
+`npm run ui:table:check` runs the controller over the same six rows and the
+same clicks and compares against TanStack's recorded answers. It needs no
+browser, so it is in the CI suite. Three mutations were run against it — a
+two-state toggle, a numeric column sorting ascending first, and a select-all
+that touches every row — and each is exactly a mistake a real table makes.
+
+`aria-sort` needed a field of its own in the trace, for the same reason
+`valuenow` did for the slider: sorting changes which rows are where and nothing
+else about any node, so without it the one thing the control does is the one
+thing the diff cannot see.
+
+Two flaws in the probe itself, both found because the numbers looked wrong:
+every mutation goes through React state, so reading the table object back
+synchronously reads the previous one and reports that nothing happened; and
+`resetPagination()` restores TanStack's default of ten per page rather than the
+four the probe was set up with, which made the whole selection capture measure
+a one-page table.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

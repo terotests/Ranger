@@ -175,6 +175,16 @@ function buildHost(M, fixture, css) {
         for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
         break;
 
+      case "table": {
+        ctl = host.addTable(c.tid, c.name || "");
+        for (const col of c.columns || []) {
+          ctl.addColumn(col.key, col.label || col.key, !!col.numeric, col.sortable !== false);
+        }
+        for (const r of c.rows || []) ctl.addRecord(r.key, r.cells || []);
+        if (c.pageSize) ctl.pageSize = c.pageSize;
+        break;
+      }
+
       case "accordion":
         ctl = host.addAccordion(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, it.body || "", !!it.disabled);
@@ -228,6 +238,7 @@ const SUPPORTED_TYPES = [
   "select",
   "navigationmenu",
   "scrollarea",
+  "table",
 ];
 
 module.exports = { buildHost, SUPPORTED_TYPES };

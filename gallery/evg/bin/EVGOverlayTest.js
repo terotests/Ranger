@@ -1538,6 +1538,7 @@ class EVGElement  {
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
     this.a11yHidden = false;
+    this.a11ySorted = 0;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2098,6 +2099,18 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-sort") || (name == "a11ySorted") ) {
+      if ( (value == "ascending") || (value == "1") ) {
+        this.a11ySorted = 1;
+      }
+      if ( (value == "descending") || (value == "2") ) {
+        this.a11ySorted = 2;
+      }
+      if ( (value == "none") || (value == "0") ) {
+        this.a11ySorted = 0;
+      }
       return;
     }
     if ( (name == "aria-hidden") || (name == "a11yHidden") ) {

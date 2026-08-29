@@ -71,6 +71,12 @@ class EVGA11yFromTree {
         if (name == "region")           { return (EVGA11yRole.region()) }
         if (name == "list")             { return (EVGA11yRole.list()) }
         if (name == "listitem")         { return (EVGA11yRole.listItem()) }
+        if (name == "table")            { return (EVGA11yRole.table()) }
+        if (name == "row")              { return (EVGA11yRole.row()) }
+        if (name == "columnheader")     { return (EVGA11yRole.columnHeader()) }
+        if (name == "rowheader")        { return (EVGA11yRole.rowHeader()) }
+        if (name == "cell")             { return (EVGA11yRole.cell()) }
+        if (name == "gridcell")         { return (EVGA11yRole.cell()) }
         if (name == "switch")           { return (EVGA11yRole.switchControl()) }
         if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }
         if (name == "slider")           { return (EVGA11yRole.slider()) }
@@ -151,6 +157,7 @@ class EVGA11yFromTree {
             n.disabled = el.a11yDisabled
             n.checked = el.a11yChecked
             n.expanded = el.a11yExpanded
+            n.sorted = el.a11ySorted
             if (el.a11ySelected == 2) {
                 n.selected = true
             }

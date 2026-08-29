@@ -556,6 +556,8 @@ class EVGElement {
     ; greater-than" — the glyph read aloud as if it were part of the name, when
     ; `aria-haspopup` has already said the same thing properly.
     def a11yHidden:boolean false
+    ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
+    def a11ySorted:int 0
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
@@ -1700,6 +1702,12 @@ class EVGElement {
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value
+            return
+        }
+        if ((name == "aria-sort") || (name == "a11ySorted")) {
+            if ((value == "ascending") || (value == "1"))  { a11ySorted = 1 }
+            if ((value == "descending") || (value == "2")) { a11ySorted = 2 }
+            if ((value == "none") || (value == "0"))       { a11ySorted = 0 }
             return
         }
         if ((name == "aria-hidden") || (name == "a11yHidden")) {

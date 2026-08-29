@@ -120,6 +120,9 @@ EVGA11yRole.listBox = function() {
 EVGA11yRole.option = function() {
   return 38;
 };
+EVGA11yRole.table = function() {
+  return 39;
+};
 EVGA11yRole.ariaName = function(role) {
   if ( role == 1 ) {
     return "group";
@@ -147,6 +150,9 @@ EVGA11yRole.ariaName = function(role) {
   }
   if ( role == 9 ) {
     return "link";
+  }
+  if ( role == 39 ) {
+    return "table";
   }
   if ( role == 10 ) {
     return "grid";
@@ -287,6 +293,7 @@ class EVGA11yNode  {
     this.modal = false;
     this.checked = 0;
     this.expanded = 0;
+    this.sorted = 0;
     this.hasValueNow = false;
     this.valueNow = 0;
     this.hasValueRange = false;
@@ -463,6 +470,9 @@ class EVGA11yTree  {
     }
     if ( n.checked != 0 ) {
       out = (out + ",\"checked\":") + ((n.checked.toString()));
+    }
+    if ( n.sorted != 0 ) {
+      out = (out + ",\"sorted\":") + ((n.sorted.toString()));
     }
     if ( n.expanded != 0 ) {
       out = (out + ",\"expanded\":") + ((n.expanded.toString()));
@@ -2252,6 +2262,7 @@ class EVGElement  {
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
     this.a11yHidden = false;
+    this.a11ySorted = 0;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2812,6 +2823,18 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-sort") || (name == "a11ySorted") ) {
+      if ( (value == "ascending") || (value == "1") ) {
+        this.a11ySorted = 1;
+      }
+      if ( (value == "descending") || (value == "2") ) {
+        this.a11ySorted = 2;
+      }
+      if ( (value == "none") || (value == "0") ) {
+        this.a11ySorted = 0;
+      }
       return;
     }
     if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
@@ -17500,6 +17523,7 @@ class EVGA11yFromTree  {
       n.disabled = el.a11yDisabled;
       n.checked = el.a11yChecked;
       n.expanded = el.a11yExpanded;
+      n.sorted = el.a11ySorted;
       if ( el.a11ySelected == 2 ) {
         n.selected = true;
       }
@@ -17609,6 +17633,24 @@ EVGA11yFromTree.roleCode = function(name) {
   }
   if ( name == "listitem" ) {
     return EVGA11yRole.listItem();
+  }
+  if ( name == "table" ) {
+    return EVGA11yRole.table();
+  }
+  if ( name == "row" ) {
+    return EVGA11yRole.row();
+  }
+  if ( name == "columnheader" ) {
+    return EVGA11yRole.columnHeader();
+  }
+  if ( name == "rowheader" ) {
+    return EVGA11yRole.rowHeader();
+  }
+  if ( name == "cell" ) {
+    return EVGA11yRole.cell();
+  }
+  if ( name == "gridcell" ) {
+    return EVGA11yRole.cell();
   }
   if ( name == "switch" ) {
     return EVGA11yRole.switchControl();

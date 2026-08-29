@@ -33,6 +33,7 @@ Import "HoverCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ToastCtl.rgr"
 Import "SortableCtl.rgr"
+Import "TableCtl.rgr"
 Import "MenubarCtl.rgr"
 Import "SelectCtl.rgr"
 Import "NavMenuCtl.rgr"
@@ -301,6 +302,14 @@ class UiHost {
 
     fn addSortable:SortableCtl (tid:string name:string) {
         def c (new SortableCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addTable:TableCtl (tid:string name:string) {
+        def c (new TableCtl())
         c.tid = tid
         c.name = name
         this.add(c)
@@ -768,6 +777,20 @@ class UiHost {
 
     ; 0 = not applicable → null, 1 = no, 2 = yes, 3 = mixed. `mixed` is a real
     ; ARIA value, not a third boolean, so it travels as a string.
+    sfn sortJson:string (v:int) {
+        if (v == 1) {
+            return "\"ascending\""
+        }
+        if (v == 2) {
+            return "\"descending\""
+        }
+        ; A header that can be sorted but is not says "none"; anything that is
+        ; not a column header says nothing at all. The two are different, and
+        ; the DOM makes the same distinction — `aria-sort` is absent on a cell
+        ; and present-and-none on an unsorted header.
+        return "null"
+    }
+
     sfn triJson:string (v:int) {
         if (v == 1) {
             return "false"
@@ -1084,6 +1107,9 @@ class UiHost {
             out = out + ",\"role\":" + (EVGA11yTree.jsonString(roleName))
             out = out + ",\"name\":" + (EVGA11yTree.jsonString(row.name))
             out = out + ",\"state\":" + (EVGA11yTree.jsonString(row.state))
+            ; `aria-sort` as the DOM spells it, so the two sides compare as
+            ; strings rather than as one side's numbering.
+            out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
             out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
             out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
             out = out + ",\"checked\":" + (UiHost.triJson(row.checked))

@@ -21,6 +21,10 @@ export const FIELDS = [
   "focused",
   "visible",
   "roledescription",
+  // `aria-sort`. Its own field for the same reason `valuenow` is one: sorting
+  // a table changes which rows are where and nothing else about any node, so
+  // without it the one thing the control does is invisible to the diff.
+  "sort",
   // Where the node sits among its siblings. A sortable moves nothing else:
   // every other field of every item is identical before and after a reorder,
   // and the diff keys by test id, so without this the one thing the component

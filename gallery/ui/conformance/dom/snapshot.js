@@ -107,6 +107,10 @@ export function snapshotDom(options) {
       // affordance: without it a reader announces a button and nothing about
       // being able to move it.
       roledescription: el.getAttribute("aria-roledescription"),
+      // `aria-sort`. Absent on anything that is not a column header, and
+      // present-and-"none" on a header that can be sorted but is not — the two
+      // are different things and the trace keeps them apart.
+      sort: el.getAttribute("aria-sort"),
       // Reported, not compared. The two systems disagree about the parent of a
       // floating surface ON PURPOSE — Radix portals a tooltip to the end of
       // the body, EVG keeps it the trigger's child and moves only where it is
