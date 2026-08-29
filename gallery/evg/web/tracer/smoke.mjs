@@ -552,24 +552,39 @@ if (!ready) {
 
     // Blur is the one that must visibly simplify: it decides how much detail
     // reaches the tracer at all.
+    // input redraws, change is what a released slider sends and what the undo
+    // stack records — a real drag sends both.
     await page.evaluate(() => {
       const e = document.getElementById("preBlur");
-      e.value = 4; e.dispatchEvent(new Event("input", { bubbles: true }));
+      e.value = 4;
+      e.dispatchEvent(new Event("input", { bubbles: true }));
+      e.dispatchEvent(new Event("change", { bubbles: true }));
     });
     await settle();
     const blurred = await bytes();
-    const showsPane = await page.evaluate(() => !document.getElementById("paneProc").hidden
-      && document.querySelector(".split").classList.contains("triple"));
+    const undoLive = await page.evaluate(() => !document.getElementById("preUndo").disabled);
 
-    // And going back to no filters must put the picture back exactly.
+    // A second change, then step back over it: undo works on the settings, so
+    // one step has to land exactly on the previous set of them.
     await page.evaluate(() => {
-      const s = document.getElementById("prePreset");
-      s.value = "none"; s.dispatchEvent(new Event("change", { bubbles: true }));
+      const e = document.getElementById("preContrast");
+      e.value = 50;
+      e.dispatchEvent(new Event("input", { bubbles: true }));
+      e.dispatchEvent(new Event("change", { bubbles: true }));
     });
     await settle();
+    await page.click("#preUndo");
+    await settle();
+    const undone = await bytes();
+
+    // And restoring must put the original picture back exactly.
+    await page.click("#preReset");
+    await settle();
     const restored = await bytes();
-    const hidesPane = await page.evaluate(() => document.getElementById("paneProc").hidden);
-    return { hiddenAtFirst, opens, plain, blurred, restored, showsPane, hidesPane };
+    // One picture, not an original and a copy of it: two panes, never three.
+    const panes = await page.evaluate(() =>
+      document.querySelectorAll(".split > .pane").length);
+    return { hiddenAtFirst, opens, plain, blurred, undoLive, undone, restored, panes };
   })();
   console.log(JSON.stringify(pre));
   if (!pre.hiddenAtFirst || !pre.opens) {
@@ -582,12 +597,18 @@ if (!ready) {
     process.exitCode = 1;
   }
   if (pre.restored !== pre.plain) {
-    console.error("clearing the filters should restore the original trace exactly, got "
+    console.error("restoring should bring the original trace back exactly, got "
       + pre.restored + " want " + pre.plain);
     process.exitCode = 1;
   }
-  if (!pre.showsPane || !pre.hidesPane) {
-    console.error("the processed pane should appear only while a filter is doing something");
+  if (!pre.undoLive || pre.undone !== pre.blurred) {
+    console.error("undo should step back onto the previous settings exactly, got "
+      + pre.undone + " want " + pre.blurred);
+    process.exitCode = 1;
+  }
+  if (pre.panes !== 2) {
+    console.error("the picture is one picture: source and SVG, never a third pane, got "
+      + pre.panes);
     process.exitCode = 1;
   }
 
