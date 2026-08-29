@@ -65,6 +65,7 @@ class EvgTraceOptions  {
     this.smooth = 0;
     this.minRegion = 6;
     this.bgMode = "auto";
+    this.bgColor = "#ffffff";
     this.bgTolerance = 24;
     let ph = [];
     this.paletteHex = ph;
@@ -5749,6 +5750,9 @@ class EvgBitmapTracer  {
   commandCount () {
     return this.commands.length;
   };
+  backgroundRemoved () {
+    return this.bgActive;
+  };
   layerCount () {
     return this.layers.length;
   };
@@ -5833,7 +5837,9 @@ class EvgBitmapTracer  {
   };
   detectBackground () {
     this.bgActive = false;
-    if ( this.options.bgMode != "auto" ) {
+    const mode = this.options.bgMode;
+    const named = mode == "color";
+    if ( (mode != "auto") && (named == false) ) {
       return;
     }
     const n = this.width * this.height;
@@ -5903,26 +5909,36 @@ class EvgBitmapTracer  {
     if ( topI < 0 ) {
       return;
     }
-    const bgR = (((sr[topI]) / topC) | 0);
-    const bgG = (((sg[topI]) / topC) | 0);
-    const bgB = (((sb[topI]) / topC) | 0);
+    let bgR = (((sr[topI]) / topC) | 0);
+    let bgG = (((sg[topI]) / topC) | 0);
+    let bgB = (((sb[topI]) / topC) | 0);
     let tol = this.options.bgTolerance;
     if ( tol < 0 ) {
       tol = 0;
     }
-    let within = 0;
-    i = 0;
-    while (i < bn) {
-      const idx2 = border[i];
-      if ( (this.planeA[idx2]) >= 16 ) {
-        if ( this.nearBg(idx2, bgR, bgG, bgB, tol) ) {
-          within = within + 1;
-        }
+    if ( named ) {
+      const c = EVGColor.parse(this.options.bgColor);
+      if ( c.isSet == false ) {
+        return;
       }
-      i = i + 1;
-    };
-    if ( ((((within * 100) / opaqueBorder) | 0)) < 80 ) {
-      return;
+      bgR = Math.floor( c.r);
+      bgG = Math.floor( c.g);
+      bgB = Math.floor( c.b);
+    } else {
+      let within = 0;
+      i = 0;
+      while (i < bn) {
+        const idx2 = border[i];
+        if ( (this.planeA[idx2]) >= 16 ) {
+          if ( this.nearBg(idx2, bgR, bgG, bgB, tol) ) {
+            within = within + 1;
+          }
+        }
+        i = i + 1;
+      };
+      if ( ((((within * 100) / opaqueBorder) | 0)) < 80 ) {
+        return;
+      }
     }
     let mask = [];
     i = 0;
@@ -7845,6 +7861,87 @@ class EvgBitmapTracerTest  {
     const stackedLight = stacked.layers[1];
     t.eqInt("the square itself is unchanged", stackedLight.ringCount, flatLight.ringCount);
   };
+  makeBustedBorder () {
+    const img = new ImageBuffer();
+    img.init(40, 40);
+    let y = 0;
+    while (y < 40) {
+      let x = 0;
+      while (x < 40) {
+        img.setPixelRGB(x, y, 255, 255, 255);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    y = 0;
+    while (y < 4) {
+      let xb = 0;
+      while (xb < 40) {
+        img.setPixelRGB(xb, y, 40, 70, 110);
+        xb = xb + 1;
+      };
+      y = y + 1;
+    };
+    y = 8;
+    while (y < 34) {
+      let x2 = 6;
+      while (x2 < 34) {
+        img.setPixelRGB(x2, y, 40, 90, 200);
+        x2 = x2 + 1;
+      };
+      y = y + 1;
+    };
+    y = 16;
+    while (y < 26) {
+      let x3 = 14;
+      while (x3 < 26) {
+        img.setPixelRGB(x3, y, 255, 255, 255);
+        x3 = x3 + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  countLabel (tr, lab) {
+    let n = 0;
+    let i = 0;
+    while (i < (tr.labels.length)) {
+      if ( (tr.labels[i]) == lab ) {
+        n = n + 1;
+      }
+      i = i + 1;
+    };
+    return n;
+  };
+  testNamedBackgroundColor (t) {
+    const d = EvgTraceOptions.defaults();
+    t.ok("background color defaults to white", d.bgColor == "#ffffff");
+    const autoOpts = EvgTraceOptions.defaults();
+    autoOpts.colorCount = 3;
+    const au = EvgBitmapTracer.fromImageBuffer(this.makeBustedBorder(), autoOpts);
+    au.trace();
+    t.ok("auto declines when the border is not one color", au.backgroundRemoved() == false);
+    const namedOpts = EvgTraceOptions.defaults();
+    namedOpts.colorCount = 3;
+    namedOpts.bgMode = "color";
+    namedOpts.bgColor = "#ffffff";
+    const nm = EvgBitmapTracer.fromImageBuffer(this.makeBustedBorder(), namedOpts);
+    nm.trace();
+    t.ok("naming the color removes it anyway", nm.backgroundRemoved());
+    t.eqInt("the page is gone", this.countLabel(nm, (0 - 1)), 712);
+    let keptWhite = 0;
+    let li = 0;
+    while (li < nm.layerCount()) {
+      const layer = nm.layers[li];
+      const c = EVGColor.parse(layer.fillHex);
+      const lum = EvgBitmapTracer.lumaOf((Math.floor( c.r)), (Math.floor( c.g)), (Math.floor( c.b)));
+      if ( lum > 200 ) {
+        keptWhite = keptWhite + this.countLabel(nm, li);
+      }
+      li = li + 1;
+    };
+    t.eqInt("the white inside the shape is kept, and only that", keptWhite, 120);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -7870,6 +7967,7 @@ function __js_main() {
   test.testPaletteBiasDefaultIsUnchanged(t);
   test.testSmoothRemovesSpeckle(t);
   test.testStackedLayersLeaveNoSeam(t);
+  test.testNamedBackgroundColor(t);
   t.summary();
 }
 __js_main();

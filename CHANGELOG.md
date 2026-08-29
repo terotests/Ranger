@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Remove a background color you name, and a checkerboard to see what is transparent** — `bgMode: "auto"` floods the page in from the border, but it first requires the border to be 80% one flat color, and it *declines silently* when it is not: a banner across the top, a drop shadow, a screenshot with the page furniture in it, and the background comes through painted with no explanation. `bgMode: "color"` is the same border flood from a color you name in `bgColor`, with no uniformity test to pass. It is still a flood rather than a "delete every white pixel", so white inside the subject survives — on a face with white eyes and a white page, the eyes come out as a real white layer of exactly their own pixels while the page goes. `bgTolerance` is now on the page too, for backgrounds with a gradient or compression noise in them. And `auto` no longer declines quietly: the status line says the background was left and points at the color mode.
+
+  The output stage now sits on a **checkerboard**, because a transparent hole and a painted cream background look identical against a cream stage — that is what made this hard to see in the first place. It is on by default for both the source and the result, and there is a checkbox to turn it off. `EvgBitmapTracer.backgroundRemoved()` reports whether a page color was actually flooded away.
+
+### Added
+
 - **Smoothing, so more colors stop meaning more noise** — reported from a tiger photograph: at a low `colorCount` the trace is clean and vector-like, and every color added past that fills it with speckle. The cause is that a photograph's per-pixel noise is real signal to a quantizer. Two adjacent pixels of fur differ by a level or two, land in different swatches, and each speck becomes its own ring — so the extra colors buy fragments instead of shapes.
 
   `smooth` is a count of 3×3 median passes run over the color planes before anything else looks at them. It moves whole pixels rather than filtering each channel: of the nine neighbours it takes the one whose *luma* is the median and copies its RGB, so it cannot invent a color that is nowhere in the image, and unlike a blur it leaves an edge where it found one. `minRegion` — which absorbs a small run of pixels into what surrounds it — already existed but its slider stopped at 40, far too low for a photograph; it now goes to 400.
@@ -34,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **The tracer bench could pass on code that never compiled** — `run_trace_bench.sh` checked the compiler's exit code, and the compiler prints `[FAIL]` and still exits 0. A test file with a syntax error therefore left the previous build in place and the script reported a pass for code that does not exist. Found by making exactly that mistake. It now greps the compile log the way `run-gallery-editor-tests.sh` already does.
 
 - **White hairlines between the traced shapes** — reported as the harder half of the noise problem: as `colorCount` grows, thin light lines open up along the seams where two colors meet. Not a tuning matter. Every layer was traced and curve-fitted **independently**, so the one pixel boundary two regions share got two different fitted curves, one approached from each side. They never agree exactly, and wherever they bow apart the page shows through.
 

@@ -259,6 +259,26 @@ if (!ready) {
     process.exitCode = 1;
   }
 
+  // The checkerboard is the only way to tell transparent from a painted
+  // background, so it must actually be behind both stages.
+  const view = await page.evaluate(() => {
+    const src = document.getElementById("srcStage");
+    const out = document.getElementById("outStage");
+    const on = src.classList.contains("checker") && out.classList.contains("checker");
+    const box = document.getElementById("checker");
+    box.checked = false;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    const off = src.classList.contains("checker") || out.classList.contains("checker");
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    return { on, off, backAgain: out.classList.contains("checker") };
+  });
+  console.log(JSON.stringify(view));
+  if (!view.on || view.off || !view.backAgain) {
+    console.error("the checkerboard should be on by default and follow its checkbox");
+    process.exitCode = 1;
+  }
+
   if (!process.exitCode) {
     console.log("tracer smoke OK");
   }

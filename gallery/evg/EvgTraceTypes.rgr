@@ -138,9 +138,15 @@ class EvgTraceOptions {
     ;   "auto" — flood the page color in from the border and drop only that,
     ;            so a white belly or highlight inside the subject survives.
     ;            Falls back to "luma" when the border is not one flat color.
+    ;   "color" — the same flood, but from a color you name in bgColor rather
+    ;             than the one the border happens to hold, and with no
+    ;             uniformity test to pass. What to reach for when "auto"
+    ;             declines because the border is not flat enough.
     ;   "luma" — the old rule: drop every pixel with luma >= skipLuma.
     ;   "none" — paint everything opaque.
     def bgMode:string "auto"
+    ; The background color for bgMode "color". Anything EVGColor.parse accepts.
+    def bgColor:string "#ffffff"
     ; Per-channel tolerance for the "auto" background flood.
     def bgTolerance:int 24
 

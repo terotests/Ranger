@@ -292,6 +292,12 @@ class EvgBitmapTracer {
         return (array_length commands)
     }
 
+    ; True when a page color was actually flooded away — the page can say so,
+    ; because "auto" declining silently is indistinguishable from it failing.
+    fn backgroundRemoved:boolean () {
+        return bgActive
+    }
+
     fn layerCount:int () {
         return (array_length layers)
     }
@@ -424,7 +430,9 @@ class EvgBitmapTracer {
 
     fn detectBackground:void () {
         bgActive = false
-        if ((options.bgMode) != "auto") {
+        def mode:string options.bgMode
+        def named:boolean (mode == "color")
+        if ((mode != "auto") && (named == false)) {
             return
         }
         def n:int (width * height)
@@ -503,20 +511,32 @@ class EvgBitmapTracer {
         if (tol < 0) {
             tol = 0
         }
-        ; How much of the border actually is that color?
-        def within:int 0
-        i = 0
-        while (i < bn) {
-            def idx2:int (itemAt border i)
-            if ((itemAt planeA idx2) >= 16) {
-                if (this.nearBg(idx2 bgR bgG bgB tol)) {
-                    within = (within + 1)
-                }
+        if named {
+            ; The caller named the color, so the border does not get a vote on
+            ; what it is — or on whether the flood happens at all.
+            def c:EVGColor (EVGColor.parse(options.bgColor))
+            if (c.isSet == false) {
+                return
             }
-            i = (i + 1)
-        }
-        if ((idiv (within * 100) opaqueBorder) < 80) {
-            return
+            bgR = (to_int c.r)
+            bgG = (to_int c.g)
+            bgB = (to_int c.b)
+        } {
+            ; How much of the border actually is that color?
+            def within:int 0
+            i = 0
+            while (i < bn) {
+                def idx2:int (itemAt border i)
+                if ((itemAt planeA idx2) >= 16) {
+                    if (this.nearBg(idx2 bgR bgG bgB tol)) {
+                        within = (within + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            if ((idiv (within * 100) opaqueBorder) < 80) {
+                return
+            }
         }
         ; Flood the page in from every matching border pixel.
         def mask:[int]

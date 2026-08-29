@@ -18,6 +18,14 @@ if ! RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
   tail -40 "$OUT/test_compile.log"
   exit 1
 fi
+# The compiler prints [FAIL] and still exits 0, so the exit code above is not
+# enough: without this the script happily runs the PREVIOUS build and reports a
+# pass for code that never compiled.
+if grep -q '\[FAIL\]' "$OUT/test_compile.log"; then
+  echo "  COMPILE FAIL EvgBitmapTracerTest (compiler reported [FAIL])"
+  grep -m 20 '\[FAIL\]' "$OUT/test_compile.log"
+  exit 1
+fi
 test_out="$(node "$OUT/EvgBitmapTracerTest.js" 2>&1)"
 echo "$test_out" | grep -E "FAIL |PASS |passed=" || true
 if ! echo "$test_out" | grep -q "ALL PASS"; then

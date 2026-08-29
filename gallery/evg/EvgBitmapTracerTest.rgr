@@ -35,6 +35,7 @@ class EvgBitmapTracerTest {
         test.testPaletteBiasDefaultIsUnchanged(t)
         test.testSmoothRemovesSpeckle(t)
         test.testStackedLayersLeaveNoSeam(t)
+        test.testNamedBackgroundColor(t)
         t.summary()
     }
 
@@ -708,5 +709,100 @@ class EvgBitmapTracerTest {
         def flatLight:EvgTraceLayer (itemAt flat.layers 1)
         def stackedLight:EvgTraceLayer (itemAt stacked.layers 1)
         t.eqInt("the square itself is unchanged" (stackedLight.ringCount) (flatLight.ringCount))
+    }
+
+    ; The same shape, but a band along the top edge breaks up the border. That
+    ; is enough for "auto" to refuse — which is correct, it cannot tell a page
+    ; from a photograph — and is where naming the color takes over.
+    fn makeBustedBorder:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(40 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 40) {
+                img.setPixelRGB(x y 255 255 255)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; A band across the top: the border is no longer one flat color.
+        y = 0
+        while (y < 4) {
+            def xb:int 0
+            while (xb < 40) {
+                img.setPixelRGB(xb y 40 70 110)
+                xb = (xb + 1)
+            }
+            y = (y + 1)
+        }
+        y = 8
+        while (y < 34) {
+            def x2:int 6
+            while (x2 < 34) {
+                img.setPixelRGB(x2 y 40 90 200)
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        ; White inside the shape — this must survive, it is not the page.
+        y = 16
+        while (y < 26) {
+            def x3:int 14
+            while (x3 < 26) {
+                img.setPixelRGB(x3 y 255 255 255)
+                x3 = (x3 + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn countLabel:int (tr:EvgBitmapTracer lab:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length tr.labels)) {
+            if ((itemAt tr.labels i) == lab) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testNamedBackgroundColor:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.ok("background color defaults to white" ((d.bgColor) == "#ffffff"))
+
+        def autoOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+        autoOpts.colorCount = 3
+        def au:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeBustedBorder()) autoOpts))
+        au.trace()
+        t.ok("auto declines when the border is not one color" ((au.backgroundRemoved()) == false))
+
+        def namedOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+        namedOpts.colorCount = 3
+        namedOpts.bgMode = "color"
+        namedOpts.bgColor = "#ffffff"
+        def nm:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeBustedBorder()) namedOpts))
+        nm.trace()
+        t.ok("naming the color removes it anyway" (nm.backgroundRemoved()))
+
+        ; 40×40 = 1600 px: a 4×40 band, a 28×26 square with a 12×10 white
+        ; patch punched out of it, and the rest is page. Everything is hard
+        ; edged, so these are exact.
+        t.eqInt("the page is gone" (this.countLabel(nm (0 - 1))) 712)
+        def keptWhite:int 0
+        def li:int 0
+        while (li < (nm.layerCount())) {
+            def layer:EvgTraceLayer (itemAt nm.layers li)
+            def c:EVGColor (EVGColor.parse(layer.fillHex))
+            def lum:int (EvgBitmapTracer.lumaOf((to_int c.r) (to_int c.g) (to_int c.b)))
+            if (lum > 200) {
+                keptWhite = (keptWhite + (this.countLabel(nm li)))
+            }
+            li = (li + 1)
+        }
+        t.eqInt("the white inside the shape is kept, and only that" keptWhite 120)
     }
 }

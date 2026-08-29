@@ -77,6 +77,16 @@
     padding: 16px; overflow: auto;
   }
   .stage img, .stage svg { max-width: 100%; height: auto; display: block; }
+  /* Transparency needs something behind it to read against; the cream stage
+     looks exactly like a painted cream background. */
+  .stage.checker {
+    background-color: #fbfbfb;
+    background-image:
+      linear-gradient(45deg, #cfcfcf 25%, transparent 25%, transparent 75%, #cfcfcf 75%),
+      linear-gradient(45deg, #cfcfcf 25%, transparent 25%, transparent 75%, #cfcfcf 75%);
+    background-size: 18px 18px;
+    background-position: 0 0, 9px 9px;
+  }
   .stage.empty { color: #7a7268; font-size: 14px; }
   .split {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
@@ -195,10 +205,19 @@
         <label class="row color-only hidden">Tausta
           <select id="bgMode">
             <option value="auto" selected>auto — reunoilta</option>
+            <option value="color">väri — poista nimetty</option>
             <option value="luma">luma</option>
             <option value="none">ei mitään</option>
           </select>
-          <span class="hint">auto poistaa vain reunaan yhtenäisen taustan, joten kuvion sisällä oleva vaalea alue säilyy.</span>
+          <span class="hint">auto poistaa vain reunaan yhtenäisen taustan, joten kuvion sisällä oleva vaalea alue säilyy. Jos reuna ei ole tarpeeksi yhtenäinen, auto kieltäytyy — valitse silloin väri.</span>
+        </label>
+        <label class="row color-only hidden" id="row-bgColor">Taustaväri
+          <input id="bgColor" type="color" value="#ffffff">
+          <span class="hint">Tulvitetaan reunoilta, joten sama väri kuvion sisällä säilyy.</span>
+        </label>
+        <label class="row color-only hidden" id="row-bgTol">Taustan toleranssi <span class="val" id="v-bgTolerance">24</span>
+          <input id="bgTolerance" type="range" min="0" max="90" step="1" value="24">
+          <span class="hint">Kuinka paljon taustaväri saa vaihdella. Nosta jos taustassa on liukuvärjäystä tai pakkausroskaa.</span>
         </label>
         <label class="row color-only hidden">skipLuma <span class="val" id="v-skipLuma">250</span>
           <input id="skipLuma" type="range" min="0" max="256" step="1" value="250">
@@ -259,6 +278,11 @@
       </fieldset>
 
       <fieldset>
+        <legend>Näkymä</legend>
+        <label class="check"><input id="checker" type="checkbox" checked> Shakkiruudukko — näyttää läpinäkyvän</label>
+      </fieldset>
+
+      <fieldset>
         <legend>Esikäsittely</legend>
         <label class="row">Max leveys <span class="val" id="v-maxW">640</span>
           <input id="maxW" type="range" min="160" max="1200" step="10" value="640">
@@ -300,6 +324,7 @@
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
   var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth"), layerMode = $("layerMode");
+  var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -337,6 +362,15 @@
   bindRange(minColorDelta, $("v-minColorDelta"));
   bindRange(minRegion, $("v-minRegion"));
   bindRange(smooth, $("v-smooth"));
+  bindRange(bgTolerance, $("v-bgTolerance"));
+
+  function syncChecker() {
+    [srcStage, outStage].forEach(function (el) {
+      el.classList.toggle("checker", checker.checked);
+    });
+  }
+  checker.addEventListener("change", syncChecker);
+  syncChecker();
 
   // Photographic noise needs both knobs at once, so offer them as a pair.
   function applyPreset(sm, mr) {
@@ -430,6 +464,9 @@
     colorOnly.forEach(function (el) { el.classList.toggle("hidden", !color); });
     // skipLuma only does anything in luma mode.
     skipLuma.closest("label").classList.toggle("hidden", !color || bgMode.value !== "luma");
+    $("row-bgColor").classList.toggle("hidden", !color || bgMode.value !== "color");
+    var floods = bgMode.value === "auto" || bgMode.value === "color";
+    $("row-bgTol").classList.toggle("hidden", !color || !floods);
     var mode = paletteMode.value;
     rowBias.classList.toggle("hidden", !color || mode === "fixed");
     // Kept on screen even on "auto" — it is how you reach "Poimi tuloksesta",
@@ -446,7 +483,7 @@
   renderPalEdit();
   syncMode();
 
-  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode"].forEach(function (id) {
+  ["optcurve", "blackOnWhite", "turnpolicy", "fillHex", "bgMode", "paletteMode", "paletteBias", "layerMode", "bgColor"].forEach(function (id) {
     $(id).addEventListener("change", schedule);
   });
 
@@ -590,6 +627,8 @@
         opts.minRegion = +minRegion.value;
         opts.smooth = +smooth.value;
         opts.layerMode = layerMode.value;
+        opts.bgColor = bgColor.value;
+        opts.bgTolerance = +bgTolerance.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();
@@ -652,8 +691,13 @@
             ? " (kuvassa ei ole " + asked + " erottuvaa sävyä)"
             : " (" + (asked - layerN) + "/" + asked + " sävyä jäi käyttämättä)";
         }
+        var bgNote = "";
+        if (asked > 1 && bgMode.value === "auto" &&
+            tr.backgroundRemoved && !tr.backgroundRemoved()) {
+          bgNote = " · tausta jäi (reuna ei yhtenäinen — kokeile Tausta: väri)";
+        }
         statusEl.innerHTML = "<b>OK</b> · " + sourceBitmap.w + "×" + sourceBitmap.h
-          + " · " + ms + " ms · layers=" + layerN + collapsed
+          + " · " + ms + " ms · layers=" + layerN + collapsed + bgNote
           + (rings ? " · rings=" + rings : "")
           + " · svg=" + svg.length + " B";
         statusEl.className = "good";
