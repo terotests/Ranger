@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A "Pehmennä" brush in the edit mode** — pick the color it should act on,
+  then drag over the outline to take the corners out of it. Each dab pulls the
+  points under the brush toward the midpoint of their neighbours, which rounds a
+  corner, and then drops the points that have become nearly collinear, which
+  makes the outline simpler rather than merely rounder. Both effects are local
+  and small, so it behaves like a tool: one pass barely shows, several over the
+  same place take the detail out, and a shape small enough to sit inside the
+  brush loses points and area on every pass until there is nothing left of it
+  and it goes. Measured on a portrait with a 72 px brush: ten small shapes in
+  one window became two and their area fell 544 → 62 (−89%); on a large shape
+  three strokes took the outline from 64313 to 52029 characters. The brush size
+  is what decides which shapes count as small. A stroke is one undo step however
+  many shapes it crossed.
+
+  Only rings the brush actually reaches are converted to points — potrace's
+  curve fit is far more compact than any point list (79 shapes are 1272 cubics),
+  so flattening a whole shape to touch one edge of it made the file 2.5× bigger
+  for nothing. A dab that would make an outline cross itself is refused, since
+  under evenodd a crossed ring turns its own inside into a mesh of alternating
+  slivers.
+
 - **An edit mode on the traced result** — asked for as a way to finish a trace
   by hand: merge parts that were split for no reason, and rebuild parts that
   deserve more care. Both tools work by clicking shapes.
@@ -202,6 +223,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **Entering the tracer's edit mode repainted part of the picture before any
+  edit was made.** Splitting a traced layer into individual shapes has to decide
+  which rings are holes, and it decided by bounding box. Under evenodd that is
+  simply the wrong question: what makes a ring painted or punched out is the
+  *parity* of how many rings enclose it, so an island sitting inside a hole came
+  out as a hole, and rings that merely overlapped in extent were treated as
+  nested. On a portrait that repainted **1472 pixels (0.67% of the frame), with
+  a peak channel error of 478**, mostly by exposing the layer beneath a stacked
+  one. Nesting is now decided by an exact point-in-fill test, which costs a few
+  milliseconds once: **142 pixels (0.06%), peak 89, and none of them with more
+  than five differing neighbours** — that is antialiasing along the new seams
+  between shapes that used to be one path, which is inherent to splitting them.
 
 - **The overlay tracer now stands on the plain picture instead of a flat
   rectangle.** Reported as it destroying photographs, and it was: under every

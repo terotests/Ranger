@@ -103,6 +103,8 @@
   #outStage.editing svg path:hover { stroke: #ff2ec4; stroke-width: 1.5; paint-order: stroke; vector-effect: non-scaling-stroke; }
   #outStage.editing.picking svg path { cursor: copy; }
   #outStage.editing.refining svg path { cursor: zoom-in; }
+  #outStage.editing.smoothing svg path { cursor: grab; }
+  #outStage.editing.smoothing svg path:hover { stroke: none; }
   .split {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
   }
@@ -371,11 +373,12 @@
       <div class="editbar" id="editbar">
         <button type="button" class="tool active" id="toolMerge">Yhdistä</button>
         <button type="button" class="tool" id="toolRefine">Tarkenna</button>
+        <button type="button" class="tool" id="toolSmooth">Pehmennä</button>
         <span class="sep"></span>
         <input type="color" id="editColor" value="#c9a227" title="Yhdistämisen kohdeväri">
         <button type="button" class="tool" id="toolPick">Poimi väri</button>
         <span class="sep"></span>
-        <label class="note" style="display:flex;align-items:center;gap:6px">Alue
+        <label class="note" style="display:flex;align-items:center;gap:6px">Koko
           <input id="refineSize" type="range" min="12" max="120" step="4" value="40" style="width:90px">
           <span class="val" id="v-refineSize">40</span>px
         </label>
@@ -733,34 +736,58 @@
     return out;
   }
 
-  function inside(a, b) { // is box a inside box b
-    return a && b && a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3];
+  // Which ring contains which. A bounding box is not the answer: under evenodd
+  // it is the *parity* of how many rings enclose a ring that decides whether it
+  // is painted or punched out, and a box test both misses an island sitting
+  // inside a hole and invents containment between rings that merely overlap in
+  // their extents. Entering edit mode with the box version repainted 1472
+  // pixels of a portrait before a single edit was made — a stacked layer is one
+  // frame-filling ring with hundreds of rings inside it, and getting their
+  // nesting wrong exposes the layer underneath. Path2D with an exact
+  // point-in-fill test costs a few milliseconds once and is simply correct.
+  function nestDepths(rings, ctx) {
+    var paths = rings.map(function (r) { return new Path2D(r.d); });
+    var pt = rings.map(function (r) {
+      var m = r.d.match(/-?\d+(?:\.\d+)?/g);
+      return m && m.length >= 2 ? { x: +m[0], y: +m[1] } : null;
+    });
+    return rings.map(function (r, i) {
+      if (!pt[i]) return { depth: 0, parent: -1 };
+      var depth = 0, parent = -1, bestArea = Infinity;
+      for (var j = 0; j < rings.length; j++) {
+        if (j === i) continue;
+        if (!ctx.isPointInPath(paths[j], pt[i].x, pt[i].y, "nonzero")) continue;
+        depth++;
+        var a = rings[j].area === undefined ? Infinity : rings[j].area;
+        if (a < bestArea) { bestArea = a; parent = j; }   // the immediate parent
+      }
+      return { depth: depth, parent: parent };
+    });
   }
 
   function explode(svg) {
+    var ctx = document.createElement("canvas").getContext("2d");
     var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
     paths.forEach(function (p) {
       var rings = ringsOf(p.getAttribute("d") || "");
       if (rings.length < 2) return;
-      // Each ring's parent is the smallest ring that contains it.
-      var parent = rings.map(function (r, i) {
-        var best = -1;
+      var nest = nestDepths(rings, ctx);
+      // Even depth is painted, odd depth is punched out. A shape carries the
+      // odd-depth rings whose immediate parent it is; an island at depth 2 is a
+      // shape of its own, drawn after the hole it sits in.
+      var order = [];
+      rings.forEach(function (r, i) { if (nest[i].depth % 2 === 0) order.push(i); });
+      order.sort(function (x, y) { return nest[x].depth - nest[y].depth; });
+      var made = order.map(function (i) {
+        var d = rings[i].d;
         for (var j = 0; j < rings.length; j++) {
-          if (j === i || !inside(r.box, rings[j].box)) continue;
-          if (best < 0 || rings[j].area < rings[best].area) best = j;
+          if (nest[j].depth % 2 === 1 && nest[j].parent === i) d += " " + rings[j].d;
         }
-        return best;
-      });
-      var made = [];
-      rings.forEach(function (r, i) {
-        if (parent[i] >= 0) return;                       // a hole, not a shape
-        var d = r.d;
-        for (var j = 0; j < rings.length; j++) if (parent[j] === i) d += " " + rings[j].d;
         var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
         el.setAttribute("d", d);
         el.setAttribute("fill", p.getAttribute("fill") || "#000");
         el.setAttribute("fill-rule", "evenodd");
-        made.push(el);
+        return el;
       });
       if (!made.length) return;
       made.forEach(function (el) { p.parentNode.insertBefore(el, p); });
@@ -775,9 +802,11 @@
   function refreshEditUi() {
     toolMerge.classList.toggle("active", editTool === "merge" && !picking);
     toolRefine.classList.toggle("active", editTool === "refine" && !picking);
+    $("toolSmooth").classList.toggle("active", editTool === "smooth" && !picking);
     toolPick.classList.toggle("active", picking);
     outStage.classList.toggle("picking", picking);
     outStage.classList.toggle("refining", !picking && editTool === "refine");
+    outStage.classList.toggle("smoothing", !picking && editTool === "smooth");
   }
 
   function enterEdit() {
@@ -805,6 +834,7 @@
   editToggle.addEventListener("click", function () { editOn ? leaveEdit() : enterEdit(); });
   toolMerge.addEventListener("click", function () { editTool = "merge"; picking = false; refreshEditUi(); });
   toolRefine.addEventListener("click", function () { editTool = "refine"; picking = false; refreshEditUi(); });
+  $("toolSmooth").addEventListener("click", function () { editTool = "smooth"; picking = false; refreshEditUi(); });
   toolPick.addEventListener("click", function () { picking = !picking; refreshEditUi(); });
   // Not bindRange: that one re-traces the image, and re-tracing replaces the
   // drawing being edited. This slider only sizes the next refine box.
@@ -892,10 +922,315 @@
     setEditNote("Tarkennettu " + bw + "×" + bh + " px, " + layers.length + " sävyä.");
   }
 
+  // ------------------------------------------------------------ pehmennä
+  //
+  // A brush that takes corners out of whatever it is dragged over. Each dab
+  // pulls every point under it toward the midpoint of its neighbours, which is
+  // what rounds a corner off, and then drops points that have become nearly
+  // collinear, which is what makes the outline simpler rather than merely
+  // rounder. Both are local and both are small, so the tool behaves like a
+  // tool: one pass barely shows, a few passes over the same place take the
+  // detail out, and a small shape loses points and area on every pass until
+  // there is nothing left of it and it goes. It only touches shapes of the
+  // chosen color, so a stroke across an eye can smooth the lashes without
+  // touching the white beside them.
+
+  // The tracer emits M/L/C/Z with comma-separated pairs. Smoothing needs points
+  // on the curve, and a cubic's control points are not on it, so a ring has to
+  // be flattened before it can be worked — but only a ring the brush actually
+  // reaches. Potrace-style curve fitting is far more economical than any list
+  // of points (79 shapes here are 1272 cubics), so flattening a whole shape to
+  // touch one edge of it made the file 2.5x bigger for nothing. Rings the brush
+  // never meets keep their original text verbatim.
+  function flattenRing(d) {
+    var pts = [], cur = null, start = null;
+    var re = /([MLCZ])([^MLCZ]*)/gi, m;
+    function nums(t) { return (t.match(/-?\d+(?:\.\d+)?/g) || []).map(Number); }
+    while ((m = re.exec(d))) {
+      var cmd = m[1].toUpperCase(), arr = nums(m[2]);
+      if (cmd === "M") { cur = { x: arr[0], y: arr[1] }; start = cur; pts.push(cur); }
+      else if (cmd === "L") {
+        for (var i = 0; i + 1 < arr.length; i += 2) { cur = { x: arr[i], y: arr[i+1] }; pts.push(cur); }
+      } else if (cmd === "C") {
+        for (var j = 0; j + 5 < arr.length; j += 6) {
+          var c1 = { x: arr[j], y: arr[j+1] }, c2 = { x: arr[j+2], y: arr[j+3] },
+              p3 = { x: arr[j+4], y: arr[j+5] };
+          // Sample by how long the segment is, not by a fixed count: a curve
+          // three pixels across does not need six points on it.
+          var span = Math.hypot(c1.x-cur.x, c1.y-cur.y) + Math.hypot(c2.x-c1.x, c2.y-c1.y) + Math.hypot(p3.x-c2.x, p3.y-c2.y);
+          var steps = Math.max(1, Math.min(8, Math.round(span / 1.6)));
+          for (var k = 1; k <= steps; k++) {
+            var t = k / steps, u = 1 - t;
+            pts.push({
+              x: u*u*u*cur.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*p3.x,
+              y: u*u*u*cur.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*p3.y
+            });
+          }
+          cur = p3;
+        }
+      } else if (cmd === "Z") { cur = start; }
+    }
+    while (pts.length > 2 && Math.abs(pts[0].x - pts[pts.length-1].x) < 1e-6
+                          && Math.abs(pts[0].y - pts[pts.length-1].y) < 1e-6) pts.pop();
+    return pts;
+  }
+
+  // Douglas-Peucker. Flattening a ring costs far more than the curve fit it
+  // replaced — potrace describes these shapes in a couple of hundred cubics and
+  // a point list needs thousands — and the whole document pays for it: past
+  // roughly half a megabyte Chromium starts rasterizing an SVG image in
+  // degraded tiles, which shows up as a rectangular patch of blended color that
+  // no single shape accounts for. Dropping points that the straight line
+  // between their neighbours already describes keeps the outline and most of
+  // the size.
+  function simplify(pts, tol) {
+    if (pts.length < 5) return pts;
+    var keep = new Uint8Array(pts.length);
+    keep[0] = 1;
+    keep[pts.length - 1] = 1;
+    var stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      var seg = stack.pop(), i0 = seg[0], i1 = seg[1];
+      var a = pts[i0], b = pts[i1];
+      var vx = b.x - a.x, vy = b.y - a.y, len = Math.hypot(vx, vy);
+      var worst = -1, wd = tol;
+      for (var i = i0 + 1; i < i1; i++) {
+        var p = pts[i];
+        var d = len < 1e-9 ? Math.hypot(p.x - a.x, p.y - a.y)
+                           : Math.abs(vx * (a.y - p.y) - vy * (a.x - p.x)) / len;
+        if (d > wd) { wd = d; worst = i; }
+      }
+      if (worst > 0) {
+        keep[worst] = 1;
+        stack.push([i0, worst], [worst, i1]);
+      }
+    }
+    var out = [];
+    for (var k = 0; k < pts.length; k++) if (keep[k]) out.push(pts[k]);
+    return out.length >= 5 ? out : pts;
+  }
+
+  function ringArea(r) {
+    var a = 0;
+    for (var i = 0, n = r.length; i < n; i++) {
+      var p = r[i], q = r[(i + 1) % n];
+      a += p.x * q.y - q.x * p.y;
+    }
+    return Math.abs(a) / 2;
+  }
+
+  // Redraw as curves rather than as the polygon it now is: a Catmull-Rom
+  // through the points, written out as the cubics SVG wants.
+  function curveString(r) {
+    var n = r.length;
+    var d = "M" + r[0].x.toFixed(2) + "," + r[0].y.toFixed(2);
+    for (var i = 0; i < n; i++) {
+      var p0 = r[(i - 1 + n) % n], p1 = r[i], p2 = r[(i + 1) % n], p3 = r[(i + 2) % n];
+      d += "C" + (p1.x + (p2.x - p0.x) / 6).toFixed(2) + "," + (p1.y + (p2.y - p0.y) / 6).toFixed(2)
+         + " " + (p2.x - (p3.x - p1.x) / 6).toFixed(2) + "," + (p2.y - (p3.y - p1.y) / 6).toFixed(2)
+         + " " + p2.x.toFixed(2) + "," + p2.y.toFixed(2);
+    }
+    return d + "Z";
+  }
+
+  function ringsFor(el) {
+    if (!el.__rings) {
+      el.__rings = ringsOf(el.getAttribute("d") || "").map(function (r) {
+        return { d: r.d, box: r.box, pts: null };
+      });
+    }
+    return el.__rings;
+  }
+
+  function writeRings(el) {
+    var d = "";
+    el.__rings.forEach(function (r) { d += (r.pts ? curveString(r.pts) : r.d) + " "; });
+    el.setAttribute("d", d.trim());
+  }
+
+  // Pulling points toward their neighbours closes a narrow neck, and once the
+  // two sides of a neck cross, evenodd turns the inside of the ring into a mesh
+  // of alternating filled and empty slivers — on screen a muddy block of a
+  // color that is in no palette. So a dab that makes the outline cross itself
+  // is refused and the ring is left as it was. Only segments the brush touched
+  // can have started a crossing, and a crossing they start is next to them, so
+  // testing that neighbourhood against itself is enough and stays cheap.
+  function segHit(a, b, c, d) {
+    function side(p, q, r) { return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x); }
+    var d1 = side(c, d, a), d2 = side(c, d, b), d3 = side(a, b, c), d4 = side(a, b, d);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  }
+
+  function selfCrosses(ring, cx, cy, radius) {
+    var n = ring.length, reach = radius * 1.5, r2 = reach * reach, near = [];
+    for (var i = 0; i < n; i++) {
+      var p = ring[i], q = ring[(i + 1) % n];
+      var mx = (p.x + q.x) / 2 - cx, my = (p.y + q.y) / 2 - cy;
+      if (mx * mx + my * my <= r2) near.push(i);
+      if (near.length > 400) break;          // stay bounded on a huge ring
+    }
+    for (var a = 0; a < near.length; a++) {
+      var i1 = near[a], p1 = ring[i1], q1 = ring[(i1 + 1) % n];
+      for (var b = a + 1; b < near.length; b++) {
+        var i2 = near[b];
+        if (i2 === i1 || (i2 + 1) % n === i1 || (i1 + 1) % n === i2) continue;
+        if (segHit(p1, q1, ring[i2], ring[(i2 + 1) % n])) return true;
+      }
+    }
+    return false;
+  }
+
+  var SMOOTH_PULL = 0.6;    // how far a point moves toward its neighbours' midpoint
+  var SMOOTH_DROP = 0.7;    // how flat a corner has to be before it is dropped
+  var SMOOTH_MIN_AREA = 6;  // a ring smaller than this has stopped being a shape
+
+  function smoothDab(el, cx, cy, radius) {
+    var rings = ringsFor(el), r2 = radius * radius, changed = false, kept = [];
+    for (var s = 0; s < rings.length; s++) {
+      var rec = rings[s], bx = rec.box;
+      if (bx && (cx < bx[0] - radius || cx > bx[2] + radius || cy < bx[1] - radius || cy > bx[3] + radius)) {
+        kept.push(rec);
+        continue;
+      }
+      if (!rec.pts) rec.pts = flattenRing(rec.d);
+      var ring = rec.pts, n = ring.length;
+      if (n < 5) { kept.push(rec); continue; }
+      var hit = false;
+      var moved = ring.map(function (p, i) {
+        var dx = p.x - cx, dy = p.y - cy, d2 = dx*dx + dy*dy;
+        if (d2 > r2) return p;
+        hit = true;
+        var a = ring[(i - 1 + n) % n], b = ring[(i + 1) % n];
+        var t = SMOOTH_PULL * (1 - Math.sqrt(d2) / radius);
+        return { x: p.x + t * ((a.x + b.x) / 2 - p.x), y: p.y + t * ((a.y + b.y) / 2 - p.y) };
+      });
+      if (!hit) { kept.push(rec); continue; }
+      changed = true;
+      // Drop points that are now nearly on the line between their neighbours.
+      // This is the half that simplifies rather than merely rounds, and it is
+      // what makes a small shape lose itself a piece at a time.
+      var thin = [];
+      for (var i = 0; i < moved.length; i++) {
+        var p = moved[i];
+        var a = thin.length ? thin[thin.length - 1] : moved[(i - 1 + moved.length) % moved.length];
+        var b = moved[(i + 1) % moved.length];
+        var dx2 = p.x - cx, dy2 = p.y - cy;
+        if (dx2*dx2 + dy2*dy2 > r2 || moved.length - (moved.length - thin.length) <= 5) { thin.push(p); continue; }
+        var vx = b.x - a.x, vy = b.y - a.y, len = Math.hypot(vx, vy);
+        var dev = len < 1e-6 ? 0 : Math.abs(vx * (a.y - p.y) - vy * (a.x - p.x)) / len;
+        if (dev > SMOOTH_DROP) thin.push(p);
+      }
+      // A ring that fits inside the brush is one of the small shapes this tool
+      // is meant to be able to erase by dwelling on it. Pulling every point
+      // toward its neighbours shrinks such a ring, but only by a few percent a
+      // pass, so on its own the shape survives far longer than "a moment".
+      // Halving its points as well takes its corners away several at a time,
+      // and it collapses in a handful of passes instead of dozens.
+      var whole = true;
+      for (var w = 0; w < thin.length; w++) {
+        var wx = thin[w].x - cx, wy = thin[w].y - cy;
+        if (wx*wx + wy*wy > r2) { whole = false; break; }
+      }
+      if (whole && thin.length > 8) {
+        var half = [];
+        for (var h = 0; h < thin.length; h += 2) half.push(thin[h]);
+        thin = half;
+      }
+      thin = simplify(thin, 0.8);
+      if (selfCrosses(thin, cx, cy, radius)) { kept.push(rec); continue; }
+      if (thin.length >= 5 && ringArea(thin) >= SMOOTH_MIN_AREA) {
+        rec.pts = thin;
+        rec.box = null;   // it moved; stop trusting the old box
+        kept.push(rec);
+      }
+      // else: the ring has shrunk out of existence and is simply not kept
+    }
+    if (!changed) return false;
+    el.__rings = kept;
+    if (!kept.length) {
+      editStack.push({ kind: "remove", el: el, parent: el.parentNode, next: el.nextSibling });
+      el.parentNode.removeChild(el);
+      return true;
+    }
+    writeRings(el);
+    return true;
+  }
+
+  var brushing = false, strokeTouched = null;  var brushing = false, strokeTouched = null;
+
+  function toUser(ev, svg) {
+    var vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+    var rect = svg.getBoundingClientRect();
+    var vw = vb.length === 4 ? vb[2] : rect.width, vh = vb.length === 4 ? vb[3] : rect.height;
+    return {
+      x: (ev.clientX - rect.left) / rect.width * vw,
+      y: (ev.clientY - rect.top) / rect.height * vh,
+      scale: vw / rect.width
+    };
+  }
+
+  function brushAt(ev) {
+    var svg = outSvg();
+    if (!svg) return;
+    var u = toUser(ev, svg);
+    var radius = Math.max(3, (+refineSize.value) / 2);
+    var want = editColor.value.toLowerCase();
+    var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
+    var hits = 0;
+    paths.forEach(function (el) {
+      if ((el.getAttribute("fill") || "").toLowerCase() !== want) return;
+      var b;
+      try { b = el.getBBox(); } catch (e) { return; }
+      if (u.x < b.x - radius || u.x > b.x + b.width + radius ||
+          u.y < b.y - radius || u.y > b.y + b.height + radius) return;
+      // A stroke is one action, so it is one undo step however many shapes it
+      // crosses — recording a shape at a time meant a drag over twenty shapes
+      // took twenty clicks to take back.
+      if (!strokeTouched.has(el)) strokeTouched.set(el, el.getAttribute("d"));
+      if (smoothDab(el, u.x, u.y, radius)) hits++;
+    });
+    if (hits) setEditNote("Pehmennetään " + want + " — " + hits + " muotoa kosketettu.");
+  }
+
+  function endStroke() {
+    if (!brushing) return;
+    brushing = false;
+    if (strokeTouched && strokeTouched.size) {
+      var was = [];
+      strokeTouched.forEach(function (d, el) { was.push({ el: el, d: d }); });
+      editStack.push({ kind: "stroke", was: was });
+    }
+    strokeTouched = null;
+  }
+
+  outStage.addEventListener("pointerdown", function (ev) {
+    if (!editOn || editTool !== "smooth" || picking) return;
+    ev.preventDefault();
+    brushing = true;
+    strokeTouched = new Map();
+    brushAt(ev);
+  });
+  outStage.addEventListener("pointermove", function (ev) {
+    if (!brushing) return;
+    brushAt(ev);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(function (t) {
+    outStage.addEventListener(t, endStroke);
+  });
+
   $("editUndo").addEventListener("click", function () {
     var last = editStack.pop();
     if (!last) { setEditNote("Ei kumottavaa."); return; }
     if (last.kind === "fill") last.el.setAttribute("fill", last.was);
+    else if (last.kind === "d") { last.el.setAttribute("d", last.was); last.el.__rings = null; }
+    else if (last.kind === "stroke") {
+      last.was.forEach(function (w) {
+        w.el.setAttribute("d", w.d);
+        w.el.__rings = null;
+        if (!w.el.parentNode) outSvg().appendChild(w.el);   // a shape the stroke erased
+      });
+    }
+    else if (last.kind === "remove") { last.parent.insertBefore(last.el, last.next); last.el.__rings = null; }
     else last.el.parentNode.removeChild(last.el);
     setEditNote("Kumottu.");
   });

@@ -338,6 +338,54 @@ if (!ready) {
     await page.click("#editUndo");
     const groupsUndone = await page.evaluate(() => document.querySelectorAll("#outStage svg g").length);
 
+    // smooth: brush over the biggest shape's own colour and check the outline
+    // gets simpler rather than heavier, and that undo restores it exactly.
+    await page.click("#toolSmooth");
+    const smooth = await page.evaluate(async () => {
+      const svg = document.querySelector("#outStage svg");
+      const ps = [...svg.querySelectorAll("path")];
+      ps.sort((a, b) => {
+        const x = a.getBBox(), y = b.getBBox();
+        return y.width * y.height - x.width * x.height;
+      });
+      // The biggest shape is usually the background frame; take the biggest one
+      // that actually has an outline worth smoothing.
+      const el = ps.find(e => (e.getAttribute("d") || "").length > 400) || ps[1];
+      el.id = "__smoothTarget";
+      const fill = el.getAttribute("fill");
+      const c = document.getElementById("editColor");
+      c.value = fill; c.dispatchEvent(new Event("input", { bubbles: true }));
+      const bb = el.getBBox();
+      const rect = svg.getBoundingClientRect();
+      const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+      const toScreen = (ux, uy) => ({
+        x: rect.left + ux / vb[2] * rect.width,
+        y: rect.top + uy / vb[3] * rect.height
+      });
+      const before = el.getAttribute("d").length;
+      const stage = document.getElementById("outStage");
+      const send = (type, pt) => stage.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, clientX: pt.x, clientY: pt.y
+      }));
+      for (let pass = 0; pass < 3; pass++) {
+        send("pointerdown", toScreen(bb.x + bb.width * 0.2, bb.y + bb.height * 0.5));
+        for (let i = 1; i <= 12; i++) {
+          send("pointermove", toScreen(bb.x + bb.width * (0.2 + 0.6 * i / 12), bb.y + bb.height * 0.5));
+        }
+        send("pointerup", toScreen(bb.x + bb.width * 0.8, bb.y + bb.height * 0.5));
+      }
+      return { before, after: el.getAttribute("d").length };
+    });
+    // A stroke is one undo step however many shapes it crossed, so three
+    // strokes are exactly three clicks back.
+    await page.click("#editUndo");
+    await page.click("#editUndo");
+    await page.click("#editUndo");
+    const smoothUndone = await page.evaluate(() => {
+      const el = document.getElementById("__smoothTarget");
+      return el ? el.getAttribute("d").length : -1;
+    });
+
     // The refine-size slider must not re-trace: a re-trace replaces the
     // drawing and takes the edit session down with it, which is a strange way
     // to lose your work while sizing the next click.
@@ -349,7 +397,8 @@ if (!ready) {
     await page.waitForTimeout(400);
     const stillEditing = await page.evaluate(() =>
       document.getElementById("editbar").classList.contains("on"));
-    return { before, exploded, merged, undone, picked, want, groups, groupsUndone, stillEditing };
+    return { before, exploded, merged, undone, picked, want, groups, groupsUndone, stillEditing,
+             smoothBefore: smooth.before, smoothAfter: smooth.after, smoothUndone };
   })();
   console.log(JSON.stringify(edit));
   if (!(edit.exploded > edit.before)) {
@@ -366,6 +415,15 @@ if (!ready) {
   }
   if (edit.groups !== 1 || edit.groupsUndone !== 0) {
     console.error("refine should add one group of shapes, and undo should remove it");
+    process.exitCode = 1;
+  }
+  if (!(edit.smoothAfter > 0) || edit.smoothAfter === edit.smoothBefore) {
+    console.error("the smooth brush should change the outline it is dragged over");
+    process.exitCode = 1;
+  }
+  if (edit.smoothUndone !== edit.smoothBefore) {
+    console.error("undo should restore the smoothed outline exactly, got "
+      + edit.smoothUndone + " want " + edit.smoothBefore);
     process.exitCode = 1;
   }
   if (!edit.stillEditing) {
