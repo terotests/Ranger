@@ -458,11 +458,13 @@ class EvgBitmapTracer {
         if bgActive {
             return ((itemAt bgMask i) == 0)
         }
-        if (options.bgMode == "none") {
-            return true
-        }
-        def lum:int (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
-        return (lum < options.skipLuma)
+        ; Nothing else drops a pixel. The bright-pixel rule that used to sit here
+        ; had no idea where it was: it deleted the white of an eye and the white
+        ; of a boot along with the white of the page, because all it asked was
+        ; how bright the pixel is. Transparency belongs to what is outside the
+        ; subject, so it is decided by the border floods in detectBackground and
+        ; nowhere else.
+        return true
     }
 
     ; ----------------------------------------------------------------------
@@ -583,6 +585,14 @@ class EvgBitmapTracer {
                 i = (i + 1)
             }
             if ((idiv (within * 100) opaqueBorder) < 80) {
+                ; The border is not one flat color — a gradient page, or a
+                ; photograph with no page at all. Rather than fall back to
+                ; deleting every bright pixel wherever it sits, try the same
+                ; question the other way round: is there a *bright* area
+                ; connected to the edge? That removes a white or near-white page
+                ; and cannot touch a white belly, because a belly does not reach
+                ; the border.
+                this.floodBrightFromBorder(border bn)
                 return
             }
         }
@@ -626,6 +636,78 @@ class EvgBitmapTracer {
         }
         bgMask = mask
         bgActive = true
+    }
+
+    ; A page that is bright but not one flat color: flood inwards from every
+    ; border pixel at least as bright as skipLuma. Interiors are unreachable by
+    ; construction, which is the whole point — brightness alone was never a
+    ; statement about being background.
+    fn floodBrightFromBorder:void (border:[int] bn:int) {
+        def lim:int options.skipLuma
+        if (lim > 255) {
+            return
+        }
+        def n:int (width * height)
+        def mask:[int]
+        def i:int 0
+        while (i < n) {
+            push mask 0
+            i = (i + 1)
+        }
+        def stack:[int]
+        i = 0
+        while (i < bn) {
+            def s0:int (itemAt border i)
+            if ((itemAt mask s0) == 0) {
+                if (this.brightEnough(s0 lim)) {
+                    set mask s0 1
+                    push stack s0
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length stack) == 0) {
+            return
+        }
+        def head:int 0
+        while (head < (array_length stack)) {
+            def cur:int (itemAt stack head)
+            head = (head + 1)
+            def cy:int (idiv cur width)
+            def cx:int (cur - (cy * width))
+            if (cx > 0) {
+                this.brightStep((cur - 1) mask stack lim)
+            }
+            if (cx < (width - 1)) {
+                this.brightStep((cur + 1) mask stack lim)
+            }
+            if (cy > 0) {
+                this.brightStep((cur - width) mask stack lim)
+            }
+            if (cy < (height - 1)) {
+                this.brightStep((cur + width) mask stack lim)
+            }
+        }
+        bgMask = mask
+        bgActive = true
+    }
+
+    fn brightEnough:boolean (i:int lim:int) {
+        if ((itemAt planeA i) < 16) {
+            return true
+        }
+        return ((EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i))) >= lim)
+    }
+
+    fn brightStep:void (i:int mask:[int] stack:[int] lim:int) {
+        if ((itemAt mask i) == 1) {
+            return
+        }
+        if ((this.brightEnough(i lim)) == false) {
+            return
+        }
+        set mask i 1
+        push stack i
     }
 
     fn nearBg:boolean (i:int bgR:int bgG:int bgB:int tol:int) {

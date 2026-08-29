@@ -263,6 +263,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Transparency reached inside the subject.** Reported on a cartoon still: the
+  whites of the eyes and the boots came out as holes while the blue page behind
+  the characters stayed put — the exact opposite of what removing a background
+  is for. The border flood was never the culprit; what was, was the rule it fell
+  back to. When the border is not one flat color — a gradient page, or a
+  photograph with no page at all — `auto` gave up and left a plain
+  *delete every pixel brighter than `skipLuma`* in charge, and that rule has no
+  idea where it is. A white belly, a highlight and a white page all read the
+  same to it.
+
+  There is no longer any such rule. Transparency is decided by the border floods
+  and nothing else, and when the modal-color flood stands down, `auto` now tries
+  the same question the other way round: is there a *bright area connected to
+  the edge*? That removes a white or near-white page whose border is not one
+  flat tone, and cannot reach an interior, because an interior does not touch
+  the border. Measured on a figure with pure-white eyes and boots on a blue
+  gradient: the eye went from **2359 of 3575 pixels transparent to 0**, the boot
+  from **all 1064 to 0**, and the blue page stayed opaque in both — it is not a
+  page being removed, so it should not go.
+
 - **A refine stroke drew a straight line along its own boundary.** Reported as a
   horizontal line at the edge of a refined area, running at odds with whatever
   the picture was doing there and parallel to the region border — which is the

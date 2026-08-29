@@ -786,7 +786,23 @@ class EvgBitmapTracerTest {
         autoOpts.colorCount = 3
         def au:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeBustedBorder()) autoOpts))
         au.trace()
-        t.ok("auto declines when the border is not one color" ((au.backgroundRemoved()) == false))
+        ; The border is not one flat color here, so the modal-color flood stands
+        ; down — and what used to happen then was that every bright pixel in the
+        ; picture was deleted wherever it sat, white belly and all. Auto now
+        ; falls back to flooding *brightness* in from the border, which removes
+        ; the same page and cannot reach an interior.
+        t.ok("auto still removes a page whose border is not one flat color" (au.backgroundRemoved()))
+        def autoWhite:int 0
+        def ai:int 0
+        while (ai < (au.layerCount())) {
+            def al:EvgTraceLayer (itemAt au.layers ai)
+            def ac:EVGColor (EVGColor.parse(al.fillHex))
+            if ((EvgBitmapTracer.lumaOf((to_int ac.r) (to_int ac.g) (to_int ac.b))) > 200) {
+                autoWhite = (autoWhite + (this.countLabel(au ai)))
+            }
+            ai = (ai + 1)
+        }
+        t.eqInt("and keeps the white inside the shape, which is not the page" autoWhite 120)
 
         def namedOpts:EvgTraceOptions (EvgTraceOptions.defaults())
         namedOpts.colorCount = 3
