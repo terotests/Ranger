@@ -40,6 +40,7 @@ class EvgBitmapTracerTest {
         test.testGradientFills(t)
         test.testOverlayRecoversASwallowedShape(t)
         test.testEdgeFilterSeparatesNoiseFromBoundary(t)
+        test.testGradientFillObeysItsControls(t)
         test.testOverlayStaysWithinItsPalette(t)
         test.testOverlaySimilarityDecidesHowManyStack(t)
         test.testDetailMaskFindsTheEyeNotTheRamp(t)
@@ -1226,6 +1227,34 @@ class EvgBitmapTracerTest {
     ; pixel as a seed once per neighbour that touched it. Together those made a
     ; photograph come back as thousands of swatches under a slider that said
     ; four, and cost ten seconds of CPU to do it.
+    fn gradientTrace:EvgBitmapTracer (minRegion:int) {
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        o.colorCount = 4
+        o.bgMode = "none"
+        o.gradientFill = true
+        o.minRegion = minRegion
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeRampWithBlock()) o))
+        tr.trace()
+        return tr
+    }
+
+    ; Gradient fill had two faults that came from the same place. Every region
+    ; was painted its own measured mean, never quantized — a portrait asked for
+    ; ten swatches came back with 1128 — and the smallest-area control did
+    ; nothing, because absorbing ran a single pass and a small region can only
+    ; join a big-enough neighbour. On a photograph a small region's neighbours
+    ; are small too, so nothing moved: minRegion from 6 to 4000 shifted the
+    ; count by 7%.
+    fn testGradientFillObeysItsControls:void (t:RgTest) {
+        def fine:EvgBitmapTracer (this.gradientTrace(6))
+        t.ok("a gradient trace stays inside the color count" ((this.distinctFills(fine)) <= 4))
+
+        def coarse:EvgBitmapTracer (this.gradientTrace(400))
+        t.ok("and the smallest area actually makes it draw fewer regions"
+             ((coarse.layerCount()) < (fine.layerCount())))
+        t.ok("without inventing colors either" ((this.distinctFills(coarse)) <= 4))
+    }
+
     fn testOverlayStaysWithinItsPalette:void (t:RgTest) {
         def four:EvgBitmapTracer (this.traceNoisyOverlay(4 6))
         ; The color count is the ceiling on the colors, not a suggestion. The

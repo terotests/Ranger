@@ -1932,19 +1932,40 @@ class EvgBitmapTracer {
     ; a linear ramp explains it best. Regions are painted largest first, each mask
     ; is grown by a pixel, so the smaller shape laid on top covers the join —
     ; the same reason the swatch layers are stacked rather than butted together.
-    fn traceGradientRegions:void () {
+    fn traceGradientRegions:void (palR:[int] palG:[int] palB:[int]) {
         this.buildContourRegions()
         def floorPx:int options.minRegion
         if (floorPx < 8) {
             floorPx = 8
         }
-        this.absorbTinyRegions(floorPx)
-        ; A photograph can segment into tens of thousands of scraps; each one
-        ; would be its own traced path. Raise the floor until that is sane.
+        ; Absorb until it settles, not once. A pass lets a region below the
+        ; floor join the largest big-enough neighbour it touches — and on a
+        ; photograph a small region's neighbours are mostly small too, so one
+        ; pass moves almost nothing and the floor never bites. Measured before
+        ; this: minRegion from 6 to 4000 moved the region count from 1131 to
+        ; 1052, which is a control that does nothing. Each pass grows the
+        ; survivors, so neighbours that were too small last time are eligible
+        ; this time, and repeating until the count stops falling is what makes
+        ; the number the user set the number they get.
+        def prev:int (regionCount + 1)
         def guard:int 0
+        while ((regionCount < prev) && (guard < 24)) {
+            prev = regionCount
+            this.absorbTinyRegions(floorPx)
+            guard = (guard + 1)
+        }
+        ; A photograph can still segment into tens of thousands of scraps; each
+        ; one would be its own traced path. Raise the floor until that is sane.
+        guard = 0
         while ((regionCount > 2000) && (guard < 8)) {
             floorPx = (floorPx * 2)
-            this.absorbTinyRegions(floorPx)
+            prev = (regionCount + 1)
+            def inner:int 0
+            while ((regionCount < prev) && (inner < 24)) {
+                prev = regionCount
+                this.absorbTinyRegions(floorPx)
+                inner = (inner + 1)
+            }
             guard = (guard + 1)
         }
         def k:int regionCount
@@ -2110,7 +2131,7 @@ class EvgBitmapTracer {
             }
             y = (y + 1)
         }
-        this.emitRegionLayers(k rn rsx rsy sv svv sxv syv la lb lc lok rsd rsdd rsdv tmin tmax dmax ux uy)
+        this.emitRegionLayers(palR palG palB k rn rsx rsy sv svv sxv syv la lb lc lok rsd rsdd rsdv tmin tmax dmax ux uy)
     }
 
     fn planeAt:int (c:int i:int) {
@@ -2126,7 +2147,7 @@ class EvgBitmapTracer {
     ; Pick the model for each region and trace it. Sum of squared error comes
     ; straight out of the sums already gathered, so choosing costs no extra
     ; pass over the pixels.
-    fn emitRegionLayers:void (k:int rn:[double] rsx:[double] rsy:[double] sv:[double] svv:[double] sxv:[double] syv:[double] la:[double] lb:[double] lc:[double] lok:[double] rsd:[double] rsdd:[double] rsdv:[double] tmin:[double] tmax:[double] dmax:[double] ux:[double] uy:[double]) {
+    fn emitRegionLayers:void (palR:[int] palG:[int] palB:[int] k:int rn:[double] rsx:[double] rsy:[double] sv:[double] svv:[double] sxv:[double] syv:[double] la:[double] lb:[double] lc:[double] lok:[double] rsd:[double] rsdd:[double] rsdv:[double] tmin:[double] tmax:[double] dmax:[double] ux:[double] uy:[double]) {
         ; Largest region first: a smaller shape drawn later covers the join.
         def order:[int]
         def i:int 0
@@ -2244,7 +2265,16 @@ class EvgBitmapTracer {
                     def meanR:double ((itemAt sv ((r * 3) + 0)) / cnt)
                     def meanG:double ((itemAt sv ((r * 3) + 1)) / cnt)
                     def meanB:double ((itemAt sv ((r * 3) + 2)) / cnt)
-                    layer.fillHex = (this.hexOf(meanR meanG meanB))
+                    ; Snap the region's own mean onto the palette. It was
+                    ; written out raw, which meant one color per region and a
+                    ; thousand regions: a portrait asked for ten swatches came
+                    ; back with 1128, and nine in ten of those were flat fills —
+                    ; a mosaic, not a gradient render. A gradient's stops stay
+                    ; as measured, because describing a ramp is the whole point
+                    ; of the mode; this is the color the region falls back to,
+                    ; and the color the palette strip reads.
+                    def gi:int (this.nearestIndex((EvgBitmapTracer.clamp255(meanR)) (EvgBitmapTracer.clamp255(meanG)) (EvgBitmapTracer.clamp255(meanB)) palR palG palB))
+                    layer.fillHex = (this.hexFromRgb((itemAt palR gi) (itemAt palG gi) (itemAt palB gi)))
                     layer.fillKind = kind
                     if (kind == "linear") {
                         def t0:double (itemAt tmin r)
@@ -3707,7 +3737,7 @@ class EvgBitmapTracer {
             return
         }
         if options.gradientFill {
-            this.traceGradientRegions()
+            this.traceGradientRegions(palR palG palB)
             return
         }
         def allCmds:[PathCommand]

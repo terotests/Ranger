@@ -263,6 +263,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gradient fill: the palette ran away, the smallest-area control did nothing,
+  and gradients barely appeared.** Three complaints, and measuring them found
+  two causes that between them explain all three.
+
+  Every region was painted `hexOf(mean)` — its own measured average, never
+  quantized. A portrait asked for ten swatches came back with **1128 distinct
+  fills**, one per region. The mean is snapped onto the palette now; a
+  gradient's *stops* stay as measured, since describing a ramp is the whole
+  point of the mode, but the color a region falls back to — and the color the
+  palette strip reads — is a swatch. **1128 → 10.**
+
+  And absorbing small regions ran a single pass, in which a region below the
+  floor may only join a neighbour that is already big enough. On a photograph a
+  small region's neighbours are small too, so almost nothing moved: `minRegion`
+  from **6 to 4000** shifted the region count from **1131 to 1052**, a control
+  that does nothing. It now repeats until the count stops falling — each pass
+  grows the survivors, so neighbours that were too small last time are eligible
+  this time.
+
+  That second fix is what makes gradients visible, which was the third
+  complaint. The mode was drowning in tiny flat scraps: 108 gradients among
+  1131 layers, **9.5%**. At the default it is now 106 among 568 (**19%**), and
+  at `minRegion` 200 it is **47 among 79 — 59%** — with the SVG down from 419 KB
+  to 120 KB. The control that does the work is the smallest area, and it works
+  now: 1131 → 568 → 117 → 79 → 20 → 7 layers across its range.
+
 - **The status line went on describing the file the tracer produced while you
   edited a different one.** It quotes a shape count and a byte count, both of
   which an edit changes — splitting the layers on entering edit mode alone takes
