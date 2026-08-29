@@ -380,6 +380,14 @@
         <button type="button" class="tool" id="toolPick">Poimi väri</button>
         <span class="sep"></span>
         <span class="note" id="toolHelp"></span>
+        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa väriä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä.">Lisävärit
+          <input id="refineExtra" type="range" min="0" max="16" step="1" value="4" style="width:70px">
+          <span class="val" id="v-refineExtra">4</span>
+        </label>
+        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka voimakkaasti reunan muodot palautetaan ympäröiviin sävyihin">Sulautus
+          <input id="edgeBlend" type="range" min="0" max="120" step="4" value="90" style="width:70px">
+          <span class="val" id="v-edgeBlend">90</span>
+        </label>
         <label class="note" style="display:flex;align-items:center;gap:6px">Koko
           <input id="refineSize" type="range" min="12" max="120" step="4" value="40" style="width:90px">
           <span class="val" id="v-refineSize">40</span>px
@@ -767,32 +775,41 @@
     });
   }
 
+  // One layer's path data as individual shapes, each carrying its own holes.
+  // Even depth is painted, odd depth is punched out. A shape carries the
+  // odd-depth rings whose immediate parent it is; an island at depth 2 is a
+  // shape of its own, drawn after the hole it sits in. Splitting on M alone and
+  // treating every ring as a shape fills in every hole — every eye closes —
+  // which is why this is one function used everywhere shapes are split.
+  function splitShapes(d, ctx) {
+    var rings = ringsOf(d || "");
+    if (rings.length < 2) return null;
+    var nest = nestDepths(rings, ctx);
+    var order = [];
+    rings.forEach(function (r, i) { if (nest[i].depth % 2 === 0) order.push(i); });
+    order.sort(function (x, y) { return nest[x].depth - nest[y].depth; });
+    return order.map(function (i) {
+      var out = rings[i].d, box = rings[i].box;
+      for (var j = 0; j < rings.length; j++) {
+        if (nest[j].depth % 2 === 1 && nest[j].parent === i) out += " " + rings[j].d;
+      }
+      return { d: out, box: box };
+    });
+  }
+
   function explode(svg) {
     var ctx = document.createElement("canvas").getContext("2d");
     var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
     paths.forEach(function (p) {
-      var rings = ringsOf(p.getAttribute("d") || "");
-      if (rings.length < 2) return;
-      var nest = nestDepths(rings, ctx);
-      // Even depth is painted, odd depth is punched out. A shape carries the
-      // odd-depth rings whose immediate parent it is; an island at depth 2 is a
-      // shape of its own, drawn after the hole it sits in.
-      var order = [];
-      rings.forEach(function (r, i) { if (nest[i].depth % 2 === 0) order.push(i); });
-      order.sort(function (x, y) { return nest[x].depth - nest[y].depth; });
-      var made = order.map(function (i) {
-        var d = rings[i].d;
-        for (var j = 0; j < rings.length; j++) {
-          if (nest[j].depth % 2 === 1 && nest[j].parent === i) d += " " + rings[j].d;
-        }
+      var shapes = splitShapes(p.getAttribute("d") || "", ctx);
+      if (!shapes || !shapes.length) return;
+      shapes.forEach(function (sh) {
         var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        el.setAttribute("d", d);
+        el.setAttribute("d", sh.d);
         el.setAttribute("fill", p.getAttribute("fill") || "#000");
         el.setAttribute("fill-rule", "evenodd");
-        return el;
+        p.parentNode.insertBefore(el, p);
       });
-      if (!made.length) return;
-      made.forEach(function (el) { p.parentNode.insertBefore(el, p); });
       p.parentNode.removeChild(p);
     });
   }
@@ -842,13 +859,20 @@
   toolRefine.addEventListener("click", function () { editTool = "refine"; picking = false; refreshEditUi(); });
   $("toolSmooth").addEventListener("click", function () { editTool = "smooth"; picking = false; refreshEditUi(); });
   toolPick.addEventListener("click", function () { picking = !picking; refreshEditUi(); });
+  var edgeBlend = $("edgeBlend"), refineExtra = $("refineExtra");
   // Not bindRange: that one re-traces the image, and re-tracing replaces the
-  // drawing being edited. This slider only sizes the next refine box.
+  // drawing being edited. These only affect the next stroke.
   (function () {
     var lab = $("v-refineSize");
     function sync() { lab.textContent = String(refineSize.value); }
     refineSize.addEventListener("input", sync);
     sync();
+    [[edgeBlend, "v-edgeBlend"], [refineExtra, "v-refineExtra"]].forEach(function (pair) {
+      var lab2 = $(pair[1]);
+      function sync2() { lab2.textContent = String(pair[0].value); }
+      pair[0].addEventListener("input", sync2);
+      sync2();
+    });
   })();
 
   outStage.addEventListener("click", function (ev) {
@@ -955,13 +979,36 @@
         img.setPixelRGBA(x, y, rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3]);
       }
     }
+    // The colors the patch will meet at its border, pinned into its palette.
+    // This is the fix for the seam, and it is a palette problem before it is
+    // anything else: quantized in ignorance of its surroundings the crop
+    // invents its own near-equivalents of the same tones, and every one of them
+    // shows as a line where the two meet. Seeded, the quantizer keeps those
+    // exact tones and spends its remaining swatches on what the crop actually
+    // adds, so the border matches by construction.
+    var border = borderColors(svg, stroke.pts, half);
+    var around = paletteOf(border);
+
     var o2 = EvgTraceOptions.defaults();
     // The crop gets more swatches than the frame, which is the point of the
     // tool: a palette counted over a whole picture spends itself on the large
     // dull areas, so a feature gets one or two entries and comes back flat.
     // Counted over the crop alone, and given room, the same feature gets a
-    // range to describe itself with.
-    o2.colorCount = Math.min(16, Math.max(6, (+colorCount.value) * 2));
+    // range to describe itself with — on top of the pinned border tones.
+    // How many colors the crop may invent beyond the ones pinned from its
+    // border. This is the seam control, and it is a sharp one: measured on a
+    // portrait, quantizing the crop with the border colors alone leaves a seam
+    // 1.2 above what the picture has there naturally, and letting it add even
+    // two of its own takes that to 6.7. Four plus a firm edge snap comes to
+    // 1.6 with half again as much detail as none — that is the default.
+    var extra = +refineExtra.value;
+    if (border.length) {
+      o2.paletteMode = "seeded";
+      o2.paletteHex = border;
+      o2.colorCount = Math.min(28, border.length + extra);
+    } else {
+      o2.colorCount = extra;
+    }
     o2.bgMode = "none";
     o2.minRegion = 2;
     o2.turdsize = +turdsize.value;
@@ -975,6 +1022,8 @@
     var ms = Math.round(performance.now() - t0);
     var layers = sub.getLayers ? sub.getLayers() : [];
     if (!layers.length) { setEditNote("Alueesta ei irronnut muotoja."); return; }
+    var reach = +edgeBlend.value;
+    var blendCtx = document.createElement("canvas").getContext("2d");
 
     // Mask it to the stroke. A crop is a rectangle and the brush is not, so
     // pasting the rectangle would rewrite everything the brush went around.
@@ -1003,18 +1052,128 @@
     g.setAttribute("mask", "url(#" + id + ")");
     var inner = document.createElementNS("http://www.w3.org/2000/svg", "g");
     inner.setAttribute("transform", "translate(" + x0 + "," + y0 + ")");
+    var snapped = 0;
     layers.forEach(function (L) {
       if (!L.pathData) return;
       var pe = document.createElementNS("http://www.w3.org/2000/svg", "path");
       pe.setAttribute("d", L.pathData);
-      pe.setAttribute("fill", L.fillHex || "#000");
       pe.setAttribute("fill-rule", "evenodd");
       inner.appendChild(pe);
+      var fill = (L.fillHex || "#000").toLowerCase();
+      pe.setAttribute("fill", fill);
+      // Split the shape's own extent, not the layer's: a layer is every ring of
+      // one color and can span the whole stroke, so one depth for all of it
+      // would blend the middle and the border alike.
+      var shapes = splitShapes(L.pathData, blendCtx);
+      if (shapes && shapes.length) {
+        pe.remove();
+        shapes.forEach(function (sh) {
+          var use = fill;
+          if (sh.box) {
+            var mid = { x: x0 + (sh.box[0] + sh.box[2]) / 2, y: y0 + (sh.box[1] + sh.box[3]) / 2 };
+            use = blendEdge(fill, mid, stroke.pts, half, around, reach);
+            if (use !== fill) snapped++;
+          }
+          var el2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          el2.setAttribute("d", sh.d);
+          el2.setAttribute("fill", use);
+          el2.setAttribute("fill-rule", "evenodd");
+          inner.appendChild(el2);
+        });
+      } else {
+        var r1 = ringsOf(L.pathData);
+        if (r1.length === 1 && r1[0].box) {
+          var mid1 = { x: x0 + (r1[0].box[0] + r1[0].box[2]) / 2, y: y0 + (r1[0].box[1] + r1[0].box[3]) / 2 };
+          var use1 = blendEdge(fill, mid1, stroke.pts, half, around, reach);
+          if (use1 !== fill) snapped++;
+          pe.setAttribute("fill", use1);
+        }
+      }
     });
     g.appendChild(inner);
     svg.appendChild(g);
     editStack.push({ kind: "add", el: g, also: mask });
-    setEditNote("Tarkennettu " + bw + "×" + bh + " px — " + layers.length + " sävyä, " + ms + " ms.");
+    setEditNote("Tarkennettu " + bw + "×" + bh + " px — " + layers.length + " sävyä ("
+      + border.length + " reunalta kiinnitettyä), " + snapped + " sulautettu, " + ms + " ms.");
+  }
+
+  // The colors actually on the picture at the border of this stroke.
+  //
+  // Not the whole frame's palette: what the patch has to agree with is the
+  // handful of colors it is about to butt up against, and seeding the crop's
+  // quantizer with those is what makes the border right by construction rather
+  // than by correction afterwards. Sampled by walking a ring just outside the
+  // stroke and asking which shape is on top at each step, which is the same
+  // question the eye asks when it sees a seam.
+  function borderColors(svg, pts, half) {
+    var ctx = document.createElement("canvas").getContext("2d");
+    var paths = Array.prototype.slice.call(svg.querySelectorAll("path"));
+    var cache = paths.map(function (e) {
+      return { fill: (e.getAttribute("fill") || "").toLowerCase(), p2: new Path2D(e.getAttribute("d") || "") };
+    });
+    var tally = {}, out = [];
+    var ring = half + 2;
+    for (var i = 0; i < pts.length; i += 2) {
+      for (var a = 0; a < 12; a++) {
+        var th = a / 12 * Math.PI * 2;
+        var x = pts[i].x + ring * Math.cos(th), y = pts[i].y + ring * Math.sin(th);
+        var top = null;
+        for (var k = 0; k < cache.length; k++) {
+          if (!/^#[0-9a-f]{6}$/.test(cache[k].fill)) continue;
+          if (ctx.isPointInPath(cache[k].p2, x, y, "evenodd")) top = cache[k].fill;
+        }
+        if (top) tally[top] = (tally[top] || 0) + 1;
+      }
+    }
+    Object.keys(tally).forEach(function (h) { out.push({ hex: h, n: tally[h] }); });
+    out.sort(function (p, q) { return q.n - p.n; });
+    return out.map(function (o) { return o.hex; });
+  }
+
+  function paletteOf(hexes) {
+    return hexes.map(function (f) {
+      return { hex: f, r: parseInt(f.slice(1, 3), 16), g: parseInt(f.slice(3, 5), 16), b: parseInt(f.slice(5, 7), 16) };
+    });
+  }
+
+  // How far inside the stroke a point lies: 1 at the centre line, 0 at the edge.
+  function strokeDepth(pt, pts, half) {
+    var best = Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var a = pts[i], b = pts[i + 1] || pts[i];
+      var vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+      var t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((pt.x - a.x) * vx + (pt.y - a.y) * vy) / len2));
+      var dx = pt.x - (a.x + t * vx), dy = pt.y - (a.y + t * vy);
+      var d = dx * dx + dy * dy;
+      if (d < best) best = d;
+    }
+    return Math.max(0, 1 - Math.sqrt(best) / half);
+  }
+
+  // Bring the patch back to the surrounding colors at its border.
+  //
+  // A crop quantized on its own has colors the frame's palette does not, which
+  // is exactly why it shows detail — and exactly why its edge is visible where
+  // the two meet. So the tolerance for snapping a patch color onto a
+  // surrounding one is widened toward the border: at the edge almost anything
+  // snaps and the seam closes, deep inside almost nothing does and the detail
+  // survives. A color that has no near neighbour in the surrounding palette
+  // even at the edge keeps its own — sometimes the patch genuinely found
+  // something the frame cannot say, and forcing that to the nearest swatch
+  // would throw the find away.
+  function blendEdge(fill, pt, pts, half, palette, reach) {
+    if (reach <= 0 || !palette.length) return fill;
+    var depth = strokeDepth(pt, pts, half);
+    var tol = reach * (1 - depth);
+    if (tol <= 0) return fill;
+    var r = parseInt(fill.slice(1, 3), 16), g = parseInt(fill.slice(3, 5), 16), b = parseInt(fill.slice(5, 7), 16);
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < palette.length; i++) {
+      var c = palette[i];
+      var d = Math.max(Math.abs(c.r - r), Math.abs(c.g - g), Math.abs(c.b - b));
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best && bestD <= tol ? best.hex : fill;
   }
 
   var refineSeq = 0;

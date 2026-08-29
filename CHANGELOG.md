@@ -30,6 +30,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under evenodd a crossed ring turns its own inside into a mesh of alternating
   slivers.
 
+- **The refiner's patch is quantized with the colors it is about to butt up
+  against.** The seam at the edge of a refine stroke is a palette problem before
+  it is anything else: a crop quantized in ignorance of its surroundings invents
+  its own near-equivalents of the same tones, and every one of them shows as a
+  line where the two meet. The colors at the stroke's border are now sampled
+  from the picture — walking a ring just outside the stroke and asking which
+  shape is on top, the same question the eye asks — and pinned into the crop's
+  palette with `paletteMode: "seeded"`, so the border matches by construction.
+
+  How many colors the crop may invent *beyond* those is now the control that
+  matters, and it is a sharp one. Measured on a portrait, against the seam the
+  picture has there naturally: border colors alone leaves the seam **1.2** above
+  natural; letting the crop add two of its own takes it to **6.7**, and sixteen
+  to **8.4**. Detail runs the other way, 6.8 → 8.6 → 17.9. Four extra colors
+  with a firm edge snap sits at **1.6 with 10.2** — nearly the seam of none and
+  half again the detail — and that is the default. `Lisävärit` and `Sulautus`
+  expose both ends of the trade.
+
+  The edge snap is the second half: a shape's tolerance for being snapped onto a
+  surrounding color widens toward the border, so at the edge almost anything
+  returns to the level around it and deep inside almost nothing does. A color
+  with no near neighbour out there keeps its own — sometimes the patch really
+  did find something the frame cannot say, and forcing it to the nearest swatch
+  would throw the find away.
+
 - **The refiner is a brush**: drag across an area and the vectorizer runs again
   on exactly the source pixels under the stroke, quantizing that crop on its own
   and laying the result on top, masked to what was painted. A whole-frame
@@ -237,6 +262,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **Splitting a traced layer into shapes now happens in one place.** The
+  refiner grew its own copy that split on `M` and treated every ring as a shape,
+  which fills in every hole — on a portrait it closed both eyes and washed the
+  face to flat skin. It is the same parity rule the edit mode already needed, so
+  it is now one `splitShapes` used by both.
 
 - **The refiner reported success and changed nothing.** Its result is masked to
   the brush stroke, and the mask went on the same group that carried the crop's
