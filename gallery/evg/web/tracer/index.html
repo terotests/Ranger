@@ -93,6 +93,18 @@
   .editbar { display: none; gap: 8px; align-items: center; flex-wrap: wrap;
              padding: 8px 14px; border-top: 1px solid var(--line); background: #1a1f2b; }
   .editbar.on { display: flex; }
+  /* The pre-processing bar sits under the picture rather than in the parameter
+     column: it is about the bitmap, and you want it where you can see the
+     bitmap change. Hidden until asked for — it is an extra stage, not part of
+     tracing. */
+  .prebar { flex-wrap: wrap; align-items: flex-start; gap: 10px 18px; }
+  .prebar label.row { display: grid; grid-template-columns: auto auto; gap: 2px 8px;
+                      align-items: center; margin: 0; width: 190px; font-size: 12px; }
+  .prebar label.row input[type="range"] { grid-column: 1 / -1; width: 100%; }
+  .prebar label.row select { grid-column: 1 / -1; width: 100%; }
+  .prebar label.check { font-size: 12px; margin: 0; align-self: center; }
+  .prebar .hint { grid-column: 1 / -1; font-size: 11px; }
+  .prebar > .hint { width: 100%; }
   .editbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
   .editbar .note { color: var(--muted); font-size: 12px; }
   .tool { padding: 5px 12px; font-size: 12.5px; }
@@ -109,6 +121,10 @@
   .split {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
   }
+  /* Lähde / käsitelty / SVG side by side, so it is obvious which stage did
+     what to the picture. */
+  .split.triple { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 1100px) { .split.triple { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
   .pane { background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
   .pane .stage { flex: 1; }
@@ -365,8 +381,14 @@
     <section>
       <div class="split">
         <div class="pane">
-          <div class="head">Lähde</div>
+          <div class="head">Lähde<span class="grow"></span>
+            <button type="button" class="tool" id="preToggle">Esikäsittely</button>
+          </div>
           <div class="stage empty" id="srcStage">Ei kuvaa</div>
+        </div>
+        <div class="pane" id="paneProc" hidden>
+          <div class="head">KÄSITELTY</div>
+          <div class="stage empty" id="procStage">—</div>
         </div>
         <div class="pane">
           <div class="head">SVG<span class="grow"></span>
@@ -401,6 +423,48 @@
         <button type="button" class="tool" id="editReset">Palauta</button>
         <span class="note" id="editNote">Napsauta muotoa.</span>
       </div>
+      <div class="editbar prebar" id="prebar">
+        <label class="row">Valmis ketju
+          <select id="prePreset" style="width:100%">
+            <option value="none" selected>ei mitään</option>
+            <option value="logo">logo — kontrasti + puhdistus</option>
+            <option value="lineart">viivapiirros — harmaa + terävöitys</option>
+            <option value="photo">valokuva — kohinanpoisto</option>
+            <option value="poster">juliste — posterisointi</option>
+          </select>
+          <span class="hint">Asettaa alla olevat säätimet. Ne jäävät muokattaviksi.</span>
+        </label>
+        <label class="check"><input id="preGray" type="checkbox"> Harmaasävy</label>
+        <label class="check"><input id="preInvert" type="checkbox"> Käännä värit</label>
+        <label class="row">Kirkkaus <span class="val" id="v-preBright">0</span>
+          <input id="preBright" type="range" min="-60" max="60" step="2" value="0">
+        </label>
+        <label class="row">Kontrasti <span class="val" id="v-preContrast">0</span>
+          <input id="preContrast" type="range" min="-60" max="120" step="2" value="0">
+        </label>
+        <label class="row">Gamma <span class="val" id="v-preGamma">100</span>
+          <input id="preGamma" type="range" min="30" max="250" step="5" value="100">
+          <span class="hint">Väli- ja varjoalueet ilman että ääripäät liikkuvat.</span>
+        </label>
+        <label class="row">Kylläisyys <span class="val" id="v-preSat">100</span>
+          <input id="preSat" type="range" min="0" max="250" step="5" value="100">
+        </label>
+        <label class="check"><input id="preMedian" type="checkbox"> Poista pilkut (mediaani)
+          <span class="hint">Vie yksittäisen kohinapikselin mutta jättää reunan — juuri se mitä sumennus ei osaa.</span>
+        </label>
+        <label class="row">Sumennus <span class="val" id="v-preBlur">0</span>
+          <input id="preBlur" type="range" min="0" max="8" step="1" value="0">
+          <span class="hint">Tämä säädin ratkaisee eniten: se päättää kuinka paljon yksityiskohtaa ylipäänsä pääsee vektoroitavaksi.</span>
+        </label>
+        <label class="row">Terävöitys <span class="val" id="v-preSharpen">0</span>
+          <input id="preSharpen" type="range" min="0" max="150" step="5" value="0">
+        </label>
+        <label class="row">Posterisointi <span class="val" id="v-prePost">0</span>
+          <input id="prePost" type="range" min="0" max="16" step="1" value="0">
+          <span class="hint">0 = pois. Sävytasoja per kanava <b>ennen</b> kvantisointia — eri asia kuin Värimäärä, joka valitsee paletin.</span>
+        </label>
+        <p class="hint" style="margin:8px 0 0">Kynnys, värimäärä, kohinanpoisto, reunan voimakkuus ja pienin yksityiskohta ovat jo omina säätiminään alempana — ne tekevät työnsä jäljityksen sisällä, missä ne ovat tarkempia kuin bittikartalle tehtynä.</p>
+      </div>
       <div class="palette" id="palette" hidden></div>
       <div id="status">Ladataan tracer-bundlea…</div>
     </section>
@@ -431,6 +495,156 @@
   var colorOnly = document.querySelectorAll(".color-only");
 
   var sourceBitmap = null; // { w, h, rgba: Uint8ClampedArray }
+  var processedBitmap = null; // the same pixels after the pre-processing chain
+
+  // ------------------------------------------------------- esikäsittely
+  //
+  // Filters that run on the bitmap before anything is quantized or traced. The
+  // order is fixed and it matters: exposure first, because everything after it
+  // reads brightness; then color; then blur, which is the one that decides how
+  // much detail survives at all; then sharpening, which only makes sense on
+  // what the blur left; and posterize last, because it is a decision about the
+  // final levels rather than a correction.
+  //
+  // Deliberately not a long list. Most of what a filter menu usually offers is
+  // already here as a tracing parameter — the color count IS quantization, the
+  // smallest area IS despeckle, mono mode IS threshold, the background section
+  // IS background removal — and adding a second way to do the same thing makes
+  // a page harder to reason about, not more capable. What is here is the work
+  // that has to happen *before* the palette is chosen, because afterwards it is
+  // too late.
+  function lut(fn) {
+    var t = new Uint8Array(256);
+    for (var i = 0; i < 256; i++) {
+      var v = fn(i / 255) * 255;
+      t[i] = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+    return t;
+  }
+
+  // Separable box blur run three times ≈ a Gaussian, and it is O(n) per pass
+  // rather than O(n·r²), which matters at a radius a person would actually pick.
+  function boxBlur(src, w, h, r) {
+    if (r < 1) return src;
+    var tmp = new Uint8ClampedArray(src.length);
+    var out = new Uint8ClampedArray(src);
+    for (var pass = 0; pass < 3; pass++) {
+      blurAxis(out, tmp, w, h, r, true);
+      blurAxis(tmp, out, w, h, r, false);
+    }
+    return out;
+  }
+
+  function blurAxis(src, dst, w, h, r, horiz) {
+    var outer = horiz ? h : w, inner = horiz ? w : h;
+    var step = horiz ? 4 : w * 4;
+    var jump = horiz ? w * 4 : 4;
+    var win = r * 2 + 1;
+    for (var o = 0; o < outer; o++) {
+      var base = o * jump;
+      for (var c = 0; c < 4; c++) {
+        var sum = 0;
+        for (var k = -r; k <= r; k++) {
+          var q = k < 0 ? 0 : k >= inner ? inner - 1 : k;
+          sum += src[base + q * step + c];
+        }
+        for (var i = 0; i < inner; i++) {
+          dst[base + i * step + c] = sum / win;
+          var addI = i + r + 1, subI = i - r;
+          var a = addI >= inner ? inner - 1 : addI;
+          var b = subI < 0 ? 0 : subI;
+          sum += src[base + a * step + c] - src[base + b * step + c];
+        }
+      }
+    }
+  }
+
+  // Median of the 3x3 neighbourhood, per channel. This is the one that removes
+  // a stray pixel without softening the edge it sits next to, which is exactly
+  // what a blur cannot do and exactly what JPEG speckle needs.
+  function median3(src, w, h) {
+    var out = new Uint8ClampedArray(src);
+    var v = new Array(9);
+    for (var y = 1; y < h - 1; y++) {
+      for (var x = 1; x < w - 1; x++) {
+        var o = (y * w + x) * 4;
+        for (var c = 0; c < 3; c++) {
+          var n = 0;
+          for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) v[n++] = src[((y + dy) * w + (x + dx)) * 4 + c];
+          }
+          v.sort(function (a, b) { return a - b; });
+          out[o + c] = v[4];
+        }
+      }
+    }
+    return out;
+  }
+
+  function preprocess(src, w, h, o) {
+    var out = new Uint8ClampedArray(src);
+    var i, n = w * h;
+
+    // --- exposure: brightness, contrast, gamma, as one lookup ---
+    if (o.brightness !== 0 || o.contrast !== 0 || o.gamma !== 100) {
+      var g = Math.max(0.05, o.gamma / 100);
+      var cc = o.contrast / 100;
+      var t = lut(function (u) {
+        u = u + o.brightness / 100;
+        u = (u - 0.5) * (1 + cc) + 0.5;
+        return Math.pow(u < 0 ? 0 : u > 1 ? 1 : u, 1 / g);
+      });
+      for (i = 0; i < n; i++) {
+        var q = i * 4;
+        out[q] = t[out[q]]; out[q + 1] = t[out[q + 1]]; out[q + 2] = t[out[q + 2]];
+      }
+    }
+
+    // --- color: saturation, then grayscale as its limit ---
+    if (o.grayscale || o.saturation !== 100) {
+      var sat = o.grayscale ? 0 : o.saturation / 100;
+      for (i = 0; i < n; i++) {
+        var p = i * 4;
+        var lum = 0.2126 * out[p] + 0.7152 * out[p + 1] + 0.0722 * out[p + 2];
+        out[p] = lum + (out[p] - lum) * sat;
+        out[p + 1] = lum + (out[p + 1] - lum) * sat;
+        out[p + 2] = lum + (out[p + 2] - lum) * sat;
+      }
+    }
+
+    // --- detail: median first (specks), then blur (everything small) ---
+    if (o.median) out = median3(out, w, h);
+    if (o.blur > 0) out = boxBlur(out, w, h, o.blur);
+
+    // --- sharpen: unsharp mask against a blur of what is left ---
+    if (o.sharpen > 0) {
+      var soft = boxBlur(out, w, h, 1);
+      var amt = o.sharpen / 100;
+      for (i = 0; i < n * 4; i++) {
+        if ((i & 3) === 3) continue;
+        out[i] = out[i] + (out[i] - soft[i]) * amt;
+      }
+    }
+
+    // --- posterize: a decision about levels, so it goes last ---
+    if (o.posterize > 1) {
+      var steps = o.posterize - 1;
+      var pt = lut(function (u) { return Math.round(u * steps) / steps; });
+      for (i = 0; i < n; i++) {
+        var z = i * 4;
+        out[z] = pt[out[z]]; out[z + 1] = pt[out[z + 1]]; out[z + 2] = pt[out[z + 2]];
+      }
+    }
+
+    if (o.invert) {
+      for (i = 0; i < n; i++) {
+        var w4 = i * 4;
+        out[w4] = 255 - out[w4]; out[w4 + 1] = 255 - out[w4 + 1]; out[w4 + 2] = 255 - out[w4 + 2];
+      }
+    }
+    return out;
+  }
+
   var lastSvg = "";
   var lastPalette = [];
   var debounceTimer = null;
@@ -726,6 +940,89 @@
       return r.blob();
     }).then(function (b) { loadFile(b, "sample.png"); })
       .catch(function (e) { setStatus("Esimerkkikuvaa ei saatu: " + e.message, "bad"); });
+  });
+
+  // --- pre-processing controls -------------------------------------------
+  var preGray = $("preGray"), preInvert = $("preInvert"), preMedian = $("preMedian");
+  var preBright = $("preBright"), preContrast = $("preContrast"), preGamma = $("preGamma");
+  var preSat = $("preSat"), preBlur = $("preBlur"), preSharpen = $("preSharpen");
+  var prePost = $("prePost"), prePreset = $("prePreset");
+  var procStage = $("procStage"), paneProc = $("paneProc");
+
+  [[preBright, "v-preBright"], [preContrast, "v-preContrast"], [preGamma, "v-preGamma"],
+   [preSat, "v-preSat"], [preBlur, "v-preBlur"], [preSharpen, "v-preSharpen"],
+   [prePost, "v-prePost"]].forEach(function (pair) {
+    bindRange(pair[0], $(pair[1]));
+  });
+  [preGray, preInvert, preMedian].forEach(function (el) {
+    el.addEventListener("change", schedule);
+  });
+
+  var PRE_PRESETS = {
+    none:     { gray: false, invert: false, median: false, bright: 0, contrast: 0, gamma: 100, sat: 100, blur: 0, sharpen: 0, post: 0 },
+    logo:     { gray: false, invert: false, median: true,  bright: 0, contrast: 60, gamma: 100, sat: 120, blur: 1, sharpen: 0, post: 0 },
+    lineart:  { gray: true,  invert: false, median: true,  bright: 0, contrast: 80, gamma: 90,  sat: 100, blur: 0, sharpen: 60, post: 0 },
+    photo:    { gray: false, invert: false, median: true,  bright: 0, contrast: 10, gamma: 100, sat: 100, blur: 2, sharpen: 0, post: 0 },
+    poster:   { gray: false, invert: false, median: false, bright: 0, contrast: 30, gamma: 100, sat: 130, blur: 1, sharpen: 0, post: 5 }
+  };
+
+  prePreset.addEventListener("change", function () {
+    var q = PRE_PRESETS[prePreset.value];
+    if (!q) return;
+    preGray.checked = q.gray; preInvert.checked = q.invert; preMedian.checked = q.median;
+    preBright.value = q.bright; preContrast.value = q.contrast; preGamma.value = q.gamma;
+    preSat.value = q.sat; preBlur.value = q.blur; preSharpen.value = q.sharpen;
+    prePost.value = q.post;
+    [preBright, preContrast, preGamma, preSat, preBlur, preSharpen, prePost].forEach(function (el) {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
+
+  function preOptions() {
+    return {
+      grayscale: preGray.checked, invert: preInvert.checked, median: preMedian.checked,
+      brightness: +preBright.value, contrast: +preContrast.value, gamma: +preGamma.value,
+      saturation: +preSat.value, blur: +preBlur.value, sharpen: +preSharpen.value,
+      posterize: +prePost.value
+    };
+  }
+
+  function preIsIdentity(o) {
+    return !o.grayscale && !o.invert && !o.median && o.brightness === 0 && o.contrast === 0
+      && o.gamma === 100 && o.saturation === 100 && o.blur === 0 && o.sharpen === 0
+      && o.posterize === 0;
+  }
+
+  // Run the chain and show what the tracer is actually going to read. The
+  // middle pane only appears when there is something to see in it — an
+  // untouched copy of the source beside the source is noise.
+  function buildProcessed() {
+    if (!sourceBitmap) { processedBitmap = null; return; }
+    var o = preOptions();
+    if (preIsIdentity(o)) {
+      processedBitmap = null;
+      paneProc.hidden = true;
+      document.querySelector(".split").classList.remove("triple");
+      return;
+    }
+    processedBitmap = preprocess(sourceBitmap.rgba, sourceBitmap.w, sourceBitmap.h, o);
+    paneProc.hidden = false;
+    document.querySelector(".split").classList.add("triple");
+    var cv = document.createElement("canvas");
+    cv.width = sourceBitmap.w; cv.height = sourceBitmap.h;
+    var ctx = cv.getContext("2d");
+    ctx.putImageData(new ImageData(processedBitmap, sourceBitmap.w, sourceBitmap.h), 0, 0);
+    procStage.classList.remove("empty");
+    procStage.innerHTML = "";
+    var im = document.createElement("img");
+    im.alt = "Käsitelty";
+    im.src = cv.toDataURL("image/png");
+    procStage.appendChild(im);
+  }
+
+  $("preToggle").addEventListener("click", function () {
+    var on = $("prebar").classList.toggle("on");
+    $("preToggle").classList.toggle("active", on);
   });
 
   runBtn.addEventListener("click", function () { vectorize(); });
@@ -1646,9 +1943,10 @@
         opts.blackOnWhite = !!blackOnWhite.checked;
         opts.fillHex = fillHex.value;
 
+        buildProcessed();
         var img = new ImageBuffer();
         img.init(sourceBitmap.w, sourceBitmap.h);
-        var rgba = sourceBitmap.rgba;
+        var rgba = processedBitmap || sourceBitmap.rgba;
         var n = sourceBitmap.w * sourceBitmap.h;
         for (var i = 0; i < n; i++) {
           var o = i * 4;
