@@ -461,6 +461,8 @@ class MenubarCtl extends UiCtl {
             def trigRow:UiRow (UiRow.of((this.triggerTid(m.value)) (EVGA11yRole.menuItem()) m.name))
             trigRow.parentTid = tid
             trigRow.state = word
+            ; Each bar item opens a menu, and says so.
+            trigRow.hasPopup = "menu"
             trigRow.disabled = m.disabled
             trigRow.focusable = (m.disabled == false)
             if (m.value == openValue) {

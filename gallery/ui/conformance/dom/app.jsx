@@ -63,6 +63,47 @@ import {
 } from "@tanstack/react-table";
 
 /**
+ * One menu item, which may itself be a menu.
+ *
+ * A submenu is three elements and not one: the row you point at
+ * (`SubTrigger`, which is a menuitem carrying `aria-haspopup` and its own
+ * expanded state), the surface it opens (`SubContent`, a menu), and the `Sub`
+ * that pairs them. The tids follow the rule the rest of the fixture follows —
+ * the surface is the item's tid plus `-content`, so a spec names a nested row
+ * as `dm-item-share-item-mail` and nothing has to be looked up.
+ *
+ * Radix's dropdown and menubar take the same parts under different namespaces,
+ * so the namespace is an argument: one function renders a nested menu for
+ * either, and neither can drift from the other.
+ */
+function renderMenuItem(NS, prefix, it) {
+  if (it.items && it.items.length) {
+    const sub = prefix + "-item-" + it.value;
+    return (
+      <NS.Sub key={it.value}>
+        <NS.SubTrigger data-tid={sub} disabled={!!it.disabled}>
+          {it.name}
+        </NS.SubTrigger>
+        <NS.Portal>
+          <NS.SubContent data-tid={sub + "-content"}>
+            {it.items.map((kid) => renderMenuItem(NS, sub, kid))}
+          </NS.SubContent>
+        </NS.Portal>
+      </NS.Sub>
+    );
+  }
+  return (
+    <NS.Item
+      key={it.value}
+      data-tid={prefix + "-item-" + it.value}
+      disabled={!!it.disabled}
+    >
+      {it.name}
+    </NS.Item>
+  );
+}
+
+/**
  * Toast is the one control the fixture cannot express declaratively: it has no
  * trigger of its own, so the harness supplies a button that opens it. `duration`
  * is deliberately enormous — an auto-dismiss timer would make the oracle depend
@@ -655,15 +696,7 @@ export function Control({ spec }) {
           <DropdownMenu.Trigger data-tid={tid + "-trigger"}>{spec.name}</DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content data-tid={tid + "-content"}>
-              {spec.items.map((it) => (
-                <DropdownMenu.Item
-                  key={it.value}
-                  data-tid={tid + "-item-" + it.value}
-                  disabled={!!it.disabled}
-                >
-                  {it.name}
-                </DropdownMenu.Item>
-              ))}
+              {spec.items.map((it) => renderMenuItem(DropdownMenu, tid, it))}
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>

@@ -47,9 +47,10 @@
       <h1>Ranger tree literals — Radix components</h1>
       <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
-        Five <code>treefactory</code> declarations, each naming its own tags over the
+        Six <code>treefactory</code> declarations, each naming its own tags over the
         same <code>EVGElement</code>, painted by EVG's WebGL painter. Three of them
-        rebuild the whole tree on every control; the motion showcase keeps its tree,
+        rebuild the whole tree on every control; the motion showcase, the table
+        and the dropdown keep theirs,
         because a transition remembers where a value was and a rebuilt element
         remembers nothing.
       </p>
@@ -109,6 +110,28 @@
             one, go to page two, and the first page stays selected.
           </p>
         </section>
+        <section data-for="dropdown">
+          <h2>what to try</h2>
+          <p class="hint">
+            Open the menu, then <strong>rest the pointer</strong> on
+            <em>Available</em>. The submenu waits 100&nbsp;ms before opening —
+            measured off Radix, and the reason dragging down a menu does not
+            flash every submenu on the way past. Moving away closes it at once.
+          </p>
+          <p class="hint">
+            From the keyboard: <strong>&darr;</strong> to step,
+            <strong>&rarr;</strong> or <strong>Enter</strong> to go in,
+            <strong>&larr;</strong> to come back out, <strong>Esc</strong> to
+            close everything. Arrowing in puts you on the submenu&rsquo;s first
+            item; hovering in leaves you on the row you are pointing at. The
+            asymmetry is Radix&rsquo;s, not ours.
+          </p>
+          <p class="hint">
+            &rarr; on an ordinary row does <strong>nothing</strong>, and
+            neither does &larr; at the top level. A vertical menu&rsquo;s
+            horizontal arrows are for nesting and nothing else.
+          </p>
+        </section>
         <section data-for="motion">
           <h2>what to look at</h2>
           <p class="hint">
@@ -143,6 +166,16 @@
           <code>treefactory</code> and a stylesheet, and nothing else. The
           controller decides what is true; the tree literal decides what it
           looks like.
+        </p>
+        <p class="note" data-for="dropdown">
+          <strong>This demo owns no state at all.</strong> Open/closed, the
+          roving focus, the submenu stack, the 100&nbsp;ms hover delay and
+          every key are <code>gallery/ui/src/MenuCtl.rgr</code>&rsquo;s, which
+          five conformance specs measure against
+          <code>@radix-ui/react-dropdown-menu</code>. What is here is a
+          <code>treefactory</code>, a stylesheet, and which icon goes on which
+          row. Compare it with the <em>menubar</em> demo above, whose keyboard
+          is hand-written and matched against nothing.
         </p>
         <p class="note" data-for="motion">
           <strong>Hover the cards at the bottom.</strong> Nothing in

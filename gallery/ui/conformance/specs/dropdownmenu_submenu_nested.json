@@ -1,0 +1,22 @@
+{ "name":"dropdownmenu_submenu_nested","component":"dropdown-menu",
+  "behaviours":["sub-nested","sub-disabled","sub-left-unwinds-one","sub-escape-closes-all"],
+  "fixture":{"controls":[
+    {"type":"dropdownmenu","tid":"dm","name":"Menu","items":[
+      {"value":"locked","name":"Locked","disabled":true,"items":[
+        {"value":"never","name":"Never"}]},
+      {"value":"share","name":"Share","items":[
+        {"value":"mail","name":"Email Link"},
+        {"value":"more","name":"More","items":[
+          {"value":"x","name":"Copy Link"},
+          {"value":"y","name":"Print"}]}]}]}]},
+  "steps":[
+    {"click":"dm-trigger"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowRight"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowRight"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowLeft"},
+    {"key":"ArrowLeft"},
+    {"key":"Escape"}] }

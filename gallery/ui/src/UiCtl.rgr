@@ -42,6 +42,12 @@ class UiRow {
     ; one thing the control does is the one thing the trace cannot see. That is
     ; the slider's lesson, repeated.
     def sorted:int 0
+    ; `aria-haspopup`, as the DOM spells it: "menu" on a row that opens one,
+    ; "" on everything else. The one attribute that separates a submenu's
+    ; parent from the item beside it — both are menuitems, both are named, and
+    ; a chevron is not something a reader can see. Measured on Radix: the
+    ; dropdown's own trigger carries it too, not only the nested rows.
+    def hasPopup:string ""
     def pressed:int 0
     def checked:int 0
     def selected:int 0
@@ -93,10 +99,17 @@ class UiItem {
     def disabled:boolean false
     def el:EVGElement
     def contentEl:EVGElement
+    ; A row that is itself a menu. Empty for almost every item; when it is not,
+    ; the item is a SUB-TRIGGER — a menuitem that opens `kids` beside it — and
+    ; `contentEl` above is the surface they hang in. One list rather than a
+    ; separate submenu class, so nesting is the same shape at every depth.
+    def kids:[UiItem]
 
     Constructor () {
         el = (EVGElement.createDiv())
         contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        kids = empty
     }
 }
 
@@ -158,6 +171,17 @@ class UiCtl {
     ; The pointer left everything this controller owns. No target, because the
     ; interesting case is the pointer going somewhere else entirely.
     fn unhover:string () {
+        return ""
+    }
+
+    ; --- the clock -------------------------------------------------------------
+    ; Almost nothing needs one. A submenu does: it opens 100ms after the pointer
+    ; lands on its parent row, so that dragging down a menu does not flash every
+    ; submenu on the way past. The host advances it, which makes the delay an
+    ; exact number in a test rather than a race against a real timer.
+    ;
+    ; Returns the test id focus should land on, like activate() and hover().
+    fn tickCtl:string (dtMs:double) {
         return ""
     }
 

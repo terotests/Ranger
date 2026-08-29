@@ -25,6 +25,9 @@ export const FIELDS = [
   // a table changes which rows are where and nothing else about any node, so
   // without it the one thing the control does is invisible to the diff.
   "sort",
+  // `aria-haspopup`. A submenu's parent row is a menuitem like any other and
+  // announces like one without it; this is what makes "opens a menu" audible.
+  "haspopup",
   // Where the node sits among its siblings. A sortable moves nothing else:
   // every other field of every item is identical before and after a reorder,
   // and the diff keys by test id, so without this the one thing the component

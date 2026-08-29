@@ -1,0 +1,16 @@
+{ "name":"dropdownmenu_submenu_pointer","component":"dropdown-menu",
+  "behaviours":["sub-haspopup","sub-hover-opens","sub-hover-away-closes","sub-content-menu","sub-item-closes-all"],
+  "fixture":{"controls":[
+    {"type":"dropdownmenu","tid":"dm","name":"Menu","items":[
+      {"value":"a","name":"Alpha"},
+      {"value":"share","name":"Share","items":[
+        {"value":"mail","name":"Email Link"},
+        {"value":"sms","name":"Messages"},
+        {"value":"note","name":"Notes"}]},
+      {"value":"c","name":"Gamma"}]}]},
+  "steps":[
+    {"click":"dm-trigger"},
+    {"hover":"dm-item-share","settle":300},
+    {"hover":"dm-item-a"},
+    {"hover":"dm-item-share","settle":300},
+    {"click":"dm-item-share-item-sms"}] }

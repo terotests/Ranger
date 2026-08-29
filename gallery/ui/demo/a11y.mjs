@@ -39,11 +39,13 @@ const { ToolbarDemo } = require(path.join(ROOT, "gallery/ui/bin/ToolbarDemo.cjs"
 const { SortableDemo } = require(path.join(ROOT, "gallery/ui/bin/SortableDemo.cjs"));
 const { MotionDemo } = require(path.join(ROOT, "gallery/ui/bin/MotionDemo.cjs"));
 const { TableDemo } = require(path.join(ROOT, "gallery/ui/bin/TableDemo.cjs"));
+const { DropdownDemo } = require(path.join(ROOT, "gallery/ui/bin/DropdownDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
 const MOTION_CSS = fs.readFileSync(path.join(HERE, "motion.css"), "utf8");
 const TABLE_CSS = fs.readFileSync(path.join(HERE, "table.css"), "utf8");
+const DROPDOWN_CSS = fs.readFileSync(path.join(HERE, "dropdown.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -58,6 +60,13 @@ const ORDER = ["demo", "spec", "video", "audio", "extra"];
 // able to get to.
 const table = new TableDemo();
 table.init(TABLE_CSS);
+
+// The dropdown, driven the way the page drives it — through MenuCtl. The
+// submenu state below is reached by hovering and letting the controller's own
+// clock run, not by reaching in and setting a flag: a state the page cannot
+// get to is a state not worth auditing.
+const dropdown = new DropdownDemo();
+dropdown.init(DROPDOWN_CSS);
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -155,6 +164,28 @@ const STATES = [
       return table.a11yProblems();
     },
     tree: () => table.a11yJson(11, "tbl-prev"),
+  },
+  {
+    name: "dropdown — closed",
+    size: [900, 560],
+    lint: () => dropdown.a11yProblems(),
+    tree: () => dropdown.a11yJson(12, ""),
+  },
+  {
+    // Open, with the submenu out. Three menus' worth of roles in one tree —
+    // menu, menuitem, menuitemradio and a radiogroup of icon-only buttons —
+    // and the icon-only ones are why this state exists: a button whose whole
+    // content is a glyph has no name unless someone gives it one, and axe is
+    // the thing that notices when nobody did.
+    name: "dropdown — open, submenu out",
+    size: [900, 560],
+    lint: () => {
+      dropdown.press("dd-trigger");
+      dropdown.setHover("dd-item-status");
+      dropdown.tick(150.0);
+      return dropdown.a11yProblems();
+    },
+    tree: () => dropdown.a11yJson(13, "dd-item-status-item-available"),
   },
   {
     name: "toolbar",

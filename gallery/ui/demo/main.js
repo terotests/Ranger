@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -211,6 +211,25 @@ motion.init(MOTION_CSS);
 const table = new TableDemo();
 table.init(TABLE_CSS);
 
+/**
+ * The dropdown menu, and the third demo here that keeps its tree.
+ *
+ * The one whose state is not its own AT ALL. `MenuCtl` — the controller the
+ * conformance harness measures against @radix-ui/react-dropdown-menu — owns
+ * open/closed, the roving focus, the submenu stack and every key; this file
+ * routes the pointer and the keyboard into it and paints what it says. So the
+ * demo's keyboard is not a demo keyboard: it is the measured one, and the
+ * menubar demo above it (which has its own, written by hand and matched
+ * against nothing) is the counter-example this exists to retire.
+ *
+ * It is also the first demo with a clock the CONTROLLER owns: a submenu opens
+ * 100ms after the pointer settles on its row, so `tick` has to keep running
+ * while that wait is outstanding even though nothing is moving on screen.
+ */
+const dropdown = new DropdownDemo();
+dropdown.init(DROPDOWN_CSS);
+let lastDropdownHover = "";
+
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
 // there is one description of each demo and not two.
@@ -220,12 +239,12 @@ const HOSTS = {
   sortable: keptTree(SortableModule, SORTABLE_CSS, "Sortable demo", [W, 560]),
 };
 
-// Four demos, four factories, one page. Each one says how tall it is and
+// Six demos, six factories, one page. Each one says how tall it is and
 // answers the same three questions — what to draw, what is under the pointer,
 // and what it all MEANS. Three of them answer by rebuilding their tree from
-// `args()`; the motion showcase answers from a tree it keeps, because a
-// transition cannot survive being rebuilt. Behind these thunks the difference
-// stops mattering to the rest of the page.
+// `args()`; the motion showcase, the table and the dropdown answer from a tree
+// they keep, because a transition cannot survive being rebuilt. Behind these
+// thunks the difference stops mattering to the rest of the page.
 const DEMOS = {
   menubar: {
     height: 560,
@@ -285,6 +304,37 @@ const DEMOS = {
         return true;
       },
       setPressed: (id) => table.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  dropdown: {
+    height: () => dropdown.heightPx(),
+    list: () => dropdown.displayListJson(),
+    hit: (x, y) => dropdown.hitId(x, y),
+    a11y: (gen, focus) => dropdown.a11yJson(gen, focus),
+    press: (id) => dropdown.press(id),
+    hover: (id) => {
+      if (id === lastDropdownHover) return false;
+      lastDropdownHover = id;
+      dropdown.setHover(id);
+      return true;
+    },
+    // Straight through to MenuCtl. Every arrow, Enter and Escape on this demo
+    // is answered by the controller five conformance specs are run against —
+    // which is the whole point of the demo owning no state.
+    key: (k) => dropdown.key(k),
+    host: () => ({
+      tick: (dt) => dropdown.tick(dt),
+      busy: () => dropdown.busyNow(),
+      setHover: (id) => {
+        if (id === lastDropdownHover) return false;
+        lastDropdownHover = id;
+        dropdown.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dropdown.setPressed(id),
       root: () => null,
     }),
     animated: true,
@@ -365,6 +415,15 @@ const DEMOS = {
 window.__sortRoot = () => HOSTS.sortable.root();
 window.__sortState = () => ({ dragging: state.dragging, over: state.over, order: state.order });
 window.__mbState = () => ({ open: state.open, focus: state.focus, which: state.which });
+// The dropdown's state is MenuCtl's, so this reads the controller rather than
+// the page: what is open, where focus is, and how deep the submenu stack goes.
+window.__ddState = () => ({
+  open: dropdown.model.open,
+  focus: dropdown.focused,
+  depth: dropdown.model.openPath.length,
+  status: dropdown.status,
+  theme: dropdown.theme,
+});
 
 function movePreview() {
   const root = HOSTS.sortable.root();
@@ -908,7 +967,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "dropdown", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

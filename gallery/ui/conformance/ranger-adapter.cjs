@@ -55,6 +55,8 @@ function run(spec, css) {
         focused: false,
         visible: true,
         roledescription: null,
+        sort: null,
+        haspopup: null,
         parent: "",
         posinset: 0,
       });
@@ -75,7 +77,12 @@ function run(spec, css) {
       observe("focus " + step.focus);
     } else if ("hover" in step) {
       host.hover(step.hover);
-      observe("hover " + step.hover);
+      // The clock, for the surfaces that have one. A submenu opens 100ms after
+      // the pointer lands on its parent row; the reference side waits the same
+      // wall-clock time, and this side is told how much time passed. A step
+      // with no `settle` advances nothing, so every existing spec is unchanged.
+      if (step.settle) host.tick(step.settle);
+      observe("hover " + step.hover + (step.settle ? " +" + step.settle + "ms" : ""));
     } else if ("unhover" in step) {
       host.unhover();
       observe("unhover");

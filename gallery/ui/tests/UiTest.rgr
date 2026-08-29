@@ -88,6 +88,7 @@ class UiTest {
         UiTest.testBorderShorthand(t)
         UiTest.testOverlays(t)
         UiTest.testHoverSurfaces(t)
+        UiTest.testSubmenuClock(t)
         UiTest.testSliderAndToast(t)
         UiTest.testA11yTree(t)
         print ""
@@ -495,6 +496,75 @@ class UiTest {
         t.eqStr("arrow up from the surface takes the last item" h4.focusId "cm-item-b")
         h4.key("Escape")
         t.eqStr("closing loses focus, because the trigger cannot hold it" h4.focusId "")
+    }
+
+    ; --- the submenu's clock --------------------------------------------------
+    ; The conformance harness proves WHAT a submenu does; it cannot prove WHEN.
+    ; A hover step there settles for 300ms and observes once, firmly past the
+    ; delay — deliberately, because a spec that observed at 60ms would be
+    ; measuring the machine and would pass and fail on different runs.
+    ;
+    ; So the delay itself is measured here, where the clock is a number the test
+    ; hands over. Radix opens a hovered submenu after 100ms: measured in the
+    ; browser at 25ms intervals, closed through 75 and open at 100. Without
+    ; these four checks a submenu that opened INSTANTLY passed every conformance
+    ; spec — which it did, until they were written.
+
+    sfn testSubmenuClock:void (t:Check) {
+        print "--- the submenu clock ---"
+        def h (new UiHost())
+        def dm:MenuCtl (h.addDropdownMenu("dm" "Menu"))
+        dm.addItem("a" "Alpha" false)
+        def share:UiItem (dm.addSub("share" "Share" false))
+        MenuCtl.addKid(share "mail" "Email Link" false)
+        MenuCtl.addKid(share "sms" "Messages" false)
+        dm.addItem("c" "Gamma" false)
+        dm.build()
+
+        h.click("dm-trigger")
+        h.hover("dm-item-share")
+        t.ok("the pointer arriving does not open it"
+            ((UiTest.hasRow(h "dm-item-share-content")) == false))
+        h.tick(50.0)
+        t.ok("nor does half the delay"
+            ((UiTest.hasRow(h "dm-item-share-content")) == false))
+        h.tick(45.0)
+        t.ok("nor 95ms of it"
+            ((UiTest.hasRow(h "dm-item-share-content")) == false))
+        h.tick(10.0)
+        t.ok("105ms opens it" (UiTest.hasRow(h "dm-item-share-content")))
+        ; Opened by the pointer, focus stays on the row the pointer is on. The
+        ; keyboard path is the other way round and is checked below.
+        t.eqStr("and focus stays on the row under the pointer" h.focusId "dm-item-share")
+
+        ; Leaving before the delay elapses cancels it outright. Without this a
+        ; submenu opens under a pointer that has already moved on.
+        def h2 (new UiHost())
+        def dm2:MenuCtl (h2.addDropdownMenu("dm" "Menu"))
+        dm2.addItem("a" "Alpha" false)
+        def share2:UiItem (dm2.addSub("share" "Share" false))
+        MenuCtl.addKid(share2 "mail" "Email Link" false)
+        dm2.build()
+        h2.click("dm-trigger")
+        h2.hover("dm-item-share")
+        h2.tick(60.0)
+        h2.hover("dm-item-a")
+        h2.tick(400.0)
+        t.ok("moving away before the delay cancels it"
+            ((UiTest.hasRow(h2 "dm-item-share-content")) == false))
+
+        ; And the keyboard has no delay at all: you asked for it by name.
+        def h3 (new UiHost())
+        def dm3:MenuCtl (h3.addDropdownMenu("dm" "Menu"))
+        def share3:UiItem (dm3.addSub("share" "Share" false))
+        MenuCtl.addKid(share3 "mail" "Email Link" false)
+        dm3.build()
+        h3.click("dm-trigger")
+        h3.key("ArrowDown")
+        h3.key("ArrowRight")
+        t.ok("ArrowRight opens it with no clock at all"
+            (UiTest.hasRow(h3 "dm-item-share-content")))
+        t.eqStr("and puts focus on the first item" h3.focusId "dm-item-share-item-mail")
     }
 
     ; --- tooltip and hover card ----------------------------------------------

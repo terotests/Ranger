@@ -249,7 +249,20 @@
         "escape-closes": "Escape closes it",
         "focus-restore": "closing returns focus to the trigger",
         "background-hidden": "everything outside is out of the accessibility tree",
-        "content-unmounted": "a closed menu is not in the tree at all"
+        "content-unmounted": "a closed menu is not in the tree at all",
+        "sub-haspopup": "a row that opens a submenu says so with aria-haspopup",
+        "sub-trigger-role": "a sub-trigger is a menuitem, with an expanded state of its own",
+        "sub-right-opens": "ArrowRight on a sub-trigger opens its submenu",
+        "sub-first-item": "opening a submenu by name puts focus on its FIRST item, unlike opening the root menu",
+        "sub-left-closes": "ArrowLeft closes the submenu and returns focus to the sub-trigger",
+        "sub-left-unwinds-one": "ArrowLeft unwinds one level, not all of them",
+        "sub-nested": "a submenu may itself contain one",
+        "sub-disabled": "a disabled sub-trigger is skipped and opens nothing",
+        "sub-escape-closes-all": "Escape closes every level at once and returns focus to the trigger",
+        "sub-hover-opens": "resting the pointer on a sub-trigger opens it after 100ms, leaving focus on the row",
+        "sub-hover-away-closes": "moving the pointer to another row closes it at once — slow to open, instant to close",
+        "sub-content-menu": "the submenu surface is a menu whose children are menuitems",
+        "sub-item-closes-all": "choosing a leaf at any depth closes the whole menu"
       }
     },
     "context-menu": {

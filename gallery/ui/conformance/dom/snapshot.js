@@ -154,6 +154,12 @@ export function snapshotDom(options) {
       // present-and-"none" on a header that can be sorted but is not — the two
       // are different things and the trace keeps them apart.
       sort: el.getAttribute("aria-sort"),
+      // `aria-haspopup`. The one attribute that tells a reader a row opens
+      // ANOTHER menu rather than doing something — without it a submenu's
+      // parent announces exactly like the item beside it, and the only clue
+      // left is a chevron a reader cannot see. Its own field for the same
+      // reason `sort` is one: nothing else about the node changes.
+      haspopup: el.getAttribute("aria-haspopup"),
       // Reported, not compared. The two systems disagree about the parent of a
       // floating surface ON PURPOSE — Radix portals a tooltip to the end of
       // the body, EVG keeps it the trigger's child and moves only where it is
@@ -205,6 +211,8 @@ export function snapshotDom(options) {
       focused: false,
       visible: true,
       roledescription: null,
+      sort: null,
+      haspopup: null,
       parent: "",
       posinset: 0,
     });

@@ -659,6 +659,18 @@ class UiHost {
     }
 
     fn tick:boolean (dtMs:double) {
+        ; Controllers first: a submenu that opens on this tick has to be in the
+        ; tree before the transitions on it are advanced, or its first frame is
+        ; the one where it does not exist yet.
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            def next:string (c.tickCtl(dtMs))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            i = (i + 1)
+        }
         def r:EVGElement (unwrap root)
         def t:EVGTransition transitions
         t.advanceTree(r dtMs)
@@ -1116,6 +1128,10 @@ class UiHost {
             ; `aria-sort` as the DOM spells it, so the two sides compare as
             ; strings rather than as one side's numbering.
             out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
+            ; `aria-haspopup`, absent rather than empty when there is none —
+            ; the DOM reports null for a node without the attribute, and "" is
+            ; a different thing from "not there".
+            out = out + ",\"haspopup\":" + (UiHost.textOrNull(row.hasPopup))
             out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
             out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
             out = out + ",\"checked\":" + (UiHost.triJson(row.checked))

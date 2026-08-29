@@ -1,0 +1,209 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * ReUI's dropdown menu, as an EVG stylesheet.
+ *
+ * Class-first: every class here is one DropdownDemo.rgr writes, and the tree
+ * literal carries no appearance at all. The palette is the reference's zinc
+ * ramp; the geometry is measured off it — 36px rows, a 256px card, 14px labels
+ * and a 20px icon column that every row shares so the labels line up whether
+ * or not a row has an icon.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so a variant is its own
+ * token on the same element (`dd-item dd-item-danger`) rather than a compound
+ * rule.
+ */
+
+/* The trigger-and-surface pair. No appearance of its own: it is a column so
+ * the trigger keeps its own width rather than filling the page. */
+.dd-menu {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+}
+
+.dd-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background-color: #f4f4f5;
+  padding: 24px;
+  width: 900px;
+  height: 560px;
+}
+
+/* --- the trigger ---------------------------------------------------------------
+   The account button, at the bottom of the page so the menu has to open
+   upwards — which is the case the overlay pass's flip exists for. */
+.dd-trigger {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+  padding: 0 12px;
+  width: 240px;
+  height: 44px;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.dd-trigger:hover { background-color: #fafafa; border-color: #d4d4d8; }
+.dd-trigger:focus { border-color: #a1a1aa; }
+
+.dd-trig-avatar {
+  color: #7c3aed;
+  font-size: 20px;
+  width: 24px;
+  height: 24px;
+  text-align: center;
+}
+
+.dd-trig-name { color: #18181b; font-size: 14px; width: 150px; height: 20px; }
+.dd-trig-caret { color: #71717a; font-size: 11px; width: 12px; height: 16px; text-align: center; }
+
+/* --- the surface ---------------------------------------------------------------
+   256px, the reference's width. The padding is 4px so a row's own hover tint
+   stops short of the card's rounded edge rather than fighting it. */
+.dd-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  background-color: #ffffff;
+  padding: 4px;
+  width: 264px;
+}
+
+.dd-subcontent { width: 200px; }
+
+/* --- the account header ---------------------------------------------------- */
+.dd-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  height: 52px;
+}
+
+.dd-head-avatar {
+  color: #7c3aed;
+  font-size: 30px;
+  width: 36px;
+  height: 36px;
+  text-align: center;
+}
+
+.dd-head-col { display: flex; flex-direction: column; width: 190px; }
+.dd-head-name { color: #18181b; font-size: 14px; font-weight: bold; height: 20px; }
+.dd-head-mail { color: #71717a; font-size: 13px; height: 18px; }
+
+/* --- the segmented theme picker ------------------------------------------------
+   One track, three buttons, and the chosen one lifted out of it on a white
+   card — the same shape ReUI uses, and the reason the track is the darker
+   surface rather than the button. */
+/* The track's width is the card's inner width less the card's own padding —
+ * 264 less 2px of border and 8px of padding is 254, and the track is 248 of
+ * that. The three buttons plus two gaps then have to fit inside the track's
+ * own 3px padding: 248 - 6 - 4 = 238, so each button is 78. Overshoot by two
+ * pixels and the third button wraps onto a second line, taking the row's
+ * height with it and burying the separator underneath — which is exactly what
+ * 80 did. */
+.dd-seg {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  border-radius: 8px;
+  background-color: #f4f4f5;
+  padding: 3px;
+  width: 248px;
+  height: 36px;
+}
+
+.dd-seg-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  width: 78px;
+  height: 30px;
+  transition: background-color 120ms ease-out;
+}
+
+.dd-seg-btn:hover { background-color: #e4e4e7; }
+
+/* The chosen one. Later in the sheet than `:hover` on purpose: a setting you
+ * have chosen should not stop looking chosen because the pointer is on it. */
+.dd-seg-btn-on { background-color: #ffffff; }
+
+.dd-seg-glyph { color: #3f3f46; font-size: 14px; width: 20px; height: 20px; text-align: center; }
+
+/* --- rows ------------------------------------------------------------------------
+   36px, and the icon column is a fixed 20px on every row so that a row without
+   an icon still lines its label up with the ones that have one. */
+.dd-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 36px;
+  transition: background-color 120ms ease-out;
+}
+
+.dd-item:hover { background-color: #f4f4f5; }
+
+/* The row whose submenu is showing stays tinted while the pointer is inside
+ * that submenu — otherwise the trail back to the parent menu goes dark the
+ * moment you follow it. */
+.dd-item-open { background-color: #f4f4f5; }
+
+.dd-item-danger:hover { background-color: #fef2f2; }
+
+.dd-icon { color: #52525b; font-size: 15px; width: 20px; height: 20px; text-align: center; }
+.dd-icon-danger { color: #dc2626; }
+
+.dd-dot { font-size: 13px; width: 20px; height: 20px; text-align: center; }
+.dd-dot-available { color: #22c55e; }
+.dd-dot-away      { color: #f59e0b; }
+.dd-dot-busy      { color: #ef4444; }
+.dd-dot-offline   { color: #a1a1aa; }
+
+/* Wide enough to take the longest row and narrow enough that the count on the
+ * right never meets it: 20 + 10 + 150 + 10 + 32 is 222, inside the 238 a row
+ * has after its own padding. */
+.dd-label { color: #18181b; font-size: 14px; width: 150px; height: 20px; }
+
+/* The submenu is 200px, not 264, and the same arithmetic gives a different
+ * answer: 190 inside the card, 174 inside a row, less a 20px dot, a 16px tick
+ * and two 10px gaps leaves 118. At 150 the tick wrapped and every row became
+ * two lines tall — the dot above the label instead of beside it. */
+.dd-label-sub { width: 110px; }
+.dd-label-danger { color: #dc2626; }
+
+/* The count on the right. Not a width the label has to leave room for: the
+ * label above is sized so the two never meet. */
+.dd-badge {
+  border-radius: 6px;
+  background-color: #f4f4f5;
+  color: #52525b;
+  font-size: 12px;
+  padding: 2px 8px;
+  width: 32px;
+  height: 20px;
+  text-align: center;
+}
+
+.dd-chevron { color: #71717a; font-size: 11px; width: 14px; height: 18px; text-align: center; }
+.dd-tick { color: #18181b; font-size: 12px; width: 16px; height: 18px; text-align: center; }
+
+.dd-separator {
+  background-color: #f4f4f5;
+  width: 254px;
+  height: 1px;
+  margin: 4px 0;
+}

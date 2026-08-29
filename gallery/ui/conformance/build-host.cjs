@@ -8,6 +8,28 @@
 "use strict";
 
 /** Same fixture the Radix playground reads; see conformance/SPEC.md. */
+/**
+ * A menu's items, which may themselves be menus. `addSub` returns the row so
+ * its children can be hung on it, and `MenuCtl.addKid` does the same one level
+ * down — so nesting is written the same way at every depth, and the fixture
+ * needs no special case for "a submenu of a submenu".
+ */
+function addMenuItems(ctl, items, parent) {
+  for (const it of items || []) {
+    const kids = it.items || [];
+    if (kids.length) {
+      const sub = parent
+        ? ctl.constructor.addKid(parent, it.value, it.name, !!it.disabled)
+        : ctl.addSub(it.value, it.name, !!it.disabled);
+      addMenuItems(ctl, kids, sub);
+    } else if (parent) {
+      ctl.constructor.addKid(parent, it.value, it.name, !!it.disabled);
+    } else {
+      ctl.addItem(it.value, it.name, !!it.disabled);
+    }
+  }
+}
+
 function buildHost(M, fixture, css) {
   const host = new M.UiHost();
   if (css) host.addStyleSheet(css);
@@ -85,12 +107,12 @@ function buildHost(M, fixture, css) {
 
       case "dropdownmenu":
         ctl = host.addDropdownMenu(c.tid, c.name);
-        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        addMenuItems(ctl, c.items);
         break;
 
       case "contextmenu":
         ctl = host.addContextMenu(c.tid, c.name);
-        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        addMenuItems(ctl, c.items);
         break;
 
       case "slider":
