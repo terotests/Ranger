@@ -20,7 +20,37 @@ export const FIELDS = [
   "tabstop",
   "focused",
   "visible",
+  "roledescription",
+  // Where the node sits among its siblings. A sortable moves nothing else:
+  // every other field of every item is identical before and after a reorder,
+  // and the diff keys by test id, so without this the one thing the component
+  // does is the one thing the harness cannot see.
+  //
+  // Compared only between nodes that agree on `parent` — see below.
+  "posinset",
 ];
+
+/**
+ * Position is only meaningful INSIDE a control.
+ *
+ * Measured, on the first run of `posinset`: the tooltip's content was 2nd on
+ * the Ranger side and 3rd on the Radix side. Neither is wrong. Radix portals a
+ * floating surface to the end of the document, so it lands after the button
+ * beside it; EVG keeps it the trigger's child and moves only where it is
+ * PAINTED, so it stays where it was declared. Both are deliberate — the second
+ * one is the entire point of EVG's overlay layer — and the order of unrelated
+ * top-level controls is not a behaviour either way.
+ *
+ * So a node with no parent has no position to compare, and the two sides are
+ * not asked about it. Inside one control both sides agree on the parent, and
+ * there it is compared strictly — which is where a sortable's items live, and
+ * the only place the field was ever for.
+ */
+function comparable(field, rn, dn) {
+  if (field !== "posinset") return true;
+  if (!rn.parent || !dn.parent) return false;
+  return rn.parent === dn.parent;
+}
 
 function indexByTid(nodes) {
   const m = new Map();
@@ -46,6 +76,7 @@ export function diffNodes(step, rangerNodes, domNodes) {
       continue;
     }
     for (const f of FIELDS) {
+      if (!comparable(f, rn, dn)) continue;
       observations += 1;
       if (rn[f] === dn[f]) matched += 1;
       else diffs.push({ step, tid, field: f, ranger: rn[f], dom: dn[f] });

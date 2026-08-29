@@ -52,7 +52,14 @@ if (process.argv.includes("--refresh")) {
   console.log(`refreshed: ${packages.length} @radix-ui/react-* packages\n`);
 }
 
-const { packages, components: componentNotes, utilities, implements: impl, machinery } = cache;
+const {
+  packages,
+  components: componentNotes,
+  utilities,
+  implements: impl,
+  machinery,
+  beyond = {},
+} = cache;
 
 // --- classification must be total -------------------------------------------
 //
@@ -90,7 +97,15 @@ for (const [radixName, ourType] of Object.entries(impl)) {
   }
 }
 for (const t of SUPPORTED_TYPES) {
-  if (!Object.values(impl).includes(t)) problems.push(`${t}: built, but mapped to no Radix component`);
+  if (Object.values(impl).includes(t)) continue;
+  // A control Radix does not have is not an accounting error, but it has to be
+  // declared as one — silence here is how a number starts to flatter.
+  if (t in beyond) continue;
+  problems.push(`${t}: built, but mapped to no Radix component (add it to \`beyond\` if Radix has none)`);
+}
+for (const t of Object.keys(beyond)) {
+  if (!SUPPORTED_TYPES.includes(t)) problems.push(`${t}: listed under beyond but build-host does not build it`);
+  if (Object.values(impl).includes(t)) problems.push(`${t}: listed under beyond AND mapped to a Radix component`);
 }
 for (const names of Object.values(machinery)) {
   for (const n of names) {
@@ -115,7 +130,14 @@ console.log(`  @radix-ui/react-* packages   ${String(packages.length).padStart(3
 console.log(`  internal plumbing            ${String(utilSet.size).padStart(3)}  (not components)`);
 console.log(`  components                   ${String(components.length).padStart(3)}`);
 console.log(`  implemented                  ${String(done.size).padStart(3)}  ${pct(done.size, components.length)}`);
-console.log(`  MISSING                      ${String(missing.length).padStart(3)}\n`);
+console.log(`  MISSING                      ${String(missing.length).padStart(3)}`);
+// Outside the fraction, and said out loud so it is not mistaken for one of the
+// 24 above — nor quietly forgotten.
+if (Object.keys(beyond).length) {
+  console.log(`  beyond Radix                 ${String(Object.keys(beyond).length).padStart(3)}  (not counted above)`);
+  for (const [name, why] of Object.entries(beyond)) console.log(`      ${name}: ${why}`);
+}
+console.log("");
 
 const byNeed = new Map();
 for (const m of missing) {
@@ -141,6 +163,7 @@ const out = {
   utilities: utilSet.size,
   components: components.length,
   implemented: [...done].sort(),
+  beyond: Object.keys(beyond).sort(),
   missing,
   missingByMachinery: Object.fromEntries(ordered),
 };

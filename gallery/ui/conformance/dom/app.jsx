@@ -36,6 +36,21 @@ import * as Toggle from "@radix-ui/react-toggle";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 
 /**
  * Toast is the one control the fixture cannot express declaratively: it has no
@@ -74,6 +89,76 @@ function ToastControl({ spec, tid }) {
         }}
       />
     </Toast.Provider>
+  );
+}
+
+/**
+ * Sortable — the one control here that is not Radix.
+ *
+ * ReUI's Sortable, and every shadcn-family one, is @dnd-kit underneath, so
+ * that is the oracle: `SortableContext` + `useSortable`, the default sensors,
+ * and the DEFAULT accessibility contract, which is the part worth measuring.
+ * dnd-kit gives each item `role="button"`, `aria-roledescription="sortable"`,
+ * `aria-pressed` while it is picked up, and announces every stage into a live
+ * region — "Picked up draggable item A." and so on. None of that is decoration:
+ * for someone who cannot see the list move, it is the whole interaction.
+ *
+ * Nothing is styled, but the items are given a height, because a drag is
+ * resolved against rectangles and zero-height rows collide with nothing. That
+ * is geometry the harness needs, not appearance it compares.
+ */
+function SortableItem({ tid, id, name, disabled }) {
+  // No `data-state`: dnd-kit does not set one, and inventing an attribute on
+  // the reference side would make the harness compare this file's choices
+  // instead of the library's behaviour. Being picked up is observable through
+  // `aria-pressed`, which dnd-kit does set.
+  const { attributes, listeners, setNodeRef } = useSortable({ id, disabled });
+  // Divs, not <ul>/<li>: dnd-kit puts `role="button"` on each item, and a
+  // button is not a list item — real <li>s would make axe report a broken list
+  // on the REFERENCE side, a violation this file invented rather than measured.
+  return (
+    <div
+      ref={setNodeRef}
+      data-tid={tid}
+      style={{ height: 40, border: "1px solid #ccc" }}
+      {...attributes}
+      {...listeners}
+    >
+      {name}
+    </div>
+  );
+}
+
+function SortableControl({ spec, tid }) {
+  const [items, setItems] = React.useState(spec.items.map((it) => it.value));
+  const byValue = new Map(spec.items.map((it) => [it.value, it]));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 1 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={({ active, over }) => {
+        if (!over || active.id === over.id) return;
+        setItems((cur) => arrayMove(cur, cur.indexOf(active.id), cur.indexOf(over.id)));
+      }}
+    >
+      <SortableContext items={items} strategy={verticalListSortingStrategy}>
+        <div data-tid={tid} aria-label={spec.name} style={{ width: 200 }}>
+          {items.map((value) => (
+            <SortableItem
+              key={value}
+              id={value}
+              tid={tid + "-item-" + value}
+              name={byValue.get(value).name}
+              disabled={!!byValue.get(value).disabled}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 }
 
@@ -413,6 +498,9 @@ export function Control({ spec }) {
           </ContextMenu.Portal>
         </ContextMenu.Root>
       );
+
+    case "sortable":
+      return <SortableControl spec={spec} tid={tid} />;
 
     default:
       throw new Error("unknown control type: " + spec.type);

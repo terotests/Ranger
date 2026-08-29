@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 162,
-    "covered": 160,
-    "matchedBehaviours": 160,
-    "observations": 8280,
-    "matchedObservations": 8280
+    "catalogued": 170,
+    "covered": 168,
+    "matchedBehaviours": 168,
+    "observations": 10312,
+    "matchedObservations": 10312
   },
   "components": {
     "toggle": {
@@ -100,6 +100,10 @@
       "matchedBehaviours": 12
     },
     "toast": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "sortable": {
       "covered": 8,
       "matchedBehaviours": 8
     }

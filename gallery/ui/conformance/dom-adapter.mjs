@@ -111,9 +111,17 @@ export async function run(spec) {
         () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
       );
 
+    // What the spec asked to observe beyond the nodes themselves. Declared in
+    // the spec file so it is visible that a field is being looked at — and,
+    // where it is absent, visible that it is not.
+    const options = { announce: !!(spec.observe || []).includes("announce") };
     const observe = async (label) => {
       await settle();
-      trace.push({ step: label, nodes: await page.evaluate(snapshotDom) });
+      trace.push({
+        step: label,
+        nodes: await page.evaluate(([fn, o]) => new Function("return " + fn)()(o),
+          [snapshotDom.toString(), options]),
+      });
     };
 
     // The element a press started on, so a later dragto is measured against the
@@ -166,6 +174,17 @@ export async function run(spec) {
           );
         }
         await observe("dragto " + step.dragto);
+      } else if ("dragover" in step) {
+        // Onto ANOTHER element, which is the drag a sortable is made of — as
+        // opposed to `dragto`, which slides along the pressed element's own
+        // width and exists for a slider. In steps: dnd-kit resolves a drag from
+        // pointermove events and a single teleport can cross every item's
+        // rectangle without ever being seen inside one.
+        const box = await page.locator(sel(step.dragover)).boundingBox();
+        if (box) {
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+        }
+        await observe("dragover " + step.dragover);
       } else if ("release" in step) {
         await page.mouse.up();
         dragBox = null;

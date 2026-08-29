@@ -3,7 +3,7 @@
     "The Radix surface this kit intends to match, one entry per behaviour.",
     "A behaviour counts as MATCHED only when a spec exercises it and every",
     "observation in that spec agrees with Radix. Behaviours with no spec are",
-    "reported as UNCOVERED — the catalogue is the denominator, so adding a",
+    "reported as UNCOVERED \u2014 the catalogue is the denominator, so adding a",
     "component here lowers the score until the work is actually done."
   ],
   "components": {
@@ -108,7 +108,7 @@
         "content-unmounted": "closed content is not in the tree at all",
         "focus-trap": {
           "note": "Tab and Shift+Tab cycle inside the open dialog",
-          "disputed": "No spec can prove this yet: the harness has no Tab step, and UiHost has no document-order focus model to answer one with. Catalogued so the gap is counted rather than assumed away — see PLAN.md."
+          "disputed": "No spec can prove this yet: the harness has no Tab step, and UiHost has no document-order focus model to answer one with. Catalogued so the gap is counted rather than assumed away \u2014 see PLAN.md."
         }
       }
     },
@@ -293,6 +293,20 @@
         "focus-viewport": "dismissing moves focus to the viewport",
         "escape-closes": "Escape dismisses it",
         "content-unmounted": "an unraised toast is not in the tree at all"
+      }
+    },
+    "sortable": {
+      "radix": "@dnd-kit/sortable",
+      "$comment": "Not Radix \u2014 Radix has no sortable. ReUI's, and every shadcn-family one, is dnd-kit underneath, so dnd-kit is the oracle.",
+      "behaviours": {
+        "sortable-roledescription": "every item says it is sortable, so a reader learns the affordance",
+        "sortable-pointer-reorder": "dragging an item onto another reorders the list on release",
+        "sortable-pressed-while-dragging": "the picked-up item exposes aria-pressed",
+        "sortable-keyboard-pickup": "Space picks the focused item up",
+        "sortable-keyboard-move": "arrows move the picked-up item between positions",
+        "sortable-keyboard-drop": "Space drops it where it now is",
+        "sortable-escape-cancels": "Escape puts it back and reorders nothing",
+        "sortable-announces": "every stage is announced into a live region"
       }
     }
   }

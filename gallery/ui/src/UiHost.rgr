@@ -32,6 +32,7 @@ Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ToastCtl.rgr"
+Import "SortableCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -52,6 +53,8 @@ class UiHost {
     ; an update whose generation it has already applied, which is what keeps a
     ; reader's cursor from being rebuilt out from under it.
     def a11yGen:int 0
+    ; The page's live region: the last thing any controller said out loud.
+    def announcement:string ""
     def pageWidth:double 480.0
     def pageHeight:double 320.0
 
@@ -247,6 +250,14 @@ class UiHost {
         c.tid = tid
         c.name = name
         c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSortable:SortableCtl (tid:string name:string) {
+        def c (new SortableCtl())
+        c.tid = tid
+        c.name = name
         this.add(c)
         return c
     }
@@ -533,6 +544,7 @@ class UiHost {
             if ((strlen next) > 0) {
                 focusId = next
             }
+            this.remember(c)
         }
         this.settleFocus()
     }
@@ -848,6 +860,87 @@ class UiHost {
         return false
     }
 
+    ; JSON string, or null for the empty one. `aria-roledescription` is absent
+    ; rather than "" on the DOM side, and an empty string would compare unequal
+    ; to null on every node in every spec.
+    sfn textOrNull:string (value:string) {
+        if ((strlen value) == 0) {
+            return "null"
+        }
+        return (EVGA11yTree.jsonString(value))
+    }
+
+    ; 1-based index among the rows that share this one's parent, counting in
+    ; the order the rows are emitted — which is display-tree order, the same
+    ; order the DOM side reads off the document.
+    fn posInSet:int (rows:[UiRow] index:int) {
+        def me:UiRow (itemAt rows index)
+        def n:int 0
+        def i:int 0
+        while (i <= index) {
+            def other:UiRow (itemAt rows i)
+            if (other.parentTid == me.parentTid) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- dragging one thing onto another ---------------------------------------
+    ; The host does the same thing for both ends of the gesture as it does for a
+    ; click: turn a target into a controller. What is under the cursor is the
+    ; paint-order hit test, so a drag and a click can never disagree about it.
+
+    fn pressOn:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.press(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragOnto:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragOver(target)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn releaseDrag:void () {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            c.release()
+            this.remember(c)
+            i = (i + 1)
+        }
+        this.settleFocus()
+    }
+
+    ; The page has ONE live region, so the host owns the last thing said. It is
+    ; kept rather than recomputed because that is what a live region does: the
+    ; text stays until something replaces it, and a reader that arrives late
+    ; still finds it.
+    fn remember:void (c:UiCtl) {
+        def text:string (c.said())
+        if ((strlen text) > 0) {
+            announcement = text
+        }
+    }
+
+    fn announcementText:string () {
+        return announcement
+    }
+
     fn traceJson:string () {
         def r:EVGElement (unwrap root)
         def rows:[UiRow] (this.allRows())
@@ -887,6 +980,15 @@ class UiHost {
             out = out + ",\"valuemax\":" + (UiHost.numJson(row.hasRange row.valueMax))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
+            out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
+            ; Reported, not compared: the two systems disagree about the parent
+            ; of a floating surface on purpose. It is here so `posinset` can be
+            ; skipped where they do — see conformance/diff.mjs.
+            out = out + ",\"parent\":" + (EVGA11yTree.jsonString(row.parentTid))
+            ; Where this row sits among its siblings, 1-based. Derived from the
+            ; order the rows come in, not stored: position is a fact about the
+            ; tree, and a stored copy is a second truth to keep in step.
+            out = out + ",\"posinset\":" + (to_string (this.posInSet(rows i)))
             out = out + "}"
             i = (i + 1)
         }

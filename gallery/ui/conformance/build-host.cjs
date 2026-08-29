@@ -140,6 +140,11 @@ function buildHost(M, fixture, css) {
         ctl = host.addAvatar(c.tid, c.name, c.fallback || "?");
         break;
 
+      case "sortable":
+        ctl = host.addSortable(c.tid, c.name || "");
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
       case "accordion":
         ctl = host.addAccordion(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, it.body || "", !!it.disabled);
@@ -188,6 +193,7 @@ const SUPPORTED_TYPES = [
   "contextmenu",
   "slider",
   "toast",
+  "sortable",
 ];
 
 module.exports = { buildHost, SUPPORTED_TYPES };

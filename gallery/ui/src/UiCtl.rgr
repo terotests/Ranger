@@ -28,6 +28,11 @@ class UiRow {
     def name:string ""
     ; The `state-<value>` class, reported bare: "on", "off", "open", "closed".
     def state:string ""
+    ; What a reader says INSTEAD of the role: "sortable" on a draggable row.
+    ; Empty for almost everything, and that is the point — it is the whole
+    ; affordance of the few controls that have one, and a reader that is told
+    ; "button" learns nothing about being able to move the thing.
+    def roleDescription:string ""
     def expanded:int 0
     def pressed:int 0
     def checked:int 0
@@ -169,6 +174,35 @@ class UiCtl {
     ; deliberately NOT clamped — dragging past the end is a real gesture, and
     ; what the control does with it is part of the contract.
     fn dragTo:string (frac:double) {
+        return ""
+    }
+
+    ; --- dragging one thing onto another --------------------------------------
+    ; The other kind of drag, and it needs no geometry at all: a sortable asks
+    ; "which item is the pointer over", and that is a test id, not a fraction.
+    ; The host resolves the id with the same hit test a click uses, so the two
+    ; gestures agree about what is under the cursor by construction.
+
+    fn press:string (target:string) {
+        return ""
+    }
+
+    fn dragOver:string (target:string) {
+        return ""
+    }
+
+    fn release:string () {
+        return ""
+    }
+
+    ; What this controller last said out loud.
+    ;
+    ; A live region is not decoration for a drag: pressing an arrow key while
+    ; holding an item changes NOTHING else a reader can observe — the item has
+    ; not moved yet, and the displacement is a picture. Measured on the
+    ; reference: an ArrowDown step whose entire observable effect is the
+    ; sentence "Draggable item a was moved over droppable area b."
+    fn said:string () {
         return ""
     }
 

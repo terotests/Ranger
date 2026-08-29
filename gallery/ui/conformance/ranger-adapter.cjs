@@ -28,10 +28,38 @@ function run(spec, css) {
   const M = loadModule();
   const host = buildHost(M, spec.fixture, css);
   const trace = [];
+  // What the spec asked to observe beyond the nodes themselves; see SPEC.md.
+  const announce = (spec.observe || []).includes("announce");
   const observe = (label) => {
     // Lay out before observing: `visible` is a fact about the display tree.
     host.layout();
-    trace.push({ step: label, nodes: JSON.parse(host.traceJson()).nodes });
+    const nodes = JSON.parse(host.traceJson()).nodes;
+    if (announce) {
+      // The live region, as a node of its own — the same shape the DOM side
+      // synthesises, so the diff needs no special case for it.
+      nodes.push({
+        tid: "@announce",
+        role: "status",
+        name: host.announcementText(),
+        state: "",
+        expanded: null,
+        pressed: null,
+        checked: null,
+        selected: null,
+        disabled: false,
+        tabstop: false,
+        valuenow: null,
+        valuemin: null,
+        valuemax: null,
+        hidden: false,
+        focused: false,
+        visible: true,
+        roledescription: null,
+        parent: "",
+        posinset: 0,
+      });
+    }
+    trace.push({ step: label, nodes });
   };
 
   observe("initial");
@@ -69,12 +97,19 @@ function run(spec, css) {
         );
       }
       host.pressTid(step.press, step.at ?? 0.5);
+      // A press that is not measured against a track is a press ON something:
+      // the sortable's gesture starts here and needs no geometry.
+      host.pressOn(step.press);
       observe("press " + step.press + " @" + (step.at ?? 0.5));
     } else if ("dragto" in step) {
       host.dragFraction(step.dragto);
       observe("dragto " + step.dragto);
+    } else if ("dragover" in step) {
+      host.dragOnto(step.dragover);
+      observe("dragover " + step.dragover);
     } else if ("release" in step) {
       host.pointerUp();
+      host.releaseDrag();
       observe("release");
     } else if ("rightclick" in step) {
       host.rightClick(step.rightclick);
