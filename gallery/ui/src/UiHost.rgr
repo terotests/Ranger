@@ -44,6 +44,7 @@ Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTransition.rgr"
 
 class UiHost {
     def root:EVGElement
@@ -59,6 +60,14 @@ class UiHost {
     def a11yGen:int 0
     ; The page's live region: the last thing any controller said out loud.
     def announcement:string ""
+    ; What the pointer is over and what it is holding down, so a STYLESHEET can
+    ; say what those look like. The host knows both already — it hit-tests the
+    ; pointer and it owns focus — and publishing them as element state is what
+    ; lets `.ui-menubar-item:hover` exist at all, instead of every controller
+    ; writing a second class for a look it should not know about.
+    def hoverTid:string ""
+    def pressTidValue:string ""
+    def transitions:EVGTransition (new EVGTransition())
     def pageWidth:double 480.0
     def pageHeight:double 320.0
 
@@ -409,6 +418,7 @@ class UiHost {
     ; hover card have no other input, so without this there is nothing to test
     ; them with.
     fn hover:void (target:string) {
+        hoverTid = target
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -423,6 +433,7 @@ class UiHost {
     ; react is the one the pointer is no longer over — asking the new target
     ; would never reach it.
     fn unhover:void () {
+        hoverTid = ""
         def i:int 0
         while (i < (array_length ctls)) {
             def c:UiCtl (itemAt ctls i)
@@ -512,6 +523,7 @@ class UiHost {
             return
         }
         dragTid = target
+        pressTidValue = target
         dragBounds = bounds
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
@@ -559,6 +571,7 @@ class UiHost {
     }
 
     fn pointerUp:void () {
+        pressTidValue = ""
         dragTid = ""
         dragBounds = ""
     }
@@ -601,11 +614,50 @@ class UiHost {
 
     ; Style, then lay out. Inline attributes written through UiTree.inline()
     ; are marked, so this pass cannot overwrite them.
+    ; Publish the interaction state onto the tree, so the stylesheet can match
+    ; on it. Before `applyTree`, because a rule cannot ask about a flag that is
+    ; set after it ran.
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hoverTid) > 0) && (el.id == hoverTid)
+        el.isFocused = ((strlen focusId) > 0) && (el.id == focusId)
+        el.isPressed = ((strlen pressTidValue) > 0) && (el.id == pressTidValue)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    ; Move every transition on by `dtMs` and say whether anything is still
+    ; going. A host that repaints on demand asks, rather than running a clock
+    ; nobody is watching.
+    ; Is anything still moving? Asked AFTER a frame has been applied, because
+    ; the flight a state change starts does not exist until the stylesheet has
+    ; been applied — a loop that asks before that stops on the frame the
+    ; animation begins, which is exactly what it did.
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
     fn layout:EVGElement () {
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageWidth pageHeight false)
+        this.markStates(r)
         s.applyTree(r theme)
+        ; The sheet has written what it WANTS; this leaves on the element what
+        ; is actually showing, which for a property in flight is neither end.
+        def t2:EVGTransition transitions
+        t2.reconcileTree(r)
         def page (EVGElement.createDiv())
         page.id = "page"
         page.width = (EVGUnit.px(pageWidth))
@@ -955,6 +1007,7 @@ class UiHost {
     }
 
     fn pressOn:void (target:string) {
+        pressTidValue = target
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -978,6 +1031,7 @@ class UiHost {
     }
 
     fn releaseDrag:void () {
+        pressTidValue = ""
         def i:int 0
         while (i < (array_length ctls)) {
             def c:UiCtl (itemAt ctls i)

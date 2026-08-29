@@ -13,6 +13,47 @@ Import "EVGGradient.rgr"
 ; 2 = IMAGE (img)
 ; 3 = PATH (svg path)
 
+; One property on its way from one value to another.
+;
+; Colours and numbers are both here rather than in two classes: a flight is a
+; start, an end and a clock, and the only difference is how the two ends are
+; read back out. Splitting them would double the bookkeeping to save one field.
+class EVGFlight {
+    def property:string ""
+    def durationMs:double 0.0
+    def elapsedMs:double 0.0
+    ; Colours, when the property is one.
+    def fromColor:EVGColor
+    def toColor:EVGColor
+    ; A plain number, when it is not.
+    def fromNumber:double 0.0
+    def toNumber:double 0.0
+    def isColor:boolean false
+
+    Constructor () {
+    }
+
+    ; 0 at the start, 1 at the end. Linear: an easing curve is a function of
+    ; this and can be added without touching anything that reads it.
+    fn progress:double () {
+        if (durationMs <= 0.0) {
+            return 1.0
+        }
+        def t:double (elapsedMs / durationMs)
+        if (t < 0.0) {
+            return 0.0
+        }
+        if (t > 1.0) {
+            return 1.0
+        }
+        return t
+    }
+
+    fn done:boolean () {
+        return (elapsedMs >= durationMs)
+    }
+}
+
 class EVGElement {
     def id:string ""
     def tagName:string "div"
@@ -372,6 +413,29 @@ class EVGElement {
     ; and stylesheets use it — an arrow points the other way when a menu opens
     ; upwards — so it is a placement result, not an internal.
     def overlayPlacedSide:string ""
+
+    ; --- interaction state -------------------------------------------------------
+    ; What is happening to this element right now, so a STYLESHEET can say what
+    ; that should look like. `.btn:hover` is a rule that asks for the first of
+    ; these; without them the only way to change a look on hover is for the
+    ; controller to write a second class, which makes every controller know
+    ; about presentation.
+    ;
+    ; Set by whoever routes input — the host that hit-tests a pointer already
+    ; knows which element is under it, and the one that owns focus already
+    ; knows which is focused.
+    def isHovered:boolean false
+    def isFocused:boolean false
+    ; The pointer is down on it: CSS's `:active`.
+    def isPressed:boolean false
+
+    ; --- transitions --------------------------------------------------------------
+    ; `transition: background-color 150ms` as the stylesheet declared it, and
+    ; the flights currently in the air. Both live on the element because a
+    ; transition is a fact about THIS box moving, not about the rule that
+    ; started it — the rule may not even match any more by the time it lands.
+    def transitionSpec:string ""
+    def transitions:[EVGFlight]
 
     ; --- accessibility ---------------------------------------------------------
     ; What this element MEANS, next to what it looks like. A canvas contributes
@@ -1197,6 +1261,11 @@ class EVGElement {
             if g {
                 overlayGap = (unwrap g)
             }
+            return
+        }
+
+        if (name == "transition") {
+            transitionSpec = (trim value)
             return
         }
 

@@ -156,6 +156,38 @@ function Playground() {
     });
   }, [observe]);
 
+  /**
+   * Keep painting while anything is still moving.
+   *
+   * A transition needs frames, and the page repaints on demand — so after any
+   * input it asks the host whether something is in flight and keeps asking
+   * until nothing is. The host is handed the real elapsed time rather than a
+   * fixed step: a dropped frame then shortens the animation instead of
+   * stretching it, which is what makes a hover feel the same on a slow machine.
+   */
+  const animating = useRef(0);
+  // `observe` is async — it waits for React to commit and for the canvas to
+  // repaint — so the loop has to AWAIT it before asking whether anything is
+  // still moving. Twice this was got wrong in the same way, and both times the
+  // symptom was identical: exactly one frame, then a colour frozen where it
+  // started. The flight a hover creates does not exist until the stylesheet
+  // has been applied, and the stylesheet is applied inside `observe`.
+  const observeRef = useRef(observe);
+  observeRef.current = observe;
+  const animate = useCallback(() => {
+    if (animating.current) return;
+    let last = performance.now();
+    const step = async () => {
+      const now = performance.now();
+      const dt = now - last;
+      last = now;
+      host.tick(dt);
+      await observeRef.current();
+      animating.current = host.busyNow() ? requestAnimationFrame(step) : 0;
+    };
+    animating.current = requestAnimationFrame(step);
+  }, [host]);
+
   useEffect(() => {
     observe();
     // Watch the panel AND the portals — an overlay's content is a child of
@@ -318,6 +350,7 @@ function Playground() {
       if (tid) host.hover(tid);
       else host.unhover();
       schedule();
+      animate();
     };
     const onContext = (e) => {
       if (fromCanvas(e)) return;
@@ -601,18 +634,20 @@ function Playground() {
         host.unhover();
       }
       schedule();
+      animate();
     },
-    [host, schedule],
+    [host, schedule, animate],
   );
 
   const onCanvasLeave = useCallback(() => {
     hoveredTid.current = "";
     host.unhover();
+    animate();
     radixRef.current.dispatchEvent(
       new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }),
     );
     schedule();
-  }, [host, schedule]);
+  }, [host, schedule, animate]);
 
   const onCanvasContext = useCallback(
     (e) => {

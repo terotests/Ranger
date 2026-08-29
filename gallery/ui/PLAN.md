@@ -248,6 +248,77 @@ control here that clips, and `a11y.mjs` counted a clip command as a painted
 rectangle — so every row inside it was reported as black-on-black at 1:1. Only
 fills count now.
 
+## CSS states and transitions
+
+A canvas UI that does not react to the pointer reads as a picture of a UI. The
+stylesheet could say what a button looks like; it could not say what it looks
+like *while you are on it*. So `EVGStyleSheet` grew pseudo-classes and EVG grew
+a clock.
+
+Four states, because these are the four an element already knows about itself:
+`:hover`, `:focus`, `:active`, `:disabled`. `EVGPseudo.holds` reads them off
+`isHovered`, `isFocused`, `isPressed` and `a11yDisabled` — nothing new is
+tracked to support them, and `:disabled` therefore agrees with what the
+accessibility tree publishes rather than being a second opinion about it.
+
+Two decisions are worth keeping written down:
+
+- **A state rule wins wherever it is written.** The obvious implementation
+  applies rules in file order, and it is wrong: a later base rule silently
+  undoes an earlier `:hover`. `applyTo` runs four passes instead — plain, then
+  theme-scoped, then the state rules in the same two groups — which is a
+  coarse stand-in for specificity, but it is the part of specificity these
+  selectors can actually express.
+- **An unknown pseudo-class is an error, not a rule that never matches.**
+  `.btn:focus-visible` used to parse into something that quietly did nothing.
+  Now it is reported. A rule that never fires and says nothing is a developer
+  looking at the wrong file.
+
+Transitions are `EVGTransition`, and the unit is a **flight**: one property of
+one element moving from a value to a value over a duration. `reconcileTree`
+compares what the stylesheet just wrote against what is on screen and starts,
+retargets or drops flights; `advanceTree` moves them by real elapsed time and
+writes back. Colours interpolate per channel, numbers linearly, and
+`transition: background-color 140ms, color 140ms` parses including the `all`
+form.
+
+The awkward case is reversing mid-flight, and CSS has a specific answer:
+leaving a half-faded button does not take the full duration to come back, it
+takes the fraction already travelled. So a reversal shortens the new flight to
+`ms * progress()`. That is one line, and it is the difference between a hover
+that feels attached to the pointer and one that feels like it is buffering.
+
+`EVGStyleStateTest.rgr` is 24 checks over all of it, and it was written before
+the implementation: states, ordering, an unknown pseudo-class, a transition
+starting, a reversal, the no-transition case being instant, opacity as a
+non-colour, and the whole subtree advancing. Four mutations were run against it
+and each produced the failure it should have.
+
+`UiHost` binds it to input — `markStates` sets the three flags from the hit
+test, `layout()` reconciles, `tick(dt)` advances, `busyNow()` says whether
+anything is still moving — and the playground drives a `requestAnimationFrame`
+loop from that.
+
+The loop was written wrong twice, in the same way, and the note now in
+`main.jsx` exists so it is not written wrong a third time: `observe()` is
+async, and the flight a hover creates does not exist until the stylesheet has
+been applied *inside* it. Asking `busyNow()` before awaiting it gives exactly
+one frame and a colour frozen where it started.
+
+Measured in the playground, a sortable row at rest is `rgb(248,250,252)`,
+`rgb(244,247,252)` forty milliseconds into a hover, `rgb(238,242,255)` settled,
+and back at rest after the pointer leaves.
+
+What is not there yet:
+
+- [ ] `:focus-visible`, which needs a keyboard-versus-pointer distinction the
+      host does not currently keep
+- [ ] Easing. Everything is linear; CSS defaults to `ease`
+- [ ] Transitions on geometry. Only colours and plain numbers move, so a
+      transition on `width` is parsed and ignored
+- [ ] `@keyframes`. `transition` covers state changes; an animation that runs
+      on its own does not exist
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

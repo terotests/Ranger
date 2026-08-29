@@ -3880,6 +3880,32 @@ EVGGradient.parse = function(gradStr) {
   }
   return grad;
 };
+class EVGFlight  {
+  constructor() {
+    this.property = "";     /** note: unused */
+    this.durationMs = 0.0;
+    this.elapsedMs = 0.0;
+    this.fromNumber = 0.0;     /** note: unused */
+    this.toNumber = 0.0;     /** note: unused */
+    this.isColor = false;     /** note: unused */
+  }
+  progress () {
+    if ( this.durationMs <= 0.0 ) {
+      return 1.0;
+    }
+    const t = this.elapsedMs / this.durationMs;
+    if ( t < 0.0 ) {
+      return 0.0;
+    }
+    if ( t > 1.0 ) {
+      return 1.0;
+    }
+    return t;
+  };
+  done () {
+    return this.elapsedMs >= this.durationMs;
+  };
+}
 class EVGElement  {
   constructor() {
     this.id = "";
@@ -3986,6 +4012,11 @@ class EVGElement  {
     this.overlayX = 0.0;     /** note: unused */
     this.overlayY = 0.0;     /** note: unused */
     this.overlayPlacedSide = "";     /** note: unused */
+    this.isHovered = false;     /** note: unused */
+    this.isFocused = false;     /** note: unused */
+    this.isPressed = false;     /** note: unused */
+    this.transitionSpec = "";
+    this.transitions = [];     /** note: unused */
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
@@ -4427,6 +4458,10 @@ class EVGElement  {
       if ( typeof(g) != "undefined" ) {
         this.overlayGap = g;
       }
+      return;
+    }
+    if ( name == "transition" ) {
+      this.transitionSpec = value.trim();
       return;
     }
     if ( (name == "role") || (name == "a11yRole") ) {

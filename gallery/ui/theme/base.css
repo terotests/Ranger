@@ -539,3 +539,62 @@
 .ui-scrollarea-viewport { background-color: #ffffff; }
 .ui-scrollarea-content { display: flex; flex-direction: column; }
 .ui-scrollarea-item { color: #0f172a; padding: 8px 12px; }
+
+/* --- states ------------------------------------------------------------------
+   What a control looks like while it is being used, said by the STYLESHEET.
+   Before `:hover` existed here a controller had to write a second class for
+   this, which meant every controller knew something about presentation; these
+   rules are the whole of that knowledge now, and no .rgr file mentions hover.
+
+   The transitions are on the base rules, not the hover ones, because a
+   transition describes the PROPERTY and not the direction — declaring it only
+   under `:hover` gives a control that fades in and snaps out. */
+
+.ui-menubar-trigger,
+.ui-navmenu-trigger,
+.ui-select-trigger,
+.ui-select-item,
+.ui-menubar-item,
+.ui-sortable-item,
+.ui-dropdownmenu-item,
+.ui-contextmenu-item,
+.ui-toolbar-button,
+.ui-toggle,
+.ui-dialog-trigger,
+.ui-popover-trigger { transition: background-color 140ms, color 140ms; }
+
+.ui-menubar-trigger:hover,
+.ui-navmenu-trigger:hover,
+.ui-menubar-item:hover,
+.ui-select-item:hover,
+.ui-dropdownmenu-item:hover,
+.ui-contextmenu-item:hover { background-color: #eef2ff; }
+
+.ui-select-trigger:hover,
+.ui-dialog-trigger:hover,
+.ui-popover-trigger:hover,
+.ui-toolbar-button:hover,
+.ui-toggle:hover { background-color: #e2e8f0; }
+
+.ui-sortable-item:hover { background-color: #eef2ff; }
+
+/* Pressed is darker than hovered, and instant on the way in: a button that
+   eases into its pressed colour feels unresponsive, which is why the
+   transition above is short and why nothing here fights it. */
+.ui-menubar-trigger:active,
+.ui-navmenu-trigger:active,
+.ui-select-trigger:active,
+.ui-toolbar-button:active,
+.ui-toggle:active,
+.ui-sortable-item:active { background-color: #c7d2fe; }
+
+/* Focus is not hover. A keyboard user gets the same affordance a pointer user
+   does, and it has to be visible on top of either. */
+.ui-menubar-trigger:focus,
+.ui-navmenu-trigger:focus,
+.ui-select-trigger:focus,
+.ui-select-item:focus,
+.ui-menubar-item:focus,
+.ui-sortable-item:focus,
+.ui-dropdownmenu-item:focus,
+.ui-contextmenu-item:focus { background-color: #e0e7ff; }
