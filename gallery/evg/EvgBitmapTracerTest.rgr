@@ -39,6 +39,7 @@ class EvgBitmapTracerTest {
         test.testContourSmoothing(t)
         test.testGradientFills(t)
         test.testOverlayRecoversASwallowedShape(t)
+        test.testEdgeFilterSeparatesNoiseFromBoundary(t)
         t.summary()
     }
 
@@ -1099,5 +1100,97 @@ class EvgBitmapTracerTest {
             j = (j + 1)
         }
         t.eqInt("no radial fill among the overlay shapes" rad 0)
+    }
+
+    ; One straight boundary and five specks well apart from each other. Both
+    ; are steps; only one is a boundary. The filter has to say which.
+    fn makeLineAndSpecks:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(60 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 60) {
+                def v:int 110
+                if (x >= 30) {
+                    v = 190
+                }
+                img.setPixelRGB(x y v v v)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        img.setPixelRGB(8 8 160 160 160)
+        img.setPixelRGB(14 20 160 160 160)
+        img.setPixelRGB(20 32 160 160 160)
+        img.setPixelRGB(44 10 160 160 160)
+        img.setPixelRGB(50 26 160 160 160)
+        return img
+    }
+
+    fn traceLineAndSpecks:EvgBitmapTracer (minRun:int) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = 2
+        opts.bgMode = "none"
+        opts.minRegion = 0
+        opts.contourMode = "smooth"
+        opts.edgeMinRun = minRun
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeLineAndSpecks()) opts))
+        tr.trace()
+        return tr
+    }
+
+    fn testEdgeFilterSeparatesNoiseFromBoundary:void (t:RgTest) {
+        def d:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("the edge filter is on by default" (d.edgeMinRun) 3)
+
+        def tr:EvgBitmapTracer (this.traceLineAndSpecks(3))
+        ; The boundary is marked the whole way down.
+        def onLine:int 0
+        def y:int 2
+        while (y < 38) {
+            if (((itemAt tr.edgeMask ((y * 60) + 29)) == 1) || ((itemAt tr.edgeMask ((y * 60) + 30)) == 1)) {
+                onLine = (onLine + 1)
+            }
+            y = (y + 1)
+        }
+        t.eqInt("the straight boundary is marked all the way down" onLine 36)
+
+        ; The specks are steps of the same size and are not marked at all: each
+        ; is alone, so it fails the continuity test however strong it is.
+        def onSpeck:int 0
+        if ((itemAt tr.edgeMask ((8 * 60) + 8)) == 1) {
+            onSpeck = (onSpeck + 1)
+        }
+        if ((itemAt tr.edgeMask ((20 * 60) + 14)) == 1) {
+            onSpeck = (onSpeck + 1)
+        }
+        if ((itemAt tr.edgeMask ((32 * 60) + 20)) == 1) {
+            onSpeck = (onSpeck + 1)
+        }
+        if ((itemAt tr.edgeMask ((10 * 60) + 44)) == 1) {
+            onSpeck = (onSpeck + 1)
+        }
+        if ((itemAt tr.edgeMask ((26 * 60) + 50)) == 1) {
+            onSpeck = (onSpeck + 1)
+        }
+        t.eqInt("and not one isolated speck is" onSpeck 0)
+
+        ; At 0 the filter is off and every step is taken at face value again,
+        ; which is what the old behaviour was.
+        def off:EvgBitmapTracer (this.traceLineAndSpecks(0))
+        def marked:int 0
+        def i:int 0
+        while (i < (array_length off.edgeMask)) {
+            if ((itemAt off.edgeMask i) == 1) {
+                marked = (marked + 1)
+            }
+            i = (i + 1)
+        }
+        t.eqInt("nothing is filtered when it is switched off" marked 0)
+
+        ; And the default path is untouched by any of this.
+        def plain:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.ok("contour smoothing is still off by default" ((plain.contourMode) == "off"))
     }
 }

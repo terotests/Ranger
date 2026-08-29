@@ -118,8 +118,9 @@
   /* Both id-level, but the .hidden rule is more specific, so it wins in mono
      mode. An inline display on the element would beat the class and leave the
      editor on screen in a mode that ignores it. */
-  #row-palEdit { display: block; }
-  #row-palEdit.hidden { display: none; }
+  #row-palEdit, #row-algo { display: block; }
+  #row-palEdit.hidden, #row-algo.hidden { display: none; }
+  #row-algo { margin-bottom: 14px; }
   /* Shown but not in use: the colors are still editable, and touching one is
      what switches the palette over to them. */
   #row-palEdit.pal-inactive .pal-edit, #row-palEdit.pal-inactive .actions { opacity: 0.45; }
@@ -155,6 +156,15 @@
       <p style="margin:0 0 10px;font-size:12px;color:var(--muted)">Voit myös liittää kuvan leikepöydältä (⌘/Ctrl + V).</p>
       <p style="margin:0 0 14px;font-size:12px;color:var(--muted)">Esimerkki: PD-kopio Hokusain <i>Suuresta aallosta</i> (Wikimedia Commons).</p>
 
+      <div class="row color-only hidden" id="row-algo">
+        <div style="font-size:13px;margin-bottom:6px">Algoritmi</div>
+        <select id="contourMode" style="width:100%">
+          <option value="off" selected>perus — vakiintunut</option>
+          <option value="smooth">jatkuvuus — vähemmän valereunoja</option>
+          <option value="overlay">päällekkäiset muodot (kokeellinen)</option>
+        </select>
+        <span class="hint" style="display:block;margin-top:6px">perus on oletus ja se, joka toimii useimmissa tapauksissa. Muut ovat lisiä, eivät korvaajia.</span>
+      </div>
       <fieldset>
         <legend>Värit</legend>
         <label class="row">Värimäärä <span class="val" id="v-colorCount">1</span>
@@ -175,7 +185,7 @@
             <option value="seeded">omat + auto</option>
             <option value="fixed">vain omat värit</option>
           </select>
-          <span class="hint">auto on oletus, ja tuottaa saman murretun sävyskaalan kuin ennenkin.</span>
+          <span class="hint">auto poimii sävyt kuvasta.</span>
         </label>
         <label class="row color-only hidden" id="row-bias">Painotus
           <select id="paletteBias">
@@ -183,7 +193,7 @@
             <option value="balanced">tasapaino</option>
             <option value="distinct">erottuvuus</option>
           </select>
-          <span class="hint">Mihin uusi sävy käytetään: pinta-ala = suurimmat alueet voittavat (valokuvassa siis tausta), tasapaino = pieni kirkas kohde pärjää, erottuvuus = pelkkä väriero ratkaisee.</span>
+          <span class="hint">pinta-ala = suurimmat alueet voittavat, tasapaino = pieni kirkas kohde pärjää, erottuvuus = pelkkä väriero.</span>
         </label>
         <div class="row color-only hidden" id="row-palEdit">
           <div style="margin-bottom:6px">Omat värit</div>
@@ -209,15 +219,15 @@
             <option value="luma">luma</option>
             <option value="none">ei mitään</option>
           </select>
-          <span class="hint">auto poistaa vain reunaan yhtenäisen taustan, joten kuvion sisällä oleva vaalea alue säilyy. Jos reuna ei ole tarpeeksi yhtenäinen, auto kieltäytyy — valitse silloin väri.</span>
+          <span class="hint">auto poistaa vain reunaan yhtenäisen taustan. Jos se kieltäytyy, valitse väri.</span>
         </label>
         <label class="row color-only hidden" id="row-bgColor">Taustaväri
           <input id="bgColor" type="color" value="#ffffff">
-          <span class="hint">Tulvitetaan reunoilta, joten sama väri kuvion sisällä säilyy.</span>
+          <span class="hint">Tulvitetaan reunoilta; sama väri kuvion sisällä säilyy.</span>
         </label>
         <label class="row color-only hidden" id="row-bgTol">Taustan toleranssi <span class="val" id="v-bgTolerance">24</span>
           <input id="bgTolerance" type="range" min="0" max="90" step="1" value="24">
-          <span class="hint">Kuinka paljon taustaväri saa vaihdella. Nosta jos taustassa on liukuvärjäystä tai pakkausroskaa.</span>
+          <span class="hint">Nosta jos taustassa on liukua tai pakkausroskaa.</span>
         </label>
         <label class="row color-only hidden">skipLuma <span class="val" id="v-skipLuma">250</span>
           <input id="skipLuma" type="range" min="0" max="256" step="1" value="250">
@@ -225,47 +235,43 @@
         </label>
         <label class="row color-only hidden">Sävyjen yhdistäminen <span class="val" id="v-minColorDelta">10</span>
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
-          <span class="hint">Tätä lähempänä olevat sävyt yhdistetään. Estää saman alueen halkeamisen kahdeksi lähes samaksi tasoksi.</span>
-        </label>
-        <label class="row color-only hidden">Reunojen tulkinta
-          <select id="contourMode">
-            <option value="off" selected>pois</option>
-            <option value="smooth">jatkuvuus — vältä valereunoja</option>
-            <option value="overlay">päällekkäiset muodot (kokeellinen)</option>
-          </select>
-          <span class="hint">Lukee pienet muutokset jatkuvina ja suuret katkoksina: liukuväri ei saa keinotekoista raitaa, mutta aito jyrkkä reuna säilyy. Kokeellinen — voi myös sulauttaa pehmeäreunaisen kohteen taustaansa.</span>
+          <span class="hint">Tätä lähempänä olevat sävyt yhdistetään.</span>
         </label>
         <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
           <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
-          <span class="hint">Tätä pienempi askel naapuriin luetaan jatkuvaksi. Nosta varovasti: 10 riitti jo sulauttamaan pehmeäreunaisen putken taustaan testikuvassa.</span>
+          <span class="hint">Tätä pienempi askel on jatkuva. Nosta varovasti — 10 sulatti jo kohteen taustaansa.</span>
         </label>
         <label class="row color-only hidden" id="row-oSim">Samankaltaisuuden raja <span class="val" id="v-overlaySimilar">8</span>
           <input id="overlaySimilar" type="range" min="1" max="40" step="1" value="8">
-          <span class="hint">Vain päällekkäisissä muodoissa: uusi muoto pysähtyy myös silloin kun se on jo tämän verran samanlainen kuin alla oleva pinta — se ei siis piirry jos se ei näy. Kannattaa käyttää yhdessä gradienttitäyttöjen kanssa, muuten liukuväri pilkkoutuu kaistoiksi.</span>
+          <span class="hint">Muoto pysähtyy myös kun se on näin samanlainen kuin alla oleva. Käytä gradienttien kanssa.</span>
+        </label>
+        <label class="row color-only hidden" id="row-eRun">Reunan vähimmäispituus <span class="val" id="v-edgeMinRun">3</span>
+          <input id="edgeMinRun" type="range" min="0" max="12" step="1" value="3">
+          <span class="hint">Reuna vaatii <b>ainutlaatuisuuden</b> (voimakkain suunnassaan) ja <b>jatkuvuuden</b> (näin pitkä juova). 0 = pois.</span>
         </label>
         <label class="row color-only hidden" id="row-cSpread">Alueen hajonta <span class="val" id="v-contourSpread">48</span>
           <input id="contourSpread" type="range" min="8" max="160" step="4" value="48">
-          <span class="hint">Kuinka kauas alue saa ajautua omasta keskiarvostaan. Tämä on talutushihna: ilman sitä yksi liukuväri voi kävellä läpi koko kuvan.</span>
+          <span class="hint">Kuinka kauas alue saa ajautua keskiarvostaan — talutushihna liukuvärille.</span>
         </label>
         <label class="check color-only hidden"><input id="gradientFill" type="checkbox"> Gradienttitäytöt (kokeellinen)</label>
         <label class="row color-only hidden" id="row-gGain">Gradientin kynnys <span class="val" id="v-gradientGain">15</span>
           <input id="gradientGain" type="range" min="0" max="60" step="1" value="15">
-          <span class="hint">Jokaiselle alueelle sovitetaan tasainen väri ja lineaarinen liuku, ja parempi voittaa — mutta vain jos se selittää vähintään näin monta prosenttia enemmän. Radiaalia ei käytetä: se päättelee muotoja joita kuvassa ei ole, ellei alue ole aidosti pyöreä. Toimii hyvin kuvissa joissa on isoja pehmeitä pintoja; yksityiskohtainen valokuva pilkkoutuu sadoiksi alueiksi ja tulos on huono. Vain SVG-vienti.</span>
+          <span class="hint">Liuku korvaa tasaisen värin vain jos se selittää näin monta prosenttia enemmän. Toimii hyvin kuvissa joissa on isoja pehmeitä pintoja; yksityiskohtainen valokuva pilkkoutuu sadoiksi alueiksi ja tulos on huono. Vain SVG-vienti.</span>
         </label>
         <label class="row color-only hidden">Tasot
           <select id="layerMode">
             <option value="stacked" selected>päällekkäin — ei saumoja</option>
             <option value="flat">vierekkäin — pienempi SVG</option>
           </select>
-          <span class="hint">Päällekkäin: alempi väri jatkuu ylemmän alla, joten käyräsovituksen rako paljastaa naapurivärin eikä valkoista. Vierekkäin on pienempi tiedosto, mutta sen saumoihin jää ohuita vaaleita viivoja.</span>
+          <span class="hint">Päällekkäin: ei valkoisia saumoja. Vierekkäin: pienempi tiedosto, saumat näkyvät.</span>
         </label>
         <label class="row color-only hidden">Pehmennys <span class="val" id="v-smooth">0</span>
           <input id="smooth" type="range" min="0" max="4" step="1" value="0">
-          <span class="hint">Mediaanisuodatus ennen värien poimintaa. Valokuvan pikselikohina muuttuu muuten roskaksi heti kun värejä on enemmän. 0 = pois, piirroksille oikea arvo.</span>
+          <span class="hint">Mediaani ennen värien poimintaa. 0 = pois (piirrokset), 2 = valokuva.</span>
         </label>
         <label class="row color-only hidden">Pienin alue <span class="val" id="v-minRegion">6</span>
           <input id="minRegion" type="range" min="0" max="400" step="2" value="6">
-          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäröivään alueeseen sen sijaan että jäisivät reiäksi. Valokuvalle 40–150.</span>
+          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150.</span>
         </label>
         <div class="row color-only hidden" style="display:block">
           <div class="actions" style="margin:0 0 4px">
@@ -352,7 +358,7 @@
   var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
   var gradientFill = $("gradientFill"), gradientGain = $("gradientGain");
-  var overlaySimilar = $("overlaySimilar");
+  var overlaySimilar = $("overlaySimilar"), edgeMinRun = $("edgeMinRun");
   var palEdit = $("palEdit"), rowBias = $("row-bias"), rowPalEdit = $("row-palEdit");
   var userPalette = ["#000000", "#ffffff"];
   var turdsize = $("turdsize"), alphamax = $("alphamax"), opttolerance = $("opttolerance");
@@ -395,6 +401,7 @@
   bindRange(contourSpread, $("v-contourSpread"));
   bindRange(gradientGain, $("v-gradientGain"));
   bindRange(overlaySimilar, $("v-overlaySimilar"));
+  bindRange(edgeMinRun, $("v-edgeMinRun"));
 
   function syncChecker() {
     [srcStage, outStage].forEach(function (el) {
@@ -503,6 +510,7 @@
     $("row-oSim").classList.toggle("hidden", !color || contourMode.value !== "overlay");
     $("row-cEdge").classList.toggle("hidden", !color || !cont);
     $("row-cSpread").classList.toggle("hidden", !color || !cont);
+    $("row-eRun").classList.toggle("hidden", !color || !cont);
     gradientFill.closest("label").classList.toggle("hidden", !color);
     $("row-gGain").classList.toggle("hidden", !color || !gradientFill.checked);
     var mode = paletteMode.value;
@@ -675,6 +683,7 @@
         opts.gradientFill = !!gradientFill.checked;
         opts.gradientGain = +gradientGain.value;
         opts.overlaySimilar = +overlaySimilar.value;
+        opts.edgeMinRun = +edgeMinRun.value;
         opts.paletteMode = paletteMode.value;
         opts.paletteBias = paletteBias.value;
         opts.paletteHex = paletteMode.value === "auto" ? [] : userPalette.slice();

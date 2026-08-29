@@ -54,6 +54,9 @@ class EvgBitmapTracer {
     def flat:[int]
     ; Palette index per pixel, -1 = not painted (assignLabels).
     def labels:[int]
+    ; 1 = a step that survived the uniqueness and continuity tests, i.e. a
+    ; boundary rather than noise (buildEdgeMask).
+    def edgeMask:[int]
     ; Continuity region id per pixel, -1 = none (buildContourRegions).
     def regionOf:[int]
     def regionCount:int 0
@@ -85,6 +88,8 @@ class EvgBitmapTracer {
         bgMask = bg
         def ro:[int]
         regionOf = ro
+        def em:[int]
+        edgeMask = em
         def ly:[EvgTraceLayer]
         layers = ly
     }
@@ -1223,7 +1228,12 @@ class EvgBitmapTracer {
         if ((itemAt labels i) < 0) {
             return
         }
-        if ((this.pixelDelta(from i)) > edgeTol) {
+        ; A step stops the growth only when it is a boundary: strongest across
+        ; its own direction, and part of a run rather than a speck. On a
+        ; photograph nearly every neighbouring pair differs by a few levels, so
+        ; taking each one at face value stops the growth everywhere and the
+        ; picture comes apart into noise.
+        if (this.isBoundary(from i edgeTol)) {
             return
         }
         def cnt:int (itemAt acc 3)
@@ -1252,11 +1262,168 @@ class EvgBitmapTracer {
         set acc 3 (cnt + 1)
     }
 
+    ; ----------------------------------------------------------------------
+    ; Which steps are boundaries and which are noise
+    ; ----------------------------------------------------------------------
+
+    ; Mark the steps that are worth treating as boundaries. Two tests, and a
+    ; step has to pass both:
+    ;   unique     — it is at least as strong as the steps either side of it
+    ;                ACROSS its own direction. A ridge keeps its crest; a lone
+    ;                noisy pixel loses to whatever it sits next to.
+    ;   continuous — it belongs to a run of at least edgeMinRun such pixels.
+    ;                A boundary is a line; noise is scattered.
+    fn buildEdgeMask:void () {
+        def n:int (width * height)
+        def keep:[int]
+        def mag:[int]
+        def lum:[int]
+        def i:int 0
+        while (i < n) {
+            push keep 0
+            push mag 0
+            push lum (EvgBitmapTracer.lumaOf((itemAt planeR i) (itemAt planeG i) (itemAt planeB i)))
+            i = (i + 1)
+        }
+        if ((options.edgeMinRun) < 1) {
+            edgeMask = keep
+            return
+        }
+        def edgeTol:int options.contourEdge
+        if (edgeTol < 1) {
+            edgeTol = 1
+        }
+        ; --- magnitude ---
+        def y:int 1
+        while (y < (height - 1)) {
+            def x:int 1
+            while (x < (width - 1)) {
+                def idx:int ((y * width) + x)
+                def gx:int ((itemAt lum (idx + 1)) - (itemAt lum (idx - 1)))
+                def gy:int ((itemAt lum (idx + width)) - (itemAt lum (idx - width)))
+                set mag idx ((EvgBitmapTracer.absI(gx)) + (EvgBitmapTracer.absI(gy)))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; --- unique: strongest across its own direction ---
+        y = 1
+        while (y < (height - 1)) {
+            def x2:int 1
+            while (x2 < (width - 1)) {
+                def idx2:int ((y * width) + x2)
+                def m:int (itemAt mag idx2)
+                if (m > edgeTol) {
+                    def gx2:int ((itemAt lum (idx2 + 1)) - (itemAt lum (idx2 - 1)))
+                    def gy2:int ((itemAt lum (idx2 + width)) - (itemAt lum (idx2 - width)))
+                    def ax:int (EvgBitmapTracer.absI(gx2))
+                    def ay:int (EvgBitmapTracer.absI(gy2))
+                    def a:int 0
+                    def b:int 0
+                    if (ax > (ay * 2)) {
+                        a = (idx2 - 1)
+                        b = (idx2 + 1)
+                    } {
+                        if (ay > (ax * 2)) {
+                            a = (idx2 - width)
+                            b = (idx2 + width)
+                        } {
+                            if ((gx2 * gy2) > 0) {
+                                a = ((idx2 - width) - 1)
+                                b = ((idx2 + width) + 1)
+                            } {
+                                a = ((idx2 - width) + 1)
+                                b = ((idx2 + width) - 1)
+                            }
+                        }
+                    }
+                    if ((m >= (itemAt mag a)) && (m >= (itemAt mag b))) {
+                        set keep idx2 1
+                    }
+                }
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        ; --- continuous: drop runs shorter than edgeMinRun ---
+        def minRun:int options.edgeMinRun
+        def seen:[int]
+        i = 0
+        while (i < n) {
+            push seen 0
+            i = (i + 1)
+        }
+        def start:int 0
+        while (start < n) {
+            if (((itemAt keep start) == 1) && ((itemAt seen start) == 0)) {
+                def comp:[int]
+                def stack:[int]
+                set seen start 1
+                push stack start
+                def head:int 0
+                while (head < (array_length stack)) {
+                    def cur:int (itemAt stack head)
+                    head = (head + 1)
+                    push comp cur
+                    def cy:int (idiv cur width)
+                    def cx:int (cur - (cy * width))
+                    def dy:int (0 - 1)
+                    while (dy <= 1) {
+                        def yy:int (cy + dy)
+                        if ((yy >= 0) && (yy < height)) {
+                            def dx:int (0 - 1)
+                            while (dx <= 1) {
+                                def xx:int (cx + dx)
+                                if ((xx >= 0) && (xx < width)) {
+                                    def j:int ((yy * width) + xx)
+                                    if (((itemAt keep j) == 1) && ((itemAt seen j) == 0)) {
+                                        set seen j 1
+                                        push stack j
+                                    }
+                                }
+                                dx = (dx + 1)
+                            }
+                        }
+                        dy = (dy + 1)
+                    }
+                }
+                if ((array_length comp) < minRun) {
+                    def c:int 0
+                    while (c < (array_length comp)) {
+                        set keep (itemAt comp c) 0
+                        c = (c + 1)
+                    }
+                }
+            }
+            start = (start + 1)
+        }
+        edgeMask = keep
+    }
+
+    ; True when the step from `a` to `b` should split two regions: big enough,
+    ; and landing on a boundary that passed both tests rather than on noise.
+    fn isBoundary:boolean (a:int b:int edgeTol:int) {
+        if ((this.pixelDelta(a b)) <= edgeTol) {
+            return false
+        }
+        if ((array_length edgeMask) != (width * height)) {
+            return true
+        }
+        if ((options.edgeMinRun) < 1) {
+            return true
+        }
+        if ((itemAt edgeMask b) == 1) {
+            return true
+        }
+        return ((itemAt edgeMask a) == 1)
+    }
+
     ; Grow every allowed pixel into a region of continuous color and record
     ; which region it landed in. Both the banding fix and the gradient fills
     ; read this; it is the segmentation, and everything downstream is a choice
     ; of what to paint each region with.
     fn buildContourRegions:void () {
+        this.buildEdgeMask()
         def edgeTol:int options.contourEdge
         if (edgeTol < 1) {
             edgeTol = 1
@@ -2104,6 +2271,7 @@ class EvgBitmapTracer {
     }
 
     fn traceOverlayShapes:void () {
+        this.buildEdgeMask()
         def n:int (width * height)
         def edgeTol:int options.contourEdge
         if (edgeTol < 1) {
@@ -2159,30 +2327,41 @@ class EvgBitmapTracer {
             def x0:int 0
             while (x0 < width) {
                 def idx0:int ((y0 * width) + x0)
+                ; Only a step that passed the uniqueness and continuity tests
+                ; earns a seed. Seeding every raw step means seeding every
+                ; speck, and the shape budget goes to noise.
                 if ((itemAt labels idx0) >= 0) {
                     def st:int 0
                     if (x0 > 0) {
-                        st = (this.pixelDelta(idx0 (idx0 - 1)))
+                        if (this.isBoundary(idx0 (idx0 - 1) edgeTol)) {
+                            st = (this.pixelDelta(idx0 (idx0 - 1)))
+                        }
                     }
                     if (x0 < (width - 1)) {
-                        def s1:int (this.pixelDelta(idx0 (idx0 + 1)))
-                        if (s1 > st) {
-                            st = s1
+                        if (this.isBoundary(idx0 (idx0 + 1) edgeTol)) {
+                            def s1:int (this.pixelDelta(idx0 (idx0 + 1)))
+                            if (s1 > st) {
+                                st = s1
+                            }
                         }
                     }
                     if (y0 > 0) {
-                        def s2:int (this.pixelDelta(idx0 (idx0 - width)))
-                        if (s2 > st) {
-                            st = s2
+                        if (this.isBoundary(idx0 (idx0 - width) edgeTol)) {
+                            def s2:int (this.pixelDelta(idx0 (idx0 - width)))
+                            if (s2 > st) {
+                                st = s2
+                            }
                         }
                     }
                     if (y0 < (height - 1)) {
-                        def s3:int (this.pixelDelta(idx0 (idx0 + width)))
-                        if (s3 > st) {
-                            st = s3
+                        if (this.isBoundary(idx0 (idx0 + width) edgeTol)) {
+                            def s3:int (this.pixelDelta(idx0 (idx0 + width)))
+                            if (s3 > st) {
+                                st = s3
+                            }
                         }
                     }
-                    if (st > edgeTol) {
+                    if (st > 0) {
                         this.pushSeed(idx0 st bucket seedPixel seedNext)
                     }
                 }
@@ -2474,8 +2653,15 @@ class EvgBitmapTracer {
             ; arrive there, and at a boundary that fades that is the surface
             ; which already leaked through it — which is how half a shape goes
             ; missing while the other half is drawn.
-            this.pushSeed(i step bucket seedPixel seedNext)
-            this.pushSeed(from step bucket seedPixel seedNext)
+            ;
+            ; A step still stops the growth whatever it is — crossing it would
+            ; only hand the region a color it cannot describe — but it earns a
+            ; new shape only when it is a boundary rather than a speck. That is
+            ; the difference between finding edges and finding noise.
+            if (this.isBoundary(from i edgeTol)) {
+                this.pushSeed(i step bucket seedPixel seedNext)
+                this.pushSeed(from step bucket seedPixel seedNext)
+            }
             return
         }
         if (this.coveredAlready(i paintR paintG paintB painted simTol)) {

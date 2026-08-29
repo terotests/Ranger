@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A step counts as an edge only when it is unique and continuous** (`edgeMinRun`, default 3) — reported as the tracer being too eager to find edges, with a lot of noise as a result. On a photograph nearly every neighbouring pair differs by a few levels, so taking each one at face value stops the region growth everywhere and the picture comes apart. A boundary is now two things at once: **unique** — at least as strong as the steps either side of it across its own direction, so a ridge keeps its crest and a lone noisy pixel loses to whatever it sits next to — and **continuous**, part of a run of at least `edgeMinRun` such pixels, because a boundary is a line and noise is scattered.
+
+  On a portrait under `contourMode: "smooth"`: false contours **6855 → 2537 (−63%)**, rings 350 → 244, SVG 221 KB → 169 KB, and the skin comes out smooth where it was blotched. On the Hokusai print, rings 322 → 153 and 260 KB → 191 KB. On flat clip art it changes nothing at all, which is right — there is no noise there to filter. The test pins the mechanism rather than a number: with one straight boundary and five isolated specks of the same step size, the boundary is marked on all 36 of its rows and not one speck is.
+
+  It is used to decide where a *boundary* is, not where growth stops in overlay mode: relaxing the stop there let shapes run until the spread leash tripped in an arbitrary place, and a portrait fragmented into 42120 shapes and 37 MB. Measured, reverted, and the filter kept where it works.
+
+  **The previous algorithm is untouched and still the default.** `contourMode: "off"` produces byte-identical output — a portrait at 10 colors is 385 rings and 261100 bytes before and after. The new modes are additions, not replacements, and the page now says so: the choice of algorithm is the first control under the image buttons rather than buried among the fine adjustments, and the adjustments themselves only appear once a mode that uses them is chosen.
+
+### Added
+
 - **Stacked overlay shapes, so a shape swallowed by a leak comes back** (`contourMode: "overlay"`, off by default) — the idea, and the diagnosis behind it, came from the report. The partitioning flood has one fatal weakness: a boundary only has to fade for a few pixels somewhere along its length, and the surface walks through that gap and takes everything behind it. Measured on a ramp with an inset block, `smooth` loses the block completely — the color inside it and outside it come out **identical**, a difference of 0.
 
   Stacking removes the consequence instead of chasing the cause. A surface is grown to its end and keeps whatever it took; every edge it ran into becomes a seed for a shape started on the far side and drawn *on top*. An overlay may cover ground already claimed, so a leak costs nothing — the shape is simply painted again from above. It stops at an edge, and also where it has become indistinguishable from what is under it (`overlaySimilar`), so an overlay only exists where it shows. The block comes back: a difference of **21**, against 0.

@@ -155,6 +155,13 @@ class EvgTraceOptions {
     ; "overlay": how close to the color already painted underneath is close
     ; enough to stop. An overlay that matches its background adds nothing.
     def overlaySimilar:int 8
+    ; A step only counts as a boundary when it is *unique* in its
+    ; neighbourhood — the strongest one across its own direction, so a noisy
+    ; pixel does not out-vote the ridge beside it — and *continuous*, part of a
+    ; run at least this many pixels long. Without both, every speck in a
+    ; photograph is a boundary, and the tracer spends its shapes on them.
+    ; 0 turns the filter off and takes every step at face value.
+    def edgeMinRun:int 3
     ; Largest per-channel step still counted as continuous. Small on purpose:
     ; at 10 a soft-edged object merges into the field behind it.
     def contourEdge:int 3
