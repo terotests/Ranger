@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The continuity threshold moved to the top of the tracer's controls**, right
+  under the algorithm picker, and shows only for the algorithms it affects. It
+  is the main tuning knob for *jatkuvuus* — raising it collects scattered
+  surfaces into one and leaves behind what is genuinely an edge, which is what
+  makes eyes and eyebrows come out sharp — but it was sitting eight controls
+  down inside the color section where nobody would find it.
+
 - **Run the tracer locally** — the page had a build script and a headless-browser
   check but no way to just *open* it, so trying it out meant either publishing to
   Pages or hand-rolling a static server over `dist/`. `npm run evg:trace:web:serve`
@@ -98,6 +105,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste an image into the tracer** — ⌘/Ctrl+V on the page loads a screenshot or a copy from another tab and traces it straight away, without a trip through the file picker. It reads the `File` that Chrome and Safari put on the clipboard, and falls back to fetching the `image/*` URL string Firefox may offer instead. A paste with no image in it is left alone, and so is one aimed at a text field the user is typing in — the smoke test asserts all three.
 
 ### Fixed
+
+- **The overlay tracer no longer explodes the palette or the CPU on photographs.**
+  Two independent defects met in the worst possible input. Every overlay shape
+  was painted its own mean color, so the color count did nothing whatever in
+  this mode: a photograph decomposes into thousands of surfaces and each one
+  took a color of its own — a measured 5194 distinct fills under a slider that
+  said four. And a pixel was queued as a growth seed once per neighbour that
+  ever touched it, in three arrays that only grow, so the queue ran to millions
+  of entries: one 640-pixel-wide photo spent **10.1 seconds** in the tracer with
+  a fifth of the profile in `pushSeed` and another eighth in the garbage
+  collector. Shape means are now snapped onto the palette the quantizer already
+  built, and a pixel is queued once — a steeper claim can still promote it, but
+  a repeat cannot. The same photo now traces in **183 ms**, and the palette
+  comes back with 5 colors instead of 5194. `minRegion` also reached this mode
+  read-but-ignored; wiring it up gives back a real size control (on a detailed
+  photo, 6 → 24 cuts the shapes from 3990 to 853 and the SVG from 1.3 MB to
+  672 KB, for 30% more per-pixel error).
 
 - **Overlay mode was not leaking, it was running out of shapes** — reported as a leak: on a portrait the US flag came out as bare background even though its stripes are about the strongest boundaries in the picture. It is not a leak. Raising the shape budget from 3000 to 60000 brought the flag, the curtains and the face all back, which settles it: those shapes were never made.
 

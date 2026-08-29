@@ -2270,7 +2270,7 @@ class EvgBitmapTracer {
         layer.stopB = (this.hexOf((this.linAt(la lb lc 0 0 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 1 layer.gx1 layer.gy1)) (this.linAt(la lb lc 0 2 layer.gx1 layer.gy1))))
     }
 
-    fn traceOverlayShapes:void () {
+    fn traceOverlayShapes:void (palR:[int] palG:[int] palB:[int]) {
         this.buildEdgeMask()
         def n:int (width * height)
         def edgeTol:int options.contourEdge
@@ -2311,9 +2311,15 @@ class EvgBitmapTracer {
         def bucket:[int]
         def seedPixel:[int]
         def seedNext:[int]
+        def seedBest:[int]
         i = 0
         while (i < 256) {
             push bucket (0 - 1)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            push seedBest (0 - 1)
             i = (i + 1)
         }
         ; Every steep pixel goes in up front, not just the steepest one. A
@@ -2362,7 +2368,7 @@ class EvgBitmapTracer {
                         }
                     }
                     if (st > 0) {
-                        this.pushSeed(idx0 st bucket seedPixel seedNext)
+                        this.pushSeed(idx0 st bucket seedPixel seedNext seedBest)
                     }
                 }
                 x0 = (x0 + 1)
@@ -2400,7 +2406,10 @@ class EvgBitmapTracer {
             baseOpts.turnpolicy = options.turnpolicy
             baseOpts.optcurve = options.optcurve
             baseOpts.opttolerance = options.opttolerance
-            baseOpts.fillHex = (this.hexFromRgb((idiv bsR bsN) (idiv bsG bsN) (idiv bsB bsN)))
+            ; The base is snapped like every other shape, or the one color
+            ; nobody chose would be the one covering the most ground.
+            def bpi:int (this.nearestIndex((idiv bsR bsN) (idiv bsG bsN) (idiv bsB bsN) palR palG palB))
+            baseOpts.fillHex = (this.hexFromRgb((itemAt palR bpi) (itemAt palG bpi) (itemAt palB bpi)))
             def baseTr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(baseMask baseOpts))
             baseTr.trace()
             if ((baseTr.ringCount()) > 0) {
@@ -2486,28 +2495,50 @@ class EvgBitmapTracer {
                     def cy:int (idiv cur width)
                     def cx:int (cur - (cy * width))
                     if (cx > 0) {
-                        this.overlayStep((cur - 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur - 1) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cx < (width - 1)) {
-                        this.overlayStep((cur + 1) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur + 1) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cy > 0) {
-                        this.overlayStep((cur - width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur - width) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                     if (cy < (height - 1)) {
-                        this.overlayStep((cur + width) cur stamp stack acc bucket seedPixel seedNext shapeNo edgeTol spread simTol paintR paintG paintB painted)
+                        this.overlayStep((cur + width) cur stamp stack acc bucket seedPixel seedNext seedBest shapeNo edgeTol spread simTol paintR paintG paintB painted)
                     }
                 }
                 def cnt:int (itemAt acc 3)
                 def mr:int (idiv (itemAt acc 0) cnt)
                 def mg:int (idiv (itemAt acc 1) cnt)
                 def mb:int (idiv (itemAt acc 2) cnt)
+                ; Every shape used to be painted its own mean, which meant the
+                ; color count did nothing at all in this mode: a photograph
+                ; decomposes into thousands of surfaces, each one got a color of
+                ; its own, and the palette strip came back with five thousand
+                ; swatches under a slider that said four. The mean is snapped
+                ; onto the palette the quantizer already built, so "four colors"
+                ; means four colors here too — and a shape that lands on the
+                ; same swatch as the surface under it is then exactly, not
+                ; approximately, the same color, which is what lets it be
+                ; dropped rather than drawn.
+                def pi:int (this.nearestIndex(mr mg mb palR palG palB))
+                mr = (itemAt palR pi)
+                mg = (itemAt palG pi)
+                mb = (itemAt palB pi)
                 ; Every shape marks its ground, whatever its size — a scrap too
                 ; small to be worth its own path still has to stop later shapes
                 ; from growing over it again.
+                def sameBelow:int 0
                 def c:int 0
                 while (c < (array_length comp)) {
                     def px:int (itemAt comp c)
+                    if ((itemAt painted px) == 1) {
+                        if (((itemAt paintR px) == mr) && ((itemAt paintG px) == mg)) {
+                            if ((itemAt paintB px) == mb) {
+                                sameBelow = (sameBelow + 1)
+                            }
+                        }
+                    }
                     set paintR px mr
                     set paintG px mg
                     set paintB px mb
@@ -2518,7 +2549,14 @@ class EvgBitmapTracer {
                 ; hole: the shapes below it have already stopped at its border
                 ; and nothing else will cover it. Only specks smaller than a
                 ; traceable ring are skipped — turdsize deals with those.
-                if ((array_length comp) >= 4) {
+                ; A shape every pixel of which already carries this exact
+                ; swatch is a path that would change no pixel on screen. It can
+                ; be dropped without leaving a hole, and the argument is by
+                ; induction: a color reaches the paint map only from a shape
+                ; that was drawn, because the first shape to cover a pixel
+                ; always finds it unpainted and so is never dropped here.
+                def addsNothing:boolean (sameBelow == (array_length comp))
+                if (((array_length comp) >= minPx) && (addsNothing == false)) {
                     ; The mask covers the shape's own bounding box, not the
                     ; frame. A full-size bitmap per shape is allocated, copied
                     ; and scanned once each, so a photograph — which is
@@ -2611,7 +2649,17 @@ class EvgBitmapTracer {
     ; as what is already painted. An edge is not just a stop — it is where the
     ; next shape begins, on the far side and above.
     ; Push one seed into the bucket for its edge strength.
-    fn pushSeed:void (px:int strength:int bucket:[int] seedPixel:[int] seedNext:[int]) {
+    ;
+    ; A pixel is a point, and the queue's question is "has every steep point
+    ; been dealt with" — so queuing the same pixel twice answers nothing and
+    ; costs everything. Growth bumps into the same boundary from every pixel
+    ; along it, and each bump used to queue both sides again: on a photograph
+    ; that is millions of entries in three arrays that only ever grow, which is
+    ; why a 640-pixel-wide photo spent ten seconds here and half of it in the
+    ; collector. seedBest remembers the strength each pixel is already waiting
+    ; at, and only a steeper claim on the same pixel gets through — so a pixel
+    ; can still be promoted to the front, but never merely repeated.
+    fn pushSeed:void (px:int strength:int bucket:[int] seedPixel:[int] seedNext:[int] seedBest:[int]) {
         def s:int strength
         if (s < 0) {
             s = 0
@@ -2619,6 +2667,10 @@ class EvgBitmapTracer {
         if (s > 255) {
             s = 255
         }
+        if (s <= (itemAt seedBest px)) {
+            return
+        }
+        set seedBest px s
         def idx:int (array_length seedPixel)
         push seedPixel px
         push seedNext (itemAt bucket s)
@@ -2639,7 +2691,7 @@ class EvgBitmapTracer {
         return (0 - 1)
     }
 
-    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] bucket:[int] seedPixel:[int] seedNext:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
+    fn overlayStep:void (i:int from:int stamp:[int] stack:[int] acc:[int] bucket:[int] seedPixel:[int] seedNext:[int] seedBest:[int] shapeNo:int edgeTol:int spread:int simTol:int paintR:[int] paintG:[int] paintB:[int] painted:[int]) {
         if ((itemAt stamp i) == shapeNo) {
             return
         }
@@ -2659,8 +2711,8 @@ class EvgBitmapTracer {
             ; new shape only when it is a boundary rather than a speck. That is
             ; the difference between finding edges and finding noise.
             if (this.isBoundary(from i edgeTol)) {
-                this.pushSeed(i step bucket seedPixel seedNext)
-                this.pushSeed(from step bucket seedPixel seedNext)
+                this.pushSeed(i step bucket seedPixel seedNext seedBest)
+                this.pushSeed(from step bucket seedPixel seedNext seedBest)
             }
             return
         }
@@ -2999,7 +3051,7 @@ class EvgBitmapTracer {
         ; Overlay shapes carry their own fits, so it takes precedence when both
         ; are asked for — the two compose rather than compete.
         if ((options.contourMode) == "overlay") {
-            this.traceOverlayShapes()
+            this.traceOverlayShapes(palR palG palB)
             return
         }
         if options.gradientFill {

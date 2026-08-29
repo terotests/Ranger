@@ -40,6 +40,7 @@ class EvgBitmapTracerTest {
         test.testGradientFills(t)
         test.testOverlayRecoversASwallowedShape(t)
         test.testEdgeFilterSeparatesNoiseFromBoundary(t)
+        test.testOverlayStaysWithinItsPalette(t)
         t.summary()
     }
 
@@ -1138,6 +1139,93 @@ class EvgBitmapTracerTest {
         def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeLineAndSpecks()) opts))
         tr.trace()
         return tr
+    }
+
+    ; A noisy ramp: the shape of a photograph as far as the overlay tracer is
+    ; concerned. Every pixel differs a little from its neighbour, so there is no
+    ; flat surface anywhere and no clean edge either — which is precisely the
+    ; input that used to shatter into thousands of one-color shapes.
+    fn makeNoisyRamp:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(60 40)
+        def seed:int 987
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 60) {
+                seed = (((seed * 75) + 74) % 65537)
+                def jitter:int ((seed % 25) - 12)
+                def v:int ((idiv (x * 200) 60) + jitter)
+                if (v < 0) {
+                    v = 0
+                }
+                if (v > 255) {
+                    v = 255
+                }
+                img.setPixelRGB(x y v (idiv (v * 3) 4) (idiv v 2))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn traceNoisyOverlay:EvgBitmapTracer (colors:int minRegion:int) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.colorCount = colors
+        opts.bgMode = "none"
+        opts.minRegion = minRegion
+        opts.contourMode = "overlay"
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer((this.makeNoisyRamp()) opts))
+        tr.trace()
+        return tr
+    }
+
+    fn distinctFills:int (tr:EvgBitmapTracer) {
+        def seen:[string]
+        def i:int 0
+        while (i < (tr.layerCount())) {
+            def layer:EvgTraceLayer (itemAt tr.layers i)
+            def hex:string layer.fillHex
+            def found:boolean false
+            def j:int 0
+            while (j < (array_length seen)) {
+                if ((itemAt seen j) == hex) {
+                    found = true
+                }
+                j = (j + 1)
+            }
+            if (found == false) {
+                push seen hex
+            }
+            i = (i + 1)
+        }
+        return (array_length seen)
+    }
+
+    ; Overlay used to paint every shape its own mean color and queue the same
+    ; pixel as a seed once per neighbour that touched it. Together those made a
+    ; photograph come back as thousands of swatches under a slider that said
+    ; four, and cost ten seconds of CPU to do it.
+    fn testOverlayStaysWithinItsPalette:void (t:RgTest) {
+        def four:EvgBitmapTracer (this.traceNoisyOverlay(4 6))
+        ; The color count is the ceiling on the colors, not a suggestion. The
+        ; base surface under everything is drawn from the same palette, so it
+        ; adds no swatch of its own.
+        t.ok("overlay never invents a color the palette does not have" ((this.distinctFills(four)) <= 4))
+
+        def twelve:EvgBitmapTracer (this.traceNoisyOverlay(12 6))
+        t.ok("and the ceiling follows the count that was asked for" ((this.distinctFills(twelve)) <= 12))
+
+        ; 2400 pixels of pure noise. A shape per handful of pixels is the
+        ; failure this guards: it is what made the SVG megabytes wide.
+        t.ok("a noisy image does not become a shape per pixel" ((four.layerCount()) < 300))
+
+        ; The smallest-area control reaches this mode too — it used to be read
+        ; and then ignored here, so nothing the user could set bounded the
+        ; output at all.
+        def coarse:EvgBitmapTracer (this.traceNoisyOverlay(4 40))
+        t.ok("raising the smallest area makes overlay draw fewer shapes" ((coarse.layerCount()) < (four.layerCount())))
     }
 
     fn testEdgeFilterSeparatesNoiseFromBoundary:void (t:RgTest) {

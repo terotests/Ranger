@@ -165,6 +165,10 @@
         </select>
         <span class="hint" style="display:block;margin-top:6px">perus on oletus ja se, joka toimii useimmissa tapauksissa. Muut ovat lisiä, eivät korvaajia.</span>
       </div>
+      <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
+        <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
+        <span class="hint"><b>Jatkuvuus</b>-algoritmin tärkein säädin. Tätä pienempi askel on jatkuva, joten nostaminen kokoaa pinnat yhteen ja jättää jäljelle sen mikä oikeasti on reuna — silmät ja kulmakarvat. Liian ylhäällä kohde sulaa taustaansa.</span>
+      </label>
       <fieldset>
         <legend>Värit</legend>
         <label class="row">Värimäärä <span class="val" id="v-colorCount">1</span>
@@ -237,10 +241,6 @@
           <input id="minColorDelta" type="range" min="0" max="40" step="1" value="10">
           <span class="hint">Tätä lähempänä olevat sävyt yhdistetään.</span>
         </label>
-        <label class="row color-only hidden" id="row-cEdge">Jatkuvuuskynnys <span class="val" id="v-contourEdge">3</span>
-          <input id="contourEdge" type="range" min="1" max="24" step="1" value="3">
-          <span class="hint">Tätä pienempi askel on jatkuva. Nosta varovasti — 10 sulatti jo kohteen taustaansa.</span>
-        </label>
         <label class="row color-only hidden" id="row-oSim">Samankaltaisuuden raja <span class="val" id="v-overlaySimilar">8</span>
           <input id="overlaySimilar" type="range" min="1" max="40" step="1" value="8">
           <span class="hint">Muoto pysähtyy myös kun se on näin samanlainen kuin alla oleva. Käytä gradienttien kanssa.</span>
@@ -271,7 +271,7 @@
         </label>
         <label class="row color-only hidden">Pienin alue <span class="val" id="v-minRegion">6</span>
           <input id="minRegion" type="range" min="0" max="400" step="2" value="6">
-          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150.</span>
+          <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150. <b>Päällekkäiset muodot</b> -algoritmissa tämä on se säädin, joka pitää tuloksen kohtuullisen kokoisena: valokuvassa 6 → 24 pudotti muotojen määrän noin neljäsosaan.</span>
         </label>
         <div class="row color-only hidden" style="display:block">
           <div class="actions" style="margin:0 0 4px">
