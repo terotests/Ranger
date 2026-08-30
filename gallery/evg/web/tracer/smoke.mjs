@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+import os from "node:os";
 import { createRequire } from "node:module";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +51,39 @@ if (!fs.existsSync(path.join(DIST, "index.html")) ||
     !fs.existsSync(path.join(DIST, "evg_bitmap_tracer.js"))) {
   console.error(`no tracer page in ${path.relative(ROOT, DIST)} — run: npm run evg:trace:web`);
   process.exit(1);
+}
+
+// A PNG writer, twenty lines of it, so this file can build a picture whose
+// true answer it already knows. Everything else here checks that the tool did
+// something; the composite below checks that what it did was right.
+const CRC = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c; }
+  return t;
+})();
+function crc32(buf) {
+  let c = -1;
+  for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+function writePng(w, h, rgba) {
+  const stride = w * 4 + 1;
+  const raw = Buffer.alloc(stride * h);
+  for (let y = 0; y < h; y++) rgba.copy(raw, y * stride + 1, y * w * 4, (y + 1) * w * 4);
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+    const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td), 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0))]);
 }
 
 const TYPES = {
@@ -983,6 +1018,132 @@ if (!ready) {
   if (refPre.refined > refPre.flat * 2) {
     console.error("the refiner is sampling the unprocessed bitmap: edge energy went "
       + refPre.flat + " -> " + refPre.refined);
+    process.exitCode = 1;
+  }
+
+  // --- can it tell two pictures apart? --------------------------------------
+  // Every check above asks whether the tool did something. This one asks
+  // whether what it did was right, and it can, because the picture was built
+  // here: one background, one figure, composited through a silhouette this
+  // file knows by heart. The wand is then given a deliberately sloppy version
+  // of that silhouette — every point pushed out or in by up to 18 px — and
+  // what it cuts is compared against the truth, pixel by pixel.
+  const cut = await (async () => {
+    const W = 240, H = 300;
+    const px = Buffer.alloc(W * H * 4);
+    // Ground truth: a head on a body, as a function rather than a bitmap.
+    const inFigure = (x, y) => {
+      const hx = x - 120, hy = y - 78;
+      if (hx * hx / (34 * 34) + hy * hy / (40 * 40) <= 1) return true;
+      return y >= 108 && y <= 285 && Math.abs(x - 120) <= 62 - Math.max(0, (140 - y) * 0.4);
+    };
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        let r, g, b;
+        if (inFigure(x, y)) {
+          // The figure: warm, banded, with one cool patch so it is not a
+          // single flat tone the color flood could have had for free.
+          const band = ((x * 0.7 + y * 1.3) | 0) % 60;
+          r = 150 + band; g = 90 + (band >> 1); b = 60 + (band >> 2);
+          if (x > 96 && x < 144 && y > 150 && y < 200) { r = 70; g = 90; b = 140; }
+        } else {
+          // The background: cool, banded, with warm streaks, so neither side
+          // owns a colour outright.
+          const band = ((y * 1.1 + x * 0.3) | 0) % 50;
+          r = 60 + band; g = 80 + band; b = 120 + band;
+          if ((x * 3 + y) % 47 < 3) { r = 150; g = 100; b = 70; }
+        }
+        px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+      }
+    }
+    const file = path.join(os.tmpdir(), "tracer-smoke-composite.png");
+    fs.writeFileSync(file, writePng(W, H, px));
+
+    await page.setInputFiles("#file", file);
+    await page.waitForFunction(() =>
+      /OK/.test(document.getElementById("status").textContent || ""), { timeout: 120000 });
+    await page.evaluate(() => {
+      document.getElementById("status").textContent = "…";
+      const c = document.getElementById("colorCount");
+      c.value = 12; c.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForFunction(() =>
+      /OK/.test(document.getElementById("status").textContent || ""), { timeout: 120000 });
+    await page.click("#editToggle");
+    await page.click("#toolWand");
+    const r = await page.evaluate(async ({ W, H }) => {
+      const inFigure = (x, y) => {
+        const hx = x - 120, hy = y - 78;
+        if (hx * hx / (34 * 34) + hy * hy / (40 * 40) <= 1) return true;
+        return y >= 108 && y <= 285 && Math.abs(x - 120) <= 62 - Math.max(0, (140 - y) * 0.4);
+      };
+      const svg = document.querySelector("#outStage svg");
+      const vb0 = svg.getAttribute("viewBox");
+      const rect = svg.getBoundingClientRect();
+      const stage = document.getElementById("outStage");
+      const at = (ux, uy) => ({ x: rect.left + ux / W * rect.width,
+                                y: rect.top + uy / H * rect.height });
+      const send = (t, p) => stage.dispatchEvent(new PointerEvent(t, {
+        bubbles: true, clientX: p.x, clientY: p.y }));
+      // Walk the silhouette and push every point away from the middle by a
+      // wobble: this is the hand, and it is not steady.
+      const pts = [];
+      for (let i = 0; i < 72; i++) {
+        const th = i / 72 * Math.PI * 2;
+        const dx = Math.cos(th), dy = Math.sin(th);
+        let hit = 0;
+        for (let t = 4; t < 260; t += 1.5) {
+          if (inFigure(120 + dx * t, 165 + dy * t)) hit = t;
+        }
+        if (!hit) continue;
+        const wobble = 18 * Math.sin(i * 0.8) + 6;
+        pts.push(at(120 + dx * (hit + wobble), 165 + dy * (hit + wobble)));
+      }
+      send("pointerdown", pts[0]);
+      pts.slice(1).forEach((p) => send("pointermove", p));
+      send("pointerup", pts[0]);
+      const note = document.getElementById("editNote").textContent;
+      document.getElementById("wandCut").click();
+      const str = new XMLSerializer().serializeToString(svg)
+        .replace(/viewBox="[^"]*"/, 'viewBox="' + vb0 + '"')
+        .replace(/width="[^"]*"/, 'width="' + W + '"')
+        .replace(/height="[^"]*"/, 'height="' + H + '"');
+      const im = new Image();
+      im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+      await im.decode();
+      await new Promise((r) => setTimeout(r, 150));
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const g = c.getContext("2d");
+      g.drawImage(im, 0, 0, W, H);
+      const d = g.getImageData(0, 0, W, H).data;
+      let tp = 0, fp = 0, fn = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const got = d[(y * W + x) * 4 + 3] > 128, want = inFigure(x, y);
+          if (got && want) tp++; else if (got) fp++; else if (want) fn++;
+        }
+      }
+      return { note, tp, fp, fn,
+               iou: +(tp / (tp + fp + fn)).toFixed(3),
+               precision: +(tp / (tp + fp)).toFixed(3),
+               recall: +(tp / (tp + fn)).toFixed(3) };
+    }, { W, H });
+    return r;
+  })();
+  console.log(JSON.stringify(cut));
+  // Measured on three composites of two real photographs, a rough outline
+  // scores 0.86 to 0.98 against the truth; this generated one sits in the same
+  // range. The bar is set below the worst of them, so it fails on a change
+  // that makes the cut worse rather than on the noise of a wobbling line.
+  if (!(cut.iou >= 0.8)) {
+    console.error("a rough outline should cut the figure out of the background, IoU "
+      + cut.iou + " (precision " + cut.precision + ", recall " + cut.recall + ")");
+    process.exitCode = 1;
+  }
+  if (!(cut.recall >= 0.85)) {
+    console.error("the cut should keep the figure, recall " + cut.recall);
     process.exitCode = 1;
   }
 

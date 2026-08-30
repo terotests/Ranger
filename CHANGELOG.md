@@ -42,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pixels landing outside the outline that was drawn, that is **30%**; clipping
   the shapes the line cuts through takes it to **0.2%**.
 
+  Measured against ground truth rather than by eye: two photographs
+  composited through a silhouette this repository knows exactly, then cut with
+  a deliberately sloppy version of that silhouette — every point pushed out or
+  in by up to 18 px. A rough outline scores **IoU 0.98** when the figure and
+  the background are different pictures, **0.89** with a photographic
+  background, and **0.86** when figure and background are cut from the *same*
+  photograph and share every tone — recall 0.98, so what it loses is a rim, not
+  a limb. A colour click on the same figures scores 0.08 to 0.67, which is the
+  honest number for one click on a many-toned object and the reason the line
+  exists. `npm run evg:trace:web:smoke` now builds a composite of its own and
+  fails below 0.8.
+
   Everything works on what is **visible**, and that is the whole design. A
   traced picture is stacked: a lower layer's shape is the union of itself and
   everything painted on top of it. On a test image of a box with a ball

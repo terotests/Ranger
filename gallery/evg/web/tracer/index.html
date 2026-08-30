@@ -1810,7 +1810,7 @@
       wandInvalidate();
       setEditNote("Yhdistetty väriin " + editColor.value + ".");
     } else if (editTool === "wand") {
-      if (lassoAte) { lassoAte = false; return; }
+      if (performance.now() - lassoAte < 700) { lassoAte = 0; return; }
       wandClick(el, ev);
     }
   });
@@ -2440,7 +2440,13 @@
   // floods by color, so the two live on the same tool and the gesture picks.
   // The click that ends a drag is swallowed, or releasing the lasso would
   // immediately reselect whatever was under the pointer.
-  var lassoPts = null, lassoEl = null, lassoAte = false;
+  // A drag ends in a click on whatever was under the pointer, and that click
+  // would immediately reselect it, so the drag swallows it. By time, not by a
+  // flag left standing: a drag that ends off the picture never produces the
+  // click it is waiting for, and the flag then eats the next real one — the
+  // first click of the next selection, and only the first, which is exactly
+  // the kind of thing that gets blamed on the picture rather than the tool.
+  var lassoPts = null, lassoEl = null, lassoAte = 0;
 
   function lassoDraw() {
     if (!lassoEl || !lassoPts) return;
@@ -2470,6 +2476,7 @@
     if (!svg) return;
     if (editTool === "wand") {
       ev.preventDefault();
+      lassoAte = 0;
       lassoPts = [toUser(ev, svg)];
       lassoEl = document.createElementNS(SVGNS, "path");
       lassoEl.setAttribute("fill", "none");
@@ -2504,7 +2511,7 @@
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach(function (t) {
     outStage.addEventListener(t, function (ev) {
-      if (lassoPts) { lassoAte = lassoEnd(ev); return; }
+      if (lassoPts) { lassoAte = lassoEnd(ev) ? performance.now() : 0; return; }
       if (!brushing) return;
       if (editTool === "refine") { brushing = false; refineFinish(); }
       else endStroke();
