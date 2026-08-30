@@ -149,6 +149,38 @@ if (!ready) {
     console.error("palette swatches should match the emitted layers");
     process.exitCode = 1;
   }
+  // The color slider's range is a promise the engine has to keep: it is worth
+  // asking for more than sixteen colors only if asking produces more of them.
+  // Measured on a portrait the palette keeps growing to 64 (16→15 layers,
+  // 32→24, 64→38) and the trace does not get slower for it, so 64 is where the
+  // slider stops.
+  const wide = await (async () => {
+    const top = await page.evaluate(() => +document.getElementById("colorCount").max);
+    const layersAt = async (n) => {
+      await page.evaluate((n) => {
+        document.getElementById("status").textContent = "…";
+        const cc = document.getElementById("colorCount");
+        cc.value = String(n);
+        cc.dispatchEvent(new Event("input", { bubbles: true }));
+      }, n);
+      await page.waitForFunction(() => /OK/.test(document.getElementById("status").textContent || ""),
+        { timeout: 120000 });
+      return page.evaluate(() => new Set([...document.querySelectorAll("#outStage svg path")]
+        .map((p) => p.getAttribute("fill"))).size);
+    };
+    return { top, at16: await layersAt(16), atTop: await layersAt(top) };
+  })();
+  console.log(JSON.stringify(wide));
+  if (wide.top < 64) {
+    console.error("the color slider should reach 64, stops at " + wide.top);
+    process.exitCode = 1;
+  }
+  if (!(wide.atTop > wide.at16)) {
+    console.error("asking for more colors than 16 should produce more of them, got "
+      + wide.at16 + " → " + wide.atTop);
+    process.exitCode = 1;
+  }
+
   // The palette controls: a control that is on screen must be one that does
   // something, and none of them may be clipped out of the panel.
   const controls = await page.evaluate(() => {
@@ -284,6 +316,12 @@ if (!ready) {
   // possible at all is splitting those into one path per shape. Check that,
   // then each of the three tools and undo.
   await page.evaluate(() => {
+    // Back to a palette taken from the picture: the test above left the mode on
+    // "fixed" with two colors, and a two-color drawing cannot show whether a
+    // tool that works on color is doing anything.
+    const m = document.getElementById("paletteMode");
+    m.value = "auto";
+    m.dispatchEvent(new Event("change", { bubbles: true }));
     const c = document.getElementById("colorCount");
     c.value = 8;
     c.dispatchEvent(new Event("input", { bubbles: true }));
@@ -314,7 +352,16 @@ if (!ready) {
       };
     });
 
+    // Tarkennin is the default tool, so nothing below can assume which tool is
+    // live — every one of them selects itself first.
+    const defaultTool = await page.evaluate(() => ({
+      refine: document.getElementById("toolRefine").classList.contains("active"),
+      merge: document.getElementById("toolMerge").classList.contains("active"),
+      stage: document.getElementById("outStage").classList.contains("refining"),
+    }));
+
     // merge: set the picker, click the biggest shape, count what took the color
+    await page.click("#toolMerge");
     await page.evaluate(() => {
       const c = document.getElementById("editColor");
       c.value = "#00ff88";
@@ -446,15 +493,71 @@ if (!ready) {
       }
       return { before, after: el.getAttribute("d").length };
     });
-    // A stroke is one undo step however many shapes it crossed, so three
-    // strokes are exactly three clicks back.
-    await page.click("#editUndo");
-    await page.click("#editUndo");
-    await page.click("#editUndo");
-    const smoothUndone = await page.evaluate(() => {
-      const el = document.getElementById("__smoothTarget");
-      return el ? el.getAttribute("d").length : -1;
-    });
+    // A stroke is one undo step however many shapes it crossed, so getting the
+    // outline back takes as many clicks as there were strokes that changed
+    // something — never one per shape they ran over, which is what recording a
+    // shape at a time cost, and which is what this counts.
+    let smoothSteps = 0;
+    let smoothUndone = -1;
+    for (let i = 0; i < 12; i++) {
+      const state = await page.evaluate(() => {
+        const el = document.getElementById("__smoothTarget");
+        return { d: el ? el.getAttribute("d").length : -1,
+                 empty: document.getElementById("editNote").textContent === "Ei kumottavaa." };
+      });
+      smoothUndone = state.d;
+      if (state.d === smooth.before || state.empty) break;
+      await page.click("#editUndo");
+      smoothSteps++;
+    }
+
+    // wand: grow a selection out from one shape, then cut everything else
+    // away. Three things have to hold. The selection has to grow with the
+    // tolerance — a wand that only ever takes the shape under the cursor is
+    // the merge tool with extra steps. It has to keep what is painted on top
+    // of the object, or isolating a face leaves a silhouette. And the cut has
+    // to be undoable down to the last shape and the frame it came in.
+    await page.click("#toolWand");
+    const wand = await (async () => {
+      const grow = (tol) => page.evaluate((tol) => {
+        const t = document.getElementById("wandTol");
+        t.value = String(tol);
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        const svg = document.querySelector("#outStage svg");
+        // Seed from a small shape: the frame-spanning one encloses the whole
+        // drawing at any tolerance, and then growth has nothing left to show.
+        const ps = [...svg.querySelectorAll("path")];
+        let el = ps[0], best = Infinity;
+        ps.forEach((e) => {
+          const b = e.getBBox(), a = b.width * b.height;
+          if (a > 200 && a < best) { best = a; el = e; }
+        });
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        return svg.querySelectorAll("path:not(.wand-off)").length;
+      }, tol);
+      const tight = await grow(0);
+      const loose = await grow(120);
+      const shapesBefore = await page.evaluate(() =>
+        document.querySelectorAll("#outStage svg path").length);
+      const frameBefore = await page.evaluate(() =>
+        document.querySelector("#outStage svg").getAttribute("viewBox"));
+      await page.click("#wandCut");
+      const cut = await page.evaluate(() => {
+        const svg = document.querySelector("#outStage svg");
+        return {
+          shapes: svg.querySelectorAll("path").length,
+          frame: svg.getAttribute("viewBox"),
+          marked: svg.querySelectorAll(".wand-off").length,
+        };
+      });
+      await page.click("#editUndo");
+      const back = await page.evaluate(() => {
+        const svg = document.querySelector("#outStage svg");
+        return { shapes: svg.querySelectorAll("path").length, frame: svg.getAttribute("viewBox") };
+      });
+      return { tight, loose, shapesBefore, frameBefore, cut, back };
+    })();
+    await page.click("#toolRefine");
 
     // The refine-size slider must not re-trace: a re-trace replaces the
     // drawing and takes the edit session down with it, which is a strange way
@@ -467,7 +570,8 @@ if (!ready) {
     await page.waitForTimeout(400);
     const stillEditing = await page.evaluate(() =>
       document.getElementById("editbar").classList.contains("on"));
-    return { before, exploded, statusLive, merged, undone, picked, want, groups, groupsUndone, stillEditing,
+    return { before, exploded, statusLive, defaultTool, merged, undone, picked, want, wand, smoothSteps,
+             groups, groupsUndone, stillEditing,
              masks, masksUndone, preview: refined.preview, previewLeft: refined.previewLeft,
              refineChangedPixels: refined.changed,
              smoothBefore: smooth.before, smoothAfter: smooth.after, smoothUndone };
@@ -512,8 +616,40 @@ if (!ready) {
       + edit.smoothUndone + " want " + edit.smoothBefore);
     process.exitCode = 1;
   }
+  if (edit.smoothSteps !== 3) {
+    console.error("three smooth strokes should take exactly three clicks back, took "
+      + edit.smoothSteps);
+    process.exitCode = 1;
+  }
   if (!edit.stillEditing) {
     console.error("sizing the refine box must not re-trace and drop the edit session");
+    process.exitCode = 1;
+  }
+  if (!edit.defaultTool.refine || edit.defaultTool.merge || !edit.defaultTool.stage) {
+    console.error("edit mode should open on Tarkennin, got " + JSON.stringify(edit.defaultTool));
+    process.exitCode = 1;
+  }
+  if (!(edit.wand.loose > edit.wand.tight) || edit.wand.tight < 1) {
+    console.error("the wand selection should grow with its tolerance, got "
+      + edit.wand.tight + " → " + edit.wand.loose);
+    process.exitCode = 1;
+  }
+  if (edit.wand.cut.shapes !== edit.wand.loose || edit.wand.cut.marked !== 0) {
+    console.error("the cut should leave exactly the selection behind, got "
+      + JSON.stringify(edit.wand.cut) + " want " + edit.wand.loose);
+    process.exitCode = 1;
+  }
+  if (!(edit.wand.cut.shapes < edit.wand.shapesBefore)
+    || edit.wand.cut.frame === edit.wand.frameBefore) {
+    console.error("the cut should drop the rest of the drawing and pull the frame in, got "
+      + JSON.stringify(edit.wand.cut));
+    process.exitCode = 1;
+  }
+  if (edit.wand.back.shapes !== edit.wand.shapesBefore
+    || edit.wand.back.frame !== edit.wand.frameBefore) {
+    console.error("undo should put every cut shape and the old frame back, got "
+      + JSON.stringify(edit.wand.back) + " want " + edit.wand.shapesBefore
+      + " / " + edit.wand.frameBefore);
     process.exitCode = 1;
   }
 

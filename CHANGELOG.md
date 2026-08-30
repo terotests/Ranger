@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A "Taikasauva" in the edit mode: pick an object out of the drawing and cut
+  the rest away.** Click a shape and the selection grows outward from it across
+  shapes that touch and are within *Sieto* of the color you clicked; ⇧ adds
+  another grown region to the selection, ⌥ takes one out; *Eristä* removes
+  everything outside it and, with *rajaa reunoihin*, pulls the frame in around
+  what is left. What remains is on transparency, which is how you cut an icon
+  out of a photograph. One undo step puts the whole drawing and its old frame
+  back.
+
+  Two things make it work on a traced drawing rather than on pixels. Shapes do
+  not know their neighbours, and a bounding box cannot tell you — the background
+  shape's box covers the picture and would make it adjacent to everything — so
+  each outline is stamped into a grid of cells, densified so a long straight run
+  cannot step over a cell, and two shapes are neighbours when they stamp cells
+  next to each other. And the color test is against the shape that was clicked
+  rather than the one the flood came from: chaining tolerance from neighbour to
+  neighbour walks a portrait's cheek into the wall behind it one imperceptible
+  step at a time. Measured on a portrait of 629 shapes, one seed grows 3 → 12 →
+  18 shapes as the tolerance goes 0 → 60 → 120, in under 45 ms.
+
+  A color flood cannot reach what is *painted on top of* the object — that is
+  what tolerance is for — but the eyes and the tie are the object. So the
+  selection is closed over what it encloses: the selected shapes are rasterized
+  and any shape whose outline lies inside that mask joins them. Without it,
+  isolating a face gave back a flat silhouette; with it the same cut keeps 232
+  shapes instead of 84. The step stops when the selection already covers 80% of
+  the frame, because "inside the object" stops meaning anything once the object
+  is the picture — clicking a portrait's background covers 95% of it and used to
+  hand back 580 of its 629 shapes.
+
+- **The color count now goes to 64.** It stopped at 16, and the engine was never
+  the reason: measured on a portrait the palette keeps growing well past that —
+  16 asked gives 15 layers, 32 gives 24, 64 gives 38 — and the trace does not
+  get slower for it (704 ms → 788 ms). Past 64 the returns stop being worth the
+  bytes: 128 buys seven more layers for another half megabyte.
+
+### Changed
+
+- **Tarkennin is the tool the edit mode opens on**, rather than Yhdistä. It is
+  the one that adds something to the picture, where the others take things away.
+
+- **A smooth stroke that dissolves a shape is still one undo step.** The shape it
+  erased was recorded separately, so that one stroke cost two clicks to take
+  back; the erased shape now travels with the stroke that erased it, and goes
+  back where it was drawn rather than on top of everything.
+
+### Added
+
 - **A pre-processing stage on the bitmap, before anything is quantized or
   traced.** It sits beside the picture rather than in the parameter column — it
   is about the bitmap, and you want it where you can watch the bitmap change —
