@@ -42,6 +42,7 @@ SUITES=(
   evg:timing:test
   evg:box:test
   evg:reconcile:test
+  evg:component:test
   evg:adopt:check
   ui:sortable:motion
   ui:table:check

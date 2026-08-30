@@ -1215,6 +1215,85 @@ Doing this one first was deliberate: the runtime semantics are provable without
 touching the compiler, and sugar over an unproven runtime is the expensive
 order to work in.
 
+## Component instances — the owner, not another element layer
+
+`EVGReconcile` made an ELEMENT survive a rebuild. This makes the thing that
+BUILT it survive one, which is a different problem and the one that has to be
+solved before `state` means anything.
+
+The distinction matters, because "keyed reconciliation" sounds like it should
+already cover this. A reconciler works on the OUTPUT: two trees exist and it
+decides which of their nodes are the same node. Nothing in that gives the
+builder anywhere to live. A function that returns a subtree starts from nothing
+every time it is called, so a value it would like to remember between calls has
+no home and gets pushed up into a controller. `MenuCtl.pendingTid` and
+`pendingMs` are exactly that: a 100ms submenu timer belonging to ONE ROW, kept
+on the controller because a row is a function call and a function call cannot
+hold a clock.
+
+`EVGComponent` is a separate owner sitting ABOVE the element layer, not a new
+element layer:
+
+```
+EVGComponentHost   key -> instance, and the pass that decides who is still here
+    EVGComponent   props, state, and a view that returns
+        EVGElement     -> EVGReconcile -> layout / display list / hit test / a11y
+```
+
+`EVGReconcile` is untouched by this commit. The two are keyed the same way —
+`render()` stamps the component's path onto its root element's `key` — so the
+host and the reconciler cannot disagree about which row is which. A component
+whose view forgot that would keep its own state and lose its element's, which
+is worse than neither persisting.
+
+### mount / update / dispose
+
+The same three events `EVGReconcileStats` counts for elements (kept, created,
+dropped), one level up and named apart so a number says which layer it came
+from. `endPass` disposes everything the pass did not ask for, and that is the
+half a reconciler cannot do: dropping an element takes a subtree out of the
+tree and tells nobody, which is fine for a box and wrong for anything holding a
+timer, a pointer capture or a subscription. Nothing owns such a resource yet —
+the hook exists first on purpose, because retrofitting a lifecycle onto
+components that already leak is the expensive order.
+
+There is no remove call and there should not be one: a thing leaves a view by
+not being built. The test proves the forget is real by asking for the same key
+again and getting an instance with none of the old one's memory.
+
+### The leg of identity a library cannot have
+
+Identity should be parent + CALL SITE + key. This has the first and the third.
+Two sibling calls with one key are therefore indistinguishable here from one
+component being rebuilt, and they would share an instance and its state. That
+is REPORTED rather than absorbed — quietly handing back the same object is the
+failure mode that looks like it works, and it would show up as two rows
+mysteriously agreeing about everything. Folding the call site in is something a
+compiler can do when `component` becomes a literal, and it is the argument for
+doing that in the compiler rather than here.
+
+### On the page
+
+`TreeDemo`'s rows are `TreeRow` components now, and the demo rebuilds through
+the reconciler on every press. Collapsing a folder is the visible half of the
+lifecycle: ten components live, six after collapsing Accounts, ten again after
+re-opening. The display list and the accessible tree are byte-identical to what
+the hand-built version produced, checked state by state.
+
+`TreeRow` has no local state, and saying so is the honest position: it is a
+pure function of its props today. What being a component buys it now is the
+identity and the lifecycle — and one thing that shows immediately, because the
+elements persist: the focus tint now TRANSITIONS across a state change instead
+of snapping, which a from-scratch rebuild could never do.
+
+### Deliberately not optimised
+
+Every component's view runs on every pass. Nothing tracks which state a view
+read, and nothing skips a subtree. The sortable already rebuilds its whole tree
+on every frame of a drag and keeps all 61 elements, so the simple semantics are
+affordable at this scale; dependency tracking is the answer to a measurement
+nobody has taken yet, and taking it early would buy complexity with no evidence.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -1270,12 +1349,20 @@ utility-class theme.
 `key` and `EVGReconcile` are step one of a longer list, and the rest is
 language work rather than library work. In the order that pays:
 
-- [ ] **Persistent component instances.** An element survives a rebuild now; a
-      COMPONENT does not exist yet. `treefactory` is a tag vocabulary, not a
-      unit with state of its own
-- [ ] **`state` / `signal`, and dependency tracking.** Not hooks — Ranger is
-      statically compiled and can know the dependencies at compile time, which
-      is strictly more than "this component re-renders"
+- [x] **Persistent component instances.** `EVGComponent` + `EVGComponentHost`,
+      above the element layer rather than inside it
+- [ ] **`component` / `state` / `view` as syntax**, lowering the way
+      `treefactory` does — to code the type checker already knows how to check.
+      Two things the compiler can do that the library cannot: fold the CALL
+      SITE into a component's identity, and give `state` a static slot so it
+      never depends on the order the view ran (which is the whole reason React
+      has to forbid a hook inside an `if`)
+- [ ] **The litmus test for that step: `Tabs`.** Small enough to read in one
+      screen and it proves three things at once — the component instance
+      survives, its `state active` survives, and the element identity survives.
+      Dialog and Menu come after it, for focus and ARIA; a Grid is the stress
+      test, not the first test
+- [ ] **Dependency tracking**, and not before a measurement asks for it
 - [ ] **Declarative event handlers**, so a component reads from one place
 - [ ] **`computed`**
 - [ ] **A high-frequency path for motion values.** Structural state (order,

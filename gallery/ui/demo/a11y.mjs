@@ -233,9 +233,13 @@ const STATES = [
   {
     name: "tree — three folders open, focus on a nested row",
     size: [900, 520],
+    // The component host's own complaints ride along with the tree's. A page
+    // that misuses the host — a `use` outside a pass, an unclosed `enter` —
+    // renders a perfectly plausible frame and gets the lifecycle wrong, which
+    // is exactly the kind of failure that has to announce itself.
     lint: () => {
       treeview.press("tv-item-jane");
-      return treeview.a11yProblems();
+      return treeview.a11yProblems().concat(treeview.hostProblems());
     },
     tree: () => treeview.a11yJson(16, "tv-item-jane"),
   },
@@ -247,7 +251,7 @@ const STATES = [
     size: [900, 520],
     lint: () => {
       treeview.press("tv-item-accounts");
-      return treeview.a11yProblems();
+      return treeview.a11yProblems().concat(treeview.hostProblems());
     },
     tree: () => treeview.a11yJson(17, "tv-item-accounts"),
   },

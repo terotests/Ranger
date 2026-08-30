@@ -49,6 +49,8 @@ Import "../../evg/EVGTransition.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGComponent.rgr"
+Import "../../evg/EVGReconcile.rgr"
 
 treefactory Tv {
     child addChild
@@ -69,12 +71,100 @@ treefactory Tv {
     tag Note     EVGElement (props (className "tv-note") (elementType 1))
 }
 
+; One row of the tree, as a component.
+;
+; It is an ordinary class with ordinary fields, and everything above
+; `Constructor` is props — the facts the tree hands it before each render. What
+; being a component BUYS is that the instance comes back: a folder collapsed
+; and re-opened is the same TreeRow, and a row that leaves the list is told so.
+;
+; Nothing here needs local state yet, and that is the honest state of things —
+; this row is a pure function of its props today. The point of putting it in a
+; component now is the identity and the lifecycle, which are what `state` will
+; need somewhere to live when it arrives.
+class TreeRow extends EVGComponent {
+    def value:string ""
+    def rowId:string ""
+    def label:string ""
+    def level:int 1
+    def setSize:int 1
+    def setPos:int 1
+    def isFolder:boolean false
+    def isOpen:boolean false
+    def indent:double 20.0
+
+    Constructor () {
+    }
+
+    sfn chevronGlyph:string (folder:boolean open:boolean) {
+        if (folder == false) {
+            return ""
+        }
+        if open {
+            return "▾"
+        }
+        return "▸"
+    }
+
+    fn rowClass:string () {
+        def cls:string "tv-item"
+        if isFolder {
+            cls = (cls + " tv-item-folder")
+            if isOpen {
+                cls = (cls + " tv-item-open")
+            }
+        } {
+            cls = (cls + " tv-item-leaf")
+        }
+        return cls
+    }
+
+    fn view:EVGElement () {
+        def cls:string (this.rowClass())
+        def row (tree Tv (Item (props (id rowId) (className cls) (a11yLabel label))))
+
+        ; The three ARIA numbers, straight off the controller's flattened rows.
+        ; Written onto the ELEMENT and not only into `rows()`, because
+        ; `EVGA11yFromTree` walks elements and that is what a page using the
+        ; controller directly publishes — the same gap the dialog demo had.
+        row.a11yLevel = level
+        row.a11ySetSize = setSize
+        row.a11yPosInSet = setPos
+        row.a11yFocusable = true
+        row.a11ySelected = (EVGA11yTri.no())
+        if isFolder {
+            if isOpen {
+                row.a11yExpanded = (EVGA11yTri.yes())
+            } {
+                row.a11yExpanded = (EVGA11yTri.no())
+            }
+        }
+
+        if (level > 1) {
+            def pad (tree Tv (Indent))
+            ; Set on the element rather than by the sheet: see the header.
+            pad.width = (EVGUnit.px((indent * (to_double (level - 1)))))
+            row.addChild(pad)
+        }
+
+        def glyph:string (TreeRow.chevronGlyph(isFolder isOpen))
+        row.addChild((tree Tv (Chevron glyph)))
+        row.addChild((tree Tv (Label label)))
+        return row
+    }
+}
+
 class TreeDemo {
 
     def model:TreeCtl (new TreeCtl())
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def transitions:EVGTransition (new EVGTransition())
+    ; The two halves of a live tree: the host keeps the component instances,
+    ; the reconciler keeps the elements they produce. Both keyed by the tree
+    ; value, so they cannot disagree about which row is which.
+    def host:EVGComponentHost (new EVGComponentHost())
+    def reconciler:EVGReconcile (new EVGReconcile())
     def hovered:string ""
     def pressed:string ""
     def focused:string ""
@@ -136,7 +226,7 @@ class TreeDemo {
         model.setExpanded("acme" true)
         model.build()
 
-        root = (this.page())
+        this.rebuild()
     }
 
     fn node:void (value:string label:string) {
@@ -155,87 +245,58 @@ class TreeDemo {
 
     ; --- the look ------------------------------------------------------------------
 
-    sfn chevronGlyph:string (isFolder:boolean isOpen:boolean) {
-        if (isFolder == false) {
-            return ""
-        }
-        if isOpen {
-            return "▾"
-        }
-        return "▸"
-    }
-
-    fn rowClass:string (isFolder:boolean isOpen:boolean) {
-        def cls:string "tv-item"
-        if isFolder {
-            cls = (cls + " tv-item-folder")
-            if isOpen {
-                cls = (cls + " tv-item-open")
-            }
-        } {
-            cls = (cls + " tv-item-leaf")
-        }
-        return cls
-    }
-
-    fn rowAt:EVGElement (i:int) {
+    ; The props one row is handed. Set on the instance before `render()`, so a
+    ; row that survives a rebuild is handed the new facts rather than rebuilt
+    ; around them.
+    fn rowProps:void (r:TreeRow i:int) {
         def value:string (itemAt model.rowValue i)
-        def level:int (itemAt model.rowLevel i)
-        def isFolder:boolean (itemAt model.rowFolder i)
-        def isOpen:boolean (model.isExpanded(value))
-
-        def label:string ""
+        r.value = value
+        r.rowId = (model.itemTid(value))
+        r.level = (itemAt model.rowLevel i)
+        r.setSize = (itemAt model.rowSetSize i)
+        r.setPos = (itemAt model.rowSetPos i)
+        r.isFolder = (itemAt model.rowFolder i)
+        r.isOpen = (model.isExpanded(value))
+        r.indent = indent
+        r.label = ""
         def ni:int (model.nodeAt(value))
         if (ni >= 0) {
             def node:UiTreeNode (itemAt model.nodes ni)
-            label = node.name
+            r.label = node.name
         }
-
-        def rowId:string (model.itemTid(value))
-        def cls:string (this.rowClass(isFolder isOpen))
-        def row (tree Tv (Item (props (id rowId) (className cls) (a11yLabel label))))
-
-        ; The three ARIA numbers, straight off the controller's flattened rows.
-        ; Written onto the ELEMENT and not only into `rows()`, because
-        ; `EVGA11yFromTree` walks elements and that is what a page using the
-        ; controller directly publishes — the same gap the dialog demo had.
-        row.a11yLevel = level
-        row.a11ySetSize = (itemAt model.rowSetSize i)
-        row.a11yPosInSet = (itemAt model.rowSetPos i)
-        row.a11yFocusable = true
-        row.a11ySelected = (EVGA11yTri.no())
-        if isFolder {
-            if isOpen {
-                row.a11yExpanded = (EVGA11yTri.yes())
-            } {
-                row.a11yExpanded = (EVGA11yTri.no())
-            }
-        }
-
-        if (level > 1) {
-            def pad (tree Tv (Indent))
-            ; Set on the element rather than by the sheet: see the header.
-            pad.width = (EVGUnit.px((indent * (to_double (level - 1)))))
-            row.addChild(pad)
-        }
-
-        def glyph:string (TreeDemo.chevronGlyph(isFolder isOpen))
-        row.addChild((tree Tv (Chevron glyph)))
-        row.addChild((tree Tv (Label label)))
-        return row
     }
 
     fn treeBlock:EVGElement () {
-        def t (tree Tv (Tree (props (id "tv"))))
+        def t (tree Tv (Tree (props (id "tv") (key "tv"))))
+        ; Rows are components, keyed by the tree value they show. Collapsing a
+        ; folder is what makes that visible: the rows underneath are not built,
+        ; so `endPass` unmounts them — and a controller-shaped page would have
+        ; had to remember to tell somebody.
+        host.enter("tv")
         def i:int 0
         while (i < (array_length model.rowValue)) {
-            t.addChild((this.rowAt(i)))
+            def value:string (itemAt model.rowValue i)
+            def got:EVGComponent (host.use(value (new TreeRow())))
+            def r:TreeRow (cast got to:TreeRow)
+            this.rowProps(r i)
+            t.addChild((r.render()))
             i = (i + 1)
         }
+        host.leave()
         return t
     }
 
+    ; One render pass. `beginPass`/`endPass` bracket the WHOLE build and not
+    ; just the list: a component asked for outside the brackets is not counted
+    ; as seen, and would be unmounted while still on screen.
     fn page:EVGElement () {
+        host.beginPass()
+        def p:EVGElement (this.pageBody())
+        host.endPass()
+        return p
+    }
+
+    fn pageBody:EVGElement () {
         def p (tree Tv (Page (props (id "page"))))
         def card (tree Tv
             (Card (props (id "tv-card"))
@@ -248,12 +309,28 @@ class TreeDemo {
 
     ; --- the host ---------------------------------------------------------------
 
+    ; Rebuild the page and reconcile it into the live one.
+    ;
+    ; This is the demo that runs the whole stack: the state changes, the view
+    ; is rebuilt from it, the component instances come back, the elements come
+    ; back with them, and whatever was in flight stays in flight. The first
+    ; call has nothing to reconcile against and simply takes the tree.
+    fn rebuild:void () {
+        def next:EVGElement (this.page())
+        if root {
+            reconciler.resetStats()
+            reconciler.reconcile((unwrap root) next)
+        } {
+            root = next
+        }
+    }
+
     fn press:boolean (target:string) {
         def next:string (model.activate(target))
         if ((strlen next) > 0) {
             focused = next
         }
-        root = (this.page())
+        this.rebuild()
         return true
     }
 
@@ -262,7 +339,7 @@ class TreeDemo {
         if ((strlen next) > 0) {
             focused = next
         }
-        root = (this.page())
+        this.rebuild()
         return true
     }
 
@@ -349,6 +426,18 @@ class TreeDemo {
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(r "Tree demo" generation focusId))
         return (t.toJson())
+    }
+
+    ; The component host's own complaints, folded in with the tree's. A page
+    ; that misuses the host gets a plausible-looking frame and a wrong
+    ; lifecycle, which is exactly the kind of failure that has to announce
+    ; itself.
+    fn hostProblems:[string] () {
+        return (host.lint())
+    }
+
+    fn componentCount:int () {
+        return host.stats.live
     }
 
     fn a11yProblems:[string] () {

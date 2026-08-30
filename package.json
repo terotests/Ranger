@@ -601,6 +601,7 @@
     "evg:timing:oracle": "node gallery/evg/oracle/css_timing_oracle.mjs",
     "evg:reconcile:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGReconcileTest.rgr -d=./gallery/evg/bin -o=EVGReconcileTest.js -nodecli && node ./gallery/evg/bin/EVGReconcileTest.js",
     "ui:sortable:motion": "node gallery/ui/demo/sortable-motion-check.mjs",
+    "evg:component:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGComponentTest.rgr -d=./gallery/evg/bin -o=EVGComponentTest.js -nodecli && node ./gallery/evg/bin/EVGComponentTest.js",
     "evg:adopt:check": "node scripts/check-evg-adopt.mjs",
     "evg:box:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGBoxShorthandTest.rgr -d=./gallery/evg/bin -o=EVGBoxShorthandTest.js -nodecli && node ./gallery/evg/bin/EVGBoxShorthandTest.js",
     "evg:box:oracle": "node gallery/evg/oracle/css_box_oracle.mjs",
