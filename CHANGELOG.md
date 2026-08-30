@@ -37,10 +37,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Background examples nobody has to give**: whatever runs along the edge of
   the picture, because the object is what the photographer framed. They teach
   the model without constraining it, and they are the single biggest thing in
-  the measurements — on the composite of two different pictures, one loose
-  stroke goes from IoU 0.649 to **0.977** with them, which is what a carefully
-  traced outline scores. On the composite cut from one photograph, where figure
-  and background share every tone, one stroke gives **0.757**.
+  the measurements — on the composite of two different pictures one loose
+  stroke goes from IoU 0.649 to 0.977 with them.
+
+  Reported against a ceiling and a spread, because neither can be left out.
+  The **ceiling** is what any method that picks whole regions could possibly
+  score: label every traced region by majority vote against the truth. It is
+  not 1.0, because the tracing does not follow the silhouette — it is 0.79,
+  0.96 and 0.85 on the three composites. And **one stroke is not a
+  measurement**: six plausible strokes over the same figure spread 0.18 to 0.36
+  IoU apart. Medians of six, and what they are worth against the ceiling:
+
+  | composite | ceiling | six strokes | median | of ceiling |
+  |---|---|---|---|---|
+  | photo bg, flat figure | 0.788 | 0.43 – 0.79 | 0.754 | 96% |
+  | drawn bg, flat figure | 0.959 | 0.80 – 0.98 | 0.976 | 102% |
+  | one photo, both sides | 0.845 | 0.53 – 0.79 | 0.758 | 90% |
+
+  The 102% is the ceiling estimate's own error — a majority vote is not quite
+  optimal at the boundary — and it puts the accuracy of these numbers at a
+  couple of points, which is worth knowing before reading anything into a
+  difference of one.
+
+  **A correction to an earlier entry.** The geometric lasso's 0.894 on the
+  first composite sits *above* that composite's 0.788 ceiling, which no
+  whole-region method can do. It is not wrong, it is flattered: the lasso
+  clips *inside* regions along the drawn line, and the test's line is generated
+  by wobbling the ground-truth silhouette. It is scored against a line that
+  already knows the answer, and the brush is not. The lasso's numbers are
+  comparable to each other and not to the brush's.
 
   What it does not yet do is survive a corrective ⌥ stroke on a colour the
   object also wears. The models are nearest-seed-colour, so one small negative
