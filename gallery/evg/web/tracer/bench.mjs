@@ -20,7 +20,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { openPage, waitOk } from "./eval-harness.mjs";
 import { writePng } from "./png.mjs";
-import { CASES, SIZE, TRUTH_SRC } from "./bench-cases.mjs";
+import { CASES, SIZE, TRUTH_SRC, rowCentre } from "./bench-cases.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { W, H } = SIZE;
@@ -65,10 +65,7 @@ function gesturesFor(c) {
   const stroke = [];
   for (let t = 0; t <= 4; t++) {
     const y = y0 + (y1 - y0) * t / 4;
-    const row = inside.filter((p) => Math.abs(p[1] - y) < 3);
-    if (!row.length) continue;
-    const mid = row.reduce((a, p) => a + p[0], 0) / row.length;
-    stroke.push([mid / W, y / H]);
+    stroke.push([rowCentre(c, y) / W, y / H]);
   }
   // The ⌥ stroke: a horizontal line across a row that is background for its
   // whole length, so it says only "this is background" and nothing else.

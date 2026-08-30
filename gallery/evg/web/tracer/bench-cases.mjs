@@ -35,6 +35,31 @@ function figureLimbs(x, y) {
   return false;
 }
 
+// Case 1 of the list: figure and background interlocked, so the true boundary
+// folds back on itself again and again instead of going round once. Six slots
+// cut into the body from the right, background filling them.
+function figureInterleave(x, y) {
+  if (!figureBody(x, y)) return false;
+  if (y < 170 || y > 350) return true;
+  const slot = ((y - 170) / 30) | 0;
+  const inSlot = ((y - 170) % 30) < 15;
+  return !(inSlot && slot < 6 && x > 118);
+}
+
+// Case 8: the object runs off the picture. The body reaches the bottom edge
+// and an arm reaches the left one, so the frame — which the wand mines for
+// background examples without being asked — is partly the object itself.
+function figureEdge(x, y) {
+  const hx = x - 170, hy = y - 92;
+  if (hx * hx / (44 * 44) + hy * hy / (52 * 52) <= 1) return true;
+  if (y >= 140) {
+    const half = 84 - Math.max(0, (186 - y) * 0.42);
+    if (Math.abs(x - 170) <= half) return true;          // down to the bottom edge
+  }
+  if (y > 232 && y < 268 && x < 92) return true;          // out through the left edge
+  return false;
+}
+
 const FIG = [[46, 74, 132], [58, 104, 150], [92, 132, 176], [34, 52, 96], [150, 176, 202]];
 const BG  = [[168, 152, 132], [140, 126, 110], [196, 182, 162], [112, 100, 88], [214, 204, 188]];
 
@@ -241,8 +266,57 @@ CASES.push({
   },
 });
 
+CASES.push({
+  name: "10-interleave",
+  truth: "figureInterleave",
+  what: "kohde ja tausta lomittuvat: kuusi lovea, joissa raja taittuu takaisin",
+  inFigure: figureInterleave,
+  wrongAt: [0.62, 0.62],
+  draw(px) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const b = (((x * 0.6 + y * 1.4) / 46) | 0) % 4;
+      put(px, x, y, figureInterleave(x, y) ? FIG[b] : BG[b]);
+    }
+    speckle(px, figureInterleave, 120, 29, FIG, BG);
+  },
+});
+
+CASES.push({
+  name: "11-edgetouch",
+  truth: "figureEdge",
+  what: "kohde koskee kuvan reunaa — reunaprioria vastaan",
+  inFigure: figureEdge,
+  wrongAt: [0.08, 0.12],
+  draw(px) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const b = (((x * 0.6 + y * 1.4) / 46) | 0) % 4;
+      put(px, x, y, figureEdge(x, y) ? FIG[b] : BG[b]);
+    }
+    speckle(px, figureEdge, 120, 31, FIG, BG);
+  },
+});
+
 export const SIZE = { W, H };
 
 // The truth has to travel into the browser to be scored there, and one of the
 // two calls the other, so they go together.
-export const TRUTH_SRC = figureBody.toString() + "\n" + figureLimbs.toString();
+export const TRUTH_SRC = [figureBody, figureLimbs, figureInterleave, figureEdge]
+  .map(function (f) { return f.toString(); }).join("\n");
+
+// The middle of a row of the figure — the centre of its longest unbroken run,
+// not the average of its inside pixels. On a shape with slots cut into it the
+// average lands in a slot, which is background: the stroke meant to point at
+// the object pointed at the thing beside it, and the interleaved picture
+// scored 53% for the harness's mistake.
+export function rowCentre(c, y) {
+  let best = 0, bestA = 0, bestB = 0, run = -1;
+  for (let x = 0; x <= W; x++) {
+    const inside = x < W && c.inFigure(x, y);
+    if (inside && run < 0) run = x;
+    if (!inside && run >= 0) {
+      if (x - run > best) { best = x - run; bestA = run; bestB = x; }
+      run = -1;
+    }
+  }
+  return best ? (bestA + bestB) / 2 : W / 2;
+}

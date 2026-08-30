@@ -1340,6 +1340,10 @@
   //     positive[i] = cells covered by positive strokes
   //     negative[i] = cells covered by ⌥ strokes
   //
+  // — counted only over the regions each stroke actually pointed at, which is
+  // the first half of the invariant and lives in wandUnderStroke. A stroke
+  // crosses things on its way; crossing is not pointing.
+  //
   //     positive > negative, and clearly so  → FG
   //     negative > positive, and clearly so  → BG
   //     otherwise                            → UNKNOWN
@@ -1352,6 +1356,12 @@
   // bench, 0.2 costs nine points — past a tenth it starts discarding hints
   // that were not really contested.
   var WAND_CONFIDENT = 0.1;
+
+  // How much of a region a stroke has to cover, or how much of the stroke a
+  // region has to hold, before the stroke counts as pointing at it. Either
+  // one. Both swept on the bench and on the jitter run; see wandUnderStroke.
+  var WAND_POINTED_COV = 0.1;
+  var WAND_POINTED_SHARE = 0.1;
   function wandSettle() {
     wandFg = new Set();
     wandBg = new Set();
@@ -1390,9 +1400,33 @@
       var id = g.ids[p];
       if (id) touched[id - 1]++;
     }
-    for (var k = 0; k < g.n; k++) {
-      // A brush that grazes a region's corner has not pointed at it.
-      if (touched[k] > 0 && touched[k] >= Math.min(30, g.seen[k] * 0.05)) hit.set(k, touched[k]);
+    // What the stroke pointed at. A count of covered cells says nothing on its
+    // own: a brush crossing a comb covers the background between the teeth
+    // too, and on the interleaved picture that put 2611 cells of an
+    // 86000-cell background region under a positive stroke — thirty times the
+    // old floor of 30 cells, and the whole of that picture's error.
+    //
+    // Two different things can make a region worth calling pointed at, and a
+    // rule needs both or it fails one way or the other:
+    //
+    //   coverage  the stroke went over a good part of the region. This is what
+    //             a long sweep down a figure does, and it is also the only
+    //             thing that saves a speck the brush swallows whole.
+    //   share     the region holds a good part of the stroke. This is what a
+    //             short careful dab into a large shape does — it covers two
+    //             per cent of it and means it entirely.
+    //
+    // Either one is enough. A region with neither was crossed on the way to
+    // something else. Measuring only coverage threw away small strokes
+    // (steerability 93% to 61%); measuring only share threw away the specks.
+    var total = 0;
+    for (var k = 0; k < g.n; k++) total += touched[k];
+    for (var k2 = 0; k2 < g.n; k2++) {
+      if (touched[k2] < 12) continue;              // a grazed corner
+      var cov = g.seen[k2] > 0 ? touched[k2] / g.seen[k2] : 0;
+      var share = total > 0 ? touched[k2] / total : 0;
+      if (cov < WAND_POINTED_COV && share < WAND_POINTED_SHARE) continue;
+      hit.set(k2, touched[k2]);
     }
     return hit;
   }
@@ -2074,10 +2108,21 @@
     }
     var t0 = performance.now();
     var sel = wandSmart(g, wandFg, wandBg, +wandReach.value / 100);
+    var raw = new Set(sel);
     wandTrim(g, sel, +wandTidyEl.value);
     wandEncloseSmart(g, sel);
     wandSel = sel;
     wandPaint();
+    // A window onto the decision, for the benchmarks. Every failure in this
+    // tool so far has been diagnosed by asking which of the four stages lost
+    // the ground — the hints, the cut, the tidy-up or the enclosure — and
+    // guessing at it from the score alone cost more than one wrong hypothesis.
+    window.__wandLast = {
+      n: g.n, seen: Array.prototype.slice.call(g.seen),
+      fg: Array.from(wandFg), bg: Array.from(wandBg),
+      fgTouch: Array.from(wandFgTouch), bgTouch: Array.from(wandBgTouch),
+      raw: Array.from(raw), sel: Array.from(sel),
+    };
     setEditNote(sel.size + " / " + g.n + " muotoa · " + wandFg.size + " vihjettä"
       + (wandBg.size ? " ja " + wandBg.size + " vastavihjettä" : "")
       + " · " + Math.round(performance.now() - t0) + " ms. ⌥ poistaa, Eristä leikkaa muun pois.");

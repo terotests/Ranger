@@ -123,6 +123,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **Crossing something is not pointing at it.** The invariant above counted
+  every region a stroke passed over. That is fine while the object is convex
+  and fails the moment it is not: on the interleaved picture — a figure with
+  six notches cut into it, so a stroke down the middle alternates between the
+  figure and the background every fifteen pixels — a single positive stroke put
+  **2611 cells of an 86 000-cell background region** under positive evidence,
+  thirty times the old floor of thirty cells, and that one region was the whole
+  of the picture's error. The brush scored **53% of ceiling where the lasso
+  scored 94%**.
+
+  Two guesses were wrong before the right one. The neighbour term was not too
+  strong: sweeping `PAIR_WEIGHT` through 26 / 12 / 6 / 3 moved the score from
+  0.500 to 0.501. The harness was not aiming the stroke into a notch either;
+  it was, and fixing that (`rowCentre`, the centre of a row's longest unbroken
+  run rather than the average of its inside pixels) changed nothing. What
+  settled it was `window.__wandLast`, a window onto the four stages of the
+  decision, and a table of every region's coverage against the truth. In that
+  table the two kinds of region do not overlap at all: **every part of the
+  figure was covered at 0.13 or more of its area, every part of the background
+  at 0.06 or less.**
+
+  So the hint filter now asks two questions and takes either:
+
+      coverage  the stroke covered ≥ 10% of the region
+      share     the region holds ≥ 10% of the stroke
+
+  Either is enough; a region with neither was crossed on the way to something
+  else. Both halves are load-bearing and each was tried alone first. Coverage
+  alone throws away the small dab — a careful stroke covers two per cent of a
+  large shape and means it entirely — and steerability fell from 93% to 61%.
+  Share alone throws away the specks a brush swallows whole on a noisy
+  picture, whose share is a thousandth each; anchoring the coverage test on
+  them instead put the brush average at **32%**. Swept: `share` is the
+  sensitive one (0.25 costs 30 points of jitter), `coverage` is flat anywhere
+  between 0.06 and 0.10.
+
+  | | before | after |
+  |---|---|---|
+  | `10-interleave`, one stroke | 53% | **97%** |
+  | brush, mean of ceiling over 11 pictures | 95% | **99%** |
+  | jitter, worst of 20 hands, mean | 68% | **89%** |
+  | jitter, median | 92% | **99%** |
+  | one small dab | 88% | 83% |
+  | steerability, first stroke | 93% | 75% |
+  | steerability, after one correction | 98% | **99%** |
+
+  The two costs are real and are the trade the rule makes: fewer seeds mean
+  less reach, so a deliberately meagre first stroke now claims less. It is
+  worth it — the corrected answer is better, not worse, and a tool is judged on
+  where a correction lands rather than on where the first guess did.
+
 - **The rest of the eight-case list, built and measured.** Two more pictures
   and three more scenarios, so every case is a named thing that runs rather
   than a description.

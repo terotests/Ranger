@@ -22,7 +22,7 @@ import zlib from "node:zlib";
 import os from "node:os";
 import { openPage, waitOk } from "./eval-harness.mjs";
 import { writePng } from "./png.mjs";
-import { CASES, SIZE, TRUTH_SRC } from "./bench-cases.mjs";
+import { CASES, SIZE, TRUTH_SRC, rowCentre } from "./bench-cases.mjs";
 
 const { W, H } = SIZE;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tracer-steer-"));
@@ -46,9 +46,7 @@ function medial(c) {
   const pts = [];
   for (let t = 0; t <= 4; t++) {
     const y = y0 + (y1 - y0) * t / 4;
-    const row = inside.filter((p) => Math.abs(p[1] - y) < 3);
-    if (!row.length) continue;
-    pts.push([row.reduce((a, p) => a + p[0], 0) / row.length, y]);
+    pts.push([rowCentre(c, y), y]);
   }
   return pts;
 }
