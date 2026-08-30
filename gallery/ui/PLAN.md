@@ -1349,6 +1349,69 @@ one background colour.
 `ui:bench` and `ui:bench:paint` run it. The numbers above are one machine's and
 are meant to be re-measured, not quoted.
 
+## The resolved-style cache
+
+The benchmark said the cascade was 71% of a retained frame. It is not any more.
+
+```
+  1600 rows        style   layout    list  retained   rebuild   patch
+  before           178.6     70.5    21.1     252.9     451.1   561.8
+  after             53.1     45.5    13.6     114.2     207.4   269.1
+```
+
+Style is 3.4× faster and the whole retained frame is 2.2×. Nothing about the
+architecture changed to get it — the cascade was doing the same work over and
+over.
+
+`applyTo` did five full scans of the rule list per element per frame: one to
+clear the state properties and four to apply the groups (plain, themed,
+plain-state, themed-state). What those scans produce is an ordered list of
+(property, value) writes, and that list depends on exactly four things: the
+class string, the theme, the four interaction bits `EVGPseudo.holds` reads, and
+the viewport. A 1600-row table has EIGHTEEN distinct class strings in 22,403
+elements.
+
+So the scan runs once per distinct key and the result is replayed. Plans are
+flat parallel arrays with a start/count index rather than a list of lists — one
+allocation that grows, and no nested array type to thread through the backends.
+The viewport is not in the key: it invalidates the whole cache instead, because
+a sheet is parsed once and a window resizes rarely, and being clever there would
+be optimising the rare case.
+
+`hasInline` was the other half. The sheet asks it once per declaration per
+element — about 180,000 times a frame — and it converted the property name to
+kebab-case before looking in a list that is almost always empty. An early return
+took style from 68ms to 53.
+
+### The oracle, and the two things it could not see
+
+The old implementation is kept as `applyToDirect`. The test builds the same tree
+twice, styles it both ways and compares the DISPLAY LISTS — field-agnostic, for
+the same reason the reconciler's invariant is.
+
+Nine mutations. Three of them exposed the fixture rather than the code, and two
+of those exposed a limit of differential testing itself:
+
+- **The theme was not in the fixture at all.** It said `.dark .box`, which this
+  sheet does not support — only `.theme-<name> .class` — so the rule became a
+  parse error and there was no theme rule to get wrong. `testFixtureParses` now
+  asserts the sheet parses clean, which is the check that would have said so
+  immediately.
+- **A differential oracle is blind to what the two sides share.** Breaking
+  `hasInline` breaks the cached path and the direct path identically, so the two
+  display lists still agreed. Inline precedence needs a direct assertion, and
+  has one.
+- **One sheet, two themes** is a case `testAgreement` structurally cannot reach,
+  because it builds a fresh sheet per comparison — so each cache only ever held
+  one theme and the key never needed to carry it. Dropping the theme from the
+  key passed everything until a test applied one sheet twice.
+
+And one near-miss worth recording: a mutation round used `git checkout` to
+restore a file, which reverted the `hasInline` optimisation because it was not
+committed yet. The benchmark numbers taken after that point were measuring
+source that no longer existed. Restore from a copy, not from HEAD, while the
+thing being measured is uncommitted.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -1417,8 +1480,8 @@ language work rather than library work. In the order that pays:
       survives, its `state active` survives, and the element identity survives.
       Dialog and Menu come after it, for focus and ARIA; a Grid is the stress
       test, not the first test
-- [ ] **A resolved-style cache.** The measurement above says this is the single
-      biggest win in the frame, and it needs no invalidation machinery at all
+- [x] **A resolved-style cache.** 3.4× on the cascade, 2.2× on the whole
+      retained frame
 - [ ] **Invalidation classes** — paint-only, transform-only, layout, structure —
       so a hover costs a repaint rather than a whole pipeline. The `patch`
       column is the target: it must stop tracking `retained`

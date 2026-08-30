@@ -1671,6 +1671,14 @@ class EVGElement {
     }
 
     fn hasInline:boolean (name:string) {
+        ; The overwhelmingly common answer, reached without converting the
+        ; name. The stylesheet asks this once per declaration per element per
+        ; frame — about 180,000 times on a 1600-row table — and almost every
+        ; element has nothing inline at all, so paying for a kebab-case
+        ; conversion in order to look in an empty list was most of what it cost.
+        if ((array_length inlineProps) == 0) {
+            return false
+        }
         def prop:string (EVGElement.toKebab(name))
         def i:int 0
         while (i < (array_length inlineProps)) {

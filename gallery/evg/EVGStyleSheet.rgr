@@ -195,14 +195,66 @@ class EVGStyleSheet {
     def viewportH:double 0.0
     def coarsePointer:boolean false
 
+    ; --- the resolved-style cache ---------------------------------------------
+    ;
+    ; `applyTo` used to do five full scans of the rule list PER ELEMENT, PER
+    ; FRAME: one to clear the state properties and four to apply the groups.
+    ; Measured on a 1600-row table (`npm run ui:bench`), that was 178ms of a
+    ; 252ms frame — 71% of it, and more than layout and display-list
+    ; construction put together.
+    ;
+    ; The waste is that the answer barely varies. What a rule scan produces is
+    ; an ordered list of (property, value) writes, and that list depends on
+    ; exactly four things: the element's class string, the theme, the four
+    ; interaction bits `EVGPseudo.holds` reads, and the viewport. That same
+    ; 1600-row table has EIGHTEEN distinct class strings in 22,403 elements.
+    ;
+    ; So the scan happens once per distinct key and the result is replayed. The
+    ; plans are stored as flat parallel arrays rather than a list of lists: one
+    ; allocation that grows, and no nested array type to thread through the
+    ; backends.
+    def planNames:[string]
+    def planValues:[string]
+    def planStart:[int]
+    def planCount:[int]
+    def planIndex:[string:int]
+    ; How often the cache answered, and how often it had to scan. Reported
+    ; rather than inferred: a cache that never hits looks exactly like one that
+    ; works, only slower.
+    def planHits:int 0
+    def planMisses:int 0
+
     Constructor () {
         ruleCounter = 0
+        this.dropPlans()
+    }
+
+    ; Everything cached is a function of the rules and the viewport, so both of
+    ; those changing throws the lot away. There is no finer invalidation here on
+    ; purpose: a sheet is parsed once and a viewport changes when the window
+    ; does, and being clever about either would be optimising the rare case.
+    fn dropPlans:void () {
+        def a:[string]
+        planNames = a
+        def b:[string]
+        planValues = b
+        def c:[int]
+        planStart = c
+        def d:[int]
+        planCount = d
+        def e:[string:int]
+        planIndex = e
     }
 
     ; State the surface once; `applyTree` then honours the media blocks.
     ; Width and height are CSS pixels, and `coarse` says the pointer is a
     ; finger rather than a mouse.
     fn setViewport:void (w:double h:double coarse:boolean) {
+        if (((w != viewportW) || (h != viewportH)) || (coarse != coarsePointer)) {
+            ; A media query can turn a rule on or off, so every plan built under
+            ; the old surface is now a guess.
+            this.dropPlans()
+        }
         viewportW = w
         viewportH = h
         coarsePointer = coarse
@@ -225,6 +277,7 @@ class EVGStyleSheet {
     ; -----------------------------------------------------------------------
 
     fn parse:void (css:string) {
+        this.dropPlans()
         def src:string (this.stripComments(css))
         this.parseBlock(src (new EVGMediaQuery()))
     }
@@ -845,10 +898,58 @@ class EVGStyleSheet {
         }
     }
 
-    ; Apply matching rules to a single element, weakest group first so that
-    ; stronger groups overwrite: unscoped classes, then theme-scoped classes.
-    ; Inline attributes are never overwritten.
+    ; The four interaction bits `EVGPseudo.holds` reads, as a string. Nothing
+    ; else about an element can change which rules match it, which is the whole
+    ; reason a plan can be shared.
+    sfn stateKey:string (el:EVGElement) {
+        def out:string "...."
+        if el.isHovered  { out = ("h" + (substring out 1 4)) }
+        if el.isFocused  { out = ((substring out 0 1) + "f" + (substring out 2 4)) }
+        if el.isPressed  { out = ((substring out 0 2) + "a" + (substring out 3 4)) }
+        if el.a11yDisabled { out = ((substring out 0 3) + "d") }
+        return out
+    }
+
+    ; Apply matching rules to a single element, from a plan built once per
+    ; distinct (class string, theme, interaction state) and replayed after that.
+    ; See the cache fields for why.
     fn applyTo:void (el:EVGElement theme:string) {
+        if ((strlen el.className) == 0) {
+            return
+        }
+        def key:string ((((el.className + "|") + theme) + "|") + (EVGStyleSheet.stateKey(el)))
+        def at@(optional):int (get planIndex key)
+        def slot:int 0
+        if (null? at) {
+            slot = (this.buildPlan(el theme key))
+            planMisses = (planMisses + 1)
+        } {
+            slot = (unwrap at)
+            planHits = (planHits + 1)
+        }
+        def from:int (itemAt planStart slot)
+        def n:int (itemAt planCount slot)
+        def i:int 0
+        while (i < n) {
+            def name:string (itemAt planNames (from + i))
+            ; The one thing that is NOT in the key. Inline attributes outrank
+            ; every rule and they belong to the element, not to its class — the
+            ; sortable's placeholder carries an inline `transform` that its
+            ; siblings do not. So the plan records every write the rules asked
+            ; for and this filter runs per element, which is cheap because
+            ; `hasInline` answers immediately when nothing is inline.
+            if ((el.hasInline(name)) == false) {
+                el.setAttribute(name (itemAt planValues (from + i)))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The original, direct implementation. Kept — not as dead code but as the
+    ; ORACLE: `EVGStyleCacheTest` applies the same tree both ways and compares
+    ; the display lists, so the cache is checked against the thing it replaced
+    ; rather than against a description of it.
+    fn applyToDirect:void (el:EVGElement theme:string) {
         if ((strlen el.className) == 0) {
             return
         }
@@ -865,6 +966,105 @@ class EVGStyleSheet {
         this.applyGroup(el classes theme true false)
         this.applyGroup(el classes theme false true)
         this.applyGroup(el classes theme true true)
+    }
+
+    fn applyTreeDirect:void (root:EVGElement theme:string) {
+        this.applyToDirect(root theme)
+        def i:int 0
+        def n:int (root.getChildCount())
+        while (i < n) {
+            this.applyTreeDirect((root.getChild(i)) theme)
+            i = (i + 1)
+        }
+    }
+
+    ; Record what `applyToDirect` WOULD write, in the same order, and remember
+    ; it under `key`. The element is read for its state bits and its classes and
+    ; is not written to.
+    fn buildPlan:int (el:EVGElement theme:string key:string) {
+        def classes:[string] (this.splitWhitespace(el.className))
+        def from:int (array_length planNames)
+        this.planStateClears(classes theme)
+        this.planGroup(el classes theme false false)
+        this.planGroup(el classes theme true false)
+        this.planGroup(el classes theme false true)
+        this.planGroup(el classes theme true true)
+        def slot:int (array_length planStart)
+        push planStart from
+        push planCount ((array_length planNames) - from)
+        set planIndex key slot
+        return slot
+    }
+
+    ; `clearStateProps`, recorded. Note it does NOT consult `EVGPseudo.holds`:
+    ; every state rule that could match this class resets its properties first,
+    ; whether or not the state is currently on — which is what makes leaving a
+    ; state put the base value back.
+    fn planStateClears:void (classes:[string] theme:string) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            if (rule.pseudo != 0) {
+                def applies:boolean true
+                if (rule.isThemeScoped()) {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (this.matchesClass(classes rule.className))
+                }
+                if applies {
+                    def d:int 0
+                    while (d < (array_length rule.decls)) {
+                        def decl:EVGStyleDecl (itemAt rule.decls d)
+                        def init:string (EVGStyleSheet.initialValue(decl.name))
+                        if ((strlen init) > 0) {
+                            push planNames decl.name
+                            push planValues init
+                        }
+                        d = (d + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; `applyGroup`, recorded.
+    fn planGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean stateful:boolean) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            def isStateful:boolean (rule.pseudo != 0)
+            if ((isStateful == stateful) && ((rule.isThemeScoped()) == themeScoped)) {
+                def applies:boolean true
+                if themeScoped {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (EVGPseudo.holds(rule.pseudo el))
+                }
+                if applies {
+                    if (this.matchesClass(classes rule.className)) {
+                        def d:int 0
+                        while (d < (array_length rule.decls)) {
+                            def decl:EVGStyleDecl (itemAt rule.decls d)
+                            push planNames decl.name
+                            push planValues decl.value
+                            d = (d + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     ; Put back the initial value of everything a STATE rule for this element

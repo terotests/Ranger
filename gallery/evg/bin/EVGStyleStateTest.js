@@ -1975,6 +1975,9 @@ class EVGElement  {
     }
   };
   hasInline (name) {
+    if ( (this.inlineProps.length) == 0 ) {
+      return false;
+    }
     const prop = EVGElement.toKebab(name);
     let i = 0;
     while (i < (this.inlineProps.length)) {
@@ -3394,9 +3397,32 @@ class EVGStyleSheet  {
     this.viewportW = 0.0;
     this.viewportH = 0.0;
     this.coarsePointer = false;
+    this.planNames = [];
+    this.planValues = [];
+    this.planStart = [];
+    this.planCount = [];
+    this.planIndex = {};
+    this.planHits = 0;
+    this.planMisses = 0;
     this.ruleCounter = 0;
+    this.dropPlans();
   }
+  dropPlans () {
+    let a = [];
+    this.planNames = a;
+    let b = [];
+    this.planValues = b;
+    let c = [];
+    this.planStart = c;
+    let d = [];
+    this.planCount = d;
+    let e = {};
+    this.planIndex = e;
+  };
   setViewport (w, h, coarse) {
+    if ( ((w != this.viewportW) || (h != this.viewportH)) || (coarse != this.coarsePointer) ) {
+      this.dropPlans();
+    }
     this.viewportW = w;
     this.viewportH = h;
     this.coarsePointer = coarse;
@@ -3411,6 +3437,7 @@ class EVGStyleSheet  {
     return this.errors[i];
   };
   parse (css) {
+    this.dropPlans();
     const src = this.stripComments(css);
     this.parseBlock(src, new EVGMediaQuery());
   };
@@ -3936,12 +3963,124 @@ class EVGStyleSheet  {
     if ( (el.className.length) == 0 ) {
       return;
     }
+    const key = (((el.className + "|") + theme) + "|") + EVGStyleSheet.stateKey(el);
+    const at = ( Object.prototype.hasOwnProperty.call(this.planIndex, key) ? this.planIndex[key] : undefined );
+    let slot = 0;
+    if ( typeof(at) === "undefined" ) {
+      slot = this.buildPlan(el, theme, key);
+      this.planMisses = this.planMisses + 1;
+    } else {
+      slot = at;
+      this.planHits = this.planHits + 1;
+    }
+    const from = this.planStart[slot];
+    const n = this.planCount[slot];
+    let i = 0;
+    while (i < n) {
+      const name = this.planNames[(from + i)];
+      if ( el.hasInline(name) == false ) {
+        el.setAttribute(name, this.planValues[(from + i)]);
+      }
+      i = i + 1;
+    };
+  };
+  applyToDirect (el, theme) {
+    if ( (el.className.length) == 0 ) {
+      return;
+    }
     const classes = this.splitWhitespace(el.className);
     this.clearStateProps(el, classes, theme);
     this.applyGroup(el, classes, theme, false, false);
     this.applyGroup(el, classes, theme, true, false);
     this.applyGroup(el, classes, theme, false, true);
     this.applyGroup(el, classes, theme, true, true);
+  };
+  applyTreeDirect (root, theme) {
+    this.applyToDirect(root, theme);
+    let i = 0;
+    const n = root.getChildCount();
+    while (i < n) {
+      this.applyTreeDirect(root.getChild(i), theme);
+      i = i + 1;
+    };
+  };
+  buildPlan (el, theme, key) {
+    const classes = this.splitWhitespace(el.className);
+    const from = this.planNames.length;
+    this.planStateClears(classes, theme);
+    this.planGroup(el, classes, theme, false, false);
+    this.planGroup(el, classes, theme, true, false);
+    this.planGroup(el, classes, theme, false, true);
+    this.planGroup(el, classes, theme, true, true);
+    const slot = this.planStart.length;
+    this.planStart.push(from);
+    this.planCount.push((this.planNames.length) - from);
+    this.planIndex[key] = slot;
+    return slot;
+  };
+  planStateClears (classes, theme) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      if ( rule.pseudo != 0 ) {
+        let applies = true;
+        if ( rule.isThemeScoped() ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = this.matchesClass(classes, rule.className);
+        }
+        if ( applies ) {
+          let d = 0;
+          while (d < (rule.decls.length)) {
+            const decl = rule.decls[d];
+            const init = EVGStyleSheet.initialValue(decl.name);
+            if ( (init.length) > 0 ) {
+              this.planNames.push(decl.name);
+              this.planValues.push(init);
+            }
+            d = d + 1;
+          };
+        }
+      }
+      i = i + 1;
+    };
+  };
+  planGroup (el, classes, theme, themeScoped, stateful) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      const isStateful = rule.pseudo != 0;
+      if ( (isStateful == stateful) && (rule.isThemeScoped() == themeScoped) ) {
+        let applies = true;
+        if ( themeScoped ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = EVGPseudo.holds(rule.pseudo, el);
+        }
+        if ( applies ) {
+          if ( this.matchesClass(classes, rule.className) ) {
+            let d = 0;
+            while (d < (rule.decls.length)) {
+              const decl = rule.decls[d];
+              this.planNames.push(decl.name);
+              this.planValues.push(decl.value);
+              d = d + 1;
+            };
+          }
+        }
+      }
+      i = i + 1;
+    };
   };
   clearStateProps (el, classes, theme) {
     let i = 0;
@@ -4046,6 +4185,22 @@ EVGStyleSheet.smaller = function(a, b) {
     return a;
   }
   return b;
+};
+EVGStyleSheet.stateKey = function(el) {
+  let out = "....";
+  if ( el.isHovered ) {
+    out = "h" + (out.substring(1, 4 ));
+  }
+  if ( el.isFocused ) {
+    out = ((out.substring(0, 1 )) + "f") + (out.substring(2, 4 ));
+  }
+  if ( el.isPressed ) {
+    out = ((out.substring(0, 2 )) + "a") + (out.substring(3, 4 ));
+  }
+  if ( el.a11yDisabled ) {
+    out = (out.substring(0, 3 )) + "d";
+  }
+  return out;
 };
 EVGStyleSheet.initialValue = function(name) {
   if ( name == "transform" ) {

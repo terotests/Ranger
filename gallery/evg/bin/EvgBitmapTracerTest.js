@@ -4822,6 +4822,9 @@ class EVGElement  {
     }
   };
   hasInline (name) {
+    if ( (this.inlineProps.length) == 0 ) {
+      return false;
+    }
     const prop = EVGElement.toKebab(name);
     let i = 0;
     while (i < (this.inlineProps.length)) {
