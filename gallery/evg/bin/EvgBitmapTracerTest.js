@@ -6453,6 +6453,47 @@ class EvgBitmapTracer  {
       a = a + 1;
     };
   };
+  swatchContact (outR, outG, outB, area, contact) {
+    const k = outR.length;
+    const n = this.width * this.height;
+    let lab = [];
+    let i = 0;
+    while (i < n) {
+      if ( (this.planeA[i]) >= 16 ) {
+        lab.push(this.nearestIndex((this.planeR[i]), (this.planeG[i]), (this.planeB[i]), outR, outG, outB));
+      } else {
+        lab.push(0 - 1);
+      }
+      i = i + 1;
+    };
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const p = (y * this.width) + x;
+        const la = lab[p];
+        if ( la >= 0 ) {
+          area[la] = (area[la]) + 1;
+          if ( (x + 1) < this.width ) {
+            const lb = lab[(p + 1)];
+            if ( (lb >= 0) && (lb != la) ) {
+              contact[(la * k) + lb] = (contact[((la * k) + lb)]) + 1;
+              contact[(lb * k) + la] = (contact[((lb * k) + la)]) + 1;
+            }
+          }
+          if ( (y + 1) < this.height ) {
+            const lc = lab[(p + this.width)];
+            if ( (lc >= 0) && (lc != la) ) {
+              contact[(la * k) + lc] = (contact[((la * k) + lc)]) + 1;
+              contact[(lc * k) + la] = (contact[((lc * k) + la)]) + 1;
+            }
+          }
+        }
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
   mergeCloseSwatches (locked, outR, outG, outB, binR, binG, binB, binW) {
     const delta = this.options.minColorDelta;
     if ( delta <= 0 ) {
@@ -6480,13 +6521,39 @@ class EvgBitmapTracer  {
         wgt[idx] = (wgt[idx]) + (binW[i]);
         i = i + 1;
       };
+      let area = [];
+      let contact = [];
+      let zi = 0;
+      while (zi < k) {
+        area.push(0);
+        zi = zi + 1;
+      };
+      let zj = 0;
+      while (zj < (k * k)) {
+        contact.push(0);
+        zj = zj + 1;
+      };
+      if ( this.hasColorPlanes ) {
+        this.swatchContact(outR, outG, outB, area, contact);
+      }
       let dropAt = 0 - 1;
       let a = 0;
       while ((a < k) && (dropAt < 0)) {
         let b = a + 1;
         while ((b < k) && (dropAt < 0)) {
           const d = EvgBitmapTracer.colorDist2((outR[a]), (outG[a]), (outB[a]), (outR[b]), (outG[b]), (outB[b]), lw);
-          if ( d <= limit ) {
+          let small = area[a];
+          if ( (area[b]) < small ) {
+            small = area[b];
+          }
+          let mixed = true;
+          if ( this.hasColorPlanes ) {
+            if ( small >= 64 ) {
+              const mix = ((contact[((a * k) + b)])) / (small);
+              mixed = mix >= 0.35;
+            }
+          }
+          if ( (d <= limit) && mixed ) {
             if ( b < locked ) {
             } else {
               if ( a < locked ) {
@@ -9997,7 +10064,7 @@ class EvgBitmapTracerTest  {
     t.eqInt("the similarity stop has a default", d.overlaySimilar, 8);
     const smooth = this.traceVanishing("smooth", false, 15);
     const overlay = this.traceVanishing("overlay", true, 15);
-    t.ok("the block is lost when the shapes partition", smooth.layerCount() <= 2);
+    t.ok("the block is lost when the shapes partition", smooth.layerCount() <= 3);
     t.ok("and comes back when they stack", overlay.layerCount() > smooth.layerCount());
     const base = overlay.layers[0];
     let differs = 0;

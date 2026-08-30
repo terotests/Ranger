@@ -1302,7 +1302,17 @@
   // and is a radius in pixels; it is called one now. Two different quantities
   // under one letter is how "let's tune lambda" becomes a question nobody can
   // answer.
-  var WAND_HOPS = 12, PAIR_WEIGHT = 26, WAND_SIGMA_C = 14, WAND_SIGMA_E = 26;
+  //
+  // PAIR_WEIGHT was 26 and is 6, because the tracer changed under it. It was
+  // tuned when the merge collapsed weak edges, so the boundaries it glued
+  // across were not in the trace anyway; once they are, gluing across them is
+  // the selector's largest single error. The knob is a genuine trade and the
+  // numbers are in the changelog: low is better on one stroke and at the
+  // median, high is better for a meagre stroke and for the worst hand of
+  // twenty. Six keeps most of the accuracy and gives back some of the
+  // steadiness, and the correction path — which is the thing the tool is
+  // actually judged on — is 99% either way.
+  var WAND_HOPS = 12, PAIR_WEIGHT = 6, WAND_SIGMA_C = 14, WAND_SIGMA_E = 26;
   var WAND_FAR = 0.6;
   // Manual evidence must outweigh a guess. The frame prior is a good prior and
   // a false rule — a portrait crop touches the bottom edge, a full-bleed
@@ -2229,6 +2239,7 @@
       fg: Array.from(wandFg), bg: Array.from(wandBg),
       fgTouch: Array.from(wandFgTouch), bgTouch: Array.from(wandBgTouch),
       raw: Array.from(raw), sel: Array.from(sel),
+      frame: Array.from(wandBorderExamples(g)),
     };
     setEditNote(sel.size + " / " + g.n + " muotoa · " + wandFg.size + " vihjettä"
       + (wandBg.size ? " ja " + wandBg.size + " vastavihjettä" : "")

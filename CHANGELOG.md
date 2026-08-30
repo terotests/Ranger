@@ -123,6 +123,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The tracer merged away the edge the selection needed.** `minColorDelta`
+  collapses palette entries closer together than it — written for the case
+  where asking for more colours than the picture holds splits one region
+  between two near-identical swatches — and it asks only how close two colours
+  are. That is the wrong question on its own. Two colours that close can also
+  be a figure and the background beside it, separated by a real but faint edge,
+  and merging those destroys the only boundary in the picture. On `9-weakedge`
+  it did exactly that: the traced ceiling was **0.559** and one shape covered a
+  third of the frame with 44% of it figure. Nothing downstream can recover
+  that, and no setting escaped it — the ceiling is identical at 8, 14, 24, 40
+  and 64 colours.
+
+  So the merge now also asks how the two swatches *sit* in the picture. For
+  each candidate pair it counts adjacent pixels: `contact / min(area)` is about
+  2 for two swatches dithered through each other and a few thousandths for two
+  blocks that merely share a border — three orders of magnitude apart, which is
+  why one threshold anywhere between works. Swatches that are mixed still
+  merge, which is the case the setting was written for; swatches that lie side
+  by side do not.
+
+  | | before | after |
+  |---|---|---|
+  | `9-weakedge` ceiling | 0.559 | **0.974** |
+  | its pixels lost to straddling shapes | 19 551 | **581** |
+  | its largest straddling shape | 43 090 px | **95 px** |
+  | `4-gradient` ceiling | 0.743 | **0.853** |
+  | the sample photograph | 15 layers, 614 KB | 15 layers, 619 KB |
+
+  The photograph is the point of that last row: the near-duplicate swatches a
+  photograph produces are interleaved by its own grain, so they still collapse,
+  and the output is within one per cent of what it was. It costs about 100 ms
+  on a 320×221 picture, which is one pass over the pixels per merge.
+
+  Where it does change things is a **noiseless synthetic ramp**, whose bands
+  are clean blocks lying side by side and so no longer merge: `4-gradient` goes
+  from 146 shapes to 301, and the tracer's own suite caught it — the picture in
+  `testOverlayRecoversASwallowedShape` keeps three tones where it used to keep
+  two. That test asserts a limitation through a layer count, and the count is
+  what moved: the three fills are #999999, #A3A3A3 and #AFAFAF, evenly spaced
+  tones of the ramp, so the swallowed block did **not** come back and the
+  bound was widened rather than the claim rewritten. Worth stating plainly,
+  because the first reading of that failure was that the change had fixed the
+  very thing the test documents, and printing the fills is what showed it had
+  not.
+
+- **A better trace exposed what the low ceiling had been hiding.** With the
+  weak edge actually in the trace, the selector had to decide it — and did not.
+  `9-weakedge` read 100% of ceiling before and **71%** after, on a higher
+  absolute score (0.598 → 0.687): it had never been right, the ceiling had just
+  been too low to tell. The cause was the neighbour term. The band beside the
+  flank is a long shared boundary, a close colour and a weak gradient, which is
+  the definition of glue, and `PAIR_WEIGHT` was tuned back when such boundaries
+  were not in the trace at all.
+
+  Retuned from 26 to 6. It is a real trade and both directions are recorded:
+
+  | PAIR_WEIGHT | 0 | 4 | **6** | 10 | 26 |
+  |---|---|---|---|---|---|
+  | brush, one stroke, of ceiling | 95% | 95% | **95%** | 94% | 92% |
+  | brush + one ⌥ | 99% | 99% | **99%** | 98% | 95% |
+  | jitter median | 95% | 95% | **95%** | 94% | 92% |
+  | jitter, worst of 20 hands | 82% | 86% | **86%** | 86% | 89% |
+  | one small dab | 79% | 81% | **84%** | 85% | 85% |
+  | steerability, first stroke | 77% | 77% | **77%** | 77% | 85% |
+  | steerability, corrected | 98% | 96% | **96%** | 95% | 95% |
+
+  Low is better on one stroke and at the median; high is better for a meagre
+  stroke and for the worst hand. `9-weakedge` shows the shape of it exactly: at
+  26 it was a flat 71% for every one of twenty hands — capped — and at 6 the
+  median is 100% and the worst 37%. Six keeps the accuracy and gives back some
+  of the steadiness, and the correction path is 99% either way, which is what
+  the tool is actually judged on.
+
+  Where it leaves the set: `9-weakedge` 0.990 on one stroke against a 0.974
+  ceiling, `4-gradient` 88%, and the two known ones — `10-interleave` at 61%
+  on one stroke and 97% with a correction, `6-limbs` at 100%.
+
 - **The gap between the legs stays out.** `6-limbs` was a flat 97% of ceiling
   for every selector and every one of twenty hands — the signature of a
   systematic loss rather than a hard picture — and the loss was the hole

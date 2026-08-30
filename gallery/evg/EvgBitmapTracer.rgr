@@ -1126,6 +1126,63 @@ class EvgBitmapTracer {
     ; of the pair paints more pixels. The first `locked` entries were chosen by
     ; the caller: a pair of them is left alone, and against an automatic swatch
     ; the locked one is what survives.
+    ; How two swatches sit in the picture: mixed through each other, or side by
+    ; side. mergeCloseSwatches asks only how close two colours are, and on its
+    ; own that is the wrong question. The case it was written for is one region
+    ; split between two near-identical swatches — those are interleaved, every
+    ; pixel of the one touching the other — and merging them is right. But two
+    ; colours that far apart can also be a figure and the background beside it,
+    ; separated by a real if faint edge, and merging those destroys the only
+    ; boundary in the picture. Measured on the weak-edge bench case, the merge
+    ; took the traced ceiling from 0.95 to 0.56 and left one shape covering a
+    ; third of the frame, 44% of it figure: nothing downstream can recover that.
+    ;
+    ; So count adjacencies. For each pair, contact / min(area) is about 2 for
+    ; two swatches dithered through each other and about perimeter/area — a few
+    ; thousandths — for two blocks that merely share a border. Three orders of
+    ; magnitude apart, which is why one threshold anywhere in between works.
+    fn swatchContact:void (outR:[int] outG:[int] outB:[int] area:[int] contact:[int]) {
+        def k:int (array_length outR)
+        def n:int (width * height)
+        def lab:[int]
+        def i:int 0
+        while (i < n) {
+            if ((itemAt planeA i) >= 16) {
+                push lab (this.nearestIndex((itemAt planeR i) (itemAt planeG i) (itemAt planeB i) outR outG outB))
+            } {
+                push lab (0 - 1)
+            }
+            i = (i + 1)
+        }
+        def y:int 0
+        while (y < height) {
+            def x:int 0
+            while (x < width) {
+                def p:int ((y * width) + x)
+                def la:int (itemAt lab p)
+                if (la >= 0) {
+                    set area la ((itemAt area la) + 1)
+                    if ((x + 1) < width) {
+                        def lb:int (itemAt lab (p + 1))
+                        if ((lb >= 0) && (lb != la)) {
+                            set contact ((la * k) + lb) ((itemAt contact ((la * k) + lb)) + 1)
+                            set contact ((lb * k) + la) ((itemAt contact ((lb * k) + la)) + 1)
+                        }
+                    }
+                    if ((y + 1) < height) {
+                        def lc:int (itemAt lab (p + width))
+                        if ((lc >= 0) && (lc != la)) {
+                            set contact ((la * k) + lc) ((itemAt contact ((la * k) + lc)) + 1)
+                            set contact ((lc * k) + la) ((itemAt contact ((lc * k) + la)) + 1)
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
     fn mergeCloseSwatches:void (locked:int outR:[int] outG:[int] outB:[int] binR:[int] binG:[int] binB:[int] binW:[int]) {
         def delta:int options.minColorDelta
         if (delta <= 0) {
@@ -1156,13 +1213,43 @@ class EvgBitmapTracer {
                 set wgt idx ((itemAt wgt idx) + (itemAt binW i))
                 i = (i + 1)
             }
+            ; Where those swatches sit, not just how much they paint.
+            def area:[int]
+            def contact:[int]
+            def zi:int 0
+            while (zi < k) {
+                push area 0
+                zi = (zi + 1)
+            }
+            def zj:int 0
+            while (zj < (k * k)) {
+                push contact 0
+                zj = (zj + 1)
+            }
+            if (hasColorPlanes) {
+                this.swatchContact(outR outG outB area contact)
+            }
             def dropAt:int (0 - 1)
             def a:int 0
             while ((a < k) && (dropAt < 0)) {
                 def b:int (a + 1)
                 while ((b < k) && (dropAt < 0)) {
                     def d:double (EvgBitmapTracer.colorDist2((itemAt outR a) (itemAt outG a) (itemAt outB a) (itemAt outR b) (itemAt outG b) (itemAt outB b) lw))
-                    if (d <= limit) {
+                    ; Close enough to merge, and mixed enough that merging
+                    ; them is collapsing one thing rather than dissolving the
+                    ; edge between two.
+                    def small:int (itemAt area a)
+                    if ((itemAt area b) < small) {
+                        small = (itemAt area b)
+                    }
+                    def mixed:boolean true
+                    if (hasColorPlanes) {
+                        if (small >= 64) {
+                            def mix:double ((to_double (itemAt contact ((a * k) + b))) / (to_double small))
+                            mixed = (mix >= 0.35)
+                        }
+                    }
+                    if ((d <= limit) && mixed) {
                         if (b < locked) {
                             ; both pinned — the caller asked for both.
                         } {
