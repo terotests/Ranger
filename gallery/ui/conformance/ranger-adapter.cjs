@@ -70,8 +70,9 @@ function run(spec, css) {
   observe("initial");
   for (const step of spec.steps) {
     if ("click" in step) {
-      host.click(step.click);
-      observe("click " + step.click);
+      const mods = step.mods || [];
+      host.clickWith(step.click, mods.includes("Shift"), mods.includes("Control"));
+      observe("click " + step.click + (mods.length ? " [" + mods.join("+") + "]" : ""));
     } else if ("key" in step) {
       host.key(step.key);
       // `settle` is deliberately NOT ticked here, unlike on a hover step. It

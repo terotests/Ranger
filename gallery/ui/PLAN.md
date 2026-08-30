@@ -1498,6 +1498,54 @@ skip: every element is new, so every element styles and layout must run. The
 declarative path's cost is the build (81ms) and the reconcile, and lowering
 those is a different project — one the benchmark can now argue about.
 
+## Tree selection, and three things the source said that a reading would not
+
+`selectionFeature` is the first of the ten headless-tree features ReUI's tree
+does not enable. It is a MODE here — off by default, because the eighteen
+behaviours already measured are measured against ReUI's configuration and must
+not move. A fixture asks for it with `"selection": true`, and the DOM reference
+builds a different tree.
+
+Fourteen behaviours, two specs, 4,988 observations. Eight mutations, all caught
+— but only after three of them exposed the fixture rather than the code, which
+is becoming the pattern worth naming: **the mutation that survives is usually
+telling you what your fixture does not contain.**
+
+Three findings, none of which a reading of WAI-ARIA would give you:
+
+- **`space` is COMMENTED OUT of the library's selection hotkeys, and that means
+  the opposite of what it looks like.** Space still selects — through the click
+  path, because a row is a `<button>` and activating one fires `click`, and the
+  selection feature's click handler with no modifiers is
+  `setSelectedItems([itemId])`. So selecting nine rows with Control+A and then
+  pressing Space leaves exactly one selected. The first version kept all nine
+  and the reference had dropped eight.
+- **A modified click does not open a folder.** The base handler reads
+  `if (e.ctrlKey || e.shiftKey || e.metaKey) return;` before the expand branch.
+  Miss it and shift-clicking down a list to select a range opens and closes
+  every folder on the way past. Found by a divergence on a folder the reference
+  had left shut.
+- **Shift+Arrow shrinks as well as grows.** When the focused row AND the one it
+  is moving towards are both already selected, the FOCUSED one is deselected
+  rather than the next one selected. That is what makes walking back over a
+  range give the range back instead of doing nothing.
+
+And the fixture lessons, because each cost a mutation that should have failed:
+
+- A click on a row that is not VISIBLE is not a step. It hits nothing on one
+  side and cannot be found on the other, and the two disagree about what
+  happens to focus — an artefact of the harness, not a finding.
+- "Select all" and "select every node" are the same answer until the fixture
+  has a closed folder with children in it.
+- And even then the difference is invisible, because a hidden row is not in
+  either trace. The step that makes it observable is opening the folder
+  afterwards — with ArrowRight, not Enter, since Enter would collapse the
+  selection first.
+
+The harness grew one thing: a click can carry modifiers (`"mods": ["Shift"]`).
+Keys needed nothing — Playwright already understands `"Shift+ArrowUp"` and the
+Ranger side passes the string through to the controller.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

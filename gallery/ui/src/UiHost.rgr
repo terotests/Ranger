@@ -420,6 +420,13 @@ class UiHost {
     ; disabled node activates nothing AND takes focus away — which is what a
     ; browser does, and what the Radix oracle records.
     fn click:void (target:string) {
+        this.clickWith(target false false)
+    }
+
+    ; The same click, with Shift and Control. A multi-select is the only thing
+    ; that reads them, and it reads them the way its reference does: shift wins
+    ; over control, and only a non-shift click moves the range anchor.
+    fn clickWith:void (target:string shift:boolean ctrl:boolean) {
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -429,7 +436,7 @@ class UiHost {
                 ; An activation may move focus itself — opening a dialog puts
                 ; it on the close button, and the host should not have to know
                 ; that a dialog is what happened.
-                def next:string (c.activate(target))
+                def next:string (c.activateWith(target shift ctrl))
                 if ((strlen next) > 0) {
                     focusId = next
                 }

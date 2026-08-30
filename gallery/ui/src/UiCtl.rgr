@@ -146,6 +146,16 @@ class UiCtl {
         return ""
     }
 
+    ; A click carrying the two modifiers a multi-select cares about.
+    ;
+    ; Defaults to the plain activation, so every control that does not have a
+    ; selection ignores them — which is all of them but the tree. It is on the
+    ; base class rather than reached through a cast because the HOST routes
+    ; clicks and has no business knowing which controller is underneath.
+    fn activateWith:string (target:string shift:boolean ctrl:boolean) {
+        return (this.activate(target))
+    }
+
     ; A key arrived while `target` held focus. Returns the test id that should
     ; hold focus afterwards, or "" to leave focus where it is — which is how a
     ; composite moves focus along with an arrow key without the host needing to

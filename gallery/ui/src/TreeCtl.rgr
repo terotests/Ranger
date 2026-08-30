@@ -77,6 +77,31 @@ class TreeCtl extends UiCtl {
     ; The row focus sits on, by value. "" before anything is focused.
     def activeValue:string ""
 
+    ; --- selection, which is a MODE ------------------------------------------
+    ;
+    ; Off by default, because ReUI's `c-tree-1` does not enable
+    ; `selectionFeature` and the eighteen behaviours already measured are
+    ; measured against that configuration. Turning it on is a different tree
+    ; with a different contract, and the specs say which one they mean.
+    ;
+    ; Measured from the library's source rather than guessed, and two things in
+    ; it are not what a reading of WAI-ARIA would give you:
+    ;
+    ;   `space` IS COMMENTED OUT in headless-tree's own selection hotkeys. So
+    ;   Space still activates the row and toggles the folder, selection or not.
+    ;   That is the one key turning the feature on does not change.
+    ;
+    ;   SHIFT+ARROW SHRINKS AS WELL AS GROWS. If the focused row and the one it
+    ;   is moving towards are BOTH already selected, the focused one is
+    ;   DESELECTED instead of the next one being selected — which is how
+    ;   walking back over a range gives the range back rather than doing
+    ;   nothing. Focus moves either way.
+    def selectable:boolean false
+    def selected:[string]
+    ; Where a shift-click range measures from. Set by any click that is not a
+    ; shift-click, and by the first shift-click when there is none.
+    def anchorValue:string ""
+
     ; --- the flattened visible list, rebuilt by build() ------------------------
     ; Parallel arrays, the same shape MenuCtl uses. Everything below is a scan
     ; of these rather than a walk of the tree, because every question the
@@ -94,6 +119,8 @@ class TreeCtl extends UiCtl {
         nodes = n
         def e:[string]
         expanded = e
+        def sel:[string]
+        selected = sel
         this.clearRows()
     }
 
@@ -166,6 +193,112 @@ class TreeCtl extends UiCtl {
     }
 
     ; --- ids ---------------------------------------------------------------------
+
+    ; --- selection ------------------------------------------------------------
+
+    fn isSelected:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length selected)) {
+            if ((itemAt selected i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn selectOne:void (value:string) {
+        if ((this.isSelected(value)) == false) {
+            push selected value
+        }
+    }
+
+    fn deselectOne:void (value:string) {
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length selected)) {
+            def v:string (itemAt selected i)
+            if (v != value) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        selected = keep
+    }
+
+    fn selectOnly:void (value:string) {
+        def one:[string]
+        push one value
+        selected = one
+    }
+
+    fn clearSelection:void () {
+        def none:[string]
+        selected = none
+    }
+
+    fn toggleSelect:void (value:string) {
+        if (this.isSelected(value)) {
+            this.deselectOne(value)
+        } {
+            this.selectOne(value)
+        }
+    }
+
+    ; The library's `selectUpTo`, verbatim.
+    ;
+    ; With no anchor yet it does NOT select a range — it makes this row the
+    ; anchor and selects only it. That is why the first shift-click after a
+    ; fresh start behaves like a plain click.
+    ;
+    ; The range is over the VISIBLE rows, so a folder closed in the middle of it
+    ; takes its children out of the range rather than leaving them selected and
+    ; hidden.
+    fn selectUpTo:void (value:string keepExisting:boolean) {
+        if ((strlen anchorValue) == 0) {
+            anchorValue = value
+            this.selectOnly(value)
+            return
+        }
+        def a:int (this.rowIndexOf(anchorValue))
+        def b:int (this.rowIndexOf(value))
+        if ((a < 0) || (b < 0)) {
+            return
+        }
+        def lo:int a
+        def hi:int b
+        if (b < a) {
+            lo = b
+            hi = a
+        }
+        def range:[string]
+        def i:int lo
+        while (i <= hi) {
+            push range (itemAt rowValue i)
+            i = (i + 1)
+        }
+        if (keepExisting == false) {
+            selected = range
+            return
+        }
+        ; The union, in the order the existing selection had them and then
+        ; whatever the range adds — which is what a Set spread produces.
+        def j:int 0
+        while (j < (array_length range)) {
+            this.selectOne((itemAt range j))
+            j = (j + 1)
+        }
+    }
+
+    fn selectAllVisible:void () {
+        def all:[string]
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            push all (itemAt rowValue i)
+            i = (i + 1)
+        }
+        selected = all
+    }
 
     fn itemTid:string (value:string) {
         return ((tid + "-item-") + value)
@@ -271,6 +404,16 @@ class TreeCtl extends UiCtl {
     ; --- input -------------------------------------------------------------------
 
     fn activate:string (target:string) {
+        return (this.activateWith(target false false))
+    }
+
+    ; A click, with the two modifiers selection cares about.
+    ;
+    ; The library's `onClick`, verbatim, and the order matters: shift wins over
+    ; ctrl, and the ANCHOR is only moved by a click that is not a shift-click —
+    ; which is what lets shift-clicking twice extend from the same place rather
+    ; than from wherever you last landed.
+    fn activateWith:string (target:string shift:boolean ctrl:boolean) {
         if disabled {
             return ""
         }
@@ -278,11 +421,36 @@ class TreeCtl extends UiCtl {
         if ((strlen v) == 0) {
             return ""
         }
+        if selectable {
+            if shift {
+                this.selectUpTo(v ctrl)
+            } {
+                if ctrl {
+                    this.toggleSelect(v)
+                } {
+                    this.selectOnly(v)
+                }
+                anchorValue = v
+            }
+        }
         ; Focus, then TOGGLE if it is a folder. The library's own handler,
-        ; verbatim: `item.setFocused(); item.primaryAction(); if (!isFolder)
-        ; return; if (isExpanded) collapse() else expand()`. A leaf is
-        ; therefore focused and nothing else.
+        ; verbatim:
+        ;
+        ;   item.setFocused(); item.primaryAction();
+        ;   if (e.ctrlKey || e.shiftKey || e.metaKey) return;
+        ;   if (!item.isFolder()) return;
+        ;   if (item.isExpanded()) collapse(); else expand();
+        ;
+        ; A leaf is therefore focused and nothing else — and so is a FOLDER
+        ; clicked with a modifier held. That second line is easy to miss and
+        ; the consequence is not small: shift-clicking down a list to select a
+        ; range would open and close every folder on the way past. Measured —
+        ; the first version toggled regardless, and the divergence was a folder
+        ; the reference had left shut.
         activeValue = v
+        if (shift || ctrl) {
+            return target
+        }
         def idx:int (this.rowIndexOf(v))
         if (idx >= 0) {
             if (itemAt rowFolder idx) {
@@ -307,6 +475,37 @@ class TreeCtl extends UiCtl {
         }
         def isFolder:boolean (itemAt rowFolder idx)
         def isOpen:boolean (this.isExpanded(v))
+
+        ; --- the selection hotkeys, and only when selection is on -------------
+        ;
+        ; `space` is deliberately absent: it is commented out in the library's
+        ; own list, so Space keeps activating the row and toggling the folder.
+        if selectable {
+            if (key == "Control+Space") {
+                this.toggleSelect(v)
+                return target
+            }
+            if (key == "Control+KeyA") {
+                ; Every VISIBLE row. A collapsed folder's children are not in
+                ; `getItems()` and are not selected by this.
+                this.selectAllVisible()
+                return target
+            }
+            if (key == "Shift+ArrowUp") {
+                if (idx <= 0) {
+                    ; No row above: nothing selected, and focus does not move
+                    ; either. The library returns before touching focus.
+                    return ""
+                }
+                return (this.extendTo(v (idx - 1)))
+            }
+            if (key == "Shift+ArrowDown") {
+                if ((idx + 1) >= (array_length rowValue)) {
+                    return ""
+                }
+                return (this.extendTo(v (idx + 1)))
+            }
+        }
 
         if (key == "ArrowDown") {
             if ((idx + 1) < (array_length rowValue)) {
@@ -399,9 +598,25 @@ class TreeCtl extends UiCtl {
             return ""
         }
         if (UiCtl.activatesOn(key)) {
-            ; Enter and Space TOGGLE the folder rather than selecting, because
-            ; ReUI does not enable the selection feature and there is nothing
-            ; to select. On a leaf they do nothing.
+            ; Enter and Space TOGGLE the folder. Without the selection feature
+            ; that is all they do — there is nothing to select.
+            ;
+            ; WITH it they also SET THE SELECTION TO THIS ROW ALONE, and that
+            ; is not a rule anybody wrote down. A row is a `<button>`, Enter and
+            ; Space activate a button, activating it fires `click`, and the
+            ; selection feature's click handler with no modifiers held is
+            ; `setSelectedItems([itemId])`. So selecting nine rows with
+            ; Control+A and then pressing Space leaves exactly one selected.
+            ; Measured: the first version of this kept all nine, and the
+            ; reference had dropped eight.
+            ;
+            ; It follows from `space` being COMMENTED OUT of the library's
+            ; selection hotkeys — which looks like "Space does not select" and
+            ; means the opposite, because the click path is still there.
+            if selectable {
+                this.selectOnly(v)
+                anchorValue = v
+            }
             if isFolder {
                 this.setExpanded(v (isOpen == false))
                 this.build()
@@ -411,6 +626,24 @@ class TreeCtl extends UiCtl {
             return ""
         }
         return ""
+    }
+
+    ; Shift+Arrow, both directions.
+    ;
+    ; The rule that is not obvious: when the focused row AND the one being
+    ; moved to are BOTH already selected, the FOCUSED one is deselected rather
+    ; than the next one being selected. That is what makes walking back over a
+    ; range give the range back instead of doing nothing — a range grows from
+    ; its far end and shrinks from the end you are leaving. Focus moves either
+    ; way.
+    fn extendTo:string (from:string nextIdx:int) {
+        def next:string (itemAt rowValue nextIdx)
+        if ((this.isSelected(from)) && (this.isSelected(next))) {
+            this.deselectOne(from)
+        } {
+            this.selectOne(next)
+        }
+        return (this.focusRow(nextIdx))
     }
 
     fn focusRow:string (i:int) {
@@ -491,9 +724,16 @@ class TreeCtl extends UiCtl {
                     row.expanded = (EVGA11yTri.no())
                 }
             }
-            ; Published on EVERY row, folder or leaf, even though nothing here
-            ; can be selected. The library does it; see the header.
+            ; Published on EVERY row, folder or leaf. Without the selection
+            ; feature it is always false — the library says so anyway, which
+            ; tells a reader the rows are selectable when they are not, and is
+            ; copied because the harness records what the reference does.
             row.selected = (EVGA11yTri.no())
+            if selectable {
+                if (this.isSelected(v)) {
+                    row.selected = (EVGA11yTri.yes())
+                }
+            }
             push out row
             i = (i + 1)
         }

@@ -133,8 +133,15 @@ export async function run(spec) {
       if ("click" in step) {
         // force: a user can put the pointer on a disabled control's rectangle;
         // what the browser then does with focus is part of the contract.
-        await page.locator(sel(step.click)).click({ force: true }).catch(() => {});
-        await observe("click " + step.click);
+        // `mods` is Playwright's own modifier list — ["Shift"], ["Control"],
+        // or both. A multi-select is the only thing that reads them, and the
+        // label carries them so a trace says which click it was.
+        const mods = step.mods || [];
+        await page
+          .locator(sel(step.click))
+          .click({ force: true, modifiers: mods })
+          .catch(() => {});
+        await observe("click " + step.click + (mods.length ? " [" + mods.join("+") + "]" : ""));
       } else if ("key" in step) {
         await page.keyboard.press(step.key === " " ? "Space" : step.key);
         // Some components move focus in an EFFECT rather than in the handler,

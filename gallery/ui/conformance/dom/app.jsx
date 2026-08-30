@@ -56,7 +56,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useTree } from "@headless-tree/react";
-import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core";
+import { hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from "@headless-tree/core";
 import {
   useReactTable,
   getCoreRowModel,
@@ -204,7 +204,21 @@ function TreeControl({ spec, tid }) {
       getItem: (itemId) => items[itemId],
       getChildren: (itemId) => items[itemId]?.children ?? [],
     },
-    features: [syncDataLoaderFeature, hotkeysCoreFeature],
+    // SELECTION IS A MODE, and off by default, because ReUI's `c-tree-1` does
+    // not enable it — the eighteen behaviours already measured are measured
+    // against that configuration and must not move. A fixture asks for it with
+    // `"selection": true`, and then this is a different tree with a different
+    // contract: `aria-selected` becomes real, `Control+Space`, `Shift+Arrow`
+    // and `Control+A` do things, and a click sets the selection rather than
+    // only moving focus.
+    //
+    // Worth knowing before reading the specs: `space` is COMMENTED OUT in the
+    // library's own selection hotkeys. So Space still activates the button and
+    // toggles the folder, selection or not — the one place where turning the
+    // feature on does NOT change what a key does.
+    features: spec.selection
+      ? [syncDataLoaderFeature, hotkeysCoreFeature, selectionFeature]
+      : [syncDataLoaderFeature, hotkeysCoreFeature],
   });
 
   // Published for the same reason the table's probe is: a spec can then ask

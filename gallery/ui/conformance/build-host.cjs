@@ -199,6 +199,10 @@ function buildHost(M, fixture, css) {
 
       case "tree": {
         ctl = host.addTree(c.tid, c.name || "", c.root);
+        // Selection is a MODE, off unless the fixture asks. ReUI's tree does
+        // not enable it, and the eighteen behaviours measured against that
+        // configuration must not move.
+        if (c.selection) ctl.selectable = true;
         // Two passes: every node first, then the child lists — a fixture may
         // name a child before the line that declares it, and the library's own
         // data loader has the same freedom.
