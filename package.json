@@ -315,6 +315,7 @@
     "ui:inventory:refresh": "node gallery/ui/conformance/inventory.mjs --refresh",
     "ui:web:build": "npm run ui:build && node gallery/ui/web/build.mjs",
     "ui:web": "npm run ui:web:build && npm run ui:demo:build && node gallery/ui/demo/build.mjs && node gallery/ui/web/serve.mjs",
+    "ui:bench": "npm run ui:build && npm run ui:demo:build && node gallery/ui/bench/build.mjs && node gallery/ui/bench/runner.mjs",
     "rangerdbviewer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/DbViewerTest.rgr -d=./gallery/rangerdbviewer/bin -o=DbViewerTest.js -nodecli && node ./gallery/rangerdbviewer/bin/DbViewerTest.js",
     "rangerdbviewer:migrations:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/MigrationTest.rgr -d=./gallery/rangerdbviewer/bin -o=MigrationTest.js -nodecli && node ./gallery/rangerdbviewer/bin/MigrationTest.js",
     "rangerdbviewer:query:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/QueryTest.rgr -d=./gallery/rangerdbviewer/bin -o=QueryTest.js -nodecli && node ./gallery/rangerdbviewer/bin/QueryTest.js",
