@@ -110,6 +110,26 @@
             one, go to page two, and the first page stays selected.
           </p>
         </section>
+        <section data-for="tree">
+          <h2>what to try</h2>
+          <p class="hint">
+            Click a row, then use the arrows. <strong>&rarr;</strong> on a
+            closed folder opens it and stays put; on an <em>open</em> one it
+            steps to the first child. Two meanings, one key, decided by the
+            row.
+          </p>
+          <p class="hint">
+            <strong>&rarr; on a leaf is not a no-op</strong> &mdash; it steps
+            down, the same as on an open folder. That is what the library does,
+            and the first reading here said otherwise.
+          </p>
+          <p class="hint">
+            <strong>End</strong> goes to the last <em>visible</em> row, which
+            is the deepest open descendant and not the last top-level item.
+            <strong>Enter</strong> and <strong>Space</strong> toggle a folder
+            and select nothing.
+          </p>
+        </section>
         <section data-for="dropdown">
           <h2>what to try</h2>
           <p class="hint">
@@ -186,6 +206,15 @@
           <code>treefactory</code> and a stylesheet, and nothing else. The
           controller decides what is true; the tree literal decides what it
           looks like.
+        </p>
+        <p class="note" data-for="tree">
+          <strong>The rows are siblings.</strong> There is no group per folder:
+          the visible rows are one flat list and the nesting is carried by
+          <code>aria-level</code> alone, because that is what
+          <code>@headless-tree/core</code> renders and therefore what ReUI's
+          tree renders. The indent is a spacer this demo adds; a reader never
+          sees it and does not need to. Open/closed, focus and every key are
+          <code>gallery/ui/src/TreeCtl.rgr</code>&rsquo;s.
         </p>
         <p class="note" data-for="dropdown">
           <strong>This demo owns no state at all.</strong> Open/closed, the

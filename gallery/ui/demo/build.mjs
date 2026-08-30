@@ -28,7 +28,7 @@ function requireDom(name) {
   }
 }
 
-for (const name of ["MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo"]) {
+for (const name of ["MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo"]) {
   if (!fs.existsSync(path.join(UI, "bin", name + ".cjs"))) {
     console.error(`compiled ${name} missing — run \`npm run ui:demo:build\` first`);
     process.exit(3);
@@ -46,7 +46,8 @@ fs.writeFileSync(
     'export { MotionDemo } from "../bin/MotionDemo.cjs";\n' +
     'export { TableDemo } from "../bin/TableDemo.cjs";\n' +
     'export { DropdownDemo } from "../bin/DropdownDemo.cjs";\n' +
-    'export { DialogDemo } from "../bin/DialogDemo.cjs";\n',
+    'export { DialogDemo } from "../bin/DialogDemo.cjs";\n' +
+    'export { TreeDemo } from "../bin/TreeDemo.cjs";\n',
 );
 
 const css = (f) => JSON.stringify(fs.readFileSync(path.join(HERE, f), "utf8"));
@@ -59,7 +60,8 @@ fs.writeFileSync(
     `export const MOTION_CSS = ${css("motion.css")};\n` +
     `export const TABLE_CSS = ${css("table.css")};\n` +
     `export const DROPDOWN_CSS = ${css("dropdown.css")};\n` +
-    `export const DIALOG_CSS = ${css("dialog.css")};\n`,
+    `export const DIALOG_CSS = ${css("dialog.css")};\n` +
+    `export const TREE_CSS = ${css("tree.css")};\n`,
 );
 
 const esbuild = requireDom("esbuild");

@@ -41,6 +41,7 @@ const { MotionDemo } = require(path.join(ROOT, "gallery/ui/bin/MotionDemo.cjs"))
 const { TableDemo } = require(path.join(ROOT, "gallery/ui/bin/TableDemo.cjs"));
 const { DropdownDemo } = require(path.join(ROOT, "gallery/ui/bin/DropdownDemo.cjs"));
 const { DialogDemo } = require(path.join(ROOT, "gallery/ui/bin/DialogDemo.cjs"));
+const { TreeDemo } = require(path.join(ROOT, "gallery/ui/bin/TreeDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
@@ -48,6 +49,7 @@ const MOTION_CSS = fs.readFileSync(path.join(HERE, "motion.css"), "utf8");
 const TABLE_CSS = fs.readFileSync(path.join(HERE, "table.css"), "utf8");
 const DROPDOWN_CSS = fs.readFileSync(path.join(HERE, "dropdown.css"), "utf8");
 const DIALOG_CSS = fs.readFileSync(path.join(HERE, "dialog.css"), "utf8");
+const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -75,6 +77,13 @@ dropdown.init(DROPDOWN_CSS);
 // — and a title bar that is a real control in one and a heading in the other.
 const dialog = new DialogDemo();
 dialog.init(DIALOG_CSS);
+
+// The tree. Rows that are SIBLINGS with their nesting in `aria-level` is a
+// shape axe has opinions about — `aria-required-children` on the tree, and
+// `aria-required-parent` on every row — and it is the shape headless-tree
+// renders, so the audit is what decides whether copying it is defensible.
+const treeview = new TreeDemo();
+treeview.init(TREE_CSS);
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -220,6 +229,27 @@ const STATES = [
       return dialog.a11yProblems();
     },
     tree: () => dialog.a11yJson(15, ""),
+  },
+  {
+    name: "tree — three folders open, focus on a nested row",
+    size: [900, 520],
+    lint: () => {
+      treeview.press("tv-item-jane");
+      return treeview.a11yProblems();
+    },
+    tree: () => treeview.a11yJson(16, "tv-item-jane"),
+  },
+  {
+    // The same tree with a folder shut. Rows that were in the tree a moment
+    // ago are GONE, not hidden — a browser drops collapsed items too, and
+    // leaving them in would hand a reader rows nobody can reach.
+    name: "tree — a folder collapsed",
+    size: [900, 520],
+    lint: () => {
+      treeview.press("tv-item-accounts");
+      return treeview.a11yProblems();
+    },
+    tree: () => treeview.a11yJson(17, "tv-item-accounts"),
   },
   {
     name: "toolbar",

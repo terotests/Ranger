@@ -78,6 +78,8 @@ class EvgTraceOptions  {
     this.detailTrueColor = false;
     this.detailColors = 4;
     this.detailMinShare = 8;
+    this.detailColorMerge = 16;
+    this.detailColorMax = 12;
     this.edgeMinRun = 3;
     this.contourEdge = 3;
     this.contourSpread = 48;
@@ -4273,6 +4275,7 @@ class EVGElement  {
     this.pageHeight = 0.0;
     this.children = [];
     this.opacity = 1.0;
+    this.backdropBlur = 0.0;
     this.gradientSet = false;
     this.gradientDir = 0;
     this.absPosSet = false;     /** note: unused */
@@ -4391,6 +4394,7 @@ class EVGElement  {
     this.a11yFocusable = false;
     this.a11yPosInSet = 0;     /** note: unused */
     this.a11ySetSize = 0;     /** note: unused */
+    this.a11yLevel = 0;     /** note: unused */
     this.isLayoutComplete = false;     /** note: unused */
     this.unitsResolved = false;
     this.hasReturn = false;     /** note: unused */
@@ -5144,6 +5148,10 @@ class EVGElement  {
       this.opacity = val;
       return;
     }
+    if ( (name == "backdrop-filter") || (name == "backdropFilter") ) {
+      this.backdropBlur = EVGElement.blurRadiusOf(value);
+      return;
+    }
     if ( (name == "object-fit") || (name == "objectFit") ) {
       this.objectFit = value;
       return;
@@ -5696,6 +5704,64 @@ EVGElement.boxSides = function(value, isMargin) {
   out.push(bottom);
   out.push(left);
   return out;
+};
+EVGElement.blurRadiusOf = function(value) {
+  const v = value.trim();
+  if ( v == "none" ) {
+    return 0.0;
+  }
+  if ( (v.length) == 0 ) {
+    return 0.0;
+  }
+  const words = EVGElement.splitWords(v);
+  if ( (words.length) != 1 ) {
+    return 0.0;
+  }
+  const one = words[0];
+  const inner = EVGElement.callArgs(one, "blur");
+  if ( (inner.length) == 0 ) {
+    return 0.0;
+  }
+  const u = EVGUnit.parse(inner);
+  if ( u.isSet == false ) {
+    return 0.0;
+  }
+  if ( u.value < 0.0 ) {
+    return 0.0;
+  }
+  if ( u.unitType != 0 ) {
+    return 0.0;
+  }
+  return u.pixels;
+};
+EVGElement.blurProblem = function(value) {
+  const v = value.trim();
+  if ( v == "none" ) {
+    return "";
+  }
+  if ( (v.length) == 0 ) {
+    return "";
+  }
+  const words = EVGElement.splitWords(v);
+  if ( (words.length) != 1 ) {
+    return ("backdrop-filter: only a single blur() is supported, got '" + v) + "'";
+  }
+  const one = words[0];
+  const inner = EVGElement.callArgs(one, "blur");
+  if ( (inner.length) == 0 ) {
+    return ("backdrop-filter: only blur() is supported, got '" + v) + "'";
+  }
+  const u = EVGUnit.parse(inner);
+  if ( u.isSet == false ) {
+    return ("backdrop-filter: '" + inner) + "' is not a length";
+  }
+  if ( u.value < 0.0 ) {
+    return "backdrop-filter: a blur radius cannot be negative";
+  }
+  if ( u.unitType != 0 ) {
+    return ("backdrop-filter: blur() needs an absolute length, got '" + inner) + "'";
+  }
+  return "";
 };
 EVGElement.splitWords = function(s) {
   let out = [];
@@ -6559,6 +6625,8 @@ class EvgBitmapTracer  {
     this.labels = [];
     this.edgeMask = [];
     this.detailMask = [];
+    this.detailOn = false;
+    this.edgeMaskOn = false;
     this.regionOf = [];
     this.regionCount = 0;
     this.bgMask = [];
@@ -6588,6 +6656,7 @@ class EvgBitmapTracer  {
     this.regionOf = ro;
     let em = [];
     this.edgeMask = em;
+    this.edgeMaskOn = this.options.edgeMinRun >= 1;
     let ly = [];
     this.layers = ly;
   }
@@ -6725,11 +6794,7 @@ class EvgBitmapTracer  {
     if ( this.bgActive ) {
       return (this.bgMask[i]) == 0;
     }
-    if ( this.options.bgMode == "none" ) {
-      return true;
-    }
-    const lum = EvgBitmapTracer.lumaOf((this.planeR[i]), (this.planeG[i]), (this.planeB[i]));
-    return lum < this.options.skipLuma;
+    return true;
   };
   detectBackground () {
     this.bgActive = false;
@@ -6833,6 +6898,7 @@ class EvgBitmapTracer  {
         i = i + 1;
       };
       if ( ((((within * 100) / opaqueBorder) | 0)) < 80 ) {
+        this.floodBrightFromBorder(border, bn);
         return;
       }
     }
@@ -6875,6 +6941,71 @@ class EvgBitmapTracer  {
     };
     this.bgMask = mask;
     this.bgActive = true;
+  };
+  floodBrightFromBorder (border, bn) {
+    const lim = this.options.skipLuma;
+    if ( lim > 255 ) {
+      return;
+    }
+    const n = this.width * this.height;
+    let mask = [];
+    let i = 0;
+    while (i < n) {
+      mask.push(0);
+      i = i + 1;
+    };
+    let stack = [];
+    i = 0;
+    while (i < bn) {
+      const s0 = border[i];
+      if ( (mask[s0]) == 0 ) {
+        if ( this.brightEnough(s0, lim) ) {
+          mask[s0] = 1;
+          stack.push(s0);
+        }
+      }
+      i = i + 1;
+    };
+    if ( (stack.length) == 0 ) {
+      return;
+    }
+    let head = 0;
+    while (head < (stack.length)) {
+      const cur = stack[head];
+      head = head + 1;
+      const cy = ((cur / this.width) | 0);
+      const cx = cur - (cy * this.width);
+      if ( cx > 0 ) {
+        this.brightStep(cur - 1, mask, stack, lim);
+      }
+      if ( cx < (this.width - 1) ) {
+        this.brightStep(cur + 1, mask, stack, lim);
+      }
+      if ( cy > 0 ) {
+        this.brightStep(cur - this.width, mask, stack, lim);
+      }
+      if ( cy < (this.height - 1) ) {
+        this.brightStep(cur + this.width, mask, stack, lim);
+      }
+    };
+    this.bgMask = mask;
+    this.bgActive = true;
+  };
+  brightEnough (i, lim) {
+    if ( (this.planeA[i]) < 16 ) {
+      return true;
+    }
+    return EvgBitmapTracer.lumaOf((this.planeR[i]), (this.planeG[i]), (this.planeB[i])) >= lim;
+  };
+  brightStep (i, mask, stack, lim) {
+    if ( (mask[i]) == 1 ) {
+      return;
+    }
+    if ( this.brightEnough(i, lim) == false ) {
+      return;
+    }
+    mask[i] = 1;
+    stack.push(i);
   };
   nearBg (i, bgR, bgG, bgB, tol) {
     if ( (this.planeA[i]) < 16 ) {
@@ -7436,6 +7567,7 @@ class EvgBitmapTracer  {
       i = i + 1;
     };
     this.detailMask = dm;
+    this.detailOn = this.options.detailBoost >= 2;
     const minSwatches = this.options.detailSwatches;
     if ( minSwatches < 2 ) {
       return;
@@ -7451,11 +7583,19 @@ class EvgBitmapTracer  {
       lum.push(EvgBitmapTracer.lumaOf((this.planeR[i]), (this.planeG[i]), (this.planeB[i])));
       i = i + 1;
     };
+    let mark = [];
+    let mi = 0;
+    const marks = 256;
+    while (mi < marks) {
+      mark.push(0 - 1);
+      mi = mi + 1;
+    };
+    let visit = 0;
     let y = 0;
     while (y < this.height) {
       let x = 0;
       while (x < this.width) {
-        let seen = [];
+        visit = visit + 1;
         let distinct = 0;
         let lo = 256;
         let hi = 0 - 1;
@@ -7470,17 +7610,11 @@ class EvgBitmapTracer  {
                 const q = (yy * this.width) + xx;
                 const lab = this.labels[q];
                 if ( lab >= 0 ) {
-                  let known = false;
-                  let si = 0;
-                  while (si < (seen.length)) {
-                    if ( (seen[si]) == lab ) {
-                      known = true;
+                  if ( lab < marks ) {
+                    if ( (mark[lab]) != visit ) {
+                      mark[lab] = visit;
+                      distinct = distinct + 1;
                     }
-                    si = si + 1;
-                  };
-                  if ( known == false ) {
-                    seen.push(lab);
-                    distinct = distinct + 1;
                   }
                   const lv = lum[q];
                   if ( lv < lo ) {
@@ -7537,6 +7671,7 @@ class EvgBitmapTracer  {
       gy = gy + 1;
     };
     this.detailMask = grown;
+    this.detailOn = this.options.detailBoost >= 2;
   };
   buildEdgeMask () {
     const n = this.width * this.height;
@@ -7552,6 +7687,7 @@ class EvgBitmapTracer  {
     };
     if ( this.options.edgeMinRun < 1 ) {
       this.edgeMask = keep;
+      this.edgeMaskOn = false;
       return;
     }
     let edgeTol = this.options.contourEdge;
@@ -7662,13 +7798,13 @@ class EvgBitmapTracer  {
     this.edgeMask = keep;
   };
   isBoundary (a, b, edgeTol) {
-    if ( this.pixelDelta(a, b) <= edgeTol ) {
+    return this.isBoundaryOf(a, b, edgeTol, this.pixelDelta(a, b));
+  };
+  isBoundaryOf (a, b, edgeTol, delta) {
+    if ( delta <= edgeTol ) {
       return false;
     }
-    if ( (this.edgeMask.length) != (this.width * this.height) ) {
-      return true;
-    }
-    if ( this.options.edgeMinRun < 1 ) {
+    if ( this.edgeMaskOn == false ) {
       return true;
     }
     if ( (this.edgeMask[b]) == 1 ) {
@@ -7895,17 +8031,29 @@ class EvgBitmapTracer  {
   hexOf (r, g, b) {
     return this.hexFromRgb(EvgBitmapTracer.clamp255(r), EvgBitmapTracer.clamp255(g), EvgBitmapTracer.clamp255(b));
   };
-  traceGradientRegions () {
+  traceGradientRegions (palR, palG, palB) {
     this.buildContourRegions();
     let floorPx = this.options.minRegion;
     if ( floorPx < 8 ) {
       floorPx = 8;
     }
-    this.absorbTinyRegions(floorPx);
+    let prev = this.regionCount + 1;
     let guard = 0;
+    while ((this.regionCount < prev) && (guard < 24)) {
+      prev = this.regionCount;
+      this.absorbTinyRegions(floorPx);
+      guard = guard + 1;
+    };
+    guard = 0;
     while ((this.regionCount > 2000) && (guard < 8)) {
       floorPx = floorPx * 2;
-      this.absorbTinyRegions(floorPx);
+      prev = this.regionCount + 1;
+      let inner = 0;
+      while ((this.regionCount < prev) && (inner < 24)) {
+        prev = this.regionCount;
+        this.absorbTinyRegions(floorPx);
+        inner = inner + 1;
+      };
       guard = guard + 1;
     };
     const k = this.regionCount;
@@ -8066,7 +8214,7 @@ class EvgBitmapTracer  {
       };
       y = y + 1;
     };
-    this.emitRegionLayers(k, rn, rsx, rsy, sv, svv, sxv, syv, la, lb, lc, lok, rsd, rsdd, rsdv, tmin, tmax, dmax, ux, uy);
+    this.emitRegionLayers(palR, palG, palB, k, rn, rsx, rsy, sv, svv, sxv, syv, la, lb, lc, lok, rsd, rsdd, rsdv, tmin, tmax, dmax, ux, uy);
   };
   planeAt (c, i) {
     if ( c == 0 ) {
@@ -8077,7 +8225,7 @@ class EvgBitmapTracer  {
     }
     return this.planeB[i];
   };
-  emitRegionLayers (k, rn, rsx, rsy, sv, svv, sxv, syv, la, lb, lc, lok, rsd, rsdd, rsdv, tmin, tmax, dmax, ux, uy) {
+  emitRegionLayers (palR, palG, palB, k, rn, rsx, rsy, sv, svv, sxv, syv, la, lb, lc, lok, rsd, rsdd, rsdv, tmin, tmax, dmax, ux, uy) {
     let order = [];
     let i = 0;
     while (i < k) {
@@ -8177,7 +8325,8 @@ class EvgBitmapTracer  {
           const meanR = (sv[((r * 3) + 0)]) / cnt;
           const meanG = (sv[((r * 3) + 1)]) / cnt;
           const meanB = (sv[((r * 3) + 2)]) / cnt;
-          layer.fillHex = this.hexOf(meanR, meanG, meanB);
+          const gi = this.nearestIndex(EvgBitmapTracer.clamp255(meanR), EvgBitmapTracer.clamp255(meanG), EvgBitmapTracer.clamp255(meanB), palR, palG, palB);
+          layer.fillHex = this.hexFromRgb((palR[gi]), (palG[gi]), (palB[gi]));
           layer.fillKind = kind;
           if ( kind == "linear" ) {
             const t0 = tmin[r];
@@ -8428,6 +8577,9 @@ class EvgBitmapTracer  {
     if ( needPx < 4 ) {
       needPx = 4;
     }
+    let shR = [];
+    let shG = [];
+    let shB = [];
     let start = 0;
     while (start < n) {
       if ( ((this.detailMask[start]) == 1) && ((seen[start]) == 0) ) {
@@ -8456,7 +8608,7 @@ class EvgBitmapTracer  {
           }
         };
         if ( (comp.length) >= (needPx * k) ) {
-          this.paintDetailCluster(comp, k, needPx, allCmds);
+          this.paintDetailCluster(comp, k, needPx, allCmds, shR, shG, shB);
         }
       }
       start = start + 1;
@@ -8472,7 +8624,43 @@ class EvgBitmapTracer  {
     seen[i] = 1;
     stack.push(i);
   };
-  paintDetailCluster (comp, k, needPx, allCmds) {
+  shareColor (r, g, b, tol, shR, shG, shB) {
+    const n = shR.length;
+    let best = 0 - 1;
+    let bestD = 1000;
+    let i = 0;
+    while (i < n) {
+      const dr = EvgBitmapTracer.absI((r - (shR[i])));
+      const dg = EvgBitmapTracer.absI((g - (shG[i])));
+      const db = EvgBitmapTracer.absI((b - (shB[i])));
+      let d = dr;
+      if ( dg > d ) {
+        d = dg;
+      }
+      if ( db > d ) {
+        d = db;
+      }
+      if ( d < bestD ) {
+        bestD = d;
+        best = i;
+      }
+      i = i + 1;
+    };
+    if ( (best >= 0) && (bestD <= tol) ) {
+      return best;
+    }
+    const cap = this.options.detailColorMax;
+    if ( (cap > 0) && (n >= cap) ) {
+      if ( best >= 0 ) {
+        return best;
+      }
+    }
+    shR.push(r);
+    shG.push(g);
+    shB.push(b);
+    return n;
+  };
+  paintDetailCluster (comp, k, needPx, allCmds, shR, shG, shB) {
     let binN = [];
     let binR = [];
     let binG = [];
@@ -8541,6 +8729,17 @@ class EvgBitmapTracer  {
     const lk = lpR.length;
     if ( lk < 2 ) {
       return;
+    }
+    const merge = this.options.detailColorMerge;
+    if ( merge > 0 ) {
+      let bi = 0;
+      while (bi < lk) {
+        const want = this.shareColor((lpR[bi]), (lpG[bi]), (lpB[bi]), merge, shR, shG, shB);
+        lpR[bi] = shR[want];
+        lpG[bi] = shG[want];
+        lpB[bi] = shB[want];
+        bi = bi + 1;
+      };
     }
     const speck = (((total * this.options.detailMinShare) / 100) | 0);
     let bx0 = this.width;
@@ -8921,10 +9120,7 @@ class EvgBitmapTracer  {
     }
   };
   isDetail (i) {
-    if ( this.options.detailBoost < 2 ) {
-      return false;
-    }
-    if ( (this.detailMask.length) != (this.width * this.height) ) {
+    if ( this.detailOn == false ) {
       return false;
     }
     return (this.detailMask[i]) == 1;
@@ -8974,7 +9170,7 @@ class EvgBitmapTracer  {
     }
     const step = this.pixelDelta(from, i);
     if ( step > edgeTol ) {
-      if ( this.isBoundary(from, i, edgeTol) ) {
+      if ( this.isBoundaryOf(from, i, edgeTol, step) ) {
         this.pushSeed(i, step, bucket, seedPixel, seedNext, seedBest);
         this.pushSeed(from, step, bucket, seedPixel, seedNext, seedBest);
       }
@@ -9324,7 +9520,7 @@ class EvgBitmapTracer  {
       return;
     }
     if ( this.options.gradientFill ) {
-      this.traceGradientRegions();
+      this.traceGradientRegions(palR, palG, palB);
       return;
     }
     let allCmds = [];
@@ -10480,7 +10676,18 @@ class EvgBitmapTracerTest  {
     autoOpts.colorCount = 3;
     const au = EvgBitmapTracer.fromImageBuffer(this.makeBustedBorder(), autoOpts);
     au.trace();
-    t.ok("auto declines when the border is not one color", au.backgroundRemoved() == false);
+    t.ok("auto still removes a page whose border is not one flat color", au.backgroundRemoved());
+    let autoWhite = 0;
+    let ai = 0;
+    while (ai < au.layerCount()) {
+      const al = au.layers[ai];
+      const ac = EVGColor.parse(al.fillHex);
+      if ( EvgBitmapTracer.lumaOf((Math.floor( ac.r)), (Math.floor( ac.g)), (Math.floor( ac.b))) > 200 ) {
+        autoWhite = autoWhite + this.countLabel(au, ai);
+      }
+      ai = ai + 1;
+    };
+    t.eqInt("and keeps the white inside the shape, which is not the page", autoWhite, 120);
     const namedOpts = EvgTraceOptions.defaults();
     namedOpts.colorCount = 3;
     namedOpts.bgMode = "color";
@@ -10823,6 +11030,23 @@ class EvgBitmapTracerTest  {
     };
     return seen.length;
   };
+  gradientTrace (minRegion) {
+    const o = EvgTraceOptions.defaults();
+    o.colorCount = 4;
+    o.bgMode = "none";
+    o.gradientFill = true;
+    o.minRegion = minRegion;
+    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampWithBlock(), o);
+    tr.trace();
+    return tr;
+  };
+  testGradientFillObeysItsControls (t) {
+    const fine = this.gradientTrace(6);
+    t.ok("a gradient trace stays inside the color count", this.distinctFills(fine) <= 4);
+    const coarse = this.gradientTrace(400);
+    t.ok("and the smallest area actually makes it draw fewer regions", coarse.layerCount() < fine.layerCount());
+    t.ok("without inventing colors either", this.distinctFills(coarse) <= 4);
+  };
   testOverlayStaysWithinItsPalette (t) {
     const four = this.traceNoisyOverlay(4, 6);
     t.ok("overlay never invents a color the palette does not have", this.distinctFills(four) <= 4);
@@ -10905,15 +11129,17 @@ class EvgBitmapTracerTest  {
   testDetailNeighbourhoodGetsItsOwnPalette (t) {
     const d = EvgTraceOptions.defaults();
     t.eqInt("a detail neighbourhood quantizes itself in four", d.detailColors, 4);
+    t.eqInt("and neighbourhoods share one palette by default", d.detailColorMerge, 16);
+    t.eqInt("with a ceiling on how much it may grow", d.detailColorMax, 12);
     const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 3;
+    opts.colorCount = 6;
     opts.bgMode = "none";
     opts.contourMode = "overlay";
     opts.detailMinShare = 0;
     const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), opts);
     tr.trace();
     const off = EvgTraceOptions.defaults();
-    off.colorCount = 3;
+    off.colorCount = 6;
     off.bgMode = "none";
     off.contourMode = "overlay";
     off.detailColors = 0;
@@ -10937,6 +11163,25 @@ class EvgBitmapTracerTest  {
     };
     t.ok("with a darker shape than the global palette held", darkest < 40);
     t.ok("and a lighter one", lightest > 200);
+    const wide = EvgTraceOptions.defaults();
+    wide.colorCount = 6;
+    wide.bgMode = "none";
+    wide.contourMode = "overlay";
+    wide.detailMinShare = 0;
+    wide.detailColorMerge = 0;
+    const unmerged = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), wide);
+    unmerged.trace();
+    t.ok("merging never adds colors", this.distinctFills(tr) <= this.distinctFills(unmerged));
+    const capped = EvgTraceOptions.defaults();
+    capped.colorCount = 6;
+    capped.bgMode = "none";
+    capped.contourMode = "overlay";
+    capped.detailMinShare = 0;
+    capped.detailColorMax = 2;
+    const few = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), capped);
+    few.trace();
+    t.ok("the ceiling holds the color count to what was asked plus it", this.distinctFills(few) <= 8);
+    t.ok("and never costs shapes, only the colors they are painted", few.layerCount() >= tr.layerCount());
   };
   testDetailMaskFindsTheEyeNotTheRamp (t) {
     const d = EvgTraceOptions.defaults();
@@ -11052,6 +11297,7 @@ function __js_main() {
   test.testGradientFills(t);
   test.testOverlayRecoversASwallowedShape(t);
   test.testEdgeFilterSeparatesNoiseFromBoundary(t);
+  test.testGradientFillObeysItsControls(t);
   test.testOverlayStaysWithinItsPalette(t);
   test.testOverlaySimilarityDecidesHowManyStack(t);
   test.testDetailMaskFindsTheEyeNotTheRamp(t);

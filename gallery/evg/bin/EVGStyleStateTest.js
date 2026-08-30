@@ -1547,6 +1547,7 @@ class EVGElement  {
     this.a11yFocusable = false;
     this.a11yPosInSet = 0;     /** note: unused */
     this.a11ySetSize = 0;     /** note: unused */
+    this.a11yLevel = 0;     /** note: unused */
     this.isLayoutComplete = false;
     this.unitsResolved = false;
     this.hasReturn = false;     /** note: unused */

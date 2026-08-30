@@ -968,6 +968,15 @@ class UiHost {
                 n.modal = row.modal
                 n.checked = row.checked
                 n.expanded = row.expanded
+                ; Depth, size and position within the siblings. The TRACE has
+                ; carried these since the tree went in; the accessibility tree
+                ; dropped all three, so a reader mirroring an EVG frame was
+                ; told a tree was a flat list of unnumbered rows. Nothing
+                ; failed, because a fact that is simply absent breaks no rule
+                ; about the facts that are there.
+                n.level = row.level
+                n.setSize = row.setSize
+                n.posInSet = row.setPos
                 if (row.selected == 2) {
                     n.selected = true
                 }

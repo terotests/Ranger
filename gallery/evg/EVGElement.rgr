@@ -584,6 +584,8 @@ class EVGElement {
     ; rows there are.
     def a11yPosInSet:int 0
     def a11ySetSize:int 0
+    ; `aria-level`, for a treeitem in a flat tree. 0 means unset.
+    def a11yLevel:int 0
 
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false

@@ -1,0 +1,120 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * ReUI's Tree, as an EVG stylesheet.
+ *
+ * Class-first: every class here is one TreeDemo.rgr writes, and the literal
+ * carries no appearance at all. The zinc palette is the reference's; the
+ * geometry is measured off it — 32px rows, 14px labels, a 6px radius on the
+ * row so the hover reads as a pill rather than a full-bleed band.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so a variant is its own
+ * token on the same element (`tv-item tv-item-folder`) rather than a compound
+ * rule. And nothing here declares a width on `.tv-indent`: its width is the
+ * depth times the indent, set on the element, and a rule would overwrite it.
+ */
+
+.tv-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #fafafa;
+  padding: 30px;
+  width: 900px;
+  height: 520px;
+}
+
+.tv-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+  padding: 8px;
+  width: 420px;
+}
+
+.tv-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 4px 8px;
+  height: 24px;
+}
+
+.tv-head-text {
+  color: #71717a;
+  font-size: 12px;
+  font-weight: bold;
+  width: 380px;
+  height: 18px;
+}
+
+.tv-tree {
+  display: flex;
+  flex-direction: column;
+  width: 402px;
+}
+
+/* One row. The whole width lights up, which is what makes a deep row still
+ * read as a row of THIS tree rather than a chip floating beside it — the
+ * indent is a spacer INSIDE the row, not padding on it. */
+.tv-item {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 32px;
+  border-radius: 6px;
+  background-color: #ffffff;
+  /* On the BASE rule, not on `:hover`. A transition describes the property and
+   * not the direction — declared only under `:hover`, a row lights up slowly
+   * and goes dark instantly. */
+  transition: background-color 120ms ease-out;
+}
+
+.tv-item:hover { background-color: #f4f4f5; }
+
+/* Focused beats hovered, and it has to: the arrow keys are the point of this
+ * component, and a row you have arrowed onto should not stop looking chosen
+ * because the pointer happens to be elsewhere. Later in the sheet is stronger
+ * here — there are no compound selectors to say it with. */
+.tv-item:focus { background-color: #e4e4e7; }
+
+/* The spacer. NO width — see the header. It only needs to not collapse and to
+ * not take the row's whole width, which a row child with no width would. */
+.tv-indent { height: 1px; }
+
+.tv-chevron {
+  color: #52525b;
+  font-size: 11px;
+  width: 12px;
+  height: 18px;
+  text-align: center;
+}
+
+/* `tv-item-folder`, `tv-item-leaf` and `tv-item-open` are written by the demo
+ * and deliberately have NO rule here. A folder and a leaf look the same in the
+ * reference — the twisty is the whole difference — and a rule that repeats the
+ * base background is not neutral: it is a later declaration that a future
+ * `:hover` edit would have to fight. The classes stay because the hooks are
+ * cheap and inventing them under pressure is not.
+ */
+
+.tv-label {
+  color: #18181b;
+  font-size: 14px;
+  width: 340px;
+  height: 20px;
+}
+
+/* #71717a and not the lighter #a1a1aa the reference uses for hints: on white
+ * that one is about 2.3:1, and WCAG's 4.5:1 minimum has no exemption for text
+ * that is merely unimportant. */
+.tv-note {
+  color: #71717a;
+  font-size: 12px;
+  padding: 8px;
+  width: 386px;
+  height: 18px;
+}

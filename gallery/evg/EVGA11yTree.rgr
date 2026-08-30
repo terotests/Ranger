@@ -253,6 +253,12 @@ class EVGA11yNode {
     def colCount:int 0
     def posInSet:int 0
     def setSize:int 0
+    ; How deep a `treeitem` sits, counting from 1. A flat list of rows whose
+    ; nesting lives only in this number is what headless-tree publishes and
+    ; what a reader announces as "level 3" — WITHOUT it a tree is announced as
+    ; a flat list of siblings, which is a different structure entirely and not
+    ; the one on screen. 0 means the node is not in a levelled structure.
+    def level:int 0
 
     ; Text fields: caret and selection as offsets into `value`.
     def caret:int 0
@@ -287,8 +293,15 @@ class EVGA11yTree {
     ; already done — a platform accessibility API wants events, not a fresh
     ; tree sixty times a second.
     def generation:int 0
+    ; What the BUILDER could not represent, in its own words. A builder walks
+    ; a source it does not fully control — an element tree, a row list — and
+    ; anything it cannot map lands here rather than being dropped in silence.
+    ; `lint()` reports them first.
+    def notes:[string]
 
     Constructor () {
+        def n:[string]
+        notes = n
     }
 
     fn count:int () {
@@ -493,6 +506,9 @@ class EVGA11yTree {
         if (n.posInSet != 0) {
             out = (out + ",\"pos\":" + (to_string n.posInSet))
         }
+        if (n.level != 0) {
+            out = (out + ",\"level\":" + (to_string n.level))
+        }
         if (n.setSize != 0) {
             out = (out + ",\"size\":" + (to_string n.setSize))
         }
@@ -615,6 +631,16 @@ class EVGA11yTree {
 
     fn lint:[string] () {
         def problems:[string]
+        ; Whatever the BUILDER could not represent, reported before anything
+        ; this tree can see for itself. A node that was never made breaks no
+        ; rule about the nodes that were, so without this the failure mode of
+        ; an unknown role is a clean audit over an empty tree — which is what
+        ; the tree demo got: eighteen rows on screen, one node, PASS.
+        def i0:int 0
+        while (i0 < (array_length notes)) {
+            push problems (itemAt notes i0)
+            i0 = (i0 + 1)
+        }
         if ((strlen rootId) == 0) {
             push problems "tree has no root"
         }

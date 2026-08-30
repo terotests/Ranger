@@ -1,0 +1,388 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TreeDemo — ReUI's CRM tree, wearing its own clothes
+; =============================================================================
+; The reference is ReUI's Tree (https://reui.io/components/tree): a bordered
+; card holding a flat list of rows, each indented by twenty pixels per level,
+; folders carrying a twisty that turns when they open, and the row under the
+; pointer lighting up across its whole width.
+;
+; THE STATE IS NOT REBUILT HERE. `TreeCtl` owns which folders are open, where
+; focus sits, and the whole arrow/Home/End/Enter/Space key map, and it is
+; measured against @headless-tree/core by three conformance specs. A demo that
+; wrote its own copy of that would be writing an untested second tree — and
+; the arrows are the only part of a tree that is hard.
+;
+; So this file is the other half, the same split the table and dropdown demos
+; make: the CONTROLLER decides what is true, the TREE LITERAL decides what it
+; looks like. `TreeCtl.build()` produces a plain, conformance-shaped tree; the
+; factory below produces the reference's one; neither knows about the other.
+;
+; TWO THINGS THIS DEMO OWNS THAT THE CONTROLLER DOES NOT:
+;
+;   THE INDENT. `indent` is a prop on the library's `useTree` and it is pure
+;   presentation — depth is already in `aria-level`, which is what a reader
+;   uses. It lives here, as a spacer whose width is set on the element, because
+;   a stylesheet that matches one class token per selector cannot say "twenty
+;   pixels for every level you are down".
+;
+;   THE TWISTY. Decoration: `aria-expanded` on the row already says which way
+;   it points, and a reader told "Leads chevron-down" has been told the same
+;   thing twice, once as a shape. So it is `a11yHidden`, and the glyphs are
+;   ▸ and ▾ rather than ASCII angle brackets, which are read as "greater than".
+;
+; The tree is KEPT between frames, like the motion, table, dropdown and dialog
+; demos: hover is a flag on an element, and a rebuilt tree has a different
+; element in that position with no memory of anything. A press rebuilds,
+; because a press opens or closes a folder; the pointer moving does not.
+; =============================================================================
+
+Import "../src/TreeCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Tv {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "tv-page"))
+    tag Card     EVGElement (props (className "tv-card"))
+    tag Head     EVGElement (props (className "tv-head"))
+    tag HeadText EVGElement (props (className "tv-head-text") (elementType 1))
+    ; The tree itself. `role="tree"` with `treeitem` children and nothing in
+    ; between — the rows are SIBLINGS, because that is the shape headless-tree
+    ; renders and depth is carried by `aria-level` alone.
+    tag Tree     EVGElement (props (className "tv-tree") (role "tree") (a11yLabel "CRM"))
+    tag Item     EVGElement (props (className "tv-item") (role "treeitem"))
+    tag Indent   EVGElement (props (className "tv-indent") (a11yHidden true))
+    tag Chevron  EVGElement (props (className "tv-chevron") (elementType 1) (a11yHidden true))
+    tag Label    EVGElement (props (className "tv-label") (elementType 1))
+    tag Note     EVGElement (props (className "tv-note") (elementType 1))
+}
+
+class TreeDemo {
+
+    def model:TreeCtl (new TreeCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    ; The library's `indent` prop, in pixels. Presentation, and therefore the
+    ; demo's rather than the controller's.
+    def indent:double 20.0
+    def pageW:double 900.0
+    def pageH:double 520.0
+
+    Constructor () {
+    }
+
+    ; --- the data ---------------------------------------------------------------
+    ; The reference's own CRM tree: a root that is NOT a row, three top-level
+    ; folders under it, and one branch three deep so that `aria-level` has more
+    ; than two values to be wrong about.
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "tv"
+        model.name = "CRM"
+        model.rootValue = "crm"
+
+        this.node("crm" "CRM")
+        this.node("leads" "Leads")
+        this.node("new-lead" "New Lead")
+        this.node("contacted-lead" "Contacted Lead")
+        this.node("qualified-lead" "Qualified Lead")
+        this.node("accounts" "Accounts")
+        this.node("acme" "Acme Corp")
+        this.node("jane" "Jane Doe")
+        this.node("john" "John Smith")
+        this.node("globex" "Globex")
+        this.node("activities" "Activities")
+        this.node("calls" "Calls")
+        this.node("emails" "Emails")
+
+        ; Every node first, then the child lists. A folder may name a child
+        ; the line above it has not declared, and the library's own data
+        ; loader has the same freedom — the fixtures rely on it.
+        this.kid("crm" "leads")
+        this.kid("crm" "accounts")
+        this.kid("crm" "activities")
+        this.kid("leads" "new-lead")
+        this.kid("leads" "contacted-lead")
+        this.kid("leads" "qualified-lead")
+        this.kid("accounts" "acme")
+        this.kid("accounts" "globex")
+        this.kid("acme" "jane")
+        this.kid("acme" "john")
+        this.kid("activities" "calls")
+        this.kid("activities" "emails")
+
+        model.setExpanded("leads" true)
+        model.setExpanded("accounts" true)
+        model.setExpanded("acme" true)
+        model.build()
+
+        root = (this.page())
+    }
+
+    fn node:void (value:string label:string) {
+        model.addNode(value label)
+    }
+
+    ; What makes a node a FOLDER is having children — there is no flag. So a
+    ; node named here and never given one is a leaf, and the shape of the tree
+    ; is exactly the shape of the calls below.
+    fn kid:void (parentValue:string childValue:string) {
+        def i:int (model.nodeAt(parentValue))
+        if (i >= 0) {
+            TreeCtl.addKid((itemAt model.nodes i) childValue)
+        }
+    }
+
+    ; --- the look ------------------------------------------------------------------
+
+    sfn chevronGlyph:string (isFolder:boolean isOpen:boolean) {
+        if (isFolder == false) {
+            return ""
+        }
+        if isOpen {
+            return "▾"
+        }
+        return "▸"
+    }
+
+    fn rowClass:string (isFolder:boolean isOpen:boolean) {
+        def cls:string "tv-item"
+        if isFolder {
+            cls = (cls + " tv-item-folder")
+            if isOpen {
+                cls = (cls + " tv-item-open")
+            }
+        } {
+            cls = (cls + " tv-item-leaf")
+        }
+        return cls
+    }
+
+    fn rowAt:EVGElement (i:int) {
+        def value:string (itemAt model.rowValue i)
+        def level:int (itemAt model.rowLevel i)
+        def isFolder:boolean (itemAt model.rowFolder i)
+        def isOpen:boolean (model.isExpanded(value))
+
+        def label:string ""
+        def ni:int (model.nodeAt(value))
+        if (ni >= 0) {
+            def node:UiTreeNode (itemAt model.nodes ni)
+            label = node.name
+        }
+
+        def rowId:string (model.itemTid(value))
+        def cls:string (this.rowClass(isFolder isOpen))
+        def row (tree Tv (Item (props (id rowId) (className cls) (a11yLabel label))))
+
+        ; The three ARIA numbers, straight off the controller's flattened rows.
+        ; Written onto the ELEMENT and not only into `rows()`, because
+        ; `EVGA11yFromTree` walks elements and that is what a page using the
+        ; controller directly publishes — the same gap the dialog demo had.
+        row.a11yLevel = level
+        row.a11ySetSize = (itemAt model.rowSetSize i)
+        row.a11yPosInSet = (itemAt model.rowSetPos i)
+        row.a11yFocusable = true
+        row.a11ySelected = (EVGA11yTri.no())
+        if isFolder {
+            if isOpen {
+                row.a11yExpanded = (EVGA11yTri.yes())
+            } {
+                row.a11yExpanded = (EVGA11yTri.no())
+            }
+        }
+
+        if (level > 1) {
+            def pad (tree Tv (Indent))
+            ; Set on the element rather than by the sheet: see the header.
+            pad.width = (EVGUnit.px((indent * (to_double (level - 1)))))
+            row.addChild(pad)
+        }
+
+        def glyph:string (TreeDemo.chevronGlyph(isFolder isOpen))
+        row.addChild((tree Tv (Chevron glyph)))
+        row.addChild((tree Tv (Label label)))
+        return row
+    }
+
+    fn treeBlock:EVGElement () {
+        def t (tree Tv (Tree (props (id "tv"))))
+        def i:int 0
+        while (i < (array_length model.rowValue)) {
+            t.addChild((this.rowAt(i)))
+            i = (i + 1)
+        }
+        return t
+    }
+
+    fn page:EVGElement () {
+        def p (tree Tv (Page (props (id "page"))))
+        def card (tree Tv
+            (Card (props (id "tv-card"))
+                (Head (HeadText "CRM"))))
+        card.addChild((this.treeBlock()))
+        card.addChild((tree Tv (Note "Arrows to move, Right to open, Left to close, Enter to toggle.")))
+        p.addChild(card)
+        return p
+    }
+
+    ; --- the host ---------------------------------------------------------------
+
+    fn press:boolean (target:string) {
+        def next:string (model.activate(target))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        root = (this.page())
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        def next:string (model.keyDown(focused k))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        root = (this.page())
+        return true
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        return lay
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Tree demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Tree demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn rowCount:int () {
+        return (array_length model.rowValue)
+    }
+
+    fn summary:string () {
+        def n:int (array_length model.rowValue)
+        def where:string focused
+        if ((strlen where) == 0) {
+            where = "nothing"
+        }
+        return (((to_string n) + " visible rows, focus on ") + where)
+    }
+}

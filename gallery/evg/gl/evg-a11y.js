@@ -239,6 +239,9 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     setAttr(el, "aria-colindex", node.col || null);
     setAttr(el, "aria-posinset", node.pos || null);
     setAttr(el, "aria-setsize", node.size || null);
+    // A flat tree carries its nesting HERE and nowhere else: without it a
+    // reader announces a tree as a list of siblings all at the same depth.
+    setAttr(el, "aria-level", node.level || null);
     setAttr(el, "aria-live", node.live === 2 ? "assertive" : node.live === 1 ? "polite" : null);
 
     const b = node.b || [0, 0, 0, 0];

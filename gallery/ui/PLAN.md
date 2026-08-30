@@ -1094,6 +1094,37 @@ interesting than the eight:
   and the comment in its place says why, because a branch nothing can reach
   reads as coverage from the outside.
 
+### The demo, and a second silent hole in the accessible tree
+
+`demo/TreeDemo.rgr` is the same split the table and dropdown demos make: the
+controller decides what is true, the tree literal decides what it looks like.
+It owns two things the controller does not — the twenty-pixel indent, which is
+presentation because depth already lives in `aria-level`, and the twisty, which
+is `aria-hidden` because `aria-expanded` says the same thing in words.
+
+Then the audit reported **1 node**, and passed.
+
+`EVGA11yFromTree` maps an element's `role` string to a role code and drops the
+element — and everything under it — when it does not recognise one. It did not
+know `tree` or `treeitem`. Eighteen rows on screen, one node in the
+accessibility tree, no finding: a node that was never made breaks no rule about
+the nodes that were. This is the second time that exact shape of failure has
+appeared here; the dialog's was the first.
+
+So the second fix matters more than the first. An unrecognised role is now
+REPORTED, through a `notes` list on `EVGA11yTree` that `lint()` empties before
+anything else — the builder gets to say what it could not represent, instead of
+the silence that a passing audit then reads as agreement. There is no safe
+default to substitute: `group` would invent structure, and skipping is what
+caused this.
+
+`aria-level` was missing from the accessible tree entirely — `EVGA11yNode` had
+`posInSet` and `setSize` and no `level`, `UiHost` dropped all three on the way
+from `rows()`, and the DOM mirror wrote none of them. The trace had carried
+them since the controller went in, so the conformance number was right while
+the thing a screen reader actually reads was a flat list of unnumbered rows.
+Fixed on all four: the node, both builders, and `evg-a11y.js`.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

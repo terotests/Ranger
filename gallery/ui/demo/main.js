@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -251,6 +251,15 @@ let lastDialogHover = "";
 // only ever hears "this much further", so the subtracting happens here.
 let dialogDragAt = null;
 
+/**
+ * The tree. Every arrow, Home, End, Enter and Space on this page is answered
+ * by `TreeCtl` — the same controller three conformance specs run against — so
+ * the demo owns the look and not one rule of the behaviour.
+ */
+const treeview = new TreeDemo();
+treeview.init(TREE_CSS);
+let lastTreeHover = "";
+
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
 // there is one description of each demo and not two.
@@ -356,6 +365,35 @@ const DEMOS = {
         return true;
       },
       setPressed: (id) => dropdown.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  tree: {
+    height: () => treeview.heightPx(),
+    list: () => treeview.displayListJson(),
+    hit: (x, y) => treeview.hitId(x, y),
+    a11y: (gen, focus) => treeview.a11yJson(gen, focus),
+    press: (id) => treeview.press(id),
+    hover: (id) => {
+      if (id === lastTreeHover) return false;
+      lastTreeHover = id;
+      treeview.setHover(id);
+      return true;
+    },
+    // Straight through to TreeCtl, like the dropdown's.
+    key: (k) => treeview.key(k),
+    host: () => ({
+      tick: (dt) => treeview.tick(dt),
+      busy: () => treeview.busyNow(),
+      setHover: (id) => {
+        if (id === lastTreeHover) return false;
+        lastTreeHover = id;
+        treeview.setHover(id);
+        return true;
+      },
+      setPressed: (id) => treeview.setPressed(id),
       root: () => null,
     }),
     animated: true,
@@ -1048,7 +1086,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

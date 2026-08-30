@@ -81,6 +81,8 @@ class EVGA11yFromTree {
         if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }
         if (name == "slider")           { return (EVGA11yRole.slider()) }
         if (name == "progressbar")      { return (EVGA11yRole.progressBar()) }
+        if (name == "tree")             { return (EVGA11yRole.tree()) }
+        if (name == "treeitem")         { return (EVGA11yRole.treeItem()) }
         return (EVGA11yRole.none())
     }
 
@@ -148,6 +150,18 @@ class EVGA11yFromTree {
         }
         def nextParent:string parentId
         def code:int (EVGA11yFromTree.roleCode(el.role))
+        ; A role this builder does not know is REPORTED, not dropped. Dropping
+        ; it takes the element and everything under it out of the accessible
+        ; tree, and the audit that follows then passes over the hole — the
+        ; whole tree demo reduced to one node and called clean. There is no
+        ; safe silent default here: guessing `group` would invent structure,
+        ; and skipping is what caused this.
+        if ((strlen el.role) > 0) {
+            if (code == (EVGA11yRole.none())) {
+                def t0:EVGA11yTree (unwrap tree)
+                push t0.notes (("role not understood by EVGA11yFromTree: \"" + el.role) + "\" — the element and everything under it is missing from this tree")
+            }
+        }
         if (code != (EVGA11yRole.none())) {
             def id:string (this.idOf(el parentId index))
             def t:EVGA11yTree (unwrap tree)
@@ -170,6 +184,7 @@ class EVGA11yFromTree {
             }
             n.posInSet = el.a11yPosInSet
             n.setSize = el.a11ySetSize
+            n.level = el.a11yLevel
             t.place(n
                 (to_int el.calculatedX)
                 (to_int el.calculatedY)
