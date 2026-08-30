@@ -1,0 +1,749 @@
+{
+ "fixture": {
+  "controls": [
+   {
+    "type": "tree",
+    "tid": "tr",
+    "root": "crm",
+    "indent": 20,
+    "selection": true,
+    "dnd": true,
+    "expanded": [
+     "leads",
+     "accounts"
+    ],
+    "items": [
+     {
+      "value": "crm",
+      "name": "CRM",
+      "children": [
+       "leads",
+       "accounts",
+       "activities"
+      ]
+     },
+     {
+      "value": "leads",
+      "name": "Leads",
+      "children": [
+       "new-lead",
+       "contacted-lead"
+      ]
+     },
+     {
+      "value": "new-lead",
+      "name": "New Lead"
+     },
+     {
+      "value": "contacted-lead",
+      "name": "Contacted Lead"
+     },
+     {
+      "value": "accounts",
+      "name": "Accounts",
+      "children": [
+       "acme"
+      ]
+     },
+     {
+      "value": "acme",
+      "name": "Acme Corp",
+      "children": [
+       "jane"
+      ]
+     },
+     {
+      "value": "jane",
+      "name": "Jane Doe"
+     },
+     {
+      "value": "activities",
+      "name": "Activities"
+     }
+    ]
+   }
+  ]
+ },
+ "runs": [
+  {
+   "name": "leaf out of its folder",
+   "click": "new-lead",
+   "extraClicks": [],
+   "keys": [
+    "Control+Shift+KeyD",
+    "ArrowDown",
+    "ArrowDown",
+    "ArrowDown",
+    "Enter"
+   ],
+   "steps": [
+    {
+     "step": "start",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Control+Shift+KeyD",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 1,
+     "insertionIndex": 0,
+     "lineIndex": 2,
+     "lineLevel": 1,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 2,
+     "insertionIndex": 1,
+     "lineIndex": 3,
+     "lineLevel": 1,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "line",
+     "item": "crm",
+     "childIndex": 1,
+     "insertionIndex": 1,
+     "lineIndex": 3,
+     "lineLevel": 0,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "item",
+     "item": "accounts",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Enter",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "new-lead",
+      "activities"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "walking up instead",
+   "click": "contacted-lead",
+   "extraClicks": [],
+   "keys": [
+    "Control+Shift+KeyD",
+    "ArrowUp",
+    "ArrowUp",
+    "ArrowUp",
+    "Enter"
+   ],
+   "steps": [
+    {
+     "step": "start",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Control+Shift+KeyD",
+     "dragging": true,
+     "dragged": [
+      "contacted-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 2,
+     "insertionIndex": 1,
+     "lineIndex": 3,
+     "lineLevel": 1,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowUp",
+     "dragging": true,
+     "dragged": [
+      "contacted-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 1,
+     "insertionIndex": 1,
+     "lineIndex": 2,
+     "lineLevel": 1,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowUp",
+     "dragging": true,
+     "dragged": [
+      "contacted-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 0,
+     "insertionIndex": 0,
+     "lineIndex": 1,
+     "lineLevel": 1,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowUp",
+     "dragging": true,
+     "dragged": [
+      "contacted-lead"
+     ],
+     "kind": "item",
+     "item": "leads",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Enter",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a folder, dragged whole",
+   "click": "acme",
+   "extraClicks": [],
+   "keys": [
+    "Control+Shift+KeyD",
+    "ArrowDown",
+    "ArrowDown",
+    "Enter"
+   ],
+   "steps": [
+    {
+     "step": "start",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-acme",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "jane",
+      "activities"
+     ]
+    },
+    {
+     "step": "Control+Shift+KeyD",
+     "dragging": true,
+     "dragged": [
+      "acme"
+     ],
+     "kind": "line",
+     "item": "accounts",
+     "childIndex": 1,
+     "insertionIndex": 0,
+     "lineIndex": 6,
+     "lineLevel": 1,
+     "focused": "tr-item-acme",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "jane",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "acme"
+     ],
+     "kind": "line",
+     "item": "crm",
+     "childIndex": 2,
+     "insertionIndex": 2,
+     "lineIndex": 6,
+     "lineLevel": 0,
+     "focused": "tr-item-acme",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "jane",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "acme"
+     ],
+     "kind": "line",
+     "item": "crm",
+     "childIndex": 3,
+     "insertionIndex": 3,
+     "lineIndex": 7,
+     "lineLevel": 0,
+     "focused": "tr-item-acme",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "jane",
+      "activities"
+     ]
+    },
+    {
+     "step": "Enter",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-acme",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "activities",
+      "acme",
+      "jane"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "escape leaves everything alone",
+   "click": "new-lead",
+   "extraClicks": [],
+   "keys": [
+    "Control+Shift+KeyD",
+    "ArrowDown",
+    "ArrowDown",
+    "Escape"
+   ],
+   "steps": [
+    {
+     "step": "start",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Control+Shift+KeyD",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 1,
+     "insertionIndex": 0,
+     "lineIndex": 2,
+     "lineLevel": 1,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 2,
+     "insertionIndex": 1,
+     "lineIndex": 3,
+     "lineLevel": 1,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead"
+     ],
+     "kind": "line",
+     "item": "crm",
+     "childIndex": 1,
+     "insertionIndex": 1,
+     "lineIndex": 3,
+     "lineLevel": 0,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Escape",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "two selected rows travel together",
+   "click": "new-lead",
+   "extraClicks": [
+    [
+     "contacted-lead",
+     [
+      "Control"
+     ]
+    ]
+   ],
+   "keys": [
+    "Control+Shift+KeyD",
+    "ArrowDown",
+    "ArrowDown",
+    "ArrowDown",
+    "Enter"
+   ],
+   "steps": [
+    {
+     "step": "start",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Control+Shift+KeyD",
+     "dragging": true,
+     "dragged": [
+      "new-lead",
+      "contacted-lead"
+     ],
+     "kind": "line",
+     "item": "leads",
+     "childIndex": 2,
+     "insertionIndex": 0,
+     "lineIndex": 3,
+     "lineLevel": 1,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead",
+      "contacted-lead"
+     ],
+     "kind": "line",
+     "item": "crm",
+     "childIndex": 1,
+     "insertionIndex": 1,
+     "lineIndex": 3,
+     "lineLevel": 0,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead",
+      "contacted-lead"
+     ],
+     "kind": "item",
+     "item": "accounts",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "ArrowDown",
+     "dragging": true,
+     "dragged": [
+      "new-lead",
+      "contacted-lead"
+     ],
+     "kind": "line",
+     "item": "accounts",
+     "childIndex": 0,
+     "insertionIndex": 0,
+     "lineIndex": 4,
+     "lineLevel": 1,
+     "focused": "tr-item-contacted-lead",
+     "order": [
+      "leads",
+      "new-lead",
+      "contacted-lead",
+      "accounts",
+      "acme",
+      "activities"
+     ]
+    },
+    {
+     "step": "Enter",
+     "dragging": false,
+     "dragged": [],
+     "kind": "none",
+     "item": "",
+     "childIndex": -1,
+     "insertionIndex": -1,
+     "lineIndex": -1,
+     "lineLevel": -99,
+     "focused": "tr-item-new-lead",
+     "order": [
+      "leads",
+      "accounts",
+      "new-lead",
+      "contacted-lead",
+      "acme",
+      "activities"
+     ]
+    }
+   ]
+  }
+ ]
+}

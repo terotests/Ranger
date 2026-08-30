@@ -1,0 +1,20 @@
+{ "name":"tree_dnd_cancel","component":"tree",
+  "behaviours":["dnd-escape-cancels","dnd-arrows-return-after-cancel"],
+  "fixture":{"controls":[{"type":"tree","tid":"tr","root":"crm","indent":20,"selection":true,"dnd":true,
+     "expanded":["leads","accounts"],
+     "items":[
+       {"value":"crm","name":"CRM","children":["leads","accounts","activities"]},
+       {"value":"leads","name":"Leads","children":["new-lead","contacted-lead"]},
+       {"value":"new-lead","name":"New Lead"},
+       {"value":"contacted-lead","name":"Contacted Lead"},
+       {"value":"accounts","name":"Accounts","children":["acme"]},
+       {"value":"acme","name":"Acme Corp","children":["jane"]},
+       {"value":"jane","name":"Jane Doe"},
+       {"value":"activities","name":"Activities"}]}]},
+  "steps":[
+    {"click":"tr-item-contacted-lead"},
+    {"key":"Control+Shift+KeyD","settle":100},
+    {"key":"ArrowDown","settle":100},
+    {"key":"ArrowDown","settle":100},
+    {"key":"Escape","settle":100},
+    {"key":"ArrowUp","settle":100}] }

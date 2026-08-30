@@ -1546,6 +1546,67 @@ The harness grew one thing: a click can carry modifiers (`"mods": ["Shift"]`).
 Keys needed nothing — Playwright already understands `"Shift+ArrowUp"` and the
 Ranger side passes the string through to the controller.
 
+## Tree drag and drop, and a feature the DOM cannot show you
+
+`dragAndDropFeature` + `keyboardDragAndDropFeature`, the KEYBOARD half. The
+pointer half needs HTML5 drag events and a placement decided from where in a row
+the cursor is; neither the harness nor EVG has that, and it is honestly a
+separate piece.
+
+**The DOM is not the oracle here.** A keyboard drag moves a target between rows
+and BETWEEN rows, and the library publishes none of it as an attribute — press
+ArrowDown four times and the trace is identical four times over, until the drop
+lands. So the targets are captured from the library into `oracle/tree-dnd.json`
+and checked field by field, exactly as the table's state machine is:
+`npm run ui:tree:dnd:check`, 280 comparisons over five drags. The DOM-observable
+half — the drop, the cancel, the focus — is two ordinary conformance specs on
+top.
+
+The tree is at 39 of 39 behaviours over 7 specs and 10,605 observations.
+
+### Three rules that decide the whole walk
+
+- **The default `canDrop` is `target.item.isFolder()`.** So an item target on a
+  LEAF is rejected and the walk recurses straight past it. That is why one
+  ArrowDown can look like it moved two places, and it was the thing that made
+  the first hand-derivation of the algorithm disagree with the measurement.
+- **At the end of a group the walk changes LEVEL, not position.** A line below
+  the last child of a folder steps out to the grandparent's level instead of
+  moving down a row — which is how a keyboard reaches "after this whole subtree"
+  at all.
+- **The insertion index is not the child index.** A child index counts the list
+  as it is; the insertion index counts it as it will be once the dragged rows
+  have been taken out of it.
+
+### Two focuses, and a drag is where they come apart
+
+`moveDragPosition` calls `setFocused()` on an item target. That moves the
+library's own focused item — which the roving `tabIndex` follows — and it is NOT
+followed by `updateDomFocus()`, so the browser's focus stays where the drag
+began.
+
+Both halves were measured the hard way. The first version moved both, and the
+oracle had moved neither. The second moved neither, and the conformance trace
+said the tab stop had moved. And it PERSISTS: Escape cancels the drag and leaves
+the tab stop wherever the last item target put it, so an arrow after a cancelled
+drag starts from there. TreeCtl's key handler reads the library's focused item
+rather than the host's focus for exactly this reason.
+
+Six mutations, all caught: 45 failures for dropping the `isFolder` rule, 45 for
+dropping the reparent branch, 14 for not stepping into an open folder, 7 for an
+uncorrected insertion index, 7 for a drag that carries only the focused row, 1
+for Escape dropping instead of cancelling.
+
+### And two more fixtures that did not contain what they were testing
+
+- A child named and never declared. `acme` had `"children": ["jane"]` with no
+  `jane` node, so one side rendered a nameless row and the other skipped it, and
+  the two disagreed about the fixture before either had done anything.
+- A standalone probe that did not rebuild the reference bundle. Two rounds of
+  "the drop does nothing" were measuring a bundle from before the change. The
+  adapter rebuilds on every run; anything that talks to the page directly has to
+  as well.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

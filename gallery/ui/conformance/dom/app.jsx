@@ -56,7 +56,13 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useTree } from "@headless-tree/react";
-import { hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from "@headless-tree/core";
+import {
+  dragAndDropFeature,
+  hotkeysCoreFeature,
+  keyboardDragAndDropFeature,
+  selectionFeature,
+  syncDataLoaderFeature,
+} from "@headless-tree/core";
 import {
   useReactTable,
   getCoreRowModel,
@@ -186,13 +192,20 @@ function ToastControl({ spec, tid }) {
 function TreeControl({ spec, tid }) {
   // The fixture's shape is headless-tree's own: a flat record of items, each
   // naming its children, plus a root that is not itself rendered.
-  const items = React.useMemo(() => {
+  // A REF and not state, mutated in place. That is what the library's own
+  // examples do, and the reason is not style: `onDrop` moves the data and then
+  // calls `tree.rebuildTree()`, and a React state update has not landed by
+  // then — so the tree rebuilds from the data it had before the drop. Measured:
+  // with `useState` the drop reported itself completed and not one row moved.
+  const itemsRef = React.useRef(null);
+  if (itemsRef.current === null) {
     const out = {};
     for (const it of spec.items || []) {
-      out[it.value] = { name: it.name, children: it.children };
+      out[it.value] = { name: it.name, children: [...(it.children || [])] };
     }
-    return out;
-  }, [spec]);
+    itemsRef.current = out;
+  }
+  const items = itemsRef.current;
 
   const tree = useTree({
     initialState: { expandedItems: spec.expanded || [] },
@@ -216,9 +229,40 @@ function TreeControl({ spec, tid }) {
     // library's own selection hotkeys. So Space still activates the button and
     // toggles the folder, selection or not — the one place where turning the
     // feature on does NOT change what a key does.
-    features: spec.selection
-      ? [syncDataLoaderFeature, hotkeysCoreFeature, selectionFeature]
-      : [syncDataLoaderFeature, hotkeysCoreFeature],
+    // A drop MOVES the dragged items under the target, at `insertionIndex` when
+    // the target is a position between rows and at the end when it is an item.
+    // This is the app's job and not the library's — `onDrop` is a config hook,
+    // the way TanStack leaves the actual sorting to its caller — so the two
+    // sides have to agree about it explicitly rather than by both using the
+    // same package.
+    onDrop: (dragged, target) => {
+      const ids = dragged.map((d) => d.getId());
+      const data = itemsRef.current;
+      // Out of every parent first, then in at the target's insertion index —
+      // which is the index the library already corrected for the items about to
+      // be removed. An item target with no index means "at the end".
+      for (const k of Object.keys(data)) {
+        data[k].children = (data[k].children || []).filter((c) => !ids.includes(c));
+      }
+      const parentId = target.item.getId();
+      const kids = data[parentId].children || [];
+      const at = "insertionIndex" in target ? target.insertionIndex : kids.length;
+      data[parentId].children = [...kids.slice(0, at), ...ids, ...kids.slice(at)];
+      // The data has moved; the tree has to be told. Without this the drop is
+      // recorded, the state says it completed, and the rows do not move.
+      tree.rebuildTree();
+    },
+    features: spec.dnd
+      ? [
+          syncDataLoaderFeature,
+          hotkeysCoreFeature,
+          selectionFeature,
+          dragAndDropFeature,
+          keyboardDragAndDropFeature,
+        ]
+      : spec.selection
+        ? [syncDataLoaderFeature, hotkeysCoreFeature, selectionFeature]
+        : [syncDataLoaderFeature, hotkeysCoreFeature],
   });
 
   // Published for the same reason the table's probe is: a spec can then ask

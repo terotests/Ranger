@@ -361,7 +361,7 @@
     },
     "tree": {
       "radix": "@headless-tree/core",
-      "$comment": "Not Radix \u2014 Radix has no tree. ReUI's is @headless-tree/react over @headless-tree/core with syncDataLoaderFeature and hotkeysCoreFeature, so headless-tree is the oracle. It contributes the roles, the level/size/position numbers and the whole key map; the example wires NO selection feature, so every row reports aria-selected=false and stays that way. Measured in specs/tree_*.json against the library itself. SELECTION IS A MODE: everything up to `selected-false` is measured with selectionFeature OFF, which is ReUI's configuration and must stay that way; everything from `selected-state` on is the same library with the feature ON, and is a different contract — a fixture asks for it with \"selection\": true.",
+      "$comment": "Not Radix \u2014 Radix has no tree. ReUI's is @headless-tree/react over @headless-tree/core with syncDataLoaderFeature and hotkeysCoreFeature, so headless-tree is the oracle. It contributes the roles, the level/size/position numbers and the whole key map; the example wires NO selection feature, so every row reports aria-selected=false and stays that way. Measured in specs/tree_*.json against the library itself. DRAG AND DROP is a third mode (\"dnd\": true), and only the KEYBOARD half of it: the pointer half needs HTML5 drag events and a placement decided from where in a row the cursor is, and neither the harness nor EVG has that. The drop TARGETS are not observable in a DOM trace at all — the page looks identical from one arrow press to the next — so they are captured into oracle/tree-dnd.json and checked by `npm run ui:tree:dnd:check`, the way the table's state machine is. SELECTION IS A MODE: everything up to `selected-false` is measured with selectionFeature OFF, which is ReUI's configuration and must stay that way; everything from `selected-state` on is the same library with the feature ON, and is a different contract — a fixture asks for it with \"selection\": true.",
       "behaviours": {
         "tree-role": "the container is a tree and the root item is not a row in it",
         "treeitem-role": "every visible row is a treeitem, folder or leaf alike",
@@ -395,7 +395,15 @@
         "select-all": "Control+A selects everything",
         "select-all-is-visible-only": "and everything means the VISIBLE rows — a collapsed folder's children are not selected, which shows when it is opened",
         "select-space-still-toggles": "Space still opens and closes a folder, because it is commented out of the library's selection hotkeys",
-        "select-enter-collapses": "Enter and Space also set the selection to that row alone, because a row is a button and activating it fires the click path"
+        "select-enter-collapses": "Enter and Space also set the selection to that row alone, because a row is a button and activating it fires the click path",
+
+        "dnd-start": "Control+Shift+D picks up the selected rows, plus the focused one when it is not among them",
+        "dnd-arrows-drive-the-drag": "while a drag is up the arrows move the DROP TARGET and not the focus — the ordinary arrow hotkeys switch themselves off",
+        "dnd-focus-stays": "the browser's focus does not move during a drag, though the roving tab stop does",
+        "dnd-drop-moves": "Enter drops, and the rows move to the target",
+        "dnd-drop-focus": "after a drop, focus is on the first row that was carried",
+        "dnd-escape-cancels": "Escape ends the drag and moves nothing",
+        "dnd-arrows-return-after-cancel": "and the arrows work again afterwards, from where the drag left the tab stop rather than from where it began"
       }
     },
     "table": {

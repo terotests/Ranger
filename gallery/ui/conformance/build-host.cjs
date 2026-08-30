@@ -203,6 +203,11 @@ function buildHost(M, fixture, css) {
         // not enable it, and the eighteen behaviours measured against that
         // configuration must not move.
         if (c.selection) ctl.selectable = true;
+        // Drag and drop needs selection: a drag carries the selected rows.
+        if (c.dnd) {
+          ctl.selectable = true;
+          ctl.draggable = true;
+        }
         // Two passes: every node first, then the child lists — a fixture may
         // name a child before the line that declares it, and the library's own
         // data loader has the same freedom.

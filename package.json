@@ -593,6 +593,8 @@
     "zip": "npm run zip:compile && npm run zip:run",
     "evg:a11y:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGA11yTest.rgr -d=./gallery/evg/bin -o=EVGA11yTest.js -nodecli && node ./gallery/evg/bin/EVGA11yTest.js",
     "ui:table:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/table_check.mjs",
+    "ui:tree:dnd:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/tree_dnd_check.mjs",
+    "ui:tree:dnd:oracle": "node gallery/ui/conformance/oracle/tree_dnd_oracle.mjs",
     "ui:table:oracle": "node gallery/ui/conformance/oracle/table_oracle.mjs",
     "evg:rotation:check": "node gallery/evg/gl/rotation-check.mjs",
     "evg:blur:check": "node gallery/evg/gl/blur-check.mjs",

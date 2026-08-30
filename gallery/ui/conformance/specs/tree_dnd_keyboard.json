@@ -1,0 +1,20 @@
+{ "name":"tree_dnd_keyboard","component":"tree",
+  "behaviours":["dnd-start","dnd-arrows-drive-the-drag","dnd-drop-moves","dnd-focus-stays","dnd-drop-focus"],
+  "fixture":{"controls":[{"type":"tree","tid":"tr","root":"crm","indent":20,"selection":true,"dnd":true,
+     "expanded":["leads","accounts"],
+     "items":[
+       {"value":"crm","name":"CRM","children":["leads","accounts","activities"]},
+       {"value":"leads","name":"Leads","children":["new-lead","contacted-lead"]},
+       {"value":"new-lead","name":"New Lead"},
+       {"value":"contacted-lead","name":"Contacted Lead"},
+       {"value":"accounts","name":"Accounts","children":["acme"]},
+       {"value":"acme","name":"Acme Corp","children":["jane"]},
+       {"value":"jane","name":"Jane Doe"},
+       {"value":"activities","name":"Activities"}]}]},
+  "steps":[
+    {"click":"tr-item-new-lead"},
+    {"key":"Control+Shift+KeyD","settle":100},
+    {"key":"ArrowDown","settle":100},
+    {"key":"ArrowDown","settle":100},
+    {"key":"ArrowDown","settle":100},
+    {"key":"Enter","settle":150}] }

@@ -48,6 +48,7 @@ SUITES=(
   evg:adopt:check
   ui:sortable:motion
   ui:table:check
+  ui:tree:dnd:check
 )
 
 failed=()
