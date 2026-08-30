@@ -1057,6 +1057,27 @@ if (!ready) {
         px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
       }
     }
+    // Speckle, deterministically. A photograph does not hand the tracer clean
+    // regions, and without the specks there is nothing here for the tidiness
+    // control to do — the figure comes out perfect at any setting, and the
+    // check that the control works would be checking nothing. With them the
+    // composite traces to 196 shapes instead of 34.
+    let seed = 12345;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let k = 0; k < 140; k++) {
+      const cx = (rnd() * W) | 0, cy = (rnd() * H) | 0, rad = 1 + ((rnd() * 3) | 0);
+      const swap = inFigure(cx, cy);
+      for (let y = cy - rad; y <= cy + rad; y++) {
+        for (let x = cx - rad; x <= cx + rad; x++) {
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > rad * rad) continue;
+          const o = (y * W + x) * 4;
+          // A speck wears the other side's colour, which is what makes it a
+          // speck rather than a shade.
+          px[o] = swap ? 70 : 190; px[o + 1] = swap ? 90 : 120; px[o + 2] = swap ? 140 : 80;
+        }
+      }
+    }
     const file = path.join(os.tmpdir(), "tracer-smoke-composite.png");
     fs.writeFileSync(file, writePng(W, H, px));
 
@@ -1064,15 +1085,18 @@ if (!ready) {
     await page.waitForFunction(() =>
       /OK/.test(document.getElementById("status").textContent || ""), { timeout: 120000 });
     await page.evaluate(() => {
+      // The pre-processing section above left a blur on, and a blurred
+      // composite is a different question: it traced to 34 shapes instead of
+      // 272, so there was no speckle left for the tidiness control to shed and
+      // the check that it works passed on a picture with nothing to do.
+      document.getElementById("preReset").click();
       document.getElementById("status").textContent = "…";
       const c = document.getElementById("colorCount");
       c.value = 12; c.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.waitForFunction(() =>
       /OK/.test(document.getElementById("status").textContent || ""), { timeout: 120000 });
-    await page.click("#editToggle");
-    await page.click("#toolWand");
-    const r = await page.evaluate(async ({ W, H }) => {
+    const once = ({ W, H, tidy }) => page.evaluate(async ({ W, H, tidy }) => {
       const inFigure = (x, y) => {
         const hx = x - 120, hy = y - 78;
         if (hx * hx / (34 * 34) + hy * hy / (40 * 40) <= 1) return true;
@@ -1082,6 +1106,9 @@ if (!ready) {
       const vb0 = svg.getAttribute("viewBox");
       const rect = svg.getBoundingClientRect();
       const stage = document.getElementById("outStage");
+      const tid = document.getElementById("wandTidy");
+      tid.value = String(tidy);
+      tid.dispatchEvent(new Event("input", { bubbles: true }));
       const at = (ux, uy) => ({ x: rect.left + ux / W * rect.width,
                                 y: rect.top + uy / H * rect.height });
       const send = (t, p) => stage.dispatchEvent(new PointerEvent(t, {
@@ -1118,32 +1145,73 @@ if (!ready) {
       const g = c.getContext("2d");
       g.drawImage(im, 0, 0, W, H);
       const d = g.getImageData(0, 0, W, H).data;
-      let tp = 0, fp = 0, fn = 0;
+      const on = (x, y) => x >= 0 && y >= 0 && x < W && y < H && d[(y * W + x) * 4 + 3] > 128;
+      let tp = 0, fp = 0, fn = 0, edge = 0;
       for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
-          const got = d[(y * W + x) * 4 + 3] > 128, want = inFigure(x, y);
+          const got = on(x, y), want = inFigure(x, y);
           if (got && want) tp++; else if (got) fp++; else if (want) fn++;
+          if (!got) continue;
+          // How much outline the answer carries. Noise shows up here and
+          // nowhere else: a speck costs almost no area and four times its
+          // width in outline.
+          if (!on(x - 1, y)) edge++;
+          if (!on(x + 1, y)) edge++;
+          if (!on(x, y - 1)) edge++;
+          if (!on(x, y + 1)) edge++;
         }
       }
-      return { note, tp, fp, fn,
+      return { note, tp, fp, fn, edge,
                iou: +(tp / (tp + fp + fn)).toFixed(3),
                precision: +(tp / (tp + fp)).toFixed(3),
                recall: +(tp / (tp + fn)).toFixed(3) };
-    }, { W, H });
-    return r;
+    }, { W, H, tidy });
+
+    // Each pass starts from the same place: edit mode on, the wand selected,
+    // the drawing back the way the tracer left it. Assuming any of that from
+    // the pass before is how a test starts measuring the previous answer.
+    const arm = async () => {
+      if (!await page.evaluate(() =>
+        document.getElementById("editbar").classList.contains("on"))) {
+        await page.click("#editToggle");
+      }
+      await page.evaluate(() => { document.getElementById("toolWand").click(); });
+    };
+    await arm();
+    const plain = await once({ W, H, tidy: 0 });
+    await page.evaluate(() => { document.getElementById("editReset").click(); });
+    await arm();
+    const tidy = await once({ W, H, tidy: 14 });
+    return { plain, tidy };
   })();
   console.log(JSON.stringify(cut));
   // Measured on three composites of two real photographs, a rough outline
   // scores 0.86 to 0.98 against the truth; this generated one sits in the same
   // range. The bar is set below the worst of them, so it fails on a change
   // that makes the cut worse rather than on the noise of a wobbling line.
-  if (!(cut.iou >= 0.8)) {
+  if (!(cut.plain.iou >= 0.8)) {
     console.error("a rough outline should cut the figure out of the background, IoU "
-      + cut.iou + " (precision " + cut.precision + ", recall " + cut.recall + ")");
+      + cut.plain.iou + " (precision " + cut.plain.precision
+      + ", recall " + cut.plain.recall + ")");
     process.exitCode = 1;
   }
-  if (!(cut.recall >= 0.85)) {
-    console.error("the cut should keep the figure, recall " + cut.recall);
+  // 0.8, not 0.85: the composite carries a patch of background colour inside
+  // the figure, and a cut that works on colour keeps it out unless the figure
+  // fully surrounds it. Measured at 0.852, so the bar has room for the noise
+  // of a wobbling line without having room for a real loss.
+  if (!(cut.plain.recall >= 0.8)) {
+    console.error("the cut should keep the figure, recall " + cut.plain.recall);
+    process.exitCode = 1;
+  }
+  // What "Siisteys" is for: the same gesture, asked for a calmer outline,
+  // gives one — and does not throw the figure away to get it.
+  if (!(cut.tidy.edge < cut.plain.edge)) {
+    console.error("raising the tidiness should shorten the outline, "
+      + cut.plain.edge + " -> " + cut.tidy.edge);
+    process.exitCode = 1;
+  }
+  if (!(cut.tidy.recall >= 0.8)) {
+    console.error("a calmer outline should not cost the figure, recall " + cut.tidy.recall);
     process.exitCode = 1;
   }
 

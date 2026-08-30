@@ -54,6 +54,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exists. `npm run evg:trace:web:smoke` now builds a composite of its own and
   fails below 0.8.
 
+  A **"Siisteys"** control scores what the line picked out — area against
+  outline, both on the z-buffer — and drops the pieces that fail to pay their
+  way. A piece of area a carries an outline near 4·√a, so it goes when
+  a < 16·λ²: λ is a noise width in pixels and nothing more. Specks leave by
+  arithmetic rather than by a special case, a sharp corner costs nothing
+  because a corner is not extra length, and a limb survives, because trimming a
+  protrusion w cells wide only pays once λ > w/2. On the three composites it
+  holds accuracy and shortens the outline: on the hardest, IoU 0.861 → 0.873
+  with 5% less outline.
+
+  It only ever **drops**, and that restraint is the whole of what was learned
+  building it. Letting the same score *grow* the selection was tried three
+  ways — hill-climbing on area, on the net of inside against outside, and an
+  exact min-cut with the outline discounted wherever the picture's own colours
+  change. Hill-climbing on area swallows everything bigger than sixteen pixels
+  square (precision 0.97 → 0.76). The net version is stable but unrecoverably
+  sensitive to where it starts: from a generous start it keeps the whole
+  background, from a careful one it throws the suit away, and λ tips it from
+  one to the other with nothing in between. The min-cut settles that — the
+  energy is submodular, the graph is one node per shape, the exact answer costs
+  a millisecond — and it still keeps the background, because it is right to:
+  a curtain piece more than half inside a generous outline *is* a piece more
+  than half inside, and ending the region at the suit in front of it is the
+  cheaper cut. A line can say where the object is; it cannot say what, inside
+  it, is not the object, and no boundary term recovers that.
+
   Everything works on what is **visible**, and that is the whole design. A
   traced picture is stacked: a lower layer's shape is the union of itself and
   everything painted on top of it. On a test image of a box with a ball
@@ -92,6 +118,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   16 asked gives 15 layers, 32 gives 24, 64 gives 38 — and the trace does not
   get slower for it (704 ms → 788 ms). Past 64 the returns stop being worth the
   bytes: 128 buys seven more layers for another half megabyte.
+
+### Fixed
+
+- **The wand's z-buffer swallowed empty background.** The one-pixel seams
+  antialiasing leaves between shapes are closed by taking an assigned
+  neighbour, and closing them in place rather than from a snapshot let a
+  newly filled cell seed the next one in scan order — so a run of unassigned
+  cells filled to its end. Unassigned is not only seams: where a picture has
+  no shape at all, which is any background the tracer left out, the whole
+  empty region went to the first shape the scan met. On a test image of a box
+  and a ball it made the ball's visible area twice the ball, and a lasso drawn
+  round it selected nothing.
 
 ### Changed
 

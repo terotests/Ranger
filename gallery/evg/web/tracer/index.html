@@ -411,6 +411,10 @@
           <input id="wandTol" type="range" min="0" max="180" step="4" value="40" style="width:80px">
           <span class="val" id="v-wandTol">40</span>
         </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka rosoisia palasia valinta saa pitää. Palanen jonka reunaviivaa on paljon suhteessa sen pinta-alaan pudotetaan; luku on kohinan leveys pikseleinä. Terävät kulmat ja pitkät suorat eivät maksa mitään, vain rosoisuus maksaa.">Siisteys
+          <input id="wandTidy" type="range" min="0" max="24" step="1" value="4" style="width:80px">
+          <span class="val" id="v-wandTidy">4</span>
+        </label>
         <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Rajaa kuvan reunat valitun kohteen ympärille, jolloin tuloksesta tulee ikonin kokoinen."><input type="checkbox" id="wandCrop" checked> rajaa reunoihin</label>
         <button type="button" class="tool wand-only" id="wandCut">Eristä</button>
         <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa väriä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä.">Lisävärit
@@ -1118,6 +1122,7 @@
   var editToggle = $("editToggle"), editbar = $("editbar");
   var toolMerge = $("toolMerge"), toolRefine = $("toolRefine"), toolPick = $("toolPick");
   var toolWand = $("toolWand"), wandTol = $("wandTol"), wandCrop = $("wandCrop");
+  var wandTidyEl = $("wandTidy");
   var editColor = $("editColor"), refineSize = $("refineSize"), editNote = $("editNote");
 
   // A traced layer is one path holding every ring of its color, so clicking it
@@ -1349,7 +1354,7 @@
       return cx.getImageData(0, 0, cw, ch).data;
     }
     var A = pass(1), B = pass(WAND_KEY);
-    var n = cw * ch, ids = new Int32Array(n), seen = new Int32Array(els.length);
+    var n = cw * ch, ids = new Int32Array(n);
     for (var p = 0; p < n; p++) {
       var o = p * 4;
       var a = A[o] | (A[o + 1] << 8) | (A[o + 2] << 16);
@@ -1357,7 +1362,39 @@
       var b = B[o] | (B[o + 1] << 8) | (B[o + 2] << 16);
       if ((Math.imul(a, WAND_KEY) & 0xffffff) !== b) continue;   // an antialiased blend
       ids[p] = a;
-      seen[a - 1]++;
+    }
+    // The blends leave a one-pixel seam of unassigned cells between every pair
+    // of shapes, and an unassigned cell is a hole in everything measured from
+    // this buffer — an outline length most of all, which would count every
+    // seam in the picture as roughness. Two passes of taking an assigned
+    // neighbour close them.
+    //
+    // From a snapshot, so a pass reaches exactly one cell. Filled in place it
+    // does not: a newly filled cell is a source for the next one in scan
+    // order, so a run of unassigned cells fills to its end — and unassigned is
+    // not only seams. Where a picture has no shape at all, which is any
+    // background the tracer left out, the whole empty region was swallowed by
+    // the first shape the scan met. It showed up as a ball whose visible area
+    // was twice the ball.
+    for (var fp = 0; fp < 2; fp++) {
+      var src = ids.slice();
+      for (var q = 0; q < n; q++) {
+        if (src[q]) continue;
+        var qx = q % cw, qy = (q / cw) | 0;
+        var got = (qx > 0 && src[q - 1]) || (qx + 1 < cw && src[q + 1])
+          || (qy > 0 && src[q - cw]) || (qy + 1 < ch && src[q + cw]) || 0;
+        if (got) ids[q] = got;
+      }
+    }
+    // What each shape owns on screen, as a count and as the cells themselves.
+    // The cells are what lets a piece be weighed without walking the frame.
+    var seen = new Int32Array(els.length);
+    for (var p2 = 0; p2 < n; p2++) if (ids[p2]) seen[ids[p2] - 1]++;
+    var cells = new Array(els.length), fillAt = new Int32Array(els.length);
+    for (var e = 0; e < els.length; e++) cells[e] = new Int32Array(seen[e]);
+    for (var p3 = 0; p3 < n; p3++) {
+      var id3 = ids[p3];
+      if (id3) cells[id3 - 1][fillAt[id3 - 1]++] = p3;
     }
     // Who touches whom, as seen rather than as drawn: two shapes are
     // neighbours when they meet in the z-buffer, so a boundary buried under a
@@ -1379,7 +1416,8 @@
       }
     }
     return { svg: svg, els: els, index: index, rgb: rgb, mats: mats, ids: ids,
-             cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, seen: seen, n: els.length };
+             cells: cells, cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, seen: seen,
+             n: els.length };
   }
 
   function wandInvalidate() { wandGraph = null; }
@@ -1486,6 +1524,67 @@
     return hit;
   }
 
+  // ------------------------------------------------------- tidying the edge
+  //
+  // Score what the line picked out by  area − λ · outline, both measured on
+  // the z-buffer, and drop the pieces that fail to pay their way. A piece of
+  // area a carries an outline near 4·√a, so it goes when a < 16·λ²: λ is a
+  // noise width in pixels and nothing more. Specks leave by arithmetic rather
+  // than by a special case, a sharp corner costs nothing because a corner is
+  // not extra length, and a real limb survives, because trimming a protrusion
+  // w cells wide only pays once λ > w/2.
+  //
+  // Dropping only, never adding, and that restraint is the whole of what was
+  // learned building this. Letting the same score *grow* the selection was
+  // tried three ways — hill-climbing on area, on the net of inside against
+  // outside, and finally an exact min-cut with the outline discounted where
+  // the picture's own colours change. All three swallow the background: a
+  // curtain piece more than half inside a generous outline is, to any of
+  // them, a piece more than half inside, and ending the region at the suit in
+  // front of it is the cheaper cut. The measurements are in the changelog. A
+  // line can say where the object is; it cannot say what, inside it, is not
+  // the object, and no boundary term recovers that.
+  function wandTrim(g, sel, lam) {
+    if (lam <= 0 || !sel.size) return sel;
+    var n = g.cw * g.ch, cw = g.cw, ch = g.ch, inR = new Uint8Array(n);
+    sel.forEach(function (i) {
+      var c = g.cells[i];
+      for (var k = 0; k < c.length; k++) inR[c[k]] = 1;
+    });
+    // What the selection's outline loses if this piece leaves. Only the
+    // piece's own cells can change it, so the cost is the piece, never the
+    // picture.
+    function worth(i) {
+      var c = g.cells[i], mine = i + 1, freed = 0;
+      for (var k = 0; k < c.length; k++) {
+        var p = c[k], x = p % cw, y = (p / cw) | 0;
+        for (var q = 0; q < 4; q++) {
+          var m = q === 0 ? (x > 0 ? p - 1 : -1)
+            : q === 1 ? (x + 1 < cw ? p + 1 : -1)
+            : q === 2 ? (y > 0 ? p - cw : -1)
+            : (y + 1 < ch ? p + cw : -1);
+          if (m < 0) { freed += 1; continue; }        // the frame is an edge
+          if (g.ids[m] === mine) continue;            // inside this piece
+          freed += inR[m] ? -1 : 1;
+        }
+      }
+      return c.length - lam * freed;                  // keep it while positive
+    }
+    // Sweeps, because dropping one piece can expose the next.
+    for (var sweep = 0; sweep < 6; sweep++) {
+      var went = 0;
+      Array.from(sel).forEach(function (i) {
+        if (!g.cells[i].length || worth(i) >= 0) return;
+        sel.delete(i);
+        var c = g.cells[i];
+        for (var k = 0; k < c.length; k++) inR[c[k]] = 0;
+        went++;
+      });
+      if (!went || !sel.size) break;
+    }
+    return sel;
+  }
+
   // The hand-drawn version. A photograph has no color boundary that agrees
   // with the object — a suit and the curtain behind it are the same tone — so
   // the line you draw says *where*, roughly, and the shapes say *exactly*: a
@@ -1544,6 +1643,7 @@
       wandClipRaster.set(cid, mark);
       part.forEach(function (k) { wandClipOf.set(k, cid); });
     }
+    wandTrim(g, hit, +wandTidyEl.value);
     wandEnclose(g, hit);
     return hit;
   }
@@ -1782,7 +1882,7 @@
     refineSize.addEventListener("input", sync);
     sync();
     [[edgeBlend, "v-edgeBlend"], [refineExtra, "v-refineExtra"],
-     [wandTol, "v-wandTol"]].forEach(function (pair) {
+     [wandTol, "v-wandTol"], [wandTidyEl, "v-wandTidy"]].forEach(function (pair) {
       var lab2 = $(pair[1]);
       function sync2() { lab2.textContent = String(pair[0].value); }
       pair[0].addEventListener("input", sync2);
