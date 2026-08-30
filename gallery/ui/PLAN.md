@@ -1294,6 +1294,61 @@ on every frame of a drag and keeps all 61 elements, so the simple semantics are
 affordable at this scale; dependency tracking is the answer to a measurement
 nobody has taken yet, and taking it early would buy complexity with no evidence.
 
+## Where the frame actually goes
+
+There was no benchmark. `gallery/ui/bench` is one now, and it exists because a
+claim about which phase is expensive has to be falsifiable — a total says the
+pipeline costs 250ms and gives you nowhere to start.
+
+The fixture is the table demo's row shape at N rows: 14 elements and 6 text
+runs each, real strings so text measurement is not flattered by every run being
+the same width. Median of seven, phases timed separately.
+
+```
+  rows  elements   cmds |  build   style  layout    list |  paint   patch retained rebuild
+   200      2803   1803 |   14.2    19.6     5.1     1.1 |    3.5    54.5     28.8    41.7
+   800     11203   7203 |   49.6    78.1    26.7     8.9 |   10.3   213.6    118.4   171.6
+  1600     22403  14403 |   98.0   178.6    70.5    21.1 |   31.8   561.8    252.9   451.1
+```
+
+Two conclusions, and the second one was not the expected one.
+
+**The painter is not the problem.** 31.8ms to draw 14,403 commands, against
+252.9ms to decide what they are. Optimising WebGL here would be optimising 12%
+of the frame. That much was expected.
+
+**The STYLESHEET is the problem, not layout.** 178.6ms of a 252.9ms retained
+frame — 71% — against layout's 70.5 (28%) and the display list's 21.1 (8%). The
+working assumption before measuring was that layout plus display-list
+construction dominated; they are together barely half of what the cascade costs.
+
+The reason is in `EVGStyleSheet.applyTo`, and it is not subtle. Per element,
+per frame: split the className string, clear the state properties, then FOUR
+passes over the rule set (plain, themed, plain-state, themed-state). At 22,403
+elements that is 22,403 string splits and ~90,000 rule scans every frame — to
+produce **18 distinct answers**, because a 1600-row table has 18 distinct class
+strings in it and the resolved property set depends on nothing else but the
+state flags and the theme.
+
+So the first big win is not incremental layout. It is a resolved-style cache
+keyed on `(className, theme, hovered, pressed, focused)`. That is a real
+refactor rather than a memo one can bolt on — the four passes WRITE onto the
+element instead of producing a value, so they have to be turned into something
+that returns a property set before anything can be cached — and it is guarded
+by the conformance suite, the demo audit and a display-list equality check.
+
+**And `patch` costs more than `rebuild`.** 561.8 against 451.1 at 1600 rows: a
+change to one row's class, taken through build → reconcile → style → layout →
+display list, is more expensive than throwing the tree away. That is not a
+regression and it is not a surprise — the reconciler bought IDENTITY, which is
+what transitions and component state need, and it never claimed to buy speed.
+But it does say plainly what the next layer is for: while `patch` tracks
+`retained`, nothing is being avoided, and one row lighting up logically dirties
+one background colour.
+
+`ui:bench` and `ui:bench:paint` run it. The numbers above are one machine's and
+are meant to be re-measured, not quoted.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -1362,7 +1417,15 @@ language work rather than library work. In the order that pays:
       survives, its `state active` survives, and the element identity survives.
       Dialog and Menu come after it, for focus and ARIA; a Grid is the stress
       test, not the first test
-- [ ] **Dependency tracking**, and not before a measurement asks for it
+- [ ] **A resolved-style cache.** The measurement above says this is the single
+      biggest win in the frame, and it needs no invalidation machinery at all
+- [ ] **Invalidation classes** — paint-only, transform-only, layout, structure —
+      so a hover costs a repaint rather than a whole pipeline. The `patch`
+      column is the target: it must stop tracking `retained`
+- [ ] **A transform-only path for motion values**, so a 120Hz drag never enters
+      the style or layout phases
+- [ ] **Dependency tracking**, and not before the three above have been
+      measured
 - [ ] **Declarative event handlers**, so a component reads from one place
 - [ ] **`computed`**
 - [ ] **A high-frequency path for motion values.** Structural state (order,

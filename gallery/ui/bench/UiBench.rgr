@@ -1,0 +1,184 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; UiBench — an N-row table, so the CPU pipeline can be timed phase by phase
+; ==============================================================================
+; This exists because a claim about where the time goes has to be falsifiable.
+; The shape is the table demo's — a checkbox column, a name, an email, a role, a
+; status badge and a number — so the per-row element count is the real one and
+; not a toy: eleven elements and six text runs per row.
+;
+; What is deliberately NOT here: pagination, sorting, selection logic. This is
+; not `TableCtl`. It builds rows and nothing else, because the question is what
+; the rendering pipeline costs for a tree of a given size, and a controller in
+; the way would only add noise.
+;
+; The JS harness beside this file drives the phases separately —
+;
+;   build         make the EVGElement tree
+;   style         EVGStyleSheet.applyTree
+;   layout        EVGLayout.layout
+;   displayList   EVGDisplayList.build
+;
+; — because "retained is 135ms" is not actionable and "layout is 90 of it" is.
+; ==============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGReconcile.rgr"
+
+treefactory Bench {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "tb-page"))
+    tag Card     EVGElement (props (className "tb-card"))
+    tag Grid     EVGElement (props (className "tb-grid"))
+    tag Row      EVGElement (props (className "tb-row") (role "row"))
+    tag CellSel  EVGElement (props (className "tb-cell tb-cell-sel") (role "cell"))
+    tag Check    EVGElement (props (className "tb-check") (role "checkbox"))
+    tag Mark     EVGElement (props (className "tb-mark") (elementType 1) (a11yHidden true))
+    tag Cell     EVGElement (props (className "tb-cell") (role "cell"))
+    tag CellText EVGElement (props (className "tb-cell-text") (elementType 1))
+    tag Badge    EVGElement (props (className "tb-badge") (elementType 1))
+}
+
+class UiBench {
+
+    ; Five names, five emails and three statuses, cycled. Real strings rather
+    ; than "row 1234", because text measurement is part of what is being timed
+    ; and every run being the same width would flatter the layout.
+    sfn nameOf:string (i:int) {
+        def n:int (i % 5)
+        if (n == 0) { return "Ada Lovelace" }
+        if (n == 1) { return "Grace Hopper" }
+        if (n == 2) { return "Alan Turing" }
+        if (n == 3) { return "Edsger Dijkstra" }
+        return "Barbara McClintock"
+    }
+
+    sfn mailOf:string (i:int) {
+        def n:int (i % 5)
+        if (n == 0) { return "ada@analytical.eng" }
+        if (n == 1) { return "grace@navy.mil" }
+        if (n == 2) { return "alan@bletchley.uk" }
+        if (n == 3) { return "edsger@thue.nl" }
+        return "barbara@maize.org"
+    }
+
+    sfn roleOf:string (i:int) {
+        def n:int (i % 3)
+        if (n == 0) { return "Owner" }
+        if (n == 1) { return "Admin" }
+        return "Member"
+    }
+
+    sfn statusOf:string (i:int) {
+        def n:int (i % 3)
+        if (n == 0) { return "active" }
+        if (n == 1) { return "invited" }
+        return "paused"
+    }
+
+    ; One row, keyed so `EVGReconcile` can match it.
+    sfn rowAt:EVGElement (i:int hovered:boolean) {
+        def key:string ("r" + (to_string i))
+        def cls:string "tb-row"
+        if hovered {
+            ; A class and not a flag: the hover path this benchmark is about
+            ; goes through the stylesheet, and `isHovered` would take a
+            ; different one.
+            cls = "tb-row tb-row-selected"
+        }
+        def row (tree Bench
+            (Row (props (id key) (key key) (className cls))
+                (CellSel
+                    (Check (props (id (key + "-c")) (a11yLabel "Select"))
+                        (Mark "")))))
+        row.addChild((tree Bench
+            (Cell (props (className "tb-cell tb-cell-name"))
+                (CellText (UiBench.nameOf(i))))))
+        row.addChild((tree Bench
+            (Cell (props (className "tb-cell tb-cell-email"))
+                (CellText (props (className "tb-cell-text tb-text-email")) (UiBench.mailOf(i))))))
+        row.addChild((tree Bench
+            (Cell (props (className "tb-cell tb-cell-role"))
+                (CellText (UiBench.roleOf(i))))))
+        def st:string (UiBench.statusOf(i))
+        row.addChild((tree Bench
+            (Cell (props (className "tb-cell tb-cell-status"))
+                (Badge (props (className ("tb-badge tb-badge-" + st))) st))))
+        row.addChild((tree Bench
+            (Cell (props (className "tb-cell tb-cell-spend"))
+                (CellText (props (className "tb-cell-text tb-text-spend")) "$1420"))))
+        return row
+    }
+
+    ; The whole page. `hoveredRow` is -1 for none — the benchmark's `patch`
+    ; phase moves it by one and rebuilds, which is the cheapest interesting
+    ; change a table has.
+    sfn page:EVGElement (rows:int hoveredRow:int) {
+        def p (tree Bench (Page (props (id "page"))))
+        def card (tree Bench (Card (props (id "card"))))
+        def grid (tree Bench (Grid (props (id "grid") (key "grid"))))
+        def i:int 0
+        while (i < rows) {
+            grid.addChild((UiBench.rowAt(i (i == hoveredRow))))
+            i = (i + 1)
+        }
+        card.addChild(grid)
+        p.addChild(card)
+        return p
+    }
+
+    ; --- the phases, each callable on its own -------------------------------------
+
+    sfn sheetFor:EVGStyleSheet (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        s.setViewport(1240.0 900.0 false)
+        return s
+    }
+
+    sfn styleOnly:void (sheet:EVGStyleSheet root:EVGElement) {
+        sheet.applyTree(root "")
+    }
+
+    sfn layoutOnly:EVGLayout (root:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(1240.0 900.0)
+        lay.layout(root)
+        return lay
+    }
+
+    sfn listOnly:int (root:EVGElement lay:EVGLayout) {
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.count())
+    }
+
+    ; The display list as JSON, for the paint pass — which needs a browser and
+    ; therefore only ever sees the finished commands.
+    sfn listJson:string (root:EVGElement lay:EVGLayout) {
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn countElements:int (el:EVGElement) {
+        def n:int 1
+        def i:int 0
+        while (i < (array_length el.children)) {
+            n = (n + (UiBench.countElements((itemAt el.children i))))
+            i = (i + 1)
+        }
+        return n
+    }
+}
