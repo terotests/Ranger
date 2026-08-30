@@ -123,6 +123,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **A big region's colour is better evidence than a speck's.** The model was
+  nearest-seed: the colour of the closest region the user pointed at. That is
+  multimodal by construction, which is why it beat a clustered GMM at every k
+  from 2 to 6, but it gives a twenty-cell speck the same vote as a
+  forty-thousand-cell torso — and on the background side the seeds come from
+  the frame, where the sizes differ by three orders of magnitude. The seeds are
+  now the components of a mixture with π proportional to area:
+
+      D(i) = −log Σ_j π_j exp(−d_ij² / 2σ²)
+
+  Read through its dominant component that is exactly
+  `d_eff² = d² + 2σ²·ln(total area / this seed's area)` — the same colour is
+  further away when it is only a thousandth of what the user pointed at — and
+  it is returned as a distance rather than a likelihood so everything
+  downstream keeps its units and its tuning. σ = 0 is nearest-seed exactly, so
+  the old model is a point on the sweep rather than a thing to remember, and
+  the sweep was run against it: σ = 1 reproduces the previous numbers to within
+  a point, σ = 6 is the best of 1 / 6 / 8 / 10 / 16.
+
+- **Solve, relearn, solve.** The first pass has only what the user gave it.
+  Once it has an answer, every region in that answer is an example of the thing
+  it was just called, the models are re-estimated from all of them, and it
+  solves again. The user's hints stay hard constraints throughout, so the loop
+  revises its guesses and never its instructions, and a pass that changes
+  nothing ends it — which the second pass always is, so a third is not run.
+  Costs about 3 ms on the bench's largest picture (25 ms against 22 ms at 353
+  shapes).
+
+  It was written with a weight making a relearned example count for less than
+  one the user gave, and that weight measured **exactly nothing**: 1.0, 1.6,
+  2.5 and 8.0 give identical numbers on every metric. The reason is structural
+  and worth keeping — a multiplicative penalty on a colour distance vanishes
+  precisely where these examples act, because a region is claimed by the
+  relearned model when its colour nearly matches one of them, and eight times
+  near zero is still near zero. The parameter is gone. What holds the loop
+  steady is the area weighting above, which is not multiplicative in the
+  distance.
+
+  Together, the two changes pay back the whole cost of the pointing rule and
+  more:
+
+  | | before both | mixture | + relearn |
+  |---|---|---|---|
+  | one small dab | 84% | 98% | **100%** |
+  | steerability, first stroke | 76% | 90% | 90% |
+  | steerability, after one correction | 100% | 100% | 100% |
+  | jitter, worst of 20 hands, mean | 90% | 96% | **97%** |
+  | jitter, median | 100% | 100% | 100% |
+  | brush, mean of ceiling over 11 pictures | 99% | 99% | 99% |
+
+  Nine of the eleven pictures now score 100% of ceiling on **all twenty** jitter
+  variants; the two that do not are `6-limbs` at a flat 97% and `9-weakedge`,
+  whose worst hand is 69% and whose ceiling is 0.574 because the tracer cannot
+  hold that boundary either. `11-edgetouch` went from 97% to 100%, which is the
+  frame prior being outvoted by area on a picture where the object touches the
+  frame — the case the prior was always going to get wrong on its own.
+
 - **Crossing something is not pointing at it.** The invariant above counted
   every region a stroke passed over. That is fine while the object is convex
   and fails the moment it is not: on the interleaved picture — a figure with

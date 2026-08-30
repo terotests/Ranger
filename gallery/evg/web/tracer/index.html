@@ -1362,6 +1362,26 @@
   // one. Both swept on the bench and on the jitter run; see wandUnderStroke.
   var WAND_POINTED_COV = 0.1;
   var WAND_POINTED_SHARE = 0.1;
+
+  // The width of one mixture component, in Lab units; see labMixture. It sets
+  // how much a seed's size is allowed to speak: at σ the area term is worth
+  // 2σ²·ln(share), so a small σ is nearly nearest-seed and a large one lets a
+  // big region shout down a small one of the same colour.
+  var WAND_SIGMA_M = 6;
+
+  // How many solve-and-relearn passes. Two: a third changes nothing, because
+  // the second already converges on every picture in the bench. See wandSmart.
+  //
+  // There is deliberately no weight here making a relearned example count for
+  // less than one the user gave. It was written that way first and measured
+  // exactly nothing — 1.0, 1.6, 2.5 and 8.0 give identical numbers on every
+  // metric — and the reason is structural: a multiplicative penalty on a
+  // colour distance vanishes exactly where these examples act. A region is
+  // claimed by the relearned model when its colour nearly matches one of them,
+  // the distance is then near zero, and eight times near zero is still near
+  // zero. What actually holds the loop steady is the area weighting in
+  // labMixture, which is not multiplicative in the distance.
+  var WAND_PASSES = 2;
   function wandSettle() {
     wandFg = new Set();
     wandBg = new Set();
@@ -1778,6 +1798,42 @@
     return best;
   }
 
+  // The same model, but each seed weighted by how much of the picture it is.
+  // Nearest-seed gives a twenty-cell speck the same vote as a forty-thousand
+  // cell torso, and on the background side the seeds come from the frame,
+  // where the sizes differ by three orders of magnitude. So the seeds are the
+  // components of a mixture, π_j proportional to area:
+  //
+  //     D(i) = −log Σ_j π_j exp(−d_ij² / 2σ²)
+  //
+  // Read through the dominant component that is exactly
+  //
+  //     d_eff² = d² + 2σ² · ln(total area / this seed's area)
+  //
+  // — the same colour is further away when it is only a thousandth of what the
+  // user pointed at — and the result is returned as a distance rather than a
+  // likelihood so that everything downstream of it keeps its units and its
+  // tuning. A clustered GMM was tried first, at every k from 2 to 6, and
+  // measured worse than nearest-seed at all of them; this is the same idea
+  // without the clustering, which is what one region per component already is.
+  function labMixture(g, i, seeds, penalty) {
+    var s2 = 2 * WAND_SIGMA_M * WAND_SIGMA_M;
+    var es = [], best = Infinity, tot = 0;
+    seeds.forEach(function (j) {
+      var w = g.seen[j] > 0 ? g.seen[j] : 1;
+      var d = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      if (penalty) d *= penalty(j);
+      var e = d * d / s2 - Math.log(w);
+      es.push(e); tot += w;
+      if (e < best) best = e;
+    });
+    if (!es.length) return 40;
+    var sum = 0;
+    for (var k = 0; k < es.length; k++) sum += Math.exp(-(es[k] - best));
+    var nll = best - Math.log(sum) + Math.log(tot);
+    return WAND_SIGMA_M * Math.sqrt(2 * Math.max(0, nll));
+  }
+
   // Only the neighbourhood of the seeds is at stake. A click on a hand has no
   // business deciding anything about a logo in the far corner, and bounding
   // the graph is most of what keeps a selection from leaking across a picture.
@@ -1822,89 +1878,122 @@
     bg.forEach(function (i) { if (g.seen[i]) cand.add(i); });
     // The model the unknowns are compared against: what the user pointed away
     // from, plus the frame, minus anything they pointed at.
-    var bgModel = new Set(bg);
-    wandBorderExamples(g).forEach(function (i) { if (!fg.has(i)) bgModel.add(i); });
+    var frame = new Set();
+    wandBorderExamples(g).forEach(function (i) { if (!fg.has(i)) frame.add(i); });
+    var list = Array.from(cand);
+    var slot = new Map();
+    list.forEach(function (i, k) { slot.set(i, k); });
+    // How far the selection is willing to reach: the same evidence, read
+    // generously or meanly. It moves the threshold, not the geometry.
+    var lean = Math.pow(2, 1 - 2 * reach);
+
+    // One solve, against whatever the models currently say. Everything that
+    // does not change between passes — the candidate set, the neighbourhood
+    // depths, the pairwise weights — is computed once, above.
+    function cut(fgModel, bgModel, weightOf) {
+      var N = list.length, S = N, T = N + 1, V = N + 2;
+      var head = new Int32Array(V).fill(-1);
+      var to = [], next = [], cap = [];
+      function edge(a, b, c, c2) {
+        to.push(b); cap.push(c); next.push(head[a]); head[a] = to.length - 1;
+        to.push(a); cap.push(c2); next.push(head[b]); head[b] = to.length - 1;
+      }
+      for (var k = 0; k < N; k++) {
+        var i = list[k], area = g.seen[i];
+        if (fg.has(i)) { edge(S, k, 1e9, 0); continue; }
+        if (bg.has(i)) { edge(k, T, 1e9, 0); continue; }
+        var dF = labMixture(g, i, fgModel, weightOf);
+        var dB = bgModel.size ? labMixture(g, i, bgModel, weightOf) : 40;
+        // Colour is not the whole of the evidence. A region the same shade as
+        // something the user pointed at, but a dozen regions away from it, is
+        // more likely to be a different thing that happens to match — the
+        // background of this composite is the same man's face, and colour
+        // alone cannot tell it from his hand. Distance in the region graph can.
+        var far = (depth.has(i) ? depth.get(i) : WAND_HOPS) / WAND_HOPS;
+        var sum = dF + dB + 1e-6;
+        edge(S, k, area * (dB / sum) * (1 - WAND_FAR * far), 0); // cost of calling it background
+        edge(k, T, area * (dF / sum) * lean, 0);                 // cost of calling it foreground
+      }
+      g.share.forEach(function (rec, key) {
+        var a2 = ((key / 100000) | 0) - 1, b2 = (key % 100000) - 1;
+        if (!slot.has(a2) || !slot.has(b2)) return;
+        var dc = labDist(g, a2, g.labL[b2], g.labA[b2], g.labB[b2]);
+        var w = PAIR_WEIGHT * rec.len
+          * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
+          * Math.exp(-rec.edge / WAND_SIGMA_E);
+        if (w > 1e-6) edge(slot.get(a2), slot.get(b2), w, w);
+      });
+
+      // Dinic. Small graph, plain arrays.
+      var level = new Int32Array(V), it = new Int32Array(V), queue = new Int32Array(V);
+      function bfs() {
+        level.fill(-1);
+        var qh = 0, qt = 0;
+        queue[qt++] = S; level[S] = 0;
+        while (qh < qt) {
+          var v = queue[qh++];
+          for (var e = head[v]; e !== -1; e = next[e]) {
+            if (cap[e] > 1e-9 && level[to[e]] < 0) { level[to[e]] = level[v] + 1; queue[qt++] = to[e]; }
+          }
+        }
+        return level[T] >= 0;
+      }
+      function dfs(v, f) {
+        if (v === T) return f;
+        for (; it[v] !== -1; it[v] = next[it[v]]) {
+          var e = it[v], u = to[e];
+          if (cap[e] <= 1e-9 || level[u] !== level[v] + 1) continue;
+          var d = dfs(u, Math.min(f, cap[e]));
+          if (d > 1e-9) { cap[e] -= d; cap[e ^ 1] += d; return d; }
+        }
+        return 0;
+      }
+      var guard = 0;
+      while (bfs() && guard++ < 400) {
+        for (var v = 0; v < V; v++) it[v] = head[v];
+        while (dfs(S, 1e18) > 1e-9) { /* push */ }
+      }
+      bfs();
+      var out = new Set();
+      for (var q = 0; q < N; q++) if (level[q] >= 0) out.add(list[q]);
+      return out;
+    }
 
     // The frame prior is a good prior and a false rule — a portrait crop
     // touches the bottom edge, a full-bleed illustration touches all four — so
     // an example taken from it counts as further away than one the user
-    // pointed at, and manual evidence wins.
-    var bgWeight = new Map();
-    bgModel.forEach(function (j) { bgWeight.set(j, bg.has(j) ? 1 : WAND_AUTO_BG); });
-    var list = Array.from(cand);
-    var slot = new Map();
-    list.forEach(function (i, k) { slot.set(i, k); });
+    // pointed at, and manual evidence wins. Regions the previous pass merely
+    // decided are weaker still, for the same reason and more so.
+    var fgModel = new Set(fg), bgModel = new Set(bg);
+    frame.forEach(function (i) { bgModel.add(i); });
+    var weight = new Map();
+    frame.forEach(function (i) { if (!bg.has(i)) weight.set(i, WAND_AUTO_BG); });
 
-    var N = list.length, S = N, T = N + 1, V = N + 2;
-    var head = new Int32Array(V).fill(-1);
-    var to = [], next = [], cap = [];
-    function edge(a, b, c, c2) {
-      to.push(b); cap.push(c); next.push(head[a]); head[a] = to.length - 1;
-      to.push(a); cap.push(c2); next.push(head[b]); head[b] = to.length - 1;
-    }
-    // How far the selection is willing to reach: the same evidence, read
-    // generously or meanly. It moves the threshold, not the geometry.
-    var lean = Math.pow(2, 1 - 2 * reach);
-    for (var k = 0; k < N; k++) {
-      var i = list[k], area = g.seen[i];
-      if (fg.has(i)) { edge(S, k, 1e9, 0); continue; }
-      if (bg.has(i)) { edge(k, T, 1e9, 0); continue; }
-      var dF = labNearest(g, i, fg);
-      var dB = bgModel.size ? labNearest(g, i, bgModel, function (j) {
-        return bgWeight.get(j) || 1;
-      }) : 40;
-      // Colour is not the whole of the evidence. A region the same shade as
-      // something the user pointed at, but a dozen regions away from it, is
-      // more likely to be a different thing that happens to match — the
-      // background of this composite is the same man's face, and colour alone
-      // cannot tell it from his hand. Distance in the region graph can.
-      var far = (depth.has(i) ? depth.get(i) : WAND_HOPS) / WAND_HOPS;
-      var sum = dF + dB + 1e-6;
-      edge(S, k, area * (dB / sum) * (1 - WAND_FAR * far), 0);   // cost of calling it background
-      edge(k, T, area * (dF / sum) * lean, 0);                   // cost of calling it foreground
-    }
-    g.share.forEach(function (rec, key) {
-      var a = ((key / 100000) | 0) - 1, b = (key % 100000) - 1;
-      if (!slot.has(a) || !slot.has(b)) return;
-      var dc = labDist(g, a, g.labL[b], g.labA[b], g.labB[b]);
-      var w = PAIR_WEIGHT * rec.len
-        * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
-        * Math.exp(-rec.edge / WAND_SIGMA_E);
-      if (w > 1e-6) edge(slot.get(a), slot.get(b), w, w);
-    });
-
-    // Dinic. Small graph, plain arrays.
-    var level = new Int32Array(V), it = new Int32Array(V), queue = new Int32Array(V);
-    function bfs() {
-      level.fill(-1);
-      var qh = 0, qt = 0;
-      queue[qt++] = S; level[S] = 0;
-      while (qh < qt) {
-        var v = queue[qh++];
-        for (var e = head[v]; e !== -1; e = next[e]) {
-          if (cap[e] > 1e-9 && level[to[e]] < 0) { level[to[e]] = level[v] + 1; queue[qt++] = to[e]; }
-        }
+    // Solve, relearn, solve. The first pass has only what the user gave it;
+    // once it has an answer, every region in the answer is an example of the
+    // thing it was called, and the models are re-estimated from all of them
+    // before solving again. The user's own hints stay hard constraints
+    // throughout, so the loop can revise its guesses and never its
+    // instructions, and a pass that changes nothing ends it.
+    var sel = null;
+    for (var pass = 0; pass < WAND_PASSES; pass++) {
+      var got = cut(fgModel, bgModel, function (j) { return weight.get(j) || 1; });
+      if (sel && got.size === sel.size && Array.from(got).every(function (i) { return sel.has(i); })) {
+        sel = got; break;
       }
-      return level[T] >= 0;
+      sel = got;
+      if (pass + 1 >= WAND_PASSES) break;
+      fgModel = new Set(fg);
+      bgModel = new Set(bg);
+      frame.forEach(function (i) { bgModel.add(i); });
+      weight = new Map();
+      frame.forEach(function (i) { if (!bg.has(i)) weight.set(i, WAND_AUTO_BG); });
+      list.forEach(function (i) {
+        if (fg.has(i) || bg.has(i)) return;
+        if (sel.has(i)) fgModel.add(i);
+        else bgModel.add(i);
+      });
     }
-    function dfs(v, f) {
-      if (v === T) return f;
-      for (; it[v] !== -1; it[v] = next[it[v]]) {
-        var e = it[v], u = to[e];
-        if (cap[e] <= 1e-9 || level[u] !== level[v] + 1) continue;
-        var d = dfs(u, Math.min(f, cap[e]));
-        if (d > 1e-9) { cap[e] -= d; cap[e ^ 1] += d; return d; }
-      }
-      return 0;
-    }
-    var guard = 0;
-    while (bfs() && guard++ < 400) {
-      for (var v = 0; v < V; v++) it[v] = head[v];
-      while (dfs(S, 1e18) > 1e-9) { /* push */ }
-    }
-    bfs();
-    var sel = new Set();
-    for (var q = 0; q < N; q++) if (level[q] >= 0) sel.add(list[q]);
 
     // Only what hangs together with something the user actually pointed at.
     var keep = new Set(), stack = [];
