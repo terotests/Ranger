@@ -67,13 +67,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already knows the answer, and the brush is not. The lasso's numbers are
   comparable to each other and not to the brush's.
 
-  What it does not yet do is survive a corrective ⌥ stroke on a colour the
-  object also wears. The models are nearest-seed-colour, so one small negative
-  example at distance zero from a foreground colour outvotes a large positive
-  cluster: ⌥ over a flag whose navy is the suit's navy takes the suit with it
-  (IoU 0.567 → 0.367). Area-weighted mixtures instead of nearest-neighbour is
-  the fix and is the next step. Where the negative colour is the object's own,
-  the correction works as intended — 0.312 → 0.620 on the other composite.
+  What it does not survive is a corrective ⌥ stroke on a colour the object also
+  wears: ⌥ over a flag whose navy is the suit's navy takes the suit with it
+  (IoU 0.567 → 0.367). Where the negative colour is the object's own, the
+  correction works as intended — 0.312 → 0.620 on the other composite.
+
+  **The obvious fix was built and measured and does not work.** An
+  area-weighted mixture instead of nearest-example: k-means in Lab weighted by
+  each region's visible mass, so a small ⌥ stroke cannot outvote a large
+  foreground. Tried at k = 2, 3, 4, 6, 8, and as one component per example with
+  the mass as its weight. Mean IoU against the region ceiling, averaged over
+  the three composites and six strokes each:
+
+  | model | of ceiling |
+  |---|---|
+  | nearest example (shipped) | 0.85 |
+  | mixture, k=8 | 0.82 |
+  | one component per example, mass-weighted | 0.82 |
+  | mixture, k=6 | 0.80 |
+  | mixture, k=4 | 0.76 |
+  | mixture, k=2 | 0.69 |
+
+  It converges back to nearest-example as k grows, which is the tell: there are
+  only eight to thirty examples, and folding them into six discards modes that
+  are real — a person is navy and skin and white shirt at once, and those are
+  not six things. Nor does it fix the failure it was for. Damping a background
+  cluster by how well the foreground already explains it (a colour both sides
+  wear discriminates nothing, so it should not vote) was built too, and moved
+  the flag case 0.271 → 0.268. With identical colours no colour model can
+  separate them; what separates them is where they are, not what they look
+  like, so the next thing to try is the geodesic candidate distance rather than
+  a better palette.
+
+  Two more from the same list measured as **no effect at all**, and are not in
+  the code: a texture term (per-region Lab variance as a fourth axis) and
+  normalizing the shared boundary by the smaller region's perimeter. Both are
+  reasonable and both moved nothing on any composite.
+
+  Repeating a run moves the mean by up to 0.04, so a difference inside that is
+  a tie however good the story around it sounds. `ablate.mjs` runs a list of
+  settings through the same six strokes and reports min, median and mean, and
+  exists because two of the changes above were nearly shipped on a story.
 
   The geometric lasso is still there, as a mode: it answers a different
   question ("which pieces are inside this line?") and answers it well.

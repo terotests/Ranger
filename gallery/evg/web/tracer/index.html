@@ -1297,8 +1297,20 @@
   // How far from a hint the question is even asked, how strongly neighbours
   // hold together, and the two scales that say what "similar colour" and "a
   // real edge" mean. Tuned against composites whose answer is known.
-  var WAND_HOPS = 12, WAND_PAIR = 26, WAND_SIGMA_C = 14, WAND_SIGMA_E = 26;
+  // PAIR_WEIGHT is how much the neighbour term weighs against the evidence.
+  // The cleanup has a constant of its own that also used to be called lambda,
+  // and is a radius in pixels; it is called one now. Two different quantities
+  // under one letter is how "let's tune lambda" becomes a question nobody can
+  // answer.
+  var WAND_HOPS = 12, PAIR_WEIGHT = 26, WAND_SIGMA_C = 14, WAND_SIGMA_E = 26;
   var WAND_FAR = 0.6;
+  // Manual evidence must outweigh a guess. The frame prior is a good prior and
+  // a false rule — a portrait crop touches the bottom edge, a full-bleed
+  // illustration touches all four — so an example taken from the frame counts
+  // as this much further away than one the user pointed at. Below the
+  // measurement's own noise on the composites, which have no manual background
+  // strokes; it is here on the argument, not on a number.
+  var WAND_AUTO_BG = 1.35;
   var WAND_KEY = 0x9E3779;
   var SVGNS = "http://www.w3.org/2000/svg";
   var wandSel = null, wandGraph = null, wandSeq = 0;
@@ -1678,10 +1690,11 @@
 
   // The model is the seeds themselves: nearest seed colour, which is
   // multimodal by construction and needs no clustering to be so.
-  function labNearest(g, i, seeds) {
+  function labNearest(g, i, seeds, penalty) {
     var best = 1e9;
     seeds.forEach(function (j) {
       var d = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      if (penalty) d *= penalty(j);
       if (d < best) best = d;
     });
     return best;
@@ -1751,7 +1764,10 @@
       var i = list[k], area = g.seen[i];
       if (fg.has(i)) { edge(S, k, 1e9, 0); continue; }
       if (bg.has(i)) { edge(k, T, 1e9, 0); continue; }
-      var dF = labNearest(g, i, fg), dB = bgModel.size ? labNearest(g, i, bgModel) : 40;
+      var dF = labNearest(g, i, fg);
+      var dB = bgModel.size ? labNearest(g, i, bgModel, function (j) {
+        return bg.has(j) ? 1 : WAND_AUTO_BG;
+      }) : 40;
       // Colour is not the whole of the evidence. A region the same shade as
       // something the user pointed at, but a dozen regions away from it, is
       // more likely to be a different thing that happens to match — the
@@ -1766,7 +1782,7 @@
       var a = ((key / 100000) | 0) - 1, b = (key % 100000) - 1;
       if (!slot.has(a) || !slot.has(b)) return;
       var dc = labDist(g, a, g.labL[b], g.labA[b], g.labB[b]);
-      var w = WAND_PAIR * rec.len
+      var w = PAIR_WEIGHT * rec.len
         * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
         * Math.exp(-rec.edge / WAND_SIGMA_E);
       if (w > 1e-6) edge(slot.get(a), slot.get(b), w, w);
@@ -1840,7 +1856,8 @@
   // front of it is the cheaper cut. The measurements are in the changelog. A
   // line can say where the object is; it cannot say what, inside it, is not
   // the object, and no boundary term recovers that.
-  function wandTrim(g, sel, lam) {
+  function wandTrim(g, sel, cleanupRadius) {
+    var lam = cleanupRadius;
     if (lam <= 0 || !sel.size) return sel;
     var n = g.cw * g.ch, cw = g.cw, ch = g.ch, inR = new Uint8Array(n);
     sel.forEach(function (i) {

@@ -148,7 +148,11 @@ for (const name of CASES) {
   console.log("   katto (paras mahdollinen paloilla):", JSON.stringify(oracle));
   console.log("   kuusi vetoa, IoU:", JSON.stringify(ious),
               "mediaani", med, "vaihteluväli", (ious[ious.length-1]-ious[0]).toFixed(3));
-  console.log("   osuus katosta:", (med / oracle.iou).toFixed(2));
+  // Clipped at 100%: a median above the ceiling is the ceiling estimate's own
+  // error — a majority vote is not quite optimal at the boundary — and shown
+  // raw it reads as a bug rather than as a tolerance.
+  console.log("   osuus katosta:", Math.min(1, med / oracle.iou).toFixed(2),
+              med > oracle.iou ? "(katon oma virhe ±" + (med / oracle.iou - 1).toFixed(2) + ")" : "");
   if (errors.length) console.log("   errors", errors);
   await close();
 }
