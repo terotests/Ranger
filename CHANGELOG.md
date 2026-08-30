@@ -109,6 +109,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings through the same six strokes and reports min, median and mean, and
   exists because two of the changes above were nearly shipped on a story.
 
+- **What a stroke is worth, made an invariant.** A region's hint is decided by
+  coverage and nothing else:
+
+      positive[i] = cells covered by positive strokes
+      negative[i] = cells covered by ⌥ strokes
+      |positive − negative| / (positive + negative) < 0.1  → UNKNOWN
+      otherwise the larger one wins
+
+  The second line is the new half. A region the two strokes covered about
+  equally has been told two different things, and forcing it to a side spends a
+  certainty nobody has; left unknown, the min-cut decides it on the evidence
+  around it, which is what the min-cut is for. A band up to 0.1 costs nothing
+  measurable and 0.2 costs nine points, so a tenth is where it sits.
+
+- **Two things a single-stroke score cannot say, measured:**
+  `npm run evg:trace:web:steer`.
+
+  **The same intent, twenty different hands** — the stroke shifted up to 7 px,
+  shortened to as little as 55%, tilted up to 12°. The median is 100% of the
+  ceiling on every picture, and the worst case is **67%** on average and 37% at
+  its worst. For a tool that is the number that matters: robustness beats a
+  best case, and the spread is where the next work is.
+
+  **Steerability**, which is the metric a semi-automatic tool lives by: a first
+  stroke is allowed to be wrong if one correction reliably moves it the right
+  way. The harness plays the user — after each answer it finds the largest
+  remaining error and aims the next stroke at it. Starting from a deliberately
+  meagre stroke at 95% of ceiling: a corrective *positive* stroke gains **+8
+  and +13** points where there is room and costs nothing where there is not. A
+  corrective **⌥ stroke still hurts** — −12, −14 and −1 on three pictures, even
+  aimed at an error that is genuinely the selector's to fix. Additive steering
+  works; subtractive steering does not yet, and that is now a number rather
+  than an impression.
+
+  Two of the harness's own mistakes had to go before either reading meant
+  anything: corrective strokes were being aimed in pixels where the code
+  expected fractions, so every one of them landed off the picture and read as
+  "corrections do nothing"; and the aim has to skip errors the ceiling itself
+  makes, because an error the best possible region labelling shares is not the
+  selector's to fix and ⌥ at one cost 28 points.
+
 - **Seven generated pictures, graded, with their answers — and every selector
   run through all of them.** `npm run evg:trace:web:bench`. Harder than a few
   flat shapes, easier than a photograph, and generated rather than committed so
