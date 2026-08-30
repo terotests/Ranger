@@ -123,6 +123,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The gap between the legs stays out.** `6-limbs` was a flat 97% of ceiling
+  for every selector and every one of twenty hands — the signature of a
+  systematic loss rather than a hard picture — and the loss was the hole
+  through the figure. The cause was one expression. `wandEncloseSmart` closes a
+  hole only if it does not plainly look like the background it is surrounded
+  by, and it measured that against the **manual ⌥ hints alone**: with a
+  positive-only stroke there are none, the distance to background was infinity,
+  the guard could never fire, and every enclosed hole was swallowed whole. It
+  now measures against the same model the cut uses — manual hints plus the
+  frame examples, through the area-weighted mixture. **97% → 100%** (0.963
+  against a ceiling of 0.947), on one stroke and with no ⌥ at all.
+
+  A softer fix was tried first and reverted, which is worth recording because
+  it was not wrong, only redundant. A hint is an axiom — a region the brush
+  covered is foreground and nothing outvotes it — and a brush has width, so
+  drawn down a figure with a gap it covers the gap: 100% of one background
+  region and 37% of another on this picture. Making the constraint finite did
+  exactly what it was meant to, taking the answer straight out of the min-cut
+  from 0.881 to **0.931**. But it moved no final score at any strength from 0.4
+  to infinity, because what put the gap back was the enclosure and not the
+  constraint. So the constraint stays hard, which is the property the whole
+  interaction rests on — what you point at is selected, always — and the fix
+  sits where the fault was.
+
+- **`9-weakedge` is the tracer's, and now the bench says so.** The picture is
+  one region: a single traced shape of **43 090 px, 44% of it figure**, a third
+  of the whole image, spanning the flank and the background beside it. No
+  method that picks whole regions can split it, which is why every selector
+  sits at 100% of a 0.574 ceiling and why the worst of twenty hands is 69%.
+  More colours do not help — the ceiling is identical at 8, 14, 24, 40 and 64,
+  because the two sides differ by a few units of Lab and quantisation merges
+  them at every k.
+
+  So the ceiling row gets two columns that explain it instead of leaving it to
+  be shrugged at. **`halki`** is the pixels lost because some shape straddles
+  the boundary — its minority side is unrecoverable whichever way the shape is
+  labelled — and **`isoin`** is the largest straddling shape, which says
+  whether that error is spread or concentrated. `9-weakedge` reads 19 551 and
+  43 090: one merged shape. `6-limbs` reads 1 204 and 68: specks. `5-shared`,
+  the worst ceiling in the set at 0.313, reads 34 431 and 34 728.
+
+- **Two more harness faults, and a claim corrected.** The bench and the steer
+  run each built the stroke themselves, and had already drifted apart once, so
+  the builder is now one exported function.
+
+  It samples densely and then **smooths**, and both halves are the measurement.
+  With four anchors the straight run between two of them cuts the corner
+  wherever the figure narrows, and the stroke spent **17% of its length outside
+  the limbed figure**. But the exact centre of every row of a dense sampling is
+  not a hand either: the longest run of a slotted row is the narrow strip
+  beside the slot, so a dense unsmoothed stroke whipped across the notches
+  twelve times. Sampled densely and smoothed, the limbed stroke is fully inside
+  the figure.
+
+  The second fault was hiding behind the first. The steer run's deliberately
+  meagre stroke was written as *the first two anchor points* — a twelfth of a
+  five-point stroke and a hundredth of a twenty-five-point one — so densifying
+  the stroke silently turned it into a dot and steerability from 90% into 48%.
+  It is a fraction of the stroke now.
+
+  **The correction:** `10-interleave`'s "53% → 97% on one stroke", recorded
+  above, was flattered by the coarse stroke. Under the smoothed one — a line
+  down the middle of a comb, which crosses the notches as any line must — the
+  honest numbers, measured against the same stroke with the pointing rule
+  switched off, are **47% → 61%** on one stroke and **73% → 97%** with one ⌥.
+  The rule still earns its place; the headline was the harness talking.
+
+  Where the numbers stand after all of it, on the smoothed stroke:
+
+  | | |
+  |---|---|
+  | brush, one stroke, mean of ceiling | 96% |
+  | brush + one ⌥ | **100%** |
+  | jitter, worst of 20 hands, mean | 93% |
+  | jitter, median | 96% |
+  | steerability | 89% → **100%** → 99% |
+
+  Eight of eleven pictures are at 100% of ceiling on all twenty hands. The
+  three that are not are `6-limbs` (97% worst, 100% median), `9-weakedge`
+  (69% worst — the merged region above) and `10-interleave` (61% median, 97%
+  at p90, and 97% with one correction).
+
 - **A big region's colour is better evidence than a speck's.** The model was
   nearest-seed: the colour of the closest region the user pointed at. That is
   multimodal by construction, which is why it beat a clustered GMM at every k

@@ -22,7 +22,7 @@ import zlib from "node:zlib";
 import os from "node:os";
 import { openPage, waitOk } from "./eval-harness.mjs";
 import { writePng } from "./png.mjs";
-import { CASES, SIZE, TRUTH_SRC, rowCentre } from "./bench-cases.mjs";
+import { CASES, SIZE, TRUTH_SRC, medialStroke } from "./bench-cases.mjs";
 
 const { W, H } = SIZE;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tracer-steer-"));
@@ -37,19 +37,8 @@ function lcg(seed) {
   return () => (s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff) / 0x7fffffff;
 }
 
-// The intended stroke: down the middle of the figure, in image coordinates.
-function medial(c) {
-  const inside = [];
-  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (c.inFigure(x, y)) inside.push([x, y]);
-  const ys = inside.map((p) => p[1]);
-  const y0 = Math.min(...ys) + 24, y1 = Math.max(...ys) - 24;
-  const pts = [];
-  for (let t = 0; t <= 4; t++) {
-    const y = y0 + (y1 - y0) * t / 4;
-    pts.push([rowCentre(c, y), y]);
-  }
-  return pts;
-}
+// The intended stroke, shared with the bench so the two cannot drift apart.
+const medial = (c) => medialStroke(c);
 
 // Twenty hands drawing the same intent.
 function jitter(pts, seed) {
@@ -231,11 +220,14 @@ for (const c of CASES) {
   const baseFrac = base.map(([x, y]) => [x / W, y / H]);
   const steer = await page.evaluate(({ pts }) => {
     window.__k.reset();
-    // Deliberately meagre: a quarter of the intended stroke, so there is
-    // something for the corrections to do.
-    const short = pts.slice(0, 2).map(function (p, k) {
-      return [p[0], pts[0][1] + (p[1] - pts[0][1]) * 0.35];
-    });
+    // Deliberately meagre, so there is something for the corrections to do:
+    // the first twelfth of the intended stroke. As a fraction of the stroke
+    // and not as a count of anchor points — it was written as the first two
+    // points, which is a twelfth of a five-point stroke and a hundredth of a
+    // twenty-five-point one, and densifying the stroke silently turned the
+    // meagre stroke into a dot and steerability from 90% into 48%.
+    const n = Math.max(2, Math.round((pts.length - 1) / 12) + 1);
+    const short = pts.slice(0, n);
     window.__k.drag(short, false);
     const a = window.__k.look();
     const aimFn = window.__k.aim(a.got, true);

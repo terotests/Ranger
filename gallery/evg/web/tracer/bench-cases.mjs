@@ -320,3 +320,40 @@ export function rowCentre(c, y) {
   }
   return best ? (bestA + bestB) / 2 : W / 2;
 }
+
+export const STROKE_ANCHORS = 24;
+export const STROKE_SMOOTH = 8;
+
+// The intended stroke: down the middle of the figure, in image coordinates.
+//
+// Both numbers are part of the measurement rather than details. With four
+// anchors the straight run between two of them cuts the corner wherever the
+// figure narrows between the rows they sit on, and the stroke spent 17% of its
+// length outside the limbed figure. But taking the exact centre of every row
+// of a dense sampling is not a hand either: on the interleaved picture the
+// longest run of a slotted row is the narrow strip beside the slot, so the
+// stroke whipped left and right across the notches twelve times and scored 60%
+// where a coarse one scored 97%. A hand draws a smooth line down the middle
+// and lets the shape pass under it. So: sample densely, then smooth, which
+// puts the limbed stroke fully inside the figure and leaves the interleaved
+// one crossing the notches, as any line down a comb must.
+export function medialStroke(c, n, smooth) {
+  const inside = [];
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (c.inFigure(x, y)) inside.push([x, y]);
+  const ys = inside.map((p) => p[1]);
+  const y0 = Math.min(...ys) + 24, y1 = Math.max(...ys) - 24;
+  const steps = n || STROKE_ANCHORS, rounds = smooth === undefined ? STROKE_SMOOTH : smooth;
+  const yy = [], xs = [];
+  for (let t = 0; t <= steps; t++) {
+    const y = y0 + (y1 - y0) * t / steps;
+    yy.push(y); xs.push(rowCentre(c, y));
+  }
+  for (let s = 0; s < rounds; s++) {
+    const o = xs.slice();
+    for (let i = 0; i < xs.length; i++) {
+      const a = o[Math.max(0, i - 1)], b = o[i], d = o[Math.min(o.length - 1, i + 1)];
+      xs[i] = (a + 2 * b + d) / 4;
+    }
+  }
+  return xs.map((x, i) => [x, yy[i]]);
+}

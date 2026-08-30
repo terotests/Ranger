@@ -1382,6 +1382,24 @@
   // zero. What actually holds the loop steady is the area weighting in
   // labMixture, which is not multiplicative in the distance.
   var WAND_PASSES = 2;
+
+  // A hint is an axiom: a region the user's brush covered is foreground and
+  // nothing outvotes it. Making it finite was tried, because the brush has a
+  // width and drawn down a figure with a gap between the legs it covers the
+  // gap — on the limbed picture it covered 100% of one background region and
+  // 37% of another. Softening it did exactly what it was meant to: straight
+  // out of the min-cut the answer went from 0.881 to 0.931. It changed no
+  // final score at any strength from 0.4 to infinity, because what was putting
+  // the gap back was the enclosure below and not the constraint. So the
+  // constraint stays hard, which is the property the interaction rests on —
+  // what you point at is selected, always — and the fix lives where the fault
+  // was.
+
+  // How plainly an enclosed hole has to look like the background before it is
+  // let go again. Zero keeps every hole the enclosure found, infinity keeps
+  // none of them and turns the enclosure off; the whole rule sits on this one
+  // number, which is why it is a number and not two code paths.
+  var WAND_ENCLOSE = 0.6;
   function wandSettle() {
     wandFg = new Set();
     wandBg = new Set();
@@ -2224,12 +2242,25 @@
     if (!sel.size) return;
     var before = new Set(sel);
     wandEnclose(g, sel);
+    if (sel.size === before.size) return;
+    // Against the same background model the cut used, and not just against the
+    // manual hints. Read only those, a picture with no ⌥ stroke at all has no
+    // background model, dB was infinity, and the guard below could never fire:
+    // every enclosed hole was swallowed whole. That was the limbed picture's
+    // last systematic error — the min-cut had already thrown the gap between
+    // the legs out, correctly, and this put it back.
+    var bgModel = new Set(wandBg);
+    wandBorderExamples(g).forEach(function (i) { if (!wandFg.has(i)) bgModel.add(i); });
+    var weight = new Map();
+    bgModel.forEach(function (j) { weight.set(j, wandBg.has(j) ? 1 : WAND_AUTO_BG); });
     sel.forEach(function (i) {
       if (before.has(i)) return;
-      var dF = labNearest(g, i, wandFg);
-      var dB = wandBg.size ? labNearest(g, i, wandBg) : 1e9;
+      var dF = labMixture(g, i, wandFg);
+      var dB = bgModel.size ? labMixture(g, i, bgModel, function (j) {
+        return weight.get(j) || 1;
+      }) : 1e9;
       // Surrounded, and not plainly the background it is surrounded by.
-      if (dB < dF * 0.6) sel.delete(i);
+      if (dB < dF * WAND_ENCLOSE) sel.delete(i);
     });
   }
 

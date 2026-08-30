@@ -20,7 +20,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { openPage, waitOk } from "./eval-harness.mjs";
 import { writePng } from "./png.mjs";
-import { CASES, SIZE, TRUTH_SRC, rowCentre } from "./bench-cases.mjs";
+import { CASES, SIZE, TRUTH_SRC, medialStroke } from "./bench-cases.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { W, H } = SIZE;
@@ -59,14 +59,9 @@ function gesturesFor(c) {
     }
     if (d > bd) { bd = d; best = p; }
   }
-  // The stroke: down the middle, clipped to where the figure actually is.
-  const ys = inside.map((p) => p[1]);
-  const y0 = Math.min(...ys) + 24, y1 = Math.max(...ys) - 24;
-  const stroke = [];
-  for (let t = 0; t <= 4; t++) {
-    const y = y0 + (y1 - y0) * t / 4;
-    stroke.push([rowCentre(c, y) / W, y / H]);
-  }
+  // The stroke: down the middle, in fractions of the frame, which is what
+  // drag() speaks.
+  const stroke = medialStroke(c).map((p) => [p[0] / W, p[1] / H]);
   // The ⌥ stroke: a horizontal line across a row that is background for its
   // whole length, so it says only "this is background" and nothing else.
   let negY = 0;
@@ -209,7 +204,23 @@ for (const c of CASES) {
       const want = window.__inFig(x, y);
       if (got && want) tp++; else if (got) fp++; else if (want) fn++;
     }
-    return { shapes: els.length, iou: +(tp / (tp + fp + fn)).toFixed(3) };
+    // Why the ceiling is where it is. A region that straddles the boundary
+    // costs its minority side no matter which way it is labelled, and no
+    // method that picks whole regions can recover those pixels — so the sum of
+    // the minority sides is the tracing's own error, and the largest single
+    // straddling region says whether it is spread over many small mistakes or
+    // concentrated in one big one. Without this a low ceiling is a number to
+    // shrug at; with it, 9-weakedge reads as one merged shape and not as a
+    // hard picture.
+    let straddle = 0, worst = 0;
+    for (let k = 1; k <= els.length; k++) {
+      if (!tot[k]) continue;
+      const f = inT[k] / tot[k];
+      if (f <= 0.12 || f >= 0.88) continue;
+      straddle += Math.min(inT[k], tot[k] - inT[k]);
+      if (tot[k] > worst) worst = tot[k];
+    }
+    return { shapes: els.length, iou: +(tp / (tp + fp + fn)).toFixed(3), straddle, worst };
   }, { W, H });
 
   // A rough hand-drawn outline: the silhouette, sampled and wobbled.
@@ -226,6 +237,7 @@ for (const c of CASES) {
   const g = gesturesFor(c);
   const r = {
     name: c.name, what: c.what, shapes: ceiling.shapes, ceiling: ceiling.iou,
+    straddle: ceiling.straddle, worst: ceiling.worst,
     click: await score({ kind: "click", tol: 60, at: g.click }),
     lasso: await score({ kind: "lasso", pts: lassoPts }),
     smart1: await score({ kind: "smart", pts: g.stroke }),
@@ -240,16 +252,17 @@ const cols = [["click", "napsautus"], ["lasso", "lasso"], ["smart1", "äly 1 vet
               ["smart2", "äly + ⌥"]];
 const pad = (s, n) => String(s).padEnd(n);
 console.log("");
-console.log(pad("kuva", 12) + pad("paloja", 8) + pad("katto", 8)
+console.log(pad("kuva", 12) + pad("paloja", 7) + pad("katto", 7) + pad("halki", 7) + pad("isoin", 7)
   + cols.map(([, l]) => pad(l, 14)).join(""));
-console.log("-".repeat(12 + 8 + 8 + cols.length * 14));
+console.log("-".repeat(12 + 7 * 4 + cols.length * 14));
 for (const r of rows) {
   const cells = cols.map(([k]) => {
     const v = r[k];
     if (v.miss) return pad("—", 14);
     return pad(v.iou.toFixed(3) + " (" + Math.min(100, Math.round(v.iou / r.ceiling * 100)) + "%)", 14);
   });
-  console.log(pad(r.name, 12) + pad(r.shapes, 8) + pad(r.ceiling.toFixed(3), 8) + cells.join(""));
+  console.log(pad(r.name, 12) + pad(r.shapes, 7) + pad(r.ceiling.toFixed(3), 7)
+    + pad(r.straddle, 7) + pad(r.worst, 7) + cells.join(""));
 }
 console.log("");
 for (const [k, label] of cols) {
@@ -257,6 +270,12 @@ for (const [k, label] of cols) {
   const mean = share.reduce((a, b) => a + b, 0) / share.length;
   console.log(pad(label, 14) + "keskimäärin " + (mean * 100).toFixed(0) + " % katosta");
 }
+console.log("");
+console.log("");
+console.log("halki = pikselit jotka menetetään koska jokin muoto ylittää rajan; ne ovat");
+console.log("        jäljityksen virhettä eikä mikään valitsin voi saada niitä takaisin.");
+console.log("isoin = suurin rajan ylittävä muoto, joka kertoo onko virhe hajallaan vai");
+console.log("        yhdessä kohdassa.");
 console.log("");
 rows.forEach((r) => console.log("  " + pad(r.name, 12) + r.what));
 fs.rmSync(dir, { recursive: true, force: true });
