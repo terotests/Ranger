@@ -11,33 +11,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A "Taikasauva" in the edit mode: pick an object out of the drawing and cut
   the rest away.** Click a shape and the selection grows outward from it across
-  shapes that touch and are within *Sieto* of the color you clicked; ⇧ adds
-  another grown region to the selection, ⌥ takes one out; *Eristä* removes
-  everything outside it and, with *rajaa reunoihin*, pulls the frame in around
-  what is left. What remains is on transparency, which is how you cut an icon
-  out of a photograph. One undo step puts the whole drawing and its old frame
-  back.
+  what touches it and is within *Sieto* of the color you clicked — or, when the
+  picture has no color boundary that agrees with the object, **draw a rough
+  outline by hand and let the shapes decide where the edge really is**. ⇧ adds
+  a second region, ⌥ takes one out; *Eristä* removes everything outside the
+  selection and, with *rajaa reunoihin*, pulls the frame in around what is
+  left. What remains is on transparency, which is how you cut an icon out of a
+  photograph. One undo puts the whole drawing and its old frame back.
 
-  Two things make it work on a traced drawing rather than on pixels. Shapes do
-  not know their neighbours, and a bounding box cannot tell you — the background
-  shape's box covers the picture and would make it adjacent to everything — so
-  each outline is stamped into a grid of cells, densified so a long straight run
-  cannot step over a cell, and two shapes are neighbours when they stamp cells
-  next to each other. And the color test is against the shape that was clicked
-  rather than the one the flood came from: chaining tolerance from neighbour to
-  neighbour walks a portrait's cheek into the wall behind it one imperceptible
-  step at a time. Measured on a portrait of 629 shapes, one seed grows 3 → 12 →
-  18 shapes as the tolerance goes 0 → 60 → 120, in under 45 ms.
+  The hand-drawn mode is the one that works on photographs. A suit and the
+  curtain behind it are the same tone, so no tolerance separates them; the line
+  you draw says *where*, roughly, and the shapes say *exactly* — a shape joins
+  the object when more than two fifths of what you can see of it falls inside
+  your line, and nothing is ever cut along the line itself. A sloppy circle
+  wobbling ±25 px around a ball returns the ball, exactly. Two fifths and not
+  half is deliberate and was measured: the fractions come out strongly bimodal
+  (on a portrait, 304 shapes below 0.1 and 145 above 0.9, barely thirty in
+  between), so the line has room to sit low, and half a per cent decided it in
+  practice — the face's skin came out at 0.49, and a rough outline through the
+  hair dropped it and left the head transparent. A shape wrongly left out is a
+  hole; a shape wrongly taken along is a scrap of background that one ⌥-click
+  removes.
+
+  Everything works on what is **visible**, and that is the whole design. A
+  traced picture is stacked: a lower layer's shape is the union of itself and
+  everything painted on top of it. On a test image of a box with a ball
+  overlapping it, the blue layer is 240 px wide and contains the ball — so
+  asking that geometry which shapes touch which says every shape touches the
+  one beneath it, and deleting the shapes on top uncovers a union that was
+  never visible. That is what made cutting the box return a box with the ball's
+  bulge painted blue, and cutting a person out of a portrait return a full
+  rectangle. So the drawing is rasterized once in its own z-order into a buffer
+  of shape indices — a z-buffer — and adjacency, "how much of this shape is
+  inside your line", the enclosure rule and the crop box all read that. Canvas
+  antialiases and a blend of two index colors decodes to a third, unrelated
+  shape, so the raster is drawn twice under two different encodings and a pixel
+  is believed only where both agree.
+
+  The cut carries the z-order into a mask: white where the selection is, black
+  where a removed shape used to cover it, in the order they are drawn, so a
+  kept shape paints exactly where it painted before and nowhere else. What
+  leaves the drawing is *moved* into that mask rather than copied into it, and
+  only a kept shape with something removed above it needs the mask at all — a
+  portrait cut costs 876 KB where cloning everything cost 936 KB. The mask
+  carries an explicit user-space region, because a mask's default region is a
+  percentage measured from user-space zero rather than from the viewBox origin,
+  and on a cropped drawing that cuts the object in half along a straight line —
+  the same trap the refiner's filter region fell into.
 
   A color flood cannot reach what is *painted on top of* the object — that is
   what tolerance is for — but the eyes and the tie are the object. So the
-  selection is closed over what it encloses: the selected shapes are rasterized
-  and any shape whose outline lies inside that mask joins them. Without it,
-  isolating a face gave back a flat silhouette; with it the same cut keeps 232
-  shapes instead of 84. The step stops when the selection already covers 80% of
-  the frame, because "inside the object" stops meaning anything once the object
-  is the picture — clicking a portrait's background covers 95% of it and used to
-  hand back 580 of its 629 shapes.
+  selection closes over what it surrounds: the holes in its visible area join
+  it. A ball merely crossing a box reaches the outside and is left alone, and
+  the step stops once the selection covers 80% of the frame, because "inside
+  the object" means nothing when the object is the picture.
 
 - **The color count now goes to 64.** It stopped at 16, and the engine was never
   the reason: measured on a portrait the palette keeps growing well past that —

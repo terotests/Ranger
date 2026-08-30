@@ -511,51 +511,133 @@ if (!ready) {
       smoothSteps++;
     }
 
-    // wand: grow a selection out from one shape, then cut everything else
-    // away. Three things have to hold. The selection has to grow with the
-    // tolerance — a wand that only ever takes the shape under the cursor is
-    // the merge tool with extra steps. It has to keep what is painted on top
-    // of the object, or isolating a face leaves a silhouette. And the cut has
-    // to be undoable down to the last shape and the frame it came in.
+    // wand: pick an object out and cut the rest away. Four things have to
+    // hold. The selection grows with the tolerance — a wand that only ever
+    // takes the shape under the cursor is the merge tool with extra steps. A
+    // rough outline drawn by hand selects too, and selects something else. The
+    // cut must not *uncover* anything: a traced picture is stacked, so a lower
+    // layer's shape is the union of itself and everything painted over it, and
+    // deleting what is on top used to reveal geometry that was never visible.
+    // And all of it comes back in one click.
     await page.click("#toolWand");
     const wand = await (async () => {
+      // Seed from a real click point, the way a person does: half the shapes
+      // in a stacked drawing are buried under later layers and can neither be
+      // clicked nor seen.
       const grow = (tol) => page.evaluate((tol) => {
         const t = document.getElementById("wandTol");
         t.value = String(tol);
         t.dispatchEvent(new Event("input", { bubbles: true }));
         const svg = document.querySelector("#outStage svg");
-        // Seed from a small shape: the frame-spanning one encloses the whole
-        // drawing at any tolerance, and then growth has nothing left to show.
-        const ps = [...svg.querySelectorAll("path")];
-        let el = ps[0], best = Infinity;
-        ps.forEach((e) => {
-          const b = e.getBBox(), a = b.width * b.height;
-          if (a > 200 && a < best) { best = a; el = e; }
-        });
+        const r = svg.getBoundingClientRect();
+        const el = document.elementFromPoint(r.left + r.width * 0.5, r.top + r.height * 0.55);
+        if (!el || el.tagName !== "path") return -1;
         el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         return svg.querySelectorAll("path:not(.wand-off)").length;
       }, tol);
       const tight = await grow(0);
-      const loose = await grow(120);
-      const shapesBefore = await page.evaluate(() =>
-        document.querySelectorAll("#outStage svg path").length);
+      const loose = await grow(140);
+
+      // The hand-drawn outline: a wobbling box over the middle of the picture.
+      // Nothing is cut along the line — shapes decide, by how much of what you
+      // can see of them falls inside it — so the result lands on the picture's
+      // own edges.
+      const lasso = await page.evaluate(() => {
+        const svg = document.querySelector("#outStage svg");
+        const r = svg.getBoundingClientRect();
+        const stage = document.getElementById("outStage");
+        const at = (fx, fy) => ({ x: r.left + r.width * fx, y: r.top + r.height * fy });
+        const send = (t, p) => stage.dispatchEvent(new PointerEvent(t, {
+          bubbles: true, clientX: p.x, clientY: p.y }));
+        const box = [[0.25, 0.2], [0.75, 0.22], [0.78, 0.75], [0.22, 0.72]];
+        const pts = [];
+        for (let i = 0; i < box.length; i++) {
+          const a = box[i], b = box[(i + 1) % box.length];
+          for (let k = 0; k < 8; k++) {
+            pts.push(at(a[0] + (b[0] - a[0]) * k / 8, a[1] + (b[1] - a[1]) * k / 8));
+          }
+        }
+        send("pointerdown", pts[0]);
+        pts.slice(1).forEach((p) => send("pointermove", p));
+        send("pointerup", pts[pts.length - 1]);
+        return {
+          sel: svg.querySelectorAll("path:not(.wand-off)").length,
+          left: svg.querySelectorAll('path[stroke="#ff2ec4"]').length,
+        };
+      });
+
+      // Rasterize before and after. Every pixel the cut leaves painted has to
+      // carry the colour it already had; a pixel that changes colour is
+      // geometry that was hidden and is not any more.
+      // Both shots are taken in one fixed frame. The cut pulls the frame in,
+      // and comparing two rasters of different frames compares pixels that do
+      // not stand for the same place — which reads as 9% of the picture having
+      // moved when nothing has.
+      const shot = (frame) => page.evaluate(async (frame) => {
+        const svg = document.querySelector("#outStage svg");
+        const vb = frame.split(/[\s,]+/).map(Number);
+        const str = new XMLSerializer().serializeToString(svg)
+          .replace(/viewBox="[^"]*"/, 'viewBox="' + frame + '"')
+          .replace(/width="[^"]*"/, 'width="' + vb[2] + '"')
+          .replace(/height="[^"]*"/, 'height="' + vb[3] + '"');
+        const im = new Image();
+        im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+        await im.decode();
+        await new Promise((r) => setTimeout(r, 120));
+        // The <img> renders at the SVG's own width/height, which is its
+        // viewBox, so drawing it to fill the canvas maps user space linearly.
+        const c = document.createElement("canvas");
+        c.width = 240; c.height = Math.max(1, Math.round(240 * vb[3] / vb[2]));
+        const g = c.getContext("2d");
+        g.drawImage(im, 0, 0, c.width, c.height);
+        return { w: c.width, h: c.height, vb,
+                 px: Array.from(g.getImageData(0, 0, c.width, c.height).data) };
+      }, frame);
       const frameBefore = await page.evaluate(() =>
         document.querySelector("#outStage svg").getAttribute("viewBox"));
+      const before = await shot(frameBefore);
+      const shapesBefore = await page.evaluate(() =>
+        document.querySelectorAll("#outStage svg path").length);
       await page.click("#wandCut");
       const cut = await page.evaluate(() => {
         const svg = document.querySelector("#outStage svg");
         return {
-          shapes: svg.querySelectorAll("path").length,
+          // Paths inside the mask are not shapes of the drawing: the cut moves
+          // what it removes in there rather than cloning it.
+          shapes: [...svg.querySelectorAll("path")].filter((p) => !p.closest("mask")).length,
           frame: svg.getAttribute("viewBox"),
           marked: svg.querySelectorAll(".wand-off").length,
+          masks: svg.querySelectorAll("mask[id^=wandmask]").length,
         };
       });
+      const after = await shot(frameBefore);
+      // Interior pixels only. A kept shape's edge used to be composited
+      // against the neighbour that has just been removed and is now composited
+      // against nothing, so the one-pixel antialiased fringe legitimately
+      // changes colour all over the drawing — 7% of it, which is noise, not
+      // uncovering. Uncovered geometry is area, and area has an interior.
+      let painted = 0, moved = 0;
+      for (let y = 1; y + 1 < after.h; y++) {
+        for (let x = 1; x + 1 < after.w; x++) {
+          const o = (y * after.w + x) * 4;
+          if (after.px[o + 3] < 255) continue;
+          if (after.px[o - 4 + 3] < 255 || after.px[o + 4 + 3] < 255
+            || after.px[o - after.w * 4 + 3] < 255
+            || after.px[o + after.w * 4 + 3] < 255) continue;
+          painted++;
+          if (Math.abs(before.px[o] - after.px[o])
+            + Math.abs(before.px[o + 1] - after.px[o + 1])
+            + Math.abs(before.px[o + 2] - after.px[o + 2]) > 60) moved++;
+        }
+      }
       await page.click("#editUndo");
       const back = await page.evaluate(() => {
         const svg = document.querySelector("#outStage svg");
-        return { shapes: svg.querySelectorAll("path").length, frame: svg.getAttribute("viewBox") };
+        return { shapes: [...svg.querySelectorAll("path")].filter((p) => !p.closest("mask")).length,
+                 frame: svg.getAttribute("viewBox"),
+                 masks: svg.querySelectorAll("mask[id^=wandmask]").length };
       });
-      return { tight, loose, shapesBefore, frameBefore, cut, back };
+      return { tight, loose, lasso, shapesBefore, frameBefore, cut, back, painted, moved };
     })();
     await page.click("#toolRefine");
 
@@ -634,9 +716,15 @@ if (!ready) {
       + edit.wand.tight + " → " + edit.wand.loose);
     process.exitCode = 1;
   }
-  if (edit.wand.cut.shapes !== edit.wand.loose || edit.wand.cut.marked !== 0) {
+  if (edit.wand.lasso.sel < 2 || edit.wand.lasso.sel === edit.wand.loose
+    || edit.wand.lasso.left !== 0) {
+    console.error("a hand-drawn outline should select an area of its own and clean up after itself, got "
+      + JSON.stringify(edit.wand.lasso));
+    process.exitCode = 1;
+  }
+  if (edit.wand.cut.shapes !== edit.wand.lasso.sel || edit.wand.cut.marked !== 0) {
     console.error("the cut should leave exactly the selection behind, got "
-      + JSON.stringify(edit.wand.cut) + " want " + edit.wand.loose);
+      + JSON.stringify(edit.wand.cut) + " want " + edit.wand.lasso.sel);
     process.exitCode = 1;
   }
   if (!(edit.wand.cut.shapes < edit.wand.shapesBefore)
@@ -645,9 +733,17 @@ if (!ready) {
       + JSON.stringify(edit.wand.cut));
     process.exitCode = 1;
   }
+  // The one that catches the stacking bug: cutting a box out of a picture with
+  // a ball over it returned the box with the ball's bulge painted blue, and
+  // the tool reported success either way.
+  if (!(edit.wand.painted > 500) || edit.wand.moved > edit.wand.painted * 0.005) {
+    console.error("the cut must not uncover hidden geometry: " + edit.wand.moved
+      + " of " + edit.wand.painted + " painted pixels changed colour");
+    process.exitCode = 1;
+  }
   if (edit.wand.back.shapes !== edit.wand.shapesBefore
-    || edit.wand.back.frame !== edit.wand.frameBefore) {
-    console.error("undo should put every cut shape and the old frame back, got "
+    || edit.wand.back.frame !== edit.wand.frameBefore || edit.wand.back.masks !== 0) {
+    console.error("undo should put every cut shape, the mask and the old frame back, got "
       + JSON.stringify(edit.wand.back) + " want " + edit.wand.shapesBefore
       + " / " + edit.wand.frameBefore);
     process.exitCode = 1;
