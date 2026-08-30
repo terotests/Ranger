@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+import os from "node:os";
 import { createRequire } from "node:module";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +51,39 @@ if (!fs.existsSync(path.join(DIST, "index.html")) ||
     !fs.existsSync(path.join(DIST, "evg_bitmap_tracer.js"))) {
   console.error(`no tracer page in ${path.relative(ROOT, DIST)} — run: npm run evg:trace:web`);
   process.exit(1);
+}
+
+// A PNG writer, twenty lines of it, so this file can build a picture whose
+// true answer it already knows. Everything else here checks that the tool did
+// something; the composite below checks that what it did was right.
+const CRC = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c; }
+  return t;
+})();
+function crc32(buf) {
+  let c = -1;
+  for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+function writePng(w, h, rgba) {
+  const stride = w * 4 + 1;
+  const raw = Buffer.alloc(stride * h);
+  for (let y = 0; y < h; y++) rgba.copy(raw, y * stride + 1, y * w * 4, (y + 1) * w * 4);
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+    const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td), 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0))]);
 }
 
 const TYPES = {
@@ -149,6 +184,38 @@ if (!ready) {
     console.error("palette swatches should match the emitted layers");
     process.exitCode = 1;
   }
+  // The color slider's range is a promise the engine has to keep: it is worth
+  // asking for more than sixteen colors only if asking produces more of them.
+  // Measured on a portrait the palette keeps growing to 64 (16→15 layers,
+  // 32→24, 64→38) and the trace does not get slower for it, so 64 is where the
+  // slider stops.
+  const wide = await (async () => {
+    const top = await page.evaluate(() => +document.getElementById("colorCount").max);
+    const layersAt = async (n) => {
+      await page.evaluate((n) => {
+        document.getElementById("status").textContent = "…";
+        const cc = document.getElementById("colorCount");
+        cc.value = String(n);
+        cc.dispatchEvent(new Event("input", { bubbles: true }));
+      }, n);
+      await page.waitForFunction(() => /OK/.test(document.getElementById("status").textContent || ""),
+        { timeout: 120000 });
+      return page.evaluate(() => new Set([...document.querySelectorAll("#outStage svg path")]
+        .map((p) => p.getAttribute("fill"))).size);
+    };
+    return { top, at16: await layersAt(16), atTop: await layersAt(top) };
+  })();
+  console.log(JSON.stringify(wide));
+  if (wide.top < 64) {
+    console.error("the color slider should reach 64, stops at " + wide.top);
+    process.exitCode = 1;
+  }
+  if (!(wide.atTop > wide.at16)) {
+    console.error("asking for more colors than 16 should produce more of them, got "
+      + wide.at16 + " → " + wide.atTop);
+    process.exitCode = 1;
+  }
+
   // The palette controls: a control that is on screen must be one that does
   // something, and none of them may be clipped out of the panel.
   const controls = await page.evaluate(() => {
@@ -284,6 +351,12 @@ if (!ready) {
   // possible at all is splitting those into one path per shape. Check that,
   // then each of the three tools and undo.
   await page.evaluate(() => {
+    // Back to a palette taken from the picture: the test above left the mode on
+    // "fixed" with two colors, and a two-color drawing cannot show whether a
+    // tool that works on color is doing anything.
+    const m = document.getElementById("paletteMode");
+    m.value = "auto";
+    m.dispatchEvent(new Event("change", { bubbles: true }));
     const c = document.getElementById("colorCount");
     c.value = 8;
     c.dispatchEvent(new Event("input", { bubbles: true }));
@@ -314,7 +387,16 @@ if (!ready) {
       };
     });
 
+    // Tarkennin is the default tool, so nothing below can assume which tool is
+    // live — every one of them selects itself first.
+    const defaultTool = await page.evaluate(() => ({
+      refine: document.getElementById("toolRefine").classList.contains("active"),
+      merge: document.getElementById("toolMerge").classList.contains("active"),
+      stage: document.getElementById("outStage").classList.contains("refining"),
+    }));
+
     // merge: set the picker, click the biggest shape, count what took the color
+    await page.click("#toolMerge");
     await page.evaluate(() => {
       const c = document.getElementById("editColor");
       c.value = "#00ff88";
@@ -446,15 +528,213 @@ if (!ready) {
       }
       return { before, after: el.getAttribute("d").length };
     });
-    // A stroke is one undo step however many shapes it crossed, so three
-    // strokes are exactly three clicks back.
-    await page.click("#editUndo");
-    await page.click("#editUndo");
-    await page.click("#editUndo");
-    const smoothUndone = await page.evaluate(() => {
-      const el = document.getElementById("__smoothTarget");
-      return el ? el.getAttribute("d").length : -1;
-    });
+    // A stroke is one undo step however many shapes it crossed, so getting the
+    // outline back takes as many clicks as there were strokes that changed
+    // something — never one per shape they ran over, which is what recording a
+    // shape at a time cost, and which is what this counts.
+    let smoothSteps = 0;
+    let smoothUndone = -1;
+    for (let i = 0; i < 12; i++) {
+      const state = await page.evaluate(() => {
+        const el = document.getElementById("__smoothTarget");
+        return { d: el ? el.getAttribute("d").length : -1,
+                 empty: document.getElementById("editNote").textContent === "Ei kumottavaa." };
+      });
+      smoothUndone = state.d;
+      if (state.d === smooth.before || state.empty) break;
+      await page.click("#editUndo");
+      smoothSteps++;
+    }
+
+    // wand: pick an object out and cut the rest away. Four things have to
+    // hold. The selection grows with the tolerance — a wand that only ever
+    // takes the shape under the cursor is the merge tool with extra steps. A
+    // rough outline drawn by hand selects too, and selects something else. The
+    // cut must not *uncover* anything: a traced picture is stacked, so a lower
+    // layer's shape is the union of itself and everything painted over it, and
+    // deleting what is on top used to reveal geometry that was never visible.
+    // And all of it comes back in one click.
+    await page.click("#toolWand");
+    const wand = await (async () => {
+      // Seed from a real click point, the way a person does: half the shapes
+      // in a stacked drawing are buried under later layers and can neither be
+      // clicked nor seen.
+      const grow = (tol) => page.evaluate((tol) => {
+        const t = document.getElementById("wandTol");
+        t.value = String(tol);
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        const svg = document.querySelector("#outStage svg");
+        const r = svg.getBoundingClientRect();
+        const el = document.elementFromPoint(r.left + r.width * 0.5, r.top + r.height * 0.55);
+        if (!el || el.tagName !== "path") return -1;
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        return [...svg.querySelectorAll("path:not(.wand-off)")]
+          .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length;
+      }, tol);
+      const tight = await grow(0);
+      const loose = await grow(140);
+
+      // The hand-drawn outline: a wobbling box over the middle of the picture.
+      // Nothing is cut along the line — shapes decide, by how much of what you
+      // can see of them falls inside it — so the result lands on the picture's
+      // own edges.
+      const lasso = await page.evaluate(() => {
+        const svg = document.querySelector("#outStage svg");
+        const r = svg.getBoundingClientRect();
+        const stage = document.getElementById("outStage");
+        const at = (fx, fy) => ({ x: r.left + r.width * fx, y: r.top + r.height * fy });
+        const send = (t, p) => stage.dispatchEvent(new PointerEvent(t, {
+          bubbles: true, clientX: p.x, clientY: p.y }));
+        const box = [[0.25, 0.2], [0.75, 0.22], [0.78, 0.75], [0.22, 0.72]];
+        const pts = [];
+        for (let i = 0; i < box.length; i++) {
+          const a = box[i], b = box[(i + 1) % box.length];
+          for (let k = 0; k < 8; k++) {
+            pts.push(at(a[0] + (b[0] - a[0]) * k / 8, a[1] + (b[1] - a[1]) * k / 8));
+          }
+        }
+        send("pointerdown", pts[0]);
+        pts.slice(1).forEach((p) => send("pointermove", p));
+        send("pointerup", pts[pts.length - 1]);
+        window.__smokeLasso = box;
+        return {
+          sel: [...svg.querySelectorAll("path:not(.wand-off)")]
+            .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length,
+          left: svg.querySelectorAll('path[stroke="#ff2ec4"]').length,
+          // A line drawn through shapes has to clip the ones it cut, or the
+          // background reaching across it comes along whole.
+          clips: svg.querySelectorAll("clipPath[id^=wandclip]").length,
+          clipped: svg.querySelectorAll("path[clip-path]").length,
+        };
+      });
+
+      // Rasterize before and after. Every pixel the cut leaves painted has to
+      // carry the colour it already had; a pixel that changes colour is
+      // geometry that was hidden and is not any more.
+      // Both shots are taken in one fixed frame. The cut pulls the frame in,
+      // and comparing two rasters of different frames compares pixels that do
+      // not stand for the same place — which reads as 9% of the picture having
+      // moved when nothing has.
+      const shot = (frame) => page.evaluate(async (frame) => {
+        const svg = document.querySelector("#outStage svg");
+        const vb = frame.split(/[\s,]+/).map(Number);
+        const str = new XMLSerializer().serializeToString(svg)
+          .replace(/viewBox="[^"]*"/, 'viewBox="' + frame + '"')
+          .replace(/width="[^"]*"/, 'width="' + vb[2] + '"')
+          .replace(/height="[^"]*"/, 'height="' + vb[3] + '"');
+        const im = new Image();
+        im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+        await im.decode();
+        await new Promise((r) => setTimeout(r, 120));
+        // The <img> renders at the SVG's own width/height, which is its
+        // viewBox, so drawing it to fill the canvas maps user space linearly.
+        const c = document.createElement("canvas");
+        c.width = 240; c.height = Math.max(1, Math.round(240 * vb[3] / vb[2]));
+        const g = c.getContext("2d");
+        g.drawImage(im, 0, 0, c.width, c.height);
+        return { w: c.width, h: c.height, vb,
+                 px: Array.from(g.getImageData(0, 0, c.width, c.height).data) };
+      }, frame);
+      const frameBefore = await page.evaluate(() =>
+        document.querySelector("#outStage svg").getAttribute("viewBox"));
+      const before = await shot(frameBefore);
+      // Shapes of the drawing: not the ones the tool parks inside a <mask> or
+      // a <clipPath>, which are machinery rather than picture.
+      const drawn = () => page.evaluate(() =>
+        [...document.querySelectorAll("#outStage svg path")]
+          .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length);
+      const shapesBefore = await drawn();
+      await page.click("#wandCut");
+      const cut = await page.evaluate(() => {
+        const svg = document.querySelector("#outStage svg");
+        return {
+          // Paths inside the mask are not shapes of the drawing: the cut moves
+          // what it removes in there rather than cloning it.
+          shapes: [...svg.querySelectorAll("path")]
+            .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length,
+          frame: svg.getAttribute("viewBox"),
+          marked: svg.querySelectorAll(".wand-off").length,
+          masks: svg.querySelectorAll("mask[id^=wandmask]").length,
+        };
+      });
+      const after = await shot(frameBefore);
+      // Interior pixels only. A kept shape's edge used to be composited
+      // against the neighbour that has just been removed and is now composited
+      // against nothing, so the one-pixel antialiased fringe legitimately
+      // changes colour all over the drawing — 7% of it, which is noise, not
+      // uncovering. Uncovered geometry is area, and area has an interior.
+      let painted = 0, moved = 0;
+      for (let y = 1; y + 1 < after.h; y++) {
+        for (let x = 1; x + 1 < after.w; x++) {
+          const o = (y * after.w + x) * 4;
+          if (after.px[o + 3] < 255) continue;
+          if (after.px[o - 4 + 3] < 255 || after.px[o + 4 + 3] < 255
+            || after.px[o - after.w * 4 + 3] < 255
+            || after.px[o + after.w * 4 + 3] < 255) continue;
+          painted++;
+          if (Math.abs(before.px[o] - after.px[o])
+            + Math.abs(before.px[o + 1] - after.px[o + 1])
+            + Math.abs(before.px[o + 2] - after.px[o + 2]) > 60) moved++;
+        }
+      }
+      // How far past the drawn line the result reaches. Taking every admitted
+      // shape whole let one background shape crossing the line drag its whole
+      // visible area in, and the enclosure rule then closed over everything
+      // that shape surrounded — the flag, the curtain and the desk came along
+      // with the person. A shape the line cuts through is clipped to it now,
+      // so what sticks out is only the overhang of shapes that were almost
+      // entirely inside anyway.
+      const leak = await page.evaluate((box) => {
+        const svg = document.querySelector("#outStage svg");
+        const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+        const c = document.createElement("canvas");
+        c.width = 200; c.height = Math.max(1, Math.round(200 * vb[3] / vb[2]));
+        const g = c.getContext("2d");
+        // The lasso, in the frame's own coordinates. It was drawn as fractions
+        // of the original 320×221 stage.
+        const poly = box.map((p) => [p[0] * 320, p[1] * 221]);
+        const inPoly = (x, y) => { let inside = false;
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const [xi, yi] = poly[i], [xj, yj] = poly[j];
+            if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+              inside = !inside;
+            }
+          }
+          return inside; };
+        return new Promise((done) => {
+          const im = new Image();
+          im.onload = () => {
+            g.drawImage(im, 0, 0, c.width, c.height);
+            const d = g.getImageData(0, 0, c.width, c.height).data;
+            let painted = 0, outside = 0;
+            for (let y = 0; y < c.height; y++) {
+              for (let x = 0; x < c.width; x++) {
+                if (d[(y * c.width + x) * 4 + 3] < 200) continue;
+                painted++;
+                const ux = vb[0] + (x + 0.5) * vb[2] / c.width;
+                const uy = vb[1] + (y + 0.5) * vb[3] / c.height;
+                if (!inPoly(ux, uy)) outside++;
+              }
+            }
+            done({ painted, outside });
+          };
+          im.src = "data:image/svg+xml;base64,"
+            + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(svg))));
+        });
+      }, await page.evaluate(() => window.__smokeLasso));
+
+      await page.click("#editUndo");
+      const back = await page.evaluate(() => {
+        const svg = document.querySelector("#outStage svg");
+        return { shapes: [...svg.querySelectorAll("path")]
+                   .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length,
+                 frame: svg.getAttribute("viewBox"),
+                 masks: svg.querySelectorAll("mask[id^=wandmask]").length,
+                 clips: svg.querySelectorAll("clipPath[id^=wandclip]").length };
+      });
+      return { tight, loose, lasso, shapesBefore, frameBefore, cut, back, painted, moved, leak };
+    })();
+    await page.click("#toolRefine");
 
     // The refine-size slider must not re-trace: a re-trace replaces the
     // drawing and takes the edit session down with it, which is a strange way
@@ -467,7 +747,8 @@ if (!ready) {
     await page.waitForTimeout(400);
     const stillEditing = await page.evaluate(() =>
       document.getElementById("editbar").classList.contains("on"));
-    return { before, exploded, statusLive, merged, undone, picked, want, groups, groupsUndone, stillEditing,
+    return { before, exploded, statusLive, defaultTool, merged, undone, picked, want, wand, smoothSteps,
+             groups, groupsUndone, stillEditing,
              masks, masksUndone, preview: refined.preview, previewLeft: refined.previewLeft,
              refineChangedPixels: refined.changed,
              smoothBefore: smooth.before, smoothAfter: smooth.after, smoothUndone };
@@ -512,8 +793,62 @@ if (!ready) {
       + edit.smoothUndone + " want " + edit.smoothBefore);
     process.exitCode = 1;
   }
+  if (edit.smoothSteps !== 3) {
+    console.error("three smooth strokes should take exactly three clicks back, took "
+      + edit.smoothSteps);
+    process.exitCode = 1;
+  }
   if (!edit.stillEditing) {
     console.error("sizing the refine box must not re-trace and drop the edit session");
+    process.exitCode = 1;
+  }
+  if (!edit.defaultTool.refine || edit.defaultTool.merge || !edit.defaultTool.stage) {
+    console.error("edit mode should open on Tarkennin, got " + JSON.stringify(edit.defaultTool));
+    process.exitCode = 1;
+  }
+  if (!(edit.wand.loose > edit.wand.tight) || edit.wand.tight < 1) {
+    console.error("the wand selection should grow with its tolerance, got "
+      + edit.wand.tight + " → " + edit.wand.loose);
+    process.exitCode = 1;
+  }
+  if (edit.wand.lasso.sel < 2 || edit.wand.lasso.sel === edit.wand.loose
+    || edit.wand.lasso.left !== 0 || edit.wand.lasso.clips !== 1
+    || edit.wand.lasso.clipped < 1) {
+    console.error("a hand-drawn outline should select an area of its own and clean up after itself, got "
+      + JSON.stringify(edit.wand.lasso));
+    process.exitCode = 1;
+  }
+  if (edit.wand.cut.shapes !== edit.wand.lasso.sel || edit.wand.cut.marked !== 0) {
+    console.error("the cut should leave exactly the selection behind, got "
+      + JSON.stringify(edit.wand.cut) + " want " + edit.wand.lasso.sel);
+    process.exitCode = 1;
+  }
+  if (!(edit.wand.cut.shapes < edit.wand.shapesBefore)
+    || edit.wand.cut.frame === edit.wand.frameBefore) {
+    console.error("the cut should drop the rest of the drawing and pull the frame in, got "
+      + JSON.stringify(edit.wand.cut));
+    process.exitCode = 1;
+  }
+  // The one that catches the stacking bug: cutting a box out of a picture with
+  // a ball over it returned the box with the ball's bulge painted blue, and
+  // the tool reported success either way.
+  if (!(edit.wand.painted > 500) || edit.wand.moved > edit.wand.painted * 0.005) {
+    console.error("the cut must not uncover hidden geometry: " + edit.wand.moved
+      + " of " + edit.wand.painted + " painted pixels changed colour");
+    process.exitCode = 1;
+  }
+  if (!(edit.wand.leak.painted > 500)
+    || edit.wand.leak.outside > edit.wand.leak.painted * 0.05) {
+    console.error("a hand-drawn outline should bound the cut: " + edit.wand.leak.outside
+      + " of " + edit.wand.leak.painted + " painted pixels landed outside the line");
+    process.exitCode = 1;
+  }
+  if (edit.wand.back.shapes !== edit.wand.shapesBefore
+    || edit.wand.back.frame !== edit.wand.frameBefore || edit.wand.back.masks !== 0
+    || edit.wand.back.clips !== 0) {
+    console.error("undo should put every cut shape back and take the mask, the clip and the frame with it, got "
+      + JSON.stringify(edit.wand.back) + " want " + edit.wand.shapesBefore
+      + " / " + edit.wand.frameBefore);
     process.exitCode = 1;
   }
 
@@ -683,6 +1018,132 @@ if (!ready) {
   if (refPre.refined > refPre.flat * 2) {
     console.error("the refiner is sampling the unprocessed bitmap: edge energy went "
       + refPre.flat + " -> " + refPre.refined);
+    process.exitCode = 1;
+  }
+
+  // --- can it tell two pictures apart? --------------------------------------
+  // Every check above asks whether the tool did something. This one asks
+  // whether what it did was right, and it can, because the picture was built
+  // here: one background, one figure, composited through a silhouette this
+  // file knows by heart. The wand is then given a deliberately sloppy version
+  // of that silhouette — every point pushed out or in by up to 18 px — and
+  // what it cuts is compared against the truth, pixel by pixel.
+  const cut = await (async () => {
+    const W = 240, H = 300;
+    const px = Buffer.alloc(W * H * 4);
+    // Ground truth: a head on a body, as a function rather than a bitmap.
+    const inFigure = (x, y) => {
+      const hx = x - 120, hy = y - 78;
+      if (hx * hx / (34 * 34) + hy * hy / (40 * 40) <= 1) return true;
+      return y >= 108 && y <= 285 && Math.abs(x - 120) <= 62 - Math.max(0, (140 - y) * 0.4);
+    };
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        let r, g, b;
+        if (inFigure(x, y)) {
+          // The figure: warm, banded, with one cool patch so it is not a
+          // single flat tone the color flood could have had for free.
+          const band = ((x * 0.7 + y * 1.3) | 0) % 60;
+          r = 150 + band; g = 90 + (band >> 1); b = 60 + (band >> 2);
+          if (x > 96 && x < 144 && y > 150 && y < 200) { r = 70; g = 90; b = 140; }
+        } else {
+          // The background: cool, banded, with warm streaks, so neither side
+          // owns a colour outright.
+          const band = ((y * 1.1 + x * 0.3) | 0) % 50;
+          r = 60 + band; g = 80 + band; b = 120 + band;
+          if ((x * 3 + y) % 47 < 3) { r = 150; g = 100; b = 70; }
+        }
+        px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+      }
+    }
+    const file = path.join(os.tmpdir(), "tracer-smoke-composite.png");
+    fs.writeFileSync(file, writePng(W, H, px));
+
+    await page.setInputFiles("#file", file);
+    await page.waitForFunction(() =>
+      /OK/.test(document.getElementById("status").textContent || ""), { timeout: 120000 });
+    await page.evaluate(() => {
+      document.getElementById("status").textContent = "…";
+      const c = document.getElementById("colorCount");
+      c.value = 12; c.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForFunction(() =>
+      /OK/.test(document.getElementById("status").textContent || ""), { timeout: 120000 });
+    await page.click("#editToggle");
+    await page.click("#toolWand");
+    const r = await page.evaluate(async ({ W, H }) => {
+      const inFigure = (x, y) => {
+        const hx = x - 120, hy = y - 78;
+        if (hx * hx / (34 * 34) + hy * hy / (40 * 40) <= 1) return true;
+        return y >= 108 && y <= 285 && Math.abs(x - 120) <= 62 - Math.max(0, (140 - y) * 0.4);
+      };
+      const svg = document.querySelector("#outStage svg");
+      const vb0 = svg.getAttribute("viewBox");
+      const rect = svg.getBoundingClientRect();
+      const stage = document.getElementById("outStage");
+      const at = (ux, uy) => ({ x: rect.left + ux / W * rect.width,
+                                y: rect.top + uy / H * rect.height });
+      const send = (t, p) => stage.dispatchEvent(new PointerEvent(t, {
+        bubbles: true, clientX: p.x, clientY: p.y }));
+      // Walk the silhouette and push every point away from the middle by a
+      // wobble: this is the hand, and it is not steady.
+      const pts = [];
+      for (let i = 0; i < 72; i++) {
+        const th = i / 72 * Math.PI * 2;
+        const dx = Math.cos(th), dy = Math.sin(th);
+        let hit = 0;
+        for (let t = 4; t < 260; t += 1.5) {
+          if (inFigure(120 + dx * t, 165 + dy * t)) hit = t;
+        }
+        if (!hit) continue;
+        const wobble = 18 * Math.sin(i * 0.8) + 6;
+        pts.push(at(120 + dx * (hit + wobble), 165 + dy * (hit + wobble)));
+      }
+      send("pointerdown", pts[0]);
+      pts.slice(1).forEach((p) => send("pointermove", p));
+      send("pointerup", pts[0]);
+      const note = document.getElementById("editNote").textContent;
+      document.getElementById("wandCut").click();
+      const str = new XMLSerializer().serializeToString(svg)
+        .replace(/viewBox="[^"]*"/, 'viewBox="' + vb0 + '"')
+        .replace(/width="[^"]*"/, 'width="' + W + '"')
+        .replace(/height="[^"]*"/, 'height="' + H + '"');
+      const im = new Image();
+      im.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(str)));
+      await im.decode();
+      await new Promise((r) => setTimeout(r, 150));
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const g = c.getContext("2d");
+      g.drawImage(im, 0, 0, W, H);
+      const d = g.getImageData(0, 0, W, H).data;
+      let tp = 0, fp = 0, fn = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const got = d[(y * W + x) * 4 + 3] > 128, want = inFigure(x, y);
+          if (got && want) tp++; else if (got) fp++; else if (want) fn++;
+        }
+      }
+      return { note, tp, fp, fn,
+               iou: +(tp / (tp + fp + fn)).toFixed(3),
+               precision: +(tp / (tp + fp)).toFixed(3),
+               recall: +(tp / (tp + fn)).toFixed(3) };
+    }, { W, H });
+    return r;
+  })();
+  console.log(JSON.stringify(cut));
+  // Measured on three composites of two real photographs, a rough outline
+  // scores 0.86 to 0.98 against the truth; this generated one sits in the same
+  // range. The bar is set below the worst of them, so it fails on a change
+  // that makes the cut worse rather than on the noise of a wobbling line.
+  if (!(cut.iou >= 0.8)) {
+    console.error("a rough outline should cut the figure out of the background, IoU "
+      + cut.iou + " (precision " + cut.precision + ", recall " + cut.recall + ")");
+    process.exitCode = 1;
+  }
+  if (!(cut.recall >= 0.85)) {
+    console.error("the cut should keep the figure, recall " + cut.recall);
     process.exitCode = 1;
   }
 
