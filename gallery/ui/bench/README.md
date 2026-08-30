@@ -117,3 +117,26 @@ So: the showcase is cheap; an unvirtualised 200-row table is past 16 ms
 on EVG and still comfortable as a React commit; a paged table can hold
 thousands of records on either side; EVG's next win is a cheaper
 `build()` / layout, not a faster painter.
+
+## Stress — how far Ranger render goes
+
+The comparison above stops at 200 rows. That never asked the painter
+how many commands it can draw, because build and layout answered first.
+
+```bash
+npm run ui:bench:stress
+```
+
+Ranger only. Three paths, N rising until a sample is past 800 ms:
+
+| path | what is timed |
+| --- | --- |
+| `paint` | list already in memory; `renderDisplayList` + `gl.finish` |
+| `retained` | kept tree; layout + display list + paint (a hover frame) |
+| `rebuild` | `buildHost` + the lot (a sort, a tree literal starting over) |
+
+Synthetic rect and text lists sit beside real `TableCtl` / checkbox
+trees so the painter can be asked about command count without the
+controller sitting on the answer. The scorecard marks `60` / `30` /
+`·` against 16.7 ms and 33.3 ms, and prints the largest N that still
+held each budget.

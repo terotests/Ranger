@@ -70,6 +70,7 @@ npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
 npm run ui:conformance:install   # once
 npm run ui:web                   # builds, serves, prints the URL
 npm run ui:bench                 # WebGL vs Radix/DOM render times, same fixtures
+npm run ui:bench:stress          # Ranger-only: push N until a frame drops
 ```
 
 Radix on the left, Ranger's EVG controllers painted by `gallery/evg/gl` on the
@@ -274,7 +275,7 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
 | `conformance/` | The catalogue, specs, both adapters, the diff, the scorecard, the inventory and the audit |
 | `web/` | The browser playground (`npm run ui:web`) |
-| `bench/` | WebGL vs Radix/DOM render times at scale (`npm run ui:bench`) |
+| `bench/` | WebGL vs Radix/DOM render times, and a Ranger-only stress run |
 | `theme/base.css` | The class-first theme |
 
 ## Related

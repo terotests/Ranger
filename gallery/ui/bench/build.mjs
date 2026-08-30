@@ -65,3 +65,10 @@ await esbuild.build({
   nodePaths: [path.join(DOM_DIR, "node_modules")],
   logLevel: "info",
 });
+await esbuild.build({
+  entryPoints: [path.join(HERE, "stress.js")],
+  bundle: true,
+  format: "esm",
+  outfile: path.join(HERE, "bundle-stress.js"),
+  logLevel: "info",
+});
