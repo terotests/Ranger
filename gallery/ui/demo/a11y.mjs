@@ -40,12 +40,14 @@ const { SortableDemo } = require(path.join(ROOT, "gallery/ui/bin/SortableDemo.cj
 const { MotionDemo } = require(path.join(ROOT, "gallery/ui/bin/MotionDemo.cjs"));
 const { TableDemo } = require(path.join(ROOT, "gallery/ui/bin/TableDemo.cjs"));
 const { DropdownDemo } = require(path.join(ROOT, "gallery/ui/bin/DropdownDemo.cjs"));
+const { DialogDemo } = require(path.join(ROOT, "gallery/ui/bin/DialogDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
 const MOTION_CSS = fs.readFileSync(path.join(HERE, "motion.css"), "utf8");
 const TABLE_CSS = fs.readFileSync(path.join(HERE, "table.css"), "utf8");
 const DROPDOWN_CSS = fs.readFileSync(path.join(HERE, "dropdown.css"), "utf8");
+const DIALOG_CSS = fs.readFileSync(path.join(HERE, "dialog.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -67,6 +69,12 @@ table.init(TABLE_CSS);
 // get to is a state not worth auditing.
 const dropdown = new DropdownDemo();
 dropdown.init(DROPDOWN_CSS);
+
+// The dialog and the window. Two dialogs on one page is the state worth
+// auditing: a modal and a non-modal one, side by side, each with its own name
+// — and a title bar that is a real control in one and a heading in the other.
+const dialog = new DialogDemo();
+dialog.init(DIALOG_CSS);
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -186,6 +194,32 @@ const STATES = [
       return dropdown.a11yProblems();
     },
     tree: () => dropdown.a11yJson(13, "dd-item-status-item-available"),
+  },
+  {
+    // A modal and a movable window at once. Two things axe is good at and this
+    // is the only page with either: a dialog needs an accessible name, and a
+    // control whose whole affordance is "you can drag me" needs to say so in
+    // words — the bar carries a roledescription for exactly that reason.
+    name: "dialog — a modal and a window, both open",
+    size: [900, 560],
+    lint: () => {
+      dialog.openModal();
+      dialog.openWindow();
+      return dialog.a11yProblems();
+    },
+    tree: () => dialog.a11yJson(14, "win-titlebar"),
+  },
+  {
+    // The window alone. With the modal shut, nothing masks the page behind it
+    // — which is the whole difference between the two, and means everything
+    // under the window is audited as reachable rather than hidden.
+    name: "dialog — the window alone, page still reachable",
+    size: [900, 560],
+    lint: () => {
+      dialog.press("dlg-close");
+      return dialog.a11yProblems();
+    },
+    tree: () => dialog.a11yJson(15, ""),
   },
   {
     name: "toolbar",

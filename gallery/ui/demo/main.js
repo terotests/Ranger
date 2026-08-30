@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -230,6 +230,27 @@ const dropdown = new DropdownDemo();
 dropdown.init(DROPDOWN_CSS);
 let lastDropdownHover = "";
 
+/**
+ * The dialog and the window — the same class twice, with one flag different.
+ *
+ * This is the demo with a gesture the others do not have: the window's title
+ * bar is DRAGGED, and a drag is not a click. The pointer handlers below ask
+ * the controller whether a press starts one, and while it has, every move is
+ * a delta rather than a position — which is what lets the window be picked up
+ * anywhere along its bar and not jump.
+ *
+ * Both windows start open, because a page whose demo is two closed triggers
+ * shows nothing.
+ */
+const dialog = new DialogDemo();
+dialog.init(DIALOG_CSS);
+dialog.openWindow();
+dialog.openModal();
+let lastDialogHover = "";
+// Where the pointer was when the drag began, in page pixels. The controller
+// only ever hears "this much further", so the subtracting happens here.
+let dialogDragAt = null;
+
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
 // there is one description of each demo and not two.
@@ -340,6 +361,62 @@ const DEMOS = {
     animated: true,
   },
 
+  dialog: {
+    height: () => dialog.heightPx(),
+    list: () => dialog.displayListJson(),
+    hit: (x, y) => dialog.hitId(x, y),
+    a11y: (gen, focus) => dialog.a11yJson(gen, focus),
+    // The page's gesture protocol: `press` picks something up and says so,
+    // `drag` carries it, `drop` puts it down. The sortable uses the same three.
+    //
+    // A press that is NOT the window's title bar has to do the ordinary thing
+    // instead, and do it here: once a demo has a `drag`, the page stops calling
+    // its plain click path and this is the only handler a button will get.
+    press: (id) => {
+      if (dialog.beginDrag(id)) {
+        // `grabPointer` is set by the pointerdown handler just before this
+        // runs, so the press point is already recorded and needs no argument.
+        dialogDragAt = { x: grabPointer.x, y: grabPointer.y };
+        return true;
+      }
+      dialog.press(id);
+      return false;
+    },
+    // Deltas, not positions. The controller never learns where it was picked
+    // up, so a window grabbed by the right end of its bar does not jump left.
+    drag: (id, ev) => {
+      if (!dialogDragAt) return false;
+      dialog.dragBy(ev.offsetX - dialogDragAt.x, ev.offsetY - dialogDragAt.y);
+      dialogDragAt = { x: ev.offsetX, y: ev.offsetY };
+      return true;
+    },
+    drop: () => {
+      dialogDragAt = null;
+      dialog.endDrag();
+      return true;
+    },
+    hover: (id) => {
+      if (id === lastDialogHover) return false;
+      lastDialogHover = id;
+      dialog.setHover(id);
+      return true;
+    },
+    key: (k) => dialog.key(k),
+    host: () => ({
+      tick: (dt) => dialog.tick(dt),
+      busy: () => dialog.busyNow(),
+      setHover: (id) => {
+        if (id === lastDialogHover) return false;
+        lastDialogHover = id;
+        dialog.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dialog.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
   motion: {
     height: () => motion.heightPx(),
     // Persistent: the three thunks below go to the kept host rather than
@@ -417,6 +494,10 @@ window.__sortState = () => ({ dragging: state.dragging, over: state.over, order:
 window.__mbState = () => ({ open: state.open, focus: state.focus, which: state.which });
 // The dropdown's state is MenuCtl's, so this reads the controller rather than
 // the page: what is open, where focus is, and how deep the submenu stack goes.
+window.__dlgState = () => ({
+  summary: dialog.summary(),
+  dragging: dialog.isDragging(),
+});
 window.__ddState = () => ({
   open: dropdown.model.open,
   focus: dropdown.focused,
@@ -967,7 +1048,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "dropdown", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

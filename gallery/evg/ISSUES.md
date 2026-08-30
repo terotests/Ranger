@@ -325,3 +325,52 @@ A positional binary format needs its shape carried with it or derivable from
 it. "Both sides know the layout" is not a property anything enforces, and the
 failure mode is not a crash at the boundary — it is plausible-looking garbage
 that surfaces somewhere unrecognisable.
+
+
+---
+
+## Issue #5: `backdrop-filter` sampled the page, not the element
+
+**Status:** Resolved
+**Severity:** Medium — a scrim showed the page bleeding through its own border
+**Found:** August 30, 2026, while implementing it
+**Resolved:** the same day
+**Component:** `gallery/evg/gl/evg-webgl.js`
+
+### What happened
+
+The first implementation grew the copied region by the kernel's reach and
+blurred that, on the reading that `backdrop-filter` samples past the element's
+edge. The evidence for it was a flat grey behind a pane coming out flat to the
+border, with no rim.
+
+That is not evidence. **A uniform field is uniform under either rule** — edge
+clamping and sampling-past give the same answer when there is nothing outside
+worth sampling. The observation ruled out only a third possibility, that edge
+samples read transparent and the border fades.
+
+The case that decides is a feature that straddles the border. White page, black
+stripe starting exactly at the pane's left edge:
+
+```
+x:      95  96  97  98  99 | 100 101 102 ...
+browser 255 255 255 255 255|   0   0   0
+```
+
+No ramp at the border at all — while the same black/white boundary a hundred
+pixels further in, inside the pane, gets the full smooth curve. Outside content
+does not enter.
+
+### Resolution
+
+Copy exactly the element's box and let `CLAMP_TO_EDGE` do the rest, which is
+the measured rule expressed in one place.
+
+### The general lesson
+
+Three checks passed against the wrong implementation, and all three were scenes
+where the backdrop did not change across the element's border. A test that
+cannot distinguish the two candidate rules is not weak evidence for one of
+them; it is no evidence at all. Before trusting a case, ask what the WRONG
+implementation would print — and if the answer is "the same thing", the case is
+not about the question.

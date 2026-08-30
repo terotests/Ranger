@@ -47,7 +47,7 @@
       <h1>Ranger tree literals — Radix components</h1>
       <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
-        Six <code>treefactory</code> declarations, each naming its own tags over the
+        Seven <code>treefactory</code> declarations, each naming its own tags over the
         same <code>EVGElement</code>, painted by EVG's WebGL painter. Three of them
         rebuild the whole tree on every control; the motion showcase, the table
         and the dropdown keep theirs,
@@ -132,6 +132,26 @@
             horizontal arrows are for nesting and nothing else.
           </p>
         </section>
+        <section data-for="dialog">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Drag the Filters window by its title bar.</strong> It is the
+            same class as the dialog beside it with one flag different — and it
+            is the one you can push aside to see what is underneath, which is
+            the thing a modal cannot do.
+          </p>
+          <p class="hint">
+            Tab to the title bar and use the <strong>arrow keys</strong>: a
+            gesture only a pointer can make is a gesture a keyboard cannot make,
+            so the window moves 16&nbsp;px a press.
+          </p>
+          <p class="hint">
+            The page behind the dialog is <strong>blurred, not just dimmed</strong>
+            — <code>backdrop-filter: blur(10px)</code>, painted by copying what
+            is behind the scrim and running the same three-box kernel a browser
+            uses. Both are declared, so a backend without the blur still dims.
+          </p>
+        </section>
         <section data-for="motion">
           <h2>what to look at</h2>
           <p class="hint">
@@ -176,6 +196,16 @@
           <code>treefactory</code>, a stylesheet, and which icon goes on which
           row. Compare it with the <em>menubar</em> demo above, whose keyboard
           is hand-written and matched against nothing.
+        </p>
+        <p class="note" data-for="dialog">
+          <strong>Anything can go inside.</strong> <code>WindowCtl</code> owns a
+          frame and a title bar; <code>bodyEl</code> is an ordinary
+          <code>EVGElement</code> the caller fills, and <code>build()</code>
+          re-makes the chrome around it without touching it. Here one holds a
+          form and the other a small table, from two unrelated tree literals.
+          The older <code>EVGWindow</code> could hold neither: its vocabulary is
+          label, button, radio, checkbox, and one rectangle whose pixels the
+          owner paints by hand.
         </p>
         <p class="note" data-for="motion">
           <strong>Hover the cards at the bottom.</strong> Nothing in

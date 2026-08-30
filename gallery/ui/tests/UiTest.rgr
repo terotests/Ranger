@@ -128,7 +128,12 @@ class UiTest {
         h.releaseDrag()
 
         ; Keyboard.
-        h.focus("win-titlebar")
+        ; Focused by CLICKING the title, which is what a hit test reports and
+        ; what the live page therefore hands over — not the bar id a test would
+        ; reach for. The first version focused the bar directly and passed while
+        ; the real page could not move the window at all.
+        h.click("win-title")
+        t.eqStr("clicking the title focuses the handle" h.focusId "win-titlebar")
         h.key("ArrowRight")
         t.eqStr("an arrow key moves it too" (to_string w.x) "256")
         h.key("ArrowUp")

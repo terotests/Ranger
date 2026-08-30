@@ -77,6 +77,7 @@ class WindowCtl extends UiCtl {
     def triggerEl:EVGElement
     def scrimEl:EVGElement
     def frameEl:EVGElement
+    def headEl:EVGElement
     def barEl:EVGElement
     def titleEl:EVGElement
     def descEl:EVGElement
@@ -90,6 +91,7 @@ class WindowCtl extends UiCtl {
         triggerEl = (EVGElement.createDiv())
         scrimEl = (EVGElement.createDiv())
         frameEl = (EVGElement.createDiv())
+        headEl = (EVGElement.createDiv())
         barEl = (EVGElement.createDiv())
         titleEl = (EVGElement.createDiv())
         descEl = (EVGElement.createDiv())
@@ -102,11 +104,29 @@ class WindowCtl extends UiCtl {
     fn triggerTid:string ()  { return (tid + "-trigger") }
     fn scrimTid:string ()    { return (tid + "-scrim") }
     fn frameTid:string ()    { return (tid + "-content") }
+    ; The strip across the top, which is a container and not a control — and
+    ; the handle inside it, which is. They are two elements because a button
+    ; may not contain another one: with the close button inside the handle,
+    ; axe calls it `nested-interactive` and is right. The handle still fills
+    ; everything left of the close button, so the whole bar is grabbable.
+    fn headTid:string ()     { return (tid + "-head") }
     fn barTid:string ()      { return (tid + "-titlebar") }
     fn titleTid:string ()    { return (tid + "-title") }
     fn descTid:string ()     { return (tid + "-description") }
     fn closeTid:string ()    { return (tid + "-close") }
     fn bodyTid:string ()     { return (tid + "-body") }
+
+    ; The handle is the title bar AND its label, because the label fills the bar
+    ; and a hit test returns the innermost thing under the pointer. Without
+    ; this, pressing the middle of a title bar reports the title — and the
+    ; window does not move, which is exactly what the first live drag did.
+    ; The close button sits in the same bar and is deliberately not here.
+    fn isHandle:boolean (target:string) {
+        if (target == (this.barTid())) {
+            return true
+        }
+        return (target == (this.titleTid()))
+    }
 
     fn baseClass:string () {
         if isModal {
@@ -125,6 +145,62 @@ class WindowCtl extends UiCtl {
     ; --- building ----------------------------------------------------------------
     ; The frame, and only the frame. `bodyEl` keeps whatever the caller put in
     ; it, which is the entire reason this class exists.
+
+    ; ONE description of the window, read two ways.
+    ;
+    ; `rows()` below is what the conformance host publishes; `EVGA11yFromTree`
+    ; walks the ELEMENTS instead, and that is what a page using this controller
+    ; directly publishes — the demo, and any real application. Writing the ARIA
+    ; only into `rows()` left the second path with no dialog at all: the form
+    ; fields were there, the table was there, and the thing containing them was
+    ; invisible. The audit did not catch it, because a node that is missing
+    ; cannot fail a rule about its name.
+    ;
+    ; So `build()` puts the same facts on the elements, and the two paths agree
+    ; by construction rather than by anyone remembering.
+    fn markAria:void () {
+        def trig:EVGElement (unwrap triggerEl)
+        trig.role = "button"
+        trig.a11yLabel = name
+        trig.a11yFocusable = (disabled == false)
+        if open {
+            trig.a11yExpanded = (EVGA11yTri.yes())
+        } {
+            trig.a11yExpanded = (EVGA11yTri.no())
+        }
+
+        def frame:EVGElement (unwrap frameEl)
+        frame.role = "dialog"
+        frame.a11yLabel = title
+
+        def head2:EVGElement (unwrap headEl)
+        head2.role = ""
+        def bar:EVGElement (unwrap barEl)
+        if isModal {
+            ; A heading over the dialog it names, and nothing a reader should
+            ; be offered as a control.
+            bar.role = ""
+            bar.a11yLabel = ""
+            bar.a11yRoleDescription = ""
+            bar.a11yFocusable = false
+        } {
+            bar.role = "button"
+            bar.a11yLabel = (title + ", move window")
+            ; What a reader says INSTEAD of "button": this one is dragged, not
+            ; pressed, and the label alone does not say that.
+            bar.a11yRoleDescription = "draggable"
+            bar.a11yFocusable = true
+        }
+        ; The title is the bar's label in words and must not announce again as
+        ; a node of its own; the same for the close glyph.
+        def titleEl3:EVGElement (unwrap titleEl)
+        titleEl3.a11yHidden = (isModal == false)
+
+        def close:EVGElement (unwrap closeEl)
+        close.role = "button"
+        close.a11yLabel = closeLabel
+        close.a11yFocusable = true
+    }
 
     fn build:void () {
         def base:string (this.baseClass())
@@ -180,12 +256,17 @@ class WindowCtl extends UiCtl {
         ; and it simply is not a handle — `dragsFreely` is what says so, not a
         ; different tree, because a dialog that grows a title bar when you make
         ; it movable is two components pretending to be one.
+        def head:EVGElement (unwrap headEl)
+        head.id = (this.headTid())
+        head.className = (base + "-titlebar")
+        UiTree.clearChildren(head)
+
         def bar:EVGElement (unwrap barEl)
         bar.id = (this.barTid())
-        bar.className = (base + "-titlebar")
+        bar.className = (base + "-handle")
         UiTree.clearChildren(bar)
         if dragging {
-            UiTree.addClass(bar (base + "-titlebar-dragging"))
+            UiTree.addClass(bar (base + "-handle-dragging"))
         }
 
         def titleEl2:EVGElement (unwrap titleEl)
@@ -193,13 +274,14 @@ class WindowCtl extends UiCtl {
         titleEl2.className = (base + "-title")
         UiTree.leafText(titleEl2 title)
         bar.addChild(titleEl2)
+        head.addChild(bar)
 
         def close:EVGElement (unwrap closeEl)
         close.id = (this.closeTid())
         close.className = (base + "-close")
         UiTree.leafText(close "×")
-        bar.addChild(close)
-        frame.addChild(bar)
+        head.addChild(close)
+        frame.addChild(head)
 
         if ((strlen description) > 0) {
             def desc:EVGElement (unwrap descEl)
@@ -218,6 +300,7 @@ class WindowCtl extends UiCtl {
         frame.addChild(body)
 
         root.addChild(frame)
+        this.markAria()
     }
 
     ; --- opening and closing -------------------------------------------------------
@@ -257,6 +340,15 @@ class WindowCtl extends UiCtl {
         if (target == (this.closeTid())) {
             return (this.closeWindow())
         }
+        ; Pressing the handle focuses the HANDLE, whichever part of it was
+        ; actually hit. A click lands on the label — it fills the bar — and
+        ; leaving focus there would put it on something that answers no keys,
+        ; so the arrows would stop working the moment you clicked the window.
+        if (this.isHandle(target)) {
+            if (isModal == false) {
+                return (this.barTid())
+            }
+        }
         return ""
     }
 
@@ -283,7 +375,7 @@ class WindowCtl extends UiCtl {
         if isModal {
             return ""
         }
-        if (target != (this.barTid())) {
+        if ((this.isHandle(target)) == false) {
             return ""
         }
         def step:double 16.0
@@ -322,12 +414,15 @@ class WindowCtl extends UiCtl {
         if isModal {
             return ""
         }
-        if (target != (this.barTid())) {
+        if ((this.isHandle(target)) == false) {
             return ""
         }
         dragging = true
         this.build()
-        return target
+        ; The bar, not whatever was hit: focus belongs on the control, and the
+        ; label is not one. Without this the arrow keys stop working the moment
+        ; a window has been picked up by its title.
+        return (this.barTid())
     }
 
     fn dragBy:string (dx:double dy:double) {
@@ -396,6 +491,7 @@ class WindowCtl extends UiCtl {
                 push a (this.scrimTid())
             }
             push a (this.frameTid())
+            push a (this.headTid())
             push a (this.barTid())
             push a (this.titleTid())
             if ((strlen description) > 0) {
@@ -420,9 +516,11 @@ class WindowCtl extends UiCtl {
         if (target == (this.closeTid())) {
             return true
         }
-        ; The title bar takes focus only when it is a handle. A modal's bar is
-        ; a label, and a tab stop that does nothing is worse than no tab stop.
-        if (target == (this.barTid())) {
+        ; The bar takes focus only when it is a handle. A modal's bar is a
+        ; label, and a tab stop that does nothing is worse than no tab stop.
+        ; The title counts as the bar here for the same reason it does in
+        ; `isHandle`: it is what a click actually lands on.
+        if (this.isHandle(target)) {
             return (isModal == false)
         }
         return false
@@ -476,8 +574,12 @@ class WindowCtl extends UiCtl {
             barRole = (EVGA11yRole.button())
             barName = (title + ", move window")
         }
+        def headRow:UiRow (UiRow.of((this.headTid()) (EVGA11yRole.none()) ""))
+        headRow.parentTid = (this.frameTid())
+        push out headRow
+
         def barRow:UiRow (UiRow.of((this.barTid()) barRole barName))
-        barRow.parentTid = (this.frameTid())
+        barRow.parentTid = (this.headTid())
         if (isModal == false) {
             barRow.focusable = true
             barRow.tabStop = true
@@ -494,7 +596,7 @@ class WindowCtl extends UiCtl {
         }
 
         def closeRow:UiRow (UiRow.of((this.closeTid()) (EVGA11yRole.button()) closeLabel))
-        closeRow.parentTid = (this.frameTid())
+        closeRow.parentTid = (this.headTid())
         closeRow.focusable = true
         closeRow.tabStop = true
         push out closeRow

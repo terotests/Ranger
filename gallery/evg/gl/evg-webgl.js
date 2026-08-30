@@ -1312,6 +1312,16 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.uniform2f(built.backdropHalf, bw / 2, bh / 2);
     gl.uniform1f(built.backdropRadius, (c.r || 0) * sxScale);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Put the state back the way the batch expects to find it. TEXTURE0 is the
+    // glyph atlas for the whole frame and this has just been using it for its
+    // own textures — leave it bound to the blur and every letter drawn after a
+    // dialog samples that instead of the atlas, comes back with alpha 1
+    // everywhere, and renders as a solid black rectangle the size of the word.
+    // Which is exactly what the first dialog screenshot showed, in every run
+    // on the page.
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, atlas);
     if (wasScissor) gl.enable(gl.SCISSOR_TEST);
     backdrops += 1;
   };

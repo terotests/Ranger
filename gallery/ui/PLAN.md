@@ -939,6 +939,108 @@ know the layout" is not a property anything enforces — and its failure mode is
 not a clean error at the boundary but nonsense that surfaces somewhere
 unrecognisable.
 
+## Dialog and window — and `backdrop-filter: blur()` underneath them
+
+Two things the gallery could not do: soften what is behind a surface, and put
+a window somewhere the user chooses with whatever the caller likes inside it.
+
+### The blur, and two beliefs that turned out to be half right
+
+Measured before a line of it was written, and both halves of the obvious
+answer are wrong in different ways.
+
+**The kernel is not a Gaussian.** `blur(r)` is the SVG filter spec's three-box
+approximation with sigma = r — the CSS filter spec adopts it by reference and
+every engine ships it. Fitted against Chrome at three radii, the three-box
+model is within half a luminance level everywhere; a true Gaussian with the
+same sigma is out by up to 14. So the common belief is exactly half right: the
+sigma IS the radius, and the shape is not a Gaussian. `oracle/css-blur.json`
+records the residuals of all four candidates, so the claim comes with its own
+error bar.
+
+**The backdrop is the element's own region, edge-clamped** — not the page
+behind it. This one was implemented backwards first, and the reason is worth
+keeping: behind a pane over flat grey the browser's result is flat to the
+border, and that was read as proof that the blur samples past the edge. It
+proves nothing. A uniform field is uniform under either rule. The case that
+decides is a feature straddling the border, and it is not subtle — a black
+stripe starting at the pane's left edge reads `255 255 255 | 0 0 0` with no
+ramp at all, while the same boundary 100px further in gets the full smooth
+curve. Outside content does not enter.
+
+One case is recorded and deliberately **not** matched: within a kernel's reach
+of the border, Chrome stops producing a blur profile at all. Across nine
+pixels it is a straight line of about 8 levels each, then a 63-level JUMP at
+the feature's own edge, then another straight line of about 2.5. A blurred step
+is an S-curve; two straight segments with a discontinuity is a compositor's
+downsampled edge handling. EVG clamps at the border — the principled reading of
+the same rule — and agrees with the browser to within 3 levels everywhere the
+border is further away than the kernel reaches.
+
+`gl/blur-check.mjs` is 14 probes under SwiftShader against the oracle's own
+pixels, and six mutations are caught: sigma halved, one box pass instead of
+three, sampling past the border, ignoring the radius, blurring on one axis
+only, and dropping the even-width offsets. Three of those checks exist only
+because an earlier version of them did not catch the mutation they were
+written for — a scene that is uniform along the axis you broke will happily
+report success.
+
+Two implementation notes that were bugs first:
+
+- The blur targets are sized to the region **exactly**. Growing a shared
+  target and reusing it for a smaller region stretches the image by
+  target/region on the first pass and reads back region/target of it on the
+  last, and those cancel along any axis where the picture is uniform. Two
+  scenes written to catch that saw nothing.
+- `TEXTURE0` is the glyph atlas for the whole frame, and the blur borrows it.
+  Leaving it bound meant every letter drawn after a dialog sampled the blur
+  instead of the atlas, came back with alpha 1, and rendered as a solid black
+  rectangle the size of the word — which is exactly what the first screenshot
+  of the dialog demo showed, in every run on the page.
+
+### The window
+
+`EVGWindow` has a fixed vocabulary — `addLabel`, `addButton`, `addRadio`,
+`addCheckbox`, `addSwatch`, and one content rectangle whose pixels the owner
+paints by hand. Anything it has no method for cannot go in the window: a table,
+a form with a select in it, another controller's output.
+
+`WindowCtl` owns a frame and nothing else. `bodyEl` is an ordinary
+`EVGElement`; the caller fills it, and `build()` re-makes the chrome around it
+without touching it. The demo puts a form in one and a small table in the
+other, from two unrelated tree literals, and the class knows about neither.
+
+Modal and movable are the same class with one flag. The ARIA is Radix's dialog
+and is already measured through `DialogCtl`; the DRAGGING has no reference —
+nothing in Radix moves a dialog — so it is specified rather than measured, and
+`UiTest` states the rules: the title bar is the handle and only when movable, a
+modal never drags, enough of the window stays on screen to grab it again, the
+arrow keys move it too, and the caller's content survives every rebuild.
+
+Three things the live page found that the tests had not:
+
+- **The handle is the bar AND its title.** The label fills the bar, and a hit
+  test returns the innermost thing under the pointer, so pressing the middle of
+  a title bar reported the title and the window did not move. The test that now
+  covers it clicks the title, which is what the page actually hands over.
+- **The ARIA was in `rows()` only.** That is what the conformance host reads;
+  `EVGA11yFromTree` walks the ELEMENTS, and that is what a page using the
+  controller directly publishes. The demo's accessible tree had the form fields
+  and the table in it and no dialog at all — and the audit passed, because a
+  node that is missing cannot fail a rule about its name. `build()` now writes
+  the same facts to both.
+- **A button may not contain another one.** With the close button inside the
+  handle, axe says `nested-interactive` and is right. The strip across the top
+  is a roleless container now, with the handle and the close button as
+  siblings; the handle still fills everything left of the close, so the whole
+  bar is grabbable.
+
+`UiCtl` gained a third gesture for this. A slider asks for a fraction of a
+track, a sortable asks what it is over, and a window asks how far the pointer
+has moved — `dragBy(dx, dy)` in page pixels, so the controller never learns
+where it was picked up and a window grabbed by the right end of its bar does
+not jump left.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
