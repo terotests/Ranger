@@ -161,14 +161,18 @@
   height: 40px;
 }
 
-/* Everything left of the close button, so the whole bar is grabbable. */
+/* Everything left of the close button, so the whole bar is grabbable. The
+ * window is 300 wide with a 1px border, so the head has 298; its own 8px of
+ * right padding leaves 290, and the close button takes 26 of those. 264 is
+ * the rest, exactly — at 258 there was a six-pixel dead strip in the middle
+ * of the title bar that looked like a gap and grabbed nothing. */
 .ui-window-handle {
   display: flex;
   flex-direction: row;
   align-items: center;
   border-radius: 11px;
   padding: 0 0 0 14px;
-  width: 258px;
+  width: 264px;
   height: 40px;
   transition: background-color 120ms ease-out;
 }
@@ -185,7 +189,7 @@
   color: #18181b;
   font-size: 14px;
   font-weight: bold;
-  width: 240px;
+  width: 246px;
   height: 20px;
 }
 
@@ -204,6 +208,9 @@
 
 .ui-window-close:hover { background-color: #e4e4e7; }
 
+/* 14px each side, the same indent the handle gives the title — so the rows
+ * below line up with the window's name instead of starting at its border.
+ * 298 inside the border less 28 of padding leaves 270. */
 .ui-window-body {
   display: flex;
   flex-direction: column;

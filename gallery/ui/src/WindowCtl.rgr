@@ -292,11 +292,21 @@ class WindowCtl extends UiCtl {
         }
 
         ; And the caller's tree, untouched.
+        ;
+        ; The body's own BOX is the frame's business, though, so its class goes
+        ; on unconditionally and ADDS to whatever the caller put there. The
+        ; first version only set it when the caller had left the class empty,
+        ; and the demo — which names its body so it can style it — silently
+        ; lost the frame's padding: the title was indented fourteen pixels and
+        ; every row underneath sat flush against the window's border.
+        ;
+        ; Additive is also what lets a caller override it: `EVGStyleSheet`
+        ; takes the later rule, so a class declared after this one in the sheet
+        ; still wins. What it cannot do any more is take the padding away by
+        ; accident.
         def body:EVGElement (unwrap bodyEl)
         body.id = (this.bodyTid())
-        if ((strlen body.className) == 0) {
-            body.className = (base + "-body")
-        }
+        UiTree.addClass(body (base + "-body"))
         frame.addChild(body)
 
         root.addChild(frame)

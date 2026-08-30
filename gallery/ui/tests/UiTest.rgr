@@ -92,7 +92,11 @@ class UiTest {
         w.y = 120.0
 
         ; Compose something into it — a tree the window knows nothing about.
+        ; The body is NAMED too, the way a caller that wants to style it would,
+        ; and that is the case this covers: the frame's own class has to survive
+        ; being given a neighbour.
         def body:EVGElement (unwrap w.bodyEl)
+        body.className = "my-own-body"
         def row (EVGElement.createDiv())
         row.id = "win-custom"
         row.className = "whatever-the-caller-likes"
@@ -100,6 +104,17 @@ class UiTest {
         w.build()
 
         h.click("win-trigger")
+        ; Checked after opening, because a closed window builds no frame at all
+        ; — which is also why the first version of this check failed.
+        ;
+        ; The caller composes CHILDREN; the body's own box is the frame's
+        ; business. An earlier version set the frame's class only when the
+        ; caller had left it empty, so naming the body silently took the
+        ; window's padding away — the title sat fourteen pixels in and every
+        ; row under it started at the window's border.
+        t.ok("the caller's class is kept" (UiTree.hasClass(body "my-own-body")))
+        t.ok("and the frame's own class is added beside it"
+            (UiTree.hasClass(body "ui-window-body")))
         t.eqStr("it is a dialog" (UiTest.roleOf(h "win-content")) "dialog")
         t.eqStr("focus lands on close" h.focusId "win-close")
         t.ok("the composed child is still there after opening"
