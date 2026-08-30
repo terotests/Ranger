@@ -579,6 +579,11 @@ if (!ready) {
       // can see of them falls inside it — so the result lands on the picture's
       // own edges.
       const lasso = await page.evaluate(() => {
+        // The drag is evidence now, not a border; the geometric lasso is a
+        // mode of the same tool.
+        const m = document.getElementById("wandMode");
+        m.value = "lasso";
+        m.dispatchEvent(new Event("change", { bubbles: true }));
         const svg = document.querySelector("#outStage svg");
         const r = svg.getBoundingClientRect();
         const stage = document.getElementById("outStage");
@@ -1106,6 +1111,10 @@ if (!ready) {
       const vb0 = svg.getAttribute("viewBox");
       const rect = svg.getBoundingClientRect();
       const stage = document.getElementById("outStage");
+      // The drag is evidence now, not a border; the geometric lasso is a mode.
+      const md = document.getElementById("wandMode");
+      md.value = "lasso";
+      md.dispatchEvent(new Event("change", { bubbles: true }));
       const tid = document.getElementById("wandTidy");
       tid.value = String(tidy);
       tid.dispatchEvent(new Event("input", { bubbles: true }));

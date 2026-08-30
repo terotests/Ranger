@@ -407,6 +407,20 @@
         <button type="button" class="tool" id="toolPick">Poimi väri</button>
         <span class="sep"></span>
         <span class="note" id="toolHelp"></span>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Äly: sivellin antaa vihjeitä eikä piirrä rajaa — vedä kohteen yli, ⌥ vedä sen yli mikä ei kuulu mukaan. Lasso: veto on geometrinen raja, ja viivan sisään jäävät palaset otetaan.">Veto
+          <select id="wandMode" style="width:88px">
+            <option value="smart" selected>äly</option>
+            <option value="lasso">lasso</option>
+          </select>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka leveä siveltimen jälki on, eli kuinka monta palaa yksi veto merkitsee.">Sivellin
+          <input id="wandBrush" type="range" min="6" max="90" step="2" value="26" style="width:70px">
+          <span class="val" id="v-wandBrush">26</span>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka anteliaasti epävarmat palat luetaan kohteeseen. Vasemmalla otetaan vain se mikä muistuttaa vihjeitä selvästi, oikealla myös se mikä muistuttaa niitä hieman.">Kantama
+          <input id="wandReach" type="range" min="0" max="100" step="5" value="50" style="width:80px">
+          <span class="val" id="v-wandReach">50</span>
+        </label>
         <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka kaukana napsautetusta sävystä valinta saa vielä kasvaa. 0 ottaa vain saman värin, iso luku vie yli sävyrajojen.">Sieto
           <input id="wandTol" type="range" min="0" max="180" step="4" value="40" style="width:80px">
           <span class="val" id="v-wandTol">40</span>
@@ -1122,7 +1136,8 @@
   var editToggle = $("editToggle"), editbar = $("editbar");
   var toolMerge = $("toolMerge"), toolRefine = $("toolRefine"), toolPick = $("toolPick");
   var toolWand = $("toolWand"), wandTol = $("wandTol"), wandCrop = $("wandCrop");
-  var wandTidyEl = $("wandTidy");
+  var wandTidyEl = $("wandTidy"), wandMode = $("wandMode");
+  var wandBrush = $("wandBrush"), wandReach = $("wandReach");
   var editColor = $("editColor"), refineSize = $("refineSize"), editNote = $("editNote");
 
   // A traced layer is one path holding every ring of its color, so clicking it
@@ -1245,7 +1260,9 @@
     $("toolHelp").textContent = picking ? "Napsauta muotoa poimiaksesi sen värin."
       : editTool === "merge" ? "Napsauta muotoja: ne saavat valitun värin ja sulautuvat naapureihinsa."
       : editTool === "refine" ? "Vedä alueen yli: se vektoroidaan uudelleen omalla paletillaan."
-      : editTool === "wand" ? "Napsauta kohdetta, tai piirrä sen ympäri suurin piirtein — valinta napsahtaa kuvan omiin rajoihin. ⇧ lisää, ⌥ poistaa. Eristä leikkaa muun pois."
+      : editTool === "wand" ? (wandMode.value === "smart"
+        ? "Vedä siveltimellä kohteen yli — se antaa vihjeitä, ei piirrä rajaa. ⌥ vedä sen yli mikä ei kuulu mukaan. Napsautus valitsee saman sävyn. Eristä leikkaa muun pois."
+        : "Piirrä kohteen ympäri: viivan sisään jäävät palaset otetaan. Napsautus valitsee saman sävyn. ⇧ lisää, ⌥ poistaa.")
       : "Vedä ääriviivan yli: kulmat pyöristyvät, pienet muodot katoavat.";
   }
 
@@ -1277,6 +1294,11 @@
   // a blend cannot survive that, and the few boundary pixels it discards are
   // boundary pixels.
   var WAND_RASTER = 768;
+  // How far from a hint the question is even asked, how strongly neighbours
+  // hold together, and the two scales that say what "similar colour" and "a
+  // real edge" mean. Tuned against composites whose answer is known.
+  var WAND_HOPS = 12, WAND_PAIR = 26, WAND_SIGMA_C = 14, WAND_SIGMA_E = 26;
+  var WAND_FAR = 0.6;
   var WAND_KEY = 0x9E3779;
   var SVGNS = "http://www.w3.org/2000/svg";
   var wandSel = null, wandGraph = null, wandSeq = 0;
@@ -1285,6 +1307,54 @@
   // raster of each clip so the enclosure rule and the crop box see the same
   // picture the viewer will.
   var wandClipOf = new Map(), wandClipEls = new Map(), wandClipRaster = new Map();
+  // What the user has pointed at, and what they have pointed away from. These
+  // accumulate across strokes: the flow is draw, look, add the hand it missed,
+  // ⌥ the curtain it took, and every stroke re-runs the whole classification.
+  var wandFg = new Set(), wandBg = new Set();
+
+  // Which regions a stroke passed over. The brush is a path, not a polygon —
+  // what it touches is a hint, not a border.
+  function wandUnderStroke(g, pts, radius) {
+    var hit = new Set();
+    var cv = document.createElement("canvas");
+    cv.width = g.cw; cv.height = g.ch;
+    var cx = cv.getContext("2d", { willReadFrequently: true });
+    cx.setTransform(g.sc, 0, 0, g.sc, -g.vb[0] * g.sc, -g.vb[1] * g.sc);
+    cx.strokeStyle = "#fff";
+    cx.lineWidth = radius * 2;
+    cx.lineCap = "round";
+    cx.lineJoin = "round";
+    cx.beginPath();
+    cx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < pts.length; i++) cx.lineTo(pts[i].x, pts[i].y);
+    if (pts.length === 1) cx.lineTo(pts[0].x + 0.01, pts[0].y);
+    cx.stroke();
+    var d = cx.getImageData(0, 0, g.cw, g.ch).data;
+    var n = g.cw * g.ch, touched = new Int32Array(g.n);
+    for (var p = 0; p < n; p++) {
+      if (d[p * 4 + 3] <= 128) continue;
+      var id = g.ids[p];
+      if (id) touched[id - 1]++;
+    }
+    for (var k = 0; k < g.n; k++) {
+      // A brush that grazes a region's corner has not pointed at it.
+      if (touched[k] > 0 && touched[k] >= Math.min(30, g.seen[k] * 0.05)) hit.add(k);
+    }
+    return hit;
+  }
+
+  // sRGB to CIE Lab, D65. Colour distance in RGB says a dark navy and a dark
+  // brown are neighbours; in Lab it says what a person would say.
+  function rgbLab(r, g, b) {
+    function lin(v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    var R = lin(r), G = lin(g), B = lin(b);
+    var x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+    var y = (0.2126 * R + 0.7152 * G + 0.0722 * B);
+    var z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+    function f(t) { return t > 0.008856 ? Math.pow(t, 1 / 3) : (7.787 * t) + 16 / 116; }
+    var fx = f(x), fy = f(y), fz = f(z);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  }
 
   function wandRgb(fill) {
     if (!/^#[0-9a-f]{6}$/i.test(fill || "")) return [0, 0, 0];
@@ -1396,28 +1466,75 @@
       var id3 = ids[p3];
       if (id3) cells[id3 - 1][fillAt[id3 - 1]++] = p3;
     }
+
+    // What each region looks like *in the photograph*, not in the trace. The
+    // vectorizer flattens a region to one fill; the bitmap under it still knows
+    // whether that region is skin, or cloth, or the wall behind them, and that
+    // is the evidence a foreground model is built from. Sampled once here, in
+    // CIE Lab, where distance means something like difference.
+    var srcW = sourceBitmap ? sourceBitmap.w : 0;
+    var srcH = sourceBitmap ? sourceBitmap.h : 0;
+    var src = srcW ? workingPixels() : null;
+    var lum = new Float32Array(n);
+    var labL = new Float32Array(els.length), labA = new Float32Array(els.length),
+        labB = new Float32Array(els.length), labN = new Int32Array(els.length);
+    if (src) {
+      for (var cy = 0; cy < ch; cy++) {
+        for (var cx2 = 0; cx2 < cw; cx2++) {
+          var cell = cy * cw + cx2;
+          var ux = Math.min(srcW - 1, Math.max(0, Math.round(vb[0] + (cx2 + 0.5) / sc)));
+          var uy = Math.min(srcH - 1, Math.max(0, Math.round(vb[1] + (cy + 0.5) / sc)));
+          var so = (uy * srcW + ux) * 4;
+          var sr = src[so], sg = src[so + 1], sb = src[so + 2];
+          lum[cell] = 0.299 * sr + 0.587 * sg + 0.114 * sb;
+          var idc = ids[cell];
+          if (!idc) continue;
+          // Every fourth cell: a region's colour does not need every pixel of
+          // it, and this runs over the whole buffer.
+          if ((cell & 3) !== 0) continue;
+          var lab = rgbLab(sr, sg, sb);
+          labL[idc - 1] += lab[0]; labA[idc - 1] += lab[1]; labB[idc - 1] += lab[2];
+          labN[idc - 1]++;
+        }
+      }
+      for (var e2 = 0; e2 < els.length; e2++) {
+        if (!labN[e2]) { var f = wandRgb(els[e2].getAttribute("fill"));
+          var lf = rgbLab(f[0], f[1], f[2]);
+          labL[e2] = lf[0]; labA[e2] = lf[1]; labB[e2] = lf[2]; continue; }
+        labL[e2] /= labN[e2]; labA[e2] /= labN[e2]; labB[e2] /= labN[e2];
+      }
+    }
     // Who touches whom, as seen rather than as drawn: two shapes are
     // neighbours when they meet in the z-buffer, so a boundary buried under a
     // third shape does not count as contact.
-    var nb = new Array(els.length);
-    function link(x, y) {
+    var nb = new Array(els.length), share = new Map();
+    function link(x, y, ca, cb) {
       if (x === y || !x || !y) return;
       var s = nb[x - 1] || (nb[x - 1] = new Set());
       s.add(y - 1);
       s = nb[y - 1] || (nb[y - 1] = new Set());
       s.add(x - 1);
+      // How long two regions run alongside each other, and how hard the
+      // photograph pushes back along that line. A boundary the picture itself
+      // draws is a cheap place to cut; one invented by the quantizer is not.
+      var key = x < y ? x * 100000 + y : y * 100000 + x;
+      var rec = share.get(key);
+      if (!rec) { rec = { len: 0, edge: 0 }; share.set(key, rec); }
+      rec.len++;
+      rec.edge += Math.abs(lum[ca] - lum[cb]);
     }
     for (var yy = 0; yy < ch; yy++) {
       var row = yy * cw;
       for (var xx = 0; xx < cw; xx++) {
         var id = ids[row + xx];
-        if (xx + 1 < cw) link(id, ids[row + xx + 1]);
-        if (yy + 1 < ch) link(id, ids[row + cw + xx]);
+        if (xx + 1 < cw) link(id, ids[row + xx + 1], row + xx, row + xx + 1);
+        if (yy + 1 < ch) link(id, ids[row + cw + xx], row + xx, row + cw + xx);
       }
     }
+    share.forEach(function (rec) { rec.edge /= rec.len; });
     return { svg: svg, els: els, index: index, rgb: rgb, mats: mats, ids: ids,
-             cells: cells, cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, seen: seen,
-             n: els.length };
+             cells: cells, cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, share: share,
+             seen: seen, labL: labL, labA: labA, labB: labB, n: els.length };
   }
 
   function wandInvalidate() { wandGraph = null; }
@@ -1433,6 +1550,8 @@
     wandClipOf = new Map();
     wandClipEls = new Map();
     wandClipRaster = new Map();
+    wandFg = new Set();
+    wandBg = new Set();
     wandSel = null;
   }
 
@@ -1522,6 +1641,183 @@
     }
     wandEnclose(g, hit);
     return hit;
+  }
+
+  // ------------------------------------------------------------- smart select
+  //
+  // The question a magic wand is really asked is "do these pieces belong to
+  // the same thing?", and no amount of geometry answers it. Scoring a region
+  // by area against outline finds a tidy shape; a curtain behind a person is a
+  // tidy shape. An exact solver on that energy solves the wrong question
+  // perfectly — which is what the min-cut experiment showed, and it showed the
+  // solver was already good enough.
+  //
+  // So the brush stops drawing a selection and starts giving evidence. What it
+  // touches is foreground, for certain; what ⌥ touches is background, for
+  // certain; everything else is UNKNOWN, and that word is the whole change.
+  // From the certain pieces we learn what the object looks like and what it
+  // stands in front of — in Lab, sampled from the photograph rather than from
+  // the flattened trace, and as *several* colours rather than one, because a
+  // person is navy and skin and white shirt at once. Then every unknown region
+  // is asked which model it resembles, the min-cut balances that against how
+  // hard it would be to tear it away from its neighbours, and the answer is a
+  // membership rather than an outline.
+  //
+  //     E(x) = Σ D_i(x_i)  +  λ Σ W_ij [x_i ≠ x_j]
+  //
+  //     D_i  — does this region look like the foreground model or the
+  //            background one, weighted by how much of it there is
+  //     W_ij — shared boundary × colour similarity × edge weakness, so two
+  //            regions that run together for a long way, look alike, and have
+  //            no edge in the photograph between them are expensive to
+  //            separate — and a strong edge in the bitmap is a cheap cut
+  function labDist(g, i, l, a, b) {
+    var dl = g.labL[i] - l, da = g.labA[i] - a, db = g.labB[i] - b;
+    return Math.sqrt(dl * dl + da * da + db * db);
+  }
+
+  // The model is the seeds themselves: nearest seed colour, which is
+  // multimodal by construction and needs no clustering to be so.
+  function labNearest(g, i, seeds) {
+    var best = 1e9;
+    seeds.forEach(function (j) {
+      var d = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      if (d < best) best = d;
+    });
+    return best;
+  }
+
+  // Only the neighbourhood of the seeds is at stake. A click on a hand has no
+  // business deciding anything about a logo in the far corner, and bounding
+  // the graph is most of what keeps a selection from leaking across a picture.
+  function wandNear(g, seeds, hops) {
+    var depth = new Map(), front = [];
+    seeds.forEach(function (i) { depth.set(i, 0); front.push(i); });
+    for (var h = 0; h < hops && front.length; h++) {
+      var next = [];
+      front.forEach(function (i) {
+        var near = g.nb[i];
+        if (!near) return;
+        near.forEach(function (j) {
+          if (depth.has(j) || !g.seen[j]) return;
+          depth.set(j, h + 1);
+          next.push(j);
+        });
+      });
+      front = next;
+    }
+    return depth;
+  }
+
+  // Background examples nobody had to give. Whatever runs along the edge of
+  // the picture is background almost by definition — the object is what the
+  // photographer framed — and without them a single stroke has a model of the
+  // foreground and nothing at all to compare it against, so every unknown
+  // region looks like foreground by default. These teach the model; they are
+  // not constraints, so a stroke can still claim a region that touches the
+  // frame.
+  function wandBorderExamples(g) {
+    var out = new Set(), cw = g.cw, ch = g.ch;
+    function take(p) { var id = g.ids[p]; if (id) out.add(id - 1); }
+    for (var x = 0; x < cw; x++) { take(x); take((ch - 1) * cw + x); }
+    for (var y = 0; y < ch; y++) { take(y * cw); take(y * cw + cw - 1); }
+    return out;
+  }
+
+  function wandSmart(g, fg, bg, reach) {
+    if (!fg.size) return new Set();
+    var depth = wandNear(g, fg, WAND_HOPS);
+    var cand = new Set(depth.keys());
+    bg.forEach(function (i) { if (g.seen[i]) cand.add(i); });
+    // The model the unknowns are compared against: what the user pointed away
+    // from, plus the frame, minus anything they pointed at.
+    var bgModel = new Set(bg);
+    wandBorderExamples(g).forEach(function (i) { if (!fg.has(i)) bgModel.add(i); });
+    var list = Array.from(cand);
+    var slot = new Map();
+    list.forEach(function (i, k) { slot.set(i, k); });
+
+    var N = list.length, S = N, T = N + 1, V = N + 2;
+    var head = new Int32Array(V).fill(-1);
+    var to = [], next = [], cap = [];
+    function edge(a, b, c, c2) {
+      to.push(b); cap.push(c); next.push(head[a]); head[a] = to.length - 1;
+      to.push(a); cap.push(c2); next.push(head[b]); head[b] = to.length - 1;
+    }
+    // How far the selection is willing to reach: the same evidence, read
+    // generously or meanly. It moves the threshold, not the geometry.
+    var lean = Math.pow(2, 1 - 2 * reach);
+    for (var k = 0; k < N; k++) {
+      var i = list[k], area = g.seen[i];
+      if (fg.has(i)) { edge(S, k, 1e9, 0); continue; }
+      if (bg.has(i)) { edge(k, T, 1e9, 0); continue; }
+      var dF = labNearest(g, i, fg), dB = bgModel.size ? labNearest(g, i, bgModel) : 40;
+      // Colour is not the whole of the evidence. A region the same shade as
+      // something the user pointed at, but a dozen regions away from it, is
+      // more likely to be a different thing that happens to match — the
+      // background of this composite is the same man's face, and colour alone
+      // cannot tell it from his hand. Distance in the region graph can.
+      var far = (depth.has(i) ? depth.get(i) : WAND_HOPS) / WAND_HOPS;
+      var sum = dF + dB + 1e-6;
+      edge(S, k, area * (dB / sum) * (1 - WAND_FAR * far), 0);   // cost of calling it background
+      edge(k, T, area * (dF / sum) * lean, 0);                   // cost of calling it foreground
+    }
+    g.share.forEach(function (rec, key) {
+      var a = ((key / 100000) | 0) - 1, b = (key % 100000) - 1;
+      if (!slot.has(a) || !slot.has(b)) return;
+      var dc = labDist(g, a, g.labL[b], g.labA[b], g.labB[b]);
+      var w = WAND_PAIR * rec.len
+        * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
+        * Math.exp(-rec.edge / WAND_SIGMA_E);
+      if (w > 1e-6) edge(slot.get(a), slot.get(b), w, w);
+    });
+
+    // Dinic. Small graph, plain arrays.
+    var level = new Int32Array(V), it = new Int32Array(V), queue = new Int32Array(V);
+    function bfs() {
+      level.fill(-1);
+      var qh = 0, qt = 0;
+      queue[qt++] = S; level[S] = 0;
+      while (qh < qt) {
+        var v = queue[qh++];
+        for (var e = head[v]; e !== -1; e = next[e]) {
+          if (cap[e] > 1e-9 && level[to[e]] < 0) { level[to[e]] = level[v] + 1; queue[qt++] = to[e]; }
+        }
+      }
+      return level[T] >= 0;
+    }
+    function dfs(v, f) {
+      if (v === T) return f;
+      for (; it[v] !== -1; it[v] = next[it[v]]) {
+        var e = it[v], u = to[e];
+        if (cap[e] <= 1e-9 || level[u] !== level[v] + 1) continue;
+        var d = dfs(u, Math.min(f, cap[e]));
+        if (d > 1e-9) { cap[e] -= d; cap[e ^ 1] += d; return d; }
+      }
+      return 0;
+    }
+    var guard = 0;
+    while (bfs() && guard++ < 400) {
+      for (var v = 0; v < V; v++) it[v] = head[v];
+      while (dfs(S, 1e18) > 1e-9) { /* push */ }
+    }
+    bfs();
+    var sel = new Set();
+    for (var q = 0; q < N; q++) if (level[q] >= 0) sel.add(list[q]);
+
+    // Only what hangs together with something the user actually pointed at.
+    var keep = new Set(), stack = [];
+    fg.forEach(function (i) { if (sel.has(i)) { keep.add(i); stack.push(i); } });
+    while (stack.length) {
+      var near = g.nb[stack.pop()];
+      if (!near) continue;
+      near.forEach(function (j) {
+        if (!sel.has(j) || keep.has(j)) return;
+        keep.add(j);
+        stack.push(j);
+      });
+    }
+    return keep;
   }
 
   // ------------------------------------------------------- tidying the edge
@@ -1682,7 +1978,58 @@
     var svg = outSvg();
     if (!svg) return;
     var g = wandReady(svg);
-    wandMerge(g, wandLassoSelect(g, pts), ev, true);
+    if (wandMode.value === "lasso") {
+      wandMerge(g, wandLassoSelect(g, pts), ev, true);
+      return;
+    }
+    wandSmartStroke(g, pts, ev.altKey);
+  }
+
+  // A stroke of evidence. Positive by default, negative with ⌥, and the whole
+  // classification is redone from every hint given so far — which is what
+  // makes correcting it feel like teaching rather than like tuning.
+  function wandSmartStroke(g, pts, negative) {
+    var touched = wandUnderStroke(g, pts, +wandBrush.value / 2);
+    if (!touched.size) { setEditNote("Sivellin ei osunut mihinkään."); return; }
+    touched.forEach(function (i) {
+      if (negative) { wandFg.delete(i); wandBg.add(i); }
+      else { wandBg.delete(i); wandFg.add(i); }
+    });
+    wandResolve(g);
+  }
+
+  function wandResolve(g) {
+    if (!wandFg.size) {
+      wandSel = new Set();
+      wandPaint();
+      setEditNote("Vedä siveltimellä kohteen yli. ⌥ merkitsee mitä EI oteta mukaan.");
+      return;
+    }
+    var t0 = performance.now();
+    var sel = wandSmart(g, wandFg, wandBg, +wandReach.value / 100);
+    wandTrim(g, sel, +wandTidyEl.value);
+    wandEncloseSmart(g, sel);
+    wandSel = sel;
+    wandPaint();
+    setEditNote(sel.size + " / " + g.n + " muotoa · " + wandFg.size + " vihjettä"
+      + (wandBg.size ? " ja " + wandBg.size + " vastavihjettä" : "")
+      + " · " + Math.round(performance.now() - t0) + " ms. ⌥ poistaa, Eristä leikkaa muun pois.");
+  }
+
+  // The enclosure rule, but no longer allowed to decide membership on its own.
+  // A hole in the selection gets a hand up, not a free pass: the gap between an
+  // arm and a body is enclosed too, and it is not part of the arm.
+  function wandEncloseSmart(g, sel) {
+    if (!sel.size) return;
+    var before = new Set(sel);
+    wandEnclose(g, sel);
+    sel.forEach(function (i) {
+      if (before.has(i)) return;
+      var dF = labNearest(g, i, wandFg);
+      var dB = wandBg.size ? labNearest(g, i, wandBg) : 1e9;
+      // Surrounded, and not plainly the background it is surrounded by.
+      if (dB < dF * 0.6) sel.delete(i);
+    });
   }
 
   // The cut. Everything outside the selection leaves the document, which is
@@ -1882,13 +2229,28 @@
     refineSize.addEventListener("input", sync);
     sync();
     [[edgeBlend, "v-edgeBlend"], [refineExtra, "v-refineExtra"],
-     [wandTol, "v-wandTol"], [wandTidyEl, "v-wandTidy"]].forEach(function (pair) {
+     [wandTol, "v-wandTol"], [wandTidyEl, "v-wandTidy"],
+     [wandBrush, "v-wandBrush"], [wandReach, "v-wandReach"]].forEach(function (pair) {
       var lab2 = $(pair[1]);
       function sync2() { lab2.textContent = String(pair[0].value); }
       pair[0].addEventListener("input", sync2);
       sync2();
     });
   })();
+
+  [wandReach, wandTidyEl].forEach(function (el) {
+    // The hints have not changed, so the question has not changed — only the
+    // answer. Re-solving on the spot is what makes these feel like readings of
+    // the same evidence rather than like a new gesture.
+    el.addEventListener("change", function () {
+      var svg = outSvg();
+      if (editOn && editTool === "wand" && wandFg.size && svg) wandResolve(wandReady(svg));
+    });
+  });
+  wandMode.addEventListener("change", function () {
+    wandClear();
+    refreshEditUi();
+  });
 
   $("wandCut").addEventListener("click", wandApply);
 

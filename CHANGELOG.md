@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The wand's brush gives evidence instead of drawing a border.** Drag over
+  the thing you want and the regions under the brush become *certain
+  foreground*; ⌥-drag and they become *certain background*; everything else is
+  **UNKNOWN**, and that word is the change. From the certain pieces the tool
+  learns what the object looks like and what it stands in front of — in CIE
+  Lab, sampled from the **photograph** rather than from the flattened trace,
+  and as several colours rather than one, because a person is navy and skin and
+  white shirt at once. Then every unknown region is asked which model it
+  resembles, a min-cut balances that against how hard it would be to tear it
+  from its neighbours, and the answer is a membership rather than an outline.
+  Every stroke re-runs the whole classification, so correcting it feels like
+  teaching rather than like tuning.
+
+      E(x) = Σ D_i(x_i) + λ Σ W_ij [x_i ≠ x_j]
+
+  `D` is the colour models plus how far the region sits from a hint in the
+  region graph; `W` is shared boundary × colour similarity × edge weakness,
+  with the edge strength read from the bitmap — so two regions that run
+  together for a long way, look alike and have no edge in the photograph
+  between them are expensive to separate, while a real edge is a cheap cut.
+  The question is only asked in the neighbourhood of the hints (twelve region
+  hops), which is most of what keeps a selection from leaking across a picture,
+  and only what hangs together with something the user actually pointed at
+  survives.
+
+  **Background examples nobody has to give**: whatever runs along the edge of
+  the picture, because the object is what the photographer framed. They teach
+  the model without constraining it, and they are the single biggest thing in
+  the measurements — on the composite of two different pictures, one loose
+  stroke goes from IoU 0.649 to **0.977** with them, which is what a carefully
+  traced outline scores. On the composite cut from one photograph, where figure
+  and background share every tone, one stroke gives **0.757**.
+
+  What it does not yet do is survive a corrective ⌥ stroke on a colour the
+  object also wears. The models are nearest-seed-colour, so one small negative
+  example at distance zero from a foreground colour outvotes a large positive
+  cluster: ⌥ over a flag whose navy is the suit's navy takes the suit with it
+  (IoU 0.567 → 0.367). Area-weighted mixtures instead of nearest-neighbour is
+  the fix and is the next step. Where the negative colour is the object's own,
+  the correction works as intended — 0.312 → 0.620 on the other composite.
+
+  The geometric lasso is still there, as a mode: it answers a different
+  question ("which pieces are inside this line?") and answers it well.
+
 - **A "Taikasauva" in the edit mode: pick an object out of the drawing and cut
   the rest away.** Click a shape and the selection grows outward from it across
   what touches it and is within *Sieto* of the color you clicked — or, when the
