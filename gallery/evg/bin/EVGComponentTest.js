@@ -1549,6 +1549,12 @@ class EVGElement  {
     this.a11yPosInSet = 0;
     this.a11ySetSize = 0;
     this.a11yLevel = 0;
+    this.styleClass = "";
+    this.styleTheme = "";
+    this.styleBits = 0;
+    this.styleGen = 0;
+    this.styleSlot = 0 - 1;
+    this.styleKids = 0 - 1;
     this.isLayoutComplete = false;
     this.unitsResolved = false;
     this.hasReturn = false;
@@ -2188,6 +2194,12 @@ class EVGElement  {
     this.a11yPosInSet = other.a11yPosInSet;
     this.a11ySetSize = other.a11ySetSize;
     this.a11yLevel = other.a11yLevel;
+    this.styleClass = other.styleClass;
+    this.styleTheme = other.styleTheme;
+    this.styleBits = other.styleBits;
+    this.styleGen = other.styleGen;
+    this.styleSlot = other.styleSlot;
+    this.styleKids = other.styleKids;
     this.isLayoutComplete = other.isLayoutComplete;
     this.unitsResolved = other.unitsResolved;
     this.hasReturn = other.hasReturn;
@@ -3404,10 +3416,19 @@ class EVGStyleSheet  {
     this.planIndex = {};
     this.planHits = 0;
     this.planMisses = 0;
+    this.generation = 1;
+    this.planLayoutSig = [];
+    this.passSkipped = 0;
+    this.passStyled = 0;
+    this.passLayoutDirty = 0;
+    this.passPaintDirty = 0;
     this.ruleCounter = 0;
     this.dropPlans();
   }
   dropPlans () {
+    this.generation = this.generation + 1;
+    let sig = [];
+    this.planLayoutSig = sig;
     let a = [];
     this.planNames = a;
     let b = [];
@@ -3951,11 +3972,24 @@ class EVGStyleSheet  {
     this.applyTree(root, theme);
   };
   applyTree (root, theme) {
+    this.passSkipped = 0;
+    this.passStyled = 0;
+    this.passLayoutDirty = 0;
+    this.passPaintDirty = 0;
+    this.applyIn(root, theme);
+  };
+  layoutClean () {
+    return this.passLayoutDirty == 0;
+  };
+  nothingChanged () {
+    return (this.passLayoutDirty + this.passPaintDirty) == 0;
+  };
+  applyIn (root, theme) {
     this.applyTo(root, theme);
     let i = 0;
     const n = root.getChildCount();
     while (i < n) {
-      this.applyTree(root.getChild(i), theme);
+      this.applyIn(root.getChild(i), theme);
       i = i + 1;
     };
   };
@@ -3963,7 +3997,12 @@ class EVGStyleSheet  {
     if ( (el.className.length) == 0 ) {
       return;
     }
-    const key = (((el.className + "|") + theme) + "|") + EVGStyleSheet.stateKey(el);
+    const bits = EVGStyleSheet.stateBits(el);
+    if ( ((((el.styleGen == this.generation) && (el.styleBits == bits)) && (el.styleKids == (el.children.length))) && (el.styleTheme == theme)) && (el.styleClass == el.className) ) {
+      this.passSkipped = this.passSkipped + 1;
+      return;
+    }
+    const key = (((el.className + "|") + theme) + "|") + ((bits.toString()));
     const at = ( Object.prototype.hasOwnProperty.call(this.planIndex, key) ? this.planIndex[key] : undefined );
     let slot = 0;
     if ( typeof(at) === "undefined" ) {
@@ -3973,6 +4012,26 @@ class EVGStyleSheet  {
       slot = at;
       this.planHits = this.planHits + 1;
     }
+    this.passStyled = this.passStyled + 1;
+    let layoutMoved = true;
+    if ( (el.styleSlot >= 0) && (el.styleKids == (el.children.length)) ) {
+      if ( (el.inlineProps.length) == 0 ) {
+        if ( (this.planLayoutSig[el.styleSlot]) == (this.planLayoutSig[slot]) ) {
+          layoutMoved = false;
+        }
+      }
+    }
+    if ( layoutMoved ) {
+      this.passLayoutDirty = this.passLayoutDirty + 1;
+    } else {
+      this.passPaintDirty = this.passPaintDirty + 1;
+    }
+    el.styleClass = el.className;
+    el.styleTheme = theme;
+    el.styleBits = bits;
+    el.styleGen = this.generation;
+    el.styleSlot = slot;
+    el.styleKids = el.children.length;
     const from = this.planStart[slot];
     const n = this.planCount[slot];
     let i = 0;
@@ -4014,7 +4073,18 @@ class EVGStyleSheet  {
     this.planGroup(el, classes, theme, true, true);
     const slot = this.planStart.length;
     this.planStart.push(from);
-    this.planCount.push((this.planNames.length) - from);
+    const count = (this.planNames.length) - from;
+    this.planCount.push(count);
+    let sig = "";
+    let k = 0;
+    while (k < count) {
+      const nm = this.planNames[(from + k)];
+      if ( EVGStyleSheet.isLayoutProperty(nm) ) {
+        sig = (((sig + nm) + ":") + (this.planValues[(from + k)])) + ";";
+      }
+      k = k + 1;
+    };
+    this.planLayoutSig.push(sig);
     this.planIndex[key] = slot;
     return slot;
   };
@@ -4202,6 +4272,22 @@ EVGStyleSheet.stateKey = function(el) {
   }
   return out;
 };
+EVGStyleSheet.stateBits = function(el) {
+  let b = 0;
+  if ( el.isHovered ) {
+    b = b + 1;
+  }
+  if ( el.isFocused ) {
+    b = b + 2;
+  }
+  if ( el.isPressed ) {
+    b = b + 4;
+  }
+  if ( el.a11yDisabled ) {
+    b = b + 8;
+  }
+  return b;
+};
 EVGStyleSheet.initialValue = function(name) {
   if ( name == "transform" ) {
     return "none";
@@ -4228,6 +4314,72 @@ EVGStyleSheet.initialValue = function(name) {
     return "1";
   }
   return "";
+};
+EVGStyleSheet.isLayoutProperty = function(name) {
+  if ( name == "color" ) {
+    return false;
+  }
+  if ( name == "background-color" ) {
+    return false;
+  }
+  if ( name == "backgroundColor" ) {
+    return false;
+  }
+  if ( name == "border-color" ) {
+    return false;
+  }
+  if ( name == "borderColor" ) {
+    return false;
+  }
+  if ( name == "fill" ) {
+    return false;
+  }
+  if ( name == "stroke" ) {
+    return false;
+  }
+  if ( name == "opacity" ) {
+    return false;
+  }
+  if ( name == "border-radius" ) {
+    return false;
+  }
+  if ( name == "borderRadius" ) {
+    return false;
+  }
+  if ( name == "transform" ) {
+    return false;
+  }
+  if ( name == "transform-origin" ) {
+    return false;
+  }
+  if ( name == "transformOrigin" ) {
+    return false;
+  }
+  if ( name == "rotate" ) {
+    return false;
+  }
+  if ( name == "scale" ) {
+    return false;
+  }
+  if ( name == "box-shadow" ) {
+    return false;
+  }
+  if ( name == "shadow-color" ) {
+    return false;
+  }
+  if ( name == "background-gradient" ) {
+    return false;
+  }
+  if ( name == "backdrop-filter" ) {
+    return false;
+  }
+  if ( name == "cursor" ) {
+    return false;
+  }
+  if ( name == "transition" ) {
+    return false;
+  }
+  return true;
 };
 class EVGCodepoint  {
   constructor() {
@@ -7654,9 +7806,13 @@ class EVGTransition  {
     this.writeBack(el);
   };
   writeBack (el) {
+    let moving = false;
     let i = 0;
     while (i < (el.transitions.length)) {
       const f = el.transitions[i];
+      if ( f.done() == false ) {
+        moving = true;
+      }
       if ( f.isColor ) {
         const c = this.showColor(f);
         f.wroteColor = c;
@@ -7695,6 +7851,9 @@ class EVGTransition  {
       }
       i = i + 1;
     };
+    if ( moving ) {
+      el.styleGen = 0 - 1;
+    }
   };
   reconcileTree (root) {
     this.reconcile(root);

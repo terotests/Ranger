@@ -118,6 +118,13 @@ function keptTree(mod, css, label, size) {
     for (let i = 0; i < el.children.length; i++) mark(el.children[i]);
   };
 
+  // Kept across frames, so a frame that changes nothing geometric can reuse
+  // the positions rather than recompute them. There is no "is this the same
+  // tree" check: a freshly built tree has no element the sheet has written to
+  // and a reconciled one has had every element overwritten, so either reports
+  // itself layout-dirty and lays out without being asked.
+  let lay = null;
+
   const laidOut = () => {
     sheet.setViewport(size[0], size[1], false);
     mark(root);
@@ -125,9 +132,19 @@ function keptTree(mod, css, label, size) {
     // The sheet has written what it WANTS; this leaves on the element what is
     // actually showing, which for a property in flight is neither end.
     transitions.reconcileTree(root);
-    const lay = new mod.EVGLayout();
-    lay.setPageSize(size[0], size[1]);
-    lay.layout(root);
+    if (!lay) {
+      lay = new mod.EVGLayout();
+      lay.setPageSize(size[0], size[1]);
+      lay.layout(root);
+      return lay;
+    }
+    // The invalidation decision. `layoutClean()` is true when nothing the
+    // sheet wrote this pass can have moved a box — a hover that changes a
+    // colour, a transform, an opacity. On a large page that is most of the
+    // frame; see gallery/evg/EVGInvalidateTest.rgr for what it is allowed to
+    // mean and the one thing it cannot see (a bare `textContent` edit, which
+    // nothing here does: text comes from a rebuild).
+    if (!sheet.layoutClean()) lay.layout(root);
     return lay;
   };
 

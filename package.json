@@ -604,6 +604,7 @@
     "ui:bench": "npm run ui:bench:build --silent && node gallery/ui/bench/ui-bench.mjs",
     "ui:bench:paint": "npm run ui:bench:build --silent && node gallery/ui/bench/ui-bench.mjs --paint",
     "ui:sortable:motion": "node gallery/ui/demo/sortable-motion-check.mjs",
+    "evg:invalidate:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGInvalidateTest.rgr -d=./gallery/evg/bin -o=EVGInvalidateTest.js -nodecli && node ./gallery/evg/bin/EVGInvalidateTest.js",
     "evg:stylecache:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGStyleCacheTest.rgr -d=./gallery/evg/bin -o=EVGStyleCacheTest.js -nodecli && node ./gallery/evg/bin/EVGStyleCacheTest.js",
     "evg:component:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGComponentTest.rgr -d=./gallery/evg/bin -o=EVGComponentTest.js -nodecli && node ./gallery/evg/bin/EVGComponentTest.js",
     "evg:adopt:check": "node scripts/check-evg-adopt.mjs",

@@ -1383,19 +1383,19 @@ EVGGradient.parse = function(gradStr) {
 };
 class EVGFlight  {
   constructor() {
-    this.property = "";     /** note: unused */
+    this.property = "";
     this.durationMs = 0.0;
     this.delayMs = 0.0;
     this.elapsedMs = 0.0;
     this.easing = new EVGEasing();
-    this.fromNumber = 0.0;     /** note: unused */
-    this.toNumber = 0.0;     /** note: unused */
-    this.isColor = false;     /** note: unused */
-    this.unitCode = 0;     /** note: unused */
-    this.reversingStartNumber = 0.0;     /** note: unused */
-    this.reversingFactor = 1.0;     /** note: unused */
-    this.wroteNumber = 0.0;     /** note: unused */
-    this.hasWrote = false;     /** note: unused */
+    this.fromNumber = 0.0;
+    this.toNumber = 0.0;
+    this.isColor = false;
+    this.unitCode = 0;
+    this.reversingStartNumber = 0.0;
+    this.reversingFactor = 1.0;
+    this.wroteNumber = 0.0;
+    this.hasWrote = false;
   }
   progress () {
     if ( this.durationMs <= 0.0 ) {
@@ -1535,7 +1535,7 @@ class EVGElement  {
     this.isFocused = false;
     this.isPressed = false;
     this.transitionSpec = "";
-    this.transitions = [];     /** note: unused */
+    this.transitions = [];
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
@@ -3237,6 +3237,1149 @@ EVGElement.splitSpaces = function(s) {
     out.push(s.substring(start, __len ));
   }
   return out;
+};
+class EVGStyleDecl  {
+  constructor() {
+    this.name = "";
+    this.value = "";
+    this.name = "";
+    this.value = "";
+  }
+}
+class EVGMediaQuery  {
+  constructor() {
+    this.minWidth = 0.0 - 1.0;
+    this.maxWidth = 0.0 - 1.0;
+    this.minHeight = 0.0 - 1.0;
+    this.maxHeight = 0.0 - 1.0;
+    this.orientation = "";
+    this.pointer = 0;
+    this.broken = false;
+  }
+  isEmpty () {
+    if ( this.broken ) {
+      return false;
+    }
+    if ( this.minWidth >= 0.0 ) {
+      return false;
+    }
+    if ( this.maxWidth >= 0.0 ) {
+      return false;
+    }
+    if ( this.minHeight >= 0.0 ) {
+      return false;
+    }
+    if ( this.maxHeight >= 0.0 ) {
+      return false;
+    }
+    if ( (this.orientation.length) > 0 ) {
+      return false;
+    }
+    if ( this.pointer != 0 ) {
+      return false;
+    }
+    return true;
+  };
+  matches (w, h, coarse) {
+    if ( this.broken ) {
+      return false;
+    }
+    if ( this.isEmpty() ) {
+      return true;
+    }
+    if ( w <= 0.0 ) {
+      return false;
+    }
+    if ( this.minWidth >= 0.0 ) {
+      if ( w < this.minWidth ) {
+        return false;
+      }
+    }
+    if ( this.maxWidth >= 0.0 ) {
+      if ( w > this.maxWidth ) {
+        return false;
+      }
+    }
+    if ( this.minHeight >= 0.0 ) {
+      if ( h < this.minHeight ) {
+        return false;
+      }
+    }
+    if ( this.maxHeight >= 0.0 ) {
+      if ( h > this.maxHeight ) {
+        return false;
+      }
+    }
+    if ( (this.orientation.length) > 0 ) {
+      let want = "landscape";
+      if ( h > w ) {
+        want = "portrait";
+      }
+      if ( this.orientation != want ) {
+        return false;
+      }
+    }
+    if ( this.pointer == 1 ) {
+      if ( coarse == false ) {
+        return false;
+      }
+    }
+    if ( this.pointer == 2 ) {
+      if ( coarse ) {
+        return false;
+      }
+    }
+    return true;
+  };
+}
+class EVGPseudo  {
+  constructor() {
+  }
+}
+EVGPseudo.none = function() {
+  return 0;
+};
+EVGPseudo.hover = function() {
+  return 1;
+};
+EVGPseudo.focus = function() {
+  return 2;
+};
+EVGPseudo.active = function() {
+  return 3;
+};
+EVGPseudo.disabled = function() {
+  return 4;
+};
+EVGPseudo.parse = function(name) {
+  if ( name == "hover" ) {
+    return 1;
+  }
+  if ( name == "focus" ) {
+    return 2;
+  }
+  if ( name == "active" ) {
+    return 3;
+  }
+  if ( name == "disabled" ) {
+    return 4;
+  }
+  return -1;
+};
+EVGPseudo.holds = function(code, el) {
+  if ( code == 0 ) {
+    return true;
+  }
+  if ( code == 1 ) {
+    return el.isHovered;
+  }
+  if ( code == 2 ) {
+    return el.isFocused;
+  }
+  if ( code == 3 ) {
+    return el.isPressed;
+  }
+  if ( code == 4 ) {
+    return el.a11yDisabled;
+  }
+  return false;
+};
+class EVGStyleRule  {
+  constructor() {
+    this.theme = "";
+    this.className = "";
+    this.pseudo = 0;
+    this.decls = [];
+    this.order = 0;
+    this.media = new EVGMediaQuery();
+    this.theme = "";
+    this.className = "";
+    this.order = 0;
+  }
+  isThemeScoped () {
+    return (this.theme.length) > 0;
+  };
+}
+class EVGStyleSheet  {
+  constructor() {
+    this.rules = [];
+    this.errors = [];
+    this.ruleCounter = 0;
+    this.pendingMedia = new EVGMediaQuery();
+    this.viewportW = 0.0;
+    this.viewportH = 0.0;
+    this.coarsePointer = false;
+    this.planNames = [];
+    this.planValues = [];
+    this.planStart = [];
+    this.planCount = [];
+    this.planIndex = {};
+    this.planHits = 0;
+    this.planMisses = 0;
+    this.generation = 1;
+    this.planLayoutSig = [];
+    this.passSkipped = 0;
+    this.passStyled = 0;
+    this.passLayoutDirty = 0;
+    this.passPaintDirty = 0;
+    this.ruleCounter = 0;
+    this.dropPlans();
+  }
+  dropPlans () {
+    this.generation = this.generation + 1;
+    let sig = [];
+    this.planLayoutSig = sig;
+    let a = [];
+    this.planNames = a;
+    let b = [];
+    this.planValues = b;
+    let c = [];
+    this.planStart = c;
+    let d = [];
+    this.planCount = d;
+    let e = {};
+    this.planIndex = e;
+  };
+  setViewport (w, h, coarse) {
+    if ( ((w != this.viewportW) || (h != this.viewportH)) || (coarse != this.coarsePointer) ) {
+      this.dropPlans();
+    }
+    this.viewportW = w;
+    this.viewportH = h;
+    this.coarsePointer = coarse;
+  };
+  getRuleCount () {
+    return this.rules.length;
+  };
+  getErrorCount () {
+    return this.errors.length;
+  };
+  getError (i) {
+    return this.errors[i];
+  };
+  parse (css) {
+    this.dropPlans();
+    const src = this.stripComments(css);
+    this.parseBlock(src, new EVGMediaQuery());
+  };
+  parseBlock (src, cond) {
+    const __len = src.length;
+    let i = 0;
+    while (i < __len) {
+      const braceAt = this.findChar(src, i, 123);
+      if ( braceAt < 0 ) {
+        const tail = (src.substring(i, __len )).trim();
+        if ( (tail.length) > 0 ) {
+          this.errors.push("Ignored trailing text with no rule body: " + tail);
+        }
+        return;
+      }
+      const selectorText = (src.substring(i, braceAt )).trim();
+      if ( (this).startsWith(selectorText, "@media") ) {
+        const endAt = this.matchingBrace(src, braceAt);
+        if ( endAt < 0 ) {
+          this.errors.push("Unclosed @media block: " + selectorText);
+          return;
+        }
+        const inner = src.substring((braceAt + 1), endAt );
+        const q = this.parseMedia(((selectorText.substring(6, (selectorText.length) )).trim()));
+        this.parseBlock(inner, this.andQuery(cond, q));
+        i = endAt + 1;
+      } else {
+        if ( (selectorText.length) > 0 ) {
+          if ( (selectorText.charCodeAt(0 )) == 64 ) {
+            const skipTo = this.matchingBrace(src, braceAt);
+            if ( skipTo < 0 ) {
+              this.errors.push("Unclosed at-rule: " + selectorText);
+              return;
+            }
+            this.errors.push("Unsupported at-rule ignored: " + selectorText);
+            i = skipTo + 1;
+            continue;
+          }
+        }
+        const closeAt = this.findChar(src, (braceAt + 1), 125);
+        if ( closeAt < 0 ) {
+          this.errors.push("Unclosed rule body for selector: " + selectorText);
+          return;
+        }
+        const body = src.substring((braceAt + 1), closeAt );
+        this.addRulesIn(selectorText, body, cond);
+        i = closeAt + 1;
+      }
+    };
+  };
+  matchingBrace (s, open) {
+    const __len = s.length;
+    let depth = 0;
+    let i = open;
+    while (i < __len) {
+      const c = s.charCodeAt(i );
+      if ( c == 123 ) {
+        depth = depth + 1;
+      }
+      if ( c == 125 ) {
+        depth = depth - 1;
+        if ( depth == 0 ) {
+          return i;
+        }
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  parseMedia (text) {
+    const q = new EVGMediaQuery();
+    const body = text.trim();
+    if ( (body.length) == 0 ) {
+      this.errors.push("Empty @media condition");
+      q.broken = true;
+      return q;
+    }
+    if ( this.findChar(body, 0, 44) >= 0 ) {
+      this.errors.push("Comma-separated media queries are not supported: " + body);
+      q.broken = true;
+      return q;
+    }
+    const parts = this.splitFeatures(body);
+    let i = 0;
+    while (i < (parts.length)) {
+      const feat = (parts[i]).trim();
+      if ( (feat.length) > 0 ) {
+        this.applyFeature(q, feat, body);
+      }
+      i = i + 1;
+    };
+    return q;
+  };
+  splitFeatures (body) {
+    let out = [];
+    const __len = body.length;
+    let i = 0;
+    while (i < __len) {
+      const open = this.findChar(body, i, 40);
+      if ( open < 0 ) {
+        const tail = (body.substring(i, __len )).trim();
+        if ( (tail.length) > 0 ) {
+          if ( tail != "and" ) {
+            out.push(tail);
+          }
+        }
+        return out;
+      }
+      const close = this.findChar(body, (open + 1), 41);
+      if ( close < 0 ) {
+        out.push(body.substring((open + 1), __len ));
+        return out;
+      }
+      out.push(body.substring((open + 1), close ));
+      i = close + 1;
+    };
+    return out;
+  };
+  applyFeature (q, feat, whole) {
+    const colon = this.findChar(feat, 0, 58);
+    if ( colon < 0 ) {
+      this.errors.push("Media feature without a value: " + feat);
+      q.broken = true;
+      return;
+    }
+    const name = (feat.substring(0, colon )).trim();
+    const value = (feat.substring((colon + 1), (feat.length) )).trim();
+    if ( name == "orientation" ) {
+      if ( (value == "portrait") || (value == "landscape") ) {
+        q.orientation = value;
+        return;
+      }
+      this.errors.push("Unknown orientation: " + value);
+      q.broken = true;
+      return;
+    }
+    if ( name == "pointer" ) {
+      if ( value == "coarse" ) {
+        q.pointer = 1;
+        return;
+      }
+      if ( value == "fine" ) {
+        q.pointer = 2;
+        return;
+      }
+      this.errors.push("Unknown pointer value: " + value);
+      q.broken = true;
+      return;
+    }
+    const px = this.parsePx(value);
+    if ( typeof(px) === "undefined" ) {
+      this.errors.push("Media feature value is not a length: " + feat);
+      q.broken = true;
+      return;
+    }
+    const v = px;
+    if ( name == "min-width" ) {
+      q.minWidth = v;
+      return;
+    }
+    if ( name == "max-width" ) {
+      q.maxWidth = v;
+      return;
+    }
+    if ( name == "min-height" ) {
+      q.minHeight = v;
+      return;
+    }
+    if ( name == "max-height" ) {
+      q.maxHeight = v;
+      return;
+    }
+    this.errors.push("Unsupported media feature: " + name);
+    q.broken = true;
+  };
+  parsePx (value) {
+    let __none;
+    const v = value.trim();
+    const __len = v.length;
+    if ( __len == 0 ) {
+      return __none;
+    }
+    let digits = v;
+    if ( __len > 2 ) {
+      if ( (v.substring((__len - 2), __len )) == "px" ) {
+        digits = (v.substring(0, (__len - 2) )).trim();
+      }
+    }
+    if ( (digits.length) == 0 ) {
+      return __none;
+    }
+    let i = 0;
+    let dots = 0;
+    while (i < (digits.length)) {
+      const c = digits.charCodeAt(i );
+      if ( c == 46 ) {
+        dots = dots + 1;
+      } else {
+        if ( (c < 48) || (c > 57) ) {
+          return __none;
+        }
+      }
+      i = i + 1;
+    };
+    if ( dots > 1 ) {
+      return __none;
+    }
+    return isNaN( parseFloat(digits) ) ? undefined : parseFloat(digits);
+  };
+  andQuery (a, b) {
+    if ( a.isEmpty() ) {
+      return b;
+    }
+    if ( b.isEmpty() ) {
+      return a;
+    }
+    const q = new EVGMediaQuery();
+    q.broken = a.broken || b.broken;
+    q.minWidth = EVGStyleSheet.larger(a.minWidth, b.minWidth);
+    q.maxWidth = EVGStyleSheet.smaller(a.maxWidth, b.maxWidth);
+    q.minHeight = EVGStyleSheet.larger(a.minHeight, b.minHeight);
+    q.maxHeight = EVGStyleSheet.smaller(a.maxHeight, b.maxHeight);
+    q.orientation = a.orientation;
+    if ( (b.orientation.length) > 0 ) {
+      if ( (a.orientation.length) > 0 ) {
+        if ( a.orientation != b.orientation ) {
+          q.broken = true;
+        }
+      }
+      q.orientation = b.orientation;
+    }
+    q.pointer = a.pointer;
+    if ( b.pointer != 0 ) {
+      if ( a.pointer != 0 ) {
+        if ( a.pointer != b.pointer ) {
+          q.broken = true;
+        }
+      }
+      q.pointer = b.pointer;
+    }
+    return q;
+  };
+  stripComments (css) {
+    let out = "";
+    const __len = css.length;
+    let i = 0;
+    while (i < __len) {
+      const c = css.charCodeAt(i );
+      let isStart = false;
+      if ( c == 47 ) {
+        if ( (i + 1) < __len ) {
+          if ( (css.charCodeAt((i + 1) )) == 42 ) {
+            isStart = true;
+          }
+        }
+      }
+      if ( isStart ) {
+        let j = i + 2;
+        let closed = false;
+        while ((j < __len) && (closed == false)) {
+          if ( (css.charCodeAt(j )) == 42 ) {
+            if ( (j + 1) < __len ) {
+              if ( (css.charCodeAt((j + 1) )) == 47 ) {
+                closed = true;
+              }
+            }
+          }
+          if ( closed == false ) {
+            j = j + 1;
+          }
+        };
+        out = out + " ";
+        i = j + 2;
+      } else {
+        out = out + (css.substring(i, (i + 1) ));
+        i = i + 1;
+      }
+    };
+    return out;
+  };
+  findChar (s, from, ch) {
+    const __len = s.length;
+    let i = from;
+    while (i < __len) {
+      if ( (s.charCodeAt(i )) == ch ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  addRules (selectorText, body) {
+    this.addRulesIn(selectorText, body, new EVGMediaQuery());
+  };
+  addRulesIn (selectorText, body, cond) {
+    const decls = this.parseDeclarations(body);
+    const selectors = this.splitOn(selectorText, 44);
+    let i = 0;
+    while (i < (selectors.length)) {
+      const sel = (selectors[i]).trim();
+      if ( (sel.length) > 0 ) {
+        this.pendingMedia = cond;
+        this.addRuleForSelector(sel, decls);
+      }
+      i = i + 1;
+    };
+    this.pendingMedia = new EVGMediaQuery();
+  };
+  addRuleForSelector (sel, decls) {
+    const parts = this.splitWhitespace(sel);
+    const n = parts.length;
+    if ( n == 1 ) {
+      const whole = parts[0];
+      const bits = this.splitPseudo(whole);
+      const only = bits[0];
+      const pseudoName = bits[1];
+      if ( this.isClassToken(only) == false ) {
+        this.errors.push("Unsupported selector (only .class and .theme-x .class are supported): " + sel);
+        return;
+      }
+      let code = 0;
+      if ( (pseudoName.length) > 0 ) {
+        code = EVGPseudo.parse(pseudoName);
+        if ( code < 0 ) {
+          this.errors.push("Unsupported pseudo-class (hover, focus, active, disabled): " + sel);
+          return;
+        }
+      }
+      const rule = new EVGStyleRule();
+      rule.className = only.substring(1, (only.length) );
+      rule.pseudo = code;
+      this.pushRule(rule, decls);
+      return;
+    }
+    if ( n == 2 ) {
+      const scope = parts[0];
+      const target = parts[1];
+      const targetBits = this.splitPseudo(target);
+      const targetOnly = targetBits[0];
+      if ( (this.isClassToken(scope) == false) || (this.isClassToken(targetOnly) == false) ) {
+        this.errors.push("Unsupported selector (only .class and .theme-x .class are supported): " + sel);
+        return;
+      }
+      const scopeName = scope.substring(1, (scope.length) );
+      if ( (this).startsWith(scopeName, "theme-") == false ) {
+        this.errors.push("Descendant selectors are only supported as `.theme-<name> .class`: " + sel);
+        return;
+      }
+      const bits2 = this.splitPseudo(target);
+      const targetClass = bits2[0];
+      const pseudo2 = bits2[1];
+      let code2 = 0;
+      if ( (pseudo2.length) > 0 ) {
+        code2 = EVGPseudo.parse(pseudo2);
+        if ( code2 < 0 ) {
+          this.errors.push("Unsupported pseudo-class (hover, focus, active, disabled): " + sel);
+          return;
+        }
+      }
+      const rule2 = new EVGStyleRule();
+      rule2.theme = scopeName.substring(6, (scopeName.length) );
+      rule2.className = targetClass.substring(1, (targetClass.length) );
+      rule2.pseudo = code2;
+      this.pushRule(rule2, decls);
+      return;
+    }
+    this.errors.push("Unsupported selector (too many parts): " + sel);
+  };
+  pushRule (rule, decls) {
+    rule.decls = decls;
+    rule.media = this.pendingMedia;
+    rule.order = this.ruleCounter;
+    this.ruleCounter = this.ruleCounter + 1;
+    this.rules.push(rule);
+  };
+  splitPseudo (tok) {
+    let out = [];
+    const at = this.findChar(tok, 0, 58);
+    if ( at < 0 ) {
+      out.push(tok);
+      out.push("");
+      return out;
+    }
+    out.push(tok.substring(0, at ));
+    out.push(tok.substring((at + 1), (tok.length) ));
+    return out;
+  };
+  isClassToken (tok) {
+    if ( (tok.length) < 2 ) {
+      return false;
+    }
+    return (tok.charCodeAt(0 )) == 46;
+  };
+  startsWith (s, prefix) {
+    const pl = prefix.length;
+    if ( (s.length) < pl ) {
+      return false;
+    }
+    return (s.substring(0, pl )) == prefix;
+  };
+  parseDeclarations (body) {
+    let out = [];
+    const parts = this.splitOn(body, 59);
+    let i = 0;
+    while (i < (parts.length)) {
+      const part = (parts[i]).trim();
+      if ( (part.length) > 0 ) {
+        const colon = this.findChar(part, 0, 58);
+        if ( colon < 0 ) {
+          this.errors.push("Declaration without ':' ignored: " + part);
+        } else {
+          const d = new EVGStyleDecl();
+          d.name = (part.substring(0, colon )).trim();
+          d.value = this.unquote(((part.substring((colon + 1), (part.length) )).trim()));
+          if ( ((d.name.length) > 0) && ((d.value.length) > 0) ) {
+            if ( d.name == "transition" ) {
+              this.checkTransition(d.value);
+            }
+            out.push(d);
+          } else {
+            this.errors.push("Incomplete declaration ignored: " + part);
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  checkTransition (value) {
+    const parts = EVGEasing.splitTop(value, 44);
+    let i = 0;
+    while (i < (parts.length)) {
+      const words = EVGEasing.splitWordsTop(((parts[i]).trim()));
+      let w = 0;
+      while (w < (words.length)) {
+        const word = words[w];
+        if ( EVGEasing.looksLikeFunction(word) ) {
+          const e = EVGEasing.parse(word);
+          if ( e.ok == false ) {
+            this.errors.push("Unsupported timing function (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, cubic-bezier(), steps()): " + word);
+          }
+        }
+        w = w + 1;
+      };
+      i = i + 1;
+    };
+  };
+  unquote (s) {
+    const __len = s.length;
+    if ( __len < 2 ) {
+      return s;
+    }
+    const first = s.charCodeAt(0 );
+    const last = s.charCodeAt((__len - 1) );
+    if ( ((first == 34) && (last == 34)) || ((first == 39) && (last == 39)) ) {
+      let inner = 1;
+      while (inner < (__len - 1)) {
+        if ( (s.charCodeAt(inner )) == first ) {
+          return s;
+        }
+        inner = inner + 1;
+      };
+      return s.substring(1, (__len - 1) );
+    }
+    return s;
+  };
+  splitOn (s, sep) {
+    let out = [];
+    const __len = s.length;
+    let start = 0;
+    let i = 0;
+    while (i < __len) {
+      if ( (s.charCodeAt(i )) == sep ) {
+        out.push(s.substring(start, i ));
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+    out.push(s.substring(start, __len ));
+    return out;
+  };
+  splitWhitespace (s) {
+    let out = [];
+    const __len = s.length;
+    let start = 0;
+    let inTok = false;
+    let i = 0;
+    while (i < __len) {
+      const c = s.charCodeAt(i );
+      const isSpace = ((c == 32) || (c == 9)) || ((c == 10) || (c == 13));
+      if ( isSpace ) {
+        if ( inTok ) {
+          out.push(s.substring(start, i ));
+          inTok = false;
+        }
+      } else {
+        if ( inTok == false ) {
+          start = i;
+          inTok = true;
+        }
+      }
+      i = i + 1;
+    };
+    if ( inTok ) {
+      out.push(s.substring(start, __len ));
+    }
+    return out;
+  };
+  applyTreeIn (root, theme, w, h, coarse) {
+    this.setViewport(w, h, coarse);
+    this.applyTree(root, theme);
+  };
+  applyTree (root, theme) {
+    this.passSkipped = 0;
+    this.passStyled = 0;
+    this.passLayoutDirty = 0;
+    this.passPaintDirty = 0;
+    this.applyIn(root, theme);
+  };
+  layoutClean () {
+    return this.passLayoutDirty == 0;
+  };
+  nothingChanged () {
+    return (this.passLayoutDirty + this.passPaintDirty) == 0;
+  };
+  applyIn (root, theme) {
+    this.applyTo(root, theme);
+    let i = 0;
+    const n = root.getChildCount();
+    while (i < n) {
+      this.applyIn(root.getChild(i), theme);
+      i = i + 1;
+    };
+  };
+  applyTo (el, theme) {
+    if ( (el.className.length) == 0 ) {
+      return;
+    }
+    const bits = EVGStyleSheet.stateBits(el);
+    if ( ((((el.styleGen == this.generation) && (el.styleBits == bits)) && (el.styleKids == (el.children.length))) && (el.styleTheme == theme)) && (el.styleClass == el.className) ) {
+      this.passSkipped = this.passSkipped + 1;
+      return;
+    }
+    const key = (((el.className + "|") + theme) + "|") + ((bits.toString()));
+    const at = ( Object.prototype.hasOwnProperty.call(this.planIndex, key) ? this.planIndex[key] : undefined );
+    let slot = 0;
+    if ( typeof(at) === "undefined" ) {
+      slot = this.buildPlan(el, theme, key);
+      this.planMisses = this.planMisses + 1;
+    } else {
+      slot = at;
+      this.planHits = this.planHits + 1;
+    }
+    this.passStyled = this.passStyled + 1;
+    let layoutMoved = true;
+    if ( (el.styleSlot >= 0) && (el.styleKids == (el.children.length)) ) {
+      if ( (el.inlineProps.length) == 0 ) {
+        if ( (this.planLayoutSig[el.styleSlot]) == (this.planLayoutSig[slot]) ) {
+          layoutMoved = false;
+        }
+      }
+    }
+    if ( layoutMoved ) {
+      this.passLayoutDirty = this.passLayoutDirty + 1;
+    } else {
+      this.passPaintDirty = this.passPaintDirty + 1;
+    }
+    el.styleClass = el.className;
+    el.styleTheme = theme;
+    el.styleBits = bits;
+    el.styleGen = this.generation;
+    el.styleSlot = slot;
+    el.styleKids = el.children.length;
+    const from = this.planStart[slot];
+    const n = this.planCount[slot];
+    let i = 0;
+    while (i < n) {
+      const name = this.planNames[(from + i)];
+      if ( el.hasInline(name) == false ) {
+        el.setAttribute(name, this.planValues[(from + i)]);
+      }
+      i = i + 1;
+    };
+  };
+  applyToDirect (el, theme) {
+    if ( (el.className.length) == 0 ) {
+      return;
+    }
+    const classes = this.splitWhitespace(el.className);
+    this.clearStateProps(el, classes, theme);
+    this.applyGroup(el, classes, theme, false, false);
+    this.applyGroup(el, classes, theme, true, false);
+    this.applyGroup(el, classes, theme, false, true);
+    this.applyGroup(el, classes, theme, true, true);
+  };
+  applyTreeDirect (root, theme) {
+    this.applyToDirect(root, theme);
+    let i = 0;
+    const n = root.getChildCount();
+    while (i < n) {
+      this.applyTreeDirect(root.getChild(i), theme);
+      i = i + 1;
+    };
+  };
+  buildPlan (el, theme, key) {
+    const classes = this.splitWhitespace(el.className);
+    const from = this.planNames.length;
+    this.planStateClears(classes, theme);
+    this.planGroup(el, classes, theme, false, false);
+    this.planGroup(el, classes, theme, true, false);
+    this.planGroup(el, classes, theme, false, true);
+    this.planGroup(el, classes, theme, true, true);
+    const slot = this.planStart.length;
+    this.planStart.push(from);
+    const count = (this.planNames.length) - from;
+    this.planCount.push(count);
+    let sig = "";
+    let k = 0;
+    while (k < count) {
+      const nm = this.planNames[(from + k)];
+      if ( EVGStyleSheet.isLayoutProperty(nm) ) {
+        sig = (((sig + nm) + ":") + (this.planValues[(from + k)])) + ";";
+      }
+      k = k + 1;
+    };
+    this.planLayoutSig.push(sig);
+    this.planIndex[key] = slot;
+    return slot;
+  };
+  planStateClears (classes, theme) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      if ( rule.pseudo != 0 ) {
+        let applies = true;
+        if ( rule.isThemeScoped() ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = this.matchesClass(classes, rule.className);
+        }
+        if ( applies ) {
+          let d = 0;
+          while (d < (rule.decls.length)) {
+            const decl = rule.decls[d];
+            const init = EVGStyleSheet.initialValue(decl.name);
+            if ( (init.length) > 0 ) {
+              this.planNames.push(decl.name);
+              this.planValues.push(init);
+            }
+            d = d + 1;
+          };
+        }
+      }
+      i = i + 1;
+    };
+  };
+  planGroup (el, classes, theme, themeScoped, stateful) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      const isStateful = rule.pseudo != 0;
+      if ( (isStateful == stateful) && (rule.isThemeScoped() == themeScoped) ) {
+        let applies = true;
+        if ( themeScoped ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = EVGPseudo.holds(rule.pseudo, el);
+        }
+        if ( applies ) {
+          if ( this.matchesClass(classes, rule.className) ) {
+            let d = 0;
+            while (d < (rule.decls.length)) {
+              const decl = rule.decls[d];
+              this.planNames.push(decl.name);
+              this.planValues.push(decl.value);
+              d = d + 1;
+            };
+          }
+        }
+      }
+      i = i + 1;
+    };
+  };
+  clearStateProps (el, classes, theme) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      if ( rule.pseudo != 0 ) {
+        let applies = true;
+        if ( rule.isThemeScoped() ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = this.matchesClass(classes, rule.className);
+        }
+        if ( applies ) {
+          let d = 0;
+          while (d < (rule.decls.length)) {
+            const decl = rule.decls[d];
+            const init = EVGStyleSheet.initialValue(decl.name);
+            if ( (init.length) > 0 ) {
+              if ( el.hasInline(decl.name) == false ) {
+                el.setAttribute(decl.name, init);
+              }
+            }
+            d = d + 1;
+          };
+        }
+      }
+      i = i + 1;
+    };
+  };
+  applyGroup (el, classes, theme, themeScoped, stateful) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      const isStateful = rule.pseudo != 0;
+      if ( (isStateful == stateful) && (rule.isThemeScoped() == themeScoped) ) {
+        let applies = true;
+        if ( themeScoped ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          applies = EVGPseudo.holds(rule.pseudo, el);
+        }
+        if ( applies ) {
+          if ( this.matchesClass(classes, rule.className) ) {
+            this.applyDecls(el, rule);
+          }
+        }
+      }
+      i = i + 1;
+    };
+  };
+  matchesClass (classes, want) {
+    let i = 0;
+    while (i < (classes.length)) {
+      if ( (classes[i]) == want ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  applyDecls (el, rule) {
+    let i = 0;
+    while (i < (rule.decls.length)) {
+      const d = rule.decls[i];
+      if ( el.hasInline(d.name) == false ) {
+        el.setAttribute(d.name, d.value);
+      }
+      i = i + 1;
+    };
+  };
+}
+EVGStyleSheet.larger = function(a, b) {
+  if ( a < 0.0 ) {
+    return b;
+  }
+  if ( b < 0.0 ) {
+    return a;
+  }
+  if ( a > b ) {
+    return a;
+  }
+  return b;
+};
+EVGStyleSheet.smaller = function(a, b) {
+  if ( a < 0.0 ) {
+    return b;
+  }
+  if ( b < 0.0 ) {
+    return a;
+  }
+  if ( a < b ) {
+    return a;
+  }
+  return b;
+};
+EVGStyleSheet.stateKey = function(el) {
+  let out = "....";
+  if ( el.isHovered ) {
+    out = "h" + (out.substring(1, 4 ));
+  }
+  if ( el.isFocused ) {
+    out = ((out.substring(0, 1 )) + "f") + (out.substring(2, 4 ));
+  }
+  if ( el.isPressed ) {
+    out = ((out.substring(0, 2 )) + "a") + (out.substring(3, 4 ));
+  }
+  if ( el.a11yDisabled ) {
+    out = (out.substring(0, 3 )) + "d";
+  }
+  return out;
+};
+EVGStyleSheet.stateBits = function(el) {
+  let b = 0;
+  if ( el.isHovered ) {
+    b = b + 1;
+  }
+  if ( el.isFocused ) {
+    b = b + 2;
+  }
+  if ( el.isPressed ) {
+    b = b + 4;
+  }
+  if ( el.a11yDisabled ) {
+    b = b + 8;
+  }
+  return b;
+};
+EVGStyleSheet.initialValue = function(name) {
+  if ( name == "transform" ) {
+    return "none";
+  }
+  if ( name == "transform-origin" ) {
+    return "50% 50%";
+  }
+  if ( name == "transformOrigin" ) {
+    return "50% 50%";
+  }
+  if ( name == "opacity" ) {
+    return "1";
+  }
+  if ( name == "background-color" ) {
+    return "transparent";
+  }
+  if ( name == "backgroundColor" ) {
+    return "transparent";
+  }
+  if ( name == "rotate" ) {
+    return "0";
+  }
+  if ( name == "scale" ) {
+    return "1";
+  }
+  return "";
+};
+EVGStyleSheet.isLayoutProperty = function(name) {
+  if ( name == "color" ) {
+    return false;
+  }
+  if ( name == "background-color" ) {
+    return false;
+  }
+  if ( name == "backgroundColor" ) {
+    return false;
+  }
+  if ( name == "border-color" ) {
+    return false;
+  }
+  if ( name == "borderColor" ) {
+    return false;
+  }
+  if ( name == "fill" ) {
+    return false;
+  }
+  if ( name == "stroke" ) {
+    return false;
+  }
+  if ( name == "opacity" ) {
+    return false;
+  }
+  if ( name == "border-radius" ) {
+    return false;
+  }
+  if ( name == "borderRadius" ) {
+    return false;
+  }
+  if ( name == "transform" ) {
+    return false;
+  }
+  if ( name == "transform-origin" ) {
+    return false;
+  }
+  if ( name == "transformOrigin" ) {
+    return false;
+  }
+  if ( name == "rotate" ) {
+    return false;
+  }
+  if ( name == "scale" ) {
+    return false;
+  }
+  if ( name == "box-shadow" ) {
+    return false;
+  }
+  if ( name == "shadow-color" ) {
+    return false;
+  }
+  if ( name == "background-gradient" ) {
+    return false;
+  }
+  if ( name == "backdrop-filter" ) {
+    return false;
+  }
+  if ( name == "cursor" ) {
+    return false;
+  }
+  if ( name == "transition" ) {
+    return false;
+  }
+  return true;
 };
 class EVGCodepoint  {
   constructor() {
@@ -10277,80 +11420,473 @@ EVGDisplayList.jsonString = function(v) {
   };
   return out + "\"";
 };
-class EVGHitTest  {
+class EVGTimingSpec  {
   constructor() {
-    this.order = [];
-    this.deferred = [];
+    this.found = false;
+    this.durationMs = 0.0;
+    this.delayMs = 0.0;
+    this.easing = new EVGEasing();
+    this.ok = true;
   }
-  collect (el) {
-    this.order.push(el);
+}
+class EVGTransition  {
+  constructor() {
+  }
+  flightFor (el, property) {
     let i = 0;
-    while (i < (el.children.length)) {
-      const kid = el.children[i];
-      if ( kid.isOverlay ) {
-        this.deferred.push(kid);
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.property == property ) {
+        const hit = f;
+        return hit;
+      }
+      i = i + 1;
+    };
+    let miss;
+    return miss;
+  };
+  showColor (f) {
+    return EVGTransition.mixColor((f.fromColor), (f.toColor), f.eased());
+  };
+  showNumber (f) {
+    return f.fromNumber + ((f.toNumber - f.fromNumber) * f.eased());
+  };
+  reconcile (el) {
+    if ( typeof(el.backgroundColor) != "undefined" ) {
+      this.reconcileColor(el, "background-color", el.backgroundColor);
+    }
+    if ( typeof(el.color) != "undefined" ) {
+      this.reconcileColor(el, "color", el.color);
+    }
+    this.reconcileNumber(el, "opacity", el.opacity);
+    this.reconcileNumberAs(el, "transform.rotate", "transform", el.rotate);
+    this.reconcileNumberAs(el, "transform.scale", "transform", el.scale);
+    this.reconcileNumberAs(el, "transform.tx", "transform", el.translateX);
+    this.reconcileNumberAs(el, "transform.ty", "transform", el.translateY);
+    this.reconcileOriginAxis(el, "transform-origin.x", el.transformOriginX);
+    this.reconcileOriginAxis(el, "transform-origin.y", el.transformOriginY);
+    this.writeBack(el);
+  };
+  reconcileColor (el, property, target) {
+    const spec = EVGTransition.specFor(el.transitionSpec, property);
+    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
+      this.drop(el, property);
+      return;
+    }
+    if ( target.isSet == false ) {
+      return;
+    }
+    const existing = this.flightFor(el, property);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( EVGTransition.sameColor((f.toColor), target) ) {
+        return;
+      }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameColor((f.wroteColor), target) ) {
+          return;
+        }
+      }
+      const here = this.showColor(f);
+      if ( EVGTransition.sameColor(here, target) ) {
+        f.fromColor = target;
+        f.toColor = target;
+        f.elapsedMs = f.durationMs;
+        return;
+      }
+      if ( EVGTransition.sameColor((f.reversingStartColor), target) ) {
+        (this).reverse(f, spec);
+        f.reversingStartColor = f.toColor;
       } else {
-        this.collect(kid);
+        f.reversingStartColor = here;
+        f.reversingFactor = 1.0;
+        f.durationMs = spec.durationMs;
       }
-      i = i + 1;
-    };
+      f.fromColor = here;
+      f.toColor = target;
+      f.elapsedMs = 0.0;
+      f.delayMs = spec.delayMs;
+      f.easing = spec.easing;
+      return;
+    }
+    const created = new EVGFlight();
+    created.property = property;
+    created.isColor = true;
+    created.fromColor = target;
+    created.toColor = target;
+    created.reversingStartColor = target;
+    created.durationMs = spec.durationMs;
+    created.delayMs = spec.delayMs;
+    created.easing = spec.easing;
+    created.elapsedMs = spec.durationMs + spec.delayMs;
+    el.transitions.push(created);
   };
-  paintOrder (root) {
-    this.order.length = 0;
-    this.deferred.length = 0;
-    this.collect(root);
+  reverse (f, spec) {
+    const p = f.eased();
+    let nf = Math.abs(((p * f.reversingFactor) + (1.0 - f.reversingFactor)));
+    if ( nf < 0.0 ) {
+      nf = 0.0;
+    }
+    if ( nf > 1.0 ) {
+      nf = 1.0;
+    }
+    f.reversingFactor = nf;
+    f.durationMs = spec.durationMs * nf;
+  };
+  reconcileNumber (el, property, target) {
+    this.reconcileNumberAs(el, property, property, target);
+  };
+  reconcileNumberAs (el, key, cssName, target) {
+    const property = key;
+    const spec = EVGTransition.specFor(el.transitionSpec, cssName);
+    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
+      this.drop(el, property);
+      return;
+    }
+    const existing = this.flightFor(el, property);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( EVGTransition.sameNumber(f.toNumber, target) ) {
+        return;
+      }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameNumber(f.wroteNumber, target) ) {
+          return;
+        }
+      }
+      const hereN = this.showNumber(f);
+      if ( EVGTransition.sameNumber(hereN, target) ) {
+        f.fromNumber = target;
+        f.toNumber = target;
+        f.elapsedMs = f.durationMs;
+        return;
+      }
+      if ( EVGTransition.sameNumber(f.reversingStartNumber, target) ) {
+        (this).reverse(f, spec);
+        f.reversingStartNumber = f.toNumber;
+      } else {
+        f.reversingStartNumber = hereN;
+        f.reversingFactor = 1.0;
+        f.durationMs = spec.durationMs;
+      }
+      f.fromNumber = hereN;
+      f.toNumber = target;
+      f.elapsedMs = 0.0;
+      f.delayMs = spec.delayMs;
+      f.easing = spec.easing;
+      return;
+    }
+    const created = new EVGFlight();
+    created.property = property;
+    created.isColor = false;
+    created.fromNumber = target;
+    created.toNumber = target;
+    created.reversingStartNumber = target;
+    created.durationMs = spec.durationMs;
+    created.delayMs = spec.delayMs;
+    created.easing = spec.easing;
+    created.elapsedMs = spec.durationMs + spec.delayMs;
+    el.transitions.push(created);
+  };
+  reconcileOriginAxis (el, key, u) {
+    let code = 1;
+    let target = 50.0;
+    if ( u.isSet ) {
+      code = u.unitType;
+      target = u.value;
+    }
+    const existing = this.flightFor(el, key);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( f.unitCode != code ) {
+        this.drop(el, key);
+      }
+    }
+    this.reconcileNumberAs(el, key, "transform-origin", target);
+    const now = this.flightFor(el, key);
+    if ( typeof(now) != "undefined" ) {
+      const f2 = now;
+      f2.unitCode = code;
+    }
+  };
+  drop (el, property) {
+    let kept = [];
     let i = 0;
-    while (i < (this.deferred.length)) {
-      this.collect(this.deferred[i]);
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.property != property ) {
+        kept.push(f);
+      }
       i = i + 1;
     };
-    return this.order;
+    el.transitions.length = 0;
+    let j = 0;
+    while (j < (kept.length)) {
+      el.transitions.push(kept[j]);
+      j = j + 1;
+    };
   };
-  idAt (root, px, py) {
-    const list = this.paintOrder(root);
-    let i = (list.length) - 1;
-    while (i >= 0) {
-      const el = list[i];
-      if ( (el.id.length) > 0 ) {
-        if ( EVGHitTest.containsPoint(el, px, py) ) {
-          return el.id;
+  advance (el, dtMs) {
+    let i = 0;
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.done() == false ) {
+        f.elapsedMs = f.elapsedMs + dtMs;
+        const endsAt = f.delayMs + f.durationMs;
+        if ( f.elapsedMs > endsAt ) {
+          f.elapsedMs = endsAt;
         }
       }
-      i = i - 1;
+      i = i + 1;
     };
-    return "";
+    this.writeBack(el);
   };
-  classAt (root, px, py) {
-    const list = this.paintOrder(root);
-    let i = (list.length) - 1;
-    while (i >= 0) {
-      const el = list[i];
-      if ( (el.id.length) > 0 ) {
-        if ( EVGHitTest.containsPoint(el, px, py) ) {
-          return el.className;
+  writeBack (el) {
+    let moving = false;
+    let i = 0;
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.done() == false ) {
+        moving = true;
+      }
+      if ( f.isColor ) {
+        const c = this.showColor(f);
+        f.wroteColor = c;
+        f.hasWrote = true;
+        if ( f.property == "background-color" ) {
+          el.backgroundColor = c;
+        }
+        if ( f.property == "color" ) {
+          el.color = c;
+        }
+      } else {
+        const n = this.showNumber(f);
+        f.wroteNumber = n;
+        f.hasWrote = true;
+        if ( f.property == "opacity" ) {
+          el.opacity = n;
+        }
+        if ( f.property == "transform.rotate" ) {
+          el.rotate = n;
+        }
+        if ( f.property == "transform.scale" ) {
+          el.scale = n;
+        }
+        if ( f.property == "transform.tx" ) {
+          el.translateX = n;
+        }
+        if ( f.property == "transform.ty" ) {
+          el.translateY = n;
+        }
+        if ( f.property == "transform-origin.x" ) {
+          el.transformOriginX = EVGTransition.unitOf(f.unitCode, n);
+        }
+        if ( f.property == "transform-origin.y" ) {
+          el.transformOriginY = EVGTransition.unitOf(f.unitCode, n);
         }
       }
-      i = i - 1;
+      i = i + 1;
     };
-    return "";
+    if ( moving ) {
+      el.styleGen = 0 - 1;
+    }
+  };
+  reconcileTree (root) {
+    this.reconcile(root);
+    let i = 0;
+    while (i < (root.children.length)) {
+      this.reconcileTree(root.children[i]);
+      i = i + 1;
+    };
+  };
+  advanceTree (root, dtMs) {
+    this.advance(root, dtMs);
+    let i = 0;
+    while (i < (root.children.length)) {
+      this.advanceTree(root.children[i], dtMs);
+      i = i + 1;
+    };
+  };
+  busy (root) {
+    let i = 0;
+    while (i < (root.transitions.length)) {
+      const f = root.transitions[i];
+      if ( f.done() == false ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    let j = 0;
+    while (j < (root.children.length)) {
+      if ( this.busy((root.children[j])) ) {
+        return true;
+      }
+      j = j + 1;
+    };
+    return false;
   };
 }
-EVGHitTest.containsPoint = function(el, px, py) {
-  if ( px < el.calculatedX ) {
+EVGTransition.specFor = function(spec, property) {
+  const out = new EVGTimingSpec();
+  if ( (spec.length) == 0 ) {
+    return out;
+  }
+  const parts = EVGEasing.splitTop(spec, 44);
+  let i = 0;
+  while (i < (parts.length)) {
+    const one = (parts[i]).trim();
+    const words = EVGEasing.splitWordsTop(one);
+    let name = "";
+    let fnText = "";
+    let times = [];
+    let w = 0;
+    while (w < (words.length)) {
+      const word = words[w];
+      if ( EVGEasing.looksLikeFunction(word) ) {
+        fnText = word;
+      } else {
+        if ( EVGTransition.isTime(word) ) {
+          times.push(EVGTransition.parseMs(word));
+        } else {
+          if ( (name.length) == 0 ) {
+            name = word;
+          }
+        }
+      }
+      w = w + 1;
+    };
+    if ( (name == property) || (name == "all") ) {
+      out.found = true;
+      out.durationMs = 0.0;
+      out.delayMs = 0.0;
+      if ( (times.length) > 0 ) {
+        out.durationMs = times[0];
+      }
+      if ( (times.length) > 1 ) {
+        out.delayMs = times[1];
+      }
+      out.easing = EVGEasing.parse(fnText);
+      out.ok = out.easing.ok;
+    }
+    i = i + 1;
+  };
+  return out;
+};
+EVGTransition.durationFor = function(spec, property) {
+  const s = EVGTransition.specFor(spec, property);
+  if ( s.found == false ) {
+    return 0.0 - 1.0;
+  }
+  return s.durationMs;
+};
+EVGTransition.isTime = function(word) {
+  const t = word.trim();
+  const n = t.length;
+  if ( n == 0 ) {
     return false;
   }
-  if ( py < el.calculatedY ) {
+  if ( n > 2 ) {
+    if ( (t.substring((n - 2), n )) == "ms" ) {
+      const a = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
+      if ( typeof(a) != "undefined" ) {
+        return true;
+      }
+      return false;
+    }
+  }
+  if ( n > 1 ) {
+    if ( (t.substring((n - 1), n )) == "s" ) {
+      const b = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
+      if ( typeof(b) != "undefined" ) {
+        return true;
+      }
+      return false;
+    }
+  }
+  const c = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
+  if ( typeof(c) != "undefined" ) {
+    return true;
+  }
+  return false;
+};
+EVGTransition.parseMs = function(text) {
+  const t = text.trim();
+  const n = t.length;
+  if ( n == 0 ) {
+    return 0.0;
+  }
+  if ( n > 2 ) {
+    if ( (t.substring((n - 2), n )) == "ms" ) {
+      const v = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
+      if ( typeof(v) != "undefined" ) {
+        return v;
+      }
+      return 0.0;
+    }
+  }
+  if ( n > 1 ) {
+    if ( (t.substring((n - 1), n )) == "s" ) {
+      const v2 = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
+      if ( typeof(v2) != "undefined" ) {
+        return (v2) * 1000.0;
+      }
+      return 0.0;
+    }
+  }
+  const v3 = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
+  if ( typeof(v3) != "undefined" ) {
+    return v3;
+  }
+  return 0.0;
+};
+EVGTransition.sameColor = function(a, b) {
+  if ( (Math.floor( a.r)) != (Math.floor( b.r)) ) {
     return false;
   }
-  if ( px > (el.calculatedX + el.calculatedWidth) ) {
+  if ( (Math.floor( a.g)) != (Math.floor( b.g)) ) {
     return false;
   }
-  if ( py > (el.calculatedY + el.calculatedHeight) ) {
+  if ( (Math.floor( a.b)) != (Math.floor( b.b)) ) {
+    return false;
+  }
+  if ( (Math.floor( (a.a * 255.0))) != (Math.floor( (b.a * 255.0))) ) {
     return false;
   }
   return true;
 };
-class OverlayCheck  {
+EVGTransition.mixColor = function(from, to, t) {
+  const c = new EVGColor();
+  const fa = from.a;
+  const ta = to.a;
+  const a = fa + ((ta - fa) * t);
+  const pr = (from.r * fa) + (((to.r * ta) - (from.r * fa)) * t);
+  const pg = (from.g * fa) + (((to.g * ta) - (from.g * fa)) * t);
+  const pb = (from.b * fa) + (((to.b * ta) - (from.b * fa)) * t);
+  if ( a > 0.0001 ) {
+    c.r = pr / a;
+    c.g = pg / a;
+    c.b = pb / a;
+  } else {
+    c.r = pr;
+    c.g = pg;
+    c.b = pb;
+  }
+  c.a = a;
+  c.isSet = true;
+  return c;
+};
+EVGTransition.unitOf = function(code, value) {
+  const u = new EVGUnit();
+  u.unitType = code;
+  u.value = value;
+  u.pixels = value;
+  u.isSet = true;
+  return u;
+};
+EVGTransition.sameNumber = function(a, b) {
+  return (Math.abs((a - b))) < 0.001;
+};
+class InvCheck  {
   constructor() {
     this.passed = 0;
     this.failed = 0;
@@ -10367,371 +11903,270 @@ class OverlayCheck  {
   eqStr (name, got, want) {
     const good = got == want;
     if ( good == false ) {
-      console.log(((("       got '" + got) + "' want '") + want) + "'");
+      console.log("       got  " + got);
+      console.log("       want " + want);
     }
     this.ok(name, good);
   };
   eqInt (name, got, want) {
-    const good = got == want;
-    if ( good == false ) {
-      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
-    }
-    this.ok(name, good);
+    this.eqStr(name, (got.toString()), (want.toString()));
   };
 }
-class EVGOverlayTest  {
+class Frame  {
+  constructor() {
+    this.sheet = new EVGStyleSheet();
+    this.root = EVGElement.createDiv();
+    this.lay = new EVGLayout();
+    this.alwaysLayout = false;
+    this.layouts = 0;
+    this.skips = 0;
+  }
+  start (css, page, always) {
+    this.sheet.parse(css);
+    this.sheet.setViewport(400.0, 600.0, false);
+    this.root = page;
+    this.alwaysLayout = always;
+    this.lay.setPageSize(400.0, 600.0);
+    this.sheet.applyTree(this.root, "");
+    this.lay.layout(this.root);
+    this.layouts = 0;
+    this.skips = 0;
+  };
+  draw () {
+    this.sheet.applyTree(this.root, "");
+    let needed = true;
+    if ( this.alwaysLayout == false ) {
+      needed = this.sheet.layoutClean() == false;
+    }
+    if ( needed ) {
+      this.layouts = this.layouts + 1;
+      this.lay.layout(this.root);
+    } else {
+      this.skips = this.skips + 1;
+    }
+    const dl = new EVGDisplayList();
+    dl.setTextEngine(this.lay.getTextEngine());
+    dl.build(this.root);
+    return dl.toJson();
+  };
+}
+class EVGInvalidateTest  {
   constructor() {
   }
 }
-EVGOverlayTest.box = function(id, cls, w, h) {
+EVGInvalidateTest.sheetText = function() {
+  return ((((((((("" + ".page { display: flex; flex-direction: column; width: 400px; padding: 10px; }") + ".row { display: flex; flex-direction: row; height: 24px; width: 360px;") + "       background-color: #eeeeee; gap: 6px; padding: 0 8px; }") + ".row:hover { background-color: #ffcc00; }") + ".row-tall { height: 48px; }") + ".cell { width: 100px; height: 16px; color: #222222; font-size: 12px; }") + ".cell-wide { width: 200px; }") + ".cell:hover { color: #cc0000; }") + ".moved { transform: translate(0, 12px); }") + ".faded { opacity: 0.5; }";
+};
+EVGInvalidateTest.row = function(i) {
+  const r = EVGElement.createDiv();
+  r.className = "row";
+  r.id = "row" + ((i.toString()));
+  let j = 0;
+  while (j < 3) {
+    const c = EVGElement.createDiv();
+    c.className = "cell";
+    c.id = (("c" + ((i.toString()))) + "-") + ((j.toString()));
+    c.textContent = ("cell " + ((i.toString()))) + ((j.toString()));
+    r.addChild(c);
+    j = j + 1;
+  };
+  return r;
+};
+EVGInvalidateTest.page = function() {
+  const p = EVGElement.createDiv();
+  p.className = "page";
+  p.id = "page";
+  let i = 0;
+  while (i < 6) {
+    p.addChild(EVGInvalidateTest.row(i));
+    i = i + 1;
+  };
+  return p;
+};
+EVGInvalidateTest.rowOf = function(p, i) {
+  return p.children[i];
+};
+EVGInvalidateTest.cellOf = function(p, i, j) {
+  const r = p.children[i];
+  return r.children[j];
+};
+EVGInvalidateTest.edit = function(p, what) {
+  if ( what == "hover-on" ) {
+    const r = EVGInvalidateTest.rowOf(p, 2);
+    r.isHovered = true;
+    return;
+  }
+  if ( what == "hover-off" ) {
+    const r2 = EVGInvalidateTest.rowOf(p, 2);
+    r2.isHovered = false;
+    return;
+  }
+  if ( what == "hover-a-cell" ) {
+    const c = EVGInvalidateTest.cellOf(p, 1, 1);
+    c.isHovered = true;
+    return;
+  }
+  if ( what == "transform-class" ) {
+    const r3 = EVGInvalidateTest.rowOf(p, 3);
+    r3.className = "row moved";
+    return;
+  }
+  if ( what == "fade-class" ) {
+    const r4 = EVGInvalidateTest.rowOf(p, 4);
+    r4.className = "row faded";
+    return;
+  }
+  if ( what == "height-class" ) {
+    const r5 = EVGInvalidateTest.rowOf(p, 1);
+    r5.className = "row row-tall";
+    return;
+  }
+  if ( what == "width-class" ) {
+    const c2 = EVGInvalidateTest.cellOf(p, 0, 0);
+    c2.className = "cell cell-wide";
+    return;
+  }
+  if ( what == "text" ) {
+    const c3 = EVGInvalidateTest.cellOf(p, 0, 1);
+    c3.textContent = "a much longer piece of text than before";
+    return;
+  }
+  if ( what == "add-child" ) {
+    const r6 = EVGInvalidateTest.rowOf(p, 5);
+    const extra = EVGElement.createDiv();
+    extra.className = "cell";
+    extra.id = "extra";
+    extra.textContent = "extra";
+    r6.addChild(extra);
+    return;
+  }
+  if ( what == "remove-child" ) {
+    const r7 = EVGInvalidateTest.rowOf(p, 5);
+    r7.children.splice(0, 1).pop();
+    return;
+  }
+  if ( what == "nothing" ) {
+    return;
+  }
+};
+EVGInvalidateTest.bothWays = function(c, what, wantSkip) {
+  const fastPage = EVGInvalidateTest.page();
+  const fast = new Frame();
+  (fast).start(EVGInvalidateTest.sheetText(), fastPage, false);
+  const slowPage = EVGInvalidateTest.page();
+  const slow = new Frame();
+  (slow).start(EVGInvalidateTest.sheetText(), slowPage, true);
+  EVGInvalidateTest.edit(fastPage, what);
+  EVGInvalidateTest.edit(slowPage, what);
+  const a = fast.draw();
+  const b = slow.draw();
+  c.eqStr(what + ": skipping layout paints what laying out paints", a, b);
+  if ( wantSkip ) {
+    c.eqInt(what + ": and layout was skipped", fast.skips, 1);
+  } else {
+    c.eqInt(what + ": and layout was run", fast.layouts, 1);
+  }
+};
+EVGInvalidateTest.testPaintOnly = function(c) {
+  console.log("--- changes that cannot move a box ---");
+  EVGInvalidateTest.bothWays(c, "hover-on", true);
+  EVGInvalidateTest.bothWays(c, "hover-a-cell", true);
+  EVGInvalidateTest.bothWays(c, "transform-class", true);
+  EVGInvalidateTest.bothWays(c, "fade-class", true);
+  EVGInvalidateTest.bothWays(c, "nothing", true);
+};
+EVGInvalidateTest.testLayoutMoving = function(c) {
+  console.log("--- changes that do move boxes ---");
+  EVGInvalidateTest.bothWays(c, "height-class", false);
+  EVGInvalidateTest.bothWays(c, "width-class", false);
+};
+EVGInvalidateTest.testStructure = function(c) {
+  console.log("--- children coming and going ---");
+  EVGInvalidateTest.bothWays(c, "add-child", false);
+  EVGInvalidateTest.bothWays(c, "remove-child", false);
+};
+EVGInvalidateTest.testWhatTheSheetCannotSee = function(c) {
+  console.log("--- and the one thing it still cannot see ---");
+  const p = EVGInvalidateTest.page();
+  const f = new Frame();
+  (f).start(EVGInvalidateTest.sheetText(), p, false);
+  EVGInvalidateTest.edit(p, "text");
+  f.draw();
+  c.eqInt("a bare text edit still looks clean to the sheet", f.skips, 1);
+  const p3 = EVGInvalidateTest.page();
+  const f3 = new Frame();
+  (f3).start(EVGInvalidateTest.sheetText(), p3, true);
+  EVGInvalidateTest.edit(p3, "text");
+  const forced = f3.draw();
+  const p4 = EVGInvalidateTest.page();
+  const f4 = new Frame();
+  (f4).start(EVGInvalidateTest.sheetText(), p4, true);
+  EVGInvalidateTest.edit(p4, "text");
+  c.eqStr("a forced layout gets the new text right", forced, f4.draw());
+};
+EVGInvalidateTest.testTransitionsStillRun = function(c) {
+  console.log("--- and a flight still flies ---");
+  const s = new EVGStyleSheet();
+  s.parse((("" + ".box { width: 40px; height: 20px; background-color: #000000;") + "       transition: background-color 200ms linear; }") + ".box:hover { background-color: #ffffff; }");
+  s.setViewport(400.0, 600.0, false);
+  const t = new EVGTransition();
   const el = EVGElement.createDiv();
-  el.id = id;
-  el.className = cls;
-  el.setAttribute("width", (((Math.floor( w)).toString())) + "px");
-  el.setAttribute("height", (((Math.floor( h)).toString())) + "px");
-  return el;
-};
-EVGOverlayTest.laidOut = function(root) {
-  const lay = new EVGLayout();
-  lay.setPageSize(800.0, 600.0);
-  lay.layout(root);
-  return lay;
-};
-EVGOverlayTest.buildMenu = function(withAnchor) {
-  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
-  const row = EVGOverlayTest.box("row", "row", 400.0, 40.0);
-  row.setAttribute("display", "flex");
-  row.setAttribute("flex-direction", "row");
-  row.setAttribute("flex-wrap", "nowrap");
-  const menu = EVGElement.createDiv();
-  menu.id = "menu";
-  menu.setAttribute("display", "flex");
-  menu.setAttribute("flex-direction", "column");
-  menu.setAttribute("width", "fit-content");
-  const trigger = EVGOverlayTest.box("trigger", "trigger", 60.0, 30.0);
-  if ( withAnchor ) {
-    trigger.setAttribute("overlay-anchor-role", "true");
-  }
-  const surface = EVGOverlayTest.box("surface", "surface", 200.0, 120.0);
-  surface.setAttribute("overlay", "true");
-  surface.setAttribute("overlay-side", "bottom");
-  surface.setAttribute("overlay-align", "start");
-  surface.setAttribute("overlay-gap", "4");
-  menu.addChild(trigger);
-  menu.addChild(surface);
-  row.addChild(menu);
-  page.addChild(row);
-  return page;
-};
-EVGOverlayTest.nodeById = function(root, id) {
-  let work = [];
-  work.push(root);
-  let i = 0;
-  while (i < (work.length)) {
-    const el = work[i];
-    if ( el.id == id ) {
-      return el;
-    }
-    let j = 0;
-    while (j < (el.children.length)) {
-      work.push(el.children[j]);
-      j = j + 1;
-    };
-    i = i + 1;
+  el.className = "box";
+  s.applyTree(el, "");
+  t.reconcileTree(el);
+  t.advanceTree(el, 1000.0);
+  s.applyTree(el, "");
+  t.reconcileTree(el);
+  c.ok("nothing is moving at rest", t.busy(el) == false);
+  el.isHovered = true;
+  s.applyTree(el, "");
+  t.reconcileTree(el);
+  t.advanceTree(el, 40.0);
+  c.ok("the hover starts a flight", t.busy(el));
+  let steps = 0;
+  while (steps < 3) {
+    s.applyTree(el, "");
+    t.reconcileTree(el);
+    t.advanceTree(el, 30.0);
+    steps = steps + 1;
   };
-  return EVGElement.createDiv();
+  c.ok("and it is still flying three frames later", t.busy(el));
+  const mid = el.backgroundColor;
+  c.ok("part of the way there, not at either end", (mid.r > 10.0) && (mid.r < 245.0));
 };
-EVGOverlayTest.testOutOfFlow = function(c) {
-  console.log("--- an overlay takes no space in its parent's flow ---");
-  const page = EVGOverlayTest.buildMenu(true);
-  EVGOverlayTest.laidOut(page);
-  const menu = EVGOverlayTest.nodeById(page, "menu");
-  c.eqInt("the menu is as wide as its trigger", Math.floor( menu.calculatedWidth), 60);
-  c.eqInt("and as tall", Math.floor( menu.calculatedHeight), 30);
-};
-EVGOverlayTest.testPlacement = function(c) {
-  console.log("--- a surface is placed against its anchor ---");
-  const page = EVGOverlayTest.buildMenu(true);
-  EVGOverlayTest.laidOut(page);
-  const trigger = EVGOverlayTest.nodeById(page, "trigger");
-  const surface = EVGOverlayTest.nodeById(page, "surface");
-  c.eqInt("left edges line up", Math.floor( surface.calculatedX), Math.floor( trigger.calculatedX));
-  c.eqInt("and it sits under the trigger, past the gap", Math.floor( surface.calculatedY), Math.floor( ((trigger.calculatedY + trigger.calculatedHeight) + 4.0)));
-};
-EVGOverlayTest.testSubtreeTravels = function(c) {
-  console.log("--- the surface's children travel with it ---");
-  const page = EVGOverlayTest.buildMenu(true);
-  const surface = EVGOverlayTest.nodeById(page, "surface");
-  surface.setAttribute("overlay-side", "right");
-  const kid = EVGOverlayTest.box("kid", "kid", 100.0, 20.0);
-  surface.addChild(kid);
-  EVGOverlayTest.laidOut(page);
-  const s2 = EVGOverlayTest.nodeById(page, "surface");
-  const k2 = EVGOverlayTest.nodeById(page, "kid");
-  c.ok("the child is inside its surface", k2.calculatedY >= s2.calculatedY);
-  c.eqInt("and moved sideways with it too", Math.floor( k2.calculatedX), Math.floor( s2.calculatedX));
-};
-EVGOverlayTest.testNested = function(c) {
-  console.log("--- a surface inside a surface anchors to the moved rectangle ---");
-  const page = EVGOverlayTest.buildMenu(true);
-  const surface = EVGOverlayTest.nodeById(page, "surface");
-  const sub = EVGElement.createDiv();
-  sub.id = "submenu";
-  sub.setAttribute("display", "flex");
-  sub.setAttribute("flex-direction", "column");
-  sub.setAttribute("width", "fit-content");
-  const subRow = EVGOverlayTest.box("subrow", "subrow", 80.0, 20.0);
-  subRow.setAttribute("overlay-anchor-role", "true");
-  const subSurface = EVGOverlayTest.box("subsurface", "subsurface", 150.0, 60.0);
-  subSurface.setAttribute("overlay", "true");
-  subSurface.setAttribute("overlay-side", "right");
-  subSurface.setAttribute("overlay-align", "start");
-  subSurface.setAttribute("overlay-gap", "4");
-  sub.addChild(subRow);
-  sub.addChild(subSurface);
-  surface.addChild(sub);
-  EVGOverlayTest.laidOut(page);
-  const row2 = EVGOverlayTest.nodeById(page, "subrow");
-  const surf2 = EVGOverlayTest.nodeById(page, "subsurface");
-  c.eqInt("it opens to the right of its row, past the gap", Math.floor( surf2.calculatedX), Math.floor( ((row2.calculatedX + row2.calculatedWidth) + 4.0)));
-  c.eqInt("and lines up with it", Math.floor( surf2.calculatedY), Math.floor( row2.calculatedY));
-  c.ok("which is BELOW the menu bar, not at the top of the page", surf2.calculatedY > 30.0);
-};
-EVGOverlayTest.testUnanchored = function(c) {
-  console.log("--- a surface with no anchor is reported ---");
-  const page = EVGOverlayTest.buildMenu(false);
-  const lay = EVGOverlayTest.laidOut(page);
-  const errs = lay.getOverlayErrors();
-  c.eqInt("one error", errs.length, 1);
-  if ( (errs.length) > 0 ) {
-    const msg = errs[0];
-    c.ok("naming the surface", (msg.indexOf("surface")) >= 0);
-    c.ok("and saying what to do", (msg.indexOf("overlay-anchor-role")) >= 0);
-  }
-};
-EVGOverlayTest.testCentered = function(c) {
-  console.log("--- a centred surface needs no anchor ---");
-  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
-  const modal = EVGOverlayTest.box("modal", "modal", 200.0, 100.0);
-  modal.setAttribute("overlay", "true");
-  modal.setAttribute("overlay-side", "center");
-  page.addChild(modal);
-  const lay = EVGOverlayTest.laidOut(page);
-  const m = EVGOverlayTest.nodeById(page, "modal");
-  c.eqInt("centred across", Math.floor( m.calculatedX), 300);
-  c.eqInt("and down", Math.floor( m.calculatedY), 250);
-  c.eqInt("with nothing reported", lay.getOverlayErrors().length, 0);
-};
-EVGOverlayTest.buildTwoMenus = function() {
-  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
-  const row = EVGOverlayTest.box("row", "row", 400.0, 40.0);
-  row.setAttribute("display", "flex");
-  row.setAttribute("flex-direction", "row");
-  row.setAttribute("flex-wrap", "nowrap");
-  const first = EVGElement.createDiv();
-  first.id = "first";
-  first.setAttribute("display", "flex");
-  first.setAttribute("flex-direction", "column");
-  first.setAttribute("width", "fit-content");
-  const t1 = EVGOverlayTest.box("t1", "trigger", 60.0, 30.0);
-  t1.setAttribute("overlay-anchor-role", "true");
-  const panel = EVGOverlayTest.box("panel", "surface", 200.0, 120.0);
-  panel.setAttribute("overlay", "true");
-  panel.setAttribute("overlay-side", "bottom");
-  panel.setAttribute("overlay-align", "start");
-  panel.setAttribute("overlay-gap", "4");
-  panel.setAttribute("background-color", "#ffffff");
-  first.addChild(t1);
-  first.addChild(panel);
-  const second = EVGElement.createDiv();
-  second.id = "second";
-  second.setAttribute("display", "flex");
-  second.setAttribute("flex-direction", "column");
-  second.setAttribute("width", "fit-content");
-  const t2 = EVGOverlayTest.box("t2", "trigger", 60.0, 30.0);
-  t2.setAttribute("background-color", "#ff0000");
-  t2.setAttribute("height", "300px");
-  second.addChild(t2);
-  row.addChild(first);
-  row.addChild(second);
-  page.addChild(row);
-  return page;
-};
-EVGOverlayTest.rectIndex = function(dl, el) {
-  let i = 0;
-  while (i < (dl.cmds.length)) {
-    const c = dl.cmds[i];
-    if ( c.kind == 0 ) {
-      const sameX = (Math.floor( c.x)) == (Math.floor( el.calculatedX));
-      const sameY = (Math.floor( c.y)) == (Math.floor( el.calculatedY));
-      const sameW = (Math.floor( c.w)) == (Math.floor( el.calculatedWidth));
-      if ( sameX && (sameY && sameW) ) {
-        return i;
-      }
-    }
-    i = i + 1;
-  };
-  return -1;
-};
-EVGOverlayTest.testPaintOrder = function(c) {
-  console.log("--- a surface paints above the page, not in tree order ---");
-  const page = EVGOverlayTest.buildTwoMenus();
-  const lay = EVGOverlayTest.laidOut(page);
-  const dl = new EVGDisplayList();
-  dl.setTextEngine(lay.getTextEngine());
-  dl.build(page);
-  const panel = EVGOverlayTest.nodeById(page, "panel");
-  const t2 = EVGOverlayTest.nodeById(page, "t2");
-  const pi = EVGOverlayTest.rectIndex(dl, panel);
-  const ti = EVGOverlayTest.rectIndex(dl, t2);
-  c.ok("both were drawn", (pi >= 0) && (ti >= 0));
-  c.ok("the panel is drawn after the trigger it overhangs", pi > ti);
-};
-EVGOverlayTest.testHitTopmost = function(c) {
-  console.log("--- a click in the panel hits the panel ---");
-  const page = EVGOverlayTest.buildTwoMenus();
-  EVGOverlayTest.laidOut(page);
-  const panel = EVGOverlayTest.nodeById(page, "panel");
-  const hit = new EVGHitTest();
-  const px = panel.calculatedX + 150.0;
-  const py = panel.calculatedY + 10.0;
-  const t2 = EVGOverlayTest.nodeById(page, "t2");
-  c.ok("the point really is over both", (px > t2.calculatedX) && (py < (t2.calculatedY + t2.calculatedHeight)));
-  c.ok("and the panel answers", hit.idAt(page, px, py) == "panel");
-  c.ok("a point outside answers the element under it", hit.idAt(page, (t2.calculatedX + 10.0), (t2.calculatedY + 200.0)) == "t2");
-};
-EVGOverlayTest.buildAt = function(ax, ay, side, align, sw, sh) {
-  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
-  const holder = EVGElement.createDiv();
-  holder.id = "holder";
-  holder.setAttribute("position", "absolute");
-  holder.setAttribute("left", (((Math.floor( ax)).toString())) + "px");
-  holder.setAttribute("top", (((Math.floor( ay)).toString())) + "px");
-  holder.setAttribute("width", "60px");
-  holder.setAttribute("height", "30px");
-  const anchor = EVGOverlayTest.box("anchor", "anchor", 60.0, 30.0);
-  anchor.setAttribute("overlay-anchor-role", "true");
-  const surface = EVGOverlayTest.box("surface", "surface", sw, sh);
-  surface.setAttribute("overlay", "true");
-  surface.setAttribute("overlay-side", side);
-  surface.setAttribute("overlay-align", align);
-  surface.setAttribute("overlay-gap", "4");
-  holder.addChild(anchor);
-  holder.addChild(surface);
-  page.addChild(holder);
-  return page;
-};
-EVGOverlayTest.testFlip = function(c) {
-  console.log("--- a surface near an edge opens the other way ---");
-  const roomy = EVGOverlayTest.buildAt(100.0, 100.0, "bottom", "start", 200.0, 120.0);
-  EVGOverlayTest.laidOut(roomy);
-  const s1 = EVGOverlayTest.nodeById(roomy, "surface");
-  const a1 = EVGOverlayTest.nodeById(roomy, "anchor");
-  c.eqStr("with room, it stays where it was asked to be", s1.overlayPlacedSide, "bottom");
-  c.eqInt("under the anchor", Math.floor( s1.calculatedY), Math.floor( ((a1.calculatedY + a1.calculatedHeight) + 4.0)));
-  const tight = EVGOverlayTest.buildAt(100.0, 520.0, "bottom", "start", 200.0, 120.0);
-  EVGOverlayTest.laidOut(tight);
-  const s2 = EVGOverlayTest.nodeById(tight, "surface");
-  const a2 = EVGOverlayTest.nodeById(tight, "anchor");
-  c.eqStr("with no room below, it opens upwards", s2.overlayPlacedSide, "top");
-  c.eqInt("above the anchor, past the gap", Math.floor( s2.calculatedY), Math.floor( ((a2.calculatedY - 120.0) - 4.0)));
-  c.ok("and is fully on the page", (s2.calculatedY >= 0.0) && ((s2.calculatedY + 120.0) <= 600.0));
-  const right = EVGOverlayTest.buildAt(700.0, 100.0, "right", "start", 200.0, 120.0);
-  EVGOverlayTest.laidOut(right);
-  const s3 = EVGOverlayTest.nodeById(right, "surface");
-  const a3 = EVGOverlayTest.nodeById(right, "anchor");
-  c.eqStr("a submenu at the right edge opens to the left", s3.overlayPlacedSide, "left");
-  c.eqInt("beside the anchor, past the gap", Math.floor( s3.calculatedX), Math.floor( ((a3.calculatedX - 200.0) - 4.0)));
-};
-EVGOverlayTest.testShift = function(c) {
-  console.log("--- and slides along the edge rather than hanging off it ---");
-  const page = EVGOverlayTest.buildAt(700.0, 100.0, "bottom", "start", 200.0, 120.0);
-  EVGOverlayTest.laidOut(page);
-  const s = EVGOverlayTest.nodeById(page, "surface");
-  const a = EVGOverlayTest.nodeById(page, "anchor");
-  c.eqStr("it is still below", s.overlayPlacedSide, "bottom");
-  c.eqInt("and its right edge is the page's", Math.floor( (s.calculatedX + 200.0)), 800);
-  c.ok("while still overlapping its anchor", (s.calculatedX < (a.calculatedX + a.calculatedWidth)) && ((s.calculatedX + 200.0) > a.calculatedX));
-  c.ok("and the move is the whole surface", s.calculatedX < a.calculatedX);
-};
-EVGOverlayTest.testNoRoomEitherWay = function(c) {
-  console.log("--- with no room on either side it takes the roomier one ---");
-  const page = EVGOverlayTest.buildAt(100.0, 300.0, "bottom", "start", 200.0, 700.0);
-  EVGOverlayTest.laidOut(page);
-  const s = EVGOverlayTest.nodeById(page, "surface");
-  c.eqInt("it starts at the top of the page", Math.floor( s.calculatedY), 0);
-  c.eqStr("on the side that loses less", s.overlayPlacedSide, "top");
-};
-EVGOverlayTest.testCover = function(c) {
-  console.log("--- a backdrop covers the page, not its parent ---");
-  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
-  const card = EVGOverlayTest.box("card", "card", 200.0, 100.0);
-  const backdrop = EVGOverlayTest.box("backdrop", "backdrop", 50.0, 20.0);
-  backdrop.setAttribute("overlay", "true");
-  backdrop.setAttribute("overlay-side", "cover");
-  const dialog = EVGOverlayTest.box("dialog", "dialog", 300.0, 200.0);
-  dialog.setAttribute("overlay", "true");
-  dialog.setAttribute("overlay-side", "center");
-  card.addChild(backdrop);
-  card.addChild(dialog);
-  page.addChild(card);
-  const lay = EVGOverlayTest.laidOut(page);
-  const b = EVGOverlayTest.nodeById(page, "backdrop");
-  c.eqInt("it starts at the page's origin", Math.floor( (b.calculatedX + b.calculatedY)), 0);
-  c.eqInt("as wide as the page", Math.floor( b.calculatedWidth), 800);
-  c.eqInt("and as tall", Math.floor( b.calculatedHeight), 600);
-  const d = EVGOverlayTest.nodeById(page, "dialog");
-  c.eqInt("the dialog is centred on the page, not on the card", Math.floor( d.calculatedX), 250);
-  c.eqInt("and down", Math.floor( d.calculatedY), 200);
-  const cd = EVGOverlayTest.nodeById(page, "card");
-  c.eqInt("and the card it was declared in is untouched", Math.floor( cd.calculatedWidth), 200);
-  const hit = new EVGHitTest();
-  c.eqStr("a press in the middle hits the dialog", hit.idAt(page, 400.0, 300.0), "dialog");
-  c.eqStr("and one at the edge hits the backdrop, not the page behind it", hit.idAt(page, 20.0, 560.0), "backdrop");
-  c.eqInt("with nothing reported", lay.getOverlayErrors().length, 0);
-};
-EVGOverlayTest.testFitText = function(c) {
-  console.log("--- fit-content measures text, not only children ---");
-  const page = EVGOverlayTest.box("page", "page", 800.0, 600.0);
-  const badge = EVGElement.createDiv();
-  badge.id = "badge";
-  badge.setAttribute("width", "fit-content");
-  badge.setAttribute("padding", "4px 12px");
-  badge.setAttribute("font-size", "13px");
-  badge.textContent = "document";
-  const wide = EVGElement.createDiv();
-  wide.id = "wide";
-  wide.setAttribute("width", "fit-content");
-  wide.setAttribute("padding", "4px 12px");
-  wide.setAttribute("font-size", "13px");
-  wide.textContent = "a much longer label";
-  page.addChild(badge);
-  page.addChild(wide);
-  EVGOverlayTest.laidOut(page);
-  const b = EVGOverlayTest.nodeById(page, "badge");
-  const w = EVGOverlayTest.nodeById(page, "wide");
-  c.ok("a badge is narrower than the page it sits in", b.calculatedWidth < 200.0);
-  c.ok("but wide enough for its word", b.calculatedWidth > 40.0);
-  c.ok("a longer label is wider", w.calculatedWidth > b.calculatedWidth);
-  c.ok("and still not the whole page", w.calculatedWidth < 400.0);
+EVGInvalidateTest.testSkipSurvivesTransitions = function(c) {
+  console.log("--- and a transitioned page still skips ---");
+  const s = new EVGStyleSheet();
+  s.parse(EVGInvalidateTest.sheetText() + ".row { transition: background-color 200ms linear; }");
+  s.setViewport(400.0, 600.0, false);
+  const t = new EVGTransition();
+  const p = EVGInvalidateTest.page();
+  s.applyTree(p, "");
+  t.reconcileTree(p);
+  t.advanceTree(p, 1000.0);
+  s.applyTree(p, "");
+  t.reconcileTree(p);
+  const r = EVGInvalidateTest.rowOf(p, 2);
+  r.isHovered = true;
+  s.applyTree(p, "");
+  t.reconcileTree(p);
+  t.advanceTree(p, 30.0);
+  s.applyTree(p, "");
+  c.ok("the flight is in the air", t.busy(r));
+  console.log(((("       " + ((s.passStyled.toString()))) + " styled, ") + ((s.passSkipped.toString()))) + " skipped");
+  c.ok("only the moving row is re-declared", s.passStyled <= 2);
+  c.ok("and the rest of the tree is skipped", s.passSkipped >= 23);
 };
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
-  const c = new OverlayCheck();
-  console.log("=== EVG overlay surfaces ===");
-  EVGOverlayTest.testOutOfFlow(c);
-  EVGOverlayTest.testPlacement(c);
-  EVGOverlayTest.testSubtreeTravels(c);
-  EVGOverlayTest.testNested(c);
-  EVGOverlayTest.testUnanchored(c);
-  EVGOverlayTest.testCentered(c);
-  EVGOverlayTest.testPaintOrder(c);
-  EVGOverlayTest.testHitTopmost(c);
-  EVGOverlayTest.testFlip(c);
-  EVGOverlayTest.testShift(c);
-  EVGOverlayTest.testNoRoomEitherWay(c);
-  EVGOverlayTest.testCover(c);
-  EVGOverlayTest.testFitText(c);
+  const c = new InvCheck();
+  console.log("=== EVG invalidation: paint versus layout ===");
+  EVGInvalidateTest.testPaintOnly(c);
+  EVGInvalidateTest.testLayoutMoving(c);
+  EVGInvalidateTest.testStructure(c);
+  EVGInvalidateTest.testWhatTheSheetCannotSee(c);
+  EVGInvalidateTest.testTransitionsStillRun(c);
+  EVGInvalidateTest.testSkipSurvivesTransitions(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {

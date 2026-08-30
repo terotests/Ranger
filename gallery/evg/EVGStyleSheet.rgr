@@ -223,6 +223,23 @@ class EVGStyleSheet {
     ; works, only slower.
     def planHits:int 0
     def planMisses:int 0
+    ; Bumped whenever every plan becomes a guess. An element records it
+    ; alongside what it was styled with, so one increment invalidates the whole
+    ; tree without walking it.
+    def generation:int 1
+    ; Per plan: the LAYOUT-relevant declarations, as one string. Two plans with
+    ; the same signature cannot move anything, however much else differs
+    ; between them — which is what lets a hover skip layout entirely.
+    def planLayoutSig:[string]
+
+    ; --- what the last `applyTree` actually did -------------------------------
+    ; Reset at the start of every pass. `layoutDirty` is the one that matters:
+    ; while it is zero, nothing that was written can have moved a box, and the
+    ; layout pass is doing arithmetic it already did.
+    def passSkipped:int 0
+    def passStyled:int 0
+    def passLayoutDirty:int 0
+    def passPaintDirty:int 0
 
     Constructor () {
         ruleCounter = 0
@@ -234,6 +251,9 @@ class EVGStyleSheet {
     ; purpose: a sheet is parsed once and a viewport changes when the window
     ; does, and being clever about either would be optimising the rare case.
     fn dropPlans:void () {
+        generation = (generation + 1)
+        def sig:[string]
+        planLayoutSig = sig
         def a:[string]
         planNames = a
         def b:[string]
@@ -889,11 +909,32 @@ class EVGStyleSheet {
     }
 
     fn applyTree:void (root:EVGElement theme:string) {
+        passSkipped = 0
+        passStyled = 0
+        passLayoutDirty = 0
+        passPaintDirty = 0
+        this.applyIn(root theme)
+    }
+
+    ; True when nothing this pass wrote can have moved a box. The caller may
+    ; then skip layout entirely — which on a hover is 40% of the frame spent
+    ; recomputing positions that provably did not change.
+    fn layoutClean:boolean () {
+        return (passLayoutDirty == 0)
+    }
+
+    ; True when the pass wrote nothing at all, so even the display list is
+    ; still correct.
+    fn nothingChanged:boolean () {
+        return ((passLayoutDirty + passPaintDirty) == 0)
+    }
+
+    fn applyIn:void (root:EVGElement theme:string) {
         this.applyTo(root theme)
         def i:int 0
         def n:int (root.getChildCount())
         while (i < n) {
-            this.applyTree((root.getChild(i)) theme)
+            this.applyIn((root.getChild(i)) theme)
             i = (i + 1)
         }
     }
@@ -913,11 +954,42 @@ class EVGStyleSheet {
     ; Apply matching rules to a single element, from a plan built once per
     ; distinct (class string, theme, interaction state) and replayed after that.
     ; See the cache fields for why.
+    ; The four interaction bits as an int, so the common case compares numbers
+    ; and allocates nothing. The string form is only built when a plan has to
+    ; be looked up.
+    sfn stateBits:int (el:EVGElement) {
+        def b:int 0
+        if el.isHovered     { b = (b + 1) }
+        if el.isFocused     { b = (b + 2) }
+        if el.isPressed     { b = (b + 4) }
+        if el.a11yDisabled  { b = (b + 8) }
+        return b
+    }
+
     fn applyTo:void (el:EVGElement theme:string) {
         if ((strlen el.className) == 0) {
             return
         }
-        def key:string ((((el.className + "|") + theme) + "|") + (EVGStyleSheet.stateKey(el)))
+        def bits:int (EVGStyleSheet.stateBits(el))
+
+        ; Already holding exactly this. Four scalar comparisons and no
+        ; allocation, and on a hover it is the answer for every element but
+        ; one — which is the whole point: the pass still WALKS the tree, but it
+        ; stops writing to it.
+        ;
+        ; `styleGen` is what makes this safe against everything that is not a
+        ; class or a state change: re-parsing and resizing bump the sheet's
+        ; generation, and `EVGTransition.writeBack` sets the element's to -1
+        ; because after a flight has written a showing value the element is no
+        ; longer holding what the sheet declared.
+        if (((((el.styleGen == generation) && (el.styleBits == bits))
+             && (el.styleKids == (array_length el.children)))
+             && (el.styleTheme == theme)) && (el.styleClass == el.className)) {
+            passSkipped = (passSkipped + 1)
+            return
+        }
+
+        def key:string ((((el.className + "|") + theme) + "|") + (to_string bits))
         def at@(optional):int (get planIndex key)
         def slot:int 0
         if (null? at) {
@@ -927,6 +999,33 @@ class EVGStyleSheet {
             slot = (unwrap at)
             planHits = (planHits + 1)
         }
+
+        ; What KIND of change this is. Two plans whose layout-relevant
+        ; declarations are identical cannot move a box, however much else
+        ; differs — a `:hover` rule that only sets a colour is the case this
+        ; exists for. An element with inline attributes is counted as
+        ; layout-dirty regardless, because the plan does not know what they say.
+        passStyled = (passStyled + 1)
+        def layoutMoved:boolean true
+        if ((el.styleSlot >= 0) && (el.styleKids == (array_length el.children))) {
+            if ((array_length el.inlineProps) == 0) {
+                if ((itemAt planLayoutSig el.styleSlot) == (itemAt planLayoutSig slot)) {
+                    layoutMoved = false
+                }
+            }
+        }
+        if layoutMoved {
+            passLayoutDirty = (passLayoutDirty + 1)
+        } {
+            passPaintDirty = (passPaintDirty + 1)
+        }
+        el.styleClass = el.className
+        el.styleTheme = theme
+        el.styleBits = bits
+        el.styleGen = generation
+        el.styleSlot = slot
+        el.styleKids = (array_length el.children)
+
         def from:int (itemAt planStart slot)
         def n:int (itemAt planCount slot)
         def i:int 0
@@ -991,7 +1090,20 @@ class EVGStyleSheet {
         this.planGroup(el classes theme true true)
         def slot:int (array_length planStart)
         push planStart from
-        push planCount ((array_length planNames) - from)
+        def count:int ((array_length planNames) - from)
+        push planCount count
+        ; The layout-relevant half of the plan, as one string. Built once here
+        ; so the comparison at apply time is a single string equality.
+        def sig:string ""
+        def k:int 0
+        while (k < count) {
+            def nm:string (itemAt planNames (from + k))
+            if (EVGStyleSheet.isLayoutProperty(nm)) {
+                sig = ((((sig + nm) + ":") + (itemAt planValues (from + k))) + ";")
+            }
+            k = (k + 1)
+        }
+        push planLayoutSig sig
         set planIndex key slot
         return slot
     }
@@ -1137,6 +1249,38 @@ class EVGStyleSheet {
         if (name == "rotate")           { return "0" }
         if (name == "scale")            { return "1" }
         return ""
+    }
+
+    ; Does this property take part in deciding where boxes go?
+    ;
+    ; Conservative by construction: anything not listed here counts as LAYOUT,
+    ; so a property nobody thought about costs a layout pass rather than
+    ; silently leaving a stale one. The listed set is the paint-only one —
+    ; colours, opacity, shadows, radii, and `transform`, which in EVG is applied
+    ; to the display list after layout and therefore moves nothing.
+    sfn isLayoutProperty:boolean (name:string) {
+        if (name == "color")              { return false }
+        if (name == "background-color")   { return false }
+        if (name == "backgroundColor")    { return false }
+        if (name == "border-color")       { return false }
+        if (name == "borderColor")        { return false }
+        if (name == "fill")               { return false }
+        if (name == "stroke")             { return false }
+        if (name == "opacity")            { return false }
+        if (name == "border-radius")      { return false }
+        if (name == "borderRadius")       { return false }
+        if (name == "transform")          { return false }
+        if (name == "transform-origin")   { return false }
+        if (name == "transformOrigin")    { return false }
+        if (name == "rotate")             { return false }
+        if (name == "scale")              { return false }
+        if (name == "box-shadow")         { return false }
+        if (name == "shadow-color")       { return false }
+        if (name == "background-gradient") { return false }
+        if (name == "backdrop-filter")    { return false }
+        if (name == "cursor")             { return false }
+        if (name == "transition")         { return false }
+        return true
     }
 
     fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean stateful:boolean) {

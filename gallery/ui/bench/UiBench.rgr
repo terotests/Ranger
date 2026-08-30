@@ -149,6 +149,19 @@ class UiBench {
         sheet.applyTree(root "")
     }
 
+    ; True when the last `applyTree` wrote nothing that can have moved a box.
+    sfn layoutClean:boolean (sheet:EVGStyleSheet) {
+        return (sheet.layoutClean())
+    }
+
+    sfn styledCount:int (sheet:EVGStyleSheet) {
+        return sheet.passStyled
+    }
+
+    sfn skippedCount:int (sheet:EVGStyleSheet) {
+        return sheet.passSkipped
+    }
+
     sfn layoutOnly:EVGLayout (root:EVGElement) {
         def lay (new EVGLayout())
         lay.setPageSize(1240.0 900.0)

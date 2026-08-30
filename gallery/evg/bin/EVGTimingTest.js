@@ -1549,6 +1549,12 @@ class EVGElement  {
     this.a11yPosInSet = 0;
     this.a11ySetSize = 0;
     this.a11yLevel = 0;
+    this.styleClass = "";
+    this.styleTheme = "";
+    this.styleBits = 0;
+    this.styleGen = 0;
+    this.styleSlot = 0 - 1;
+    this.styleKids = 0 - 1;
     this.isLayoutComplete = false;
     this.unitsResolved = false;
     this.hasReturn = false;
@@ -2188,6 +2194,12 @@ class EVGElement  {
     this.a11yPosInSet = other.a11yPosInSet;
     this.a11ySetSize = other.a11ySetSize;
     this.a11yLevel = other.a11yLevel;
+    this.styleClass = other.styleClass;
+    this.styleTheme = other.styleTheme;
+    this.styleBits = other.styleBits;
+    this.styleGen = other.styleGen;
+    this.styleSlot = other.styleSlot;
+    this.styleKids = other.styleKids;
     this.isLayoutComplete = other.isLayoutComplete;
     this.unitsResolved = other.unitsResolved;
     this.hasReturn = other.hasReturn;
@@ -3448,9 +3460,13 @@ class EVGTransition  {
     this.writeBack(el);
   };
   writeBack (el) {
+    let moving = false;
     let i = 0;
     while (i < (el.transitions.length)) {
       const f = el.transitions[i];
+      if ( f.done() == false ) {
+        moving = true;
+      }
       if ( f.isColor ) {
         const c = this.showColor(f);
         f.wroteColor = c;
@@ -3489,6 +3505,9 @@ class EVGTransition  {
       }
       i = i + 1;
     };
+    if ( moving ) {
+      el.styleGen = 0 - 1;
+    }
   };
   reconcileTree (root) {
     this.reconcile(root);

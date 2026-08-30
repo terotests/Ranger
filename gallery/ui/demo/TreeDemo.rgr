@@ -160,6 +160,8 @@ class TreeDemo {
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def transitions:EVGTransition (new EVGTransition())
+    ; Kept across frames so a paint-only change can reuse the positions.
+    def layout@(optional):EVGLayout
     ; The two halves of a live tree: the host keeps the component instances,
     ; the reconciler keeps the elements they produce. Both keyed by the tree
     ; value, so they cannot disagree about which row is which.
@@ -385,10 +387,28 @@ class TreeDemo {
         s.applyTree(r "")
         def t:EVGTransition transitions
         t.reconcileTree(r)
-        def lay (new EVGLayout())
-        lay.setPageSize(pageW pageH)
-        lay.layout(r)
-        return lay
+        ; The layout is KEPT, and re-run only when the sheet says something it
+        ; wrote could have moved a box. A hover, a press, a focus ring and a
+        ; transform are all paint-only, and on this page that is most frames.
+        ; `EVGInvalidateTest` is what says the skip is allowed to mean that.
+        ;
+        ; There is no check for "is this the same tree as last time". A tree
+        ; that has just been built has no element the sheet has ever written
+        ; to, and a tree that has just been reconciled has had every element
+        ; overwritten by `adoptFrom` — both report themselves layout-dirty on
+        ; the first pass, so a replaced root lays out without being asked to.
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
     }
 
     fn tick:boolean (dtMs:double) {

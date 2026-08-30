@@ -14,9 +14,13 @@
 //              What a from-scratch declarative render costs today.
 //   retained   style + layout + display list on a tree that already exists.
 //              What the page pays now for any change at all.
-//   patch      ONE row's class changes and the tree is rebuilt and reconciled.
-//              Today this is retained plus a reconcile, because nothing is
-//              invalidated selectively — which is the point of measuring it.
+//   hover      ONE row's interaction state changes on a tree that already
+//              exists — no rebuild, no reconcile, just style + layout + list.
+//              This is the number the user feels: a pointer crossing a row.
+//              It logically dirties one background colour.
+//   patch      ONE row's CLASS changes and the tree is rebuilt and reconciled.
+//              The declarative path, which is what a `state` change will cost
+//              once components drive it.
 //   paint      the display list through the real WebGL painter, in Chromium.
 //              Off by default (`--paint`), because it needs a browser.
 //
@@ -100,6 +104,33 @@ function measure(rows) {
     M.UiBench.listOnly(live, lay);
   });
 
+  // --- hover: an interaction bit flips on a tree that stands ---
+  // No rebuild and no reconcile: this is the pointer crossing a row. A hover
+  // changes no layout property and no element's command count, so in principle
+  // it costs a repaint. Today it costs a whole pipeline.
+  const s6 = sheet();
+  const hoverLive = M.UiBench.page(rows, -1);
+  M.UiBench.styleOnly(s6, hoverLive);
+  M.UiBench.listOnly(hoverLive, M.UiBench.layoutOnly(hoverLive));
+  const grid = hoverLive.children[0].children[0];
+  let hovered = null;
+  let hoverLay = M.UiBench.layoutOnly(hoverLive);
+  const hover = time(() => {
+    if (hovered) hovered.isHovered = false;
+    hovered = grid.children[(Math.random() * rows) | 0];
+    hovered.isHovered = true;
+    M.UiBench.styleOnly(s6, hoverLive);
+    // The invalidation decision, in one line. The sheet knows whether anything
+    // it wrote can have moved a box, and a hover provably cannot.
+    if (!M.UiBench.layoutClean(s6)) hoverLay = M.UiBench.layoutOnly(hoverLive);
+    M.UiBench.listOnly(hoverLive, hoverLay);
+  });
+  // What the pass actually did, so a skip that silently stopped working is
+  // visible as a number rather than as a suspiciously good time.
+  const hoverStyled = M.UiBench.styledCount(s6);
+  const hoverSkipped = M.UiBench.skippedCount(s6);
+  const hoverLayoutClean = M.UiBench.layoutClean(s6);
+
   // --- patch: one row's class changes, through the declarative path ---
   // Rebuild the page with the hover on a different row, reconcile it into the
   // live tree, then do what a frame does. This is the honest cost of "one row
@@ -127,7 +158,8 @@ function measure(rows) {
   const commands = M.UiBench.listOnly(sizeTree, sizeLay);
   const elements = M.UiBench.countElements(sizeTree);
 
-  return { rows, elements, commands, build, style, layout, displayList, retained, patch, rebuild };
+  return { rows, elements, commands, build, style, layout, displayList, retained, hover, patch, rebuild,
+           hoverStyled, hoverSkipped, hoverLayoutClean };
 }
 
 // --- paint, in a real browser ---------------------------------------------------
@@ -208,20 +240,28 @@ if (AS_JSON) {
   console.log("=== EVG UI pipeline, ms per frame (median of 7) ===");
   console.log("");
   console.log(
-    "  rows  elements   cmds |  build   style  layout    list |  paint   patch retained rebuild",
+    "  rows  elements   cmds |  build   style  layout    list |  paint   hover   patch retained rebuild",
   );
   console.log(
-    "  ----  --------  ----- | ------ ------- ------- ------- | ------ ------- -------- -------",
+    "  ----  --------  ----- | ------ ------- ------- ------- | ------ ------- ------- -------- -------",
   );
   for (const r of results) {
     console.log(
       `  ${String(r.rows).padStart(4)}  ${String(r.elements).padStart(8)}  ${String(r.commands).padStart(5)} |` +
         ` ${f(r.build)} ${f(r.style)} ${f(r.layout)} ${f(r.displayList)} |` +
-        ` ${f(r.paint)} ${f(r.patch)} ${f(r.retained)} ${f(r.rebuild)}`,
+        ` ${f(r.paint)} ${f(r.hover)} ${f(r.patch)} ${f(r.retained)} ${f(r.rebuild)}`,
     );
   }
   console.log("");
-  console.log("  patch = one row's class changes, rebuilt and reconciled through the");
-  console.log("  declarative path. It is the number selective invalidation has to move:");
-  console.log("  while it tracks `retained`, nothing is being avoided.");
+  for (const r of results) {
+    console.log(
+      `  hover at ${r.rows}: ${r.hoverStyled} element(s) re-styled, ${r.hoverSkipped} skipped,` +
+        ` layout ${r.hoverLayoutClean ? "SKIPPED" : "run"}`,
+    );
+  }
+  console.log("");
+  console.log("  hover = one row's interaction state flips on a tree that stands. It is");
+  console.log("  the number a person feels, and it should approach `paint`.");
+  console.log("  patch = one row's class changes through the whole declarative path.");
+  console.log("  While either tracks `retained`, nothing is being avoided.");
 }

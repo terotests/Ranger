@@ -600,6 +600,39 @@ class EVGElement {
     ; `aria-level`, for a treeitem in a flat tree. 0 means unset.
     def a11yLevel:int 0
 
+    ; --- what the stylesheet last wrote here ---------------------------------
+    ;
+    ; The cascade's answer for an element is a function of four things, and
+    ; these remember which four produced what the element is holding now. When
+    ; they all still agree on the next pass, the element already contains
+    ; exactly what the sheet would write, and writing it again is pure cost —
+    ; on a 1600-row table a hover changes ONE row and the other 22,402 elements
+    ; were being re-declared regardless.
+    ;
+    ; `styleGen` is the sheet's own counter, so re-parsing or resizing
+    ; invalidates every element at once without touching any of them.
+    ; `EVGTransition.writeBack` sets it to -1, because after a flight has
+    ; written a showing value the element no longer holds what the sheet
+    ; declared — and the sheet has to re-declare it or the flight stops dead.
+    def styleClass:string ""
+    def styleTheme:string ""
+    def styleBits:int 0
+    def styleGen:int 0
+    ; Which plan produced it, so two passes can be compared for whether
+    ; anything LAYOUT-relevant actually differs. -1 is "no plan yet".
+    def styleSlot:int (0 - 1)
+    ; How many children it had when it was styled.
+    ;
+    ; The stylesheet cannot see a child being added or removed — that is not a
+    ; property and no rule mentions it — so without this an element whose class
+    ; never changed would be skipped, the pass would report itself clean, layout
+    ; would be skipped, and the remaining children would be drawn at the
+    ; positions they held before the removal. Comparing one integer removes a
+    ; whole class of host mistake, and a removal is the case that has no other
+    ; symptom: an ADDED child is caught anyway, because a new element has never
+    ; been styled.
+    def styleKids:int (0 - 1)
+
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
     
@@ -1978,6 +2011,17 @@ class EVGElement {
         a11yPosInSet = other.a11yPosInSet
         a11ySetSize = other.a11ySetSize
         a11yLevel = other.a11yLevel
+        ; Copied, and the values copied are the FRESH element's — which has
+        ; never been styled. So a reconciled element always reads as
+        ; "the sheet has not written here", and re-styles. That is the honest
+        ; answer: `adoptFrom` has just overwritten every value the sheet had
+        ; put there.
+        styleClass = other.styleClass
+        styleTheme = other.styleTheme
+        styleBits = other.styleBits
+        styleGen = other.styleGen
+        styleSlot = other.styleSlot
+        styleKids = other.styleKids
         isLayoutComplete = other.isLayoutComplete
         unitsResolved = other.unitsResolved
         hasReturn = other.hasReturn

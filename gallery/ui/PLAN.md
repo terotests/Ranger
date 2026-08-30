@@ -1412,6 +1412,92 @@ committed yet. The benchmark numbers taken after that point were measuring
 source that no longer existed. Restore from a copy, not from HEAD, while the
 thing being measured is uncommitted.
 
+## Invalidation: what a change is allowed to cost
+
+A hover on one row of a 1600-row table logically dirties one background colour.
+It used to cost the whole pipeline.
+
+```
+  1600 rows        style   layout    list   hover  retained   rebuild
+  before            178.6     70.5    21.1   113.5     252.9     451.1
+  after the cache    53.1     45.5    13.6   113.5     114.2     207.4
+  after this          2.5     48.6    13.8    16.3      61.2     242.2
+                                              ^^^^
+                                     paint at 1600 rows is 26.3
+```
+
+**A hover is now cheaper than painting the frame it causes.** Two elements
+re-style — the row that lit up and the one that stopped — 22,401 are skipped,
+and layout does not run at all.
+
+Two mechanisms, both on the element rather than in a side table.
+
+**An element remembers what the sheet last wrote to it**: the class string, the
+theme, the four interaction bits, the sheet's generation and the child count.
+When all five still agree, the element already contains exactly what the pass
+would write and the pass returns without writing. Four scalar comparisons and no
+allocation. The sheet's generation is bumped by re-parsing and by a viewport
+change, so either invalidates every element at once without touching any of
+them.
+
+**A plan knows whether it can move a box.** Each cached plan carries a signature
+of its LAYOUT-relevant declarations only. Two plans with the same signature
+cannot move anything however much else differs between them — which is exactly a
+`:hover` rule that sets a colour. When no element's signature changed, the pass
+reports `layoutClean()` and the caller skips layout entirely.
+
+`isLayoutProperty` is conservative by construction: anything not on the
+paint-only list counts as layout, so a property nobody thought about costs a
+layout pass rather than silently leaving a stale one. `transform` is on the
+paint-only list because EVG applies it to the display list after layout — which
+is what makes a transform-driven drag free of the geometry pipeline.
+
+### The failure this could have had
+
+Skipping a layout that was needed does not crash. It draws a box where it used
+to be — occasionally, only after certain changes, and only until something else
+forces a full pass. So the test does not check the classification, it checks the
+CONSEQUENCE: two trees, the same edit applied to both, one taking the fast path
+and one always laying out, display lists compared. Ten kinds of edit, and each
+case also states what it expected the pass to decide — because a pipeline that
+never skips passes every comparison and is worth nothing.
+
+Seven mutations. Two are worth writing down:
+
+- **`writeBack` invalidated every element, every frame.** `EVGTransition.reconcile`
+  runs on every element in the tree and ends by writing back showing values, and
+  the first version of the invalidation hook sat there unconditionally. So on
+  every page in this gallery — all of which use transitions — nothing was ever
+  skipped. The benchmark could not see it, because a benchmark that runs no
+  transitions is not the page. The second version, "invalidate if it has any
+  flight", was still wrong: a finished flight stays in the list, so every
+  element that had ever transitioned stayed stale forever. It invalidates while
+  a flight is MOVING, and `testSkipSurvivesTransitions` is what says so.
+- **The hook is not load-bearing at all.** Removing it entirely passes every
+  test, because `EVGFlight.hasWrote` already lets a flight recognise its own
+  output and carry on. That mutation was run and survived; the comment says so
+  rather than claiming a necessity that is not there.
+
+### What the sheet still cannot see
+
+`textContent`. It is not a property, it does not change the child count, and it
+changes how wide a run is — so a host that edits text by hand must force a
+layout. Nothing here does: text comes from a rebuild, and a rebuild goes through
+`EVGReconcile`, which overwrites the element and therefore its style state.
+Recorded as a check rather than left as a trap.
+
+A removed child had the same shape and was closed: an element records how many
+children it had. An ADDED child was caught anyway — a new element has never been
+styled — but a removal has no other symptom, and skipping there draws the
+survivors where they used to be.
+
+### `rebuild` and `patch` barely moved, and should not have
+
+242 and 263, against 207 and 269 before. A from-scratch build has nothing to
+skip: every element is new, so every element styles and layout must run. The
+declarative path's cost is the build (81ms) and the reconcile, and lowering
+those is a different project — one the benchmark can now argue about.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -1482,11 +1568,13 @@ language work rather than library work. In the order that pays:
       test, not the first test
 - [x] **A resolved-style cache.** 3.4× on the cascade, 2.2× on the whole
       retained frame
-- [ ] **Invalidation classes** — paint-only, transform-only, layout, structure —
-      so a hover costs a repaint rather than a whole pipeline. The `patch`
-      column is the target: it must stop tracking `retained`
-- [ ] **A transform-only path for motion values**, so a 120Hz drag never enters
-      the style or layout phases
+- [x] **Invalidation classes.** A hover is 16.3ms against a 26.3ms paint at
+      1600 rows — cheaper than drawing the frame it causes
+- [ ] **A retained display list.** It is what is left of a hover: 13.8 of the
+      16.3ms. Per-element command spans, patched rather than rebuilt
+- [ ] **A transform-only path for motion values.** Half of it exists already —
+      `transform` is classified paint-only, so a drag skips layout. What is left
+      is skipping the style pass and the display-list rebuild too
 - [ ] **Dependency tracking**, and not before the three above have been
       measured
 - [ ] **Declarative event handlers**, so a component reads from one place

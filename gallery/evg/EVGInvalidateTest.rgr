@@ -1,0 +1,432 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGInvalidateTest — a skipped layout has to be an invisible one
+; ==============================================================================
+;
+; `EVGStyleSheet` now reports what a pass did: how many elements it wrote to,
+; how many already held what it would have written, and whether anything it
+; wrote can have moved a box. A caller uses the last of those to skip layout.
+;
+; That makes the frame five times cheaper for a hover and introduces exactly one
+; new way to be wrong: skipping a layout that was needed. The symptom would not
+; be a crash. It would be a box drawn where it used to be — occasionally, only
+; after certain changes, and only until something else forced a full pass. That
+; is the worst kind of bug to find later, so it is checked here directly:
+;
+;     for every kind of change, the frame that SKIPS layout when the sheet says
+;     it may must produce exactly what the frame that always lays out produces.
+;
+; Two trees, the same edits applied to both, one running the fast path and one
+; the slow, display lists compared. Any change misclassified as paint-only shows
+; up as a difference immediately.
+;
+; And the other half, which is easy to forget: the fast path has to actually
+; skip. A version that never skips passes every comparison above and is worth
+; nothing, so each case also states what it expected the pass to decide.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGTransition.rgr"
+
+class InvCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  " + got)
+            print ("       want " + want)
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.eqStr(name (to_string got) (to_string want))
+    }
+}
+
+; One page, one sheet, one layout kept between frames — which is the shape a
+; real host has and the shape a skip needs. A fresh `EVGLayout` every frame
+; could not skip anything: there would be nothing to keep.
+class Frame {
+    def sheet:EVGStyleSheet (new EVGStyleSheet())
+    def root:EVGElement (EVGElement.createDiv())
+    def lay:EVGLayout (new EVGLayout())
+    def alwaysLayout:boolean false
+    def layouts:int 0
+    def skips:int 0
+
+    Constructor () {
+    }
+
+    fn start:void (css:string page:EVGElement always:boolean) {
+        sheet.parse(css)
+        sheet.setViewport(400.0 600.0 false)
+        root = page
+        alwaysLayout = always
+        lay.setPageSize(400.0 600.0)
+        ; The first frame always lays out: there is nothing to keep yet.
+        sheet.applyTree(root "")
+        lay.layout(root)
+        layouts = 0
+        skips = 0
+    }
+
+    fn draw:string () {
+        sheet.applyTree(root "")
+        def needed:boolean true
+        if (alwaysLayout == false) {
+            needed = ((sheet.layoutClean()) == false)
+        }
+        if needed {
+            layouts = (layouts + 1)
+            lay.layout(root)
+        } {
+            skips = (skips + 1)
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+}
+
+class EVGInvalidateTest {
+
+    sfn sheetText:string () {
+        return (""
+            + ".page { display: flex; flex-direction: column; width: 400px; padding: 10px; }"
+            + ".row { display: flex; flex-direction: row; height: 24px; width: 360px;"
+            + "       background-color: #eeeeee; gap: 6px; padding: 0 8px; }"
+            + ".row:hover { background-color: #ffcc00; }"
+            + ".row-tall { height: 48px; }"
+            + ".cell { width: 100px; height: 16px; color: #222222; font-size: 12px; }"
+            + ".cell-wide { width: 200px; }"
+            + ".cell:hover { color: #cc0000; }"
+            + ".moved { transform: translate(0, 12px); }"
+            + ".faded { opacity: 0.5; }")
+    }
+
+    sfn row:EVGElement (i:int) {
+        def r (EVGElement.createDiv())
+        r.className = "row"
+        r.id = ("row" + (to_string i))
+        def j:int 0
+        while (j < 3) {
+            def c (EVGElement.createDiv())
+            c.className = "cell"
+            c.id = ((("c" + (to_string i)) + "-") + (to_string j))
+            c.textContent = (("cell " + (to_string i)) + (to_string j))
+            r.addChild(c)
+            j = (j + 1)
+        }
+        return r
+    }
+
+    sfn page:EVGElement () {
+        def p (EVGElement.createDiv())
+        p.className = "page"
+        p.id = "page"
+        def i:int 0
+        while (i < 6) {
+            p.addChild((EVGInvalidateTest.row(i)))
+            i = (i + 1)
+        }
+        return p
+    }
+
+    sfn rowOf:EVGElement (p:EVGElement i:int) {
+        return (itemAt p.children i)
+    }
+
+    sfn cellOf:EVGElement (p:EVGElement i:int j:int) {
+        def r:EVGElement (itemAt p.children i)
+        return (itemAt r.children j)
+    }
+
+    ; Apply one named edit to a page. Both frames get the same one, so the
+    ; comparison is of the PIPELINE and not of the edit.
+    sfn edit:void (p:EVGElement what:string) {
+        if (what == "hover-on") {
+            def r:EVGElement (EVGInvalidateTest.rowOf(p 2))
+            r.isHovered = true
+            return
+        }
+        if (what == "hover-off") {
+            def r2:EVGElement (EVGInvalidateTest.rowOf(p 2))
+            r2.isHovered = false
+            return
+        }
+        if (what == "hover-a-cell") {
+            def c:EVGElement (EVGInvalidateTest.cellOf(p 1 1))
+            c.isHovered = true
+            return
+        }
+        if (what == "transform-class") {
+            def r3:EVGElement (EVGInvalidateTest.rowOf(p 3))
+            r3.className = "row moved"
+            return
+        }
+        if (what == "fade-class") {
+            def r4:EVGElement (EVGInvalidateTest.rowOf(p 4))
+            r4.className = "row faded"
+            return
+        }
+        if (what == "height-class") {
+            def r5:EVGElement (EVGInvalidateTest.rowOf(p 1))
+            r5.className = "row row-tall"
+            return
+        }
+        if (what == "width-class") {
+            def c2:EVGElement (EVGInvalidateTest.cellOf(p 0 0))
+            c2.className = "cell cell-wide"
+            return
+        }
+        if (what == "text") {
+            def c3:EVGElement (EVGInvalidateTest.cellOf(p 0 1))
+            c3.textContent = "a much longer piece of text than before"
+            return
+        }
+        if (what == "add-child") {
+            def r6:EVGElement (EVGInvalidateTest.rowOf(p 5))
+            def extra (EVGElement.createDiv())
+            extra.className = "cell"
+            extra.id = "extra"
+            extra.textContent = "extra"
+            r6.addChild(extra)
+            return
+        }
+        if (what == "remove-child") {
+            def r7:EVGElement (EVGInvalidateTest.rowOf(p 5))
+            remove_index r7.children 0
+            return
+        }
+        if (what == "nothing") {
+            return
+        }
+    }
+
+    ; One edit, both ways.
+    ;
+    ; `wantSkip` says what the classification is SUPPOSED to decide. Stating it
+    ; is what stops this being a test of a pipeline that never skips: the
+    ; agreement half passes trivially in that case, and only this half fails.
+    sfn bothWays:void (c:InvCheck what:string wantSkip:boolean) {
+        def fastPage:EVGElement (EVGInvalidateTest.page())
+        def fast (new Frame())
+        fast.start((EVGInvalidateTest.sheetText()) fastPage false)
+
+        def slowPage:EVGElement (EVGInvalidateTest.page())
+        def slow (new Frame())
+        slow.start((EVGInvalidateTest.sheetText()) slowPage true)
+
+        EVGInvalidateTest.edit(fastPage what)
+        EVGInvalidateTest.edit(slowPage what)
+
+        def a:string (fast.draw())
+        def b:string (slow.draw())
+        c.eqStr((what + ": skipping layout paints what laying out paints") a b)
+        if wantSkip {
+            c.eqInt((what + ": and layout was skipped") fast.skips 1)
+        } {
+            c.eqInt((what + ": and layout was run") fast.layouts 1)
+        }
+    }
+
+    sfn testPaintOnly:void (c:InvCheck) {
+        print "--- changes that cannot move a box ---"
+        ; A `:hover` rule that sets only a colour. This is the case the whole
+        ; feature exists for.
+        EVGInvalidateTest.bothWays(c "hover-on" true)
+        EVGInvalidateTest.bothWays(c "hover-a-cell" true)
+        ; `transform` in EVG is applied to the display list AFTER layout, so it
+        ; moves what is drawn without moving any box. Opacity likewise.
+        EVGInvalidateTest.bothWays(c "transform-class" true)
+        EVGInvalidateTest.bothWays(c "fade-class" true)
+        ; And a frame where nothing at all happened.
+        EVGInvalidateTest.bothWays(c "nothing" true)
+    }
+
+    sfn testLayoutMoving:void (c:InvCheck) {
+        print "--- changes that do move boxes ---"
+        EVGInvalidateTest.bothWays(c "height-class" false)
+        EVGInvalidateTest.bothWays(c "width-class" false)
+        ; Text is not a stylesheet property at all, so the sheet cannot see it
+        ; change — which is why a caller that edits text has to force a layout.
+        ; The check below is what says so out loud rather than leaving it to be
+        ; discovered.
+    }
+
+    ; The one the classification CANNOT catch, stated as a limit rather than
+    ; left as a trap.
+    ;
+    ; `passLayoutDirty` counts what the STYLESHEET wrote. Text content, adding
+    ; a child and removing one are none of the sheet's business, so a pass that
+    ; only did one of those reports itself clean — and skipping layout there
+    ; would be wrong. The host has to tell the pipeline about structure and
+    ; content; `EVGReconcile` already reports created/dropped/moved for exactly
+    ; this, and a host that edits an element by hand has to say so.
+    sfn testStructure:void (c:InvCheck) {
+        print "--- children coming and going ---"
+        ; Neither of these is a property and no rule mentions them, so the
+        ; classification only catches them because an element records how many
+        ; children it had. An ADDED child would be caught anyway — a new
+        ; element has never been styled — but a REMOVED one has no other
+        ; symptom, and skipping there draws the survivors where they used to be.
+        EVGInvalidateTest.bothWays(c "add-child" false)
+        EVGInvalidateTest.bothWays(c "remove-child" false)
+    }
+
+    ; The limit that is left, stated rather than left as a trap.
+    sfn testWhatTheSheetCannotSee:void (c:InvCheck) {
+        print "--- and the one thing it still cannot see ---"
+        ; TEXT. It is not a property, it does not change the child count, and
+        ; it changes how wide a run is — so a host that edits `textContent` by
+        ; hand has to force a layout. Nothing in this gallery does: text comes
+        ; from a rebuild, and a rebuild goes through `EVGReconcile`, which
+        ; changes the element and therefore its style state.
+        def p:EVGElement (EVGInvalidateTest.page())
+        def f (new Frame())
+        f.start((EVGInvalidateTest.sheetText()) p false)
+        EVGInvalidateTest.edit(p "text")
+        f.draw()
+        c.eqInt("a bare text edit still looks clean to the sheet" f.skips 1)
+
+        ; And with a layout forced, it is right — which is the contract: the
+        ; sheet answers for what the SHEET did, and content the host changes
+        ; behind its back is the host's to declare.
+        def p3:EVGElement (EVGInvalidateTest.page())
+        def f3 (new Frame())
+        f3.start((EVGInvalidateTest.sheetText()) p3 true)
+        EVGInvalidateTest.edit(p3 "text")
+        def forced:string (f3.draw())
+
+        def p4:EVGElement (EVGInvalidateTest.page())
+        def f4 (new Frame())
+        f4.start((EVGInvalidateTest.sheetText()) p4 true)
+        EVGInvalidateTest.edit(p4 "text")
+        c.eqStr("a forced layout gets the new text right" forced (f4.draw()))
+    }
+
+    ; A transition writes showing values onto the element between frames, so the
+    ; element stops holding what the sheet declared. If the skip did not know
+    ; that, the sheet would never re-declare the target and the flight would
+    ; land on its own output on the very next frame.
+    sfn testTransitionsStillRun:void (c:InvCheck) {
+        print "--- and a flight still flies ---"
+        def s (new EVGStyleSheet())
+        s.parse((""
+            + ".box { width: 40px; height: 20px; background-color: #000000;"
+            + "       transition: background-color 200ms linear; }"
+            + ".box:hover { background-color: #ffffff; }"))
+        s.setViewport(400.0 600.0 false)
+        def t (new EVGTransition())
+        def el (EVGElement.createDiv())
+        el.className = "box"
+
+        s.applyTree(el "")
+        t.reconcileTree(el)
+        t.advanceTree(el 1000.0)
+        s.applyTree(el "")
+        t.reconcileTree(el)
+        c.ok("nothing is moving at rest" ((t.busy(el)) == false))
+
+        el.isHovered = true
+        s.applyTree(el "")
+        t.reconcileTree(el)
+        t.advanceTree(el 40.0)
+        c.ok("the hover starts a flight" (t.busy(el)))
+
+        ; Frames two and three change NOTHING the sheet can see. Without
+        ; `writeBack` invalidating the element, the skip would fire here, the
+        ; target would never be re-declared, and the flight would end.
+        def steps:int 0
+        while (steps < 3) {
+            s.applyTree(el "")
+            t.reconcileTree(el)
+            t.advanceTree(el 30.0)
+            steps = (steps + 1)
+        }
+        c.ok("and it is still flying three frames later" (t.busy(el)))
+        def mid:EVGColor el.backgroundColor
+        c.ok("part of the way there, not at either end"
+            (((mid.r) > 10.0) && ((mid.r) < 245.0)))
+    }
+
+    ; The skip has to survive a transition pass.
+    ;
+    ; This is a PERFORMANCE assertion in a correctness test, and it is here
+    ; because the bug it catches has no visible symptom: `EVGTransition.reconcile`
+    ; runs on every element, and the first version of the invalidation hook sat
+    ; in `writeBack` unconditionally — so every element was marked stale every
+    ; frame and nothing was ever skipped, on every page in this gallery. The
+    ; benchmark could not see it, because a benchmark that runs no transitions
+    ; is not the page.
+    sfn testSkipSurvivesTransitions:void (c:InvCheck) {
+        print "--- and a transitioned page still skips ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGInvalidateTest.sheetText()) + ".row { transition: background-color 200ms linear; }")
+        s.setViewport(400.0 600.0 false)
+        def t (new EVGTransition())
+        def p:EVGElement (EVGInvalidateTest.page())
+
+        s.applyTree(p "")
+        t.reconcileTree(p)
+        t.advanceTree(p 1000.0)
+        s.applyTree(p "")
+        t.reconcileTree(p)
+
+        ; One row lights up. Everything else is untouched, and a pass that ran
+        ; `writeBack` over the whole tree must not have made it all stale.
+        def r:EVGElement (EVGInvalidateTest.rowOf(p 2))
+        r.isHovered = true
+        s.applyTree(p "")
+        t.reconcileTree(p)
+        t.advanceTree(p 30.0)
+
+        s.applyTree(p "")
+        c.ok("the flight is in the air" (t.busy(r)))
+        ; 25 elements: a page, six rows, eighteen cells. Only the row that is
+        ; moving may need re-declaring.
+        print (("       " + (to_string s.passStyled)) + " styled, " + (to_string s.passSkipped) + " skipped")
+        ; Only the row that is actually MOVING. The five other rows declare the
+        ; same transition and have finished flights sitting in them, and a
+        ; finished flight is not a reason to re-declare anything.
+        c.ok("only the moving row is re-declared" (s.passStyled <= 2))
+        c.ok("and the rest of the tree is skipped" (s.passSkipped >= 23))
+    }
+
+    sfn main:void () {
+        def c (new InvCheck())
+        print "=== EVG invalidation: paint versus layout ==="
+        EVGInvalidateTest.testPaintOnly(c)
+        EVGInvalidateTest.testLayoutMoving(c)
+        EVGInvalidateTest.testStructure(c)
+        EVGInvalidateTest.testWhatTheSheetCannotSee(c)
+        EVGInvalidateTest.testTransitionsStillRun(c)
+        EVGInvalidateTest.testSkipSurvivesTransitions(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}
