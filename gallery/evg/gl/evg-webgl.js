@@ -643,6 +643,199 @@ export function dropImageTextures(gl) {
   return dropped;
 }
 
+// ---------------------------------------------------------------------------
+// backdrop-filter: blur()
+// ---------------------------------------------------------------------------
+// What CSS does here is measured in `../oracle/css-blur.json`, and two of the
+// findings decide this whole implementation:
+//
+//   THE KERNEL IS NOT A GAUSSIAN. `blur(r)` is the SVG filter spec's
+//   three-box approximation with sigma = r — three box passes of width
+//   d = floor(sigma * 3 * sqrt(2*pi) / 4 + 0.5). Fitted against a real browser
+//   at three radii the three-box model is within half a luminance level
+//   everywhere; a true Gaussian with the same sigma is out by up to 14. The
+//   common belief is half right: the sigma is the radius, and the shape is not
+//   a Gaussian.
+//
+//   THE BACKDROP IS THE ELEMENT'S OWN REGION, EDGE-CLAMPED. Not the page
+//   behind it: what a browser blurs is the rectangle under the element and
+//   nothing outside it, with samples that fall off the edge taking the border
+//   pixel's value.
+//
+//   This one was got backwards first. A flat grey behind a pane comes out flat
+//   to the border — no rim — and that was read as proof that the backdrop is
+//   sampled past the edge. It is not proof of anything: a uniform field is
+//   uniform under either rule. The case that decides is a feature that
+//   straddles the border, and it is decisive: white page, black stripe
+//   starting exactly at the pane's left edge, and the row across reads
+//   255 255 255 | 0 0 0 with NO ramp at the border at all — while the same
+//   black/white boundary 100px further in, INSIDE the pane, gets the full
+//   smooth ramp. Outside content does not enter. Edge samples clamp.
+//
+//   So the copy is exactly the element's box, and CLAMP_TO_EDGE does the rest.
+//   Growing the copy by the kernel's reach — which is what this did first —
+//   bleeds the page into the pane's border and is visibly wrong over anything
+//   that is not flat.
+//
+// Three passes across and three down, separably, ping-ponging between two
+// framebuffers: nine texture reads per pixel per axis at worst, instead of the
+// d*d of the direct form.
+const BLUR_VERT = `#version 300 es
+in vec2 aCorner;
+out vec2 vUV;
+void main() {
+  vUV = aCorner;
+  gl_Position = vec4(aCorner * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+// One box pass along `uStep`, which is one texel across or one down. The box
+// is centred for an odd width; for an even one the spec offsets two of the
+// three passes by half a texel and widens the third, and `uOffset` carries
+// that — which is what keeps the result symmetric instead of creeping one way.
+const BLUR_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2 uStep;
+uniform float uWidth;
+uniform float uOffset;
+out vec4 outColor;
+void main() {
+  // Named mid and not h-a-l-f: that is a reserved word in GLSL ES 3.00 and the
+  // shader will not compile with it. And no backticks in this comment either —
+  // it lives inside a template literal, and one would end the shader here.
+  float mid = floor(uWidth * 0.5);
+  vec4 acc = vec4(0.0);
+  for (int i = 0; i < 129; i++) {
+    if (float(i) >= uWidth) break;
+    float k = float(i) - mid + uOffset;
+    // No clamp of our own: the target is exactly the copied region, so the
+    // sampler's own CLAMP_TO_EDGE is the measured rule — a sample that falls
+    // off the element takes the border pixel's value.
+    acc += texture(uSrc, vUV + uStep * k);
+  }
+  outColor = acc / uWidth;
+}`;
+
+// The blurred region, drawn back over the page and clipped to the element's
+// rounded box. Three things a vertex needs, and they are three different
+// spaces, which is why this does not reuse BLUR_VERT: where the quad goes
+// (clip space), which part of the padded texture it reads (a sub-rect, since
+// the texture holds the box PLUS the kernel's reach), and where the fragment
+// sits inside the box (0..1, for the rounding).
+const BACKDROP_VERT = `#version 300 es
+in vec2 aPos;
+in vec2 aUV;
+in vec2 aCorner;
+out vec2 vUV;
+out vec2 vCorner;
+void main() {
+  vUV = aUV;
+  vCorner = aCorner;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+// The rounding is the same distance field the solid shapes use, so a blurred
+// pane and a plain one have the same corner.
+const BACKDROP_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV;
+in vec2 vCorner;
+uniform sampler2D uSrc;
+uniform vec2 uHalf;
+uniform float uRadius;
+out vec4 outColor;
+float sdRoundedBox(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+void main() {
+  vec2 local = (vCorner - 0.5) * uHalf * 2.0;
+  float r = min(uRadius, min(uHalf.x, uHalf.y));
+  float d = sdRoundedBox(local, uHalf, r);
+  float aa = clamp(fwidth(d), 0.35, 1.5);
+  float cov = smoothstep(aa, -aa, d);
+  if (cov <= 0.001) discard;
+  vec4 c = texture(uSrc, vUV);
+  // Opaque where the box covers, and nothing outside it. The blurred backdrop
+  // REPLACES what is under it rather than tinting it — the pixels it is made
+  // of are those same pixels, softened.
+  outColor = vec4(c.rgb, cov);
+}`;
+
+/**
+ * The box width the CSS filter spec asks for at a given sigma, and how the
+ * three passes are offset. Straight out of the SVG spec's pseudo-code, which
+ * the CSS filter spec adopts by reference — and matched against a browser at
+ * three radii before it was believed.
+ */
+export function boxesForSigma(sigma) {
+  let d = Math.floor((sigma * 3 * Math.sqrt(2 * Math.PI)) / 4 + 0.5);
+  if (d < 1) d = 1;
+  return d % 2 === 1
+    // Odd: three identical centred passes.
+    ? [{ w: d, off: 0 }, { w: d, off: 0 }, { w: d, off: 0 }]
+    // Even: two passes offset against each other by a texel, and a third one
+    // texel wider. Without this the result creeps half a pixel per pass.
+    : [{ w: d, off: 0 }, { w: d, off: 1 }, { w: d + 1, off: 0 }];
+}
+
+/** How far a three-box blur of this sigma reaches, in pixels. */
+export function blurReach(sigma) {
+  const b = boxesForSigma(sigma);
+  return b.reduce((acc, p) => acc + Math.floor(p.w / 2) + 1, 0);
+}
+
+// Two framebuffers and the textures behind them, kept per context and rebuilt
+// when the region's size changes. A dialog's scrim is the same size every
+// frame, so after the first one this allocates nothing.
+//
+// EXACTLY the region's size, and not "at least" it. Growing a shared target
+// and reusing it for a smaller region looks like the obvious saving and is a
+// trap: `copyTexImage2D` resizes the source texture to what was copied, while
+// the passes render across the whole target, so the first pass stretches the
+// image by target/region and the last one reads back only the region/target
+// fraction of it. The two cancel out along any axis where the picture happens
+// to be uniform — which is why a scene with a horizontal band through it saw
+// nothing wrong, twice.
+const BLUR_TARGETS = new WeakMap();
+
+function blurTargetsFor(gl, w, h) {
+  let t = BLUR_TARGETS.get(gl);
+  if (!t) {
+    t = { w: 0, h: 0, tex: [null, null], fbo: [null, null], src: null };
+    BLUR_TARGETS.set(gl, t);
+  }
+  if (t.w === w && t.h === h && t.src) return t;
+  const nw = w, nh = h;
+  if (t.src) gl.deleteTexture(t.src);
+  const mk = () => {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, nw, nh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // CLAMP_TO_EDGE is not a detail: it is what makes a sample past the copied
+    // region repeat its edge instead of reading black, which is the same thing
+    // the browser does at the screen's own edge.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  };
+  for (let i = 0; i < 2; i++) {
+    if (t.tex[i]) gl.deleteTexture(t.tex[i]);
+    if (t.fbo[i]) gl.deleteFramebuffer(t.fbo[i]);
+    t.tex[i] = mk();
+    t.fbo[i] = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo[i]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.tex[i], 0);
+  }
+  t.src = mk();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  t.w = nw; t.h = nh;
+  return t;
+}
+
 function programsFor(gl) {
   const found = PROGRAMS.get(gl);
   if (found) return found;
@@ -652,6 +845,20 @@ function programsFor(gl) {
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
     throw new Error("link: " + gl.getProgramInfoLog(prog));
+  }
+  const blurProg = gl.createProgram();
+  gl.attachShader(blurProg, compile(gl, gl.VERTEX_SHADER, BLUR_VERT));
+  gl.attachShader(blurProg, compile(gl, gl.FRAGMENT_SHADER, BLUR_FRAG));
+  gl.linkProgram(blurProg);
+  if (!gl.getProgramParameter(blurProg, gl.LINK_STATUS)) {
+    throw new Error("link blur: " + gl.getProgramInfoLog(blurProg));
+  }
+  const backdropProg = gl.createProgram();
+  gl.attachShader(backdropProg, compile(gl, gl.VERTEX_SHADER, BACKDROP_VERT));
+  gl.attachShader(backdropProg, compile(gl, gl.FRAGMENT_SHADER, BACKDROP_FRAG));
+  gl.linkProgram(backdropProg);
+  if (!gl.getProgramParameter(backdropProg, gl.LINK_STATUS)) {
+    throw new Error("link backdrop: " + gl.getProgramInfoLog(backdropProg));
   }
   const pathProg = gl.createProgram();
   gl.attachShader(pathProg, compile(gl, gl.VERTEX_SHADER, PATH_VERT));
@@ -672,6 +879,19 @@ function programsFor(gl) {
     pathPosLoc: gl.getAttribLocation(pathProg, "aPos"),
     pathPageLoc: gl.getUniformLocation(pathProg, "uPage"),
     pathColorLoc: gl.getUniformLocation(pathProg, "uColor"),
+    blurProg,
+    blurCornerLoc: gl.getAttribLocation(blurProg, "aCorner"),
+    blurSrc: gl.getUniformLocation(blurProg, "uSrc"),
+    blurStep: gl.getUniformLocation(blurProg, "uStep"),
+    blurWidth: gl.getUniformLocation(blurProg, "uWidth"),
+    blurOffset: gl.getUniformLocation(blurProg, "uOffset"),
+    backdropProg,
+    backdropPosLoc: gl.getAttribLocation(backdropProg, "aPos"),
+    backdropUVLoc: gl.getAttribLocation(backdropProg, "aUV"),
+    backdropCornerLoc: gl.getAttribLocation(backdropProg, "aCorner"),
+    backdropSrc: gl.getUniformLocation(backdropProg, "uSrc"),
+    backdropHalf: gl.getUniformLocation(backdropProg, "uHalf"),
+    backdropRadius: gl.getUniformLocation(backdropProg, "uRadius"),
   };
   PROGRAMS.set(gl, made);
   return made;
@@ -740,6 +960,14 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const pushPath = (op) => { flush(); runs.push(Object.assign(op, { clip })); };
 
   for (const c of cmds) {
+    // A backdrop blur reads the framebuffer as it stands, so it has to happen
+    // between the runs before it and the runs after it — the same reason a
+    // path breaks the batch. The command then goes on to emit its own fill
+    // below, which composites over the blur exactly as the browser does.
+    if (c.k === KIND.RECT && c.bb > 0) {
+      flush();
+      runs.push({ kind: "backdrop", cmd: c, clip });
+    }
     if (c.k === KIND.PUSH_CLIP) {
       flush();
       clipStack.push(clip);
@@ -824,6 +1052,37 @@ export function renderDisplayList(gl, doc, opts = {}) {
 
   const quad = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
   const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  // The two VAOs a blurred backdrop draws through. Built here rather than
+  // inside `drawBackdrop` so a page with one dialog on it and a page with ten
+  // allocate the same amount: nothing, per frame.
+  //
+  // The blur passes draw a full-target quad in clip space and read the same
+  // corners as UVs, so one attribute does both. The final draw needs its own
+  // UVs — it puts the BOX back, out of a texture that holds the box plus the
+  // kernel's reach — so it is a separate, streamed buffer.
+  const blurVao = gl.createVertexArray();
+  gl.bindVertexArray(blurVao);
+  const blurQuadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, blurQuadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(built.blurCornerLoc);
+  gl.vertexAttribPointer(built.blurCornerLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const backdropVao = gl.createVertexArray();
+  gl.bindVertexArray(backdropVao);
+  const backdropBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, backdropBuf);
+  // x, y in clip space, then u, v into the padded texture, then the 0..1
+  // corner the rounding is measured from — six floats a vertex.
+  gl.enableVertexAttribArray(built.backdropPosLoc);
+  gl.vertexAttribPointer(built.backdropPosLoc, 2, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(built.backdropUVLoc);
+  gl.vertexAttribPointer(built.backdropUVLoc, 2, gl.FLOAT, false, 24, 8);
+  gl.enableVertexAttribArray(built.backdropCornerLoc);
+  gl.vertexAttribPointer(built.backdropCornerLoc, 2, gl.FLOAT, false, 24, 16);
+
   gl.bindVertexArray(vao);
 
   // Attribute locations and buffers are set up once; a run re-points the
@@ -966,8 +1225,100 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.scissor(x, y, w, h);
   };
 
+  // One blurred backdrop: copy what is behind, soften it, put it back.
+  //
+  // The copy is the element's box GROWN by the kernel's reach, because the
+  // browser samples past the edge — see the note on BLUR_FRAG. Only the last
+  // step clips to the box, and it does so with the same rounded distance field
+  // the solid shapes use.
+  let backdrops = 0;
+  const drawBackdrop = (c) => {
+    const sigma = c.bb * dpr;
+    // The element's box in framebuffer pixels, measured from the bottom the
+    // way GL counts.
+    const bx = Math.round(c.x * sxScale);
+    const by = Math.round((doc.height - (c.y + c.h)) * syScale);
+    const bw = Math.max(1, Math.round(c.w * sxScale));
+    const bh = Math.max(1, Math.round(c.h * syScale));
+    // EXACTLY the box, and no padding. What a browser blurs is the rectangle
+    // under the element with its edges clamped, not the page around it — see
+    // the note on BLUR_FRAG, where getting this wrong is the mistake a flat
+    // backdrop cannot show you.
+    const rx = Math.max(0, Math.min(bx, gl.canvas.width - 1));
+    const ry = Math.max(0, Math.min(by, gl.canvas.height - 1));
+    const rw = Math.min(gl.canvas.width - rx, bw);
+    const rh = Math.min(gl.canvas.height - ry, bh);
+    if (rw <= 0 || rh <= 0) return;
+
+    const t = blurTargetsFor(gl, rw, rh);
+    // Straight off the framebuffer being drawn into. This is the one read
+    // that has to happen mid-frame, and it is why a blur breaks the batch.
+    gl.bindTexture(gl.TEXTURE_2D, t.src);
+    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, rx, ry, rw, rh, 0);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    const wasScissor = gl.isEnabled(gl.SCISSOR_TEST);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.BLEND);
+    gl.useProgram(built.blurProg);
+    gl.bindVertexArray(blurVao);
+    gl.uniform1i(built.blurSrc, 0);
+    gl.activeTexture(gl.TEXTURE0);
+
+    // Six passes, three each way, ping-ponging between the two targets. The
+    // texture the region was copied into is only the first pass's input.
+    const boxes = boxesForSigma(sigma);
+    let srcTex = t.src, dst = 0;
+    for (const axis of [[1 / t.w, 0], [0, 1 / t.h]]) {
+      for (const box of boxes) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo[dst]);
+        gl.viewport(0, 0, t.w, t.h);
+        gl.bindTexture(gl.TEXTURE_2D, srcTex);
+        gl.uniform2f(built.blurStep, axis[0], axis[1]);
+        gl.uniform1f(built.blurWidth, box.w);
+        gl.uniform1f(built.blurOffset, box.off);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        srcTex = t.tex[dst];
+        dst = 1 - dst;
+      }
+    }
+
+    // And back onto the page, clipped to the element's rounded box. The quad
+    // is the BOX, not the grown region, so the padding's only job was to keep
+    // the edges honest.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.enable(gl.BLEND);
+    gl.useProgram(built.backdropProg);
+    gl.bindVertexArray(backdropVao);
+    // The quad covers the box, the copy IS the box, and the target is exactly
+    // the copy — so the UVs are the whole texture.
+    const u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+    const x0 = (bx / gl.canvas.width) * 2 - 1, y0 = (by / gl.canvas.height) * 2 - 1;
+    const x1 = ((bx + bw) / gl.canvas.width) * 2 - 1;
+    const y1 = ((by + bh) / gl.canvas.height) * 2 - 1;
+    gl.bindBuffer(gl.ARRAY_BUFFER, backdropBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      x0, y0, u0, v0, 0, 0,
+      x1, y0, u1, v0, 1, 0,
+      x0, y1, u0, v1, 0, 1,
+      x1, y1, u1, v1, 1, 1,
+    ]), gl.STREAM_DRAW);
+    gl.bindTexture(gl.TEXTURE_2D, srcTex);
+    gl.uniform1i(built.backdropSrc, 0);
+    gl.uniform2f(built.backdropHalf, bw / 2, bh / 2);
+    gl.uniform1f(built.backdropRadius, (c.r || 0) * sxScale);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    if (wasScissor) gl.enable(gl.SCISSOR_TEST);
+    backdrops += 1;
+  };
+
   for (const run of runs) {
     applyClip(run.clip);
+    if (run.kind === "backdrop") { drawBackdrop(run.cmd); continue; }
     if (run.kind === "fill") { drawFill(run); paths += 1; continue; }
     if (run.kind === "tris") { drawTris(run.verts, run.color); paths += 1; continue; }
     gl.useProgram(prog);
@@ -990,5 +1341,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // A context without a stencil buffer cannot fill a path; say so rather than
     // drawing a chart with no bars in it.
     skippedFills,
+    // How many backdrops were softened. Each one is a framebuffer read and six
+    // passes, so this is the number to look at when a frame with a dialog on
+    // it costs more than one without.
+    backdrops,
   };
 }

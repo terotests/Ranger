@@ -230,6 +230,20 @@ class UiCtl {
         return ""
     }
 
+    ; --- dragging a thing AROUND ------------------------------------------------
+    ; The third gesture, and neither of the two above is it. A slider asks for a
+    ; fraction of a track; a sortable asks what it is over; a window asks how far
+    ; the pointer has MOVED, in page pixels, because that is what it adds to its
+    ; own position. Deltas rather than absolute coordinates so the controller
+    ; never has to know where it was picked up.
+    fn dragsFreely:boolean () {
+        return false
+    }
+
+    fn dragBy:string (dx:double dy:double) {
+        return ""
+    }
+
     fn release:string () {
         return ""
     }

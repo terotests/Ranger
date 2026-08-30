@@ -595,6 +595,8 @@
     "ui:table:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/table_check.mjs",
     "ui:table:oracle": "node gallery/ui/conformance/oracle/table_oracle.mjs",
     "evg:rotation:check": "node gallery/evg/gl/rotation-check.mjs",
+    "evg:blur:check": "node gallery/evg/gl/blur-check.mjs",
+    "evg:blur:oracle": "node gallery/evg/oracle/css_blur_oracle.mjs",
     "evg:timing:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGTimingTest.rgr -d=./gallery/evg/bin -o=EVGTimingTest.js -nodecli && node ./gallery/evg/bin/EVGTimingTest.js",
     "evg:timing:oracle": "node gallery/evg/oracle/css_timing_oracle.mjs",
     "evg:box:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGBoxShorthandTest.rgr -d=./gallery/evg/bin -o=EVGBoxShorthandTest.js -nodecli && node ./gallery/evg/bin/EVGBoxShorthandTest.js",

@@ -70,6 +70,15 @@ class EVGDrawCmd {
     def g2:int 0
     def b2:int 0
     def a2:double 1.0
+    ; `backdrop-filter: blur(Npx)` on a RECT: soften what is already painted
+    ; behind this rectangle before drawing it, clipped to the rectangle and its
+    ; radius. 0 is no filter.
+    ;
+    ; It is on the RECT and not a command of its own because it is a property
+    ; of the surface, and a backend that cannot do it draws the rectangle and
+    ; loses only the softening — which is the right failure. A separate
+    ; "blur this region" command would leave such a backend with a hole.
+    def backdropBlur:double 0.0
     ; Optional drop shadow under RECT / PATH
     def hasShadow:boolean false
     def shadowX:double 0.0
@@ -810,6 +819,14 @@ class EVGDisplayList {
         def radius:double el.box.borderRadiusPx
 
         ; Background
+        ;
+        ; `painted` guards the case below it: an element carrying only a
+        ; `backdrop-filter` and no background of its own still has to emit a
+        ; rectangle, because the filter is the thing being drawn. CSS applies
+        ; `backdrop-filter` whether or not there is a background — a scrim that
+        ; softens the page and tints it not at all is an ordinary thing to want
+        ; — and gating the emit on a colour dropped that case entirely.
+        def painted:boolean false
         if el.backgroundColor {
             def bg:EVGColor (unwrap el.backgroundColor)
             if bg.isSet {
@@ -824,7 +841,26 @@ class EVGDisplayList {
                 c.g = (bg.green())
                 c.b = (bg.blue())
                 c.a = (bg.alpha())
+                c.backdropBlur = el.backdropBlur
                 push cmds c
+                painted = true
+            }
+        }
+        if (painted == false) {
+            if (el.backdropBlur > 0.0) {
+                def cb (new EVGDrawCmd())
+                cb.kind = 0
+                cb.x = x
+                cb.y = y
+                cb.w = w
+                cb.h = h
+                cb.radius = radius
+                ; Fully transparent: the rectangle exists to carry the filter,
+                ; and a backend that cannot filter draws nothing, which is
+                ; exactly right.
+                cb.a = 0.0
+                cb.backdropBlur = el.backdropBlur
+                push cmds cb
             }
         }
 
@@ -992,7 +1028,7 @@ class EVGDisplayList {
     ; JSON path for every fixture by `pptx/web/host/scene-binary-check.mjs`.
     ; Growing this number is safe; a reader that wants the new fields opts in.
     sfn stride:int () {
-        return 26
+        return 27
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -1086,6 +1122,10 @@ class EVGDisplayList {
             int_buffer_set recs (base + 14) (EVGDisplayList.fixed(c2.rotate))
             int_buffer_set recs (base + 24) (EVGDisplayList.fixed(c2.rotOriginX))
             int_buffer_set recs (base + 25) (EVGDisplayList.fixed(c2.rotOriginY))
+            ; No flag beside it: zero is "no filter", which is a value a blur
+            ; radius cannot otherwise take. Contrast slot 24/25, where zero is
+            ; a legal place to turn about and the flag is the only way to tell.
+            int_buffer_set recs (base + 26) (EVGDisplayList.fixed(c2.backdropBlur))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -1213,6 +1253,9 @@ class EVGDisplayList {
                     out = out + ",\"rox\":" + (EVGDisplayList.num(c.rotOriginX))
                     out = out + ",\"roy\":" + (EVGDisplayList.num(c.rotOriginY))
                 }
+            }
+            if (c.backdropBlur > 0.0) {
+                out = out + ",\"bb\":" + (EVGDisplayList.num(c.backdropBlur))
             }
             ; The GEOMETRY decides whether there is a path, not the ring list:
             ; a command built by hand — and there are several, in this gallery

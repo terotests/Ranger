@@ -148,6 +148,19 @@ class EVGElement {
     ; Visual properties
     def backgroundColor:EVGColor
     def opacity:double 1.0
+    ; `backdrop-filter: blur(Npx)` — how far to blur what is BEHIND this
+    ; element, in pixels, before painting the element over it. 0 is no filter.
+    ;
+    ; Behind, not itself: this does nothing to the element's own pixels. A
+    ; modal's scrim wants the page under it softened while the scrim's own
+    ; text stays sharp, and `filter: blur()` would do the opposite.
+    ;
+    ; The number is CSS's radius, which is the Gaussian's SIGMA and not its
+    ; half-width — measured in `oracle/css-blur.json`, along with the more
+    ; surprising half: browsers do not compute a Gaussian at all but the SVG
+    ; spec's three-box approximation of one, and the difference is up to 14
+    ; luminance levels at a hard edge.
+    def backdropBlur:double 0.0
 
     ; Linear-gradient background (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR). When gradientSet
     ; the renderer fills the (rounded) box with a 2-stop linear gradient instead of
@@ -1482,6 +1495,79 @@ class EVGElement {
         return out
     }
 
+    ; The radius out of `blur(12px)`, or 0 for `none` and for anything this
+    ; does not understand. Called by `setStyle`, and separately by the style
+    ; sheet's validator so an unsupported filter function is REPORTED — see
+    ; `blurProblem`.
+    sfn blurRadiusOf:double (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return 0.0
+        }
+        if ((strlen v) == 0) {
+            return 0.0
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        ; One function, and it has to be blur(). A list of filters is legal CSS
+        ; and is not supported here; saying so is the point of returning 0 and
+        ; letting `blurProblem` name it.
+        if ((array_length words) != 1) {
+            return 0.0
+        }
+        def one:string (itemAt words 0)
+        def inner:string (EVGElement.callArgs(one "blur"))
+        if ((strlen inner) == 0) {
+            return 0.0
+        }
+        def u:EVGUnit (EVGUnit.parse(inner))
+        if (u.isSet == false) {
+            return 0.0
+        }
+        ; A negative radius is not a filter, it is a typo.
+        if (u.value < 0.0) {
+            return 0.0
+        }
+        ; Only absolute lengths: a percentage has nothing to resolve against
+        ; here, since a blur radius is not a fraction of anything.
+        if (u.unitType != 0) {
+            return 0.0
+        }
+        return u.pixels
+    }
+
+    ; Why a `backdrop-filter` did nothing, or "" when it is fine. The sheet
+    ; reports this the way it reports an unknown timing function: a filter that
+    ; is quietly ignored looks exactly like a backend that has not caught up.
+    sfn blurProblem:string (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return ""
+        }
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        if ((array_length words) != 1) {
+            return ("backdrop-filter: only a single blur() is supported, got '" + v + "'")
+        }
+        def one:string (itemAt words 0)
+        def inner:string (EVGElement.callArgs(one "blur"))
+        if ((strlen inner) == 0) {
+            return ("backdrop-filter: only blur() is supported, got '" + v + "'")
+        }
+        def u:EVGUnit (EVGUnit.parse(inner))
+        if (u.isSet == false) {
+            return ("backdrop-filter: '" + inner + "' is not a length")
+        }
+        if (u.value < 0.0) {
+            return ("backdrop-filter: a blur radius cannot be negative")
+        }
+        if (u.unitType != 0) {
+            return ("backdrop-filter: blur() needs an absolute length, got '" + inner + "'")
+        }
+        return ""
+    }
+
     sfn splitWords:[string] (s:string) {
         def out:[string]
         def cur:string ""
@@ -1989,6 +2075,14 @@ class EVGElement {
         if (name == "opacity") {
             def val@(optional):double (to_double value)
             opacity = (unwrap val)
+            return
+        }
+        ; `backdrop-filter: blur(12px)`. Only `blur()` is understood; anything
+        ; else in the property is reported rather than half-applied, because a
+        ; `saturate()` that silently did nothing would look like a backend that
+        ; had not implemented it yet.
+        if ((name == "backdrop-filter") || (name == "backdropFilter")) {
+            backdropBlur = (EVGElement.blurRadiusOf(value))
             return
         }
         

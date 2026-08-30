@@ -1428,6 +1428,7 @@ class EVGElement  {
     this.pageHeight = 0.0;
     this.children = [];
     this.opacity = 1.0;
+    this.backdropBlur = 0.0;
     this.gradientSet = false;
     this.gradientDir = 0;
     this.absPosSet = false;     /** note: unused */
@@ -2299,6 +2300,10 @@ class EVGElement  {
       this.opacity = val;
       return;
     }
+    if ( (name == "backdrop-filter") || (name == "backdropFilter") ) {
+      this.backdropBlur = EVGElement.blurRadiusOf(value);
+      return;
+    }
     if ( (name == "object-fit") || (name == "objectFit") ) {
       this.objectFit = value;
       return;
@@ -2851,6 +2856,64 @@ EVGElement.boxSides = function(value, isMargin) {
   out.push(bottom);
   out.push(left);
   return out;
+};
+EVGElement.blurRadiusOf = function(value) {
+  const v = value.trim();
+  if ( v == "none" ) {
+    return 0.0;
+  }
+  if ( (v.length) == 0 ) {
+    return 0.0;
+  }
+  const words = EVGElement.splitWords(v);
+  if ( (words.length) != 1 ) {
+    return 0.0;
+  }
+  const one = words[0];
+  const inner = EVGElement.callArgs(one, "blur");
+  if ( (inner.length) == 0 ) {
+    return 0.0;
+  }
+  const u = EVGUnit.parse(inner);
+  if ( u.isSet == false ) {
+    return 0.0;
+  }
+  if ( u.value < 0.0 ) {
+    return 0.0;
+  }
+  if ( u.unitType != 0 ) {
+    return 0.0;
+  }
+  return u.pixels;
+};
+EVGElement.blurProblem = function(value) {
+  const v = value.trim();
+  if ( v == "none" ) {
+    return "";
+  }
+  if ( (v.length) == 0 ) {
+    return "";
+  }
+  const words = EVGElement.splitWords(v);
+  if ( (words.length) != 1 ) {
+    return ("backdrop-filter: only a single blur() is supported, got '" + v) + "'";
+  }
+  const one = words[0];
+  const inner = EVGElement.callArgs(one, "blur");
+  if ( (inner.length) == 0 ) {
+    return ("backdrop-filter: only blur() is supported, got '" + v) + "'";
+  }
+  const u = EVGUnit.parse(inner);
+  if ( u.isSet == false ) {
+    return ("backdrop-filter: '" + inner) + "' is not a length";
+  }
+  if ( u.value < 0.0 ) {
+    return "backdrop-filter: a blur radius cannot be negative";
+  }
+  if ( u.unitType != 0 ) {
+    return ("backdrop-filter: blur() needs an absolute length, got '" + inner) + "'";
+  }
+  return "";
 };
 EVGElement.splitWords = function(s) {
   let out = [];
@@ -6388,45 +6451,51 @@ class EVGLayout  {
         y = (this.pageHeight - h) / 2.0;
         surface.overlayPlacedSide = "center";
       } else {
-        const maybe = this.findOverlayAnchor(surface, parent);
-        if ( typeof(maybe) === "undefined" ) {
-          this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
-          return;
-        }
-        const a = maybe;
-        const ax = a.calculatedX;
-        const ay = a.calculatedY;
-        const aw = a.calculatedWidth;
-        const ah = a.calculatedHeight;
-        const gap = surface.overlayGap;
-        let side = surface.overlaySide;
-        const other = EVGLayout.oppositeSide(side);
-        const here = this.overlayRoom(side, ax, ay, aw, ah, w, h, gap);
-        if ( here < 0.0 ) {
-          const there = this.overlayRoom(other, ax, ay, aw, ah, w, h, gap);
-          if ( there > here ) {
-            side = other;
+        if ( surface.overlaySide == "free" ) {
+          x = surface.overlayX;
+          y = surface.overlayY;
+          surface.overlayPlacedSide = "free";
+        } else {
+          const maybe = this.findOverlayAnchor(surface, parent);
+          if ( typeof(maybe) === "undefined" ) {
+            this.overlayErrors.push(surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`");
+            return;
           }
+          const a = maybe;
+          const ax = a.calculatedX;
+          const ay = a.calculatedY;
+          const aw = a.calculatedWidth;
+          const ah = a.calculatedHeight;
+          const gap = surface.overlayGap;
+          let side = surface.overlaySide;
+          const other = EVGLayout.oppositeSide(side);
+          const here = this.overlayRoom(side, ax, ay, aw, ah, w, h, gap);
+          if ( here < 0.0 ) {
+            const there = this.overlayRoom(other, ax, ay, aw, ah, w, h, gap);
+            if ( there > here ) {
+              side = other;
+            }
+          }
+          surface.overlayPlacedSide = side;
+          if ( side == "top" ) {
+            x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+            y = (ay - h) - gap;
+          }
+          if ( side == "bottom" ) {
+            x = this.overlayCross(ax, aw, w, surface.overlayAlign);
+            y = (ay + ah) + gap;
+          }
+          if ( side == "right" ) {
+            x = (ax + aw) + gap;
+            y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+          }
+          if ( side == "left" ) {
+            x = (ax - w) - gap;
+            y = this.overlayCross(ay, ah, h, surface.overlayAlign);
+          }
+          x = EVGLayout.clampTo(x, 0.0, (this.pageWidth - w));
+          y = EVGLayout.clampTo(y, 0.0, (this.pageHeight - h));
         }
-        surface.overlayPlacedSide = side;
-        if ( side == "top" ) {
-          x = this.overlayCross(ax, aw, w, surface.overlayAlign);
-          y = (ay - h) - gap;
-        }
-        if ( side == "bottom" ) {
-          x = this.overlayCross(ax, aw, w, surface.overlayAlign);
-          y = (ay + ah) + gap;
-        }
-        if ( side == "right" ) {
-          x = (ax + aw) + gap;
-          y = this.overlayCross(ay, ah, h, surface.overlayAlign);
-        }
-        if ( side == "left" ) {
-          x = (ax - w) - gap;
-          y = this.overlayCross(ay, ah, h, surface.overlayAlign);
-        }
-        x = EVGLayout.clampTo(x, 0.0, (this.pageWidth - w));
-        y = EVGLayout.clampTo(y, 0.0, (this.pageHeight - h));
       }
     }
     surface.overlayX = x;

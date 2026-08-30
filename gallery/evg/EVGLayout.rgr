@@ -1652,6 +1652,21 @@ class EVGLayout {
             y = ((pageHeight - h) / 2.0)
             surface.overlayPlacedSide = "center"
         } {
+        if (surface.overlaySide == "free") {
+            ; Wherever it was put. A window someone has dragged has no anchor
+            ; and no side: its owner holds the coordinates and this pass takes
+            ; them as given. It is still an overlay — out of its parent's flow,
+            ; painted above the page, hit-tested in front — and that is the
+            ; only reason it comes through here at all.
+            ;
+            ; Not clamped to the page either. Where a window is allowed to go
+            ; is its controller's rule, not the layout's: `WindowCtl` keeps
+            ; enough of it on screen to grab, and a different owner might want
+            ; a palette that hangs off the edge.
+            x = surface.overlayX
+            y = surface.overlayY
+            surface.overlayPlacedSide = "free"
+        } {
             def maybe@(optional):EVGElement (this.findOverlayAnchor(surface parent))
             if (null? maybe) {
                 ; Named, not silently at (0,0). An unanchored surface in the
@@ -1702,6 +1717,7 @@ class EVGLayout {
             ; its anchor.
             x = (EVGLayout.clampTo(x 0.0 (pageWidth - w)))
             y = (EVGLayout.clampTo(y 0.0 (pageHeight - h)))
+        }
         }
         }
 

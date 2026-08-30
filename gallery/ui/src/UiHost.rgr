@@ -26,6 +26,7 @@ Import "AccordionCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
+Import "WindowCtl.rgr"
 Import "AlertDialogCtl.rgr"
 Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
@@ -208,6 +209,22 @@ class UiHost {
         def c (new PopoverCtl())
         c.tid = tid
         c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A window with a title bar you can drag, holding whatever the caller puts
+    ; in its `bodyEl`. `modal` decides which of the two things it is; see
+    ; WindowCtl for why they are one class.
+    fn addWindow:WindowCtl (tid:string name:string title:string modal:boolean) {
+        def c (new WindowCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.isModal = modal
+        c.pageW = pageWidth
+        c.pageH = pageHeight
         c.build()
         this.add(c)
         return c
@@ -1059,6 +1076,30 @@ class UiHost {
             this.remember(c)
         }
         this.settleFocus()
+    }
+
+    ; Does a press on this become a free drag? Asked before the gesture starts,
+    ; for the same reason `dragsOnto` is: a press that will move a window must
+    ; not also count as a click on it.
+    fn dragsFreelyFor:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragsFreely())
+        }
+        return false
+    }
+
+    ; How far the pointer has moved since it went down, in page pixels. The
+    ; host does the subtracting because it is the only one that knows where the
+    ; press was; the controller only ever sees "this much further".
+    fn dragMoveBy:void (dx:double dy:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(pressTidValue))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragBy(dx dy)
+            this.remember(c)
+        }
     }
 
     fn dragOnto:void (target:string) {
