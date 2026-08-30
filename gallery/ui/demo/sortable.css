@@ -154,8 +154,29 @@
    nothing. */
 .sr-row {
   transition: background-color 140ms ease-out, border-color 140ms ease-out,
+              opacity 140ms ease-out;
+}
+
+/* `transform` is transitioned ONLY WHILE A DRAG IS LIVE, which is dnd-kit's own
+ * rule — `useSortable` hands back a transition while `isSorting` and nothing
+ * otherwise — and it is not a preference. It is what stops the DROP from
+ * lurching.
+ *
+ * At the drop the list reorders and every shift transform goes to zero in the
+ * same frame. With the elements kept across that rebuild (they are, now, and
+ * that is the point), the row's new layout position is 88px further down AND
+ * its transform is still +88 — so a transitioned transform starts from a row
+ * drawn 176px low and slides back up. Measured: the row jumped from y=216 to
+ * y=304 and took 180ms to return. Snapping the transform is what makes the two
+ * halves cancel, which is the whole trick of moving something by transform.
+ *
+ * The cost is that the 2px hover lift snaps outside a drag rather than easing.
+ * That is what the reference does, and at two pixels it is not visible. */
+.sr-row-sorting {
+  transition: background-color 140ms ease-out, border-color 140ms ease-out,
               opacity 140ms ease-out, transform 180ms ease-out;
 }
+
 .sr-row:hover  { background-color: #f8fafc; border-color: #cbd5e1; transform: translate(0, -2px); }
 /* Held: pressed into the page, and instant on the way in. A row that eases
    into being grabbed feels like it did not hear the click. */

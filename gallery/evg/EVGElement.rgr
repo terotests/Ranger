@@ -113,6 +113,19 @@ class EVGFlight {
 
 class EVGElement {
     def id:string ""
+    ; The RECONCILER's name for this element, and not the application's.
+    ;
+    ; `id` is global and outward-facing: the hit test reports it, the
+    ; accessibility tree carries it, and a page addresses a control by it.
+    ; `key` is sibling-scoped and inward-facing: it says "this new child is the
+    ; same logical child as that old one", so a rebuild can keep the element
+    ; instead of replacing it. Two lists on one page may both use the key
+    ; "video"; two elements may not share an id.
+    ;
+    ; "" means unkeyed, and an unkeyed child is matched by POSITION among its
+    ; unkeyed siblings — the same rule every library that has this uses, and
+    ; the reason a reordered list needs keys to animate.
+    def key:string ""
     def tagName:string "div"
     def elementType:int 0
     
@@ -1648,18 +1661,20 @@ class EVGElement {
     }
 
     ; Record that the authoring layer set `name` directly on this element.
+    ; The local is `prop` and not `key`: `key` is a field of this class now,
+    ; and a local shadowing it here would be a rename waiting to go wrong.
     fn markInline:void (name:string) {
-        def key:string (EVGElement.toKebab(name))
-        if ((this.hasInline(key)) == false) {
-            push inlineProps key
+        def prop:string (EVGElement.toKebab(name))
+        if ((this.hasInline(prop)) == false) {
+            push inlineProps prop
         }
     }
 
     fn hasInline:boolean (name:string) {
-        def key:string (EVGElement.toKebab(name))
+        def prop:string (EVGElement.toKebab(name))
         def i:int 0
         while (i < (array_length inlineProps)) {
-            if ((itemAt inlineProps i) == key) {
+            if ((itemAt inlineProps i) == prop) {
                 return true
             }
             i = (i + 1)
@@ -1755,6 +1770,214 @@ class EVGElement {
         return out
     }
 
+    ; Take on everything `other` describes, keeping this element's IDENTITY.
+    ; (The parameter is `other` and not `src` because `src` is already a field
+    ; of this class — the image source.)
+    ;
+    ; Every field of EVGElement is copied EXCEPT three:
+    ;
+    ;   `parent` and `children` — structure, which `EVGReconcile` owns. Copying
+    ;   them here would splice the discarded tree back in.
+    ;
+    ;   `transitions` — the in-flight animations, which are the whole reason
+    ;   this element is being kept rather than replaced. A flight remembers its
+    ;   own target and what it last wrote (`EVGFlight.hasWrote`), so preserving
+    ;   the list and overwriting everything else is exactly right: the sheet
+    ;   re-declares the destination, and `EVGTransition.reconcile` compares the
+    ;   two and either continues, redirects or lands.
+    ;
+    ; Object-typed fields are shared, not cloned. That is safe because `other`
+    ; is a node of a tree being DISCARDED — it has exactly one live holder after
+    ; this returns — and it is why this must never be used to copy one live
+    ; element onto another.
+    ;
+    ; A field added to this class and not added here would be silently dropped
+    ; on every rebuild, which is a bug that shows up as "it works until you
+    ; interact with it". `scripts/check-evg-adopt.mjs` fails the build when the
+    ; two lists disagree, so this cannot rot quietly.
+    fn adoptFrom:void (other:EVGElement) {
+        id = other.id
+        key = other.key
+        tagName = other.tagName
+        elementType = other.elementType
+        format = other.format
+        orientation = other.orientation
+        pageWidth = other.pageWidth
+        pageHeight = other.pageHeight
+        width = other.width
+        height = other.height
+        minWidth = other.minWidth
+        minHeight = other.minHeight
+        maxWidth = other.maxWidth
+        maxHeight = other.maxHeight
+        left = other.left
+        top = other.top
+        right = other.right
+        bottom = other.bottom
+        x = other.x
+        y = other.y
+        box = other.box
+        backgroundColor = other.backgroundColor
+        opacity = other.opacity
+        backdropBlur = other.backdropBlur
+        gradientSet = other.gradientSet
+        gradientFrom = other.gradientFrom
+        gradientTo = other.gradientTo
+        gradientDir = other.gradientDir
+        absPosSet = other.absPosSet
+        absX = other.absX
+        absY = other.absY
+        glowIntensity = other.glowIntensity
+        bgImageSet = other.bgImageSet
+        bgImagePath = other.bgImagePath
+        textDir = other.textDir
+        resolvedRtl = other.resolvedRtl
+        direction = other.direction
+        align = other.align
+        verticalAlign = other.verticalAlign
+        isInline = other.isInline
+        lineBreak = other.lineBreak
+        overflow = other.overflow
+        fontSize = other.fontSize
+        fontSizeInherited = other.fontSizeInherited
+        fontSizeBase = other.fontSizeBase
+        rootFontSize = other.rootFontSize
+        fontFamily = other.fontFamily
+        fontWeight = other.fontWeight
+        lineHeight = other.lineHeight
+        textAlign = other.textAlign
+        color = other.color
+        emojiColor = other.emojiColor
+        textContent = other.textContent
+        display = other.display
+        flex = other.flex
+        flexShrink = other.flexShrink
+        flexBasis = other.flexBasis
+        flexDirection = other.flexDirection
+        justifyContent = other.justifyContent
+        alignItems = other.alignItems
+        alignContent = other.alignContent
+        flexWrap = other.flexWrap
+        gap = other.gap
+        rowGap = other.rowGap
+        columnGap = other.columnGap
+        gridTemplateColumns = other.gridTemplateColumns
+        gridTemplateRows = other.gridTemplateRows
+        subgridColumnSizes = other.subgridColumnSizes
+        subgridRowSizes = other.subgridRowSizes
+        computedRowSizes = other.computedRowSizes
+        subgridPending = other.subgridPending
+        gridTemplateAreas = other.gridTemplateAreas
+        gridAutoFlow = other.gridAutoFlow
+        fullBleed = other.fullBleed
+        gridArea = other.gridArea
+        gridColumn = other.gridColumn
+        gridRow = other.gridRow
+        position = other.position
+        marginTop = other.marginTop
+        marginRight = other.marginRight
+        marginBottom = other.marginBottom
+        marginLeft = other.marginLeft
+        paddingTop = other.paddingTop
+        paddingRight = other.paddingRight
+        paddingBottom = other.paddingBottom
+        paddingLeft = other.paddingLeft
+        borderWidth = other.borderWidth
+        borderTopWidth = other.borderTopWidth
+        borderRightWidth = other.borderRightWidth
+        borderBottomWidth = other.borderBottomWidth
+        borderLeftWidth = other.borderLeftWidth
+        borderColor = other.borderColor
+        src = other.src
+        alt = other.alt
+        imageViewBox = other.imageViewBox
+        imageViewBoxX = other.imageViewBoxX
+        imageViewBoxY = other.imageViewBoxY
+        imageViewBoxW = other.imageViewBoxW
+        imageViewBoxH = other.imageViewBoxH
+        imageViewBoxSet = other.imageViewBoxSet
+        imageOffsetX = other.imageOffsetX
+        imageOffsetY = other.imageOffsetY
+        objectFit = other.objectFit
+        sourceWidth = other.sourceWidth
+        sourceHeight = other.sourceHeight
+        svgPath = other.svgPath
+        svgSource = other.svgSource
+        viewBox = other.viewBox
+        fillColor = other.fillColor
+        strokeColor = other.strokeColor
+        strokeWidth = other.strokeWidth
+        fillRule = other.fillRule
+        strokeDashArray = other.strokeDashArray
+        strokeDashOffset = other.strokeDashOffset
+        clipPath = other.clipPath
+        className = other.className
+        theme = other.theme
+        inlineProps = other.inlineProps
+        imageQuality = other.imageQuality
+        maxImageSize = other.maxImageSize
+        rotate = other.rotate
+        scale = other.scale
+        translateX = other.translateX
+        translateY = other.translateY
+        transformSpec = other.transformSpec
+        transformOriginX = other.transformOriginX
+        transformOriginY = other.transformOriginY
+        transformOriginSpec = other.transformOriginSpec
+        shadowRadius = other.shadowRadius
+        shadowColor = other.shadowColor
+        shadowOffsetX = other.shadowOffsetX
+        shadowOffsetY = other.shadowOffsetY
+        backgroundGradient = other.backgroundGradient
+        gradient = other.gradient
+        calculatedX = other.calculatedX
+        calculatedY = other.calculatedY
+        calculatedWidth = other.calculatedWidth
+        calculatedHeight = other.calculatedHeight
+        calculatedInnerWidth = other.calculatedInnerWidth
+        calculatedInnerHeight = other.calculatedInnerHeight
+        calculatedFlexWidth = other.calculatedFlexWidth
+        calculatedFlexHeight = other.calculatedFlexHeight
+        calculatedBaseline = other.calculatedBaseline
+        calculatedDescent = other.calculatedDescent
+        hasBaseline = other.hasBaseline
+        hasDefiniteHeight = other.hasDefiniteHeight
+        calculatedPage = other.calculatedPage
+        isAbsolute = other.isAbsolute
+        isOverlay = other.isOverlay
+        overlayAnchor = other.overlayAnchor
+        isOverlayAnchor = other.isOverlayAnchor
+        overlaySide = other.overlaySide
+        overlayAlign = other.overlayAlign
+        overlayGap = other.overlayGap
+        overlayX = other.overlayX
+        overlayY = other.overlayY
+        overlayPlacedSide = other.overlayPlacedSide
+        isHovered = other.isHovered
+        isFocused = other.isFocused
+        isPressed = other.isPressed
+        transitionSpec = other.transitionSpec
+        role = other.role
+        a11yLabel = other.a11yLabel
+        a11yRoleDescription = other.a11yRoleDescription
+        a11yHidden = other.a11yHidden
+        a11ySorted = other.a11ySorted
+        a11yChecked = other.a11yChecked
+        a11yExpanded = other.a11yExpanded
+        a11ySelected = other.a11ySelected
+        a11yDisabled = other.a11yDisabled
+        a11yFocusable = other.a11yFocusable
+        a11yPosInSet = other.a11yPosInSet
+        a11ySetSize = other.a11ySetSize
+        a11yLevel = other.a11yLevel
+        isLayoutComplete = other.isLayoutComplete
+        unitsResolved = other.unitsResolved
+        hasReturn = other.hasReturn
+        hasBreak = other.hasBreak
+        hasContinue = other.hasContinue
+        inheritedFontSize = other.inheritedFontSize
+    }
+
     fn setAttribute:void (name:string value:string) {
         ; Set attribute by name (for parser)
 
@@ -1768,6 +1991,10 @@ class EVGElement {
         }
         if (name == "id") {
             id = value
+            return
+        }
+        if (name == "key") {
+            key = value
             return
         }
         

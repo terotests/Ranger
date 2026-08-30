@@ -4267,6 +4267,7 @@ class EVGFlight  {
 class EVGElement  {
   constructor() {
     this.id = "";
+    this.key = "";
     this.tagName = "div";
     this.elementType = 0;
     this.format = "";
@@ -4278,9 +4279,9 @@ class EVGElement  {
     this.backdropBlur = 0.0;
     this.gradientSet = false;
     this.gradientDir = 0;
-    this.absPosSet = false;     /** note: unused */
-    this.absX = 0.0;     /** note: unused */
-    this.absY = 0.0;     /** note: unused */
+    this.absPosSet = false;
+    this.absX = 0.0;
+    this.absY = 0.0;
     this.glowIntensity = 0.0;
     this.bgImageSet = false;
     this.bgImagePath = "";
@@ -4299,7 +4300,7 @@ class EVGElement  {
     this.fontWeight = "normal";
     this.lineHeight = 1.2;
     this.textAlign = "left";
-    this.textContent = "";     /** note: unused */
+    this.textContent = "";
     this.display = "block";
     this.flex = 0.0;
     this.flexShrink = 1.0;
@@ -4310,28 +4311,28 @@ class EVGElement  {
     this.flexWrap = "wrap";
     this.gridTemplateColumns = "";
     this.gridTemplateRows = "";
-    this.subgridColumnSizes = [];     /** note: unused */
-    this.subgridRowSizes = [];     /** note: unused */
-    this.computedRowSizes = [];     /** note: unused */
-    this.subgridPending = false;     /** note: unused */
+    this.subgridColumnSizes = [];
+    this.subgridRowSizes = [];
+    this.computedRowSizes = [];
+    this.subgridPending = false;
     this.gridTemplateAreas = "";
     this.gridAutoFlow = "row";
     this.fullBleed = false;
     this.gridArea = "";
     this.gridColumn = "";
     this.gridRow = "";
-    this.position = "relative";     /** note: unused */
-    this.src = "";     /** note: unused */
-    this.alt = "";     /** note: unused */
-    this.imageViewBox = "";     /** note: unused */
-    this.imageViewBoxX = 0.0;     /** note: unused */
-    this.imageViewBoxY = 0.0;     /** note: unused */
-    this.imageViewBoxW = 1.0;     /** note: unused */
-    this.imageViewBoxH = 1.0;     /** note: unused */
-    this.imageViewBoxSet = false;     /** note: unused */
+    this.position = "relative";
+    this.src = "";
+    this.alt = "";
+    this.imageViewBox = "";
+    this.imageViewBoxX = 0.0;
+    this.imageViewBoxY = 0.0;
+    this.imageViewBoxW = 1.0;
+    this.imageViewBoxH = 1.0;
+    this.imageViewBoxSet = false;
     this.objectFit = "cover";
-    this.sourceWidth = 0.0;     /** note: unused */
-    this.sourceHeight = 0.0;     /** note: unused */
+    this.sourceWidth = 0.0;
+    this.sourceHeight = 0.0;
     this.svgPath = "";
     this.svgSource = "";
     this.viewBox = "";
@@ -4359,27 +4360,27 @@ class EVGElement  {
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
-    this.calculatedInnerWidth = 0.0;     /** note: unused */
-    this.calculatedInnerHeight = 0.0;     /** note: unused */
-    this.calculatedFlexWidth = 0.0;     /** note: unused */
-    this.calculatedFlexHeight = 0.0;     /** note: unused */
+    this.calculatedInnerWidth = 0.0;
+    this.calculatedInnerHeight = 0.0;
+    this.calculatedFlexWidth = 0.0;
+    this.calculatedFlexHeight = 0.0;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
     this.hasBaseline = false;
     this.hasDefiniteHeight = false;
-    this.calculatedPage = 0;     /** note: unused */
+    this.calculatedPage = 0;
     this.isAbsolute = false;
     this.isOverlay = false;
     this.isOverlayAnchor = false;
     this.overlaySide = "bottom";
     this.overlayAlign = "start";
     this.overlayGap = 4.0;
-    this.overlayX = 0.0;     /** note: unused */
-    this.overlayY = 0.0;     /** note: unused */
-    this.overlayPlacedSide = "";     /** note: unused */
-    this.isHovered = false;     /** note: unused */
-    this.isFocused = false;     /** note: unused */
-    this.isPressed = false;     /** note: unused */
+    this.overlayX = 0.0;
+    this.overlayY = 0.0;
+    this.overlayPlacedSide = "";
+    this.isHovered = false;
+    this.isFocused = false;
+    this.isPressed = false;
     this.transitionSpec = "";
     this.transitions = [];     /** note: unused */
     this.role = "";
@@ -4392,14 +4393,14 @@ class EVGElement  {
     this.a11ySelected = 0;
     this.a11yDisabled = false;
     this.a11yFocusable = false;
-    this.a11yPosInSet = 0;     /** note: unused */
-    this.a11ySetSize = 0;     /** note: unused */
-    this.a11yLevel = 0;     /** note: unused */
-    this.isLayoutComplete = false;     /** note: unused */
+    this.a11yPosInSet = 0;
+    this.a11ySetSize = 0;
+    this.a11yLevel = 0;
+    this.isLayoutComplete = false;
     this.unitsResolved = false;
-    this.hasReturn = false;     /** note: unused */
-    this.hasBreak = false;     /** note: unused */
-    this.hasContinue = false;     /** note: unused */
+    this.hasReturn = false;
+    this.hasBreak = false;
+    this.hasContinue = false;
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -4815,16 +4816,16 @@ class EVGElement  {
     }
   };
   markInline (name) {
-    const key = EVGElement.toKebab(name);
-    if ( this.hasInline(key) == false ) {
-      this.inlineProps.push(key);
+    const prop = EVGElement.toKebab(name);
+    if ( this.hasInline(prop) == false ) {
+      this.inlineProps.push(prop);
     }
   };
   hasInline (name) {
-    const key = EVGElement.toKebab(name);
+    const prop = EVGElement.toKebab(name);
     let i = 0;
     while (i < (this.inlineProps.length)) {
-      if ( (this.inlineProps[i]) == key ) {
+      if ( (this.inlineProps[i]) == prop ) {
         return true;
       }
       i = i + 1;
@@ -4856,6 +4857,188 @@ class EVGElement  {
       this.flex = 1.0;
     }
   };
+  adoptFrom (other) {
+    this.id = other.id;
+    this.key = other.key;
+    this.tagName = other.tagName;
+    this.elementType = other.elementType;
+    this.format = other.format;
+    this.orientation = other.orientation;
+    this.pageWidth = other.pageWidth;
+    this.pageHeight = other.pageHeight;
+    this.width = other.width;
+    this.height = other.height;
+    this.minWidth = other.minWidth;
+    this.minHeight = other.minHeight;
+    this.maxWidth = other.maxWidth;
+    this.maxHeight = other.maxHeight;
+    this.left = other.left;
+    this.top = other.top;
+    this.right = other.right;
+    this.bottom = other.bottom;
+    this.x = other.x;
+    this.y = other.y;
+    this.box = other.box;
+    this.backgroundColor = other.backgroundColor;
+    this.opacity = other.opacity;
+    this.backdropBlur = other.backdropBlur;
+    this.gradientSet = other.gradientSet;
+    this.gradientFrom = other.gradientFrom;
+    this.gradientTo = other.gradientTo;
+    this.gradientDir = other.gradientDir;
+    this.absPosSet = other.absPosSet;
+    this.absX = other.absX;
+    this.absY = other.absY;
+    this.glowIntensity = other.glowIntensity;
+    this.bgImageSet = other.bgImageSet;
+    this.bgImagePath = other.bgImagePath;
+    this.textDir = other.textDir;
+    this.resolvedRtl = other.resolvedRtl;
+    this.direction = other.direction;
+    this.align = other.align;
+    this.verticalAlign = other.verticalAlign;
+    this.isInline = other.isInline;
+    this.lineBreak = other.lineBreak;
+    this.overflow = other.overflow;
+    this.fontSize = other.fontSize;
+    this.fontSizeInherited = other.fontSizeInherited;
+    this.fontSizeBase = other.fontSizeBase;
+    this.rootFontSize = other.rootFontSize;
+    this.fontFamily = other.fontFamily;
+    this.fontWeight = other.fontWeight;
+    this.lineHeight = other.lineHeight;
+    this.textAlign = other.textAlign;
+    this.color = other.color;
+    this.emojiColor = other.emojiColor;
+    this.textContent = other.textContent;
+    this.display = other.display;
+    this.flex = other.flex;
+    this.flexShrink = other.flexShrink;
+    this.flexBasis = other.flexBasis;
+    this.flexDirection = other.flexDirection;
+    this.justifyContent = other.justifyContent;
+    this.alignItems = other.alignItems;
+    this.alignContent = other.alignContent;
+    this.flexWrap = other.flexWrap;
+    this.gap = other.gap;
+    this.rowGap = other.rowGap;
+    this.columnGap = other.columnGap;
+    this.gridTemplateColumns = other.gridTemplateColumns;
+    this.gridTemplateRows = other.gridTemplateRows;
+    this.subgridColumnSizes = other.subgridColumnSizes;
+    this.subgridRowSizes = other.subgridRowSizes;
+    this.computedRowSizes = other.computedRowSizes;
+    this.subgridPending = other.subgridPending;
+    this.gridTemplateAreas = other.gridTemplateAreas;
+    this.gridAutoFlow = other.gridAutoFlow;
+    this.fullBleed = other.fullBleed;
+    this.gridArea = other.gridArea;
+    this.gridColumn = other.gridColumn;
+    this.gridRow = other.gridRow;
+    this.position = other.position;
+    this.marginTop = other.marginTop;
+    this.marginRight = other.marginRight;
+    this.marginBottom = other.marginBottom;
+    this.marginLeft = other.marginLeft;
+    this.paddingTop = other.paddingTop;
+    this.paddingRight = other.paddingRight;
+    this.paddingBottom = other.paddingBottom;
+    this.paddingLeft = other.paddingLeft;
+    this.borderWidth = other.borderWidth;
+    this.borderTopWidth = other.borderTopWidth;
+    this.borderRightWidth = other.borderRightWidth;
+    this.borderBottomWidth = other.borderBottomWidth;
+    this.borderLeftWidth = other.borderLeftWidth;
+    this.borderColor = other.borderColor;
+    this.src = other.src;
+    this.alt = other.alt;
+    this.imageViewBox = other.imageViewBox;
+    this.imageViewBoxX = other.imageViewBoxX;
+    this.imageViewBoxY = other.imageViewBoxY;
+    this.imageViewBoxW = other.imageViewBoxW;
+    this.imageViewBoxH = other.imageViewBoxH;
+    this.imageViewBoxSet = other.imageViewBoxSet;
+    this.imageOffsetX = other.imageOffsetX;
+    this.imageOffsetY = other.imageOffsetY;
+    this.objectFit = other.objectFit;
+    this.sourceWidth = other.sourceWidth;
+    this.sourceHeight = other.sourceHeight;
+    this.svgPath = other.svgPath;
+    this.svgSource = other.svgSource;
+    this.viewBox = other.viewBox;
+    this.fillColor = other.fillColor;
+    this.strokeColor = other.strokeColor;
+    this.strokeWidth = other.strokeWidth;
+    this.fillRule = other.fillRule;
+    this.strokeDashArray = other.strokeDashArray;
+    this.strokeDashOffset = other.strokeDashOffset;
+    this.clipPath = other.clipPath;
+    this.className = other.className;
+    this.theme = other.theme;
+    this.inlineProps = other.inlineProps;
+    this.imageQuality = other.imageQuality;
+    this.maxImageSize = other.maxImageSize;
+    this.rotate = other.rotate;
+    this.scale = other.scale;
+    this.translateX = other.translateX;
+    this.translateY = other.translateY;
+    this.transformSpec = other.transformSpec;
+    this.transformOriginX = other.transformOriginX;
+    this.transformOriginY = other.transformOriginY;
+    this.transformOriginSpec = other.transformOriginSpec;
+    this.shadowRadius = other.shadowRadius;
+    this.shadowColor = other.shadowColor;
+    this.shadowOffsetX = other.shadowOffsetX;
+    this.shadowOffsetY = other.shadowOffsetY;
+    this.backgroundGradient = other.backgroundGradient;
+    this.gradient = other.gradient;
+    this.calculatedX = other.calculatedX;
+    this.calculatedY = other.calculatedY;
+    this.calculatedWidth = other.calculatedWidth;
+    this.calculatedHeight = other.calculatedHeight;
+    this.calculatedInnerWidth = other.calculatedInnerWidth;
+    this.calculatedInnerHeight = other.calculatedInnerHeight;
+    this.calculatedFlexWidth = other.calculatedFlexWidth;
+    this.calculatedFlexHeight = other.calculatedFlexHeight;
+    this.calculatedBaseline = other.calculatedBaseline;
+    this.calculatedDescent = other.calculatedDescent;
+    this.hasBaseline = other.hasBaseline;
+    this.hasDefiniteHeight = other.hasDefiniteHeight;
+    this.calculatedPage = other.calculatedPage;
+    this.isAbsolute = other.isAbsolute;
+    this.isOverlay = other.isOverlay;
+    this.overlayAnchor = other.overlayAnchor;
+    this.isOverlayAnchor = other.isOverlayAnchor;
+    this.overlaySide = other.overlaySide;
+    this.overlayAlign = other.overlayAlign;
+    this.overlayGap = other.overlayGap;
+    this.overlayX = other.overlayX;
+    this.overlayY = other.overlayY;
+    this.overlayPlacedSide = other.overlayPlacedSide;
+    this.isHovered = other.isHovered;
+    this.isFocused = other.isFocused;
+    this.isPressed = other.isPressed;
+    this.transitionSpec = other.transitionSpec;
+    this.role = other.role;
+    this.a11yLabel = other.a11yLabel;
+    this.a11yRoleDescription = other.a11yRoleDescription;
+    this.a11yHidden = other.a11yHidden;
+    this.a11ySorted = other.a11ySorted;
+    this.a11yChecked = other.a11yChecked;
+    this.a11yExpanded = other.a11yExpanded;
+    this.a11ySelected = other.a11ySelected;
+    this.a11yDisabled = other.a11yDisabled;
+    this.a11yFocusable = other.a11yFocusable;
+    this.a11yPosInSet = other.a11yPosInSet;
+    this.a11ySetSize = other.a11ySetSize;
+    this.a11yLevel = other.a11yLevel;
+    this.isLayoutComplete = other.isLayoutComplete;
+    this.unitsResolved = other.unitsResolved;
+    this.hasReturn = other.hasReturn;
+    this.hasBreak = other.hasBreak;
+    this.hasContinue = other.hasContinue;
+    this.inheritedFontSize = other.inheritedFontSize;
+  };
   setAttribute (name, value) {
     if ( name == "className" ) {
       this.className = value;
@@ -4867,6 +5050,10 @@ class EVGElement  {
     }
     if ( name == "id" ) {
       this.id = value;
+      return;
+    }
+    if ( name == "key" ) {
+      this.key = value;
       return;
     }
     if ( name == "format" ) {

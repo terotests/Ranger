@@ -4074,465 +4074,6 @@ EVGStyleSheet.initialValue = function(name) {
   }
   return "";
 };
-class EVGTimingSpec  {
-  constructor() {
-    this.found = false;
-    this.durationMs = 0.0;
-    this.delayMs = 0.0;
-    this.easing = new EVGEasing();
-    this.ok = true;
-  }
-}
-class EVGTransition  {
-  constructor() {
-  }
-  flightFor (el, property) {
-    let i = 0;
-    while (i < (el.transitions.length)) {
-      const f = el.transitions[i];
-      if ( f.property == property ) {
-        const hit = f;
-        return hit;
-      }
-      i = i + 1;
-    };
-    let miss;
-    return miss;
-  };
-  showColor (f) {
-    return EVGTransition.mixColor((f.fromColor), (f.toColor), f.eased());
-  };
-  showNumber (f) {
-    return f.fromNumber + ((f.toNumber - f.fromNumber) * f.eased());
-  };
-  reconcile (el) {
-    if ( typeof(el.backgroundColor) != "undefined" ) {
-      this.reconcileColor(el, "background-color", el.backgroundColor);
-    }
-    if ( typeof(el.color) != "undefined" ) {
-      this.reconcileColor(el, "color", el.color);
-    }
-    this.reconcileNumber(el, "opacity", el.opacity);
-    this.reconcileNumberAs(el, "transform.rotate", "transform", el.rotate);
-    this.reconcileNumberAs(el, "transform.scale", "transform", el.scale);
-    this.reconcileNumberAs(el, "transform.tx", "transform", el.translateX);
-    this.reconcileNumberAs(el, "transform.ty", "transform", el.translateY);
-    this.reconcileOriginAxis(el, "transform-origin.x", el.transformOriginX);
-    this.reconcileOriginAxis(el, "transform-origin.y", el.transformOriginY);
-    this.writeBack(el);
-  };
-  reconcileColor (el, property, target) {
-    const spec = EVGTransition.specFor(el.transitionSpec, property);
-    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
-      this.drop(el, property);
-      return;
-    }
-    if ( target.isSet == false ) {
-      return;
-    }
-    const existing = this.flightFor(el, property);
-    if ( typeof(existing) != "undefined" ) {
-      const f = existing;
-      if ( EVGTransition.sameColor((f.toColor), target) ) {
-        return;
-      }
-      if ( f.hasWrote ) {
-        if ( EVGTransition.sameColor((f.wroteColor), target) ) {
-          return;
-        }
-      }
-      const here = this.showColor(f);
-      if ( EVGTransition.sameColor(here, target) ) {
-        f.fromColor = target;
-        f.toColor = target;
-        f.elapsedMs = f.durationMs;
-        return;
-      }
-      if ( EVGTransition.sameColor((f.reversingStartColor), target) ) {
-        (this).reverse(f, spec);
-        f.reversingStartColor = f.toColor;
-      } else {
-        f.reversingStartColor = here;
-        f.reversingFactor = 1.0;
-        f.durationMs = spec.durationMs;
-      }
-      f.fromColor = here;
-      f.toColor = target;
-      f.elapsedMs = 0.0;
-      f.delayMs = spec.delayMs;
-      f.easing = spec.easing;
-      return;
-    }
-    const created = new EVGFlight();
-    created.property = property;
-    created.isColor = true;
-    created.fromColor = target;
-    created.toColor = target;
-    created.reversingStartColor = target;
-    created.durationMs = spec.durationMs;
-    created.delayMs = spec.delayMs;
-    created.easing = spec.easing;
-    created.elapsedMs = spec.durationMs + spec.delayMs;
-    el.transitions.push(created);
-  };
-  reverse (f, spec) {
-    const p = f.eased();
-    let nf = Math.abs(((p * f.reversingFactor) + (1.0 - f.reversingFactor)));
-    if ( nf < 0.0 ) {
-      nf = 0.0;
-    }
-    if ( nf > 1.0 ) {
-      nf = 1.0;
-    }
-    f.reversingFactor = nf;
-    f.durationMs = spec.durationMs * nf;
-  };
-  reconcileNumber (el, property, target) {
-    this.reconcileNumberAs(el, property, property, target);
-  };
-  reconcileNumberAs (el, key, cssName, target) {
-    const property = key;
-    const spec = EVGTransition.specFor(el.transitionSpec, cssName);
-    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
-      this.drop(el, property);
-      return;
-    }
-    const existing = this.flightFor(el, property);
-    if ( typeof(existing) != "undefined" ) {
-      const f = existing;
-      if ( EVGTransition.sameNumber(f.toNumber, target) ) {
-        return;
-      }
-      if ( f.hasWrote ) {
-        if ( EVGTransition.sameNumber(f.wroteNumber, target) ) {
-          return;
-        }
-      }
-      const hereN = this.showNumber(f);
-      if ( EVGTransition.sameNumber(hereN, target) ) {
-        f.fromNumber = target;
-        f.toNumber = target;
-        f.elapsedMs = f.durationMs;
-        return;
-      }
-      if ( EVGTransition.sameNumber(f.reversingStartNumber, target) ) {
-        (this).reverse(f, spec);
-        f.reversingStartNumber = f.toNumber;
-      } else {
-        f.reversingStartNumber = hereN;
-        f.reversingFactor = 1.0;
-        f.durationMs = spec.durationMs;
-      }
-      f.fromNumber = hereN;
-      f.toNumber = target;
-      f.elapsedMs = 0.0;
-      f.delayMs = spec.delayMs;
-      f.easing = spec.easing;
-      return;
-    }
-    const created = new EVGFlight();
-    created.property = property;
-    created.isColor = false;
-    created.fromNumber = target;
-    created.toNumber = target;
-    created.reversingStartNumber = target;
-    created.durationMs = spec.durationMs;
-    created.delayMs = spec.delayMs;
-    created.easing = spec.easing;
-    created.elapsedMs = spec.durationMs + spec.delayMs;
-    el.transitions.push(created);
-  };
-  reconcileOriginAxis (el, key, u) {
-    let code = 1;
-    let target = 50.0;
-    if ( u.isSet ) {
-      code = u.unitType;
-      target = u.value;
-    }
-    const existing = this.flightFor(el, key);
-    if ( typeof(existing) != "undefined" ) {
-      const f = existing;
-      if ( f.unitCode != code ) {
-        this.drop(el, key);
-      }
-    }
-    this.reconcileNumberAs(el, key, "transform-origin", target);
-    const now = this.flightFor(el, key);
-    if ( typeof(now) != "undefined" ) {
-      const f2 = now;
-      f2.unitCode = code;
-    }
-  };
-  drop (el, property) {
-    let kept = [];
-    let i = 0;
-    while (i < (el.transitions.length)) {
-      const f = el.transitions[i];
-      if ( f.property != property ) {
-        kept.push(f);
-      }
-      i = i + 1;
-    };
-    el.transitions.length = 0;
-    let j = 0;
-    while (j < (kept.length)) {
-      el.transitions.push(kept[j]);
-      j = j + 1;
-    };
-  };
-  advance (el, dtMs) {
-    let i = 0;
-    while (i < (el.transitions.length)) {
-      const f = el.transitions[i];
-      if ( f.done() == false ) {
-        f.elapsedMs = f.elapsedMs + dtMs;
-        const endsAt = f.delayMs + f.durationMs;
-        if ( f.elapsedMs > endsAt ) {
-          f.elapsedMs = endsAt;
-        }
-      }
-      i = i + 1;
-    };
-    this.writeBack(el);
-  };
-  writeBack (el) {
-    let i = 0;
-    while (i < (el.transitions.length)) {
-      const f = el.transitions[i];
-      if ( f.isColor ) {
-        const c = this.showColor(f);
-        f.wroteColor = c;
-        f.hasWrote = true;
-        if ( f.property == "background-color" ) {
-          el.backgroundColor = c;
-        }
-        if ( f.property == "color" ) {
-          el.color = c;
-        }
-      } else {
-        const n = this.showNumber(f);
-        f.wroteNumber = n;
-        f.hasWrote = true;
-        if ( f.property == "opacity" ) {
-          el.opacity = n;
-        }
-        if ( f.property == "transform.rotate" ) {
-          el.rotate = n;
-        }
-        if ( f.property == "transform.scale" ) {
-          el.scale = n;
-        }
-        if ( f.property == "transform.tx" ) {
-          el.translateX = n;
-        }
-        if ( f.property == "transform.ty" ) {
-          el.translateY = n;
-        }
-        if ( f.property == "transform-origin.x" ) {
-          el.transformOriginX = EVGTransition.unitOf(f.unitCode, n);
-        }
-        if ( f.property == "transform-origin.y" ) {
-          el.transformOriginY = EVGTransition.unitOf(f.unitCode, n);
-        }
-      }
-      i = i + 1;
-    };
-  };
-  reconcileTree (root) {
-    this.reconcile(root);
-    let i = 0;
-    while (i < (root.children.length)) {
-      this.reconcileTree(root.children[i]);
-      i = i + 1;
-    };
-  };
-  advanceTree (root, dtMs) {
-    this.advance(root, dtMs);
-    let i = 0;
-    while (i < (root.children.length)) {
-      this.advanceTree(root.children[i], dtMs);
-      i = i + 1;
-    };
-  };
-  busy (root) {
-    let i = 0;
-    while (i < (root.transitions.length)) {
-      const f = root.transitions[i];
-      if ( f.done() == false ) {
-        return true;
-      }
-      i = i + 1;
-    };
-    let j = 0;
-    while (j < (root.children.length)) {
-      if ( this.busy((root.children[j])) ) {
-        return true;
-      }
-      j = j + 1;
-    };
-    return false;
-  };
-}
-EVGTransition.specFor = function(spec, property) {
-  const out = new EVGTimingSpec();
-  if ( (spec.length) == 0 ) {
-    return out;
-  }
-  const parts = EVGEasing.splitTop(spec, 44);
-  let i = 0;
-  while (i < (parts.length)) {
-    const one = (parts[i]).trim();
-    const words = EVGEasing.splitWordsTop(one);
-    let name = "";
-    let fnText = "";
-    let times = [];
-    let w = 0;
-    while (w < (words.length)) {
-      const word = words[w];
-      if ( EVGEasing.looksLikeFunction(word) ) {
-        fnText = word;
-      } else {
-        if ( EVGTransition.isTime(word) ) {
-          times.push(EVGTransition.parseMs(word));
-        } else {
-          if ( (name.length) == 0 ) {
-            name = word;
-          }
-        }
-      }
-      w = w + 1;
-    };
-    if ( (name == property) || (name == "all") ) {
-      out.found = true;
-      out.durationMs = 0.0;
-      out.delayMs = 0.0;
-      if ( (times.length) > 0 ) {
-        out.durationMs = times[0];
-      }
-      if ( (times.length) > 1 ) {
-        out.delayMs = times[1];
-      }
-      out.easing = EVGEasing.parse(fnText);
-      out.ok = out.easing.ok;
-    }
-    i = i + 1;
-  };
-  return out;
-};
-EVGTransition.durationFor = function(spec, property) {
-  const s = EVGTransition.specFor(spec, property);
-  if ( s.found == false ) {
-    return 0.0 - 1.0;
-  }
-  return s.durationMs;
-};
-EVGTransition.isTime = function(word) {
-  const t = word.trim();
-  const n = t.length;
-  if ( n == 0 ) {
-    return false;
-  }
-  if ( n > 2 ) {
-    if ( (t.substring((n - 2), n )) == "ms" ) {
-      const a = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
-      if ( typeof(a) != "undefined" ) {
-        return true;
-      }
-      return false;
-    }
-  }
-  if ( n > 1 ) {
-    if ( (t.substring((n - 1), n )) == "s" ) {
-      const b = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
-      if ( typeof(b) != "undefined" ) {
-        return true;
-      }
-      return false;
-    }
-  }
-  const c = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
-  if ( typeof(c) != "undefined" ) {
-    return true;
-  }
-  return false;
-};
-EVGTransition.parseMs = function(text) {
-  const t = text.trim();
-  const n = t.length;
-  if ( n == 0 ) {
-    return 0.0;
-  }
-  if ( n > 2 ) {
-    if ( (t.substring((n - 2), n )) == "ms" ) {
-      const v = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
-      if ( typeof(v) != "undefined" ) {
-        return v;
-      }
-      return 0.0;
-    }
-  }
-  if ( n > 1 ) {
-    if ( (t.substring((n - 1), n )) == "s" ) {
-      const v2 = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
-      if ( typeof(v2) != "undefined" ) {
-        return (v2) * 1000.0;
-      }
-      return 0.0;
-    }
-  }
-  const v3 = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
-  if ( typeof(v3) != "undefined" ) {
-    return v3;
-  }
-  return 0.0;
-};
-EVGTransition.sameColor = function(a, b) {
-  if ( (Math.floor( a.r)) != (Math.floor( b.r)) ) {
-    return false;
-  }
-  if ( (Math.floor( a.g)) != (Math.floor( b.g)) ) {
-    return false;
-  }
-  if ( (Math.floor( a.b)) != (Math.floor( b.b)) ) {
-    return false;
-  }
-  if ( (Math.floor( (a.a * 255.0))) != (Math.floor( (b.a * 255.0))) ) {
-    return false;
-  }
-  return true;
-};
-EVGTransition.mixColor = function(from, to, t) {
-  const c = new EVGColor();
-  const fa = from.a;
-  const ta = to.a;
-  const a = fa + ((ta - fa) * t);
-  const pr = (from.r * fa) + (((to.r * ta) - (from.r * fa)) * t);
-  const pg = (from.g * fa) + (((to.g * ta) - (from.g * fa)) * t);
-  const pb = (from.b * fa) + (((to.b * ta) - (from.b * fa)) * t);
-  if ( a > 0.0001 ) {
-    c.r = pr / a;
-    c.g = pg / a;
-    c.b = pb / a;
-  } else {
-    c.r = pr;
-    c.g = pg;
-    c.b = pb;
-  }
-  c.a = a;
-  c.isSet = true;
-  return c;
-};
-EVGTransition.unitOf = function(code, value) {
-  const u = new EVGUnit();
-  u.unitType = code;
-  u.value = value;
-  u.pixels = value;
-  u.isSet = true;
-  return u;
-};
-EVGTransition.sameNumber = function(a, b) {
-  return (Math.abs((a - b))) < 0.001;
-};
 class EVGCodepoint  {
   constructor() {
   }
@@ -11572,7 +11113,1622 @@ EVGDisplayList.jsonString = function(v) {
   };
   return out + "\"";
 };
-class StyleCheck  {
+class EVGTimingSpec  {
+  constructor() {
+    this.found = false;
+    this.durationMs = 0.0;
+    this.delayMs = 0.0;
+    this.easing = new EVGEasing();
+    this.ok = true;
+  }
+}
+class EVGTransition  {
+  constructor() {
+  }
+  flightFor (el, property) {
+    let i = 0;
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.property == property ) {
+        const hit = f;
+        return hit;
+      }
+      i = i + 1;
+    };
+    let miss;
+    return miss;
+  };
+  showColor (f) {
+    return EVGTransition.mixColor((f.fromColor), (f.toColor), f.eased());
+  };
+  showNumber (f) {
+    return f.fromNumber + ((f.toNumber - f.fromNumber) * f.eased());
+  };
+  reconcile (el) {
+    if ( typeof(el.backgroundColor) != "undefined" ) {
+      this.reconcileColor(el, "background-color", el.backgroundColor);
+    }
+    if ( typeof(el.color) != "undefined" ) {
+      this.reconcileColor(el, "color", el.color);
+    }
+    this.reconcileNumber(el, "opacity", el.opacity);
+    this.reconcileNumberAs(el, "transform.rotate", "transform", el.rotate);
+    this.reconcileNumberAs(el, "transform.scale", "transform", el.scale);
+    this.reconcileNumberAs(el, "transform.tx", "transform", el.translateX);
+    this.reconcileNumberAs(el, "transform.ty", "transform", el.translateY);
+    this.reconcileOriginAxis(el, "transform-origin.x", el.transformOriginX);
+    this.reconcileOriginAxis(el, "transform-origin.y", el.transformOriginY);
+    this.writeBack(el);
+  };
+  reconcileColor (el, property, target) {
+    const spec = EVGTransition.specFor(el.transitionSpec, property);
+    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
+      this.drop(el, property);
+      return;
+    }
+    if ( target.isSet == false ) {
+      return;
+    }
+    const existing = this.flightFor(el, property);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( EVGTransition.sameColor((f.toColor), target) ) {
+        return;
+      }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameColor((f.wroteColor), target) ) {
+          return;
+        }
+      }
+      const here = this.showColor(f);
+      if ( EVGTransition.sameColor(here, target) ) {
+        f.fromColor = target;
+        f.toColor = target;
+        f.elapsedMs = f.durationMs;
+        return;
+      }
+      if ( EVGTransition.sameColor((f.reversingStartColor), target) ) {
+        (this).reverse(f, spec);
+        f.reversingStartColor = f.toColor;
+      } else {
+        f.reversingStartColor = here;
+        f.reversingFactor = 1.0;
+        f.durationMs = spec.durationMs;
+      }
+      f.fromColor = here;
+      f.toColor = target;
+      f.elapsedMs = 0.0;
+      f.delayMs = spec.delayMs;
+      f.easing = spec.easing;
+      return;
+    }
+    const created = new EVGFlight();
+    created.property = property;
+    created.isColor = true;
+    created.fromColor = target;
+    created.toColor = target;
+    created.reversingStartColor = target;
+    created.durationMs = spec.durationMs;
+    created.delayMs = spec.delayMs;
+    created.easing = spec.easing;
+    created.elapsedMs = spec.durationMs + spec.delayMs;
+    el.transitions.push(created);
+  };
+  reverse (f, spec) {
+    const p = f.eased();
+    let nf = Math.abs(((p * f.reversingFactor) + (1.0 - f.reversingFactor)));
+    if ( nf < 0.0 ) {
+      nf = 0.0;
+    }
+    if ( nf > 1.0 ) {
+      nf = 1.0;
+    }
+    f.reversingFactor = nf;
+    f.durationMs = spec.durationMs * nf;
+  };
+  reconcileNumber (el, property, target) {
+    this.reconcileNumberAs(el, property, property, target);
+  };
+  reconcileNumberAs (el, key, cssName, target) {
+    const property = key;
+    const spec = EVGTransition.specFor(el.transitionSpec, cssName);
+    if ( (spec.found == false) || (spec.durationMs <= 0.0) ) {
+      this.drop(el, property);
+      return;
+    }
+    const existing = this.flightFor(el, property);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( EVGTransition.sameNumber(f.toNumber, target) ) {
+        return;
+      }
+      if ( f.hasWrote ) {
+        if ( EVGTransition.sameNumber(f.wroteNumber, target) ) {
+          return;
+        }
+      }
+      const hereN = this.showNumber(f);
+      if ( EVGTransition.sameNumber(hereN, target) ) {
+        f.fromNumber = target;
+        f.toNumber = target;
+        f.elapsedMs = f.durationMs;
+        return;
+      }
+      if ( EVGTransition.sameNumber(f.reversingStartNumber, target) ) {
+        (this).reverse(f, spec);
+        f.reversingStartNumber = f.toNumber;
+      } else {
+        f.reversingStartNumber = hereN;
+        f.reversingFactor = 1.0;
+        f.durationMs = spec.durationMs;
+      }
+      f.fromNumber = hereN;
+      f.toNumber = target;
+      f.elapsedMs = 0.0;
+      f.delayMs = spec.delayMs;
+      f.easing = spec.easing;
+      return;
+    }
+    const created = new EVGFlight();
+    created.property = property;
+    created.isColor = false;
+    created.fromNumber = target;
+    created.toNumber = target;
+    created.reversingStartNumber = target;
+    created.durationMs = spec.durationMs;
+    created.delayMs = spec.delayMs;
+    created.easing = spec.easing;
+    created.elapsedMs = spec.durationMs + spec.delayMs;
+    el.transitions.push(created);
+  };
+  reconcileOriginAxis (el, key, u) {
+    let code = 1;
+    let target = 50.0;
+    if ( u.isSet ) {
+      code = u.unitType;
+      target = u.value;
+    }
+    const existing = this.flightFor(el, key);
+    if ( typeof(existing) != "undefined" ) {
+      const f = existing;
+      if ( f.unitCode != code ) {
+        this.drop(el, key);
+      }
+    }
+    this.reconcileNumberAs(el, key, "transform-origin", target);
+    const now = this.flightFor(el, key);
+    if ( typeof(now) != "undefined" ) {
+      const f2 = now;
+      f2.unitCode = code;
+    }
+  };
+  drop (el, property) {
+    let kept = [];
+    let i = 0;
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.property != property ) {
+        kept.push(f);
+      }
+      i = i + 1;
+    };
+    el.transitions.length = 0;
+    let j = 0;
+    while (j < (kept.length)) {
+      el.transitions.push(kept[j]);
+      j = j + 1;
+    };
+  };
+  advance (el, dtMs) {
+    let i = 0;
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.done() == false ) {
+        f.elapsedMs = f.elapsedMs + dtMs;
+        const endsAt = f.delayMs + f.durationMs;
+        if ( f.elapsedMs > endsAt ) {
+          f.elapsedMs = endsAt;
+        }
+      }
+      i = i + 1;
+    };
+    this.writeBack(el);
+  };
+  writeBack (el) {
+    let i = 0;
+    while (i < (el.transitions.length)) {
+      const f = el.transitions[i];
+      if ( f.isColor ) {
+        const c = this.showColor(f);
+        f.wroteColor = c;
+        f.hasWrote = true;
+        if ( f.property == "background-color" ) {
+          el.backgroundColor = c;
+        }
+        if ( f.property == "color" ) {
+          el.color = c;
+        }
+      } else {
+        const n = this.showNumber(f);
+        f.wroteNumber = n;
+        f.hasWrote = true;
+        if ( f.property == "opacity" ) {
+          el.opacity = n;
+        }
+        if ( f.property == "transform.rotate" ) {
+          el.rotate = n;
+        }
+        if ( f.property == "transform.scale" ) {
+          el.scale = n;
+        }
+        if ( f.property == "transform.tx" ) {
+          el.translateX = n;
+        }
+        if ( f.property == "transform.ty" ) {
+          el.translateY = n;
+        }
+        if ( f.property == "transform-origin.x" ) {
+          el.transformOriginX = EVGTransition.unitOf(f.unitCode, n);
+        }
+        if ( f.property == "transform-origin.y" ) {
+          el.transformOriginY = EVGTransition.unitOf(f.unitCode, n);
+        }
+      }
+      i = i + 1;
+    };
+  };
+  reconcileTree (root) {
+    this.reconcile(root);
+    let i = 0;
+    while (i < (root.children.length)) {
+      this.reconcileTree(root.children[i]);
+      i = i + 1;
+    };
+  };
+  advanceTree (root, dtMs) {
+    this.advance(root, dtMs);
+    let i = 0;
+    while (i < (root.children.length)) {
+      this.advanceTree(root.children[i], dtMs);
+      i = i + 1;
+    };
+  };
+  busy (root) {
+    let i = 0;
+    while (i < (root.transitions.length)) {
+      const f = root.transitions[i];
+      if ( f.done() == false ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    let j = 0;
+    while (j < (root.children.length)) {
+      if ( this.busy((root.children[j])) ) {
+        return true;
+      }
+      j = j + 1;
+    };
+    return false;
+  };
+}
+EVGTransition.specFor = function(spec, property) {
+  const out = new EVGTimingSpec();
+  if ( (spec.length) == 0 ) {
+    return out;
+  }
+  const parts = EVGEasing.splitTop(spec, 44);
+  let i = 0;
+  while (i < (parts.length)) {
+    const one = (parts[i]).trim();
+    const words = EVGEasing.splitWordsTop(one);
+    let name = "";
+    let fnText = "";
+    let times = [];
+    let w = 0;
+    while (w < (words.length)) {
+      const word = words[w];
+      if ( EVGEasing.looksLikeFunction(word) ) {
+        fnText = word;
+      } else {
+        if ( EVGTransition.isTime(word) ) {
+          times.push(EVGTransition.parseMs(word));
+        } else {
+          if ( (name.length) == 0 ) {
+            name = word;
+          }
+        }
+      }
+      w = w + 1;
+    };
+    if ( (name == property) || (name == "all") ) {
+      out.found = true;
+      out.durationMs = 0.0;
+      out.delayMs = 0.0;
+      if ( (times.length) > 0 ) {
+        out.durationMs = times[0];
+      }
+      if ( (times.length) > 1 ) {
+        out.delayMs = times[1];
+      }
+      out.easing = EVGEasing.parse(fnText);
+      out.ok = out.easing.ok;
+    }
+    i = i + 1;
+  };
+  return out;
+};
+EVGTransition.durationFor = function(spec, property) {
+  const s = EVGTransition.specFor(spec, property);
+  if ( s.found == false ) {
+    return 0.0 - 1.0;
+  }
+  return s.durationMs;
+};
+EVGTransition.isTime = function(word) {
+  const t = word.trim();
+  const n = t.length;
+  if ( n == 0 ) {
+    return false;
+  }
+  if ( n > 2 ) {
+    if ( (t.substring((n - 2), n )) == "ms" ) {
+      const a = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
+      if ( typeof(a) != "undefined" ) {
+        return true;
+      }
+      return false;
+    }
+  }
+  if ( n > 1 ) {
+    if ( (t.substring((n - 1), n )) == "s" ) {
+      const b = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
+      if ( typeof(b) != "undefined" ) {
+        return true;
+      }
+      return false;
+    }
+  }
+  const c = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
+  if ( typeof(c) != "undefined" ) {
+    return true;
+  }
+  return false;
+};
+EVGTransition.parseMs = function(text) {
+  const t = text.trim();
+  const n = t.length;
+  if ( n == 0 ) {
+    return 0.0;
+  }
+  if ( n > 2 ) {
+    if ( (t.substring((n - 2), n )) == "ms" ) {
+      const v = isNaN( parseFloat((t.substring(0, (n - 2) ))) ) ? undefined : parseFloat((t.substring(0, (n - 2) )));
+      if ( typeof(v) != "undefined" ) {
+        return v;
+      }
+      return 0.0;
+    }
+  }
+  if ( n > 1 ) {
+    if ( (t.substring((n - 1), n )) == "s" ) {
+      const v2 = isNaN( parseFloat((t.substring(0, (n - 1) ))) ) ? undefined : parseFloat((t.substring(0, (n - 1) )));
+      if ( typeof(v2) != "undefined" ) {
+        return (v2) * 1000.0;
+      }
+      return 0.0;
+    }
+  }
+  const v3 = isNaN( parseFloat(t) ) ? undefined : parseFloat(t);
+  if ( typeof(v3) != "undefined" ) {
+    return v3;
+  }
+  return 0.0;
+};
+EVGTransition.sameColor = function(a, b) {
+  if ( (Math.floor( a.r)) != (Math.floor( b.r)) ) {
+    return false;
+  }
+  if ( (Math.floor( a.g)) != (Math.floor( b.g)) ) {
+    return false;
+  }
+  if ( (Math.floor( a.b)) != (Math.floor( b.b)) ) {
+    return false;
+  }
+  if ( (Math.floor( (a.a * 255.0))) != (Math.floor( (b.a * 255.0))) ) {
+    return false;
+  }
+  return true;
+};
+EVGTransition.mixColor = function(from, to, t) {
+  const c = new EVGColor();
+  const fa = from.a;
+  const ta = to.a;
+  const a = fa + ((ta - fa) * t);
+  const pr = (from.r * fa) + (((to.r * ta) - (from.r * fa)) * t);
+  const pg = (from.g * fa) + (((to.g * ta) - (from.g * fa)) * t);
+  const pb = (from.b * fa) + (((to.b * ta) - (from.b * fa)) * t);
+  if ( a > 0.0001 ) {
+    c.r = pr / a;
+    c.g = pg / a;
+    c.b = pb / a;
+  } else {
+    c.r = pr;
+    c.g = pg;
+    c.b = pb;
+  }
+  c.a = a;
+  c.isSet = true;
+  return c;
+};
+EVGTransition.unitOf = function(code, value) {
+  const u = new EVGUnit();
+  u.unitType = code;
+  u.value = value;
+  u.pixels = value;
+  u.isSet = true;
+  return u;
+};
+EVGTransition.sameNumber = function(a, b) {
+  return (Math.abs((a - b))) < 0.001;
+};
+class EVGHitTest  {
+  constructor() {
+    this.order = [];
+    this.deferred = [];
+  }
+  collect (el) {
+    this.order.push(el);
+    let i = 0;
+    while (i < (el.children.length)) {
+      const kid = el.children[i];
+      if ( kid.isOverlay ) {
+        this.deferred.push(kid);
+      } else {
+        this.collect(kid);
+      }
+      i = i + 1;
+    };
+  };
+  paintOrder (root) {
+    this.order.length = 0;
+    this.deferred.length = 0;
+    this.collect(root);
+    let i = 0;
+    while (i < (this.deferred.length)) {
+      this.collect(this.deferred[i]);
+      i = i + 1;
+    };
+    return this.order;
+  };
+  idAt (root, px, py) {
+    const list = this.paintOrder(root);
+    let i = (list.length) - 1;
+    while (i >= 0) {
+      const el = list[i];
+      if ( (el.id.length) > 0 ) {
+        if ( EVGHitTest.containsPoint(el, px, py) ) {
+          return el.id;
+        }
+      }
+      i = i - 1;
+    };
+    return "";
+  };
+  classAt (root, px, py) {
+    const list = this.paintOrder(root);
+    let i = (list.length) - 1;
+    while (i >= 0) {
+      const el = list[i];
+      if ( (el.id.length) > 0 ) {
+        if ( EVGHitTest.containsPoint(el, px, py) ) {
+          return el.className;
+        }
+      }
+      i = i - 1;
+    };
+    return "";
+  };
+}
+EVGHitTest.containsPoint = function(el, px, py) {
+  if ( px < el.calculatedX ) {
+    return false;
+  }
+  if ( py < el.calculatedY ) {
+    return false;
+  }
+  if ( px > (el.calculatedX + el.calculatedWidth) ) {
+    return false;
+  }
+  if ( py > (el.calculatedY + el.calculatedHeight) ) {
+    return false;
+  }
+  return true;
+};
+class EVGA11yRole  {
+  constructor() {
+  }
+}
+EVGA11yRole.none = function() {
+  return 0;
+};
+EVGA11yRole.group = function() {
+  return 1;
+};
+EVGA11yRole.text = function() {
+  return 2;
+};
+EVGA11yRole.heading = function() {
+  return 3;
+};
+EVGA11yRole.button = function() {
+  return 4;
+};
+EVGA11yRole.checkbox = function() {
+  return 5;
+};
+EVGA11yRole.radio = function() {
+  return 6;
+};
+EVGA11yRole.textField = function() {
+  return 7;
+};
+EVGA11yRole.image = function() {
+  return 8;
+};
+EVGA11yRole.link = function() {
+  return 9;
+};
+EVGA11yRole.grid = function() {
+  return 10;
+};
+EVGA11yRole.row = function() {
+  return 11;
+};
+EVGA11yRole.columnHeader = function() {
+  return 12;
+};
+EVGA11yRole.rowHeader = function() {
+  return 13;
+};
+EVGA11yRole.cell = function() {
+  return 14;
+};
+EVGA11yRole.tabList = function() {
+  return 15;
+};
+EVGA11yRole.tab = function() {
+  return 16;
+};
+EVGA11yRole.toolbar = function() {
+  return 17;
+};
+EVGA11yRole.menuItem = function() {
+  return 18;
+};
+EVGA11yRole.dialog = function() {
+  return 19;
+};
+EVGA11yRole.status = function() {
+  return 20;
+};
+EVGA11yRole.separator = function() {
+  return 21;
+};
+EVGA11yRole.list = function() {
+  return 22;
+};
+EVGA11yRole.listItem = function() {
+  return 23;
+};
+EVGA11yRole.switchControl = function() {
+  return 24;
+};
+EVGA11yRole.radioGroup = function() {
+  return 25;
+};
+EVGA11yRole.tabPanel = function() {
+  return 26;
+};
+EVGA11yRole.region = function() {
+  return 27;
+};
+EVGA11yRole.progressBar = function() {
+  return 28;
+};
+EVGA11yRole.menu = function() {
+  return 29;
+};
+EVGA11yRole.tooltip = function() {
+  return 30;
+};
+EVGA11yRole.alertDialog = function() {
+  return 31;
+};
+EVGA11yRole.slider = function() {
+  return 32;
+};
+EVGA11yRole.menuBar = function() {
+  return 33;
+};
+EVGA11yRole.menuItemCheckbox = function() {
+  return 34;
+};
+EVGA11yRole.menuItemRadio = function() {
+  return 35;
+};
+EVGA11yRole.comboBox = function() {
+  return 36;
+};
+EVGA11yRole.listBox = function() {
+  return 37;
+};
+EVGA11yRole.option = function() {
+  return 38;
+};
+EVGA11yRole.table = function() {
+  return 39;
+};
+EVGA11yRole.tableCell = function() {
+  return 40;
+};
+EVGA11yRole.tree = function() {
+  return 41;
+};
+EVGA11yRole.treeItem = function() {
+  return 42;
+};
+EVGA11yRole.ariaName = function(role) {
+  if ( role == 41 ) {
+    return "tree";
+  }
+  if ( role == 42 ) {
+    return "treeitem";
+  }
+  if ( role == 1 ) {
+    return "group";
+  }
+  if ( role == 2 ) {
+    return "text";
+  }
+  if ( role == 3 ) {
+    return "heading";
+  }
+  if ( role == 4 ) {
+    return "button";
+  }
+  if ( role == 5 ) {
+    return "checkbox";
+  }
+  if ( role == 6 ) {
+    return "radio";
+  }
+  if ( role == 7 ) {
+    return "textbox";
+  }
+  if ( role == 8 ) {
+    return "img";
+  }
+  if ( role == 9 ) {
+    return "link";
+  }
+  if ( role == 39 ) {
+    return "table";
+  }
+  if ( role == 40 ) {
+    return "cell";
+  }
+  if ( role == 10 ) {
+    return "grid";
+  }
+  if ( role == 11 ) {
+    return "row";
+  }
+  if ( role == 12 ) {
+    return "columnheader";
+  }
+  if ( role == 13 ) {
+    return "rowheader";
+  }
+  if ( role == 14 ) {
+    return "gridcell";
+  }
+  if ( role == 15 ) {
+    return "tablist";
+  }
+  if ( role == 16 ) {
+    return "tab";
+  }
+  if ( role == 17 ) {
+    return "toolbar";
+  }
+  if ( role == 18 ) {
+    return "menuitem";
+  }
+  if ( role == 19 ) {
+    return "dialog";
+  }
+  if ( role == 20 ) {
+    return "status";
+  }
+  if ( role == 21 ) {
+    return "separator";
+  }
+  if ( role == 22 ) {
+    return "list";
+  }
+  if ( role == 23 ) {
+    return "listitem";
+  }
+  if ( role == 24 ) {
+    return "switch";
+  }
+  if ( role == 25 ) {
+    return "radiogroup";
+  }
+  if ( role == 26 ) {
+    return "tabpanel";
+  }
+  if ( role == 27 ) {
+    return "region";
+  }
+  if ( role == 28 ) {
+    return "progressbar";
+  }
+  if ( role == 29 ) {
+    return "menu";
+  }
+  if ( role == 30 ) {
+    return "tooltip";
+  }
+  if ( role == 31 ) {
+    return "alertdialog";
+  }
+  if ( role == 32 ) {
+    return "slider";
+  }
+  if ( role == 33 ) {
+    return "menubar";
+  }
+  if ( role == 34 ) {
+    return "menuitemcheckbox";
+  }
+  if ( role == 35 ) {
+    return "menuitemradio";
+  }
+  if ( role == 36 ) {
+    return "combobox";
+  }
+  if ( role == 37 ) {
+    return "listbox";
+  }
+  if ( role == 38 ) {
+    return "option";
+  }
+  return "none";
+};
+class EVGA11yTri  {
+  constructor() {
+  }
+}
+EVGA11yTri.notApplicable = function() {
+  return 0;
+};
+EVGA11yTri.no = function() {
+  return 1;
+};
+EVGA11yTri.yes = function() {
+  return 2;
+};
+EVGA11yTri.mixed = function() {
+  return 3;
+};
+class EVGA11yLive  {
+  constructor() {
+  }
+}
+EVGA11yLive.off = function() {
+  return 0;
+};
+EVGA11yLive.polite = function() {
+  return 1;
+};
+EVGA11yLive.assertive = function() {
+  return 2;
+};
+class EVGA11yNode  {
+  constructor() {
+    this.id = "";
+    this.parentId = "";
+    this.role = 0;
+    this.name = "";
+    this.description = "";
+    this.roleDescription = "";
+    this.value = "";
+    this.x = 0;
+    this.y = 0;
+    this.w = 0;
+    this.h = 0;
+    this.focusable = false;
+    this.focused = false;
+    this.disabled = false;
+    this.selected = false;
+    this.readOnly = false;
+    this.modal = false;
+    this.checked = 0;
+    this.expanded = 0;
+    this.sorted = 0;
+    this.hasValueNow = false;
+    this.valueNow = 0;
+    this.hasValueRange = false;
+    this.valueMin = 0;
+    this.valueMax = 0;
+    this.rowIndex = 0;
+    this.colIndex = 0;
+    this.rowCount = 0;
+    this.colCount = 0;
+    this.posInSet = 0;
+    this.setSize = 0;
+    this.level = 0;
+    this.caret = 0;
+    this.selStart = 0;
+    this.selEnd = 0;
+    this.actActivate = false;
+    this.actSetValue = false;
+    this.actExpand = false;
+    this.actScrollTo = false;
+    this.live = 0;
+  }
+}
+class EVGA11yTree  {
+  constructor() {
+    this.nodes = [];
+    this.rootId = "";
+    this.focusId = "";
+    this.generation = 0;
+    this.notes = [];
+    let n = [];
+    this.notes = n;
+  }
+  count () {
+    return this.nodes.length;
+  };
+  at (i) {
+    if ( i < 0 ) {
+      return new EVGA11yNode();
+    }
+    if ( i >= (this.nodes.length) ) {
+      return new EVGA11yNode();
+    }
+    return this.nodes[i];
+  };
+  node (id, parentId, role) {
+    const n = new EVGA11yNode();
+    n.id = id;
+    n.parentId = parentId;
+    n.role = role;
+    this.nodes.push(n);
+    if ( (this.rootId.length) == 0 ) {
+      if ( (parentId.length) == 0 ) {
+        this.rootId = id;
+      }
+    }
+    return n;
+  };
+  group (id, parentId, name) {
+    const n = this.node(id, parentId, EVGA11yRole.group());
+    n.name = name;
+    return n;
+  };
+  label (id, parentId, text) {
+    const n = this.node(id, parentId, EVGA11yRole.text());
+    n.name = text;
+    return n;
+  };
+  button (id, parentId, name) {
+    const n = this.node(id, parentId, EVGA11yRole.button());
+    n.name = name;
+    n.focusable = true;
+    n.actActivate = true;
+    return n;
+  };
+  field (id, parentId, name, value) {
+    const n = this.node(id, parentId, EVGA11yRole.textField());
+    n.name = name;
+    n.value = value;
+    n.focusable = true;
+    n.actSetValue = true;
+    return n;
+  };
+  statusRegion (id, parentId, text) {
+    const n = this.node(id, parentId, EVGA11yRole.status());
+    n.value = text;
+    n.live = EVGA11yLive.polite();
+    return n;
+  };
+  place (n, nx, ny, nw, nh) {
+    n.x = nx;
+    n.y = ny;
+    n.w = nw;
+    n.h = nh;
+  };
+  find (id) {
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      if ( n.id == id ) {
+        return n;
+      }
+      i = i + 1;
+    };
+    return new EVGA11yNode();
+  };
+  has (id) {
+    const n = (this).find(id);
+    return (n.id.length) > 0;
+  };
+  setFocus (id) {
+    this.focusId = id;
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      n.focused = n.id == id;
+      i = i + 1;
+    };
+  };
+  toJson () {
+    let out = "{\"root\":";
+    out = out + EVGA11yTree.jsonString(this.rootId);
+    out = (out + ",\"focus\":") + EVGA11yTree.jsonString(this.focusId);
+    out = (out + ",\"gen\":") + ((this.generation.toString()));
+    out = out + ",\"nodes\":[";
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      out = out + this.nodeJson(n);
+      i = i + 1;
+    };
+    return out + "]}";
+  };
+  nodeJson (n) {
+    let out = "{\"id\":";
+    out = out + EVGA11yTree.jsonString(n.id);
+    if ( (n.parentId.length) > 0 ) {
+      out = (out + ",\"p\":") + EVGA11yTree.jsonString(n.parentId);
+    }
+    out = (out + ",\"role\":") + EVGA11yTree.jsonString(EVGA11yRole.ariaName(n.role));
+    if ( (n.name.length) > 0 ) {
+      out = (out + ",\"name\":") + EVGA11yTree.jsonString(n.name);
+    }
+    if ( (n.value.length) > 0 ) {
+      out = (out + ",\"value\":") + EVGA11yTree.jsonString(n.value);
+    }
+    if ( (n.description.length) > 0 ) {
+      out = (out + ",\"desc\":") + EVGA11yTree.jsonString(n.description);
+    }
+    if ( n.hasValueNow ) {
+      out = (out + ",\"now\":") + ((n.valueNow.toString()));
+    }
+    if ( n.hasValueRange ) {
+      out = (out + ",\"min\":") + ((n.valueMin.toString()));
+      out = (out + ",\"max\":") + ((n.valueMax.toString()));
+    }
+    out = (((out + ",\"b\":[") + ((n.x.toString()))) + ",") + ((n.y.toString()));
+    out = ((((out + ",") + ((n.w.toString()))) + ",") + ((n.h.toString()))) + "]";
+    if ( n.focusable ) {
+      out = out + ",\"focusable\":true";
+    }
+    if ( n.focused ) {
+      out = out + ",\"focused\":true";
+    }
+    if ( n.disabled ) {
+      out = out + ",\"disabled\":true";
+    }
+    if ( n.selected ) {
+      out = out + ",\"selected\":true";
+    }
+    if ( n.readOnly ) {
+      out = out + ",\"readonly\":true";
+    }
+    if ( n.modal ) {
+      out = out + ",\"modal\":true";
+    }
+    if ( n.checked != 0 ) {
+      out = (out + ",\"checked\":") + ((n.checked.toString()));
+    }
+    if ( n.sorted != 0 ) {
+      out = (out + ",\"sorted\":") + ((n.sorted.toString()));
+    }
+    if ( n.expanded != 0 ) {
+      out = (out + ",\"expanded\":") + ((n.expanded.toString()));
+    }
+    if ( n.rowIndex != 0 ) {
+      out = (out + ",\"row\":") + ((n.rowIndex.toString()));
+    }
+    if ( n.colIndex != 0 ) {
+      out = (out + ",\"col\":") + ((n.colIndex.toString()));
+    }
+    if ( n.rowCount != 0 ) {
+      out = (out + ",\"rows\":") + ((n.rowCount.toString()));
+    }
+    if ( n.colCount != 0 ) {
+      out = (out + ",\"cols\":") + ((n.colCount.toString()));
+    }
+    if ( (n.roleDescription.length) > 0 ) {
+      out = (out + ",\"roledesc\":") + EVGA11yTree.jsonString(n.roleDescription);
+    }
+    if ( n.posInSet != 0 ) {
+      out = (out + ",\"pos\":") + ((n.posInSet.toString()));
+    }
+    if ( n.level != 0 ) {
+      out = (out + ",\"level\":") + ((n.level.toString()));
+    }
+    if ( n.setSize != 0 ) {
+      out = (out + ",\"size\":") + ((n.setSize.toString()));
+    }
+    if ( n.caret != 0 ) {
+      out = (out + ",\"caret\":") + ((n.caret.toString()));
+    }
+    if ( n.selStart != n.selEnd ) {
+      out = ((((out + ",\"sel\":[") + ((n.selStart.toString()))) + ",") + ((n.selEnd.toString()))) + "]";
+    }
+    if ( n.actActivate ) {
+      out = out + ",\"activate\":true";
+    }
+    if ( n.actSetValue ) {
+      out = out + ",\"setValue\":true";
+    }
+    if ( n.actExpand ) {
+      out = out + ",\"expandable\":true";
+    }
+    if ( n.actScrollTo ) {
+      out = out + ",\"scrollTo\":true";
+    }
+    if ( n.live != 0 ) {
+      out = (out + ",\"live\":") + ((n.live.toString()));
+    }
+    return out + "}";
+  };
+  dump () {
+    return this.dumpFrom(this.rootId, 0);
+  };
+  dumpFrom (id, depth) {
+    const n = (this).find(id);
+    if ( (n.id.length) == 0 ) {
+      return "";
+    }
+    let out = EVGA11yTree.indent(depth);
+    out = out + EVGA11yRole.ariaName(n.role);
+    out = (out + " #") + n.id;
+    if ( (n.name.length) > 0 ) {
+      out = ((out + " \"") + n.name) + "\"";
+    }
+    if ( (n.value.length) > 0 ) {
+      out = (out + " =") + n.value;
+    }
+    const st = this.stateText(n);
+    if ( (st.length) > 0 ) {
+      out = ((out + " [") + st) + "]";
+    }
+    out = (((out + " (") + ((n.x.toString()))) + ",") + ((n.y.toString()));
+    out = ((((out + " ") + ((n.w.toString()))) + "x") + ((n.h.toString()))) + ")\n";
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const c = this.nodes[i];
+      if ( c.parentId == id ) {
+        const nd = depth + 1;
+        out = out + this.dumpFrom(c.id, nd);
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  stateText (n) {
+    let out = "";
+    if ( n.focused ) {
+      out = EVGA11yTree.addWord(out, "focused");
+    }
+    if ( n.focusable ) {
+      if ( n.focused == false ) {
+        out = EVGA11yTree.addWord(out, "focusable");
+      }
+    }
+    if ( n.disabled ) {
+      out = EVGA11yTree.addWord(out, "disabled");
+    }
+    if ( n.selected ) {
+      out = EVGA11yTree.addWord(out, "selected");
+    }
+    if ( n.readOnly ) {
+      out = EVGA11yTree.addWord(out, "readonly");
+    }
+    if ( n.modal ) {
+      out = EVGA11yTree.addWord(out, "modal");
+    }
+    if ( n.checked == 2 ) {
+      out = EVGA11yTree.addWord(out, "checked");
+    }
+    if ( n.checked == 3 ) {
+      out = EVGA11yTree.addWord(out, "mixed");
+    }
+    if ( n.live == 1 ) {
+      out = EVGA11yTree.addWord(out, "live");
+    }
+    if ( n.live == 2 ) {
+      out = EVGA11yTree.addWord(out, "live!");
+    }
+    if ( n.rowIndex > 0 ) {
+      out = EVGA11yTree.addWord(out, ("r" + ((n.rowIndex.toString()))));
+    }
+    if ( n.colIndex > 0 ) {
+      out = EVGA11yTree.addWord(out, ("c" + ((n.colIndex.toString()))));
+    }
+    if ( n.rowCount > 0 ) {
+      out = EVGA11yTree.addWord(out, (("of " + ((n.rowCount.toString()))) + " rows"));
+    }
+    return out;
+  };
+  lint () {
+    let problems = [];
+    let i0 = 0;
+    while (i0 < (this.notes.length)) {
+      problems.push(this.notes[i0]);
+      i0 = i0 + 1;
+    };
+    if ( (this.rootId.length) == 0 ) {
+      problems.push("tree has no root");
+    }
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      let dup = 0;
+      let j = 0;
+      while (j < (this.nodes.length)) {
+        const m = this.nodes[j];
+        if ( m.id == n.id ) {
+          dup = dup + 1;
+        }
+        j = j + 1;
+      };
+      if ( dup > 1 ) {
+        if ( i == 0 ) {
+          problems.push("duplicate id: " + n.id);
+        } else {
+          let prevSeen = false;
+          let k = 0;
+          while (k < i) {
+            const p = this.nodes[k];
+            if ( p.id == n.id ) {
+              prevSeen = true;
+            }
+            k = k + 1;
+          };
+          if ( prevSeen == false ) {
+            problems.push("duplicate id: " + n.id);
+          }
+        }
+      }
+      if ( (n.id.length) == 0 ) {
+        problems.push("node with an empty id");
+      }
+      if ( (n.parentId.length) > 0 ) {
+        if ( (this).has(n.parentId) == false ) {
+          problems.push(((n.id + ": parent ") + n.parentId) + " is not in the tree");
+        }
+      } else {
+        if ( n.id != this.rootId ) {
+          problems.push(n.id + ": no parent, and it is not the root");
+        }
+      }
+      if ( n.focusable ) {
+        const named = (n.name.length) > 0;
+        if ( named == false ) {
+          problems.push(n.id + ": focusable with no accessible name");
+        }
+        if ( n.w <= 0 ) {
+          problems.push(n.id + ": focusable with no width");
+        }
+        if ( n.h <= 0 ) {
+          problems.push(n.id + ": focusable with no height");
+        }
+      }
+      if ( n.role == 0 ) {
+        if ( (n.name.length) > 0 ) {
+          problems.push(n.id + ": named, but the role is decoration");
+        }
+      }
+      i = i + 1;
+    };
+    if ( (this.focusId.length) > 0 ) {
+      if ( (this).has(this.focusId) == false ) {
+        problems.push(("focus points at " + this.focusId) + ", which is not in the tree");
+      }
+    }
+    return problems;
+  };
+}
+EVGA11yTree.addWord = function(acc, word) {
+  if ( (acc.length) == 0 ) {
+    return word;
+  }
+  return (acc + " ") + word;
+};
+EVGA11yTree.indent = function(depth) {
+  let out = "";
+  let i = 0;
+  while (i < depth) {
+    out = out + "  ";
+    i = i + 1;
+  };
+  return out;
+};
+EVGA11yTree.jsonString = function(v) {
+  let out = "\"";
+  let i = 0;
+  while (i < (v.length)) {
+    const ch = v.charCodeAt(i );
+    if ( ch == 34 ) {
+      out = out + "\\\"";
+    } else {
+      if ( ch == 92 ) {
+        out = out + "\\\\";
+      } else {
+        if ( ch == 10 ) {
+          out = out + "\\n";
+        } else {
+          if ( ch == 13 ) {
+            out = out + "\\r";
+          } else {
+            if ( ch == 9 ) {
+              out = out + "\\t";
+            } else {
+              if ( ch < 32 ) {
+                out = out + " ";
+              } else {
+                out = out + (String.fromCharCode(ch));
+              }
+            }
+          }
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return out + "\"";
+};
+class EVGA11yFromTree  {
+  constructor() {
+    this.unnamed = 0;
+    this.tree = new EVGA11yTree();
+  }
+  contentText (el) {
+    let out = "";
+    let i = 0;
+    while (i < (el.children.length)) {
+      const kid = el.children[i];
+      if ( ((kid.role.length) == 0) && (kid.a11yHidden == false) ) {
+        const t = kid.textContent.trim();
+        if ( (t.length) > 0 ) {
+          if ( (out.length) > 0 ) {
+            out = out + " ";
+          }
+          out = out + t;
+        }
+        const below = this.contentText(kid);
+        if ( (below.length) > 0 ) {
+          if ( (out.length) > 0 ) {
+            out = out + " ";
+          }
+          out = out + below;
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  nameOf (el) {
+    if ( (el.a11yLabel.length) > 0 ) {
+      return el.a11yLabel;
+    }
+    const own = el.textContent.trim();
+    if ( (own.length) > 0 ) {
+      return own;
+    }
+    return this.contentText(el);
+  };
+  idOf (el, parentId, index) {
+    if ( (el.id.length) > 0 ) {
+      return el.id;
+    }
+    this.unnamed = this.unnamed + 1;
+    return (((parentId + "/") + el.role) + "@") + ((index.toString()));
+  };
+  walk (el, parentId, index) {
+    if ( el.a11yHidden ) {
+      return;
+    }
+    let nextParent = parentId;
+    const code = EVGA11yFromTree.roleCode(el.role);
+    if ( (el.role.length) > 0 ) {
+      if ( code == EVGA11yRole.none() ) {
+        const t0 = this.tree;
+        t0.notes.push(("role not understood by EVGA11yFromTree: \"" + el.role) + "\" — the element and everything under it is missing from this tree");
+      }
+    }
+    if ( code != EVGA11yRole.none() ) {
+      const id = this.idOf(el, parentId, index);
+      const t = this.tree;
+      const n = t.node(id, parentId, code);
+      n.name = this.nameOf(el);
+      n.roleDescription = el.a11yRoleDescription;
+      n.disabled = el.a11yDisabled;
+      n.checked = el.a11yChecked;
+      n.expanded = el.a11yExpanded;
+      n.sorted = el.a11ySorted;
+      if ( el.a11ySelected == 2 ) {
+        n.selected = true;
+      }
+      n.focusable = el.a11yFocusable;
+      if ( el.a11yFocusable ) {
+        n.actActivate = true;
+      }
+      if ( el.a11yExpanded > 0 ) {
+        n.actExpand = true;
+      }
+      n.posInSet = el.a11yPosInSet;
+      n.setSize = el.a11ySetSize;
+      n.level = el.a11yLevel;
+      t.place(n, Math.floor( el.calculatedX), Math.floor( el.calculatedY), Math.floor( el.calculatedWidth), Math.floor( el.calculatedHeight));
+      nextParent = id;
+    }
+    let i = 0;
+    while (i < (el.children.length)) {
+      this.walk(el.children[i], nextParent, i);
+      i = i + 1;
+    };
+  };
+  build (root, appName, generation, focusId) {
+    this.tree = new EVGA11yTree();
+    this.unnamed = 0;
+    const t = this.tree;
+    t.generation = generation;
+    const rootNode = t.node("root", "", EVGA11yRole.group());
+    rootNode.name = appName;
+    t.place(rootNode, Math.floor( root.calculatedX), Math.floor( root.calculatedY), Math.floor( root.calculatedWidth), Math.floor( root.calculatedHeight));
+    this.walk(root, "root", 0);
+    t.setFocus(focusId);
+    return t;
+  };
+}
+EVGA11yFromTree.roleCode = function(name) {
+  if ( name == "group" ) {
+    return EVGA11yRole.group();
+  }
+  if ( name == "text" ) {
+    return EVGA11yRole.text();
+  }
+  if ( name == "heading" ) {
+    return EVGA11yRole.heading();
+  }
+  if ( name == "button" ) {
+    return EVGA11yRole.button();
+  }
+  if ( name == "checkbox" ) {
+    return EVGA11yRole.checkbox();
+  }
+  if ( name == "radio" ) {
+    return EVGA11yRole.radio();
+  }
+  if ( name == "textbox" ) {
+    return EVGA11yRole.textField();
+  }
+  if ( name == "img" ) {
+    return EVGA11yRole.image();
+  }
+  if ( name == "link" ) {
+    return EVGA11yRole.link();
+  }
+  if ( name == "tablist" ) {
+    return EVGA11yRole.tabList();
+  }
+  if ( name == "tab" ) {
+    return EVGA11yRole.tab();
+  }
+  if ( name == "toolbar" ) {
+    return EVGA11yRole.toolbar();
+  }
+  if ( name == "menu" ) {
+    return EVGA11yRole.menu();
+  }
+  if ( name == "menubar" ) {
+    return EVGA11yRole.menuBar();
+  }
+  if ( name == "menuitem" ) {
+    return EVGA11yRole.menuItem();
+  }
+  if ( name == "menuitemcheckbox" ) {
+    return EVGA11yRole.menuItemCheckbox();
+  }
+  if ( name == "menuitemradio" ) {
+    return EVGA11yRole.menuItemRadio();
+  }
+  if ( name == "separator" ) {
+    return EVGA11yRole.separator();
+  }
+  if ( name == "dialog" ) {
+    return EVGA11yRole.dialog();
+  }
+  if ( name == "alertdialog" ) {
+    return EVGA11yRole.alertDialog();
+  }
+  if ( name == "tooltip" ) {
+    return EVGA11yRole.tooltip();
+  }
+  if ( name == "status" ) {
+    return EVGA11yRole.status();
+  }
+  if ( name == "region" ) {
+    return EVGA11yRole.region();
+  }
+  if ( name == "list" ) {
+    return EVGA11yRole.list();
+  }
+  if ( name == "listitem" ) {
+    return EVGA11yRole.listItem();
+  }
+  if ( name == "table" ) {
+    return EVGA11yRole.table();
+  }
+  if ( name == "row" ) {
+    return EVGA11yRole.row();
+  }
+  if ( name == "columnheader" ) {
+    return EVGA11yRole.columnHeader();
+  }
+  if ( name == "rowheader" ) {
+    return EVGA11yRole.rowHeader();
+  }
+  if ( name == "cell" ) {
+    return EVGA11yRole.tableCell();
+  }
+  if ( name == "gridcell" ) {
+    return EVGA11yRole.cell();
+  }
+  if ( name == "switch" ) {
+    return EVGA11yRole.switchControl();
+  }
+  if ( name == "radiogroup" ) {
+    return EVGA11yRole.radioGroup();
+  }
+  if ( name == "slider" ) {
+    return EVGA11yRole.slider();
+  }
+  if ( name == "progressbar" ) {
+    return EVGA11yRole.progressBar();
+  }
+  if ( name == "tree" ) {
+    return EVGA11yRole.tree();
+  }
+  if ( name == "treeitem" ) {
+    return EVGA11yRole.treeItem();
+  }
+  return EVGA11yRole.none();
+};
+class EVGReconcileStats  {
+  constructor() {
+    this.kept = 0;
+    this.created = 0;
+    this.dropped = 0;
+    this.moved = 0;
+  }
+}
+class EVGReconcile  {
+  constructor() {
+    this.stats = new EVGReconcileStats();
+  }
+  reconcile (live, next) {
+    const kids = this.matchChildren(live, next);
+    live.adoptFrom(next);
+    let fresh = [];
+    live.children = fresh;
+    let i = 0;
+    while (i < (kids.length)) {
+      live.addChild(kids[i]);
+      i = i + 1;
+    };
+  };
+  matchChildren (live, next) {
+    let out = [];
+    const old = live.children;
+    const n = old.length;
+    let taken = [];
+    let t = 0;
+    while (t < n) {
+      taken.push(false);
+      t = t + 1;
+    };
+    const m = next.children.length;
+    let j = 0;
+    let unkeyedSeen = 0;
+    while (j < m) {
+      const cand = next.children[j];
+      let hit = 0 - 1;
+      if ( (cand.key.length) > 0 ) {
+        hit = this.findKeyed(old, taken, cand);
+      } else {
+        hit = this.findUnkeyed(old, taken, cand, unkeyedSeen);
+        unkeyedSeen = unkeyedSeen + 1;
+      }
+      if ( hit >= 0 ) {
+        const keep = old[hit];
+        taken[hit] = true;
+        if ( hit != j ) {
+          this.stats.moved = this.stats.moved + 1;
+        }
+        this.reconcile(keep, cand);
+        this.stats.kept = this.stats.kept + 1;
+        out.push(keep);
+      } else {
+        this.stats.created = this.stats.created + 1;
+        out.push(cand);
+      }
+      j = j + 1;
+    };
+    let k = 0;
+    while (k < n) {
+      if ( (taken[k]) == false ) {
+        this.stats.dropped = this.stats.dropped + 1;
+      }
+      k = k + 1;
+    };
+    return out;
+  };
+  findKeyed (old, taken, cand) {
+    let i = 0;
+    while (i < (old.length)) {
+      if ( (taken[i]) == false ) {
+        if ( EVGReconcile.matches((old[i]), cand) ) {
+          return i;
+        }
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  findUnkeyed (old, taken, cand, want) {
+    let seen = 0;
+    let i = 0;
+    while (i < (old.length)) {
+      const o = old[i];
+      if ( (o.key.length) == 0 ) {
+        if ( seen == want ) {
+          if ( (taken[i]) == false ) {
+            if ( o.tagName == cand.tagName ) {
+              return i;
+            }
+          }
+          return 0 - 1;
+        }
+        seen = seen + 1;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  resetStats () {
+    this.stats = new EVGReconcileStats();
+  };
+}
+EVGReconcile.matches = function(a, b) {
+  if ( a.tagName != b.tagName ) {
+    return false;
+  }
+  return a.key == b.key;
+};
+class RecCheck  {
   constructor() {
     this.passed = 0;
     this.failed = 0;
@@ -11589,275 +12745,243 @@ class StyleCheck  {
   eqStr (name, got, want) {
     const good = got == want;
     if ( good == false ) {
-      console.log(((("       got '" + got) + "' want '") + want) + "'");
+      console.log("       got  " + got);
+      console.log("       want " + want);
     }
     this.ok(name, good);
   };
   eqInt (name, got, want) {
-    const good = got == want;
-    if ( good == false ) {
-      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
-    }
-    this.ok(name, good);
+    this.eqStr(name, (got.toString()), (want.toString()));
   };
 }
-class EVGStyleStateTest  {
+class EVGReconcileTest  {
   constructor() {
   }
 }
-EVGStyleStateTest.sheetOf = function(css) {
-  const s = new EVGStyleSheet();
-  s.parse(css);
-  s.setViewport(800.0, 600.0, false);
-  return s;
+EVGReconcileTest.sheetText = function() {
+  return ((((("" + ".list { display: flex; flex-direction: column; width: 200px; gap: 0px; }") + ".row { height: 20px; width: 200px; transition: background-color 100ms linear; }") + ".row-a { background-color: #ff0000; }") + ".row-b { background-color: #00ff00; }") + ".row-c { background-color: #0000ff; }") + ".row-d { background-color: #ffff00; }";
 };
-EVGStyleStateTest.button = function() {
+EVGReconcileTest.row = function(name, keyed) {
   const el = EVGElement.createDiv();
-  el.id = "btn";
-  el.className = "btn";
+  el.className = "row row-" + name;
+  el.id = "row-" + name;
+  el.textContent = name;
+  el.role = "listitem";
+  el.a11yLabel = name;
+  if ( keyed ) {
+    el.key = name;
+  }
   return el;
 };
-EVGStyleStateTest.bgRed = function(el) {
-  if ( typeof(el.backgroundColor) != "undefined" ) {
-    const c = el.backgroundColor;
-    return c.red();
-  }
-  return 0 - 1;
+EVGReconcileTest.list = function(names, keyed) {
+  const el = EVGElement.createDiv();
+  el.className = "list";
+  el.id = "list";
+  el.role = "list";
+  el.a11yLabel = "rows";
+  let i = 0;
+  while (i < (names.length)) {
+    el.addChild(EVGReconcileTest.row((names.substring(i, (i + 1) )), keyed));
+    i = i + 1;
+  };
+  return el;
 };
-EVGStyleStateTest.testHover = function(c) {
-  console.log("--- a rule can ask for the pointer ---");
-  const css = ".btn { background-color: rgb(0,0,0) } .btn:hover { background-color: rgb(255,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  c.eqInt("both rules parsed", s.getRuleCount(), 2);
-  c.eqInt("and neither was rejected", s.getErrorCount(), 0);
-  const el = EVGStyleStateTest.button();
-  s.applyTree(el, "");
-  c.eqInt("at rest it is the base rule", EVGStyleStateTest.bgRed(el), 0);
-  el.isHovered = true;
-  s.applyTree(el, "");
-  c.eqInt("under the pointer the hover rule wins", EVGStyleStateTest.bgRed(el), 255);
-  el.isHovered = false;
-  s.applyTree(el, "");
-  c.eqInt("and it goes back when the pointer leaves", EVGStyleStateTest.bgRed(el), 0);
-};
-EVGStyleStateTest.testOrder = function(c) {
-  console.log("--- a pseudo rule wins wherever it is written ---");
-  const css = ".btn:hover { background-color: rgb(255,0,0) } .btn { background-color: rgb(0,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  el.isHovered = true;
-  s.applyTree(el, "");
-  c.eqInt("even declared before the base rule", EVGStyleStateTest.bgRed(el), 255);
-};
-EVGStyleStateTest.testStates = function(c) {
-  console.log("--- focus, active and disabled are the same mechanism ---");
-  const css = ((".btn { background-color: rgb(0,0,0) }" + " .btn:focus { background-color: rgb(10,0,0) }") + " .btn:active { background-color: rgb(20,0,0) }") + " .btn:disabled { background-color: rgb(30,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  el.isFocused = true;
-  s.applyTree(el, "");
-  c.eqInt("focus", EVGStyleStateTest.bgRed(el), 10);
-  el.isFocused = false;
-  el.isPressed = true;
-  s.applyTree(el, "");
-  c.eqInt("active", EVGStyleStateTest.bgRed(el), 20);
-  el.isPressed = false;
-  el.a11yDisabled = true;
-  s.applyTree(el, "");
-  c.eqInt("disabled", EVGStyleStateTest.bgRed(el), 30);
-};
-EVGStyleStateTest.testUnknownPseudo = function(c) {
-  console.log("--- an unsupported pseudo is reported, not ignored ---");
-  const s = EVGStyleStateTest.sheetOf(".btn:nth-child(2) { background-color: rgb(1,0,0) }");
-  c.eqInt("no rule was made", s.getRuleCount(), 0);
-  c.ok("and an error says why", s.getErrorCount() > 0);
-};
-EVGStyleStateTest.testUnknownTiming = function(c) {
-  console.log("--- an unsupported timing function is reported too ---");
-  const bad = EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms spring(1, 2) }");
-  c.ok("a made-up easing is an error", bad.getErrorCount() > 0);
-  const good = EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1) }");
-  c.eqInt("a real one is not", good.getErrorCount(), 0);
-  c.eqInt("and the rule survives", good.getRuleCount(), 1);
-};
-EVGStyleStateTest.testStateOnlyPropertyReverts = function(c) {
-  console.log("--- a state-only property goes away with the state ---");
-  const css = ".btn { background-color: rgb(0,0,0) }" + " .btn:hover { transform: scale(2) translate(4, 0); opacity: 0.5 }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  s.applyTree(el, "");
-  c.ok("no scale at rest", (Math.abs((el.scale - 1.0))) < 0.001);
-  el.isHovered = true;
-  s.applyTree(el, "");
-  c.ok("scaled under the pointer", (Math.abs((el.scale - 2.0))) < 0.001);
-  c.ok("and moved by the SCALED offset", (Math.abs((el.translateX - 8.0))) < 0.001);
-  c.ok("and faded", (Math.abs((el.opacity - 0.5))) < 0.001);
-  el.isHovered = false;
-  s.applyTree(el, "");
-  c.ok("the scale goes back", (Math.abs((el.scale - 1.0))) < 0.001);
-  c.ok("so does the offset", (Math.abs(el.translateX)) < 0.001);
-  c.ok("and the opacity", (Math.abs((el.opacity - 1.0))) < 0.001);
-  c.eqInt("while the base colour is untouched", EVGStyleStateTest.bgRed(el), 0);
-};
-EVGStyleStateTest.testStateOnlyOriginReverts = function(c) {
-  console.log("--- a state-only transform-origin goes back to the centre ---");
-  const css = ".btn { background-color: rgb(0,0,0) }" + " .btn:hover { transform-origin: left top }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  el.isHovered = true;
-  s.applyTree(el, "");
-  c.ok("the corner while hovered", (Math.abs(EVGElement.resolveOrigin(el.transformOriginX, 100.0))) < 0.001);
-  el.isHovered = false;
-  s.applyTree(el, "");
-  c.ok("and the centre again after", (Math.abs((EVGElement.resolveOrigin(el.transformOriginX, 100.0) - 50.0))) < 0.001);
-};
-EVGStyleStateTest.testTextAlign = function(c) {
-  console.log("--- text-align moves the text, not just the attribute ---");
-  const lefts = EVGStyleStateTest.labelXs("left");
-  const centres = EVGStyleStateTest.labelXs("center");
-  const rights = EVGStyleStateTest.labelXs("right");
-  c.ok("a label was painted at all", (lefts.length) > 0);
-  if ( (lefts.length) > 0 ) {
-    const l = lefts[0];
-    const m = centres[0];
-    const r = rights[0];
-    c.ok("centred starts right of left-aligned", m > (l + 1.0));
-    c.ok("and right-aligned right of centred", r > (m + 1.0));
-    const half = (l + r) / 2.0;
-    c.ok("and centred is exactly half the slack", (Math.abs((m - half))) < 1.0);
-  }
-};
-EVGStyleStateTest.labelXs = function(align) {
-  const page = new EVGElement();
-  page.setAttribute("width", "400");
-  page.setAttribute("height", "100");
-  const card = new EVGElement();
-  card.setAttribute("width", "300");
-  card.setAttribute("height", "40");
-  card.setAttribute("text-align", align);
-  card.textContent = "hi";
-  page.addChild(card);
+EVGReconcileTest.styled = function(root) {
+  const s = new EVGStyleSheet();
+  s.parse(EVGReconcileTest.sheetText());
+  s.setViewport(300.0, 300.0, false);
+  s.applyTree(root, "");
   const lay = new EVGLayout();
-  lay.layout(page);
+  lay.setPageSize(300.0, 300.0);
+  lay.layout(root);
+  return lay;
+};
+EVGReconcileTest.paintOf = function(root) {
+  const lay = EVGReconcileTest.styled(root);
   const dl = new EVGDisplayList();
   dl.setTextEngine(lay.getTextEngine());
-  dl.build(page);
-  let out = [];
-  let i = 0;
-  while (i < (dl.cmds.length)) {
-    const cmd = dl.cmds[i];
-    if ( cmd.kind == 3 ) {
-      out.push(cmd.x);
-    }
-    i = i + 1;
+  dl.build(root);
+  return dl.toJson();
+};
+EVGReconcileTest.treeOf = function(root) {
+  EVGReconcileTest.styled(root);
+  const b = new EVGA11yFromTree();
+  const t = b.build(root, "rec", 1, "");
+  return t.toJson();
+};
+EVGReconcileTest.hitsOf = function(root) {
+  EVGReconcileTest.styled(root);
+  const h = new EVGHitTest();
+  let out = "";
+  let y = 10.0;
+  while (y < 100.0) {
+    out = (out + h.idAt(root, 100.0, y)) + "|";
+    y = y + 20.0;
   };
   return out;
 };
-EVGStyleStateTest.testTransition = function(c) {
-  console.log("--- a colour moves instead of jumping ---");
-  const css = ".btn { background-color: rgb(0,0,0); transition: background-color 200ms }" + " .btn:hover { background-color: rgb(200,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  const tr = new EVGTransition();
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  c.eqInt("it starts where the base rule put it", EVGStyleStateTest.bgRed(el), 0);
-  el.isHovered = true;
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  c.eqInt("the pointer arrives and nothing has moved yet", EVGStyleStateTest.bgRed(el), 0);
-  tr.advance(el, 100.0);
-  c.eqInt("half way through, half way there", EVGStyleStateTest.bgRed(el), 100);
-  tr.advance(el, 100.0);
-  c.eqInt("and at the end it has arrived", EVGStyleStateTest.bgRed(el), 200);
-  tr.advance(el, 500.0);
-  c.eqInt("and stays there", EVGStyleStateTest.bgRed(el), 200);
+EVGReconcileTest.sameAsFresh = function(c, label, from, to, keyed) {
+  const live = EVGReconcileTest.list(from, keyed);
+  const next = EVGReconcileTest.list(to, keyed);
+  const r = new EVGReconcile();
+  r.reconcile(live, next);
+  const fresh = EVGReconcileTest.list(to, keyed);
+  c.eqStr(label + ": the display list", EVGReconcileTest.paintOf(live), EVGReconcileTest.paintOf(fresh));
+  c.eqStr(label + ": the accessible tree", EVGReconcileTest.treeOf(live), EVGReconcileTest.treeOf(fresh));
+  c.eqStr(label + ": the hit test", EVGReconcileTest.hitsOf(live), EVGReconcileTest.hitsOf(fresh));
+  c.eqInt(label + ": the child count", live.children.length, fresh.children.length);
 };
-EVGStyleStateTest.testReverseMidFlight = function(c) {
-  console.log("--- reversed half way, it goes back from where it IS ---");
-  const css = ".btn { background-color: rgb(0,0,0); transition: background-color 200ms }" + " .btn:hover { background-color: rgb(200,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  const tr = new EVGTransition();
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  el.isHovered = true;
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  tr.advance(el, 100.0);
-  c.eqInt("half way", EVGStyleStateTest.bgRed(el), 100);
-  el.isHovered = false;
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  c.eqInt("the reversal starts from where it had got to", EVGStyleStateTest.bgRed(el), 100);
-  tr.advance(el, 100.0);
-  c.eqInt("and lands back at the start", EVGStyleStateTest.bgRed(el), 0);
+EVGReconcileTest.testInvariant = function(c) {
+  console.log("--- reconciled == freshly built ---");
+  EVGReconcileTest.sameAsFresh(c, "unchanged", "abc", "abc", true);
+  EVGReconcileTest.sameAsFresh(c, "reordered", "abc", "cab", true);
+  EVGReconcileTest.sameAsFresh(c, "one inserted", "abc", "abdc", true);
+  EVGReconcileTest.sameAsFresh(c, "one removed", "abc", "ac", true);
+  EVGReconcileTest.sameAsFresh(c, "emptied", "abc", "", true);
+  EVGReconcileTest.sameAsFresh(c, "filled from empty", "", "abc", true);
+  EVGReconcileTest.sameAsFresh(c, "wholly replaced", "ab", "cd", true);
+  EVGReconcileTest.sameAsFresh(c, "unkeyed, reordered", "abc", "cab", false);
+  EVGReconcileTest.sameAsFresh(c, "unkeyed, one inserted", "abc", "abdc", false);
+  EVGReconcileTest.sameAsFresh(c, "unkeyed, one removed", "abc", "ac", false);
 };
-EVGStyleStateTest.testNoTransitionDeclared = function(c) {
-  console.log("--- without a transition it is instant, as CSS says ---");
-  const css = ".btn { background-color: rgb(0,0,0) } .btn:hover { background-color: rgb(200,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  const tr = new EVGTransition();
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  el.isHovered = true;
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  c.eqInt("there on the first frame", EVGStyleStateTest.bgRed(el), 200);
+EVGReconcileTest.testKeepsElements = function(c) {
+  console.log("--- how much is kept ---");
+  const live = EVGReconcileTest.list("abc", true);
+  const r = new EVGReconcile();
+  r.reconcile(live, EVGReconcileTest.list("cab", true));
+  c.eqInt("a reorder keeps every element", r.stats.kept, 3);
+  c.eqInt("and creates none", r.stats.created, 0);
+  c.eqInt("and every one of them changed position", r.stats.moved, 3);
+  const live2 = EVGReconcileTest.list("abc", true);
+  const r2 = new EVGReconcile();
+  r2.reconcile(live2, EVGReconcileTest.list("abdc", true));
+  c.eqInt("an insert keeps the three that were there", r2.stats.kept, 3);
+  c.eqInt("and creates exactly the new one", r2.stats.created, 1);
+  c.eqInt("and drops nothing", r2.stats.dropped, 0);
+  const live3 = EVGReconcileTest.list("abc", true);
+  const r3 = new EVGReconcile();
+  r3.reconcile(live3, EVGReconcileTest.list("ac", true));
+  c.eqInt("a removal drops exactly one", r3.stats.dropped, 1);
+  c.eqInt("and keeps the rest", r3.stats.kept, 2);
+  const live4 = EVGElement.createDiv();
+  const a = EVGElement.createDiv();
+  a.key = "x";
+  live4.addChild(a);
+  const next4 = EVGElement.createDiv();
+  const b = EVGElement.createDiv();
+  b.tagName = "button";
+  b.key = "x";
+  next4.addChild(b);
+  const r4 = new EVGReconcile();
+  r4.reconcile(live4, next4);
+  c.eqInt("same key, different tag is not a match", r4.stats.kept, 0);
+  c.eqInt("it is built instead", r4.stats.created, 1);
 };
-EVGStyleStateTest.testOpacity = function(c) {
-  console.log("--- opacity moves too, and it is not a colour ---");
-  const css = ".btn { opacity: 1; transition: opacity 100ms } .btn:hover { opacity: 0 }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const el = EVGStyleStateTest.button();
-  const tr = new EVGTransition();
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  el.isHovered = true;
-  s.applyTree(el, "");
-  tr.reconcile(el);
-  c.eqInt("still opaque on the frame the pointer arrives", Math.floor( (el.opacity * 100.0)), 100);
-  tr.advance(el, 50.0);
-  c.eqInt("half faded", Math.floor( (el.opacity * 100.0)), 50);
-  tr.advance(el, 50.0);
-  c.eqInt("gone", Math.floor( (el.opacity * 100.0)), 0);
+EVGReconcileTest.flightCount = function(el) {
+  return el.transitions.length;
 };
-EVGStyleStateTest.testSubtree = function(c) {
-  console.log("--- the whole tree is advanced, not one element ---");
-  const css = ".row { background-color: rgb(0,0,0); transition: background-color 100ms }" + " .row:hover { background-color: rgb(100,0,0) }";
-  const s = EVGStyleStateTest.sheetOf(css);
-  const page = EVGElement.createDiv();
-  const kid = EVGElement.createDiv();
-  kid.id = "kid";
-  kid.className = "row";
-  page.addChild(kid);
-  const tr = new EVGTransition();
-  s.applyTree(page, "");
-  tr.reconcileTree(page);
-  kid.isHovered = true;
-  s.applyTree(page, "");
-  tr.reconcileTree(page);
-  tr.advanceTree(page, 50.0);
-  c.eqInt("a child half way through", EVGStyleStateTest.bgRed(kid), 50);
+EVGReconcileTest.childByLabel = function(root, label) {
+  let i = 0;
+  while (i < (root.children.length)) {
+    const ch = root.children[i];
+    if ( ch.a11yLabel == label ) {
+      const hit = ch;
+      return hit;
+    }
+    i = i + 1;
+  };
+  let miss;
+  return miss;
+};
+EVGReconcileTest.testFlightSurvives = function(c) {
+  console.log("--- a flight survives a rebuild ---");
+  const live = EVGReconcileTest.list("abc", true);
+  const t = new EVGTransition();
+  EVGReconcileTest.styled(live);
+  t.reconcileTree(live);
+  t.advanceTree(live, 500.0);
+  c.ok("nothing is moving once the first frame has settled", t.busy(live) == false);
+  const cRow = EVGReconcileTest.childByLabel(live, "c");
+  cRow.className = "row row-d";
+  EVGReconcileTest.styled(live);
+  t.reconcileTree(live);
+  t.advanceTree(live, 30.0);
+  c.ok("the row is in flight before the rebuild", t.busy(cRow));
+  const r = new EVGReconcile();
+  r.reconcile(live, EVGReconcileTest.list("cab", true));
+  const moved = EVGReconcileTest.childByLabel(live, "c");
+  const first = live.children[0];
+  c.eqStr("the row is where the new order puts it", first.a11yLabel, "c");
+  c.ok("and it is still the same element, still in flight", t.busy(moved));
+  const aRow = EVGReconcileTest.childByLabel(live, "a");
+  c.ok("a row that did not change is not put in flight", t.busy(aRow) == false);
+};
+EVGReconcileTest.testUnkeyedLosesIt = function(c) {
+  console.log("--- and why the key is not the id ---");
+  const live = EVGReconcileTest.list("abc", false);
+  const t = new EVGTransition();
+  EVGReconcileTest.styled(live);
+  t.reconcileTree(live);
+  t.advanceTree(live, 500.0);
+  const third = live.children[2];
+  third.className = "row row-d";
+  EVGReconcileTest.styled(live);
+  t.reconcileTree(live);
+  t.advanceTree(live, 30.0);
+  c.ok("the third row is in flight", t.busy(third));
+  const r = new EVGReconcile();
+  r.reconcile(live, EVGReconcileTest.list("cab", false));
+  const nowThird = live.children[2];
+  c.eqStr("position two is a different row now", nowThird.a11yLabel, "b");
+  c.ok("and it inherited the flight that was not its own", t.busy(nowThird));
+};
+EVGReconcileTest.mixedRow = function(tag, label) {
+  const el = EVGElement.createDiv();
+  el.tagName = tag;
+  el.className = "row row-a";
+  el.a11yLabel = label;
+  return el;
+};
+EVGReconcileTest.testUnkeyedDoesNotFallForward = function(c) {
+  console.log("--- an unkeyed mismatch is a miss, not a search ---");
+  const live = EVGElement.createDiv();
+  live.className = "list";
+  live.addChild(EVGReconcileTest.mixedRow("div", "one"));
+  live.addChild(EVGReconcileTest.mixedRow("button", "two"));
+  live.addChild(EVGReconcileTest.mixedRow("div", "three"));
+  const t = new EVGTransition();
+  EVGReconcileTest.styled(live);
+  t.reconcileTree(live);
+  t.advanceTree(live, 500.0);
+  const third = live.children[2];
+  third.className = "row row-d";
+  EVGReconcileTest.styled(live);
+  t.reconcileTree(live);
+  t.advanceTree(live, 30.0);
+  c.ok("the third child is in flight", t.busy(third));
+  const next = EVGElement.createDiv();
+  next.className = "list";
+  next.addChild(EVGReconcileTest.mixedRow("div", "one"));
+  next.addChild(EVGReconcileTest.mixedRow("div", "two"));
+  next.addChild(EVGReconcileTest.mixedRow("div", "three"));
+  const r = new EVGReconcile();
+  r.reconcile(live, next);
+  c.eqInt("the button is not reused as a div", r.stats.kept, 2);
+  c.eqInt("so one child is built", r.stats.created, 1);
+  const nowSecond = live.children[1];
+  const nowThird = live.children[2];
+  c.ok("the flight stayed at position two", t.busy(nowThird));
+  c.ok("and did not slide up to position one", t.busy(nowSecond) == false);
 };
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
-  const c = new StyleCheck();
-  console.log("=== EVG stylesheet: states and transitions ===");
-  EVGStyleStateTest.testHover(c);
-  EVGStyleStateTest.testOrder(c);
-  EVGStyleStateTest.testStates(c);
-  EVGStyleStateTest.testUnknownPseudo(c);
-  EVGStyleStateTest.testUnknownTiming(c);
-  EVGStyleStateTest.testStateOnlyPropertyReverts(c);
-  EVGStyleStateTest.testStateOnlyOriginReverts(c);
-  EVGStyleStateTest.testTextAlign(c);
-  EVGStyleStateTest.testTransition(c);
-  EVGStyleStateTest.testReverseMidFlight(c);
-  EVGStyleStateTest.testNoTransitionDeclared(c);
-  EVGStyleStateTest.testOpacity(c);
-  EVGStyleStateTest.testSubtree(c);
+  const c = new RecCheck();
+  console.log("=== EVG keyed reconciliation ===");
+  EVGReconcileTest.testInvariant(c);
+  EVGReconcileTest.testKeepsElements(c);
+  EVGReconcileTest.testFlightSurvives(c);
+  EVGReconcileTest.testUnkeyedLosesIt(c);
+  EVGReconcileTest.testUnkeyedDoesNotFallForward(c);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed > 0 ) {

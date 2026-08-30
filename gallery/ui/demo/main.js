@@ -131,6 +131,8 @@ function keptTree(mod, css, label, size) {
     return lay;
   };
 
+  const reconciler = new mod.EVGReconcile();
+
   return {
     /** Rebuild only if the data changed. */
     sync(nextKey, build) {
@@ -138,6 +140,30 @@ function keptTree(mod, css, label, size) {
       key = nextKey;
       root = build();
     },
+    /**
+     * Rebuild EVERY time, and keep the elements.
+     *
+     * `sync` above is the old answer to a problem that has a real one now: a
+     * tree built from scratch has different elements in every position, so
+     * anything an element remembers — a flight, most of all — is gone, and the
+     * only way to keep it was to not rebuild. `EVGReconcile` matches the new
+     * children against the live ones by key and moves the elements instead of
+     * replacing them, so a rebuild is once again the way to say what changed.
+     *
+     * The first call has nothing to reconcile against and simply takes the
+     * tree.
+     */
+    rebuild(build) {
+      const next = build();
+      if (!root) {
+        root = next;
+        return;
+      }
+      reconciler.resetStats();
+      reconciler.reconcile(root, next);
+    },
+    /** How the last rebuild went, for a page that wants to prove it works. */
+    reconcileStats: () => reconciler.stats,
     setHover(id) {
       if (id === hovered) return false;
       hovered = id;
@@ -478,26 +504,27 @@ const DEMOS = {
     height: 560,
     args: () => [SORTABLE_CSS, state.order, state.dragging],
     module: SortableDemo,
-    // Through the kept tree, so a hover does not rebuild and a
-    // transition has something to remember.
-    // The preview's position is deliberately NOT in the key. It changes on
-    // every pointer move, and a tree rebuilt every frame has new elements in
-    // it, so the rows opening a gap would have no flight to travel along and
-    // would simply appear where they were going. What the key holds is
-    // STRUCTURE — the order, what is being carried, and where it is headed —
-    // and the preview is then moved by hand below.
+    // Rebuilt from the whole state on every frame of a drag, target and
+    // preview position included, and reconciled into the live tree.
+    //
+    // This is the one place in the gallery where the declarative claim is
+    // actually being made at 60Hz. It used to be three things: a `sync` whose
+    // key deliberately left out the target and the preview position, a
+    // hand-written `applyShift` that re-aimed the existing rows, and a
+    // `movePreview` that reached in and set two attributes. All three existed
+    // because a rebuilt row was a NEW row with no flight, so the gap appeared
+    // instead of opening. With keys it is one call.
     sync: () => {
-      HOSTS.sortable.sync(
-        JSON.stringify([state.order, state.dragging, state.floating]),
-        () => SortableDemo.dragPage(state.order, state.dragging, state.over, 0, 0, state.floating),
+      HOSTS.sortable.rebuild(() =>
+        SortableDemo.dragPage(
+          state.order,
+          state.dragging,
+          state.over,
+          state.previewX,
+          state.previewY,
+          state.floating,
+        ),
       );
-      // The TARGET is not in the key either. It changes every time the pointer
-      // crosses a row, which is exactly the moment the gap has to open — and a
-      // rebuild there would hand every row a new element with no flight to
-      // travel along, so the gap would appear rather than open.
-      const root = HOSTS.sortable.root();
-      if (root) SortableDemo.applyShift(root, state.order, state.dragging, state.over);
-      movePreview();
     },
     list: () => HOSTS.sortable.list(),
     hit: (x, y) => HOSTS.sortable.hit(x, y),
@@ -543,20 +570,6 @@ window.__ddState = () => ({
   status: dropdown.status,
   theme: dropdown.theme,
 });
-
-function movePreview() {
-  const root = HOSTS.sortable.root();
-  if (!root) return;
-  for (let i = 0; i < root.children.length; i++) {
-    const kid = root.children[i];
-    if ((kid.className || "").indexOf("sr-row-preview") < 0) continue;
-    kid.setAttribute("left", state.previewX + "px");
-    kid.setAttribute("top", state.previewY + "px");
-    kid.markInline("left");
-    kid.markInline("top");
-    return;
-  }
-}
 
 // --- the sortable's gesture ---------------------------------------------------
 // Reordering is `arrayMove`, not a swap: the item is taken out and put back at

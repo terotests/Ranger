@@ -1125,6 +1125,96 @@ them since the controller went in, so the conformance number was right while
 the thing a screen reader actually reads was a flat list of unnumbered rows.
 Fixed on all four: the node, both builders, and `evg-a11y.js`.
 
+## Element identity — `key`, and a reconciler
+
+Every demo in this directory keeps its element tree between frames, and
+`main.js` says so plainly: *"Rebuild only if the data changed."* The comment
+beside it is a measurement rather than a worry —
+
+> every element is new every frame, so every flight establishes at its
+> destination. Measured before it was believed: the rows making room for a
+> dragged item were at their final positions 40ms after the pointer crossed,
+> having travelled through nothing.
+
+So the declarative half of the gallery ran ONCE, at init, and everything after
+that was imperative mutation of the tree it produced. The sortable was the
+clearest case: `applyShift()` re-aimed the live list by hand, walking by INDEX
+— `list.children[i]` assumed to be the row for `order[i]`, which holds only
+because the order does not change mid-drag. A keyed reconciler for one list,
+written without keys, correct by luck. The same workaround had been invented
+independently five times.
+
+### `key` is not `id`
+
+`id` is global and outward-facing: the hit test reports it, the accessible tree
+carries it, and an application addresses a control by it. `key` is
+sibling-scoped and inward-facing: this new child is the same LOGICAL child as
+that live one, so keep its element. Two lists on one page may both key a row
+"video"; two elements may not share an id. The preview in the sortable is the
+case that makes the distinction concrete: it deliberately has no id — hit
+testing scans backwards and an id there would hide the row underneath it — and
+it very much needs a key.
+
+`EVGReconcile.reconcile(live, next)` matches children by (key, tagName), keeps
+what it can, takes `next`'s order, and reports how many it kept, created,
+dropped and moved. An unkeyed child matches by position AMONG UNKEYED SIBLINGS,
+and a mismatch there is a miss rather than a search — falling forward past one
+pairs the second unkeyed child of one render with the third of another, which
+is how an unkeyed list shifts its state by one on every insert.
+
+### The oracle is an invariant, not a capture
+
+Nothing ships a reconciliation you can read pixels off. So the check is:
+
+> a reconciled tree must describe exactly what a freshly built one describes
+
+on all four things a tree produces — display list, layout, hit test, accessible
+tree. That is what makes it field-agnostic. `adoptFrom` copies 180 fields of
+`EVGElement` by name, skipping three (`parent`, `children`, `transitions`), and
+a field somebody adds to the class and forgets to add there would be dropped on
+every rebuild. Four such mutations were run and all four are caught, because a
+dropped field that changes nothing observable changes nothing at all.
+`scripts/check-evg-adopt.mjs` catches the same mistake earlier and by name.
+
+Nine mutations, eight caught. The ninth — swapping the adopt and the match —
+is genuinely equivalent, because `adoptFrom` skips `children`; the comment
+where the order is written down says so rather than warning about a danger that
+is not there.
+
+### The litmus test: `applyShift()` is gone
+
+`gallery/ui/demo/sortable-motion-check.mjs` runs the demo's own pipeline with
+no browser and measures where each row is actually drawn. The gap opens over
+180ms through a spread of positions; with the reconcile taken out, the row is
+simply there one frame later. `applyShift` and `movePreview` are both deleted,
+and the page rebuilds the whole tree on every frame of a drag.
+
+**And the drop regressed, which is the useful half of this.** At the drop the
+list reorders and every shift transform goes to zero in the same frame. With
+the elements kept across that rebuild — which is the feature — the row's new
+layout position is 88px further down while its transform is still +88, so a
+transitioned transform starts from a row drawn 176px low and slides back:
+measured, y=216 jumping to 304 and taking 180ms to return. Keeping identity
+across a layout change is exactly the FLIP problem, and it does not appear
+until identity works.
+
+The fix is the reference's own rule: dnd-kit's `useSortable` transitions
+`transform` only while `isSorting`. `.sr-row-sorting` carries the transform
+transition and is on the rows only while something is being carried, so the
+transform snaps when the drag ends and the two halves cancel. The cost is a 2px
+hover lift that snaps rather than eases outside a drag — which is what the
+reference does. The check now holds both halves: the gap opens, and the drop
+moves nothing.
+
+### What this is NOT yet
+
+It is the identity layer and nothing above it. It does not decide when to
+rebuild, does not track dependencies, and does not know what a component is —
+those are the next steps, and they are language work rather than library work.
+Doing this one first was deliberate: the runtime semantics are provable without
+touching the compiler, and sugar over an unproven runtime is the expensive
+order to work in.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -1174,6 +1264,26 @@ utility-class theme.
       specificity
 - [ ] Compound selectors (`.ui-toggle.state-on`), then attribute selectors
 - [ ] A generated Tailwind-subset utility sheet + theme tokens on top of that
+
+## Next — from identity to a component model
+
+`key` and `EVGReconcile` are step one of a longer list, and the rest is
+language work rather than library work. In the order that pays:
+
+- [ ] **Persistent component instances.** An element survives a rebuild now; a
+      COMPONENT does not exist yet. `treefactory` is a tag vocabulary, not a
+      unit with state of its own
+- [ ] **`state` / `signal`, and dependency tracking.** Not hooks — Ranger is
+      statically compiled and can know the dependencies at compile time, which
+      is strictly more than "this component re-renders"
+- [ ] **Declarative event handlers**, so a component reads from one place
+- [ ] **`computed`**
+- [ ] **A high-frequency path for motion values.** Structural state (order,
+      selection, which folder is open) can drive a rebuild; pointer position
+      and drag offset change 60–120 times a second and should invalidate paint
+      without re-laying-out a subtree. `dragPage`'s preview coordinates are
+      that case today, and they currently go through a full rebuild
+- [ ] **`context`**, and only then a store
 
 ## Next — the actual point
 
