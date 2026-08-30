@@ -57,6 +57,9 @@ function run(spec, css) {
         roledescription: null,
         sort: null,
         haspopup: null,
+        level: null,
+        setsize: null,
+        setpos: null,
         parent: "",
         posinset: 0,
       });
@@ -71,7 +74,13 @@ function run(spec, css) {
       observe("click " + step.click);
     } else if ("key" in step) {
       host.key(step.key);
-      observe("key " + JSON.stringify(step.key));
+      // `settle` is deliberately NOT ticked here, unlike on a hover step. It
+      // exists because the REFERENCE moves focus in an effect and needs a
+      // moment to finish; this side has no async at all and is settled the
+      // instant `key` returns. Advancing a clock here would move controller
+      // timers the reference's wait does not.
+      observe("key " + JSON.stringify(step.key) +
+        (step.settle ? " +" + step.settle + "ms" : ""));
     } else if ("focus" in step) {
       host.focus(step.focus);
       observe("focus " + step.focus);

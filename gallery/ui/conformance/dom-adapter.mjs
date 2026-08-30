@@ -137,7 +137,15 @@ export async function run(spec) {
         await observe("click " + step.click);
       } else if ("key" in step) {
         await page.keyboard.press(step.key === " " ? "Space" : step.key);
-        await observe("key " + JSON.stringify(step.key));
+        // Some components move focus in an EFFECT rather than in the handler,
+        // so state and DOM focus disagree for a frame or two after the key.
+        // headless-tree is one: its roving tabIndex moves immediately and the
+        // `.focus()` lands about 32ms later, which is exactly where two
+        // animation frames put the observation — some steps caught up and some
+        // did not, in the same run. `settle` waits past it. See SPEC.md.
+        if (step.settle) await page.waitForTimeout(step.settle);
+        await observe("key " + JSON.stringify(step.key) +
+          (step.settle ? " +" + step.settle + "ms" : ""));
       } else if ("focus" in step) {
         await page.locator(sel(step.focus)).focus().catch(() => {});
         await observe("focus " + step.focus);

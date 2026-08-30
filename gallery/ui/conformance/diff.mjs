@@ -28,6 +28,17 @@ export const FIELDS = [
   // `aria-haspopup`. A submenu's parent row is a menuitem like any other and
   // announces like one without it; this is what makes "opens a menu" audible.
   "haspopup",
+  // `aria-level` and `aria-setsize`. A tree is a flat list of `treeitem`s as
+  // far as every other field is concerned — same role, a name each, in order —
+  // so without these two the diff cannot see its SHAPE at all. `posinset` is
+  // already here and says where a row sits among its siblings; these say how
+  // deep it is and how many siblings there are.
+  "level",
+  "setsize",
+  // `aria-posinset`, the attribute — NOT the `posinset` below, which this
+  // harness derives from the tree it walks. For a flat tree DOM the two
+  // disagree by design; see the note in dom/snapshot.js.
+  "setpos",
   // Where the node sits among its siblings. A sortable moves nothing else:
   // every other field of every item is identical before and after a reorder,
   // and the diff keys by test id, so without this the one thing the component

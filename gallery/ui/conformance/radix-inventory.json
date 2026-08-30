@@ -207,6 +207,7 @@
   },
   "beyond": {
     "sortable": "@dnd-kit/sortable — Radix has no sortable; ReUI's and every shadcn-family one is dnd-kit underneath",
-    "table": "@tanstack/react-table — Radix has no table; ReUI's and every shadcn-family one is TanStack underneath. A narrower oracle than dnd-kit: TanStack is headless and contributes no ARIA at all, so only the state machine is copied from it."
+    "table": "@tanstack/react-table — Radix has no table; ReUI's and every shadcn-family one is TanStack underneath. A narrower oracle than dnd-kit: TanStack is headless and contributes no ARIA at all, so only the state machine is copied from it.",
+    "tree": "@headless-tree/core — Radix has no tree; ReUI's is @headless-tree/react over it, wired with syncDataLoaderFeature and hotkeysCoreFeature. Unlike TanStack it DOES contribute ARIA — the roles, the level/size/position numbers and the key map all come from the library."
   }
 }

@@ -359,6 +359,30 @@
         "scrollarea-content-reachable": "the content is in the tree and visible even though it does not fit"
       }
     },
+    "tree": {
+      "radix": "@headless-tree/core",
+      "$comment": "Not Radix \u2014 Radix has no tree. ReUI's is @headless-tree/react over @headless-tree/core with syncDataLoaderFeature and hotkeysCoreFeature, so headless-tree is the oracle. It contributes the roles, the level/size/position numbers and the whole key map; the example wires NO selection feature, so every row reports aria-selected=false and stays that way. Measured in specs/tree_*.json against the library itself.",
+      "behaviours": {
+        "tree-role": "the container is a tree and the root item is not a row in it",
+        "treeitem-role": "every visible row is a treeitem, folder or leaf alike",
+        "level": "each row says how deep it sits, counting the invisible root as level 0",
+        "setsize": "each row says how many siblings share its parent",
+        "setpos": "each row says which of those siblings it is",
+        "arrow-steps": "Down and Up step through the VISIBLE rows, crossing in and out of open folders",
+        "right-expands": "ArrowRight on a closed folder opens it and stays put",
+        "right-enters": "ArrowRight on an already-open folder steps to its first child",
+        "right-leaf-steps": "ArrowRight on a leaf is not a no-op \u2014 it steps DOWN, the same as an open folder",
+        "left-collapses": "ArrowLeft on an open folder closes it and stays put",
+        "left-to-parent": "ArrowLeft on a leaf or a closed folder steps to the parent",
+        "left-top-level-noop": "ArrowLeft at the top level goes nowhere, because the root is not a row",
+        "home": "Home focuses the first visible row",
+        "end": "End focuses the LAST visible row, which is the deepest open descendant and not the last top-level item",
+        "no-wrap": "arrows stop at the ends rather than wrapping",
+        "enter-toggles": "Enter opens or closes the focused folder",
+        "space-toggles": "Space does the same as Enter \u2014 with no selection feature it selects nothing",
+        "selected-false": "every row exposes aria-selected=false, including the focused one"
+      }
+    },
     "table": {
       "radix": "@tanstack/react-table",
       "$comment": "Not Radix — Radix has no table. ReUI's, and every shadcn-family one, is TanStack Table underneath, so TanStack is the oracle. It is a NARROWER oracle than dnd-kit: TanStack is headless and contributes no roles, no aria-sort and no announcements at all, so only the state machine below is copied from it and the ARIA comes from the HTML table spec. Captured in oracle/table.json.",

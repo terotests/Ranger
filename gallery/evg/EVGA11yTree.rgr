@@ -113,9 +113,18 @@ class EVGA11yRole {
     ; keeps its old meaning so the datagrid is untouched.
     sfn tableCell:int ()        { return 40 }
 
+    ; A tree, and its rows. Nesting is carried by `aria-level` and not by a
+    ; `group` per folder — which is what headless-tree does, and therefore what
+    ; ReUI's tree does: `getItems()` hands back the visible rows already
+    ; flattened, all siblings, each saying how deep it is.
+    sfn tree:int ()             { return 41 }
+    sfn treeItem:int ()         { return 42 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
+        if (role == 41) { return "tree" }
+        if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
         if (role == 2)  { return "text" }
         if (role == 3)  { return "heading" }

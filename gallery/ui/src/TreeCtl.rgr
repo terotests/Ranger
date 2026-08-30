@@ -1,0 +1,502 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TreeCtl — measured against @headless-tree/react, which is what ReUI's is
+; =============================================================================
+; ReUI's tree (https://reui.io/components/tree) ships `Tree`, `TreeItem` and
+; `TreeItemLabel` as thin presentational wrappers over `useTree` with exactly
+; two features — `syncDataLoaderFeature` and `hotkeysCoreFeature`. So the
+; library is the oracle, the way dnd-kit is for the sortable, and the wrapper
+; is a stylesheet.
+;
+; And it is a GENEROUS oracle, unlike TanStack. The table's library writes not
+; one attribute, so the ARIA had to come from the HTML spec; headless-tree
+; publishes role, `aria-expanded`, `aria-level`, `aria-setsize`,
+; `aria-posinset`, `aria-selected` and the roving `tabIndex` through
+; `getProps()`. Copying it gets the accessible tree right AND measured.
+;
+; --- WHAT WAS MEASURED, and three answers that are not the obvious ones -------
+;
+;   THE TREE IS FLAT. `getItems()` returns the visible items already flattened,
+;   all siblings in the DOM, and nesting is carried by `aria-level` alone — not
+;   by nested groups. So this builds a flat list too. A `role="group"` per
+;   folder would be just as valid ARIA and would not match.
+;
+;   THE ROOT IS NOT AN ITEM. `rootItemId` names a node that is the container,
+;   not a row: a tree rooted at "crm" shows CRM's children and never CRM.
+;
+;   THE TWO ARROWS EACH MEAN TWO THINGS, and which one depends on the row:
+;     ArrowRight on a COLLAPSED folder expands it and focus stays put;
+;                on an EXPANDED folder moves to its first child;
+;                on a leaf does nothing at all.
+;     ArrowLeft  on an EXPANDED folder collapses it and focus stays put;
+;                on anything else moves to the PARENT.
+;   That is the WAI-ARIA pattern and the library implements it exactly.
+;
+;   ENTER AND SPACE TOGGLE THE FOLDER. They do not select — because ReUI does
+;   not enable `selectionFeature`, and without it there is no selection to
+;   make. Measured on a real tree: Enter on an open folder closed it.
+;
+;   `aria-selected="false"` IS PUBLISHED ANYWAY, on every item, selection
+;   feature or not. That tells a reader the rows are selectable when they are
+;   not, which is the library's choice rather than a good one — and it is
+;   copied here, because the harness exists to record what the reference does.
+;
+;   THERE IS NO TYPEAHEAD. `searchFeature` is not in ReUI's list either, and a
+;   letter key does nothing. Home and End work; the arrows do NOT wrap.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; One node of the source data. Children by VALUE, not by reference, because
+; that is the shape the library's data loader has and the shape a fixture can
+; write down.
+class UiTreeNode {
+    def value:string ""
+    def name:string ""
+    def kids:[string]
+    def el:EVGElement
+
+    Constructor () {
+        def none:[string]
+        kids = none
+        el = (EVGElement.createDiv())
+    }
+}
+
+class TreeCtl extends UiCtl {
+    def nodes:[UiTreeNode]
+    def rootValue:string ""
+    ; Which folders are open. A list rather than a flag on the node, because
+    ; the fixture names them and because a node may appear once but be reached
+    ; through its value from several places.
+    def expanded:[string]
+    ; The row focus sits on, by value. "" before anything is focused.
+    def activeValue:string ""
+
+    ; --- the flattened visible list, rebuilt by build() ------------------------
+    ; Parallel arrays, the same shape MenuCtl uses. Everything below is a scan
+    ; of these rather than a walk of the tree, because every question the
+    ; keyboard asks is about the FLATTENED order.
+    def rowValue:[string]
+    def rowLevel:[int]
+    def rowSetSize:[int]
+    def rowSetPos:[int]
+    def rowParent:[string]
+    def rowFolder:[boolean]
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def n:[UiTreeNode]
+        nodes = n
+        def e:[string]
+        expanded = e
+        this.clearRows()
+    }
+
+    fn clearRows:void () {
+        def a:[string]
+        rowValue = a
+        def b:[int]
+        rowLevel = b
+        def c:[int]
+        rowSetSize = c
+        def d:[int]
+        rowSetPos = d
+        def e:[string]
+        rowParent = e
+        def f:[boolean]
+        rowFolder = f
+    }
+
+    ; --- the data ---------------------------------------------------------------
+
+    fn addNode:UiTreeNode (value:string label:string) {
+        def n (new UiTreeNode())
+        n.value = value
+        n.name = label
+        push nodes n
+        return n
+    }
+
+    sfn addKid:void (parent:UiTreeNode value:string) {
+        push parent.kids value
+    }
+
+    fn nodeAt:int (value:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:UiTreeNode (itemAt nodes i)
+            if (n.value == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn isExpanded:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length expanded)) {
+            if ((itemAt expanded i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn setExpanded:void (value:string on:boolean) {
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length expanded)) {
+            def v:string (itemAt expanded i)
+            if (v != value) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        if on {
+            push keep value
+        }
+        expanded = keep
+    }
+
+    ; --- ids ---------------------------------------------------------------------
+
+    fn itemTid:string (value:string) {
+        return ((tid + "-item-") + value)
+    }
+
+    ; --- building -------------------------------------------------------------------
+    ; The visible rows, in order, with the three ARIA numbers each. Recursive,
+    ; because the ORDER is a depth-first walk even though the result is flat.
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-tree"
+        UiTree.clearChildren(root)
+        this.clearRows()
+
+        def ri:int (this.nodeAt(rootValue))
+        if (ri >= 0) {
+            def rootNode:UiTreeNode (itemAt nodes ri)
+            this.fill(root rootNode.kids rootValue 1)
+        }
+    }
+
+    fn fill:void (surface:EVGElement kids:[string] parentValue:string level:int) {
+        def n:int (array_length kids)
+        def i:int 0
+        while (i < n) {
+            def v:string (itemAt kids i)
+            def ni:int (this.nodeAt(v))
+            if (ni >= 0) {
+                def node:UiTreeNode (itemAt nodes ni)
+                def isFolder:boolean ((array_length node.kids) > 0)
+
+                def el:EVGElement (unwrap node.el)
+                el.id = (this.itemTid(v))
+                el.className = "ui-tree-item"
+                if isFolder {
+                    UiTree.addClass(el "ui-tree-item-folder")
+                    ; A plain class and NOT `UiTree.setState`. The state
+                    ; convention exists to mirror Radix's `data-state`, and the
+                    ; trace reports it under that name — but headless-tree
+                    ; writes no such attribute, so claiming one here is a
+                    ; difference the diff correctly reported. `aria-expanded`
+                    ; is where "is it open" actually lives; this is only a hook
+                    ; for the stylesheet, which cannot match on ARIA.
+                    if (this.isExpanded(v)) {
+                        UiTree.addClass(el "ui-tree-open")
+                    } {
+                        UiTree.addClass(el "ui-tree-closed")
+                    }
+                }
+                UiTree.leafText(el node.name)
+                surface.addChild(el)
+
+                push rowValue v
+                push rowLevel level
+                ; The SIBLING count and the sibling index — not the position in
+                ; the flattened list, which is a different number and is what
+                ; the harness derives separately.
+                push rowSetSize n
+                push rowSetPos (i + 1)
+                push rowParent parentValue
+                push rowFolder isFolder
+
+                ; Depth first: a folder's children come immediately after it in
+                ; the flattened order, which is what makes ArrowDown walk INTO
+                ; a folder rather than past it.
+                if isFolder {
+                    if (this.isExpanded(v)) {
+                        this.fill(surface node.kids v (level + 1))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- lookups over the flattened rows ------------------------------------------
+
+    fn rowIndexOf:int (value:string) {
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            if ((itemAt rowValue i) == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn valueOfTid:string (target:string) {
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            def v:string (itemAt rowValue i)
+            if ((this.itemTid(v)) == target) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; --- input -------------------------------------------------------------------
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        ; Focus, then TOGGLE if it is a folder. The library's own handler,
+        ; verbatim: `item.setFocused(); item.primaryAction(); if (!isFolder)
+        ; return; if (isExpanded) collapse() else expand()`. A leaf is
+        ; therefore focused and nothing else.
+        activeValue = v
+        def idx:int (this.rowIndexOf(v))
+        if (idx >= 0) {
+            if (itemAt rowFolder idx) {
+                this.setExpanded(v ((this.isExpanded(v)) == false))
+                this.build()
+            }
+        }
+        return target
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def idx:int (this.rowIndexOf(v))
+        if (idx < 0) {
+            return ""
+        }
+        def isFolder:boolean (itemAt rowFolder idx)
+        def isOpen:boolean (this.isExpanded(v))
+
+        if (key == "ArrowDown") {
+            if ((idx + 1) < (array_length rowValue)) {
+                return (this.focusRow(idx + 1))
+            }
+            ; The ends do not wrap.
+            return ""
+        }
+        if (key == "ArrowUp") {
+            if (idx > 0) {
+                return (this.focusRow(idx - 1))
+            }
+            return ""
+        }
+        if (key == "Home") {
+            if ((array_length rowValue) > 0) {
+                return (this.focusRow(0))
+            }
+            return ""
+        }
+        if (key == "End") {
+            if ((array_length rowValue) > 0) {
+                return (this.focusRow((array_length rowValue) - 1))
+            }
+            return ""
+        }
+        if (key == "ArrowRight") {
+            ; The library's `expandOrDown`, verbatim: an item that is ALREADY
+            ; EXPANDED or is NOT A FOLDER moves to the next visible row;
+            ; anything else — that is, a closed folder — expands where it is.
+            ;
+            ; So a LEAF STEPS DOWN. That reads oddly against the WAI-ARIA
+            ; pattern, where Right on a leaf does nothing, and it was measured
+            ; wrongly here first: a `focus` step positioned the DOM on a leaf
+            ; while the library still thought it was on the folder above, and
+            ; the trace looked like "nothing happened". It is not nothing. A
+            ; measurement driven by clicks, and the library's source, agree.
+            if isOpen {
+                if ((idx + 1) < (array_length rowValue)) {
+                    return (this.focusRow(idx + 1))
+                }
+                return ""
+            }
+            if (isFolder == false) {
+                if ((idx + 1) < (array_length rowValue)) {
+                    return (this.focusRow(idx + 1))
+                }
+                return ""
+            }
+            this.setExpanded(v true)
+            this.build()
+            ; Focus stays on the folder that opened.
+            activeValue = v
+            return target
+        }
+        if (key == "ArrowLeft") {
+            ; And `collapseOrUp`: an item that is NOT EXPANDED or NOT A FOLDER
+            ; and is not at the top level moves to its PARENT; everything else
+            ; collapses — which for a leaf or an already-closed folder at the
+            ; top level is a no-op, exactly as the library's `collapse()` is.
+            def goUp:boolean false
+            if (isOpen == false) {
+                goUp = true
+            }
+            if (isFolder == false) {
+                goUp = true
+            }
+            if goUp {
+                ; The library also tests `level !== 0` here, and that test is
+                ; not repeated: the ROOT IS NOT A ROW, so a top-level item's
+                ; parent is not in this list and the lookup below fails — the
+                ; same answer through one mechanism instead of two. Written the
+                ; other way it was a branch no mutation could reach, because
+                ; removing it changed nothing observable.
+                def parent:string (itemAt rowParent idx)
+                def pidx:int (this.rowIndexOf(parent))
+                if (pidx < 0) {
+                    return ""
+                }
+                return (this.focusRow(pidx))
+            }
+            if isFolder {
+                if isOpen {
+                    this.setExpanded(v false)
+                    this.build()
+                    activeValue = v
+                    return target
+                }
+            }
+            return ""
+        }
+        if (UiCtl.activatesOn(key)) {
+            ; Enter and Space TOGGLE the folder rather than selecting, because
+            ; ReUI does not enable the selection feature and there is nothing
+            ; to select. On a leaf they do nothing.
+            if isFolder {
+                this.setExpanded(v (isOpen == false))
+                this.build()
+                activeValue = v
+                return target
+            }
+            return ""
+        }
+        return ""
+    }
+
+    fn focusRow:string (i:int) {
+        def v:string (itemAt rowValue i)
+        activeValue = v
+        return (this.itemTid(v))
+    }
+
+    ; --- what the host and the reader see -------------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            push a (this.itemTid((itemAt rowValue i)))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == tid) {
+            return false
+        }
+        return ((strlen (this.valueOfTid(target))) > 0)
+    }
+
+    fn onFocus:void (target:string) {
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) > 0) {
+            activeValue = v
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def treeRow:UiRow (UiRow.of(tid (EVGA11yRole.tree()) name))
+        push out treeRow
+
+        ; The roving tab stop. Before anything has been focused it is the FIRST
+        ; row, so that one Tab reaches the tree; afterwards it follows focus.
+        def tabValue:string activeValue
+        if ((strlen tabValue) == 0) {
+            if ((array_length rowValue) > 0) {
+                tabValue = (itemAt rowValue 0)
+            }
+        }
+
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            def v:string (itemAt rowValue i)
+            def ni:int (this.nodeAt(v))
+            def label:string ""
+            if (ni >= 0) {
+                def node:UiTreeNode (itemAt nodes ni)
+                label = node.name
+            }
+            def row:UiRow (UiRow.of((this.itemTid(v)) (EVGA11yRole.treeItem()) label))
+            row.parentTid = tid
+            row.level = (itemAt rowLevel i)
+            row.setSize = (itemAt rowSetSize i)
+            row.setPos = (itemAt rowSetPos i)
+            row.focusable = true
+            if (v == tabValue) {
+                row.tabStop = true
+            }
+            ; Only a folder carries `aria-expanded`; a leaf has none at all,
+            ; which is different from having it and saying false.
+            if (itemAt rowFolder i) {
+                if (this.isExpanded(v)) {
+                    row.expanded = (EVGA11yTri.yes())
+                } {
+                    row.expanded = (EVGA11yTri.no())
+                }
+            }
+            ; Published on EVERY row, folder or leaf, even though nothing here
+            ; can be selected. The library does it; see the header.
+            row.selected = (EVGA11yTri.no())
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

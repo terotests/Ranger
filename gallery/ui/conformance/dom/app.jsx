@@ -55,6 +55,8 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { useTree } from "@headless-tree/react";
+import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core";
 import {
   useReactTable,
   getCoreRowModel,
@@ -159,6 +161,78 @@ function ToastControl({ spec, tid }) {
  * any other way the harness would be comparing EVG against a hand-written
  * table rather than against the library everyone actually ships.
  */
+/**
+ * A tree, driven by @headless-tree/react — which is what ReUI's tree is.
+ *
+ * ReUI ships `Tree`, `TreeItem` and `TreeItemLabel` as thin presentational
+ * wrappers over `useTree` with `syncDataLoaderFeature` and
+ * `hotkeysCoreFeature`, and nothing else. So this renders the same two
+ * features with the same shape, and the wrapper's styling is left out: it is
+ * the STATE MACHINE and the KEYBOARD that a conformance run is about, and both
+ * of those are the library's.
+ *
+ * WHY THIS IS A BETTER ORACLE THAN TANSTACK WAS. The table's library is
+ * headless in the strong sense — it computes state and writes not one
+ * attribute, so the ARIA had to come from the HTML spec instead. headless-tree
+ * publishes `role`, `aria-expanded`, `aria-level`, `aria-setsize`,
+ * `aria-posinset` and `tabIndex` through `getProps()`, the way dnd-kit
+ * publishes its roledescription. Copying it therefore gets the accessible tree
+ * right for free — and, more usefully, MEASURES it, so a disagreement is a
+ * finding rather than a matter of taste.
+ *
+ * The props go on verbatim, spread rather than picked apart, so nothing the
+ * library says can be quietly dropped on the way to the trace.
+ */
+function TreeControl({ spec, tid }) {
+  // The fixture's shape is headless-tree's own: a flat record of items, each
+  // naming its children, plus a root that is not itself rendered.
+  const items = React.useMemo(() => {
+    const out = {};
+    for (const it of spec.items || []) {
+      out[it.value] = { name: it.name, children: it.children };
+    }
+    return out;
+  }, [spec]);
+
+  const tree = useTree({
+    initialState: { expandedItems: spec.expanded || [] },
+    indent: spec.indent ?? 20,
+    rootItemId: spec.root,
+    getItemName: (item) => item.getItemData().name,
+    isItemFolder: (item) => (item.getItemData()?.children?.length ?? 0) > 0,
+    dataLoader: {
+      getItem: (itemId) => items[itemId],
+      getChildren: (itemId) => items[itemId]?.children ?? [],
+    },
+    features: [syncDataLoaderFeature, hotkeysCoreFeature],
+  });
+
+  // Published for the same reason the table's probe is: a spec can then ask
+  // the library what it thinks, rather than inferring it from the DOM.
+  React.useEffect(() => {
+    window.__treeProbe = tree;
+  });
+
+  const containerProps = tree.getContainerProps();
+  return (
+    <div {...containerProps} data-tid={tid}>
+      {tree.getItems().map((item) => {
+        const props = item.getProps();
+        return (
+          <button
+            {...props}
+            key={item.getId()}
+            data-tid={tid + "-item-" + item.getId()}
+            style={{ paddingLeft: item.getItemMeta().level * (spec.indent ?? 20) }}
+          >
+            {item.getItemName()}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function TableControl({ spec, tid }) {
   const columns = React.useMemo(
     () =>
@@ -727,6 +801,9 @@ export function Control({ spec }) {
 
     case "table":
       return <TableControl spec={spec} tid={tid} />;
+
+    case "tree":
+      return <TreeControl spec={spec} tid={tid} />;
 
     /**
      * A bar of menus. The parts follow the same rule the rest do — `x-<value>`

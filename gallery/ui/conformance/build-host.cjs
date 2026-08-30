@@ -197,6 +197,21 @@ function buildHost(M, fixture, css) {
         for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
         break;
 
+      case "tree": {
+        ctl = host.addTree(c.tid, c.name || "", c.root);
+        // Two passes: every node first, then the child lists — a fixture may
+        // name a child before the line that declares it, and the library's own
+        // data loader has the same freedom.
+        const made = new Map();
+        for (const it of c.items || []) made.set(it.value, ctl.addNode(it.value, it.name));
+        for (const it of c.items || []) {
+          for (const kid of it.children || []) ctl.constructor.addKid(made.get(it.value), kid);
+        }
+        for (const v of c.expanded || []) ctl.setExpanded(v, true);
+        ctl.build();
+        break;
+      }
+
       case "table": {
         ctl = host.addTable(c.tid, c.name || "");
         for (const col of c.columns || []) {
@@ -257,6 +272,7 @@ const SUPPORTED_TYPES = [
   "slider",
   "toast",
   "sortable",
+  "tree",
   "menubar",
   "select",
   "navigationmenu",

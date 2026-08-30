@@ -35,6 +35,7 @@ Import "SliderCtl.rgr"
 Import "ToastCtl.rgr"
 Import "SortableCtl.rgr"
 Import "TableCtl.rgr"
+Import "TreeCtl.rgr"
 Import "MenubarCtl.rgr"
 Import "SelectCtl.rgr"
 Import "NavMenuCtl.rgr"
@@ -225,6 +226,19 @@ class UiHost {
         c.isModal = modal
         c.pageW = pageWidth
         c.pageH = pageHeight
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A tree. `root` names the node whose CHILDREN are the top-level rows —
+    ; the root itself is the container and is never a row, which is what
+    ; headless-tree does with `rootItemId`.
+    fn addTree:TreeCtl (tid:string name:string root:string) {
+        def c (new TreeCtl())
+        c.tid = tid
+        c.name = name
+        c.rootValue = root
         c.build()
         this.add(c)
         return c
@@ -819,6 +833,16 @@ class UiHost {
     ; the DOM makes the same distinction — `aria-sort` is absent on a cell and
     ; present-and-"none" on an unsorted header — so 0 has to mean "no such
     ; attribute" and "none" needs a code of its own.
+    ; A number, or null when it is zero — which is what "this row has no such
+    ; attribute" means for a level or a set size, neither of which can legally
+    ; be 0.
+    sfn numOrNull:string (v:int) {
+        if (v == 0) {
+            return "null"
+        }
+        return (to_string v)
+    }
+
     sfn sortJson:string (v:int) {
         if (v == 1) { return "\"none\"" }
         if (v == 2) { return "\"ascending\"" }
@@ -1173,6 +1197,11 @@ class UiHost {
             ; the DOM reports null for a node without the attribute, and "" is
             ; a different thing from "not there".
             out = out + ",\"haspopup\":" + (UiHost.textOrNull(row.hasPopup))
+            ; Absent rather than zero where there is none: the DOM reports null
+            ; for a node without the attribute, and 0 is a different claim.
+            out = out + ",\"level\":" + (UiHost.numOrNull(row.level))
+            out = out + ",\"setsize\":" + (UiHost.numOrNull(row.setSize))
+            out = out + ",\"setpos\":" + (UiHost.numOrNull(row.setPos))
             out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
             out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
             out = out + ",\"checked\":" + (UiHost.triJson(row.checked))

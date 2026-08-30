@@ -160,6 +160,23 @@ export function snapshotDom(options) {
       // left is a chevron a reader cannot see. Its own field for the same
       // reason `sort` is one: nothing else about the node changes.
       haspopup: el.getAttribute("aria-haspopup"),
+      // `aria-level` and `aria-setsize`. A tree's whole shape is these two
+      // numbers plus `posinset`: how deep a row sits and how many siblings it
+      // has. Nothing else in the trace can see nesting at all — every item of
+      // a tree is a `treeitem` with a name, and depth is the only thing that
+      // makes one of them a child of another. Numbers, not strings, so a
+      // missing attribute is null rather than the string "null".
+      level: el.hasAttribute("aria-level") ? Number(el.getAttribute("aria-level")) : null,
+      setsize: el.hasAttribute("aria-setsize") ? Number(el.getAttribute("aria-setsize")) : null,
+      // `aria-posinset` — the ATTRIBUTE, and deliberately not called
+      // `posinset`. That name is already taken by a number this harness
+      // DERIVES from the tree it walks, and for a flat tree DOM the two
+      // disagree completely: the derived one counts every visible row 1..6,
+      // while the attribute counts siblings, so a second top-level folder is
+      // 4th derived and 2nd by attribute. Both are right about their own
+      // question. `setpos` pairs with `setsize` — position within the set that
+      // counts — and a reader announces the two together.
+      setpos: el.hasAttribute("aria-posinset") ? Number(el.getAttribute("aria-posinset")) : null,
       // Reported, not compared. The two systems disagree about the parent of a
       // floating surface ON PURPOSE — Radix portals a tooltip to the end of
       // the body, EVG keeps it the trigger's child and moves only where it is
@@ -213,6 +230,9 @@ export function snapshotDom(options) {
       roledescription: null,
       sort: null,
       haspopup: null,
+      level: null,
+      setsize: null,
+      setpos: null,
       parent: "",
       posinset: 0,
     });

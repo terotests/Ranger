@@ -48,6 +48,20 @@ class UiRow {
     ; a chevron is not something a reader can see. Measured on Radix: the
     ; dropdown's own trigger carries it too, not only the nested rows.
     def hasPopup:string ""
+    ; `aria-level` and `aria-setsize`, 0 for a row that has neither.
+    ;
+    ; Their own fields for the reason `sorted` has one: a tree is a flat list
+    ; of identical roles as far as every other field can see, and depth is the
+    ; ONLY thing that makes one row a child of another. `posinset` is derived
+    ; from the row order and says where among its siblings a row sits; these
+    ; two cannot be derived, because the flat list does not know where a level
+    ; ends.
+    def level:int 0
+    def setSize:int 0
+    ; `aria-posinset`, the attribute. Not `posinset`, which the host derives
+    ; from the row order — for a flat tree the two disagree by design, because
+    ; one counts visible rows and the other counts siblings.
+    def setPos:int 0
     def pressed:int 0
     def checked:int 0
     def selected:int 0

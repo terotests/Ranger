@@ -1041,6 +1041,59 @@ has moved — `dragBy(dx, dy)` in page pixels, so the controller never learns
 where it was picked up and a window grabbed by the right end of its bar does
 not jump left.
 
+## Tree — a generous oracle, and a branch no mutation could reach
+
+ReUI's tree is `@headless-tree/react` over `@headless-tree/core`, wired with
+`syncDataLoaderFeature` and `hotkeysCoreFeature` and nothing else; `Tree`,
+`TreeItem` and `TreeItemLabel` are a stylesheet over it. So the library is the
+oracle, the way dnd-kit is for the sortable — and it is a far more generous one
+than TanStack was. The table's library writes not a single attribute, so all of
+the table's ARIA had to be argued from the HTML spec. `getProps()` here hands
+back the role, `aria-expanded`, `aria-level`, `aria-setsize`, `aria-posinset`,
+`aria-selected` and the roving `tabIndex`, so the accessible tree is not
+designed at all — it is copied, and then measured.
+
+Four things the measurement said that a reading of the WAI-ARIA pattern would
+not have:
+
+- **The tree is flat.** `getItems()` returns the visible rows already
+  flattened, every one of them a sibling, and depth is carried by `aria-level`
+  alone. A `role="group"` per folder is equally valid ARIA and would not match,
+  so `TreeCtl` builds a flat list too.
+- **The root is not a row.** A tree rooted at `crm` shows CRM's children and
+  never CRM. This is load-bearing later.
+- **Enter and Space toggle the folder and select nothing**, because
+  `selectionFeature` is not in ReUI's list. And yet every row still publishes
+  `aria-selected="false"` — telling a reader the rows are selectable when
+  nothing can select them. That is the library's choice rather than a good one,
+  and it is copied, because the harness records what the reference does.
+- **ArrowRight on a leaf is not a no-op.** It steps DOWN, exactly as it does on
+  an already-open folder — the library has one `expandOrDown` path and a leaf
+  falls through it. The first reading here said "does nothing", and it came
+  from a spec whose opening `focus` step the reference had silently ignored:
+  headless-tree tracks its own focused item and a DOM focus call does not set
+  it, so several presses were being scored against a tree that had never
+  focused anything. Tree specs click instead. The rule is not new — a step the
+  reference ignores makes every observation after it agreement about nothing —
+  but it is the first time it bit through a *library's* internal state rather
+  than the page's.
+
+Three specs, 3475 observations, eighteen behaviours, all matching. Nine
+mutations were run against them and eight are caught. The ninth is more
+interesting than the eight:
+
+- **The leaf ArrowRight mutation survived the first time.** Not one spec
+  pressed ArrowRight on a leaf — the walks all happened to be on folders. The
+  behaviour was in the catalogue and reported as matched, on evidence that did
+  not exist. `tree_expand`'s walk was rewritten to end on a leaf and it is
+  caught now.
+- **The top-level ArrowLeft mutation was equivalent.** Deleting the guard
+  changed no observable behaviour, and for a good reason: the root is not a
+  row, so a top-level item's parent is not in the visible list and the lookup
+  fails anyway. Two mechanisms were answering one question. The guard is gone
+  and the comment in its place says why, because a branch nothing can reach
+  reads as coverage from the outside.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
