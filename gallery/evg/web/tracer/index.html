@@ -1275,6 +1275,11 @@
   var WAND_KEY = 0x9E3779;
   var SVGNS = "http://www.w3.org/2000/svg";
   var wandSel = null, wandGraph = null, wandSeq = 0;
+  // A shape the drawn line cuts through is kept only where the line kept it.
+  // These hold that: which shapes are clipped, by which <clipPath>, and the
+  // raster of each clip so the enclosure rule and the crop box see the same
+  // picture the viewer will.
+  var wandClipOf = new Map(), wandClipEls = new Map(), wandClipRaster = new Map();
 
   function wandRgb(fill) {
     if (!/^#[0-9a-f]{6}$/i.test(fill || "")) return [0, 0, 0];
@@ -1380,8 +1385,34 @@
   function wandInvalidate() { wandGraph = null; }
 
   function wandClear() {
-    if (wandGraph) wandGraph.els.forEach(function (el) { el.classList.remove("wand-off"); });
+    if (wandGraph) {
+      wandGraph.els.forEach(function (el) {
+        el.classList.remove("wand-off");
+        el.removeAttribute("clip-path");
+      });
+    }
+    wandClipEls.forEach(function (el) { if (el.parentNode) el.parentNode.removeChild(el); });
+    wandClipOf = new Map();
+    wandClipEls = new Map();
+    wandClipRaster = new Map();
     wandSel = null;
+  }
+
+  // Where the selection actually lands on screen: its shapes, minus the parts
+  // a drawn line cut away.
+  function wandCells(g, sel) {
+    var n = g.cw * g.ch, eff = new Uint8Array(n);
+    for (var p = 0; p < n; p++) {
+      var id = g.ids[p];
+      if (!id || !sel.has(id - 1)) continue;
+      var clip = wandClipOf.get(id - 1);
+      if (clip !== undefined) {
+        var r = wandClipRaster.get(clip);
+        if (r && !r[p]) continue;
+      }
+      eff[p] = 1;
+    }
+    return eff;
   }
 
   function wandReady(svg) {
@@ -1399,11 +1430,8 @@
   // them. A shape that merely overlaps, like a ball crossing a box, reaches
   // the outside and is left alone.
   function wandEnclose(g, sel) {
-    var n = g.cw * g.ch, v = new Uint8Array(n), covered = 0;
-    for (var p = 0; p < n; p++) {
-      var id = g.ids[p];
-      if (id && sel.has(id - 1)) { v[p] = 1; covered++; }
-    }
+    var n = g.cw * g.ch, v = wandCells(g, sel), covered = 0;
+    for (var p = 0; p < n; p++) if (v[p]) covered++;
     if (!covered) return;
     var out = new Uint8Array(n), stack = [];
     function push(q) { if (!out[q] && !v[q]) { out[q] = 1; stack.push(q); } }
@@ -1439,6 +1467,8 @@
   // cheek into the wall behind it one imperceptible step at a time.
   function wandGrow(g, seed, tol) {
     var want = g.rgb[seed], lim = tol * tol;
+    // A colour flood answers for whole shapes, so a shape it reaches stops
+    // being clipped by whatever line was drawn before.
     var hit = new Set([seed]), queue = [seed];
     while (queue.length) {
       var near = g.nb[queue.pop()];
@@ -1467,29 +1497,52 @@
     cv.width = g.cw; cv.height = g.ch;
     var cx = cv.getContext("2d", { willReadFrequently: true });
     cx.setTransform(g.sc, 0, 0, g.sc, -g.vb[0] * g.sc, -g.vb[1] * g.sc);
-    cx.beginPath();
-    cx.moveTo(pts[0].x, pts[0].y);
-    for (var i = 1; i < pts.length; i++) cx.lineTo(pts[i].x, pts[i].y);
-    cx.closePath();
+    var poly = "M" + pts.map(function (p) { return p.x + "," + p.y; }).join("L") + "Z";
     cx.fillStyle = "#fff";
-    cx.fill();
+    cx.fill(new Path2D(poly));
     var d = cx.getImageData(0, 0, g.cw, g.ch).data;
-    var inside = new Int32Array(g.n), n = g.cw * g.ch;
+    var n = g.cw * g.ch, mark = new Uint8Array(n), inside = new Int32Array(g.n);
     for (var p = 0; p < n; p++) {
+      if (d[p * 4 + 3] <= 128) continue;
+      mark[p] = 1;
       var id = g.ids[p];
-      if (id && d[p * 4 + 3] > 128) inside[id - 1]++;
+      if (id) inside[id - 1]++;
     }
-    // Two fifths, not half, and the asymmetry is deliberate: a shape wrongly
-    // left out becomes a hole in the object, and a shape wrongly taken along
-    // is a scrap of background that one ⌥-click removes. Measured on a
-    // portrait the fractions are strongly bimodal — 304 shapes below 0.1 and
-    // 145 above 0.9, with barely thirty in between — so the line has room to
-    // sit low. Half of one per cent decided it in practice: the face's skin
-    // came out at 0.49 and a rough outline through the hair dropped it,
-    // leaving the head transparent.
-    var hit = new Set();
+
+    // Two thresholds, because a shape is admitted on one question and kept
+    // whole on another. Admitted: does two fifths of what you can see of it
+    // fall inside the line — below that the shape belongs to the background
+    // and even the part of it inside the line goes, which is what clears the
+    // curtain and the flag and the desk out from behind a person. Kept whole:
+    // is it almost entirely inside, in which case the line was a rough guess
+    // and the shape's own edge is the better answer. In between the line is
+    // the answer, and the shape is kept only where the line kept it.
+    //
+    // Taking every admitted shape whole was the first version and it leaked
+    // badly: one large background shape reaching across the line drags its
+    // whole visible area in, and then the enclosure rule closes over
+    // everything that shape surrounds — 178 shapes selected, 231 after
+    // closing, and 72 of those sat outside the line altogether.
+    var hit = new Set(), part = [];
     for (var k = 0; k < g.n; k++) {
-      if (g.seen[k] && inside[k] >= g.seen[k] * 0.4) hit.add(k);
+      if (!g.seen[k] || inside[k] < g.seen[k] * 0.4) continue;
+      hit.add(k);
+      if (inside[k] < g.seen[k] * 0.85) part.push(k);
+    }
+
+    if (part.length) {
+      var svg = g.svg;
+      var cid = "wandclip" + (++wandSeq);
+      var cp = document.createElementNS(SVGNS, "clipPath");
+      cp.setAttribute("id", cid);
+      cp.setAttribute("clipPathUnits", "userSpaceOnUse");
+      var pe = document.createElementNS(SVGNS, "path");
+      pe.setAttribute("d", poly);
+      cp.appendChild(pe);
+      svg.appendChild(cp);
+      wandClipEls.set(cid, cp);
+      wandClipRaster.set(cid, mark);
+      part.forEach(function (k) { wandClipOf.set(k, cid); });
     }
     wandEnclose(g, hit);
     return hit;
@@ -1499,12 +1552,19 @@
     if (!wandGraph) return;
     wandGraph.els.forEach(function (el, i) {
       el.classList.toggle("wand-off", !!wandSel && !wandSel.has(i));
+      var clip = wandSel && wandSel.has(i) ? wandClipOf.get(i) : undefined;
+      if (clip === undefined) el.removeAttribute("clip-path");
+      else el.setAttribute("clip-path", "url(#" + clip + ")");
     });
   }
 
-  function wandMerge(g, grown, ev) {
+  function wandMerge(g, grown, ev, clipped) {
     if (!wandSel || (!ev.shiftKey && !ev.altKey)) wandSel = new Set();
-    grown.forEach(function (i) { if (ev.altKey) wandSel.delete(i); else wandSel.add(i); });
+    grown.forEach(function (i) {
+      if (ev.altKey) { wandSel.delete(i); wandClipOf.delete(i); return; }
+      wandSel.add(i);
+      if (!clipped) wandClipOf.delete(i);
+    });
     wandPaint();
     setEditNote(wandSel.size + " / " + g.n + " muotoa valittu. ⇧ lisää, ⌥ poistaa, Eristä leikkaa muun pois.");
   }
@@ -1515,14 +1575,14 @@
     var g = wandReady(svg);
     var seed = g.index.get(el);
     if (seed === undefined) return;
-    wandMerge(g, wandGrow(g, seed, +wandTol.value), ev);
+    wandMerge(g, wandGrow(g, seed, +wandTol.value), ev, false);
   }
 
   function wandLassoDone(pts, ev) {
     var svg = outSvg();
     if (!svg) return;
     var g = wandReady(svg);
-    wandMerge(g, wandLassoSelect(g, pts), ev);
+    wandMerge(g, wandLassoSelect(g, pts), ev, true);
   }
 
   // The cut. Everything outside the selection leaves the document, which is
@@ -1541,13 +1601,21 @@
       else if (el.parentNode) drop.push({ el: el, i: i, parent: el.parentNode, next: el.nextSibling });
     }
     if (!drop.length) { setEditNote("Koko kuva on valittu — ei mitään leikattavaa."); return; }
-    var entry = { kind: "isolate", removed: drop, masked: [], maskEl: null };
+    var entry = { kind: "isolate", removed: drop, masked: [], maskEl: null,
+                  clipped: [], clipEls: [] };
+    // The clips a drawn line put on the shapes it cut through are part of the
+    // result now, so they stop belonging to the live selection and start
+    // belonging to the undo step.
+    wandGraph.els.forEach(function (el, i) {
+      if (wandClipOf.has(i) && wandSel.has(i)) entry.clipped.push(el);
+    });
+    wandClipEls.forEach(function (el) { entry.clipEls.push(el); });
 
     // Where the selection is visible, in raster cells, which is also the crop.
+    var eff = wandCells(g, wandSel);
     var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (var p = 0; p < g.cw * g.ch; p++) {
-      var id = g.ids[p];
-      if (!id || !wandSel.has(id - 1)) continue;
+      if (!eff[p]) continue;
       var px = p % g.cw, py = (p / g.cw) | 0;
       if (px < x0) x0 = px; if (px > x1) x1 = px;
       if (py < y0) y0 = py; if (py > y1) y1 = py;
@@ -1663,7 +1731,13 @@
       svg.setAttribute("height", String(h));
     }
     editStack.push(entry);
-    wandClear();
+    // Not wandClear: that would take the clips off the shapes that now need
+    // them. Only the selection's own marks go.
+    g.els.forEach(function (el) { el.classList.remove("wand-off"); });
+    wandSel = null;
+    wandClipOf = new Map();
+    wandClipEls = new Map();
+    wandClipRaster = new Map();
     wandInvalidate();
     setEditNote(keep.length + " muotoa jäljellä, muu on läpinäkyvää.");
   }
@@ -2467,6 +2541,10 @@
         rec.parent.insertBefore(rec.el, rec.next);
       }
       if (last.masked) last.masked.forEach(function (el) { el.removeAttribute("mask"); });
+      if (last.clipped) last.clipped.forEach(function (el) { el.removeAttribute("clip-path"); });
+      if (last.clipEls) {
+        last.clipEls.forEach(function (el) { if (el.parentNode) el.parentNode.removeChild(el); });
+      }
       if (last.maskEl && last.maskEl.parentNode) last.maskEl.parentNode.removeChild(last.maskEl);
       if (last.vb) {
         var isv = outSvg();

@@ -20,18 +20,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   photograph. One undo puts the whole drawing and its old frame back.
 
   The hand-drawn mode is the one that works on photographs. A suit and the
-  curtain behind it are the same tone, so no tolerance separates them; the line
-  you draw says *where*, roughly, and the shapes say *exactly* — a shape joins
-  the object when more than two fifths of what you can see of it falls inside
-  your line, and nothing is ever cut along the line itself. A sloppy circle
-  wobbling ±25 px around a ball returns the ball, exactly. Two fifths and not
-  half is deliberate and was measured: the fractions come out strongly bimodal
-  (on a portrait, 304 shapes below 0.1 and 145 above 0.9, barely thirty in
-  between), so the line has room to sit low, and half a per cent decided it in
-  practice — the face's skin came out at 0.49, and a rough outline through the
-  hair dropped it and left the head transparent. A shape wrongly left out is a
-  hole; a shape wrongly taken along is a scrap of background that one ⌥-click
-  removes.
+  curtain behind it are the same tone, so no tolerance separates them — and a
+  background flood proves it: seeded from outside the line at a tolerance as
+  tight as 30, it eats half the suit. The line you draw says *where*, roughly,
+  and the shapes say *exactly*, on two questions rather than one:
+
+  - **Admitted** — does two fifths of what you can see of a shape fall inside
+    the line? Below that the shape is background, and even the part of it
+    inside the line goes. This is what clears the curtain, the flag and the
+    desk out from behind a person.
+  - **Kept whole** — is it almost entirely inside (85%), in which case the line
+    was a rough guess and the shape's own edge is the better answer. A sloppy
+    circle wobbling ±25 px around a ball returns the ball, exactly.
+  - In between, the line is the answer: the shape is clipped to it.
+
+  Taking every admitted shape whole was the first version and it leaked badly,
+  which is the difference between the two: one large background shape reaching
+  across the line drags its whole visible area in, and the enclosure rule then
+  closes over everything that shape surrounds — 178 shapes selected, 231 after
+  closing, and 72 of those sat outside the line altogether. Measured as painted
+  pixels landing outside the outline that was drawn, that is **30%**; clipping
+  the shapes the line cuts through takes it to **0.2%**.
 
   Everything works on what is **visible**, and that is the whole design. A
   traced picture is stacked: a lower layer's shape is the union of itself and

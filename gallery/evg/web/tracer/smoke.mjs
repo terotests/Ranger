@@ -533,7 +533,8 @@ if (!ready) {
         const el = document.elementFromPoint(r.left + r.width * 0.5, r.top + r.height * 0.55);
         if (!el || el.tagName !== "path") return -1;
         el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        return svg.querySelectorAll("path:not(.wand-off)").length;
+        return [...svg.querySelectorAll("path:not(.wand-off)")]
+          .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length;
       }, tol);
       const tight = await grow(0);
       const loose = await grow(140);
@@ -560,9 +561,15 @@ if (!ready) {
         send("pointerdown", pts[0]);
         pts.slice(1).forEach((p) => send("pointermove", p));
         send("pointerup", pts[pts.length - 1]);
+        window.__smokeLasso = box;
         return {
-          sel: svg.querySelectorAll("path:not(.wand-off)").length,
+          sel: [...svg.querySelectorAll("path:not(.wand-off)")]
+            .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length,
           left: svg.querySelectorAll('path[stroke="#ff2ec4"]').length,
+          // A line drawn through shapes has to clip the ones it cut, or the
+          // background reaching across it comes along whole.
+          clips: svg.querySelectorAll("clipPath[id^=wandclip]").length,
+          clipped: svg.querySelectorAll("path[clip-path]").length,
         };
       });
 
@@ -596,15 +603,20 @@ if (!ready) {
       const frameBefore = await page.evaluate(() =>
         document.querySelector("#outStage svg").getAttribute("viewBox"));
       const before = await shot(frameBefore);
-      const shapesBefore = await page.evaluate(() =>
-        document.querySelectorAll("#outStage svg path").length);
+      // Shapes of the drawing: not the ones the tool parks inside a <mask> or
+      // a <clipPath>, which are machinery rather than picture.
+      const drawn = () => page.evaluate(() =>
+        [...document.querySelectorAll("#outStage svg path")]
+          .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length);
+      const shapesBefore = await drawn();
       await page.click("#wandCut");
       const cut = await page.evaluate(() => {
         const svg = document.querySelector("#outStage svg");
         return {
           // Paths inside the mask are not shapes of the drawing: the cut moves
           // what it removes in there rather than cloning it.
-          shapes: [...svg.querySelectorAll("path")].filter((p) => !p.closest("mask")).length,
+          shapes: [...svg.querySelectorAll("path")]
+            .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length,
           frame: svg.getAttribute("viewBox"),
           marked: svg.querySelectorAll(".wand-off").length,
           masks: svg.querySelectorAll("mask[id^=wandmask]").length,
@@ -630,14 +642,62 @@ if (!ready) {
             + Math.abs(before.px[o + 2] - after.px[o + 2]) > 60) moved++;
         }
       }
+      // How far past the drawn line the result reaches. Taking every admitted
+      // shape whole let one background shape crossing the line drag its whole
+      // visible area in, and the enclosure rule then closed over everything
+      // that shape surrounded — the flag, the curtain and the desk came along
+      // with the person. A shape the line cuts through is clipped to it now,
+      // so what sticks out is only the overhang of shapes that were almost
+      // entirely inside anyway.
+      const leak = await page.evaluate((box) => {
+        const svg = document.querySelector("#outStage svg");
+        const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
+        const c = document.createElement("canvas");
+        c.width = 200; c.height = Math.max(1, Math.round(200 * vb[3] / vb[2]));
+        const g = c.getContext("2d");
+        // The lasso, in the frame's own coordinates. It was drawn as fractions
+        // of the original 320×221 stage.
+        const poly = box.map((p) => [p[0] * 320, p[1] * 221]);
+        const inPoly = (x, y) => { let inside = false;
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const [xi, yi] = poly[i], [xj, yj] = poly[j];
+            if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+              inside = !inside;
+            }
+          }
+          return inside; };
+        return new Promise((done) => {
+          const im = new Image();
+          im.onload = () => {
+            g.drawImage(im, 0, 0, c.width, c.height);
+            const d = g.getImageData(0, 0, c.width, c.height).data;
+            let painted = 0, outside = 0;
+            for (let y = 0; y < c.height; y++) {
+              for (let x = 0; x < c.width; x++) {
+                if (d[(y * c.width + x) * 4 + 3] < 200) continue;
+                painted++;
+                const ux = vb[0] + (x + 0.5) * vb[2] / c.width;
+                const uy = vb[1] + (y + 0.5) * vb[3] / c.height;
+                if (!inPoly(ux, uy)) outside++;
+              }
+            }
+            done({ painted, outside });
+          };
+          im.src = "data:image/svg+xml;base64,"
+            + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(svg))));
+        });
+      }, await page.evaluate(() => window.__smokeLasso));
+
       await page.click("#editUndo");
       const back = await page.evaluate(() => {
         const svg = document.querySelector("#outStage svg");
-        return { shapes: [...svg.querySelectorAll("path")].filter((p) => !p.closest("mask")).length,
+        return { shapes: [...svg.querySelectorAll("path")]
+                   .filter((p) => !p.closest("mask") && !p.closest("clipPath")).length,
                  frame: svg.getAttribute("viewBox"),
-                 masks: svg.querySelectorAll("mask[id^=wandmask]").length };
+                 masks: svg.querySelectorAll("mask[id^=wandmask]").length,
+                 clips: svg.querySelectorAll("clipPath[id^=wandclip]").length };
       });
-      return { tight, loose, lasso, shapesBefore, frameBefore, cut, back, painted, moved };
+      return { tight, loose, lasso, shapesBefore, frameBefore, cut, back, painted, moved, leak };
     })();
     await page.click("#toolRefine");
 
@@ -717,7 +777,8 @@ if (!ready) {
     process.exitCode = 1;
   }
   if (edit.wand.lasso.sel < 2 || edit.wand.lasso.sel === edit.wand.loose
-    || edit.wand.lasso.left !== 0) {
+    || edit.wand.lasso.left !== 0 || edit.wand.lasso.clips !== 1
+    || edit.wand.lasso.clipped < 1) {
     console.error("a hand-drawn outline should select an area of its own and clean up after itself, got "
       + JSON.stringify(edit.wand.lasso));
     process.exitCode = 1;
@@ -741,9 +802,16 @@ if (!ready) {
       + " of " + edit.wand.painted + " painted pixels changed colour");
     process.exitCode = 1;
   }
+  if (!(edit.wand.leak.painted > 500)
+    || edit.wand.leak.outside > edit.wand.leak.painted * 0.05) {
+    console.error("a hand-drawn outline should bound the cut: " + edit.wand.leak.outside
+      + " of " + edit.wand.leak.painted + " painted pixels landed outside the line");
+    process.exitCode = 1;
+  }
   if (edit.wand.back.shapes !== edit.wand.shapesBefore
-    || edit.wand.back.frame !== edit.wand.frameBefore || edit.wand.back.masks !== 0) {
-    console.error("undo should put every cut shape, the mask and the old frame back, got "
+    || edit.wand.back.frame !== edit.wand.frameBefore || edit.wand.back.masks !== 0
+    || edit.wand.back.clips !== 0) {
+    console.error("undo should put every cut shape back and take the mask, the clip and the frame with it, got "
       + JSON.stringify(edit.wand.back) + " want " + edit.wand.shapesBefore
       + " / " + edit.wand.frameBefore);
     process.exitCode = 1;
