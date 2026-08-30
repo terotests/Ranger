@@ -123,6 +123,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The rest of the eight-case list, built and measured.** Two more pictures
+  and three more scenarios, so every case is a named thing that runs rather
+  than a description.
+
+  **A same-coloured object right next door, with a gap** (`8-neighbour`): the
+  gap holds. Every selector scores 100% of a 0.827 ceiling — the ceiling is
+  what it is because the tracer merges some of the neighbour's speckle, not
+  because the selection reaches across.
+
+  **A long weak edge** (`9-weakedge`): the figure's left flank differs from the
+  background beside it by a few units of Lab for the whole height of the body.
+  The ceiling falls to **0.574** — the tracing itself cannot hold that boundary
+  — and every selector sits at 100% of it. A colour click falls to 41%. This is
+  the clearest case in the set for the three-way split: nothing here is the
+  selector's fault, and the fix belongs in the tracer.
+
+  Three scenarios, in `steer.mjs`:
+
+  | | mean of ceiling |
+  |---|---|
+  | one small dab and nothing else | 96% |
+  | a stroke on the wrong thing | 46% |
+  | …then ⌥ over it | 0% |
+  | …then a right stroke | **100%** |
+  | a stroke, plus a small ⌥ over the same place | 100% |
+  | the same two, the other way round | 0% |
+
+  Recovery is complete: a first stroke on the wrong object, taken back and
+  replaced, ends where a right first stroke would have. And the coverage
+  invariant holds in both directions — a small ⌥ over a place a large positive
+  stroke claimed changes nothing at all, and the same pair reversed gives the
+  background, which is what "the stroke that covered more of it is the one that
+  pointed at it" has to mean if it means anything.
+
 - **Two things a single-stroke score cannot say, measured:**
   `npm run evg:trace:web:steer`.
 

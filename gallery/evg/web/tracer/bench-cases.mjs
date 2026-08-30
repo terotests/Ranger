@@ -169,6 +169,7 @@ function decoy(x, y) {
 CASES.push({
   name: "7-decoy",
   truth: "figureBody",
+  wrongAt: [0.74, 0.75],
   what: "houkutin kiinni hahmossa, sen omilla väreillä — katto 0,89, koska jäljitys sulattaa ne osin yhteen",
   inFigure: figureBody,
   draw(px) {
@@ -189,6 +190,55 @@ CASES.push({
   },
   // The corrective stroke goes over the decoy, in the picture's own terms.
   negOverride: [[252 / W, 262 / H], [258 / W, 340 / H]],
+});
+
+// Case 3 of the list: another object of the same colour right next door, but
+// not touching. The decoy above touches and is merged by the tracer; this one
+// asks the selector instead — can a gap of plain background hold it back when
+// the colours say "same thing"?
+function neighbour(x, y) {
+  const dx = x - 272, dy = y - 262;
+  return dx * dx / (34 * 34) + dy * dy / (78 * 78) <= 1;
+}
+
+CASES.push({
+  name: "8-neighbour",
+  truth: "figureBody",
+  wrongAt: [0.85, 0.655],
+  what: "samanvärinen esine vieressä, 12 px rako välissä — pitääkö rako?",
+  inFigure: figureBody,
+  draw(px) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const b = (((x * 0.6 + y * 1.4) / 46) | 0) % 4;
+      put(px, x, y, (figureBody(x, y) || neighbour(x, y)) ? FIG[b] : BG[b]);
+    }
+    speckle(px, function (x, y) { return figureBody(x, y) || neighbour(x, y); }, 120, 19, FIG, BG);
+  },
+});
+
+// Case 4: a long boundary with almost nothing across it. The figure's left
+// side and the background beside it differ by a few units of Lab for the whole
+// height of the body, while everything else is plainly separated — so the
+// pairwise term has one long stretch where it cannot tell there is an edge.
+const FAINT = [162, 150, 136];
+
+CASES.push({
+  name: "9-weakedge",
+  truth: "figureBody",
+  what: "pitkä heikko yhteinen reuna: vasen kylki eroaa taustasta tuskin lainkaan",
+  inFigure: figureBody,
+  draw(px) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const b = (((x * 0.6 + y * 1.4) / 46) | 0) % 4;
+      const f = figureBody(x, y);
+      // The figure's left flank wears a tone that is a whisper away from the
+      // background it stands against; its right flank is plainly itself.
+      if (f && x < 160 && y > 150) { put(px, x, y, FAINT); continue; }
+      if (!f && x < 160 && y > 150) { put(px, x, y, [FAINT[0] + 8, FAINT[1] + 6, FAINT[2] + 5]); continue; }
+      put(px, x, y, f ? FIG[b] : BG[b]);
+    }
+    speckle(px, figureBody, 90, 23, FIG, BG);
+  },
 });
 
 export const SIZE = { W, H };

@@ -252,8 +252,48 @@ for (const c of CASES) {
              aimFn: aimFn, aimFp: aimFp };
   }, { pts: baseFrac });
 
+  // --- the three scenarios from the list ---
+  //
+  // 5: one small stroke and nothing else. 6: a stroke on the wrong thing, then
+  // ⌥ to take it back, then a right one — recovery, which is what a person
+  // does when the first attempt misses. 7: a positive and a ⌥ stroke over the
+  // same place in different amounts, which is the coverage invariant asked
+  // directly: the one that covered more wins, and the answer should be the
+  // same as if the smaller one had never been drawn.
+  const mid = baseFrac[Math.floor(baseFrac.length / 2)];
+  const wrongAt = c.wrongAt || [0.06, 0.5];
+  const scen = await page.evaluate(({ pts, mid, wrongAt }) => {
+    const K = window.__k;
+    const dab = (p, len) => [[p[0], p[1] - len], [p[0], p[1] + len]];
+
+    K.reset();
+    K.drag(dab(mid, 0.03), false);
+    const small = K.look().iou;
+
+    // A stroke on the wrong thing, then ⌥ over it, then a right one.
+    K.reset();
+    K.drag(dab(wrongAt, 0.06), false);
+    const wrong = K.look().iou;
+    K.drag(dab(wrongAt, 0.06), true);
+    const undone = K.look().iou;
+    K.drag(pts, false);
+    const recovered = K.look().iou;
+
+    // The same place, two strokes, different amounts.
+    K.reset();
+    K.drag(pts, false);
+    const plain = K.look().iou;
+    K.drag(dab(mid, 0.02), true);          // a quarter of the positive's reach
+    const contested = K.look().iou;
+    K.reset();
+    K.drag(dab(mid, 0.02), false);         // and the other way round
+    K.drag(pts, true);
+    const flipped = K.look().iou;
+    return { small, wrong, undone, recovered, plain, contested, flipped };
+  }, { pts: baseFrac, mid, wrongAt });
+
   rows.push({
-    name: c.name, ceiling,
+    name: c.name, ceiling, scen,
     p10: q(0.1), median: q(0.5), p90: q(0.9), worst: q(0),
     s0: Math.min(1, steer.first / ceiling),
     s1: Math.min(1, steer.afterAdd / ceiling),
@@ -287,8 +327,27 @@ for (const r of rows) {
     + (g1 >= 0 ? "+" : "") + (g1 * 100).toFixed(0) + " / "
     + (g2 >= 0 ? "+" : "") + (g2 * 100).toFixed(0));
 }
+console.log("");
+console.log("YKSI PIENI VETO / VÄÄRÄ VETO JA TOIPUMINEN / SAMA ALUE ERI MÄÄRIN");
+console.log(pad("kuva", 12) + pad("pieni", 9) + pad("väärin", 9) + pad("⌥ pois", 9)
+  + pad("+ oikea", 10) + pad("veto", 8) + pad("+pieni⌥", 10) + "käänteinen");
+console.log("-".repeat(76));
+for (const r of rows) {
+  const q = (v) => pct(Math.min(1, v / r.ceiling));
+  console.log(pad(r.name, 12) + pad(q(r.scen.small), 9) + pad(q(r.scen.wrong), 9)
+    + pad(q(r.scen.undone), 9) + pad(q(r.scen.recovered), 10)
+    + pad(q(r.scen.plain), 8) + pad(q(r.scen.contested), 10) + q(r.scen.flipped));
+}
+
 const mean = (f) => rows.reduce((a, r) => a + f(r), 0) / rows.length;
 console.log("");
+console.log("keskimäärin: pieni veto " + pct(mean((r) => Math.min(1, r.scen.small / r.ceiling)))
+  + " · väärä veto " + pct(mean((r) => Math.min(1, r.scen.wrong / r.ceiling)))
+  + " → ⌥ " + pct(mean((r) => Math.min(1, r.scen.undone / r.ceiling)))
+  + " → oikea " + pct(mean((r) => Math.min(1, r.scen.recovered / r.ceiling))));
+console.log("             sama alue: veto " + pct(mean((r) => Math.min(1, r.scen.plain / r.ceiling)))
+  + " · + pieni ⌥ " + pct(mean((r) => Math.min(1, r.scen.contested / r.ceiling)))
+  + " · käänteinen " + pct(mean((r) => Math.min(1, r.scen.flipped / r.ceiling))));
 console.log("keskimäärin: huonoin " + pct(mean((r) => r.worst))
   + ", mediaani " + pct(mean((r) => r.median))
   + " · ohjaus " + pct(mean((r) => r.s0)) + " → " + pct(mean((r) => r.s1))
