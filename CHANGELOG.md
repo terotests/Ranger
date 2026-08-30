@@ -109,6 +109,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings through the same six strokes and reports min, median and mean, and
   exists because two of the changes above were nearly shipped on a story.
 
+- **Seven generated pictures, graded, with their answers — and every selector
+  run through all of them.** `npm run evg:trace:web:bench`. Harder than a few
+  flat shapes, easier than a photograph, and generated rather than committed so
+  they are the same every run. Six share one silhouette so difficulty moves
+  along a single axis — what the two sides look like — and the seventh changes
+  the shape instead.
+
+  | picture | ceiling | click | lasso | brush | brush + ⌥ |
+  |---|---|---|---|---|---|
+  | one colour each side | 0.993 | 100% | 100% | 100% | 100% |
+  | both sides multi-toned | 0.976 | 55% | 100% | 100% | 100% |
+  | speckled: each side carries the other's colours | 0.913 | 57% | 100% | 100% | 100% |
+  | background gradient walks through the figure's tone | 0.743 | 71% | 100% | 100% | 100% |
+  | one palette, both sides, different arrangement | 0.313 | 77% | 100% | 100% | 100% |
+  | thin limbs and a hole | 0.947 | 57% | 97% | 97% | 97% |
+  | a decoy touching the figure, in its colours | 0.887 | 61% | 100% | 100% | 98% |
+  | **mean of ceiling** | | **68%** | **100%** | **100%** | **99%** |
+
+  Read the ceiling first. Where it is 0.31 the tracing has already merged
+  figure and background and no selector can do better; where it is 0.89 the
+  decoy has been partly merged into the figure it touches, which is a limit of
+  the pipeline and not of the selection. A colour click at 68% is the honest
+  number for one click on a many-toned object, and is why the brush exists.
+
+  The bench found a real bug on its first honest run: **a corrective ⌥ stroke
+  over pure background destroyed the selection** — 0.95 → 0.47 on the speckled
+  picture, and worse on three others. Not the hard constraint, not the colour
+  model: the stroke was *deleting positive hints*, because a stroke marked
+  every region it touched and a long ⌥ stroke brushes the edge of something a
+  positive stroke had claimed properly. Hints are kept as how much of each
+  region every kind of stroke has covered now, and the stroke that covered more
+  of a region is the one that pointed at it. That took ⌥ from 68% to 99%.
+
+  Two things were tried in between and are not in the code, because they did
+  not fix it and one of them cost elsewhere: excluding background examples
+  whose colour the foreground also wears (a colour both sides wear discriminates
+  nothing, so it should not vote — sound, and worth 0.001 here, while costing
+  0.11 on a photographic composite), and making a ⌥ stroke's constraint soft.
+  The isolating run is what settled it: with hint deletion switched off and
+  everything else unchanged, the number came back in full.
+
   The geometric lasso is still there, as a mode: it answers a different
   question ("which pieces are inside this line?") and answers it well.
 

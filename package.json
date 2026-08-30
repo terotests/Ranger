@@ -599,6 +599,7 @@
     "evg:trace:bench": "bash gallery/evg/tools/run_trace_bench.sh",
     "evg:trace:web": "node gallery/evg/web/tracer/build.mjs",
     "evg:trace:web:smoke": "node gallery/evg/web/tracer/smoke.mjs",
+    "evg:trace:web:bench": "node gallery/evg/web/tracer/bench.mjs",
     "evg:trace:web:serve": "node gallery/evg/web/tracer/build.mjs && python3 -m http.server -d gallery/evg/web/tracer/dist 8006",
     "evg": "npm run evg:compile && npm run evg:run",
     "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli",

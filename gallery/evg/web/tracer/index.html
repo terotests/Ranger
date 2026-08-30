@@ -1322,12 +1322,34 @@
   // What the user has pointed at, and what they have pointed away from. These
   // accumulate across strokes: the flow is draw, look, add the hand it missed,
   // ⌥ the curtain it took, and every stroke re-runs the whole classification.
+  //
+  // Kept as how much of each region every kind of stroke has covered, not as
+  // two sets, because the two can disagree about the same region and the
+  // answer is not "whoever spoke last". A ⌥ stroke along the top of a picture
+  // brushes the edge of something a positive stroke had claimed properly, and
+  // taking the hint away for that cost half the selection: measured on a
+  // speckled picture, a corrective stroke over pure background took it from
+  // 0.95 to 0.47, and putting the hint back was the whole of the difference.
+  // The stroke that covered more of the region is the one that pointed at it.
+  var wandFgTouch = new Map(), wandBgTouch = new Map();
   var wandFg = new Set(), wandBg = new Set();
+
+  function wandSettle() {
+    wandFg = new Set();
+    wandBg = new Set();
+    var seen = new Set();
+    wandFgTouch.forEach(function (v, i) { seen.add(i); });
+    wandBgTouch.forEach(function (v, i) { seen.add(i); });
+    seen.forEach(function (i) {
+      var f = wandFgTouch.get(i) || 0, b = wandBgTouch.get(i) || 0;
+      if (f > b) wandFg.add(i); else if (b > f) wandBg.add(i);
+    });
+  }
 
   // Which regions a stroke passed over. The brush is a path, not a polygon —
   // what it touches is a hint, not a border.
   function wandUnderStroke(g, pts, radius) {
-    var hit = new Set();
+    var hit = new Map();
     var cv = document.createElement("canvas");
     cv.width = g.cw; cv.height = g.ch;
     var cx = cv.getContext("2d", { willReadFrequently: true });
@@ -1350,7 +1372,7 @@
     }
     for (var k = 0; k < g.n; k++) {
       // A brush that grazes a region's corner has not pointed at it.
-      if (touched[k] > 0 && touched[k] >= Math.min(30, g.seen[k] * 0.05)) hit.add(k);
+      if (touched[k] > 0 && touched[k] >= Math.min(30, g.seen[k] * 0.05)) hit.set(k, touched[k]);
     }
     return hit;
   }
@@ -1562,6 +1584,8 @@
     wandClipOf = new Map();
     wandClipEls = new Map();
     wandClipRaster = new Map();
+    wandFgTouch = new Map();
+    wandBgTouch = new Map();
     wandFg = new Set();
     wandBg = new Set();
     wandSel = null;
@@ -1746,6 +1770,13 @@
     // from, plus the frame, minus anything they pointed at.
     var bgModel = new Set(bg);
     wandBorderExamples(g).forEach(function (i) { if (!fg.has(i)) bgModel.add(i); });
+
+    // The frame prior is a good prior and a false rule — a portrait crop
+    // touches the bottom edge, a full-bleed illustration touches all four — so
+    // an example taken from it counts as further away than one the user
+    // pointed at, and manual evidence wins.
+    var bgWeight = new Map();
+    bgModel.forEach(function (j) { bgWeight.set(j, bg.has(j) ? 1 : WAND_AUTO_BG); });
     var list = Array.from(cand);
     var slot = new Map();
     list.forEach(function (i, k) { slot.set(i, k); });
@@ -1766,7 +1797,7 @@
       if (bg.has(i)) { edge(k, T, 1e9, 0); continue; }
       var dF = labNearest(g, i, fg);
       var dB = bgModel.size ? labNearest(g, i, bgModel, function (j) {
-        return bg.has(j) ? 1 : WAND_AUTO_BG;
+        return bgWeight.get(j) || 1;
       }) : 40;
       // Colour is not the whole of the evidence. A region the same shade as
       // something the user pointed at, but a dozen regions away from it, is
@@ -2008,10 +2039,9 @@
   function wandSmartStroke(g, pts, negative) {
     var touched = wandUnderStroke(g, pts, +wandBrush.value / 2);
     if (!touched.size) { setEditNote("Sivellin ei osunut mihinkään."); return; }
-    touched.forEach(function (i) {
-      if (negative) { wandFg.delete(i); wandBg.add(i); }
-      else { wandBg.delete(i); wandFg.add(i); }
-    });
+    var into = negative ? wandBgTouch : wandFgTouch;
+    touched.forEach(function (cells, i) { into.set(i, (into.get(i) || 0) + cells); });
+    wandSettle();
     wandResolve(g);
   }
 
