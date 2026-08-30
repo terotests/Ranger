@@ -227,6 +227,7 @@ export async function benchEvg(scene) {
       pageSize: scene.pageSize || 0,
       engine_ms: median(samples.map((s) => s.engine_ms)),
       showcase_ms: median(samples.map((s) => s.showcase_ms)),
+      build_ms: 0,
       layout_ms: median(samples.map((s) => s.layout_ms)),
       dl_ms: median(samples.map((s) => s.dl_ms)),
       json_ms: median(samples.map((s) => s.json_ms)),
@@ -245,11 +246,17 @@ export async function benchEvg(scene) {
 
   const samples = [];
   for (let i = 0; i < reps.timed; i++) {
-    // A fresh host so we are measuring a full build+layout+paint, not a
-    // retained tree that has already been styled. Incremental cost is the
-    // `update` block below.
+    // Fresh host each sample: build() lives inside mountKit, and leaving it
+    // out would compare a retained EVG tree to a React tree that is created
+    // every mount.
+    const t0 = now();
     host = mountKit(scene);
-    samples.push(engineFromHost(host));
+    const built = now() - t0;
+    const painted = engineFromHost(host);
+    painted.build_ms = built;
+    painted.engine_ms += built;
+    painted.showcase_ms += built;
+    samples.push(painted);
   }
 
   let update_ms = 0;
@@ -276,6 +283,7 @@ export async function benchEvg(scene) {
     pageSize: scene.pageSize || 0,
     engine_ms: median(samples.map((s) => s.engine_ms)),
     showcase_ms: median(samples.map((s) => s.showcase_ms)),
+    build_ms: median(samples.map((s) => s.build_ms || 0)),
     layout_ms: median(samples.map((s) => s.layout_ms)),
     dl_ms: median(samples.map((s) => s.dl_ms)),
     json_ms: median(samples.map((s) => s.json_ms)),

@@ -9,6 +9,7 @@
 
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { App } from "../conformance/dom/app.jsx";
 import { SCENES, fixtureFor, actionTid } from "./scenes.js";
 
@@ -45,17 +46,29 @@ async function mount(scene) {
   const fixture = fixtureFor(scene);
   gen += 1;
   const t0 = now();
-  root.render(<App key={scene.id + ":" + gen} fixture={fixture} />);
-  await frames(2);
-  const t1 = now();
-  return { mount_ms: t1 - t0, nodes: countDom() };
+  flushSync(() => {
+    root.render(<App key={scene.id + ":" + gen} fixture={fixture} />);
+  });
+  const committed = now();
+  await frames(1);
+  const painted = now();
+  return {
+    commit_ms: committed - t0,
+    paint_ms: painted - committed,
+    mount_ms: painted - t0,
+    nodes: countDom(),
+  };
 }
 
 async function clickTid(tid) {
   const el = host.querySelector(`[data-tid="${tid}"]`);
   if (!el) return;
-  el.click();
-  await frames(2);
+  const t0 = now();
+  flushSync(() => {
+    el.click();
+  });
+  await frames(1);
+  return now() - t0;
 }
 
 function repeatsFor(scene) {
@@ -87,11 +100,9 @@ export async function benchDom(scene) {
     const updates = [];
     for (let i = 0; i < reps.timed; i++) {
       await mount(scene);
-      const t0 = now();
-      await clickTid(tid);
-      updates.push(now() - t0);
+      updates.push(await clickTid(tid));
     }
-    update_ms = median(updates);
+    update_ms = median(updates.filter((v) => typeof v === "number"));
   }
 
   return {
@@ -101,6 +112,8 @@ export async function benchDom(scene) {
     n: scene.n || 0,
     pageSize: scene.pageSize || 0,
     mount_ms: median(samples.map((s) => s.mount_ms)),
+    commit_ms: median(samples.map((s) => s.commit_ms)),
+    paint_ms: median(samples.map((s) => s.paint_ms)),
     update_ms,
     nodes: samples[0].nodes,
   };

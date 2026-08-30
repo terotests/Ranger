@@ -151,8 +151,8 @@ async function main() {
 
   console.log("");
   console.log("Ranger UI — WebGL vs Radix/DOM  (median ms, headless SwiftShader)");
-  console.log("engine = layout + display list;  showcase = engine + JSON + WebGL");
-  console.log("mount  = React render + two animation frames");
+  console.log("evg-all = build + layout + display list + JSON + WebGL");
+  console.log("dom     = flushSync render + one animation frame;  commit = the sync part");
   console.log("");
 
   let group = "";
@@ -174,9 +174,9 @@ async function main() {
       } else {
         console.log(
           pad("scene", 22, true) +
-            pad("evg-eng", 8) +
             pad("evg-all", 8) +
             pad("dom", 8) +
+            pad("commit", 8) +
             pad("upd-e", 8) +
             pad("upd-d", 8) +
             pad("cmds", 7) +
@@ -200,9 +200,9 @@ async function main() {
     }
     console.log(
       pad(scene.id, 22, true) +
-        pad(ms(evg.engine_ms), 8) +
         pad(ms(evg.showcase_ms), 8) +
         pad(ms(dom.mount_ms), 8) +
+        pad(ms(dom.commit_ms), 8) +
         pad(ms(evg.update_ms), 8) +
         pad(ms(dom.update_ms), 8) +
         pad(evg.cmds, 7) +
@@ -216,10 +216,10 @@ async function main() {
   console.log("breakdown (kit scenes, median ms)");
   console.log(
     pad("scene", 22, true) +
+      pad("build", 8) +
       pad("layout", 8) +
       pad("dlist", 8) +
       pad("json", 8) +
-      pad("parse", 8) +
       pad("webgl", 8) +
       pad("els", 7) +
       pad("dom÷evg", 9),
@@ -228,18 +228,18 @@ async function main() {
     if (scene.evg === "showcase") continue;
     console.log(
       pad(scene.id, 22, true) +
+        pad(ms(evg.build_ms), 8) +
         pad(ms(evg.layout_ms), 8) +
         pad(ms(evg.dl_ms), 8) +
-        pad(ms(evg.json_ms), 8) +
-        pad(ms(evg.parse_ms), 8) +
+        pad(ms(evg.json_ms + evg.parse_ms), 8) +
         pad(ms(evg.gl_ms), 8) +
         pad(evg.elements, 7) +
         pad(ratio(evg.showcase_ms, dom.mount_ms), 9),
     );
   }
   console.log("");
-  console.log("dom÷evg > 1 means the DOM mount was slower than EVG's full paint.");
-  console.log("A native host skips json+parse; compare evg-eng against dom for that.");
+  console.log("dom÷evg > 1 means the DOM mount (commit + one frame) was slower than EVG's full paint.");
+  console.log("For scenes under a frame, read `commit` — `dom` includes one rAF (~16ms).");
 }
 
 main().catch((e) => {
