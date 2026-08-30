@@ -18,6 +18,7 @@ SUITES=(
   pptx:test
   pptx:editor:test
   pptx:text:test
+  pptx:scene:check
   docx_viewer:test
   docx_viewer:app:test
   datagrid:test

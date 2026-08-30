@@ -980,6 +980,17 @@ class EVGDisplayList {
     ; than walks: command `i` starts at `i * stride()`. Read it through this
     ; function and never inline the number — it has changed once already, when
     ; a rotation needed an origin to turn about.
+    ;
+    ; That instruction was there and a reader across the bridge had inlined it
+    ; anyway. The record went 24 -> 26, `pptx-host.mjs` went on multiplying by
+    ; 24, and from the second command on every field was read two ints early —
+    ; colours as coordinates, coordinates as flags — until a ring count taken
+    ; out of somebody's colour reached `new Array(n)`. So a comment is not the
+    ; mechanism: `sceneStride()` on the decoding side now DERIVES this by
+    ; dividing the buffer by the command count, which is exact because the
+    ; buffer is allocated as count * stride here, and it is checked against the
+    ; JSON path for every fixture by `pptx/web/host/scene-binary-check.mjs`.
+    ; Growing this number is safe; a reader that wants the new fields opts in.
     sfn stride:int () {
         return 26
     }

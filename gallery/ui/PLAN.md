@@ -892,6 +892,53 @@ Two structural defects, both caught by the audit and both worth naming:
   wrapper — which is also how the overlay pass finds its anchor without being
   told, so the explicit `overlayAnchor` is back to being the submenu's alone.
 
+## A postscript: the stride, and what a comment cannot enforce
+
+The rotation origin added two ints to `EVGDisplayList`'s per-command record —
+24 to 26 — and `stride()` carried a comment saying to read it through the
+function and never inline the number. A reader on the other side of the bridge
+had inlined it anyway:
+
+```js
+export const SCENE_STRIDE = 24;   //  pptx/web/host/pptx-host.mjs
+```
+
+From the second command onwards every field was read two ints early. Colours
+became coordinates, coordinates became flags, and the frame stayed
+plausible-looking numbers all the way down until a ring count taken out of
+somebody's colour reached `new Array(eCount)` and threw `RangeError: Invalid
+array length` — in the WebAssembly parity job, which needs an Emscripten
+toolchain and runs late in the deploy workflow. A hundred fields downstream of
+the mistake, in a job that only runs on master.
+
+Three things came out of it, and only the first is the fix:
+
+- **The shape is derived, not agreed.** `cmds` is allocated as exactly
+  `count * stride`, so `sceneStride(bin)` recovers the writer's number by
+  dividing. It cannot drift, and it needs no new export — which matters,
+  because three producers publish this frame by three different routes and only
+  one is in a position to export a constant. What the decoder names is the
+  FLOOR it needs (`SCENE_FIELDS_READ = 23`); a wider record is somebody else's
+  business, a narrower one throws with both numbers in the message.
+- **The claim that the two paths agree was a comment.** It said "the
+  equivalence test in the standalone suite compares the two field by field" and
+  there was no such test. There is now: `scene-binary-check.mjs` asks the engine
+  for the JSON and the binary of every slide of every fixture and compares them
+  field by field — 37 decks, 45 slides, 8,658 commands, no browser, no
+  toolchain, one second — and it names the field that differs rather than
+  saying the frames do. It is in the gallery suite and in CI *before* the
+  WebAssembly build.
+- **Two checks that would have caught it were not wired up.** `npm run
+  pptx:web:test` fails outright on this, and the playground draws an empty
+  page. Both were reachable the whole time and neither was in the suite the
+  work was run against.
+
+The lesson is not "be careful with strides". It is that a positional format
+needs its shape carried with it or recoverable from it, because "both sides
+know the layout" is not a property anything enforces — and its failure mode is
+not a clean error at the boundary but nonsense that surfaces somewhere
+unrecognisable.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

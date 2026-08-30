@@ -229,6 +229,7 @@
     "pptx:web": "bash gallery/pptx/web/standalone/build.sh",
     "pptx:web:serve": "bash gallery/pptx/web/standalone/build.sh && python3 -m http.server -d gallery/pptx/web/standalone/dist 8001",
     "pptx:web:test": "bash gallery/pptx/web/standalone/build.sh && node gallery/pptx/web/standalone/smoke.mjs",
+    "pptx:scene:check": "bash gallery/pptx/web/standalone/build.sh && node gallery/pptx/web/host/scene-binary-check.mjs",
     "pptx:web:touch:test": "bash gallery/pptx/web/standalone/build.sh && node gallery/pptx/web/standalone/touch.mjs",
     "pptx:cpp:check": "bash gallery/pptx/web/wasm/cpp-check.sh",
     "pptx:wasm": "bash gallery/pptx/web/wasm/build.sh",
