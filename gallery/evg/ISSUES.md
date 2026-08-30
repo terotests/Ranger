@@ -251,3 +251,77 @@ See `gallery/pdf_writer/components/ListItem.tsx` for a component that demonstrat
 - A proper fix should distinguish between "inline" and "block" text elements
 - Consider adding a `display: inline` or similar property to control this behavior
 - Text measurement requires access to font metrics (FontManager in PDF writer context)
+
+---
+
+## Issue #4: The scene binary's record width was agreed in advance, not published
+
+**Status:** Resolved
+**Severity:** High — every field after the first command read from the wrong offset
+**Found:** August 30, 2026 (in CI, on master)
+**Resolved:** August 30, 2026
+**Component:** `EVGDisplayList.rgr`, `gallery/pptx/web/host/pptx-host.mjs`
+
+### What happened
+
+`EVGDisplayList` publishes a frame as three `Int32Array`s: one fixed-size record
+per draw command, then the ring coordinates and the strings those records index
+into. It is the fast path — the JSON one costs 1.5 MB of text a frame — and it
+is POSITIONAL. Nothing in it says how wide a record is.
+
+The record grew from 24 ints to 26 when `transform: rotate()` needed an origin
+to turn about. `EVGDisplayList.stride()` was updated, and its comment even says
+"read it through this function and never inline the number". The decoder on the
+other side of the bridge had inlined it:
+
+```js
+export const SCENE_STRIDE = 24;   //  pptx-host.mjs
+const b = i * SCENE_STRIDE;
+```
+
+So from the second command on, every field was read two ints early. Colours
+became coordinates, coordinates became flags, and the frame was nonsense that
+still *looked* like numbers. Nothing threw until a ring count read out of
+somebody's colour reached `new Array(eCount)`:
+
+```
+RangeError: Invalid array length
+    at decodeScene (pptx-host.mjs:104)
+```
+
+— in the WebAssembly parity job, which needs an Emscripten toolchain, runs late
+in the deploy workflow, and points a hundred fields downstream of the mistake.
+
+### Resolution
+
+**The shape is derived from the bytes, not agreed in advance.** `cmds` is
+allocated as exactly `count * stride`, so `sceneStride(bin)` recovers the number
+the writer used by dividing. That answer cannot drift, and it needs no new
+export — which matters, because three producers publish this frame by three
+different routes (the Ranger engine, the Emscripten build and the Rust one) and
+only one of them is in a position to export a constant.
+
+What the decoder now names is the FLOOR: `SCENE_FIELDS_READ = 23`, the number
+of fields it actually reads. A record wider than that is fine — the extra
+fields are not its business — and one narrower throws with both numbers in the
+message.
+
+### Why it was not caught sooner
+
+The claim that the two paths agree was written in a comment and checked
+nowhere. `gallery/pptx/web/host/scene-binary-check.mjs` now asks the engine for
+both the JSON and the binary, for every slide of every fixture, and compares
+them field by field: 37 decks, 45 slides, 8,658 commands, no browser, no
+toolchain, one second. It is in `scripts/run-gallery-editor-tests.sh` and runs
+in CI *before* the WebAssembly build rather than after it.
+
+Two other checks would also have caught this and neither was wired up: the
+standalone smoke test (`npm run pptx:web:test`) fails outright, and the frame
+is visibly empty in the playground. Both were reachable the whole time.
+
+### The general lesson
+
+A positional binary format needs its shape carried with it or derivable from
+it. "Both sides know the layout" is not a property anything enforces, and the
+failure mode is not a crash at the boundary — it is plausible-looking garbage
+that surfaces somewhere unrecognisable.

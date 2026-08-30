@@ -51,17 +51,71 @@
  * scanned, unescaped or re-parsed — the numbers are already numbers.
  *
  * WHY FIXED POINT IS NOT A LOSS. `toJson` wrote two decimals and no more, so a
- * coordinate divided back by 100 is exactly what the JSON carried. The
- * equivalence test in the standalone suite compares the two field by field.
+ * coordinate divided back by 100 is exactly what the JSON carried.
+ *
+ * That claim is checked rather than asserted: `scene-binary-check.mjs` beside
+ * this file asks the engine for both, for every slide of every fixture, and
+ * compares them field by field. It is in the gallery suite, and it exists
+ * because for a while the claim was FALSE and nothing said so — see
+ * `SCENE_FIELDS_READ` below.
  */
-export const SCENE_STRIDE = 24;
+
+/**
+ * How many fields of a record this decoder READS — indices 0 through 22.
+ *
+ * Deliberately not "the stride". The stride is the engine's business and it
+ * has grown: it was 24 until a rotation needed an origin to turn about, and
+ * this file went on multiplying by 24. The records then straddled the buffer,
+ * every field after the first command was read from the wrong offset, and the
+ * first thing that noticed was `new Array(eCount)` being handed a ring count
+ * that was really somebody's colour — "RangeError: Invalid array length", a
+ * hundred fields downstream of the actual mistake.
+ *
+ * So this is the floor, not the shape: a record must be at least this wide for
+ * the reads below to mean anything. Anything past it is a field this decoder
+ * does not want, and a producer is free to add one.
+ */
+export const SCENE_FIELDS_READ = 23;
+
+/**
+ * The stride is DERIVED from the buffer rather than agreed in advance.
+ *
+ * `cmds` is allocated as exactly `count * stride`, so the division is not an
+ * estimate — it is the number the writer used, recovered. That matters more
+ * than it looks: the three producers (the Ranger engine, the Emscripten build
+ * and the Rust one) publish this frame through three different paths, and only
+ * one of them is in a position to export a constant. Reading the shape off the
+ * bytes is the one answer all three cannot get wrong.
+ *
+ * A buffer that does not divide evenly, or divides into records too narrow to
+ * read, throws HERE with both numbers in the message — rather than decoding
+ * nonsense and failing somewhere unrecognisable.
+ */
+export function sceneStride(bin) {
+  const n = bin.count | 0;
+  if (n <= 0) return SCENE_FIELDS_READ;
+  const len = bin.cmds.length | 0;
+  const stride = (len / n) | 0;
+  if (stride * n !== len) {
+    throw new Error(
+      `scene binary: ${len} ints do not divide into ${n} commands ` +
+      `(${len / n} each) — the buffer and the command count disagree`);
+  }
+  if (stride < SCENE_FIELDS_READ) {
+    throw new Error(
+      `scene binary: ${stride} fields per command, but this decoder reads ` +
+      `${SCENE_FIELDS_READ} — the engine's record has shrunk`);
+  }
+  return stride;
+}
 
 export function decodeScene(bin) {
   const recs = bin.cmds, pts = bin.pts, ends = bin.ends, pool = bin.strings;
   const n = bin.count | 0;
+  const stride = sceneStride(bin);
   const cmds = new Array(n);
   for (let i = 0; i < n; i++) {
-    const b = i * SCENE_STRIDE;
+    const b = i * stride;
     const rgb = recs[b + 7];
     const c = {
       k: recs[b],

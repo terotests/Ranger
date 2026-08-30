@@ -276,6 +276,17 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/pptx/sample.odp"
           grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
 
+      # Does the engine agree with ITSELF? The frame is published twice — as
+      # JSON, where every field arrives with its name, and as packed
+      # Int32Arrays, which are positional and can be misread in silence. This
+      # needs no toolchain and takes a second, so it runs here rather than
+      # after the Emscripten install below: a decoder that has the record's
+      # shape wrong fails the parity step at the end of this job with a
+      # RangeError a hundred fields downstream of the cause, which is exactly
+      # how the 24-to-26 stride change was found, the hard way.
+      - name: Check the frame survives being packed
+        run: node gallery/pptx/web/host/scene-binary-check.mjs
+
       # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------
       # Ranger -> C++ -> Emscripten -> WASM. This is the only route that
       # carries a program this size today: the direct LLVM/WAT backend is
