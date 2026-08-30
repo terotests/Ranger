@@ -105,7 +105,8 @@ function textList(n, unique) {
 }
 
 function timePaint(list, reps) {
-  paint(list); // warmup: programs, atlas, first upload
+  paint(list); // programs, atlas, first upload
+  paint(list); // a second frame, so the first hitch is not in the sample
   const samples = [];
   for (let i = 0; i < reps; i++) {
     const t0 = now();
@@ -210,7 +211,7 @@ export async function runStress() {
   };
 
   // --- painter only: rects ------------------------------------------------
-  for (const n of [1000, 5000, 10000, 25000, 50000]) {
+  for (const n of [1000, 5000, 10000, 25000, 50000, 100000, 200000]) {
     const list = rectList(n);
     const t = timePaint(list, PAINT_REPS);
     if (push({

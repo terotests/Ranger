@@ -140,3 +140,27 @@ trees so the painter can be asked about command count without the
 controller sitting on the answer. The scorecard marks `60` / `30` /
 `·` against 16.7 ms and 33.3 ms, and prints the largest N that still
 held each budget.
+
+### What a stress run said
+
+Headless Chromium, SwiftShader, `gl.finish` on every paint.
+
+The **painter** holds 60 fps out to about **100 000 rects** (15.6 ms).
+200 000 rects take 52 ms. 8 000 text runs paint in 3–4 ms. A 1 600-row
+table's already-built list is 5.8 ms (12 817 commands). Occasional
+p95 spikes (seconds) are allocator / SwiftShader hitches, not the
+median path.
+
+The **tree** is the limit. A kept 100-row table stays at 60 fps
+(11 ms). At 200 rows retained/rebuild sit at ~18 ms (30 fps). At 800
+rows a retained frame is 65 ms (15 fps) and a rebuild is 80 ms. At
+1 600 rows rebuild is 209 ms (5 fps) while painting that same list is
+still 5.8 ms.
+
+Checkboxes are cheaper per item: 2 000 paint in 2.0 ms and rebuild in
+68 ms.
+
+So a dirty frame's budget is spent in `build()` and `EVGLayout`, not
+in WebGL. A host that keeps the tree and only repaints can show more
+than one that rebuilds. The painter's 60 fps ceiling on this machine
+is on the order of 10⁵ commands; a 200-row table is 1 617.
