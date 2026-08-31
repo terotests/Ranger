@@ -619,6 +619,7 @@
     "evg:trace:cli:smoke": "bash gallery/evg/tools/run_trace_cli_smoke.sh",
     "evg:trace:bench:others": "npm run evg:trace:cli:build --silent && node gallery/evg/tools/bench_vs_others.mjs",
     "evg:trace:bench:speed": "node gallery/evg/tools/bench_speed.mjs",
+    "evg:trace:bench:native": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/evg/tools/evg_trace_cpp_bench.rgr -d=./gallery/evg/bin -o=evg_trace_cpp_bench.cpp -nodecli && g++ -O2 -std=c++17 -o gallery/evg/bin/evg_trace_cpp_bench gallery/evg/bin/evg_trace_cpp_bench.cpp && ./gallery/evg/bin/evg_trace_cpp_bench",
     "evg:trace:cli:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/tools/evg_trace_cli.rgr -d=./gallery/evg/bin -o=evg_trace_cli.js -nodecli",
     "evg:trace:web": "node gallery/evg/web/tracer/build.mjs",
     "evg:trace:web:smoke": "node gallery/evg/web/tracer/smoke.mjs",

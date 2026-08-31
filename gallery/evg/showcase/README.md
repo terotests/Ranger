@@ -118,6 +118,21 @@ three times the C++ one and Python about thirty, which is what portability
 costs here; 98% of any of them is the trace itself, not the PNG decode or the
 SVG writing.
 
+`npm run evg:trace:bench:native` is the third measurement and the narrowest:
+`tools/evg_trace_cpp_bench.rgr` compiled with `-l=cpp` over three synthetic
+bitmaps, no decoding and no colour, so it times the fitting core and nothing
+else. It reports about 1.4 ms for a 256×256 rectangle, 4.0 ms for a 128×128
+checkerboard and 0.5 ms for a ring. That file shipped with the tracer and
+nothing ran it until now; it still compiles, and its `pathChars` agree with the
+ES6 build's, which is one more cross-target check for free.
+
+Read together the three benchmarks say where a trace's time goes. The core is
+milliseconds. A mono trace of the 320×221 sample is 58 ms in the C++ build.
+Colour costs one trace per swatch, because stacked mode is one trace per
+swatch: 83 ms at two colours, 136 at four, 249 at eight, 419 at sixteen. That
+is the price of the stacking rather than of the fitting, and it is why this
+tracer is competitive at eight colours and merely adequate at twenty-four.
+
 `npm run evg:trace:cli:smoke` builds all four and asserts they produce the
 same SVG byte for byte — which is the claim worth testing, since a difference
 in integer division or float printing between targets would otherwise surface

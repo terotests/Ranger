@@ -121,6 +121,27 @@ for (const [name, kind, mk] of cases) {
   rows.push(row);
 }
 console.table(rows);
+// Where a colour trace's time actually goes. Stacked mode traces the image
+// once per swatch, so the cost is the mono cost times the colour count plus
+// the quantization — which is the price of the stacking, and the number to
+// look at before blaming the fitting core.
+const cliCpp = path.join(ROOT, BIN, "evg_trace_cli");
+const cliAny = fs.existsSync(cliCpp) ? [cliCpp, []]
+             : (fs.existsSync(path.join(ROOT, BIN, "evg_trace_cli.js"))
+                ? [process.execPath, [`${BIN}/evg_trace_cli.js`]] : null);
+if (cliAny) {
+  const [cmd, pre] = cliAny;
+  const build = fs.existsSync(cliCpp) ? "C++" : "Node";
+  const small = images[0][1];
+  const byColour = [];
+  for (const n of [1, 2, 4, 8, 16, 24]) {
+    const ms = timeIt(cmd, [...pre, small, `${OUT}/k.svg`, "--colorCount", String(n)]);
+    byColour.push({ colours: n, [`${images[0][0]} (${build})`]: ms === null ? "—" : Math.round(ms) });
+  }
+  console.log(`\ncost by colour count — stacked mode traces once per swatch\n`);
+  console.table(byColour);
+}
+
 const mp = images.map(([l]) => { const [w, h] = l.split("x").map(Number); return (w*h/1e6).toFixed(2); });
 console.log(`\nmegapixels: ${mp.join(" / ")}`);
 console.log("potrace traces one bitmap; the colour tracers quantize first, and they do not\n" +
