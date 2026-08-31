@@ -359,6 +359,69 @@
         "scrollarea-content-reachable": "the content is in the tree and visible even though it does not fit"
       }
     },
+    "tree": {
+      "radix": "@headless-tree/core",
+      "$comment": "Not Radix — Radix has no tree. ReUI's is @headless-tree/react over @headless-tree/core with syncDataLoaderFeature and hotkeysCoreFeature, so headless-tree is the oracle. It contributes the roles, the level/size/position numbers and the whole key map; the example wires NO selection feature, so every row reports aria-selected=false and stays that way. Measured in specs/tree_*.json against the library itself. DRAG AND DROP is a third mode (\"dnd\": true), in two halves. The KEYBOARD half walks drop targets an arrow at a time; the POINTER half computes one from where in a row the cursor sits, driven by synthetic HTML5 DragEvents because Playwright cannot drive native drag through the mouse. Neither half is observable in a DOM trace at all — the page looks identical from one arrow press to the next — so both are captured into oracle/tree-dnd.json and checked by `npm run ui:tree:dnd:check`, the way the table's state machine is. SELECTION IS A MODE: everything up to `selected-false` is measured with selectionFeature OFF, which is ReUI's configuration and must stay that way; everything from `selected-state` on is the same library with the feature ON, and is a different contract — a fixture asks for it with \"selection\": true.",
+      "behaviours": {
+        "tree-role": "the container is a tree and the root item is not a row in it",
+        "treeitem-role": "every visible row is a treeitem, folder or leaf alike",
+        "level": "each row says how deep it sits, counting the invisible root as level 0",
+        "setsize": "each row says how many siblings share its parent",
+        "setpos": "each row says which of those siblings it is",
+        "arrow-steps": "Down and Up step through the VISIBLE rows, crossing in and out of open folders",
+        "right-expands": "ArrowRight on a closed folder opens it and stays put",
+        "right-enters": "ArrowRight on an already-open folder steps to its first child",
+        "right-leaf-steps": "ArrowRight on a leaf is not a no-op — it steps DOWN, the same as an open folder",
+        "left-collapses": "ArrowLeft on an open folder closes it and stays put",
+        "left-to-parent": "ArrowLeft on a leaf or a closed folder steps to the parent",
+        "left-top-level-noop": "ArrowLeft at the top level goes nowhere, because the root is not a row",
+        "home": "Home focuses the first visible row",
+        "end": "End focuses the LAST visible row, which is the deepest open descendant and not the last top-level item",
+        "no-wrap": "arrows stop at the ends rather than wrapping",
+        "enter-toggles": "Enter opens or closes the focused folder",
+        "space-toggles": "Space does the same as Enter — with no selection feature it selects nothing",
+        "selected-false": "every row exposes aria-selected=false, including the focused one",
+        "selected-state": "a selected row says aria-selected=true and the rest say false",
+        "select-click": "a plain click makes that row the whole selection",
+        "select-ctrl-click": "Ctrl-click adds a row, and Ctrl-clicking it again takes it away",
+        "select-shift-click": "Shift-click selects the range between the anchor and this row",
+        "select-anchor": "the anchor is moved by any click that is NOT a shift-click, so two shift-clicks in a row extend from the same place",
+        "select-modified-click-does-not-toggle": "a click with Shift or Ctrl held focuses and selects but does NOT open or close a folder — otherwise shift-clicking down a list would open every folder on the way",
+        "select-ctrl-space": "Control+Space toggles the focused row",
+        "select-shift-arrow": "Shift+Arrow selects the next row and moves focus onto it",
+        "select-shift-shrinks": "when the focused row and the next one are BOTH selected, Shift+Arrow deselects the one being left — so walking back over a range gives the range back",
+        "select-ends": "Shift+Arrow at an end changes neither selection nor focus",
+        "select-all": "Control+A selects everything",
+        "select-all-is-visible-only": "and everything means the VISIBLE rows — a collapsed folder's children are not selected, which shows when it is opened",
+        "select-space-still-toggles": "Space still opens and closes a folder, because it is commented out of the library's selection hotkeys",
+        "select-enter-collapses": "Enter and Space also set the selection to that row alone, because a row is a button and activating it fires the click path",
+        "dnd-start": "Control+Shift+D picks up the selected rows, plus the focused one when it is not among them",
+        "dnd-arrows-drive-the-drag": "while a drag is up the arrows move the DROP TARGET and not the focus — the ordinary arrow hotkeys switch themselves off",
+        "dnd-focus-stays": "the browser's focus does not move during a drag, though the roving tab stop does",
+        "dnd-drop-moves": "Enter drops, and the rows move to the target",
+        "dnd-drop-focus": "after a drop, focus is on the first row that was carried",
+        "dnd-escape-cancels": "Escape ends the drag and moves nothing",
+        "dnd-arrows-return-after-cancel": "and the arrows work again afterwards, from where the drag left the tab stop rather than from where it began",
+        "dnd-pointer-bands": "where in a row's HEIGHT the cursor sits picks the target: the top band is above, the bottom band below, the middle drops INTO the row",
+        "dnd-pointer-no-middle": "a row nothing may be dropped into has no middle at all — the bands grow from 30% to 50% and meet",
+        "dnd-pointer-open-folder-takes-children": "an OPEN folder takes children from anywhere below its top band, including the bottom of the row where an ordinary row would reorder below",
+        "dnd-pointer-reparent": "far left on the LAST row of a group reparents — how far in the cursor is picks which ancestor's level the row lands at",
+        "dnd-pointer-reparent-floor": "and never further out than the row BELOW, so the level the cursor asks for is a floor and not an answer",
+        "dnd-pointer-overwrites-selection": "grabbing a row that is not selected REPLACES the selection with it, unlike the keyboard's start which adds to it",
+        "dnd-pointer-keeps-last-target": {
+          "note": "moving over a row nothing can be dropped on leaves the previous target standing rather than clearing it",
+          "oracle": "npm run ui:tree:dnd:check"
+        },
+        "dnd-pointer-drag-code": {
+          "note": "a move is ignored when its DRAG CODE has not changed — and the code is computed as if the row could take a child, so on a row that cannot, two heights either side of the middle are one code and the second move is swallowed",
+          "oracle": "npm run ui:tree:dnd:check"
+        },
+        "dnd-pointer-drop-recomputes": "the drop computes its own target from its own coordinates, so it can land where the line was not",
+        "dnd-pointer-auto-open": "holding a drag over a CLOSED folder opens it after 800ms, so a drop can reach somewhere that was not visible when the drag began",
+        "dnd-pointer-auto-open-needs-the-whole-delay": "and it is the whole 800ms from the first arrival: a repeat of the same move does not restart it, and leaving the row makes it decline",
+        "dnd-pointer-auto-open-needs-a-target": "a folder with nowhere to drop does not open, even while the cursor points into it"
+      }
+    },
     "table": {
       "radix": "@tanstack/react-table",
       "$comment": "Not Radix — Radix has no table. ReUI's, and every shadcn-family one, is TanStack Table underneath, so TanStack is the oracle. It is a NARROWER oracle than dnd-kit: TanStack is headless and contributes no roles, no aria-sort and no announcements at all, so only the state machine below is copied from it and the ARIA comes from the HTML table spec. Captured in oracle/table.json.",
@@ -373,6 +436,58 @@
         "select-all-mixed": "the header checkbox is mixed when some but not all of the page is selected",
         "page-next-prev": "paging moves a window over the rows and reports how many pages there are",
         "page-edges": "the paging controls are disabled at the ends rather than running past them"
+      }
+    },
+    "resizable": {
+      "radix": "react-resizable-panels",
+      "$comment": "Not Radix — Radix has no resizable. ReUI's is react-resizable-panels, and its own prop names give it away: `orientation` and percentage STRINGS (\"50%\") are that library's API and nobody else's. The whole contract is DOM-observable — role, four ARIA attributes and a keyboard — so this is ordinary conformance with no bespoke capture, unlike the tree's drop targets or the table's state machine. The library gives the separator NO accessible name; the playground supplies one on both sides, because an unnamed focusable control is an omission rather than a contract — see `separator-unnamed`.",
+      "behaviours": {
+        "separator-role": "the draggable divider is a separator, and the panels and the group carry no role at all",
+        "separator-orientation-inverts": "a separator in a HORIZONTAL group says aria-orientation=vertical, because the attribute describes the separator LINE and not the axis it resizes",
+        "separator-value-is-the-panel-before": "aria-valuenow is the percentage size of the panel immediately BEFORE the separator, so moving one separator changes the next one's value too",
+        "separator-tabstop": "every separator is its own tab stop — there is no roving tab stop and no single entry point",
+        "separator-unnamed": "the LIBRARY names no separator, which leaves a focusable control announcing \"50, separator\" and nothing about what it splits. That is an omission and not a contract, so both sides here name it after the panel it resizes — the one place this component diverges from what the reference ships, and it diverges by adding rather than by changing",
+        "separator-arrows": "the arrows along the group's axis move the divider by five percent a press",
+        "separator-arrows-wrong-axis": "and the other pair does nothing at all — the key handler reads the GROUP's orientation, which is the opposite of the one the separator publishes",
+        "separator-home-end": "Home and End are deltas of a hundred rather than absolute ends, which only shows when constraints clamp them short",
+        "separator-constraints": {
+          "note": "aria-valuemin and aria-valuemax are what the LAYOUT allows for that panel, not what the panel asked for",
+          "disputed": "Only in a group of TWO. From three panels up the reference publishes an incoherent range on every separator but the first: measured at 20/30/50, the second separator says aria-valuemin=50, aria-valuenow=30, aria-valuemax=0 — min above now above max, and valuemin tracking the CUMULATIVE size up to that panel rather than any minimum. No assistive technology can use that, so this side publishes a coherent range and diverges on purpose; `resizable_f6` lists the two fields in its `ignore` and says why. The two-panel case, where the reference is right, is measured in full."
+        },
+        "separator-enter-collapses": "Enter collapses the panel BEFORE the separator, and only when that panel is collapsible",
+        "separator-enter-restores": "and Enter again puts it back to the size it had, not to its minimum",
+        "separator-f6-cycles": "F6 walks to the next separator in the SAME group and wraps; Shift+F6 goes back. In a nested layout each group has one, so F6 lands where it started"
+      }
+    },
+    "breadcrumb": {
+      "radix": "none",
+      "$comment": "NO LIBRARY AT ALL, and that has to be said rather than dressed up. Radix has no breadcrumb and neither does anything else ReUI uses — the reference is markup. So the DOM side of these specs is a SECOND IMPLEMENTATION of the HTML and ARIA specs, written here, not an independent oracle: it catches the two sides disagreeing and cannot catch both of them being wrong. That is a weaker guarantee than the tree's or the table's and the score should be read knowing it. The shape copied is shadcn's, whose current crumb is a `role=\"link\"` with `aria-disabled` rather than a bare span — better than dropping the role, because a reader hears \"link, dimmed, current page\" instead of unexplained text. THE COLLAPSE is the half worth having: widths are stated by the fixture on both sides, because the rule is what is under test and two layout engines have no reason to agree about how wide \"Components\" is.",
+      "behaviours": {
+        "breadcrumb-nav-named": "the trail is a navigation landmark WITH A NAME, because a page has several and an unnamed one leaves a reader guessing which it has landed in",
+        "breadcrumb-is-a-list": "and it is a list of list items, not a row of links — a list tells a reader how many crumbs there are before it reads any",
+        "breadcrumb-links": "every crumb but the last is a link and a tab stop",
+        "breadcrumb-current-not-a-link": "the last carries aria-current=page and is disabled, because a link to where you already are goes nowhere",
+        "breadcrumb-separators-hidden": "the separators are role=none and aria-hidden: punctuation read aloud between every crumb is noise, and the list already says these are a sequence",
+        "breadcrumb-collapses": "a trail too wide for its box drops crumbs rather than overflowing",
+        "breadcrumb-keeps-first-and-last-two": "and which it keeps is a rule: the first, because it is the way out; the last, because it is where you are; the one before it, because it is one step back. Everything else becomes one ellipsis",
+        "breadcrumb-ellipsis-named": "the ellipsis is NAMED \"More\", so a reader learns crumbs are missing rather than hearing three dots"
+      }
+    },
+    "input": {
+      "radix": "(none — the oracle is the platform's own <input>)",
+      "behaviours": {
+        "textbox-role": "role textbox, named by its label, one tab stop",
+        "input-type": "printable keys insert at the caret",
+        "input-caret": "Arrows move the caret; Home and End go to the ends",
+        "input-selection": "Shift+Arrow extends, a plain Arrow collapses, Ctrl+A selects all",
+        "input-word-motion": "Ctrl+Arrow moves by a word",
+        "input-delete": "Backspace removes behind, Delete removes ahead, either removes a selection",
+        "input-placeholder": "a placeholder is drawn when empty and is never part of the value",
+        "input-maxlength": "the value never grows past maxlength",
+        "input-readonly": "a readonly field takes focus and keys but never changes",
+        "input-disabled": "a disabled field takes neither focus nor keys",
+        "input-password": "the value is the text and the glyphs are bullets",
+        "input-required": "aria-required is published only when it was asked for"
       }
     }
   }

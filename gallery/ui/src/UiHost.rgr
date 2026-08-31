@@ -26,14 +26,20 @@ Import "AccordionCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
+Import "WindowCtl.rgr"
 Import "AlertDialogCtl.rgr"
 Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
+Import "InputCtl.rgr"
+Import "VirtualCtl.rgr"
 Import "SliderCtl.rgr"
+Import "ResizeCtl.rgr"
+Import "BreadcrumbCtl.rgr"
 Import "ToastCtl.rgr"
 Import "SortableCtl.rgr"
 Import "TableCtl.rgr"
+Import "TreeCtl.rgr"
 Import "MenubarCtl.rgr"
 Import "SelectCtl.rgr"
 Import "NavMenuCtl.rgr"
@@ -213,6 +219,35 @@ class UiHost {
         return c
     }
 
+    ; A window with a title bar you can drag, holding whatever the caller puts
+    ; in its `bodyEl`. `modal` decides which of the two things it is; see
+    ; WindowCtl for why they are one class.
+    fn addWindow:WindowCtl (tid:string name:string title:string modal:boolean) {
+        def c (new WindowCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.isModal = modal
+        c.pageW = pageWidth
+        c.pageH = pageHeight
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A tree. `root` names the node whose CHILDREN are the top-level rows —
+    ; the root itself is the container and is never a row, which is what
+    ; headless-tree does with `rootItemId`.
+    fn addTree:TreeCtl (tid:string name:string root:string) {
+        def c (new TreeCtl())
+        c.tid = tid
+        c.name = name
+        c.rootValue = root
+        c.build()
+        this.add(c)
+        return c
+    }
+
     fn addDropdownMenu:MenuCtl (tid:string name:string) {
         def c (new MenuCtl())
         c.tid = tid
@@ -243,6 +278,31 @@ class UiHost {
 
     fn addHoverCard:HoverCardCtl (tid:string name:string) {
         def c (new HoverCardCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addBreadcrumb:BreadcrumbCtl (tid:string name:string) {
+        def c (new BreadcrumbCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addResizable:ResizeCtl (tid:string orientation:string) {
+        def c (new ResizeCtl())
+        c.tid = tid
+        c.orientation = orientation
+        this.add(c)
+        return c
+    }
+
+    fn addInput:InputCtl (tid:string name:string) {
+        def c (new InputCtl())
         c.tid = tid
         c.name = name
         c.build()
@@ -389,6 +449,13 @@ class UiHost {
     ; disabled node activates nothing AND takes focus away — which is what a
     ; browser does, and what the Radix oracle records.
     fn click:void (target:string) {
+        this.clickWith(target false false)
+    }
+
+    ; The same click, with Shift and Control. A multi-select is the only thing
+    ; that reads them, and it reads them the way its reference does: shift wins
+    ; over control, and only a non-shift click moves the range anchor.
+    fn clickWith:void (target:string shift:boolean ctrl:boolean) {
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -398,7 +465,7 @@ class UiHost {
                 ; An activation may move focus itself — opening a dialog puts
                 ; it on the close button, and the host should not have to know
                 ; that a dialog is what happened.
-                def next:string (c.activate(target))
+                def next:string (c.activateWith(target shift ctrl))
                 if ((strlen next) > 0) {
                     focusId = next
                 }
@@ -614,16 +681,40 @@ class UiHost {
     ; moves focus itself (arrow keys in a composite) says so by returning the
     ; test id focus should land on.
     fn key:void (name:string) {
+        this.keyWith(name false false)
+    }
+
+    ; The same key, carrying Shift and Control. The text field is the first
+    ; control that reads them: Shift+Arrow extends the selection Arrow
+    ; collapses, and Ctrl+Arrow moves by a word.
+    fn keyWith:void (name:string shift:boolean ctrl:boolean) {
         if ((strlen focusId) == 0) {
             return
         }
         def maybe@(optional):UiCtl (this.ctlFor(focusId))
         if maybe {
             def c:UiCtl (unwrap maybe)
-            def next:string (c.keyDown(focusId name))
+            def next:string (c.keyDownWith(focusId name shift ctrl))
             if ((strlen next) > 0) {
                 focusId = next
             }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    ; One printable character into whatever holds focus. Not routed through
+    ; `key`: a browser fires keydown AND a separate input event, and only the
+    ; second one inserts — so a control that reads Enter as an activation must
+    ; not also read "e" as a letter, and vice versa.
+    fn type:void (ch:string) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.typeChar(focusId ch)
             this.remember(c)
         }
         this.settleFocus()
@@ -802,6 +893,16 @@ class UiHost {
     ; the DOM makes the same distinction — `aria-sort` is absent on a cell and
     ; present-and-"none" on an unsorted header — so 0 has to mean "no such
     ; attribute" and "none" needs a code of its own.
+    ; A number, or null when it is zero — which is what "this row has no such
+    ; attribute" means for a level or a set size, neither of which can legally
+    ; be 0.
+    sfn numOrNull:string (v:int) {
+        if (v == 0) {
+            return "null"
+        }
+        return (to_string v)
+    }
+
     sfn sortJson:string (v:int) {
         if (v == 1) { return "\"none\"" }
         if (v == 2) { return "\"ascending\"" }
@@ -828,6 +929,16 @@ class UiHost {
     sfn numJson:string (has:boolean v:int) {
         if has {
             return (to_string v)
+        }
+        return "null"
+    }
+
+    ; A string that may legitimately be empty. `textOrNull` cannot serve here:
+    ; it treats "" as absent, which is right for an attribute nobody set and
+    ; wrong for a text field that has been cleared.
+    sfn textJson:string (has:boolean v:string) {
+        if has {
+            return (EVGA11yTree.jsonString(v))
         }
         return "null"
     }
@@ -917,6 +1028,7 @@ class UiHost {
                     n.name = row.name
                 }
                 n.roleDescription = row.roleDescription
+                n.description = row.description
                 n.hasValueNow = row.hasValueNow
                 n.valueNow = row.valueNow
                 n.hasValueRange = row.hasRange
@@ -927,6 +1039,15 @@ class UiHost {
                 n.modal = row.modal
                 n.checked = row.checked
                 n.expanded = row.expanded
+                ; Depth, size and position within the siblings. The TRACE has
+                ; carried these since the tree went in; the accessibility tree
+                ; dropped all three, so a reader mirroring an EVG frame was
+                ; told a tree was a flat list of unnumbered rows. Nothing
+                ; failed, because a fact that is simply absent breaks no rule
+                ; about the facts that are there.
+                n.level = row.level
+                n.setSize = row.setSize
+                n.posInSet = row.setPos
                 if (row.selected == 2) {
                     n.selected = true
                 }
@@ -1061,11 +1182,90 @@ class UiHost {
         this.settleFocus()
     }
 
+    ; Does a press on this become a free drag? Asked before the gesture starts,
+    ; for the same reason `dragsOnto` is: a press that will move a window must
+    ; not also count as a click on it.
+    fn dragsFreelyFor:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragsFreely())
+        }
+        return false
+    }
+
+    ; How far the pointer has moved since it went down, in page pixels. The
+    ; host does the subtracting because it is the only one that knows where the
+    ; press was; the controller only ever sees "this much further".
+    fn dragMoveBy:void (dx:double dy:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(pressTidValue))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragBy(dx dy)
+            this.remember(c)
+        }
+    }
+
     fn dragOnto:void (target:string) {
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
             c.dragOver(target)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    ; --- the HTML5 drag, routed by tid -----------------------------------------
+    ; `x` is pixels from the row's left edge and `topPercent` a fraction of its
+    ; height. Pixels for the one and a fraction for the other is not an
+    ; oversight: the horizontal number is only ever compared against the
+    ; INDENT, which both sides are told, while the vertical one is compared
+    ; against bands, which are fractions. Sending a fraction horizontally would
+    ; make the answer depend on how wide a row happened to be laid out, and the
+    ; two sides have no reason to agree about that.
+    fn dragPick:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragPick(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragPoint(target topPercent x)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragHold:void (ms:double) {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            c.dragHold(ms)
+            this.remember(c)
+            i = (i + 1)
+        }
+        this.settleFocus()
+    }
+
+    fn dragLand:void (target:string topPercent:double x:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragLand(target topPercent x))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
             this.remember(c)
         }
         this.settleFocus()
@@ -1128,10 +1328,20 @@ class UiHost {
             ; `aria-sort` as the DOM spells it, so the two sides compare as
             ; strings rather than as one side's numbering.
             out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
+            out = out + ",\"orientation\":" + (UiHost.textOrNull(row.orientation))
+            out = out + ",\"current\":" + (UiHost.textOrNull(row.current))
+            out = out + ",\"invalid\":" + (UiHost.textOrNull(row.invalid))
+            out = out + ",\"required\":" + (UiHost.textOrNull(row.required))
+            out = out + ",\"readonly\":" + (UiHost.textOrNull(row.readOnly))
             ; `aria-haspopup`, absent rather than empty when there is none —
             ; the DOM reports null for a node without the attribute, and "" is
             ; a different thing from "not there".
             out = out + ",\"haspopup\":" + (UiHost.textOrNull(row.hasPopup))
+            ; Absent rather than zero where there is none: the DOM reports null
+            ; for a node without the attribute, and 0 is a different claim.
+            out = out + ",\"level\":" + (UiHost.numOrNull(row.level))
+            out = out + ",\"setsize\":" + (UiHost.numOrNull(row.setSize))
+            out = out + ",\"setpos\":" + (UiHost.numOrNull(row.setPos))
             out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
             out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
             out = out + ",\"checked\":" + (UiHost.triJson(row.checked))
@@ -1139,12 +1349,27 @@ class UiHost {
             out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
             out = out + ",\"hidden\":" + (UiHost.boolJson(isHidden))
             out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
+            ; What a text field holds, and where the caret is in it. `null`
+            ; rather than "" for a node that is not a text field — a box
+            ; holding the empty string and a button are not the same claim,
+            ; and "" would make them identical in the diff.
+            out = out + ",\"value\":" + (UiHost.textJson(row.hasText row.text))
+            out = out + ",\"placeholder\":" + (UiHost.textOrNull(row.placeholder))
+            out = out + ",\"selstart\":" + (UiHost.numJson(row.hasSelection row.selStart))
+            out = out + ",\"selend\":" + (UiHost.numJson(row.hasSelection row.selEnd))
             out = out + ",\"valuenow\":" + (UiHost.numJson(row.hasValueNow row.valueNow))
             out = out + ",\"valuemin\":" + (UiHost.numJson(row.hasRange row.valueMin))
             out = out + ",\"valuemax\":" + (UiHost.numJson(row.hasRange row.valueMax))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
             out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
+            ; The text `aria-describedby` points AT, not the id it points with.
+            out = out + ",\"description\":" + (UiHost.textOrNull(row.description))
+            ; What a virtualised table owes a reader: how many rows there ARE,
+            ; and where this one really sits. Absent rather than zero, because
+            ; a table that is not virtualised publishes neither.
+            out = out + ",\"rowcount\":" + (UiHost.numOrNull(row.rowCount))
+            out = out + ",\"rowindex\":" + (UiHost.numOrNull(row.rowIndex))
             ; Reported, not compared: the two systems disagree about the parent
             ; of a floating surface on purpose. It is here so `posinset` can be
             ; skipped where they do — see conformance/diff.mjs.

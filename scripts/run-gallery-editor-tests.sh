@@ -41,7 +41,24 @@ SUITES=(
   evg:style:test
   evg:timing:test
   evg:box:test
+  evg:reconcile:test
+  evg:component:test
+  evg:stylecache:test
+  evg:invalidate:test
+  evg:adopt:check
+  evg:scroll:check
+  evg:tags:check
+  evg:textbox:check
+  ui:sortable:motion
   ui:table:check
+  ui:virtual:check
+  ui:tree:dnd:check
+  ui:tree:checkbox
+  ui:timeline:check
+  ui:resize:check
+  ui:form:check
+  ui:profile:check
+  ui:dashboard:check
 )
 
 failed=()

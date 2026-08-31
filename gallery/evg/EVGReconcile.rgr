@@ -1,0 +1,226 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGReconcile — keyed child reconciliation, so a rebuilt tree keeps its elements
+; ==============================================================================
+; THE PROBLEM THIS EXISTS FOR, in the words the code already used.
+;
+; Every demo in `gallery/ui/demo` keeps its element tree between frames, and
+; `main.js` says why: "Rebuild only if the data changed." The comment beside it
+; is a measurement, not a worry —
+;
+;     every element is new every frame, so every flight establishes at its
+;     destination. Measured before it was believed: the rows making room for a
+;     dragged item were at their final positions 40ms after the pointer
+;     crossed, having travelled through nothing.
+;
+; So the declarative half of this gallery runs ONCE, at init, and everything
+; after that is imperative mutation of the tree it produced. `SortableDemo`'s
+; `applyShift()` is the clearest case: it re-aims an existing list at a new
+; target by hand, and it walks by INDEX — `list.children[i]` is assumed to be
+; the row for `order[i]`, which holds only because `order` does not change
+; during a drag. It is a keyed reconciler for one list, written without keys,
+; correct by luck.
+;
+; The missing piece is identity. A transition, a caret, a scroll offset and a
+; hover are all properties OF AN ELEMENT, and a tree built from scratch has
+; different elements in every position — so they have nowhere to live.
+;
+; --- WHAT THIS DOES -----------------------------------------------------------
+;
+; `reconcile(live, next)` mutates `live` until it describes what `next`
+; describes, keeping every `live` element it can:
+;
+;   * children are matched within their parent by (key, tagName)
+;   * a matched child KEEPS ITS ELEMENT — `adoptFrom` overwrites everything it
+;     describes except `children`, `parent` and `transitions`
+;   * an unmatched new child is taken from `next` as-is
+;   * an unmatched old child is dropped
+;   * the resulting child ORDER is `next`'s, so a reorder MOVES elements
+;
+; `next` is consumed: after this returns it must not be used again. Nothing is
+; cloned, so the two trees would share nodes.
+;
+; --- MATCHING, and the one rule that is not obvious ---------------------------
+;
+;   A KEYED child matches the old child with the same key AND the same tag.
+;   Same key, different tag is NOT a match: the key says "same logical child",
+;   the tag says "same kind of thing", and reusing a text node's element as a
+;   button's would carry a text node's leftovers into a button.
+;
+;   AN UNKEYED child matches by POSITION AMONG UNKEYED SIBLINGS — not by
+;   position among all siblings. Consider `[a(key=1), b, c(key=2)]` becoming
+;   `[c(key=2), b, a(key=1)]`: `b` is the first unkeyed child in both, and it
+;   should stay itself. Counting all siblings would match `b` against `c`,
+;   fail the tag test, and throw away an element for no reason.
+;
+;   A key is scoped to ITS PARENT. Two lists on one page may both key a row
+;   "video"; that is the whole reason `key` is not `id`.
+;
+; --- WHAT THIS DELIBERATELY DOES NOT DO ---------------------------------------
+;
+; It does not decide WHEN to rebuild, it does not track dependencies, and it
+; does not know what a component is. It is the identity layer those need and
+; nothing above it.
+;
+; It also does not run `EVGTransition`. The order is: reconcile the structure,
+; then let the stylesheet write what it wants, then let `EVGTransition`
+; reconcile that against the flights it kept. Two passes that both decide which
+; element is "the same one" would be two opinions; this one decides, and the
+; transition pass reads the answer.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+
+class EVGReconcileStats {
+    ; How many elements survived, and how many had to be made. The ratio is the
+    ; whole point of this class, so it is reported rather than inferred: a
+    ; reconciler that silently matches nothing looks exactly like one that
+    ; works, until something tries to animate.
+    def kept:int 0
+    def created:int 0
+    def dropped:int 0
+    def moved:int 0
+
+    Constructor () {
+    }
+}
+
+class EVGReconcile {
+
+    def stats:EVGReconcileStats (new EVGReconcileStats())
+
+    Constructor () {
+    }
+
+    ; True when these two may be the same element.
+    sfn matches:boolean (a:EVGElement b:EVGElement) {
+        if (a.tagName != b.tagName) {
+            return false
+        }
+        return (a.key == b.key)
+    }
+
+    ; Bring `live` into line with `next`, keeping `live` itself.
+    fn reconcile:void (live:EVGElement next:EVGElement) {
+        def kids:[EVGElement] (this.matchChildren(live next))
+        ; Matching first and adopting second is the order that reads correctly,
+        ; and swapping the two changes NOTHING — `adoptFrom` skips `children`,
+        ; so the match still sees the old list either way. Tried as a mutation
+        ; and it survived, which is the only reason that is stated here rather
+        ; than as a warning: the safety comes from `adoptFrom`'s skip list, not
+        ; from these two lines being in this order.
+        live.adoptFrom(next)
+        def fresh:[EVGElement]
+        live.children = fresh
+        def i:int 0
+        while (i < (array_length kids)) {
+            live.addChild((itemAt kids i))
+            i = (i + 1)
+        }
+    }
+
+    ; The new child list, with survivors reused in `next`'s order.
+    fn matchChildren:[EVGElement] (live:EVGElement next:EVGElement) {
+        def out:[EVGElement]
+        def old:[EVGElement] live.children
+        def n:int (array_length old)
+
+        ; Which old children have been claimed. Ranger has no set, and the
+        ; lists here are a screenful of rows rather than a document, so this
+        ; is a flag array and a linear scan.
+        def taken:[boolean]
+        def t:int 0
+        while (t < n) {
+            push taken false
+            t = (t + 1)
+        }
+
+        def m:int (array_length next.children)
+        def j:int 0
+        ; How many unkeyed children have been seen so far on each side. The
+        ; unkeyed match is "the k-th unkeyed here is the k-th unkeyed there".
+        def unkeyedSeen:int 0
+        while (j < m) {
+            def cand:EVGElement (itemAt next.children j)
+            def hit:int (0 - 1)
+            if ((strlen cand.key) > 0) {
+                hit = (this.findKeyed(old taken cand))
+            } {
+                hit = (this.findUnkeyed(old taken cand unkeyedSeen))
+                unkeyedSeen = (unkeyedSeen + 1)
+            }
+            if (hit >= 0) {
+                def keep:EVGElement (itemAt old hit)
+                set_at taken hit true
+                if (hit != j) {
+                    stats.moved = (stats.moved + 1)
+                }
+                this.reconcile(keep cand)
+                stats.kept = (stats.kept + 1)
+                push out keep
+            } {
+                ; Nothing to keep. The new subtree comes across whole, and its
+                ; own children are already in the shape the builder made — no
+                ; recursion, because there is nothing on this side to match
+                ; them against.
+                stats.created = (stats.created + 1)
+                push out cand
+            }
+            j = (j + 1)
+        }
+
+        def k:int 0
+        while (k < n) {
+            if ((itemAt taken k) == false) {
+                stats.dropped = (stats.dropped + 1)
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn findKeyed:int (old:[EVGElement] taken:[boolean] cand:EVGElement) {
+        def i:int 0
+        while (i < (array_length old)) {
+            if ((itemAt taken i) == false) {
+                if (EVGReconcile.matches((itemAt old i) cand)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The `want`-th unkeyed old child, if it is still free and the tag agrees.
+    ;
+    ; Deliberately NOT "the first free unkeyed child with a matching tag":
+    ; falling forward past a mismatch would pair the second unkeyed child of
+    ; one render with the third of another, which is how an unkeyed list ends
+    ; up shifting its state by one on every insert.
+    fn findUnkeyed:int (old:[EVGElement] taken:[boolean] cand:EVGElement want:int) {
+        def seen:int 0
+        def i:int 0
+        while (i < (array_length old)) {
+            def o:EVGElement (itemAt old i)
+            if ((strlen o.key) == 0) {
+                if (seen == want) {
+                    if ((itemAt taken i) == false) {
+                        if (o.tagName == cand.tagName) {
+                            return i
+                        }
+                    }
+                    return (0 - 1)
+                }
+                seen = (seen + 1)
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn resetStats:void () {
+        stats = (new EVGReconcileStats())
+    }
+}

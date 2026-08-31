@@ -29,6 +29,10 @@ import * as Progress from "@radix-ui/react-progress";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Separator from "@radix-ui/react-separator";
 import * as Slider from "@radix-ui/react-slider";
+// Not Radix — Radix has no resizable. ReUI's is react-resizable-panels, and
+// the giveaway is its own prop names: `orientation` and percentage STRINGS
+// (`"50%"`) are that library's API and nobody else's.
+import { Group as RzGroup, Panel as RzPanel, Separator as RzSeparator } from "react-resizable-panels";
 import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Toast from "@radix-ui/react-toast";
@@ -55,6 +59,14 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { useTree } from "@headless-tree/react";
+import {
+  dragAndDropFeature,
+  hotkeysCoreFeature,
+  keyboardDragAndDropFeature,
+  selectionFeature,
+  syncDataLoaderFeature,
+} from "@headless-tree/core";
 import {
   useReactTable,
   getCoreRowModel,
@@ -159,6 +171,195 @@ function ToastControl({ spec, tid }) {
  * any other way the harness would be comparing EVG against a hand-written
  * table rather than against the library everyone actually ships.
  */
+/**
+ * A tree, driven by @headless-tree/react — which is what ReUI's tree is.
+ *
+ * ReUI ships `Tree`, `TreeItem` and `TreeItemLabel` as thin presentational
+ * wrappers over `useTree` with `syncDataLoaderFeature` and
+ * `hotkeysCoreFeature`, and nothing else. So this renders the same two
+ * features with the same shape, and the wrapper's styling is left out: it is
+ * the STATE MACHINE and the KEYBOARD that a conformance run is about, and both
+ * of those are the library's.
+ *
+ * WHY THIS IS A BETTER ORACLE THAN TANSTACK WAS. The table's library is
+ * headless in the strong sense — it computes state and writes not one
+ * attribute, so the ARIA had to come from the HTML spec instead. headless-tree
+ * publishes `role`, `aria-expanded`, `aria-level`, `aria-setsize`,
+ * `aria-posinset` and `tabIndex` through `getProps()`, the way dnd-kit
+ * publishes its roledescription. Copying it therefore gets the accessible tree
+ * right for free — and, more usefully, MEASURES it, so a disagreement is a
+ * finding rather than a matter of taste.
+ *
+ * The props go on verbatim, spread rather than picked apart, so nothing the
+ * library says can be quietly dropped on the way to the trace.
+ */
+/**
+ * A group of resizable panels, nestable.
+ *
+ * The fixture names panels by value and lets a panel carry a `group` of its
+ * own, which is the shape the reference's own example has: a horizontal pair
+ * whose right half is a vertical pair.
+ *
+ * Ids are OURS rather than the library's generated ones — `<group>-panel-<v>`
+ * and `<group>-sep-<i>` — so a spec names a separator the same way it names
+ * anything else, and `aria-controls` points at something a reader of the spec
+ * recognises. It is not compared (see diff.mjs) but it should still be true.
+ */
+function ResizableGroup({ node, tid }) {
+  const parts = [];
+  (node.panels || []).forEach((p, i) => {
+    if (i > 0) {
+      parts.push(
+        <RzSeparator
+          key={"sep" + i}
+          id={tid + "-sep-" + (i - 1)}
+          data-tid={tid + "-sep-" + (i - 1)}
+          // The LIBRARY publishes no accessible name for a separator, which
+          // leaves a focusable control announcing "50, separator" and nothing
+          // about what it splits. That is the library's omission and not a
+          // contract to copy, so both sides name it the same way and the
+          // catalogue records that the library itself does not.
+          aria-label={"Resize " + (node.panels[i - 1].name || node.panels[i - 1].value)}
+          className="rz-sep"
+        />,
+      );
+    }
+    const panelTid = tid + "-panel-" + p.value;
+    parts.push(
+      <RzPanel
+        key={p.value}
+        id={panelTid}
+        data-tid={panelTid}
+        defaultSize={p.defaultSize}
+        minSize={p.minSize}
+        maxSize={p.maxSize}
+        collapsible={p.collapsible}
+        collapsedSize={p.collapsedSize}
+        className="rz-panel"
+      >
+        {p.group ? (
+          <ResizableGroup node={p.group} tid={panelTid + "-group"} />
+        ) : (
+          <div data-tid={panelTid + "-body"}>{p.name || p.value}</div>
+        )}
+      </RzPanel>,
+    );
+  });
+  return (
+    <RzGroup
+      id={tid}
+      data-tid={tid}
+      orientation={node.orientation || "horizontal"}
+      className="rz-group"
+      style={{ width: 400, height: 300 }}
+    >
+      {parts}
+    </RzGroup>
+  );
+}
+
+function TreeControl({ spec, tid }) {
+  // The fixture's shape is headless-tree's own: a flat record of items, each
+  // naming its children, plus a root that is not itself rendered.
+  // A REF and not state, mutated in place. That is what the library's own
+  // examples do, and the reason is not style: `onDrop` moves the data and then
+  // calls `tree.rebuildTree()`, and a React state update has not landed by
+  // then — so the tree rebuilds from the data it had before the drop. Measured:
+  // with `useState` the drop reported itself completed and not one row moved.
+  const itemsRef = React.useRef(null);
+  if (itemsRef.current === null) {
+    const out = {};
+    for (const it of spec.items || []) {
+      out[it.value] = { name: it.name, children: [...(it.children || [])] };
+    }
+    itemsRef.current = out;
+  }
+  const items = itemsRef.current;
+
+  const tree = useTree({
+    initialState: { expandedItems: spec.expanded || [] },
+    indent: spec.indent ?? 20,
+    rootItemId: spec.root,
+    getItemName: (item) => item.getItemData().name,
+    isItemFolder: (item) => (item.getItemData()?.children?.length ?? 0) > 0,
+    dataLoader: {
+      getItem: (itemId) => items[itemId],
+      getChildren: (itemId) => items[itemId]?.children ?? [],
+    },
+    // SELECTION IS A MODE, and off by default, because ReUI's `c-tree-1` does
+    // not enable it — the eighteen behaviours already measured are measured
+    // against that configuration and must not move. A fixture asks for it with
+    // `"selection": true`, and then this is a different tree with a different
+    // contract: `aria-selected` becomes real, `Control+Space`, `Shift+Arrow`
+    // and `Control+A` do things, and a click sets the selection rather than
+    // only moving focus.
+    //
+    // Worth knowing before reading the specs: `space` is COMMENTED OUT in the
+    // library's own selection hotkeys. So Space still activates the button and
+    // toggles the folder, selection or not — the one place where turning the
+    // feature on does NOT change what a key does.
+    // A drop MOVES the dragged items under the target, at `insertionIndex` when
+    // the target is a position between rows and at the end when it is an item.
+    // This is the app's job and not the library's — `onDrop` is a config hook,
+    // the way TanStack leaves the actual sorting to its caller — so the two
+    // sides have to agree about it explicitly rather than by both using the
+    // same package.
+    onDrop: (dragged, target) => {
+      const ids = dragged.map((d) => d.getId());
+      const data = itemsRef.current;
+      // Out of every parent first, then in at the target's insertion index —
+      // which is the index the library already corrected for the items about to
+      // be removed. An item target with no index means "at the end".
+      for (const k of Object.keys(data)) {
+        data[k].children = (data[k].children || []).filter((c) => !ids.includes(c));
+      }
+      const parentId = target.item.getId();
+      const kids = data[parentId].children || [];
+      const at = "insertionIndex" in target ? target.insertionIndex : kids.length;
+      data[parentId].children = [...kids.slice(0, at), ...ids, ...kids.slice(at)];
+      // The data has moved; the tree has to be told. Without this the drop is
+      // recorded, the state says it completed, and the rows do not move.
+      tree.rebuildTree();
+    },
+    features: spec.dnd
+      ? [
+          syncDataLoaderFeature,
+          hotkeysCoreFeature,
+          selectionFeature,
+          dragAndDropFeature,
+          keyboardDragAndDropFeature,
+        ]
+      : spec.selection
+        ? [syncDataLoaderFeature, hotkeysCoreFeature, selectionFeature]
+        : [syncDataLoaderFeature, hotkeysCoreFeature],
+  });
+
+  // Published for the same reason the table's probe is: a spec can then ask
+  // the library what it thinks, rather than inferring it from the DOM.
+  React.useEffect(() => {
+    window.__treeProbe = tree;
+  });
+
+  const containerProps = tree.getContainerProps();
+  return (
+    <div {...containerProps} data-tid={tid}>
+      {tree.getItems().map((item) => {
+        const props = item.getProps();
+        return (
+          <button
+            {...props}
+            key={item.getId()}
+            data-tid={tid + "-item-" + item.getId()}
+            style={{ paddingLeft: item.getItemMeta().level * (spec.indent ?? 20) }}
+          >
+            {item.getItemName()}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function TableControl({ spec, tid }) {
   const columns = React.useMemo(
     () =>
@@ -656,6 +857,32 @@ export function Control({ spec }) {
     case "toast":
       return <ToastControl spec={spec} tid={tid} />;
 
+    // A plain <input>. Deliberately NOT a Radix component: Radix has no text
+    // field, because a text field is what the platform already is — and that
+    // makes this the one oracle in the gallery that is the browser itself
+    // rather than a library's reading of it.
+    case "input":
+      return (
+        <input
+          data-tid={tid}
+          type={spec.kind || "text"}
+          aria-label={spec.name}
+          defaultValue={spec.value || ""}
+          placeholder={spec.placeholder || undefined}
+          readOnly={!!spec.readonly}
+          // The NATIVE attribute alone. Adding `aria-required` beside it would
+          // be making the oracle agree with this side rather than measuring
+          // it: a platform text field publishes required through the
+          // attribute, and the snapshot has to read that. `aria-invalid` has
+          // no native counterpart — validity state is not this — so there it
+          // is the real expression and stays.
+          required={!!spec.required}
+          aria-invalid={spec.invalid ? "true" : undefined}
+          maxLength={spec.maxlength || undefined}
+          disabled={!!spec.disabled}
+        />
+      );
+
     case "slider":
       // The ONLY styled control here, and only its geometry. Everything else in
       // this host is deliberately unstyled — the harness compares behaviour,
@@ -728,6 +955,81 @@ export function Control({ spec }) {
     case "table":
       return <TableControl spec={spec} tid={tid} />;
 
+    case "tree":
+      return <TreeControl spec={spec} tid={tid} />;
+
+    case "resizable":
+      return <ResizableGroup node={spec} tid={tid} />;
+
+    /**
+     * A breadcrumb. NOT a library: Radix has no breadcrumb and neither does
+     * anything else ReUI uses, so this markup is written to the HTML and ARIA
+     * specs — which means it is a SECOND IMPLEMENTATION and not an independent
+     * oracle. A spec over it catches the two sides disagreeing; it cannot
+     * catch both being wrong. `behaviours.json` says so too.
+     *
+     * The collapse is driven by the fixture's stated widths on both sides,
+     * because two layout engines have no reason to agree about how wide
+     * "Components" is and the rule is what is under test.
+     */
+    case "breadcrumb": {
+      const items = spec.items || [];
+      const n = items.length;
+      const sepW = spec.separatorWidth ?? 20;
+      const dotsW = spec.ellipsisWidth ?? 24;
+      const avail = spec.available ?? 0;
+      const widthAll = items.reduce((a, it) => a + (it.width ?? 0), 0) + sepW * Math.max(0, n - 1);
+      const widthTail = (k) =>
+        (items[0].width ?? 0) + dotsW + sepW * (k + 1) +
+        items.slice(n - k).reduce((a, it) => a + (it.width ?? 0), 0);
+      const tail = n <= 2 || avail <= 0 || widthAll <= avail ? n : widthTail(2) <= avail ? 2 : 1;
+      const firstShown = n - tail;
+      const parts = [];
+      let drawn = 0;
+      items.forEach((it, i) => {
+        if (!(i === 0 || i >= firstShown)) return;
+        if (drawn > 0) {
+          parts.push(
+            <li key={"s" + drawn} data-tid={tid + "-sep-" + (drawn - 1)} role="none" aria-hidden="true">/</li>,
+          );
+        }
+        if (i === firstShown && firstShown > 1) {
+          parts.push(
+            <li key="dots-li" data-tid={tid + "-ellipsis-li"}>
+              <span data-tid={tid + "-ellipsis"} aria-label="More">…</span>
+            </li>,
+          );
+          parts.push(
+            <li key={"s" + drawn + "b"} data-tid={tid + "-sep-" + drawn} role="none" aria-hidden="true">/</li>,
+          );
+          drawn += 1;
+        }
+        const last = i === n - 1;
+        parts.push(
+          <li key={it.value} data-tid={tid + "-item-" + it.value + "-li"}>
+            {last ? (
+              <span
+                data-tid={tid + "-item-" + it.value}
+                role="link"
+                aria-disabled="true"
+                aria-current="page"
+              >
+                {it.name}
+              </span>
+            ) : (
+              <a data-tid={tid + "-item-" + it.value} href="#">{it.name}</a>
+            )}
+          </li>,
+        );
+        drawn += 1;
+      });
+      return (
+        <nav data-tid={tid} aria-label={spec.name || "breadcrumb"}>
+          <ol data-tid={tid + "-list"}>{parts}</ol>
+        </nav>
+      );
+    }
+
     /**
      * A bar of menus. The parts follow the same rule the rest do — `x-<value>`
      * for a menu, and its trigger and content beneath it — so a spec names a
@@ -767,7 +1069,11 @@ export function Control({ spec }) {
         <NavigationMenu.Root data-tid={tid} aria-label={spec.name}>
           <NavigationMenu.List data-tid={tid + "-list"}>
             {spec.items.map((it) => (
-              <NavigationMenu.Item key={it.value}>
+              // Tagged, because it is a real `<li>` and the list needs
+              // listitem children to be a valid list. Untagged it was absent
+              // from the trace entirely, so neither side could be wrong about
+              // it — and axe was the only thing that noticed.
+              <NavigationMenu.Item key={it.value} data-tid={tid + "-" + it.value + "-trigger-li"}>
                 <NavigationMenu.Trigger data-tid={tid + "-" + it.value + "-trigger"}>
                   {it.name}
                 </NavigationMenu.Trigger>

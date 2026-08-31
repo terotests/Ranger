@@ -47,7 +47,7 @@
       <h1>Ranger tree literals — Radix components</h1>
       <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
       <p>
-        Six <code>treefactory</code> declarations, each naming its own tags over the
+        Seven <code>treefactory</code> declarations, each naming its own tags over the
         same <code>EVGElement</code>, painted by EVG's WebGL painter. Three of them
         rebuild the whole tree on every control; the motion showcase, the table
         and the dropdown keep theirs,
@@ -110,6 +110,26 @@
             one, go to page two, and the first page stays selected.
           </p>
         </section>
+        <section data-for="tree">
+          <h2>what to try</h2>
+          <p class="hint">
+            Click a row, then use the arrows. <strong>&rarr;</strong> on a
+            closed folder opens it and stays put; on an <em>open</em> one it
+            steps to the first child. Two meanings, one key, decided by the
+            row.
+          </p>
+          <p class="hint">
+            <strong>&rarr; on a leaf is not a no-op</strong> &mdash; it steps
+            down, the same as on an open folder. That is what the library does,
+            and the first reading here said otherwise.
+          </p>
+          <p class="hint">
+            <strong>End</strong> goes to the last <em>visible</em> row, which
+            is the deepest open descendant and not the last top-level item.
+            <strong>Enter</strong> and <strong>Space</strong> toggle a folder
+            and select nothing.
+          </p>
+        </section>
         <section data-for="dropdown">
           <h2>what to try</h2>
           <p class="hint">
@@ -130,6 +150,131 @@
             &rarr; on an ordinary row does <strong>nothing</strong>, and
             neither does &larr; at the top level. A vertical menu&rsquo;s
             horizontal arrows are for nesting and nothing else.
+          </p>
+        </section>
+        <section data-for="dashboard">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Press a range button</strong>, or focus one and use the
+            arrows. The chart is not a picture: it is a Vega specification run
+            by <strong>Vela</strong>, turned into draw commands, and appended
+            to this page&rsquo;s display list by <code>VlEvgList</code>. Ninety
+            points go in as data and the outline that comes out is the one
+            Vela computed.
+          </p>
+          <p class="hint">
+            There were two routes. An element can carry the SVG in
+            <code>svgSource</code> and <code>EVGDisplayList</code> imports it
+            &mdash; and that drops every <em>label</em>, because the importer
+            walks vector items and a <code>&lt;text&gt;</code> is not one:
+            forty-seven commands of geometry and not one axis tick. A picture
+            with no numbers on its axes still looks like a chart, which is why
+            the gate counts words as well as outlines.
+          </p>
+          <p class="hint">
+            The chart is therefore <em>not in the element tree</em>. It is
+            painted at the box the layout reserved, which is why the
+            placeholder has an id and no children: the tree owns where it goes
+            and Vela owns what is drawn there.
+          </p>
+          <p class="hint">
+            The range is a <strong>radio group</strong> and not a toggle group,
+            and the difference is measured: clicking the chosen item of a
+            toggle group deselects it, and a range picker with no range picked
+            is a chart with nothing to draw.
+          </p>
+        </section>
+        <section data-for="profile">
+          <h2>what to try</h2>
+          <p class="hint">
+            The other form shape: <strong>label to the left</strong>, every
+            control&rsquo;s left edge on one column. The rows are deliberately
+            three different heights &mdash; a text box is 38, the photo row 40,
+            the switch row 22 &mdash; so a layout that only worked when they
+            matched would have nowhere to hide.
+          </p>
+          <p class="hint">
+            <strong>Tab and type.</strong> The clock in the time field is a
+            <em>leading</em> icon and the calendar a trailing one, and the
+            caret has to know: a leading icon moves where the run starts.
+          </p>
+          <p class="hint">
+            The date and time boxes are <em>text fields with an icon</em>.
+            Segmented editing &mdash; where ArrowUp on the month changes the
+            month and not the caret &mdash; is its own contract, and it is not
+            built here rather than half-built.
+          </p>
+        </section>
+        <section data-for="form">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Tab between the fields and type.</strong> The caret and the
+            blue selection band are positioned with
+            <code>measureRun(value[0..i])</code> &mdash; the same measurement
+            the painter makes of the same string, so the bar is between the two
+            characters it claims to be between rather than near them.
+          </p>
+          <p class="hint">
+            The Amount field opens focused with its contents selected, which is
+            the one state that shows a caret <em>and</em> a band at once. The
+            controller was measuring at 14px against text drawn at 13, and the
+            band ran four pixels past the number it was selecting &mdash; the
+            breadcrumb&rsquo;s font-family bug, repeated with the size.
+          </p>
+          <p class="hint">
+            The password&rsquo;s <strong>value is never its glyphs</strong>:
+            <code>value</code> is what a reader and the conformance trace get,
+            <code>glyphText()</code> is what is drawn, and nothing joins them.
+            The eye flips the second and leaves the first alone.
+          </p>
+          <p class="hint">
+            A field in error is described by its <em>error</em> and not also by
+            its hint. Reading both leaves a reader to work out which one still
+            applies &mdash; and the hint&rsquo;s line is where the error goes,
+            so the picture says the same thing.
+          </p>
+        </section>
+        <section data-for="timeline">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click anywhere</strong> to step the timeline on, and watch
+            the rail. The dot and the line do <em>not</em> flip together: at
+            step 3 the third dot is filled and the line under it is still pale,
+            because the two are different predicates &mdash;
+            <code>step &lt;= value</code> for the dot,
+            <code>step &lt; value</code> for the line.
+          </p>
+          <p class="hint">
+            That is the whole finding, and it came off a <em>picture</em> of the
+            reference rather than its source, which could not be reached. The
+            obvious implementation gives both the same flag and draws a dark
+            line under the current step.
+          </p>
+          <p class="hint">
+            The icons are <strong>lucide's own files</strong>, imported whole.
+            <code>stroke="currentColor"</code> resolves to the hosting
+            element's fill, so one copy of the artwork is dark on a pale dot and
+            white on a filled one.
+          </p>
+        </section>
+        <section data-for="dialog">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Drag the Filters window by its title bar.</strong> It is the
+            same class as the dialog beside it with one flag different — and it
+            is the one you can push aside to see what is underneath, which is
+            the thing a modal cannot do.
+          </p>
+          <p class="hint">
+            Tab to the title bar and use the <strong>arrow keys</strong>: a
+            gesture only a pointer can make is a gesture a keyboard cannot make,
+            so the window moves 16&nbsp;px a press.
+          </p>
+          <p class="hint">
+            The page behind the dialog is <strong>blurred, not just dimmed</strong>
+            — <code>backdrop-filter: blur(10px)</code>, painted by copying what
+            is behind the scrim and running the same three-box kernel a browser
+            uses. Both are declared, so a backend without the blur still dims.
           </p>
         </section>
         <section data-for="motion">
@@ -167,6 +312,15 @@
           controller decides what is true; the tree literal decides what it
           looks like.
         </p>
+        <p class="note" data-for="tree">
+          <strong>The rows are siblings.</strong> There is no group per folder:
+          the visible rows are one flat list and the nesting is carried by
+          <code>aria-level</code> alone, because that is what
+          <code>@headless-tree/core</code> renders and therefore what ReUI's
+          tree renders. The indent is a spacer this demo adds; a reader never
+          sees it and does not need to. Open/closed, focus and every key are
+          <code>gallery/ui/src/TreeCtl.rgr</code>&rsquo;s.
+        </p>
         <p class="note" data-for="dropdown">
           <strong>This demo owns no state at all.</strong> Open/closed, the
           roving focus, the submenu stack, the 100&nbsp;ms hover delay and
@@ -176,6 +330,16 @@
           <code>treefactory</code>, a stylesheet, and which icon goes on which
           row. Compare it with the <em>menubar</em> demo above, whose keyboard
           is hand-written and matched against nothing.
+        </p>
+        <p class="note" data-for="dialog">
+          <strong>Anything can go inside.</strong> <code>WindowCtl</code> owns a
+          frame and a title bar; <code>bodyEl</code> is an ordinary
+          <code>EVGElement</code> the caller fills, and <code>build()</code>
+          re-makes the chrome around it without touching it. Here one holds a
+          form and the other a small table, from two unrelated tree literals.
+          The older <code>EVGWindow</code> could hold neither: its vocabulary is
+          label, button, radio, checkbox, and one rectangle whose pixels the
+          owner paints by hand.
         </p>
         <p class="note" data-for="motion">
           <strong>Hover the cards at the bottom.</strong> Nothing in

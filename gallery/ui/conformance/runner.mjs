@@ -42,7 +42,9 @@ export function listSpecs(argv = []) {
 export async function runSpec(spec, css = loadTheme()) {
   const ranger = runRanger(spec, css);
   const dom = await runDom(spec);
-  const { diffs, observations, matched } = diffTraces(ranger.trace, dom.trace);
+  // `ignore` lets a spec declare a field DISPUTED: out of the denominator
+  // entirely, with the evidence in behaviours.json. See SPEC.md.
+  const { diffs, observations, matched } = diffTraces(ranger.trace, dom.trace, spec.ignore);
   return {
     spec,
     ranger,

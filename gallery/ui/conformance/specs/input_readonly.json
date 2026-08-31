@@ -1,0 +1,15 @@
+{
+  "name": "input_readonly",
+  "component": "input",
+  "behaviours": ["input-readonly", "input-caret"],
+  "$comment": "Readonly is not disabled: it takes focus, it takes arrows, and it reports a caret. The only thing it will not do is change.",
+  "fixture": { "controls": [{ "type": "input", "tid": "in", "name": "Id", "value": "RO-42", "readonly": true }] },
+  "steps": [
+    { "focus": "in" },
+    { "type": "x" },
+    { "key": "Home" },
+    { "key": "ArrowRight" },
+    { "key": "Backspace" },
+    { "key": "Delete" }
+  ]
+}

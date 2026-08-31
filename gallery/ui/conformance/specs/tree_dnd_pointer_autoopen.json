@@ -1,0 +1,21 @@
+{ "name":"tree_dnd_pointer_autoopen","component":"tree",
+  "$comment":"openOnDropDelay. Hold a drag over a CLOSED folder and it opens under the cursor after 800ms, so a drop can reach somewhere that was not visible when the drag began. The `hold` on a dragpoint step is what makes it measurable at all: nothing shorter than the delay can observe it, and the two halves of a split hold have to add up rather than restart. `archive` is the only closed folder here, on purpose.",
+  "behaviours":["dnd-pointer-auto-open","dnd-pointer-auto-open-needs-the-whole-delay","dnd-pointer-auto-open-needs-a-target"],
+  "fixture":{"controls":[{"type":"tree","tid":"tr","root":"crm","indent":20,"selection":true,"dnd":true,
+     "expanded":["leads"],
+     "items":[
+       {"value":"crm","name":"CRM","children":["leads","activities"]},
+       {"value":"leads","name":"Leads","children":["archive","new-lead"]},
+       {"value":"archive","name":"Archive","children":["old-deal"]},
+       {"value":"old-deal","name":"Old Deal"},
+       {"value":"new-lead","name":"New Lead"},
+       {"value":"activities","name":"Activities"}]}]},
+  "steps":[
+    {"dragpick":"tr-item-leads"},
+    {"dragpoint":"tr-item-archive","aty":0.5,"x":60,"hold":900},
+
+    {"dragpick":"tr-item-activities"},
+    {"dragpoint":"tr-item-archive","aty":0.5,"x":60,"hold":400},
+    {"dragpoint":"tr-item-archive","aty":0.5,"x":60,"hold":500},
+    {"dragpoint":"tr-item-new-lead","aty":0.1,"x":60},
+    {"dragland":"tr-item-new-lead","aty":0.1,"x":60}] }

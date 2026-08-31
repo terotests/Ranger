@@ -113,6 +113,19 @@ class EVGFlight {
 
 class EVGElement {
     def id:string ""
+    ; The RECONCILER's name for this element, and not the application's.
+    ;
+    ; `id` is global and outward-facing: the hit test reports it, the
+    ; accessibility tree carries it, and a page addresses a control by it.
+    ; `key` is sibling-scoped and inward-facing: it says "this new child is the
+    ; same logical child as that old one", so a rebuild can keep the element
+    ; instead of replacing it. Two lists on one page may both use the key
+    ; "video"; two elements may not share an id.
+    ;
+    ; "" means unkeyed, and an unkeyed child is matched by POSITION among its
+    ; unkeyed siblings — the same rule every library that has this uses, and
+    ; the reason a reordered list needs keys to animate.
+    def key:string ""
     def tagName:string "div"
     def elementType:int 0
     
@@ -148,6 +161,19 @@ class EVGElement {
     ; Visual properties
     def backgroundColor:EVGColor
     def opacity:double 1.0
+    ; `backdrop-filter: blur(Npx)` — how far to blur what is BEHIND this
+    ; element, in pixels, before painting the element over it. 0 is no filter.
+    ;
+    ; Behind, not itself: this does nothing to the element's own pixels. A
+    ; modal's scrim wants the page under it softened while the scrim's own
+    ; text stays sharp, and `filter: blur()` would do the opposite.
+    ;
+    ; The number is CSS's radius, which is the Gaussian's SIGMA and not its
+    ; half-width — measured in `oracle/css-blur.json`, along with the more
+    ; surprising half: browsers do not compute a Gaussian at all but the SVG
+    ; spec's three-box approximation of one, and the difference is up to 14
+    ; luminance levels at a hard edge.
+    def backdropBlur:double 0.0
 
     ; Linear-gradient background (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR). When gradientSet
     ; the renderer fills the (rounded) box with a 2-stop linear gradient instead of
@@ -202,7 +228,29 @@ class EVGElement {
     def isInline:boolean false
     def lineBreak:boolean false
     def overflow:string "visible"
-    
+
+    ; --- SCROLLING ------------------------------------------------------------
+    ;
+    ; How far the content inside this element is pushed up and left. Set by the
+    ; APPLICATION, not by a stylesheet — a scroll position is state, and the
+    ; sheet has no business owning it — and clamped by the layout to what there
+    ; actually is to scroll, the way a browser clamps `scrollTop`.
+    def scrollTop:double 0.0
+    def scrollLeft:double 0.0
+    ; How big the content turned out to be, written by the layout. These are
+    ; the numbers a scrollbar is sized from and the reason a scroll container
+    ; is not the same thing as a clipped box: a clipped box throws the overflow
+    ; away, a scroll container remembers how much of it there was.
+    ;
+    ; Measured the way the DOM measures them, PADDING BOX and not content box:
+    ; eight 60-pixel rows in a box with 10 of padding gives 500, not 480. The
+    ; two definitions produce the same `maxScrollTop` — the paddings cancel —
+    ; so this could have been either, and it is the browser's, because a number
+    ; that is only right after you subtract something is a number somebody
+    ; will forget to subtract.
+    def scrollWidth:double 0.0
+    def scrollHeight:double 0.0
+
     ; Typography (inherited)
     def fontSize:EVGUnit
     ; fontSize starts UNSET: an element is born without one so that "the author
@@ -220,7 +268,12 @@ class EVGElement {
     def rootFontSize:double 14.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
-    def lineHeight:double 1.2
+    ; ZERO means `normal`, which is the FACE's own line box and is asked of
+    ; the text engine. It used to default to 1.2 — a number people type, not
+    ; one a browser computes: measured, the sans fallback's normal is 1.15em
+    ; and monospace's 1.164, so every text box in the gallery was four per
+    ; cent taller than the same declarations give in a browser.
+    def lineHeight:double 0.0
     def textAlign:string "left"
     def color:EVGColor
     ; What to paint glyphs that came from a FALLBACK face — emoji, in
@@ -447,6 +500,12 @@ class EVGElement {
     def calculatedInnerWidth:double 0.0
     def calculatedInnerHeight:double 0.0
     def calculatedFlexWidth:double 0.0
+    ; Whether the flex pass DECIDED that width, as opposed to it merely being
+    ; zero. Its own flag because the pass used to record the decision by
+    ; clearing `width.isSet` — which destroyed the author's declaration, so the
+    ; second frame laid out from a tree the stylesheet no longer described.
+    ; Layout output is layout state; it does not get to edit the style.
+    def hasFlexWidth:boolean false
     ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
     ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
     def calculatedFlexHeight:double 0.0
@@ -547,6 +606,24 @@ class EVGElement {
     def a11yLabel:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
+    ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
+    ; form field's hint, or its error message once there is one.
+    ;
+    ; The text and not an id, for the reason the conformance trace carries the
+    ; text: an id is a fact about a document and the sentence is what a reader
+    ; hears, and this tree has no document to hold ids in. A control with no
+    ; description says nothing, which is what an absent attribute means.
+    def a11yDescription:string ""
+    ; `aria-haspopup`: "menu", "listbox", "dialog". The one thing a reader
+    ; cannot see about a trigger — that pressing it opens something — and a
+    ; select's closed trigger is a box with a word in it without it.
+    def a11yHasPopup:string ""
+    ; `aria-rowcount` and `aria-rowindex`. A virtualised table has a dozen rows
+    ; in the tree and ten thousand in the data, and these two are the only
+    ; thing that says so — 0 for a table that publishes neither, which is what
+    ; a non-virtualised one does.
+    def a11yRowCount:int 0
+    def a11yRowIndex:int 0
     ; `aria-hidden`: this element and everything under it is DECORATION and
     ; contributes nothing to the accessible tree — no node, and no words to an
     ; ancestor's name.
@@ -558,10 +635,39 @@ class EVGElement {
     def a11yHidden:boolean false
     ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
     def a11ySorted:int 0
+    ; `aria-orientation`. Its own field for the reason `aria-sort` is one: on a
+    ; SPLITTER it decides what a key means — ArrowLeft moves a horizontal one
+    ; and does nothing at all to a vertical one — and every other observation
+    ; about the two is identical. A toolbar, a slider, a menubar and a
+    ; separator all publish it too.
+    def a11yOrientation:string ""
+    ; `aria-current`. "page" on the crumb you are on.
+    def a11yCurrent:string ""
+    ; `aria-valuenow` / `valuemin` / `valuemax`. Absent until a page built out
+    ; of ELEMENTS needed to publish a splitter, and the gap was invisible
+    ; because a page built out of a CONTROLLER publishes them through `UiRow`
+    ; instead — two paths to the same tree and only one of them complete. Axe
+    ; found it: a focusable `separator` without a value is not a splitter, it
+    ; is a decoration that steals a tab stop.
+    ;
+    ; `hasValue` and `hasRange` are separate from the numbers for the reason
+    ; `EVGA11yNode` keeps them separate: a progress bar with a range and NO
+    ; position is how every platform spells "busy, length unknown", and 0 is a
+    ; different claim.
+    def a11yHasValue:boolean false
+    def a11yValueNow:int 0
+    def a11yHasRange:boolean false
+    def a11yValueMin:int 0
+    def a11yValueMax:int 0
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
     def a11yChecked:int 0
+    ; `aria-pressed`, tri-state. A carried sortable row and a show/hide toggle
+    ; are both buttons that are ON, and neither is CHECKED — a reader says
+    ; "pressed" for one and "checked" for the other, and they are not
+    ; interchangeable.
+    def a11yPressed:int 0
     def a11yExpanded:int 0
     def a11ySelected:int 0
     def a11yDisabled:boolean false
@@ -571,6 +677,41 @@ class EVGElement {
     ; rows there are.
     def a11yPosInSet:int 0
     def a11ySetSize:int 0
+    ; `aria-level`, for a treeitem in a flat tree. 0 means unset.
+    def a11yLevel:int 0
+
+    ; --- what the stylesheet last wrote here ---------------------------------
+    ;
+    ; The cascade's answer for an element is a function of four things, and
+    ; these remember which four produced what the element is holding now. When
+    ; they all still agree on the next pass, the element already contains
+    ; exactly what the sheet would write, and writing it again is pure cost —
+    ; on a 1600-row table a hover changes ONE row and the other 22,402 elements
+    ; were being re-declared regardless.
+    ;
+    ; `styleGen` is the sheet's own counter, so re-parsing or resizing
+    ; invalidates every element at once without touching any of them.
+    ; `EVGTransition.writeBack` sets it to -1, because after a flight has
+    ; written a showing value the element no longer holds what the sheet
+    ; declared — and the sheet has to re-declare it or the flight stops dead.
+    def styleClass:string ""
+    def styleTheme:string ""
+    def styleBits:int 0
+    def styleGen:int 0
+    ; Which plan produced it, so two passes can be compared for whether
+    ; anything LAYOUT-relevant actually differs. -1 is "no plan yet".
+    def styleSlot:int (0 - 1)
+    ; How many children it had when it was styled.
+    ;
+    ; The stylesheet cannot see a child being added or removed — that is not a
+    ; property and no rule mentions it — so without this an element whose class
+    ; never changed would be skipped, the pass would report itself clean, layout
+    ; would be skipped, and the remaining children would be drawn at the
+    ; positions they held before the removal. Comparing one integer removes a
+    ; whole class of host mistake, and a removal is the case that has no other
+    ; symptom: an ADDED child is caught anyway, because a new element has never
+    ; been styled.
+    def styleKids:int (0 - 1)
 
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
@@ -669,6 +810,10 @@ class EVGElement {
         calculatedY = 0.0
         calculatedWidth = 0.0
         calculatedHeight = 0.0
+        ; Cleared with the rest of the layout state, so a pass that no longer
+        ; shrinks a child stops claiming it did.
+        calculatedFlexWidth = 0.0
+        hasFlexWidth = false
         hasDefiniteHeight = false
         calculatedBaseline = 0.0
         calculatedDescent = 0.0
@@ -684,6 +829,46 @@ class EVGElement {
     
     fn getChildCount:int () {
         return (array_length children)
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+    ;
+    ; A box that does not let its content out. `visible` is the only CSS value
+    ; that does not clip, and every other one — `hidden` included — makes a
+    ; SCROLL CONTAINER. That `hidden` scrolls is the part worth stating: it is
+    ; a container with no scrollbar, not a box that throws the overflow away,
+    ; and a program can scroll it even though a pointer cannot.
+    fn clipsContent:boolean () {
+        return (overflow != "visible")
+    }
+
+    ; The visible box, the DOM's `clientHeight`/`clientWidth`: everything
+    ; inside the border, padding included.
+    fn clientHeight:double () {
+        return (calculatedHeight - (box.borderWidthPx * 2.0))
+    }
+
+    fn clientWidth:double () {
+        return (calculatedWidth - (box.borderWidthPx * 2.0))
+    }
+
+    ; How far there is to go. Zero when the content fits, which is also the
+    ; answer for every element that is not a scroll container at all, because
+    ; the layout only ever writes an extent for one that is.
+    fn maxScrollTop:double () {
+        def m:double (scrollHeight - (this.clientHeight()))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    fn maxScrollLeft:double () {
+        def m:double (scrollWidth - (this.clientWidth()))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
     }
     
     fn getChild:EVGElement (index:int) {
@@ -1482,6 +1667,79 @@ class EVGElement {
         return out
     }
 
+    ; The radius out of `blur(12px)`, or 0 for `none` and for anything this
+    ; does not understand. Called by `setStyle`, and separately by the style
+    ; sheet's validator so an unsupported filter function is REPORTED — see
+    ; `blurProblem`.
+    sfn blurRadiusOf:double (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return 0.0
+        }
+        if ((strlen v) == 0) {
+            return 0.0
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        ; One function, and it has to be blur(). A list of filters is legal CSS
+        ; and is not supported here; saying so is the point of returning 0 and
+        ; letting `blurProblem` name it.
+        if ((array_length words) != 1) {
+            return 0.0
+        }
+        def one:string (itemAt words 0)
+        def inner:string (EVGElement.callArgs(one "blur"))
+        if ((strlen inner) == 0) {
+            return 0.0
+        }
+        def u:EVGUnit (EVGUnit.parse(inner))
+        if (u.isSet == false) {
+            return 0.0
+        }
+        ; A negative radius is not a filter, it is a typo.
+        if (u.value < 0.0) {
+            return 0.0
+        }
+        ; Only absolute lengths: a percentage has nothing to resolve against
+        ; here, since a blur radius is not a fraction of anything.
+        if (u.unitType != 0) {
+            return 0.0
+        }
+        return u.pixels
+    }
+
+    ; Why a `backdrop-filter` did nothing, or "" when it is fine. The sheet
+    ; reports this the way it reports an unknown timing function: a filter that
+    ; is quietly ignored looks exactly like a backend that has not caught up.
+    sfn blurProblem:string (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return ""
+        }
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        if ((array_length words) != 1) {
+            return ("backdrop-filter: only a single blur() is supported, got '" + v + "'")
+        }
+        def one:string (itemAt words 0)
+        def inner:string (EVGElement.callArgs(one "blur"))
+        if ((strlen inner) == 0) {
+            return ("backdrop-filter: only blur() is supported, got '" + v + "'")
+        }
+        def u:EVGUnit (EVGUnit.parse(inner))
+        if (u.isSet == false) {
+            return ("backdrop-filter: '" + inner + "' is not a length")
+        }
+        if (u.value < 0.0) {
+            return ("backdrop-filter: a blur radius cannot be negative")
+        }
+        if (u.unitType != 0) {
+            return ("backdrop-filter: blur() needs an absolute length, got '" + inner + "'")
+        }
+        return ""
+    }
+
     sfn splitWords:[string] (s:string) {
         def out:[string]
         def cur:string ""
@@ -1560,18 +1818,28 @@ class EVGElement {
     }
 
     ; Record that the authoring layer set `name` directly on this element.
+    ; The local is `prop` and not `key`: `key` is a field of this class now,
+    ; and a local shadowing it here would be a rename waiting to go wrong.
     fn markInline:void (name:string) {
-        def key:string (EVGElement.toKebab(name))
-        if ((this.hasInline(key)) == false) {
-            push inlineProps key
+        def prop:string (EVGElement.toKebab(name))
+        if ((this.hasInline(prop)) == false) {
+            push inlineProps prop
         }
     }
 
     fn hasInline:boolean (name:string) {
-        def key:string (EVGElement.toKebab(name))
+        ; The overwhelmingly common answer, reached without converting the
+        ; name. The stylesheet asks this once per declaration per element per
+        ; frame — about 180,000 times on a 1600-row table — and almost every
+        ; element has nothing inline at all, so paying for a kebab-case
+        ; conversion in order to look in an empty list was most of what it cost.
+        if ((array_length inlineProps) == 0) {
+            return false
+        }
+        def prop:string (EVGElement.toKebab(name))
         def i:int 0
         while (i < (array_length inlineProps)) {
-            if ((itemAt inlineProps i) == key) {
+            if ((itemAt inlineProps i) == prop) {
                 return true
             }
             i = (i + 1)
@@ -1667,6 +1935,242 @@ class EVGElement {
         return out
     }
 
+    ; Take on everything `other` describes, keeping this element's IDENTITY.
+    ; (The parameter is `other` and not `src` because `src` is already a field
+    ; of this class — the image source.)
+    ;
+    ; Every field of EVGElement is copied EXCEPT three:
+    ;
+    ;   `parent` and `children` — structure, which `EVGReconcile` owns. Copying
+    ;   them here would splice the discarded tree back in.
+    ;
+    ;   `transitions` — the in-flight animations, which are the whole reason
+    ;   this element is being kept rather than replaced. A flight remembers its
+    ;   own target and what it last wrote (`EVGFlight.hasWrote`), so preserving
+    ;   the list and overwriting everything else is exactly right: the sheet
+    ;   re-declares the destination, and `EVGTransition.reconcile` compares the
+    ;   two and either continues, redirects or lands.
+    ;
+    ; Object-typed fields are shared, not cloned. That is safe because `other`
+    ; is a node of a tree being DISCARDED — it has exactly one live holder after
+    ; this returns — and it is why this must never be used to copy one live
+    ; element onto another.
+    ;
+    ; A field added to this class and not added here would be silently dropped
+    ; on every rebuild, which is a bug that shows up as "it works until you
+    ; interact with it". `scripts/check-evg-adopt.mjs` fails the build when the
+    ; two lists disagree, so this cannot rot quietly.
+    fn adoptFrom:void (other:EVGElement) {
+        id = other.id
+        key = other.key
+        tagName = other.tagName
+        elementType = other.elementType
+        format = other.format
+        orientation = other.orientation
+        pageWidth = other.pageWidth
+        pageHeight = other.pageHeight
+        width = other.width
+        height = other.height
+        minWidth = other.minWidth
+        minHeight = other.minHeight
+        maxWidth = other.maxWidth
+        maxHeight = other.maxHeight
+        left = other.left
+        top = other.top
+        right = other.right
+        bottom = other.bottom
+        x = other.x
+        y = other.y
+        box = other.box
+        backgroundColor = other.backgroundColor
+        opacity = other.opacity
+        backdropBlur = other.backdropBlur
+        gradientSet = other.gradientSet
+        gradientFrom = other.gradientFrom
+        gradientTo = other.gradientTo
+        gradientDir = other.gradientDir
+        absPosSet = other.absPosSet
+        absX = other.absX
+        absY = other.absY
+        glowIntensity = other.glowIntensity
+        bgImageSet = other.bgImageSet
+        bgImagePath = other.bgImagePath
+        textDir = other.textDir
+        resolvedRtl = other.resolvedRtl
+        direction = other.direction
+        align = other.align
+        verticalAlign = other.verticalAlign
+        isInline = other.isInline
+        lineBreak = other.lineBreak
+        overflow = other.overflow
+        scrollTop = other.scrollTop
+        scrollLeft = other.scrollLeft
+        scrollWidth = other.scrollWidth
+        scrollHeight = other.scrollHeight
+        fontSize = other.fontSize
+        fontSizeInherited = other.fontSizeInherited
+        fontSizeBase = other.fontSizeBase
+        rootFontSize = other.rootFontSize
+        fontFamily = other.fontFamily
+        fontWeight = other.fontWeight
+        lineHeight = other.lineHeight
+        textAlign = other.textAlign
+        color = other.color
+        emojiColor = other.emojiColor
+        textContent = other.textContent
+        display = other.display
+        flex = other.flex
+        flexShrink = other.flexShrink
+        flexBasis = other.flexBasis
+        flexDirection = other.flexDirection
+        justifyContent = other.justifyContent
+        alignItems = other.alignItems
+        alignContent = other.alignContent
+        flexWrap = other.flexWrap
+        gap = other.gap
+        rowGap = other.rowGap
+        columnGap = other.columnGap
+        gridTemplateColumns = other.gridTemplateColumns
+        gridTemplateRows = other.gridTemplateRows
+        subgridColumnSizes = other.subgridColumnSizes
+        subgridRowSizes = other.subgridRowSizes
+        computedRowSizes = other.computedRowSizes
+        subgridPending = other.subgridPending
+        gridTemplateAreas = other.gridTemplateAreas
+        gridAutoFlow = other.gridAutoFlow
+        fullBleed = other.fullBleed
+        gridArea = other.gridArea
+        gridColumn = other.gridColumn
+        gridRow = other.gridRow
+        position = other.position
+        marginTop = other.marginTop
+        marginRight = other.marginRight
+        marginBottom = other.marginBottom
+        marginLeft = other.marginLeft
+        paddingTop = other.paddingTop
+        paddingRight = other.paddingRight
+        paddingBottom = other.paddingBottom
+        paddingLeft = other.paddingLeft
+        borderWidth = other.borderWidth
+        borderTopWidth = other.borderTopWidth
+        borderRightWidth = other.borderRightWidth
+        borderBottomWidth = other.borderBottomWidth
+        borderLeftWidth = other.borderLeftWidth
+        borderColor = other.borderColor
+        src = other.src
+        alt = other.alt
+        imageViewBox = other.imageViewBox
+        imageViewBoxX = other.imageViewBoxX
+        imageViewBoxY = other.imageViewBoxY
+        imageViewBoxW = other.imageViewBoxW
+        imageViewBoxH = other.imageViewBoxH
+        imageViewBoxSet = other.imageViewBoxSet
+        imageOffsetX = other.imageOffsetX
+        imageOffsetY = other.imageOffsetY
+        objectFit = other.objectFit
+        sourceWidth = other.sourceWidth
+        sourceHeight = other.sourceHeight
+        svgPath = other.svgPath
+        svgSource = other.svgSource
+        viewBox = other.viewBox
+        fillColor = other.fillColor
+        strokeColor = other.strokeColor
+        strokeWidth = other.strokeWidth
+        fillRule = other.fillRule
+        strokeDashArray = other.strokeDashArray
+        strokeDashOffset = other.strokeDashOffset
+        clipPath = other.clipPath
+        className = other.className
+        theme = other.theme
+        inlineProps = other.inlineProps
+        imageQuality = other.imageQuality
+        maxImageSize = other.maxImageSize
+        rotate = other.rotate
+        scale = other.scale
+        translateX = other.translateX
+        translateY = other.translateY
+        transformSpec = other.transformSpec
+        transformOriginX = other.transformOriginX
+        transformOriginY = other.transformOriginY
+        transformOriginSpec = other.transformOriginSpec
+        shadowRadius = other.shadowRadius
+        shadowColor = other.shadowColor
+        shadowOffsetX = other.shadowOffsetX
+        shadowOffsetY = other.shadowOffsetY
+        backgroundGradient = other.backgroundGradient
+        gradient = other.gradient
+        calculatedX = other.calculatedX
+        calculatedY = other.calculatedY
+        calculatedWidth = other.calculatedWidth
+        calculatedHeight = other.calculatedHeight
+        calculatedInnerWidth = other.calculatedInnerWidth
+        calculatedInnerHeight = other.calculatedInnerHeight
+        calculatedFlexWidth = other.calculatedFlexWidth
+        hasFlexWidth = other.hasFlexWidth
+        calculatedFlexHeight = other.calculatedFlexHeight
+        calculatedBaseline = other.calculatedBaseline
+        calculatedDescent = other.calculatedDescent
+        hasBaseline = other.hasBaseline
+        hasDefiniteHeight = other.hasDefiniteHeight
+        calculatedPage = other.calculatedPage
+        isAbsolute = other.isAbsolute
+        isOverlay = other.isOverlay
+        overlayAnchor = other.overlayAnchor
+        isOverlayAnchor = other.isOverlayAnchor
+        overlaySide = other.overlaySide
+        overlayAlign = other.overlayAlign
+        overlayGap = other.overlayGap
+        overlayX = other.overlayX
+        overlayY = other.overlayY
+        overlayPlacedSide = other.overlayPlacedSide
+        isHovered = other.isHovered
+        isFocused = other.isFocused
+        isPressed = other.isPressed
+        transitionSpec = other.transitionSpec
+        role = other.role
+        a11yLabel = other.a11yLabel
+        a11yRoleDescription = other.a11yRoleDescription
+        a11yDescription = other.a11yDescription
+        a11yHasPopup = other.a11yHasPopup
+        a11yRowCount = other.a11yRowCount
+        a11yRowIndex = other.a11yRowIndex
+        a11yHidden = other.a11yHidden
+        a11ySorted = other.a11ySorted
+        a11yOrientation = other.a11yOrientation
+        a11yCurrent = other.a11yCurrent
+        a11yHasValue = other.a11yHasValue
+        a11yValueNow = other.a11yValueNow
+        a11yHasRange = other.a11yHasRange
+        a11yValueMin = other.a11yValueMin
+        a11yValueMax = other.a11yValueMax
+        a11yChecked = other.a11yChecked
+        a11yPressed = other.a11yPressed
+        a11yExpanded = other.a11yExpanded
+        a11ySelected = other.a11ySelected
+        a11yDisabled = other.a11yDisabled
+        a11yFocusable = other.a11yFocusable
+        a11yPosInSet = other.a11yPosInSet
+        a11ySetSize = other.a11ySetSize
+        a11yLevel = other.a11yLevel
+        ; Copied, and the values copied are the FRESH element's — which has
+        ; never been styled. So a reconciled element always reads as
+        ; "the sheet has not written here", and re-styles. That is the honest
+        ; answer: `adoptFrom` has just overwritten every value the sheet had
+        ; put there.
+        styleClass = other.styleClass
+        styleTheme = other.styleTheme
+        styleBits = other.styleBits
+        styleGen = other.styleGen
+        styleSlot = other.styleSlot
+        styleKids = other.styleKids
+        isLayoutComplete = other.isLayoutComplete
+        unitsResolved = other.unitsResolved
+        hasReturn = other.hasReturn
+        hasBreak = other.hasBreak
+        hasContinue = other.hasContinue
+        inheritedFontSize = other.inheritedFontSize
+    }
+
     fn setAttribute:void (name:string value:string) {
         ; Set attribute by name (for parser)
 
@@ -1680,6 +2184,10 @@ class EVGElement {
         }
         if (name == "id") {
             id = value
+            return
+        }
+        if (name == "key") {
+            key = value
             return
         }
         
@@ -1773,6 +2281,14 @@ class EVGElement {
             a11yLabel = value
             return
         }
+        if ((name == "aria-current") || (name == "a11yCurrent")) {
+            a11yCurrent = value
+            return
+        }
+        if ((name == "aria-orientation") || (name == "a11yOrientation")) {
+            a11yOrientation = (to_lowercase value)
+            return
+        }
         if ((name == "aria-sort") || (name == "a11ySorted")) {
             if (value == "none")       { a11ySorted = 1 }
             if (value == "ascending")  { a11ySorted = 2 }
@@ -1783,8 +2299,40 @@ class EVGElement {
             a11yHidden = (EVGElement.truthy(value))
             return
         }
+        ; `to_int` on a string is OPTIONAL here — a value that is not a number
+        ; has no integer to be — so it is unwrapped through a default rather
+        ; than assigned straight across. Zero is the right default: it is what
+        ; "this node publishes no row count" already means everywhere else.
+        if ((name == "aria-rowcount") || (name == "a11yRowCount")) {
+            def rc@(optional):int (to_int value)
+            a11yRowCount = 0
+            if rc {
+                a11yRowCount = (unwrap rc)
+            }
+            return
+        }
+        if ((name == "aria-rowindex") || (name == "a11yRowIndex")) {
+            def ri@(optional):int (to_int value)
+            a11yRowIndex = 0
+            if ri {
+                a11yRowIndex = (unwrap ri)
+            }
+            return
+        }
+        if ((name == "aria-haspopup") || (name == "a11yHasPopup")) {
+            a11yHasPopup = value
+            return
+        }
+        if ((name == "aria-describedby") || (name == "a11yDescription")) {
+            a11yDescription = value
+            return
+        }
         if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {
             a11yRoleDescription = value
+            return
+        }
+        if ((name == "aria-pressed") || (name == "a11yPressed")) {
+            a11yPressed = (EVGElement.triState(value))
             return
         }
         if ((name == "aria-checked") || (name == "a11yChecked")) {
@@ -1991,6 +2539,14 @@ class EVGElement {
             opacity = (unwrap val)
             return
         }
+        ; `backdrop-filter: blur(12px)`. Only `blur()` is understood; anything
+        ; else in the property is reported rather than half-applied, because a
+        ; `saturate()` that silently did nothing would look like a backend that
+        ; had not implemented it yet.
+        if ((name == "backdrop-filter") || (name == "backdropFilter")) {
+            backdropBlur = (EVGElement.blurRadiusOf(value))
+            return
+        }
         
         ; Image properties
         if ((name == "object-fit") || (name == "objectFit")) {
@@ -2035,6 +2591,20 @@ class EVGElement {
         }
         if (name == "overflow") {
             overflow = value
+            return
+        }
+        ; The scroll POSITION is settable, because a demo restoring where it
+        ; was is setting state and not styling. The extents are not: they are
+        ; the layout's answer, and an author writing one would only be telling
+        ; the layout what it is about to work out for itself.
+        if ((name == "scroll-top") || (name == "scrollTop")) {
+            def st@(optional):double (to_double value)
+            scrollTop = (unwrap st)
+            return
+        }
+        if ((name == "scroll-left") || (name == "scrollLeft")) {
+            def sl@(optional):double (to_double value)
+            scrollLeft = (unwrap sl)
             return
         }
         

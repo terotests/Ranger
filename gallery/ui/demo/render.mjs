@@ -44,6 +44,89 @@ const DEMOS = {
       M.ToolbarDemo.displayListJson(css, true, false, false, "center", "Edited 2 hours ago"),
     errors: (M, css) => M.ToolbarDemo.styleErrors(css),
   },
+  dashboard: {
+    module: "gallery/ui/bin/DashboardDemo.cjs",
+    css: "dashboard.css",
+    width: 1336,
+    height: 900,
+    list: (M, css) => {
+      const d = new M.DashboardDemo();
+      d.init(css);
+      const r = process.env.DASH_RANGE;
+      if (r) d.selectRange(r);
+      const sc = process.env.DASH_SCROLL;
+      if (sc) { d.virt.scrollTo(Number(sc)); d.rebuild(); }
+      const nav = process.env.DASH_NAV;
+      if (nav) d.press("db-nav-" + nav);
+      const py = process.env.DASH_PAGE_SCROLL;
+      if (py) d.scrollTo(Number(py));
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.DashboardDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
+  profile: {
+    module: "gallery/ui/bin/ProfileDemo.cjs",
+    css: "profile.css",
+    height: 800,
+    list: (M, css) => {
+      const d = new M.ProfileDemo();
+      d.init(css);
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.ProfileDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
+  form: {
+    module: "gallery/ui/bin/FormDemo.cjs",
+    css: "form.css",
+    height: 640,
+    list: (M, css) => {
+      const d = new M.FormDemo();
+      d.init(css);
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.FormDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
+  resize: {
+    module: "gallery/ui/bin/ResizeDemo.cjs",
+    css: "resize.css",
+    height: 520,
+    // This one is a live controller rather than a pure function: the trail's
+    // width decides how many crumbs there are, so the demo has to settle
+    // before it has a display list worth painting.
+    list: (M, css) => {
+      const d = new M.ResizeDemo();
+      d.init(css);
+      const pct = Number(process.env.RESIZE_PCT || "60");
+      const p = d.outer.panels[0];
+      const q = d.outer.panels[1];
+      q.size += p.size - pct;
+      p.size = pct;
+      d.rebuild();
+      d.displayListJson();
+      d.settle();
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.ResizeDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
 };
 const demo = DEMOS[WHICH];
 if (!demo) throw new Error(`unknown demo ${WHICH} — one of ${Object.keys(DEMOS).join(", ")}`);
@@ -55,7 +138,10 @@ const errors = demo.errors(M, css);
 if (errors > 0) throw new Error(`the stylesheet has ${errors} error(s)`);
 
 const list = JSON.parse(demo.list(M, css));
-const doc = { width: 1240, height: demo.height, list };
+// The canvas is as wide as the demo says it is. The dashboard grew past
+// 1240 when the sidebar arrived, and a canvas that stays 1240 does not
+// report the overflow, it crops it.
+const doc = { width: demo.width || 1240, height: demo.height, list };
 
 const html = `<!doctype html><meta charset="utf-8">
 <link rel="icon" href="data:,">
@@ -97,7 +183,7 @@ const port = server.address().port;
 
 const { chromium } = requireDom("playwright-core");
 const browser = await chromium.launch({ executablePath: findChromium() });
-const p = await browser.newPage({ viewport: { width: 1320, height: demo.height + 60 }, deviceScaleFactor: 2 });
+const p = await browser.newPage({ viewport: { width: doc.width + 60, height: demo.height + 60 }, deviceScaleFactor: 2 });
 p.on("pageerror", (e) => console.error("PAGEERROR:", e.message));
 p.on("console", (m) => { if (m.type() === "error") console.error("CONSOLE:", m.text()); });
 await p.goto(`http://127.0.0.1:${port}/`);

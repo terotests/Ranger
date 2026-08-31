@@ -1,0 +1,11 @@
+{ "name":"resizable_vertical","component":"resizable",
+  "$comment":"The same contract the other way up, so the axis rule is measured in both directions rather than inferred from one.",
+  "behaviours":["separator-orientation-inverts","separator-arrows","separator-arrows-wrong-axis"],
+  "fixture":{"controls":[{"type":"resizable","tid":"rz","orientation":"vertical",
+    "panels":[{"value":"top","defaultSize":"40%"},{"value":"bottom","defaultSize":"60%"}]}]},
+  "steps":[
+    {"focus":"rz-sep-0"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowLeft"},
+    {"key":"ArrowRight"},
+    {"key":"ArrowUp"}] }

@@ -55,6 +55,30 @@ class EVGA11yFromTree {
         if (name == "textbox")          { return (EVGA11yRole.textField()) }
         if (name == "img")              { return (EVGA11yRole.image()) }
         if (name == "link")             { return (EVGA11yRole.link()) }
+        ; A landmark. Missing until a demo used one, and the LINT is what said
+        ; so — an unrecognised role drops the element AND everything under it,
+        ; a silent hole with no symptom on screen. FOURTH time this table has
+        ; been one role short; the `notes` list exists because of the first two.
+        ; `list`, `listitem` and `separator` were already here, further down.
+        ;
+        ; So the fourth time it is completed rather than extended: the whole
+        ; select family goes in together, not just the `combobox` the profile
+        ; demo happened to need, because `listbox` and `option` are the two
+        ; roles that will be wanted the moment that select can be opened and
+        ; finding out then would be the fifth time.
+        if (name == "navigation")       { return (EVGA11yRole.navigation()) }
+        if (name == "form")             { return (EVGA11yRole.form()) }
+        ; FIFTH time, and the table family is now finished too: a thead and a
+        ; tbody are `rowgroup`s, and without them the whole body of a table
+        ; built from roles is missing from the tree while the picture is
+        ; perfect.
+        if (name == "rowgroup")         { return (EVGA11yRole.rowGroup()) }
+        if (name == "combobox")         { return (EVGA11yRole.comboBox()) }
+        if (name == "listbox")          { return (EVGA11yRole.listBox()) }
+        if (name == "option")           { return (EVGA11yRole.option()) }
+        if (name == "grid")             { return (EVGA11yRole.grid()) }
+        if (name == "group")            { return (EVGA11yRole.group()) }
+        if (name == "tabpanel")         { return (EVGA11yRole.tabPanel()) }
         if (name == "tablist")          { return (EVGA11yRole.tabList()) }
         if (name == "tab")              { return (EVGA11yRole.tab()) }
         if (name == "toolbar")          { return (EVGA11yRole.toolbar()) }
@@ -81,6 +105,8 @@ class EVGA11yFromTree {
         if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }
         if (name == "slider")           { return (EVGA11yRole.slider()) }
         if (name == "progressbar")      { return (EVGA11yRole.progressBar()) }
+        if (name == "tree")             { return (EVGA11yRole.tree()) }
+        if (name == "treeitem")         { return (EVGA11yRole.treeItem()) }
         return (EVGA11yRole.none())
     }
 
@@ -148,16 +174,40 @@ class EVGA11yFromTree {
         }
         def nextParent:string parentId
         def code:int (EVGA11yFromTree.roleCode(el.role))
+        ; A role this builder does not know is REPORTED, not dropped. Dropping
+        ; it takes the element and everything under it out of the accessible
+        ; tree, and the audit that follows then passes over the hole — the
+        ; whole tree demo reduced to one node and called clean. There is no
+        ; safe silent default here: guessing `group` would invent structure,
+        ; and skipping is what caused this.
+        if ((strlen el.role) > 0) {
+            if (code == (EVGA11yRole.none())) {
+                def t0:EVGA11yTree (unwrap tree)
+                push t0.notes (("role not understood by EVGA11yFromTree: \"" + el.role) + "\" — the element and everything under it is missing from this tree")
+            }
+        }
         if (code != (EVGA11yRole.none())) {
             def id:string (this.idOf(el parentId index))
             def t:EVGA11yTree (unwrap tree)
             def n:EVGA11yNode (t.node(id parentId code))
             n.name = (this.nameOf(el))
             n.roleDescription = el.a11yRoleDescription
+            n.description = el.a11yDescription
+            n.hasPopup = el.a11yHasPopup
+            n.rowCount = el.a11yRowCount
+            n.rowIndex = el.a11yRowIndex
             n.disabled = el.a11yDisabled
             n.checked = el.a11yChecked
+            n.pressed = el.a11yPressed
             n.expanded = el.a11yExpanded
             n.sorted = el.a11ySorted
+            n.orientation = el.a11yOrientation
+            n.current = el.a11yCurrent
+            n.hasValueNow = el.a11yHasValue
+            n.valueNow = el.a11yValueNow
+            n.hasValueRange = el.a11yHasRange
+            n.valueMin = el.a11yValueMin
+            n.valueMax = el.a11yValueMax
             if (el.a11ySelected == 2) {
                 n.selected = true
             }
@@ -170,6 +220,7 @@ class EVGA11yFromTree {
             }
             n.posInSet = el.a11yPosInSet
             n.setSize = el.a11ySetSize
+            n.level = el.a11yLevel
             t.place(n
                 (to_int el.calculatedX)
                 (to_int el.calculatedY)

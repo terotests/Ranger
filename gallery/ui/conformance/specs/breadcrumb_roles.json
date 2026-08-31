@@ -1,0 +1,9 @@
+{ "name":"breadcrumb_roles","component":"breadcrumb",
+  "$comment":"The trail when it fits. Radix has no breadcrumb and neither does anything else ReUI uses, so the DOM side here is a second implementation of the HTML and ARIA specs rather than an independent oracle — it catches the two sides disagreeing and cannot catch both being wrong. Said plainly in behaviours.json too.",
+  "behaviours":["breadcrumb-nav-named","breadcrumb-is-a-list","breadcrumb-links","breadcrumb-current-not-a-link","breadcrumb-separators-hidden"],
+  "fixture":{"controls":[{"type":"breadcrumb","tid":"bc","name":"breadcrumb",
+    "items":[
+      {"value":"home","name":"Home","width":50},
+      {"value":"components","name":"Components","width":95},
+      {"value":"breadcrumb","name":"Breadcrumb","width":95}]}]},
+  "steps":[{"focus":"bc-item-home"}] }

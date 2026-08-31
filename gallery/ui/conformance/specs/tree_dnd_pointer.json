@@ -1,0 +1,32 @@
+{ "name":"tree_dnd_pointer","component":"tree",
+  "$comment":"The pointer half of drag and drop, in the part a DOM trace can see: where a row LANDS. The target itself is invisible until the drop — a drop indicator is CSS — so the fine grain of it is measured in oracle/tree-dnd.json instead, and this spec measures the outcomes. `x` is in PIXELS from the row's left edge because it is only ever compared against the indent, which both sides are told; `aty` is a fraction because the bands are.",
+  "behaviours":["dnd-pointer-bands","dnd-pointer-no-middle","dnd-pointer-overwrites-selection","dnd-pointer-drop-recomputes"],
+  "fixture":{"controls":[{"type":"tree","tid":"tr","root":"crm","indent":20,"selection":true,"dnd":true,
+     "expanded":["leads","accounts","acme"],
+     "items":[
+       {"value":"crm","name":"CRM","children":["leads","accounts","activities"]},
+       {"value":"leads","name":"Leads","children":["new-lead","contacted-lead"]},
+       {"value":"new-lead","name":"New Lead"},
+       {"value":"contacted-lead","name":"Contacted Lead"},
+       {"value":"accounts","name":"Accounts","children":["acme"]},
+       {"value":"acme","name":"Acme Corp","children":["jane"]},
+       {"value":"jane","name":"Jane Doe"},
+       {"value":"activities","name":"Activities"}]}]},
+  "steps":[
+    {"click":"tr-item-jane"},
+    {"dragpick":"tr-item-contacted-lead"},
+    {"dragpoint":"tr-item-new-lead","aty":0.1,"x":60},
+    {"dragland":"tr-item-new-lead","aty":0.1,"x":60},
+
+    {"dragpick":"tr-item-new-lead"},
+    {"dragpoint":"tr-item-contacted-lead","aty":0.9,"x":60},
+    {"dragland":"tr-item-contacted-lead","aty":0.9,"x":60},
+
+    {"dragpick":"tr-item-new-lead"},
+    {"dragpoint":"tr-item-activities","aty":0.4,"x":60},
+    {"dragland":"tr-item-activities","aty":0.4,"x":60},
+
+    {"dragpick":"tr-item-new-lead"},
+    {"dragpoint":"tr-item-activities","aty":0.4,"x":60},
+    {"dragpoint":"tr-item-activities","aty":0.6,"x":60},
+    {"dragland":"tr-item-activities","aty":0.6,"x":60}] }

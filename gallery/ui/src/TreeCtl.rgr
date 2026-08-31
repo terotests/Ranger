@@ -1,0 +1,1588 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TreeCtl — measured against @headless-tree/react, which is what ReUI's is
+; =============================================================================
+; ReUI's tree (https://reui.io/components/tree) ships `Tree`, `TreeItem` and
+; `TreeItemLabel` as thin presentational wrappers over `useTree` with exactly
+; two features — `syncDataLoaderFeature` and `hotkeysCoreFeature`. So the
+; library is the oracle, the way dnd-kit is for the sortable, and the wrapper
+; is a stylesheet.
+;
+; And it is a GENEROUS oracle, unlike TanStack. The table's library writes not
+; one attribute, so the ARIA had to come from the HTML spec; headless-tree
+; publishes role, `aria-expanded`, `aria-level`, `aria-setsize`,
+; `aria-posinset`, `aria-selected` and the roving `tabIndex` through
+; `getProps()`. Copying it gets the accessible tree right AND measured.
+;
+; --- WHAT WAS MEASURED, and three answers that are not the obvious ones -------
+;
+;   THE TREE IS FLAT. `getItems()` returns the visible items already flattened,
+;   all siblings in the DOM, and nesting is carried by `aria-level` alone — not
+;   by nested groups. So this builds a flat list too. A `role="group"` per
+;   folder would be just as valid ARIA and would not match.
+;
+;   THE ROOT IS NOT AN ITEM. `rootItemId` names a node that is the container,
+;   not a row: a tree rooted at "crm" shows CRM's children and never CRM.
+;
+;   THE TWO ARROWS EACH MEAN TWO THINGS, and which one depends on the row:
+;     ArrowRight on a COLLAPSED folder expands it and focus stays put;
+;                on an EXPANDED folder moves to its first child;
+;                on a leaf does nothing at all.
+;     ArrowLeft  on an EXPANDED folder collapses it and focus stays put;
+;                on anything else moves to the PARENT.
+;   That is the WAI-ARIA pattern and the library implements it exactly.
+;
+;   ENTER AND SPACE TOGGLE THE FOLDER. They do not select — because ReUI does
+;   not enable `selectionFeature`, and without it there is no selection to
+;   make. Measured on a real tree: Enter on an open folder closed it.
+;
+;   `aria-selected="false"` IS PUBLISHED ANYWAY, on every item, selection
+;   feature or not. That tells a reader the rows are selectable when they are
+;   not, which is the library's choice rather than a good one — and it is
+;   copied here, because the harness exists to record what the reference does.
+;
+;   THERE IS NO TYPEAHEAD. `searchFeature` is not in ReUI's list either, and a
+;   letter key does nothing. Home and End work; the arrows do NOT wrap.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; One node of the source data. Children by VALUE, not by reference, because
+; that is the shape the library's data loader has and the shape a fixture can
+; write down.
+class UiTreeNode {
+    def value:string ""
+    def name:string ""
+    def kids:[string]
+    def el:EVGElement
+
+    Constructor () {
+        def none:[string]
+        kids = none
+        el = (EVGElement.createDiv())
+    }
+}
+
+class TreeCtl extends UiCtl {
+    def nodes:[UiTreeNode]
+    def rootValue:string ""
+    ; Which folders are open. A list rather than a flag on the node, because
+    ; the fixture names them and because a node may appear once but be reached
+    ; through its value from several places.
+    def expanded:[string]
+    ; The row focus sits on, by value. "" before anything is focused.
+    def activeValue:string ""
+
+    ; --- selection, which is a MODE ------------------------------------------
+    ;
+    ; Off by default, because ReUI's `c-tree-1` does not enable
+    ; `selectionFeature` and the eighteen behaviours already measured are
+    ; measured against that configuration. Turning it on is a different tree
+    ; with a different contract, and the specs say which one they mean.
+    ;
+    ; Measured from the library's source rather than guessed, and two things in
+    ; it are not what a reading of WAI-ARIA would give you:
+    ;
+    ;   `space` IS COMMENTED OUT in headless-tree's own selection hotkeys. So
+    ;   Space still activates the row and toggles the folder, selection or not.
+    ;   That is the one key turning the feature on does not change.
+    ;
+    ;   SHIFT+ARROW SHRINKS AS WELL AS GROWS. If the focused row and the one it
+    ;   is moving towards are BOTH already selected, the focused one is
+    ;   DESELECTED instead of the next one being selected — which is how
+    ;   walking back over a range gives the range back rather than doing
+    ;   nothing. Focus moves either way.
+    def selectable:boolean false
+    def selected:[string]
+    ; Where a shift-click range measures from. Set by any click that is not a
+    ; shift-click, and by the first shift-click when there is none.
+    def anchorValue:string ""
+
+    ; --- drag and drop, which is also a MODE ---------------------------------
+    ;
+    ; `dragAndDropFeature` + `keyboardDragAndDropFeature`. Both halves are here:
+    ; the KEYBOARD one walks targets an arrow at a time, and the POINTER one
+    ; computes a target from where in a row the cursor sits. They share the
+    ; target and the drop and agree about nothing else.
+    ;
+    ; A drop target is one of two things, and the distinction is the feature:
+    ;
+    ;   an ITEM target — drop INTO this row, which must be a folder
+    ;   a LINE target  — drop BETWEEN two rows, at a child index of some parent
+    ;
+    ; Arrow keys walk targets, alternating between the two, and `Control+Shift+D`
+    ; starts. Three things about that walk are not guessable:
+    ;
+    ;   THE DEFAULT `canDrop` IS `target.item.isFolder()`. So an item target on
+    ;   a LEAF is rejected and the walk skips straight past it to the next line
+    ;   — which is why one ArrowDown can look like it moved two places.
+    ;
+    ;   AT THE END OF A GROUP the walk changes LEVEL instead of position. A line
+    ;   below the last child of a folder can step out to the grandparent's level
+    ;   rather than moving down a row, which is how a keyboard reaches "after
+    ;   this whole subtree" at all.
+    ;
+    ;   THE INSERTION INDEX IS CORRECTED for the items about to be removed. A
+    ;   child index counts the list as it is; the insertion index counts it as
+    ;   it will be once the dragged rows are taken out of it.
+    def draggable:boolean false
+    def dragging:boolean false
+    def draggedValues:[string]
+    ; 0 = no target, 1 = item, 2 = line.
+    def dropKind:int 0
+    ; The item for an item target; the PARENT for a line target. "" is the root.
+    def dropItem:string ""
+    def dropChildIndex:int 0
+    def dropInsertIndex:int 0
+    def dropLineIndex:int 0
+    ; Depth in the library's terms: -1 is the root, 0 a top-level row.
+    def dropLineLevel:int 0
+    ; Pixels per level. The POINTER path needs it: where a cursor sits
+    ; horizontally inside the last row of a group decides which level it is
+    ; being dropped OUT to, and that is measured in indents. The keyboard path
+    ; never reads it.
+    def dndIndent:double 20.0
+    ; The row the pointer is currently over, "" for none.
+    def dragOverValue:string ""
+
+    ; --- the drag code, which is why two different moves can be one move -------
+    ;
+    ; `onDragOver` keys on a CODE — row, placement type, reparent level — and
+    ; returns before it computes anything when the code has not changed. That
+    ; would be a plain optimisation except for one detail: the code's placement
+    ; is computed with `canMakeChild` forced TRUE, while the TARGET's is
+    ; computed with the real value. On a row nothing may be dropped into, the
+    ; code therefore uses the 30% bands and the target uses the 50% ones — so
+    ; 0.4 and 0.6 are the same code and different targets, and the second move
+    ; is swallowed. Measured: the target stays "above" at 0.6.
+    def lastDragCode:string ""
+    ; Whether the last move ended with a target. The auto-open timer reads it.
+    def lastAllowDrop:boolean false
+
+    ; --- openOnDropDelay -------------------------------------------------------
+    ;
+    ; Hold a drag over a CLOSED folder and it opens under the cursor, so a drop
+    ; can reach somewhere that was not visible when the drag began. 800ms by
+    ; default. Time arrives through `dragElapsed` rather than a clock, because a
+    ; controller that reads the wall clock cannot be tested and because the
+    ; caller owns the frame loop anyway.
+    def openOnDropDelay:double 800.0
+    ; The code the pending open was armed with, "" for none. Checked again when
+    ; the delay runs out: the library arms a timeout and lets it fire, and the
+    ; timeout bails if the code has moved on. So leaving the folder does not
+    ; cancel the timer, it makes the timer decline.
+    def autoOpenCode:string ""
+    def autoOpenItem:string ""
+    def autoOpenLeft:double 0.0
+
+    ; --- the flattened visible list, rebuilt by build() ------------------------
+    ; Parallel arrays, the same shape MenuCtl uses. Everything below is a scan
+    ; of these rather than a walk of the tree, because every question the
+    ; keyboard asks is about the FLATTENED order.
+    def rowValue:[string]
+    def rowLevel:[int]
+    def rowSetSize:[int]
+    def rowSetPos:[int]
+    def rowParent:[string]
+    def rowFolder:[boolean]
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def n:[UiTreeNode]
+        nodes = n
+        def e:[string]
+        expanded = e
+        def sel:[string]
+        selected = sel
+        def dv:[string]
+        draggedValues = dv
+        this.clearRows()
+    }
+
+    fn clearRows:void () {
+        def a:[string]
+        rowValue = a
+        def b:[int]
+        rowLevel = b
+        def c:[int]
+        rowSetSize = c
+        def d:[int]
+        rowSetPos = d
+        def e:[string]
+        rowParent = e
+        def f:[boolean]
+        rowFolder = f
+    }
+
+    ; --- the data ---------------------------------------------------------------
+
+    fn addNode:UiTreeNode (value:string label:string) {
+        def n (new UiTreeNode())
+        n.value = value
+        n.name = label
+        push nodes n
+        return n
+    }
+
+    sfn addKid:void (parent:UiTreeNode value:string) {
+        push parent.kids value
+    }
+
+    fn nodeAt:int (value:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:UiTreeNode (itemAt nodes i)
+            if (n.value == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn isExpanded:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length expanded)) {
+            if ((itemAt expanded i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn setExpanded:void (value:string on:boolean) {
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length expanded)) {
+            def v:string (itemAt expanded i)
+            if (v != value) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        if on {
+            push keep value
+        }
+        expanded = keep
+    }
+
+    ; --- ids ---------------------------------------------------------------------
+
+    ; --- selection ------------------------------------------------------------
+
+    fn isSelected:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length selected)) {
+            if ((itemAt selected i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn selectOne:void (value:string) {
+        if ((this.isSelected(value)) == false) {
+            push selected value
+        }
+    }
+
+    fn deselectOne:void (value:string) {
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length selected)) {
+            def v:string (itemAt selected i)
+            if (v != value) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        selected = keep
+    }
+
+    fn selectOnly:void (value:string) {
+        def one:[string]
+        push one value
+        selected = one
+    }
+
+    fn clearSelection:void () {
+        def none:[string]
+        selected = none
+    }
+
+    fn toggleSelect:void (value:string) {
+        if (this.isSelected(value)) {
+            this.deselectOne(value)
+        } {
+            this.selectOne(value)
+        }
+    }
+
+    ; The library's `selectUpTo`, verbatim.
+    ;
+    ; With no anchor yet it does NOT select a range — it makes this row the
+    ; anchor and selects only it. That is why the first shift-click after a
+    ; fresh start behaves like a plain click.
+    ;
+    ; The range is over the VISIBLE rows, so a folder closed in the middle of it
+    ; takes its children out of the range rather than leaving them selected and
+    ; hidden.
+    fn selectUpTo:void (value:string keepExisting:boolean) {
+        if ((strlen anchorValue) == 0) {
+            anchorValue = value
+            this.selectOnly(value)
+            return
+        }
+        def a:int (this.rowIndexOf(anchorValue))
+        def b:int (this.rowIndexOf(value))
+        if ((a < 0) || (b < 0)) {
+            return
+        }
+        def lo:int a
+        def hi:int b
+        if (b < a) {
+            lo = b
+            hi = a
+        }
+        def range:[string]
+        def i:int lo
+        while (i <= hi) {
+            push range (itemAt rowValue i)
+            i = (i + 1)
+        }
+        if (keepExisting == false) {
+            selected = range
+            return
+        }
+        ; The union, in the order the existing selection had them and then
+        ; whatever the range adds — which is what a Set spread produces.
+        def j:int 0
+        while (j < (array_length range)) {
+            this.selectOne((itemAt range j))
+            j = (j + 1)
+        }
+    }
+
+    fn selectAllVisible:void () {
+        def all:[string]
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            push all (itemAt rowValue i)
+            i = (i + 1)
+        }
+        selected = all
+    }
+
+    ; --- drag and drop: the walk over drop targets ----------------------------
+    ;
+    ; Depth is the LIBRARY's, not this class's: a top-level row is level 0 and
+    ; the root is -1. `rowLevel` counts from 1, so everything below subtracts.
+
+    fn libLevelAt:int (idx:int) {
+        return ((itemAt rowLevel idx) - 1)
+    }
+
+    ; Which of its siblings a row is, and how many there are.
+    fn inParentAt:int (idx:int) {
+        return ((itemAt rowSetPos idx) - 1)
+    }
+
+    fn isFolderValue:boolean (value:string) {
+        def ni:int (this.nodeAt(value))
+        if (ni < 0) {
+            ; The root is a folder — it is the thing everything hangs off.
+            return true
+        }
+        def n:UiTreeNode (itemAt nodes ni)
+        return ((array_length n.kids) > 0)
+    }
+
+    fn childrenOf:[string] (value:string) {
+        def ni:int (this.nodeAt(value))
+        if (ni >= 0) {
+            def n:UiTreeNode (itemAt nodes ni)
+            return n.kids
+        }
+        def none:[string]
+        return none
+    }
+
+    fn isDragged:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length draggedValues)) {
+            if ((itemAt draggedValues i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Is `value` inside any of the dragged rows? Walks up by parent, so it sees
+    ; the whole subtree and not only the visible part of it.
+    fn underADraggedRow:boolean (value:string) {
+        def at:string value
+        def guard:int 0
+        while (guard < 64) {
+            def idx:int (this.rowIndexOf(at))
+            if (idx < 0) {
+                return false
+            }
+            def parent:string (itemAt rowParent idx)
+            if (this.isDragged(parent)) {
+                return true
+            }
+            if (parent == rootValue) {
+                return false
+            }
+            at = parent
+            guard = (guard + 1)
+        }
+        return false
+    }
+
+    ; The library's `canDrop`, including the DEFAULT config it ships:
+    ;
+    ;   canDrop: (_, target) => target.item.isFolder()
+    ;
+    ; That one line is why the arrow walk skips leaves. Nothing may be dropped
+    ; onto a row that is being dragged, or into one of their subtrees.
+    fn canDropOn:boolean (value:string) {
+        if ((this.isFolderValue(value)) == false) {
+            return false
+        }
+        if (this.isDragged(value)) {
+            return false
+        }
+        return ((this.underADraggedRow(value)) == false)
+    }
+
+    ; `getInsertionIndex`: the child index, less however many of the dragged
+    ; rows sit before it in that parent and are about to be taken out.
+    fn insertionIndexIn:int (parent:string childIndex:int) {
+        def kids:[string] (this.childrenOf(parent))
+        def n:int 0
+        def i:int 0
+        while (i < childIndex) {
+            if (i < (array_length kids)) {
+                if (this.isDragged((itemAt kids i))) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return (childIndex - n)
+    }
+
+    fn setItemTarget:void (value:string) {
+        dropKind = 1
+        dropItem = value
+        dropChildIndex = 0
+        dropInsertIndex = 0
+        dropLineIndex = 0
+        dropLineLevel = 0
+    }
+
+    fn setLineTarget:void (parent:string childIndex:int lineIndex:int lineLevel:int) {
+        dropKind = 2
+        dropItem = parent
+        dropChildIndex = childIndex
+        dropInsertIndex = (this.insertionIndexIn(parent childIndex))
+        dropLineIndex = lineIndex
+        dropLineLevel = lineLevel
+    }
+
+    ; `getNthParent`: the ancestor of `value` sitting at library level `n`.
+    ; n = -1 is the root, which is not a row.
+    fn nthParentOf:string (value:string n:int) {
+        def at:string value
+        def guard:int 0
+        while (guard < 64) {
+            def idx:int (this.rowIndexOf(at))
+            if (idx < 0) {
+                return rootValue
+            }
+            if ((this.libLevelAt(idx)) == n) {
+                return at
+            }
+            at = (itemAt rowParent idx)
+            if (at == rootValue) {
+                if (n < 0) {
+                    return rootValue
+                }
+            }
+            guard = (guard + 1)
+        }
+        return rootValue
+    }
+
+    ; `getReparentTarget`: a line that steps OUT a level rather than down a row.
+    fn reparentTarget:void (value:string level:int) {
+        def reparented:string (this.nthParentOf(value (level - 1)))
+        def above:string (this.nthParentOf(value level))
+        def aboveIdx:int (this.rowIndexOf(above))
+        def targetIndex:int 0
+        if (aboveIdx >= 0) {
+            targetIndex = ((this.inParentAt(aboveIdx)) + 1)
+        }
+        def idx:int (this.rowIndexOf(value))
+        this.setLineTarget(reparented targetIndex (idx + 1) level)
+    }
+
+    ; `getNextDragTarget`, from whatever the current target is. Returns false
+    ; when the walk has run off the end.
+    fn stepDragTarget:boolean (isUp:boolean) {
+        def dir:int 1
+        if isUp {
+            dir = 0
+        }
+
+        if (dropKind == 2) {
+            def aboveIdx:int (dropLineIndex - 1)
+            if ((aboveIdx >= 0) && (aboveIdx < (array_length rowValue))) {
+                def above:string (itemAt rowValue aboveIdx)
+                def aboveLevel:int (this.libLevelAt(aboveIdx))
+                ; `getItemDropCategory`: expanded beats last-in-group.
+                def lastInGroup:boolean false
+                if ((this.isExpanded(above)) == false) {
+                    if ((this.inParentAt(aboveIdx)) == ((itemAt rowSetSize aboveIdx) - 1)) {
+                        lastInGroup = true
+                    }
+                }
+                if lastInGroup {
+                    def belowLevel:int 0
+                    if ((aboveIdx + 1) < (array_length rowValue)) {
+                        belowLevel = (this.libLevelAt(aboveIdx + 1))
+                    }
+                    if isUp {
+                        if (dropLineLevel < aboveLevel) {
+                            this.reparentTarget(above (dropLineLevel + 1))
+                            return true
+                        }
+                    } {
+                        if (dropLineLevel > belowLevel) {
+                            this.reparentTarget(above (dropLineLevel - 1))
+                            return true
+                        }
+                    }
+                }
+            }
+            def newIndex:int ((dropLineIndex - 1) + dir)
+            if ((newIndex < 0) || (newIndex >= (array_length rowValue))) {
+                return false
+            }
+            this.setItemTarget((itemAt rowValue newIndex))
+            return true
+        }
+
+        ; From an ITEM target.
+        def idx:int (this.rowIndexOf(dropItem))
+        if (idx < 0) {
+            return false
+        }
+        if ((this.isExpanded(dropItem)) && (isUp == false)) {
+            ; Down into an open folder: the line before its first child.
+            this.setLineTarget(dropItem 0 (idx + dir) ((this.libLevelAt(idx)) + 1))
+            return true
+        }
+        def parent:string (itemAt rowParent idx)
+        this.setLineTarget(parent ((this.inParentAt(idx)) + dir) (idx + dir) (this.libLevelAt(idx)))
+        return true
+    }
+
+    ; `getNextValidDragTarget`: step, and keep stepping while the target is one
+    ; nothing may be dropped on. The recursion is what makes a leaf invisible to
+    ; the walk.
+    fn advanceDragTarget:boolean (isUp:boolean) {
+        def guard:int 0
+        while (guard < 256) {
+            if ((this.stepDragTarget(isUp)) == false) {
+                return false
+            }
+            if (dropKind == 1) {
+                if (this.canDropOn(dropItem)) {
+                    return true
+                }
+            } {
+                if (this.canDropOn(dropItem)) {
+                    return true
+                }
+            }
+            guard = (guard + 1)
+        }
+        return false
+    }
+
+    ; --- the pointer path ------------------------------------------------------
+    ;
+    ; Everything above is the keyboard's: a walk over targets, one arrow at a
+    ; time. A pointer does not walk — it points, and the target is computed
+    ; from WHERE in a row it points. Two numbers decide it:
+    ;
+    ;   topPercent   how far down the row, which picks above / into / below
+    ;   leftPixels   how far in from its left edge, which picks WHICH LEVEL a
+    ;                drop at the end of a group belongs to
+    ;
+    ; The API takes those two rather than a coordinate, because they are what
+    ; the rule reads and because the two implementations have no reason to
+    ; agree about how wide a row is.
+
+    sfn placeAbove:int ()  { return 0 }
+    sfn placeBelow:int ()  { return 1 }
+    sfn placeChild:int ()  { return 2 }
+    sfn placeReparent:int () { return 3 }
+
+    ; `getTargetPlacement`, verbatim. `canMakeChild` is whether the row itself
+    ; is a legal drop, and it does double duty: when it is false the reorder
+    ; band grows from 30% of the row to 50%, so a row you cannot drop INTO has
+    ; no middle at all.
+    fn placementFor:int (value:string topPercent:double leftPixels:double canMakeChild:boolean) {
+        def idx:int (this.rowIndexOf(value))
+        if (idx < 0) {
+            return (TreeCtl.placeBelow())
+        }
+        def reorderArea:double 0.3
+        if (canMakeChild == false) {
+            reorderArea = 0.5
+        }
+        def makeChildType:int (TreeCtl.placeBelow())
+        if canMakeChild {
+            makeChildType = (TreeCtl.placeChild())
+        }
+        def level:int (this.libLevelAt(idx))
+
+        if (this.isExpanded(value)) {
+            if (topPercent < reorderArea) {
+                return (TreeCtl.placeAbove())
+            }
+            return makeChildType
+        }
+        def lastInGroup:boolean ((this.inParentAt(idx)) == ((itemAt rowSetSize idx) - 1))
+        if lastInGroup {
+            if (leftPixels < ((to_double level) * dndIndent)) {
+                if (topPercent < 0.5) {
+                    return (TreeCtl.placeAbove())
+                }
+                return (TreeCtl.placeReparent())
+            }
+        }
+        if (topPercent < reorderArea) {
+            return (TreeCtl.placeAbove())
+        }
+        if (topPercent > (1.0 - reorderArea)) {
+            return (TreeCtl.placeBelow())
+        }
+        return makeChildType
+    }
+
+    ; The level a reparent lands on, which is the same expression the library
+    ; uses: as far out as the cursor is, but never past the row below.
+    fn reparentLevelFor:int (value:string leftPixels:double) {
+        def idx:int (this.rowIndexOf(value))
+        def minLevel:int 0
+        if ((idx + 1) < (array_length rowValue)) {
+            minLevel = (this.libLevelAt(idx + 1))
+        }
+        def byPixels:int (to_int (leftPixels / dndIndent))
+        if (byPixels < minLevel) {
+            return minLevel
+        }
+        return byPixels
+    }
+
+    ; `getDragTarget`. Writes the target into place and answers whether there
+    ; is one at all.
+    fn pointerTargetFor:boolean (value:string topPercent:double leftPixels:double) {
+        def idx:int (this.rowIndexOf(value))
+        if (idx < 0) {
+            return false
+        }
+        def canMakeChild:boolean (this.canDropOn(value))
+        def placement:int (this.placementFor(value topPercent leftPixels canMakeChild))
+
+        if (placement == (TreeCtl.placeChild())) {
+            this.setItemTarget(value)
+            return true
+        }
+        def parent:string (itemAt rowParent idx)
+        def canBecomeSibling:boolean (this.canDropOn(parent))
+        if (canBecomeSibling == false) {
+            ; No target at all, and the row itself is never a fallback. The
+            ; library climbs to the parent here with reordering switched off;
+            ; that climb can only ever offer the row, and the row is always
+            ; refused when its parent is. A parent refuses only by being one of
+            ; the dragged rows or a descendant of one — it is a folder by
+            ; construction — and either makes the row a descendant of a dragged
+            ; row too. Swept over the whole fixture, every row against every
+            ; other at nine heights and ten indents: 7290 combinations, not one
+            ; where the row was droppable and its parent was not.
+            return false
+        }
+        if (placement == (TreeCtl.placeReparent())) {
+            this.reparentTarget(value (this.reparentLevelFor(value leftPixels)))
+            return true
+        }
+        def add:int 1
+        if (placement == (TreeCtl.placeAbove())) {
+            add = 0
+        }
+        this.setLineTarget(parent ((this.inParentAt(idx)) + add) (idx + add) (this.libLevelAt(idx)))
+        return true
+    }
+
+    ; A pointer picking rows up. Unlike the keyboard's start, which ADDS the
+    ; focused row to the selection, this REPLACES the selection when the row
+    ; grabbed is not already in it — `draggedItemOverwritesSelection`, which
+    ; the library defaults to true.
+    fn dragStartPointer:string (target:string) {
+        if (draggable == false) {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def carry:[string]
+        def overwrite:boolean ((this.isSelected(v)) == false)
+        if selectable {
+            if (overwrite == false) {
+                def i:int 0
+                while (i < (array_length selected)) {
+                    push carry (itemAt selected i)
+                    i = (i + 1)
+                }
+            }
+        }
+        if overwrite {
+            push carry v
+            if selectable {
+                this.selectOnly(v)
+            }
+        }
+        draggedValues = carry
+        dragging = true
+        dropKind = 0
+        dragOverValue = ""
+        ; `lastDragCode` is deliberately NOT cleared. The library clears it on a
+        ; successful DROP and nowhere else — not here, not on a cancel — so a
+        ; new drag inherits the last one's code, and its first move over the
+        ; same row at the same placement is swallowed as a repeat. Measured:
+        ; hold a drag over a closed folder, start a second drag, hold it over
+        ; the SAME folder, and the folder never opens, because the move that
+        ; would have armed the timer was read as no move at all.
+        return target
+    }
+
+    ; The pointer moving over a row. A target that nothing may be dropped on
+    ; leaves the previous one STANDING rather than clearing it — the library
+    ; returns before it writes, which is what stops the drop indicator
+    ; flickering off as the cursor crosses a row it cannot use.
+    fn dragOverPointer:void (target:string topPercent:double leftPixels:double) {
+        if (dragging == false) {
+            return
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return
+        }
+        ; The code first, and the same move twice is not a move.
+        def code:string (this.dragCodeFor(v topPercent leftPixels))
+        if (code == lastDragCode) {
+            return
+        }
+        lastDragCode = code
+        ; Armed BEFORE the target is computed, exactly where the library arms
+        ; it — which is why a folder still starts opening under a cursor that
+        ; is about to be told it has nowhere to drop.
+        this.armAutoOpen(v topPercent leftPixels code)
+
+        def keepKind:int dropKind
+        def keepItem:string dropItem
+        def keepChild:int dropChildIndex
+        def keepInsert:int dropInsertIndex
+        def keepLine:int dropLineIndex
+        def keepLevel:int dropLineLevel
+        if ((this.pointerTargetFor(v topPercent leftPixels)) == false) {
+            dropKind = keepKind
+            dropItem = keepItem
+            dropChildIndex = keepChild
+            dropInsertIndex = keepInsert
+            dropLineIndex = keepLine
+            dropLineLevel = keepLevel
+            lastAllowDrop = false
+            return
+        }
+        ; The library checks `canDrop` on the computed target a second time
+        ; here. That check is not repeated, because it cannot fail: the only
+        ; target `pointerTargetFor` produces without having checked it is a
+        ; REPARENT, and a reparent's new parent is an ancestor of the row's own
+        ; parent — so if the ancestor is a dragged row the parent is a
+        ; descendant of one, and the sibling branch has already returned false.
+        ; Swept over every row against every other row at nine heights and ten
+        ; indents: 5760 combinations, no case where it would have fired.
+        lastAllowDrop = true
+        dragOverValue = v
+    }
+
+    ; --- the gesture, as the host names it -------------------------------------
+    ; Thin wrappers, so a spec can drive this the same way it drives a click.
+
+    fn dragPick:string (target:string) {
+        ; The focus does NOT move. A real pointer would have pressed the row
+        ; first and the press would have focused it, but a `dragstart` on its
+        ; own does not — measured against the reference, where the tab stop and
+        ; the DOM focus both stay where the last click left them while a drag
+        ; picks up an entirely different row. The SELECTION does move, and
+        ; that is the whole of what a pick changes.
+        this.dragStartPointer(target)
+        return ""
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+        this.dragOverPointer(target topPercent x)
+    }
+
+    fn dragLand:string (target:string topPercent:double x:double) {
+        return (this.dropPointer(target topPercent x))
+    }
+
+    fn dragHold:void (ms:double) {
+        this.dragElapsed(ms)
+    }
+
+    ; `getDragCode`. Placement computed with `canMakeChild` forced true — see
+    ; the field comment, because that forcing is the whole behaviour.
+    fn dragCodeFor:string (value:string topPercent:double leftPixels:double) {
+        def placement:int (this.placementFor(value topPercent leftPixels true))
+        def level:int 0
+        if (placement == (TreeCtl.placeReparent())) {
+            level = (this.reparentLevelFor(value leftPixels))
+        }
+        return ((((value + "__") + (to_string placement)) + "__") + (to_string level))
+    }
+
+    ; `handleAutoOpenFolder`. Four conditions, all of them the library's: the
+    ; delay is set, the row is a folder, it is NOT already open, and the
+    ; placement is make-child.
+    ;
+    ; Only two of the four can be observed. Removing the folder check or the
+    ; already-open check passes every test, and that is not a hole in the
+    ; fixture — opening a leaf and re-opening an open folder are both
+    ; `setExpanded(x true)` on something already in that state, so neither can
+    ; change what a tree looks like. They are kept because the reference has
+    ; them and because they say what the timer is for.
+    fn armAutoOpen:void (value:string topPercent:double leftPixels:double code:string) {
+        if (openOnDropDelay <= 0.0) {
+            return
+        }
+        if ((this.isFolderValue(value)) == false) {
+            return
+        }
+        if (this.isExpanded(value)) {
+            return
+        }
+        if ((this.placementFor(value topPercent leftPixels true)) != (TreeCtl.placeChild())) {
+            return
+        }
+        autoOpenCode = code
+        autoOpenItem = value
+        autoOpenLeft = openOnDropDelay
+    }
+
+    ; Time passing, in milliseconds. The caller owns the frame loop; this is
+    ; the only thing in the controller that a clock would otherwise drive.
+    fn dragElapsed:void (ms:double) {
+        ; A drag that has been cancelled does not open anything. The reference
+        ; arms a real `setTimeout` and never cancels it, so on that side a
+        ; folder armed just before an Escape would still open 800ms later —
+        ; but no run on either side measures it, so this is a choice and not a
+        ; recorded fact, and it is called out rather than dressed up as one.
+        if (dragging == false) {
+            return
+        }
+        if ((strlen autoOpenCode) == 0) {
+            return
+        }
+        autoOpenLeft = (autoOpenLeft - ms)
+        if (autoOpenLeft > 0.0) {
+            return
+        }
+        def code:string autoOpenCode
+        def item:string autoOpenItem
+        autoOpenCode = ""
+        autoOpenItem = ""
+        ; The timeout fires either way and declines on these two, rather than
+        ; being cancelled when the cursor moves. Same answer, and it is the
+        ; shape the reference has.
+        if (code != lastDragCode) {
+            return
+        }
+        if (lastAllowDrop == false) {
+            return
+        }
+        this.setExpanded(item true)
+        this.build()
+    }
+
+    ; The drop. It recomputes the target from ITS OWN position rather than
+    ; using the one the last move stored — which is the library's shape, and
+    ; the reason a drop dispatched without coordinates lands "above" whatever
+    ; the pointer was over.
+    fn dropPointer:string (target:string topPercent:double leftPixels:double) {
+        if (dragging == false) {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            this.cancelDrag()
+            return ""
+        }
+        if ((this.pointerTargetFor(v topPercent leftPixels)) == false) {
+            this.cancelDrag()
+            return ""
+        }
+        ; No second `canDrop` here either, for the reason given in
+        ; `dragOverPointer`: nothing `pointerTargetFor` returns can fail it.
+        return (this.completeDrag())
+    }
+
+    fn startDrag:string (from:string) {
+        def idx:int (this.rowIndexOf(from))
+        if (idx < 0) {
+            return ""
+        }
+        ; What is carried: the selection, plus the focused row when it is not
+        ; already in it. With no selection feature it is the focused row alone.
+        def carry:[string]
+        if selectable {
+            def i:int 0
+            while (i < (array_length selected)) {
+                push carry (itemAt selected i)
+                i = (i + 1)
+            }
+        }
+        if ((this.isDragged(from)) == false) {
+            def already:boolean false
+            def j:int 0
+            while (j < (array_length carry)) {
+                if ((itemAt carry j) == from) {
+                    already = true
+                }
+                j = (j + 1)
+            }
+            if (already == false) {
+                push carry from
+            }
+        }
+        draggedValues = carry
+        dragging = true
+        ; The first target is found by stepping DOWN from the focused row.
+        this.setItemTarget(from)
+        if ((this.advanceDragTarget(false)) == false) {
+            dropKind = 0
+        }
+        return (this.itemTid(from))
+    }
+
+    ; Two focuses, and a drag is where they come apart.
+    ;
+    ; `moveDragPosition` calls `dragTarget.item.setFocused()` for an item
+    ; target. That moves the library's OWN focused item — which is what the
+    ; roving `tabIndex` follows — and it is NOT followed by `updateDomFocus()`,
+    ; so the browser's focus stays exactly where the drag began.
+    ;
+    ; So an item target moves the tab stop and not the focus. Both halves were
+    ; measured the hard way: the first version moved both and the oracle had
+    ; moved neither; the second moved neither and the trace said the tab stop
+    ; had moved. And it PERSISTS — Escape cancels the drag and leaves the tab
+    ; stop wherever the last item target put it, which is why an arrow after a
+    ; cancelled drag starts from there and not from where the drag began.
+    fn focusAfterDrag:string () {
+        if (dropKind == 1) {
+            activeValue = dropItem
+        }
+        return ""
+    }
+
+    ; A cancel leaves `lastDragCode` alone too, for the same reason: only a
+    ; drop clears it.
+    fn cancelDrag:void () {
+        dragging = false
+        dropKind = 0
+        dragOverValue = ""
+        autoOpenCode = ""
+        autoOpenItem = ""
+        def none:[string]
+        draggedValues = none
+    }
+
+    ; The drop. Out of every parent, then in at the insertion index — which the
+    ; library has already corrected for the rows about to be removed. An item
+    ; target has no index and means "at the end".
+    fn completeDrag:string () {
+        if (dropKind == 0) {
+            return ""
+        }
+        if ((this.canDropOn(dropItem)) == false) {
+            return ""
+        }
+        lastDragCode = ""
+        def moved:[string]
+        def m:int 0
+        while (m < (array_length draggedValues)) {
+            push moved (itemAt draggedValues m)
+            m = (m + 1)
+        }
+        def parent:string dropItem
+        def at:int (this.insertionIndexIn(parent dropChildIndex))
+        if (dropKind == 1) {
+            at = (0 - 1)
+        }
+
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:UiTreeNode (itemAt nodes i)
+            def keep:[string]
+            def k:int 0
+            while (k < (array_length n.kids)) {
+                def kid:string (itemAt n.kids k)
+                def drop:boolean false
+                def d:int 0
+                while (d < (array_length moved)) {
+                    if ((itemAt moved d) == kid) {
+                        drop = true
+                    }
+                    d = (d + 1)
+                }
+                if (drop == false) {
+                    push keep kid
+                }
+                k = (k + 1)
+            }
+            n.kids = keep
+            i = (i + 1)
+        }
+
+        def pi:int (this.nodeAt(parent))
+        if (pi >= 0) {
+            def pnode:UiTreeNode (itemAt nodes pi)
+            def out:[string]
+            def where:int at
+            if (where < 0) {
+                where = (array_length pnode.kids)
+            }
+            def c:int 0
+            while (c < (array_length pnode.kids)) {
+                if (c == where) {
+                    def q:int 0
+                    while (q < (array_length moved)) {
+                        push out (itemAt moved q)
+                        q = (q + 1)
+                    }
+                }
+                push out (itemAt pnode.kids c)
+                c = (c + 1)
+            }
+            if (where >= (array_length pnode.kids)) {
+                def q2:int 0
+                while (q2 < (array_length moved)) {
+                    push out (itemAt moved q2)
+                    q2 = (q2 + 1)
+                }
+            }
+            pnode.kids = out
+        }
+
+        def first:string ""
+        if ((array_length moved) > 0) {
+            first = (itemAt moved 0)
+        }
+        this.cancelDrag()
+        this.build()
+        activeValue = first
+        return (this.itemTid(first))
+    }
+
+    fn itemTid:string (value:string) {
+        return ((tid + "-item-") + value)
+    }
+
+    ; --- building -------------------------------------------------------------------
+    ; The visible rows, in order, with the three ARIA numbers each. Recursive,
+    ; because the ORDER is a depth-first walk even though the result is flat.
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-tree"
+        UiTree.clearChildren(root)
+        this.clearRows()
+
+        def ri:int (this.nodeAt(rootValue))
+        if (ri >= 0) {
+            def rootNode:UiTreeNode (itemAt nodes ri)
+            this.fill(root rootNode.kids rootValue 1)
+        }
+    }
+
+    fn fill:void (surface:EVGElement kids:[string] parentValue:string level:int) {
+        def n:int (array_length kids)
+        def i:int 0
+        while (i < n) {
+            def v:string (itemAt kids i)
+            def ni:int (this.nodeAt(v))
+            if (ni >= 0) {
+                def node:UiTreeNode (itemAt nodes ni)
+                def isFolder:boolean ((array_length node.kids) > 0)
+
+                def el:EVGElement (unwrap node.el)
+                el.id = (this.itemTid(v))
+                el.className = "ui-tree-item"
+                if isFolder {
+                    UiTree.addClass(el "ui-tree-item-folder")
+                    ; A plain class and NOT `UiTree.setState`. The state
+                    ; convention exists to mirror Radix's `data-state`, and the
+                    ; trace reports it under that name — but headless-tree
+                    ; writes no such attribute, so claiming one here is a
+                    ; difference the diff correctly reported. `aria-expanded`
+                    ; is where "is it open" actually lives; this is only a hook
+                    ; for the stylesheet, which cannot match on ARIA.
+                    if (this.isExpanded(v)) {
+                        UiTree.addClass(el "ui-tree-open")
+                    } {
+                        UiTree.addClass(el "ui-tree-closed")
+                    }
+                }
+                UiTree.leafText(el node.name)
+                surface.addChild(el)
+
+                push rowValue v
+                push rowLevel level
+                ; The SIBLING count and the sibling index — not the position in
+                ; the flattened list, which is a different number and is what
+                ; the harness derives separately.
+                push rowSetSize n
+                push rowSetPos (i + 1)
+                push rowParent parentValue
+                push rowFolder isFolder
+
+                ; Depth first: a folder's children come immediately after it in
+                ; the flattened order, which is what makes ArrowDown walk INTO
+                ; a folder rather than past it.
+                if isFolder {
+                    if (this.isExpanded(v)) {
+                        this.fill(surface node.kids v (level + 1))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- lookups over the flattened rows ------------------------------------------
+
+    fn rowIndexOf:int (value:string) {
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            if ((itemAt rowValue i) == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn valueOfTid:string (target:string) {
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            def v:string (itemAt rowValue i)
+            if ((this.itemTid(v)) == target) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; --- input -------------------------------------------------------------------
+
+    fn activate:string (target:string) {
+        return (this.activateWith(target false false))
+    }
+
+    ; A click, with the two modifiers selection cares about.
+    ;
+    ; The library's `onClick`, verbatim, and the order matters: shift wins over
+    ; ctrl, and the ANCHOR is only moved by a click that is not a shift-click —
+    ; which is what lets shift-clicking twice extend from the same place rather
+    ; than from wherever you last landed.
+    fn activateWith:string (target:string shift:boolean ctrl:boolean) {
+        if disabled {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        if selectable {
+            if shift {
+                this.selectUpTo(v ctrl)
+            } {
+                if ctrl {
+                    this.toggleSelect(v)
+                } {
+                    this.selectOnly(v)
+                }
+                anchorValue = v
+            }
+        }
+        ; Focus, then TOGGLE if it is a folder. The library's own handler,
+        ; verbatim:
+        ;
+        ;   item.setFocused(); item.primaryAction();
+        ;   if (e.ctrlKey || e.shiftKey || e.metaKey) return;
+        ;   if (!item.isFolder()) return;
+        ;   if (item.isExpanded()) collapse(); else expand();
+        ;
+        ; A leaf is therefore focused and nothing else — and so is a FOLDER
+        ; clicked with a modifier held. That second line is easy to miss and
+        ; the consequence is not small: shift-clicking down a list to select a
+        ; range would open and close every folder on the way past. Measured —
+        ; the first version toggled regardless, and the divergence was a folder
+        ; the reference had left shut.
+        activeValue = v
+        if (shift || ctrl) {
+            return target
+        }
+        def idx:int (this.rowIndexOf(v))
+        if (idx >= 0) {
+            if (itemAt rowFolder idx) {
+                this.setExpanded(v ((this.isExpanded(v)) == false))
+                this.build()
+            }
+        }
+        return target
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        ; WHERE THE KEY ACTS FROM is the library's own focused item, not the
+        ; host's focus. They are the same thing until a drag moves one and not
+        ; the other — and after a cancelled drag the tab stop is somewhere the
+        ; browser's focus never went, so an arrow has to start from there.
+        def v:string (this.valueOfTid(target))
+        if ((this.rowIndexOf(activeValue)) >= 0) {
+            v = activeValue
+        }
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def idx:int (this.rowIndexOf(v))
+        if (idx < 0) {
+            return ""
+        }
+        def isFolder:boolean (itemAt rowFolder idx)
+        def isOpen:boolean (this.isExpanded(v))
+
+        ; --- the drag hotkeys, and they come FIRST --------------------------
+        ;
+        ; While a drag is up, the arrows drive the drag and not the focus:
+        ; `focusNextItem` in the library carries `isEnabled: !tree.getState().dnd`
+        ; and simply does not match. Enter drops, Escape cancels, and both of
+        ; those also outrank what they would otherwise do.
+        if draggable {
+            if dragging {
+                if (key == "ArrowUp") {
+                    this.advanceDragTarget(true)
+                    return (this.focusAfterDrag())
+                }
+                if (key == "ArrowDown") {
+                    this.advanceDragTarget(false)
+                    return (this.focusAfterDrag())
+                }
+                if (key == "Escape") {
+                    this.cancelDrag()
+                    return ""
+                }
+                if (key == "Enter") {
+                    return (this.completeDrag())
+                }
+            } {
+                if (key == "Control+Shift+KeyD") {
+                    return (this.startDrag(v))
+                }
+            }
+        }
+
+        ; --- the selection hotkeys, and only when selection is on -------------
+        ;
+        ; `space` is deliberately absent: it is commented out in the library's
+        ; own list, so Space keeps activating the row and toggling the folder.
+        if selectable {
+            if (key == "Control+Space") {
+                this.toggleSelect(v)
+                return target
+            }
+            if (key == "Control+KeyA") {
+                ; Every VISIBLE row. A collapsed folder's children are not in
+                ; `getItems()` and are not selected by this.
+                this.selectAllVisible()
+                return target
+            }
+            if (key == "Shift+ArrowUp") {
+                if (idx <= 0) {
+                    ; No row above: nothing selected, and focus does not move
+                    ; either. The library returns before touching focus.
+                    return ""
+                }
+                return (this.extendTo(v (idx - 1)))
+            }
+            if (key == "Shift+ArrowDown") {
+                if ((idx + 1) >= (array_length rowValue)) {
+                    return ""
+                }
+                return (this.extendTo(v (idx + 1)))
+            }
+        }
+
+        if (key == "ArrowDown") {
+            if ((idx + 1) < (array_length rowValue)) {
+                return (this.focusRow(idx + 1))
+            }
+            ; The ends do not wrap.
+            return ""
+        }
+        if (key == "ArrowUp") {
+            if (idx > 0) {
+                return (this.focusRow(idx - 1))
+            }
+            return ""
+        }
+        if (key == "Home") {
+            if ((array_length rowValue) > 0) {
+                return (this.focusRow(0))
+            }
+            return ""
+        }
+        if (key == "End") {
+            if ((array_length rowValue) > 0) {
+                return (this.focusRow((array_length rowValue) - 1))
+            }
+            return ""
+        }
+        if (key == "ArrowRight") {
+            ; The library's `expandOrDown`, verbatim: an item that is ALREADY
+            ; EXPANDED or is NOT A FOLDER moves to the next visible row;
+            ; anything else — that is, a closed folder — expands where it is.
+            ;
+            ; So a LEAF STEPS DOWN. That reads oddly against the WAI-ARIA
+            ; pattern, where Right on a leaf does nothing, and it was measured
+            ; wrongly here first: a `focus` step positioned the DOM on a leaf
+            ; while the library still thought it was on the folder above, and
+            ; the trace looked like "nothing happened". It is not nothing. A
+            ; measurement driven by clicks, and the library's source, agree.
+            if isOpen {
+                if ((idx + 1) < (array_length rowValue)) {
+                    return (this.focusRow(idx + 1))
+                }
+                return ""
+            }
+            if (isFolder == false) {
+                if ((idx + 1) < (array_length rowValue)) {
+                    return (this.focusRow(idx + 1))
+                }
+                return ""
+            }
+            this.setExpanded(v true)
+            this.build()
+            ; Focus stays on the folder that opened.
+            activeValue = v
+            return target
+        }
+        if (key == "ArrowLeft") {
+            ; And `collapseOrUp`: an item that is NOT EXPANDED or NOT A FOLDER
+            ; and is not at the top level moves to its PARENT; everything else
+            ; collapses — which for a leaf or an already-closed folder at the
+            ; top level is a no-op, exactly as the library's `collapse()` is.
+            def goUp:boolean false
+            if (isOpen == false) {
+                goUp = true
+            }
+            if (isFolder == false) {
+                goUp = true
+            }
+            if goUp {
+                ; The library also tests `level !== 0` here, and that test is
+                ; not repeated: the ROOT IS NOT A ROW, so a top-level item's
+                ; parent is not in this list and the lookup below fails — the
+                ; same answer through one mechanism instead of two. Written the
+                ; other way it was a branch no mutation could reach, because
+                ; removing it changed nothing observable.
+                def parent:string (itemAt rowParent idx)
+                def pidx:int (this.rowIndexOf(parent))
+                if (pidx < 0) {
+                    return ""
+                }
+                return (this.focusRow(pidx))
+            }
+            if isFolder {
+                if isOpen {
+                    this.setExpanded(v false)
+                    this.build()
+                    activeValue = v
+                    return target
+                }
+            }
+            return ""
+        }
+        if (UiCtl.activatesOn(key)) {
+            ; Enter and Space TOGGLE the folder. Without the selection feature
+            ; that is all they do — there is nothing to select.
+            ;
+            ; WITH it they also SET THE SELECTION TO THIS ROW ALONE, and that
+            ; is not a rule anybody wrote down. A row is a `<button>`, Enter and
+            ; Space activate a button, activating it fires `click`, and the
+            ; selection feature's click handler with no modifiers held is
+            ; `setSelectedItems([itemId])`. So selecting nine rows with
+            ; Control+A and then pressing Space leaves exactly one selected.
+            ; Measured: the first version of this kept all nine, and the
+            ; reference had dropped eight.
+            ;
+            ; It follows from `space` being COMMENTED OUT of the library's
+            ; selection hotkeys — which looks like "Space does not select" and
+            ; means the opposite, because the click path is still there.
+            if selectable {
+                this.selectOnly(v)
+                anchorValue = v
+            }
+            if isFolder {
+                this.setExpanded(v (isOpen == false))
+                this.build()
+                activeValue = v
+                return target
+            }
+            return ""
+        }
+        return ""
+    }
+
+    ; Shift+Arrow, both directions.
+    ;
+    ; The rule that is not obvious: when the focused row AND the one being
+    ; moved to are BOTH already selected, the FOCUSED one is deselected rather
+    ; than the next one being selected. That is what makes walking back over a
+    ; range give the range back instead of doing nothing — a range grows from
+    ; its far end and shrinks from the end you are leaving. Focus moves either
+    ; way.
+    fn extendTo:string (from:string nextIdx:int) {
+        def next:string (itemAt rowValue nextIdx)
+        if ((this.isSelected(from)) && (this.isSelected(next))) {
+            this.deselectOne(from)
+        } {
+            this.selectOne(next)
+        }
+        return (this.focusRow(nextIdx))
+    }
+
+    fn focusRow:string (i:int) {
+        def v:string (itemAt rowValue i)
+        activeValue = v
+        return (this.itemTid(v))
+    }
+
+    ; --- what the host and the reader see -------------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            push a (this.itemTid((itemAt rowValue i)))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == tid) {
+            return false
+        }
+        return ((strlen (this.valueOfTid(target))) > 0)
+    }
+
+    fn onFocus:void (target:string) {
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) > 0) {
+            activeValue = v
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def treeRow:UiRow (UiRow.of(tid (EVGA11yRole.tree()) name))
+        push out treeRow
+
+        ; The roving tab stop. Before anything has been focused it is the FIRST
+        ; row, so that one Tab reaches the tree; afterwards it follows focus.
+        def tabValue:string activeValue
+        if ((strlen tabValue) == 0) {
+            if ((array_length rowValue) > 0) {
+                tabValue = (itemAt rowValue 0)
+            }
+        }
+
+        def i:int 0
+        while (i < (array_length rowValue)) {
+            def v:string (itemAt rowValue i)
+            def ni:int (this.nodeAt(v))
+            def label:string ""
+            if (ni >= 0) {
+                def node:UiTreeNode (itemAt nodes ni)
+                label = node.name
+            }
+            def row:UiRow (UiRow.of((this.itemTid(v)) (EVGA11yRole.treeItem()) label))
+            row.parentTid = tid
+            row.level = (itemAt rowLevel i)
+            row.setSize = (itemAt rowSetSize i)
+            row.setPos = (itemAt rowSetPos i)
+            row.focusable = true
+            if (v == tabValue) {
+                row.tabStop = true
+            }
+            ; Only a folder carries `aria-expanded`; a leaf has none at all,
+            ; which is different from having it and saying false.
+            if (itemAt rowFolder i) {
+                if (this.isExpanded(v)) {
+                    row.expanded = (EVGA11yTri.yes())
+                } {
+                    row.expanded = (EVGA11yTri.no())
+                }
+            }
+            ; Published on EVERY row, folder or leaf. Without the selection
+            ; feature it is always false — the library says so anyway, which
+            ; tells a reader the rows are selectable when they are not, and is
+            ; copied because the harness records what the reference does.
+            row.selected = (EVGA11yTri.no())
+            if selectable {
+                if (this.isSelected(v)) {
+                    row.selected = (EVGA11yTri.yes())
+                }
+            }
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

@@ -42,12 +42,47 @@ class UiRow {
     ; one thing the control does is the one thing the trace cannot see. That is
     ; the slider's lesson, repeated.
     def sorted:int 0
+    ; `aria-orientation`, as the DOM spells it: "horizontal", "vertical", or ""
+    ; for a row that has none.
+    ;
+    ; Its own field for the reason `sorted` has one, and the case that forces
+    ; it is the SPLITTER: two separators in a nested layout are the same role
+    ; with the same name and the same value range, and the only thing that says
+    ; ArrowLeft moves one and does nothing to the other is this. A toolbar, a
+    ; slider and a menubar publish it too, so it was a hole in every one of
+    ; them and nobody had noticed.
+    def orientation:string ""
+    ; `aria-current`, as the DOM spells it: "page" on the crumb you are on, ""
+    ; on everything else. A breadcrumb's whole claim, and invisible without it.
+    def current:string ""
+    ; `aria-invalid`, `aria-required` and `aria-readonly`, as the DOM spells
+    ; them: "true"/"false", or "" for a control that says nothing. Strings
+    ; rather than booleans because ABSENT and "false" are different claims —
+    ; a field that says `aria-required="false"` has been asked and answered,
+    ; and one that says nothing has not.
+    def invalid:string ""
+    def required:string ""
+    def readOnly:string ""
     ; `aria-haspopup`, as the DOM spells it: "menu" on a row that opens one,
     ; "" on everything else. The one attribute that separates a submenu's
     ; parent from the item beside it — both are menuitems, both are named, and
     ; a chevron is not something a reader can see. Measured on Radix: the
     ; dropdown's own trigger carries it too, not only the nested rows.
     def hasPopup:string ""
+    ; `aria-level` and `aria-setsize`, 0 for a row that has neither.
+    ;
+    ; Their own fields for the reason `sorted` has one: a tree is a flat list
+    ; of identical roles as far as every other field can see, and depth is the
+    ; ONLY thing that makes one row a child of another. `posinset` is derived
+    ; from the row order and says where among its siblings a row sits; these
+    ; two cannot be derived, because the flat list does not know where a level
+    ; ends.
+    def level:int 0
+    def setSize:int 0
+    ; `aria-posinset`, the attribute. Not `posinset`, which the host derives
+    ; from the row order — for a flat tree the two disagree by design, because
+    ; one counts visible rows and the other counts siblings.
+    def setPos:int 0
     def pressed:int 0
     def checked:int 0
     def selected:int 0
@@ -78,6 +113,52 @@ class UiRow {
     def hasRange:boolean false
     def valueMin:int 0
     def valueMax:int 0
+    ; What a text field HOLDS, and where the caret is in it.
+    ;
+    ; The slider's lesson a second time, and worse: every field above is
+    ; identical for an empty text box and one holding "hello" — same role, same
+    ; name, same one tab stop, same focus. A trace without these three watches
+    ; a whole word being typed and reports nothing at all.
+    ;
+    ; `hasText` rather than an empty string meaning absent, because "" is a
+    ; real value for a text field and "this node is not a text field" is not
+    ; the same claim. Same reason `hasValueNow` exists.
+    def hasText:boolean false
+    def text:string ""
+    ; Drawn when the value is empty, and never part of the value. A reader
+    ; announces it, so it is observable and belongs here.
+    def placeholder:string ""
+    ; `selectionStart` and `selectionEnd`. Both, always, because a caret is a
+    ; selection of length zero and reporting only the start cannot tell a
+    ; collapsed caret from a selection that happens to begin there.
+    def hasSelection:boolean false
+    def selStart:int 0
+    def selEnd:int 0
+    ; `aria-describedby`, RESOLVED TO ITS TEXT rather than reported as an id.
+    ;
+    ; An id is not observable: the two sides name their nodes differently on
+    ; purpose, so comparing "field-3-hint" against "hint" would fail on every
+    ; field for a reason that has nothing to do with what a reader hears. What
+    ; is observable is the sentence — "Must be at least 8 characters" — and
+    ; that is what a reader announces after the name and the role.
+    ;
+    ; This is what makes a Field's hint and its error message part of the
+    ; contract instead of decoration beside it.
+    def description:string ""
+    ; `aria-rowcount` and `aria-rowindex`, 0 for a row that publishes neither.
+    ;
+    ; These are what a VIRTUALISED table owes a reader, and the reason they are
+    ; separate fields rather than derived from the rows in the trace: the trace
+    ; holds the rows that were BUILT, and for a virtual table that is twelve
+    ; out of ten thousand. Counting them gives twelve, and telling a reader the
+    ; third visible row is row 3 when it is row 4,517 is worse than telling
+    ; them nothing.
+    ;
+    ; A table that is not virtualised publishes neither, exactly as an HTML
+    ; table does — the browser counts its own rows and an attribute that
+    ; repeats the count is a second place to be wrong.
+    def rowCount:int 0
+    def rowIndex:int 0
 
     Constructor () {
     }
@@ -116,6 +197,14 @@ class UiItem {
 class UiCtl {
     def tid:string ""
     def name:string ""
+    ; The sentence a reader hears after the name and the role — a Field's hint,
+    ; or its error message once there is one.
+    ;
+    ; It is set FROM OUTSIDE, by whatever wraps the control, for the same
+    ; reason `name` is: a `<label for>` supplies an input's name and the input
+    ; does not go looking for it. A Field owns the hint, and hands it to the
+    ; control the hint is about.
+    def description:string ""
     def disabled:boolean false
     def rootEl:EVGElement
 
@@ -132,6 +221,16 @@ class UiCtl {
         return ""
     }
 
+    ; A click carrying the two modifiers a multi-select cares about.
+    ;
+    ; Defaults to the plain activation, so every control that does not have a
+    ; selection ignores them — which is all of them but the tree. It is on the
+    ; base class rather than reached through a cast because the HOST routes
+    ; clicks and has no business knowing which controller is underneath.
+    fn activateWith:string (target:string shift:boolean ctrl:boolean) {
+        return (this.activate(target))
+    }
+
     ; A key arrived while `target` held focus. Returns the test id that should
     ; hold focus afterwards, or "" to leave focus where it is — which is how a
     ; composite moves focus along with an arrow key without the host needing to
@@ -141,6 +240,25 @@ class UiCtl {
             this.activate(target)
         }
         return ""
+    }
+
+    ; The same key, carrying Shift and Control.
+    ;
+    ; Defaults to the unmodified `keyDown`, so every control that does not read
+    ; modifiers ignores them — which was all of them until the text field,
+    ; where Shift+Arrow extends a selection that Arrow collapses and
+    ; Ctrl+Arrow moves by a word. On the base class rather than reached through
+    ; a cast, for the reason `activateWith` is: the HOST routes keys and has no
+    ; business knowing which controller is underneath.
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        return (this.keyDown(target key))
+    }
+
+    ; A printable character arrived while `target` held focus. Returns whether
+    ; anything took it — false everywhere but an editable control, which is
+    ; also the honest answer for a button that has just been typed at.
+    fn typeChar:boolean (target:string ch:string) {
+        return false
     }
 
     ; Test ids this controller answers for, outermost first.
@@ -227,6 +345,43 @@ class UiCtl {
     }
 
     fn dragOver:string (target:string) {
+        return ""
+    }
+
+    ; --- an HTML5 drag, which is a FOURTH gesture --------------------------------
+    ; Not the pointer drag above. A tree's drop target is decided by where in a
+    ; row the cursor is — how far DOWN picks above / into / below, and how far
+    ; IN picks which ancestor a reorder belongs to — so the two numbers travel
+    ; with the move rather than being recovered from a rectangle. `x` is in
+    ; PIXELS from the row's left edge, because it is only ever compared against
+    ; the indent, and `topPercent` is a fraction, because the bands are.
+    fn dragPick:string (target:string) {
+        return ""
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+    }
+
+    fn dragLand:string (target:string topPercent:double x:double) {
+        return ""
+    }
+
+    ; Time passing while a drag is held still. A folder opens under a cursor
+    ; that waits on it, and this is how the wait arrives.
+    fn dragHold:void (ms:double) {
+    }
+
+    ; --- dragging a thing AROUND ------------------------------------------------
+    ; The third gesture, and neither of the two above is it. A slider asks for a
+    ; fraction of a track; a sortable asks what it is over; a window asks how far
+    ; the pointer has MOVED, in page pixels, because that is what it adds to its
+    ; own position. Deltas rather than absolute coordinates so the controller
+    ; never has to know where it was picked up.
+    fn dragsFreely:boolean () {
+        return false
+    }
+
+    fn dragBy:string (dx:double dy:double) {
         return ""
     }
 

@@ -23,8 +23,22 @@
 ;   * per-kind styling from data: the badge's colour is a class the builder
 ;     picks from the item's kind, not a branch in the stylesheet.
 ;   * ORDER as state. The page holds a list of ids and hands it over; the tree
-;     is rebuilt from it. There is no move, no animation and no reconciler —
-;     reordering is rebuilding, which is the whole claim of this directory.
+;     is rebuilt from it. Reordering is rebuilding, which is the whole claim of
+;     this directory — and for a long time the claim was only half true here.
+;
+;     A drag changes its target every time the pointer crosses a row, and that
+;     is exactly the moment the gap has to OPEN. Rebuilding gave every row a
+;     brand-new element with no flight, so the rows arrived at their new
+;     positions instead of travelling to them; measured, they were there 40ms
+;     after the crossing having gone through nothing. So this file carried an
+;     `applyShift` that re-aimed the existing list by hand, and the page
+;     carried a `movePreview` that reached in and set two attributes — a keyed
+;     reconciler for one list, written without keys, correct only because the
+;     order does not change mid-drag.
+;
+;     `EVGReconcile` is that reconciler with the keys put back. Every row
+;     carries a `key`, the page rebuilds on every frame of a drag, and the two
+;     imperative special cases are gone.
 ; =============================================================================
 
 Import "../../evg/EVGElement.rgr"
@@ -39,6 +53,9 @@ Import "../../evg/EVGHitTest.rgr"
 ; transition over the tree they produce. Hover is a presentational state and
 ; belongs to the stylesheet; the demo just builds boxes with class names.
 Import "../../evg/EVGTransition.rgr"
+; Same: not used by the builders, imported so the page can reconcile one built
+; tree into another and keep the elements. `key` below is what makes that work.
+Import "../../evg/EVGReconcile.rgr"
 
 treefactory Sortable {
     child addChild
@@ -50,7 +67,11 @@ treefactory Sortable {
     ; promised a list and handed five buttons is told the wrong thing about
     ; what it is walking. The reference does not name the container at all;
     ; naming it costs nothing and gives the set an identity.
-    tag List     EVGElement (props (className "sr-list") (role "group") (a11yLabel "Product files"))
+    ; Keyed, and so is the preview beside it. The page's two children are a
+    ; list and a floating copy that comes and goes, and unkeyed positional
+    ; matching would be fine — until the preview is the only child left, at
+    ; which point it would inherit the list's element. A key costs one word.
+    tag List     EVGElement (props (className "sr-list") (key "list") (role "group") (a11yLabel "Product files"))
     ; A row is what you pick up, so it carries the role, the tab stop and the
     ; role description — the same three things dnd-kit puts on its items, and
     ; the reason a reader is told "sortable" rather than just "button".
@@ -182,12 +203,20 @@ class SortableDemo {
         ; says what came out of it.
         def cls:string (SortableDemo.rowClass(id dragging shift))
         def rowKey:string (SortableDemo.rowId(id))
+        ; The RECONCILER's name for this row, next to but not the same as its
+        ; id. The preview deliberately has no id — hit testing scans backwards
+        ; and an id here would put the preview under the cursor so the row
+        ; beneath it could never be found — but it very much needs a key, or a
+        ; rebuild would match it against the first list row and the two would
+        ; trade elements every frame.
+        def key:string rowKey
         if floating {
             cls = "sr-row sr-row-preview"
             rowKey = ""
+            key = "preview"
         }
         return (tree Sortable
-            (Row (props (id rowKey) (className cls) (a11yLabel (SortableDemo.titleOf(id))))
+            (Row (props (id rowKey) (key key) (className cls) (a11yLabel (SortableDemo.titleOf(id))))
                 ; Six dots, the handle every list like this has. It is not a
                 ; separate target here: the whole row is draggable, and the
                 ; grip says so rather than being the only place that works.
@@ -268,12 +297,17 @@ class SortableDemo {
     }
 
     ; The class a row wears, given what is being carried and where it is going.
-    ; One place, so the vocabulary cannot drift between the builder and the
-    ; updater below.
     sfn rowClass:string (id:string dragging:string shift:int) {
         def cls:string "sr-row"
         if (id == dragging) {
             cls = "sr-row sr-row-dragging"
+        }
+        ; Every row, not just the moving ones: the class carries the TRANSITION
+        ; and its absence is what makes the transform snap when the drag ends.
+        ; See `.sr-row-sorting` in sortable.css for why that matters at the
+        ; drop.
+        if ((strlen dragging) > 0) {
+            cls = (cls + " sr-row-sorting")
         }
         if (shift < 0) {
             cls = (cls + " sr-row-up")
@@ -282,49 +316,6 @@ class SortableDemo {
             cls = (cls + " sr-row-down")
         }
         return cls
-    }
-
-    ; Re-aim an EXISTING list at a new target, without rebuilding it.
-    ;
-    ; This is the whole reason the gap can open smoothly. The target changes
-    ; every time the pointer crosses a row, and rebuilding the list there gives
-    ; every row a brand-new element — which has no flight, so it appears at its
-    ; destination instead of travelling to it. Measured: the rows were at their
-    ; final positions 40ms after the crossing, having gone through nothing.
-    ;
-    ; So the tree is built once per drag and this changes two things on it: the
-    ; class that says which way each row steps, and the placeholder's own
-    ; transform, which is the one that moves more than a single place.
-    sfn applyShift:void (root:EVGElement order:[string] dragging:string overId:string) {
-        if ((array_length root.children) == 0) {
-            return
-        }
-        def list:EVGElement (itemAt root.children 0)
-        def a:int (SortableDemo.slotOf(order dragging))
-        def b:int (SortableDemo.slotOf(order overId))
-        def n:int (array_length order)
-        def i:int 0
-        while (i < n) {
-            if (i < (array_length list.children)) {
-                def row:EVGElement (itemAt list.children i)
-                def id:string (itemAt order i)
-                def shift:int (SortableDemo.shiftFor(i a b))
-                row.className = (SortableDemo.rowClass(id dragging shift))
-                if ((i == a) && (b >= 0)) {
-                    def dy:double ((to_double (b - a)) * (SortableDemo.stride()))
-                    row.setAttribute("transform" ("translate(0, " + (to_string (to_int dy)) + "px)"))
-                    ; INLINE, and the placeholder stays where it was put without
-                    ; it. `.sr-row:hover` declares `transform`, so the cascade
-                    ; puts that property in the set it clears before deciding
-                    ; which states hold — and an attribute written straight onto
-                    ; the element is exactly what `markInline` protects from
-                    ; that. Set it without saying so and the ghost is wiped back
-                    ; to its old slot on the very next frame, silently.
-                    row.markInline("transform")
-                }
-            }
-            i = (i + 1)
-        }
     }
 
     sfn slotOf:int (order:[string] id:string) {

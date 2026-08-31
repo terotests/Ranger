@@ -30,6 +30,38 @@ class EVGTextMetrics {
 ; Abstract interface - implementations must override
 class EVGTextMeasurer {
 
+    ; --- THE FACE'S VERTICAL METRICS, MEASURED ---------------------------------
+    ;
+    ; These used to be 0.80 and 0.20, which sum to exactly 1.00em — and no real
+    ; face does. Measured at 1000px in Chromium, the sans fallback is 0.905 and
+    ; 0.212, summing to 1.117em; see `oracle/textbox.json`, which records the
+    ; serif and monospace faces too.
+    ;
+    ; The ASCENT is what puts the baseline inside the line box, so an ascent
+    ; that is a tenth of an em short draws every run of text that much high. It
+    ; is not a rounding error, it is the difference between text sitting in a
+    ; row and text sitting above one.
+    ;
+    ; They are still an ESTIMATE — a measurer with no font file cannot know the
+    ; face — but an estimate taken from a real fallback rather than from a
+    ; round number. A measurer that opens fonts overrides `measureText` and
+    ; reports the truth.
+    sfn fallbackAscentEm:double () {
+        return 0.905
+    }
+
+    sfn fallbackDescentEm:double () {
+        return 0.212
+    }
+
+    ; `line-height: normal`, which is NOT 1.2. It is the face's own line box —
+    ; ascent plus descent plus the line gap — and it is 1.15em for the sans
+    ; fallback, 1.164 for monospace. 1.2 is a number people type, not a number
+    ; a browser computes.
+    sfn normalLineHeightEm:double () {
+        return 1.15
+    }
+
     ; Does this measurer report real metrics from the font file that will be
     ; painted? The default implementation below does NOT — it guesses from the
     ; font size and never opens a font — so it must not silently drive print
@@ -51,13 +83,13 @@ class EVGTextMeasurer {
         def avgCharWidth:double (fontSize * 0.55)
         def textLen:int (strlen text)
         def width:double ((to_double textLen) * avgCharWidth)
-        def lineHeight:double (fontSize * 1.2)
+        def lineHeight:double (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
         
         def metrics (new EVGTextMetrics())
         metrics.width = width
         metrics.height = lineHeight
-        metrics.ascent = (fontSize * 0.8)
-        metrics.descent = (fontSize * 0.2)
+        metrics.ascent = (fontSize * (EVGTextMeasurer.fallbackAscentEm()))
+        metrics.descent = (fontSize * (EVGTextMeasurer.fallbackDescentEm()))
         metrics.lineHeight = lineHeight
         return metrics
     }
@@ -68,7 +100,7 @@ class EVGTextMeasurer {
     }
     
     fn getLineHeight:double (fontFamily:string fontSize:double) {
-        return (fontSize * 1.2)
+        return (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
     }
     
     fn measureChar:double (ch:int fontFamily:string fontSize:double) {
@@ -244,13 +276,13 @@ class SimpleTextMeasurer {
             i = i + 1
         }
         
-        def lineHeight:double (fontSize * 1.2)
+        def lineHeight:double (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
         
         def metrics (new EVGTextMetrics())
         metrics.width = width
         metrics.height = lineHeight
-        metrics.ascent = (fontSize * 0.8)
-        metrics.descent = (fontSize * 0.2)
+        metrics.ascent = (fontSize * (EVGTextMeasurer.fallbackAscentEm()))
+        metrics.descent = (fontSize * (EVGTextMeasurer.fallbackDescentEm()))
         metrics.lineHeight = lineHeight
         return metrics
     }

@@ -325,3 +325,96 @@ A positional binary format needs its shape carried with it or derivable from
 it. "Both sides know the layout" is not a property anything enforces, and the
 failure mode is not a crash at the boundary — it is plausible-looking garbage
 that surfaces somewhere unrecognisable.
+
+
+---
+
+## Issue #5: `backdrop-filter` sampled the page, not the element
+
+**Status:** Resolved
+**Severity:** Medium — a scrim showed the page bleeding through its own border
+**Found:** August 30, 2026, while implementing it
+**Resolved:** the same day
+**Component:** `gallery/evg/gl/evg-webgl.js`
+
+### What happened
+
+The first implementation grew the copied region by the kernel's reach and
+blurred that, on the reading that `backdrop-filter` samples past the element's
+edge. The evidence for it was a flat grey behind a pane coming out flat to the
+border, with no rim.
+
+That is not evidence. **A uniform field is uniform under either rule** — edge
+clamping and sampling-past give the same answer when there is nothing outside
+worth sampling. The observation ruled out only a third possibility, that edge
+samples read transparent and the border fades.
+
+The case that decides is a feature that straddles the border. White page, black
+stripe starting exactly at the pane's left edge:
+
+```
+x:      95  96  97  98  99 | 100 101 102 ...
+browser 255 255 255 255 255|   0   0   0
+```
+
+No ramp at the border at all — while the same black/white boundary a hundred
+pixels further in, inside the pane, gets the full smooth curve. Outside content
+does not enter.
+
+### Resolution
+
+Copy exactly the element's box and let `CLAMP_TO_EDGE` do the rest, which is
+the measured rule expressed in one place.
+
+### The general lesson
+
+Three checks passed against the wrong implementation, and all three were scenes
+where the backdrop did not change across the element's border. A test that
+cannot distinguish the two candidate rules is not weak evidence for one of
+them; it is no evidence at all. Before trusting a case, ask what the WRONG
+implementation would print — and if the answer is "the same thing", the case is
+not about the question.
+
+---
+
+## Issue #6: a text run's reported width changes between the first frame and the rest
+
+**Status:** open, pre-existing, cosmetic in the display list only.
+
+Found while proving that moving `TreeDemo`'s rows onto component instances
+changed nothing observable. It did not — but the display list on frame 7 is not
+the display list on frame 1, and that is true with or without the change.
+
+Two text commands in the tree demo differ between the first paint and any later
+one:
+
+```
+frame 1  {"k":3,"x":105.14,"y":261,"w":58.1,  …,"text":"Jane Doe"}
+frame 7  {"k":3,"x":105.57,"y":261,"w":340,   …,"text":"Jane Doe"}
+```
+
+`w` goes from the MEASURED run width (58.1) to the label's declared box width
+(340), and `x` shifts by 0.43px. Only the deepest rows are affected — the ones
+whose label sits after an indent spacer whose width is set on the element
+rather than by the sheet.
+
+Nothing on screen moves: `k:3` is a text draw and the painter positions the run
+from `x` and the glyphs, not from `w`. So this is a display-list fidelity bug
+rather than a rendering one, and it was invisible until something compared two
+frames of the same state.
+
+### Why it is recorded rather than fixed here
+
+It is not the component work's to fix, and it was verified as pre-existing by
+running the identical probe on both sides of that change — same two commands,
+same numbers. Fixing it means understanding why a second layout pass over the
+same tree resolves the label's width differently, which is `EVGLayout`'s
+business and wants its own measurement.
+
+### The general lesson
+
+"Nothing changed" is only checkable if the thing you compare is stable to begin
+with. A baseline captured on frame 1 and a candidate settled over six frames
+are not the same experiment, and the first version of that comparison reported a
+difference my change had not caused. Compare like with like, and when a
+comparison fails, check the baseline before the change.

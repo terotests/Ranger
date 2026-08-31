@@ -243,6 +243,9 @@ class SliderCtl extends UiCtl {
         ; and `ui:a11y` is where that argument gets settled if axe minds.
         def thumbRow:UiRow (UiRow.of((this.thumbTid()) (EVGA11yRole.slider()) name))
         thumbRow.parentTid = tid
+        ; On the THUMB, which is the node with role="slider" — not on the
+        ; track around it. Radix puts it where the value is.
+        thumbRow.orientation = "horizontal"
         thumbRow.hasValueNow = true
         thumbRow.valueNow = value
         thumbRow.hasRange = true

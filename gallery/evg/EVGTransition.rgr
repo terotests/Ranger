@@ -559,9 +559,28 @@ class EVGTransition {
     ; place a flight touches the element, and it happens after both reconcile
     ; and advance so the two cannot disagree about what is on screen.
     fn writeBack:void (el:EVGElement) {
+        ; An element with a flight in it no longer holds what the sheet
+        ; declared — it holds where the flight has got to — so the sheet is
+        ; told to re-declare rather than skip it next frame.
+        ;
+        ; ONLY when there is a flight. The first version said it
+        ; unconditionally, and `reconcile` calls this for every element in the
+        ; tree, so every element was invalidated every frame and the skip never
+        ; fired at all on any page that uses transitions — which is every page
+        ; here. The benchmark did not notice, because it runs no transitions;
+        ; `testSkipSurvivesTransitions` is what notices.
+        ;
+        ; Strictly this is belt and braces: `EVGFlight.hasWrote` already lets
+        ; `reconcile` recognise its own output and carry on. Kept because the
+        ; elements with flights are few and reasoning about that guard is not
+        ; something the next reader should have to redo.
+        def moving:boolean false
         def i:int 0
         while (i < (array_length el.transitions)) {
             def f:EVGFlight (itemAt el.transitions i)
+            if ((f.done()) == false) {
+                moving = true
+            }
             if (f.isColor) {
                 def c:EVGColor (this.showColor(f))
                 f.wroteColor = c
@@ -599,6 +618,30 @@ class EVGTransition {
                 }
             }
             i = (i + 1)
+        }
+        ; An element with a flight STILL IN THE AIR no longer holds what the
+        ; sheet declared — it holds where the flight has got to — so the sheet
+        ; is told to re-declare rather than skip it next frame.
+        ;
+        ; Only while it is MOVING. Two earlier versions were wrong in the same
+        ; direction: unconditional, so `reconcile` (which runs on every element)
+        ; made the whole tree stale every frame and nothing was ever skipped;
+        ; then "has any flight", which kept every element that has ever
+        ; transitioned stale forever, because a finished flight stays in the
+        ; list. A benchmark could see neither, because it runs no transitions —
+        ; `testSkipSurvivesTransitions` is what does.
+        ;
+        ; On the frame a flight LANDS this correctly does nothing: `writeBack`
+        ; has just written the target, which is what the sheet would write.
+        ;
+        ; And it is belt and braces rather than load-bearing. Removing it
+        ; entirely passes every test, because `EVGFlight.hasWrote` already lets
+        ; `reconcile` recognise its own output and carry on — that mutation was
+        ; run and survived. It stays because the elements it touches are the few
+        ; that are moving, and because the next person to change `hasWrote`
+        ; should not have to rediscover that it is holding this up.
+        if moving {
+            el.styleGen = (0 - 1)
         }
     }
 

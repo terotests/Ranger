@@ -1,0 +1,241 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; VirtualCtl — measured against @tanstack/virtual-core
+; =============================================================================
+; What a table needs before it can show a hundred thousand rows: given a scroll
+; offset, which rows are actually worth building?
+;
+; The naive answer — "the ones that fit" — is wrong at both ends, and the
+; oracle says so. `virtual.json` records what TanStack Virtual really produces
+; over fifteen scroll offsets chosen to land on a row boundary, one pixel
+; either side of one, at zero, at the very bottom and past it. Sixty
+; observations, and the rule that reproduces all of them is:
+;
+;   first = clamp(floor(offset / rowHeight) - overscan, 0, count - 1)
+;   last  = clamp(floor((offset + viewport) / rowHeight) + overscan, 0, count - 1)
+;
+; TWO THINGS IN THAT ARE NOT OBVIOUS, and both are a blank strip at the edge of
+; the viewport when they are got wrong.
+;
+; A PARTIALLY SCROLLED ROW IS IN THE RANGE. At offset 45 with 46-pixel rows,
+; row 0 has one pixel still showing and TanStack keeps it — `floor`, not
+; `ceil`. The same at the bottom: `floor((offset + viewport) / rowHeight)` is
+; the row the bottom edge lands IN, not the last row that fits entirely. A
+; virtualiser that rounds either of them the tidy way leaves a gap exactly
+; where the eye is.
+;
+; OVERSCAN IS A PLAIN WIDENING, and it does not compensate. At offset 0 with
+; overscan 5 the range is 0..11: clamped to zero at the top, and the bottom is
+; still only extended by five. It does NOT push the extra rows to the other
+; end to keep a constant count, which is the other thing a hand-written one
+; tends to do.
+;
+; NOT MEASURED, AND THEREFORE NOT BUILT: variable row heights. TanStack
+; supports them through a measurement cache, and the moment rows can differ
+; `start` stops being `index * rowHeight` and becomes a running sum that has to
+; be maintained as rows are measured. That is a different component with a
+; different oracle, and guessing at it here would be inventing the hard half.
+; =============================================================================
+
+Import "UiCtl.rgr"
+
+class VirtualCtl extends UiCtl {
+    ; How many records there ARE, which is not how many are drawn.
+    def count:int 0
+    ; Every row the same height. See the header: variable heights are a
+    ; different component.
+    def rowHeight:double 46.0
+    ; The visible box, in pixels.
+    def viewport:double 320.0
+    ; Rows built beyond each edge, so a scroll of one row does not expose a
+    ; strip of nothing before the next frame.
+    def overscan:int 0
+    ; Where the viewport's top edge sits in the content.
+    def scrollOffset:double 0.0
+
+    Constructor () {
+    }
+
+    ; --- the range ------------------------------------------------------------
+
+    fn clampIndex:int (i:int) {
+        if (count <= 0) {
+            return (0 - 1)
+        }
+        if (i < 0) {
+            return 0
+        }
+        if (i > (count - 1)) {
+            return (count - 1)
+        }
+        return i
+    }
+
+    ; The row the top edge is IN, before overscan. `floor`, so a row with one
+    ; pixel showing is still this one — see the header.
+    fn firstInView:int () {
+        if (rowHeight <= 0.0) {
+            return (0 - 1)
+        }
+        return (this.clampIndex((to_int (scrollOffset / rowHeight))))
+    }
+
+    ; The row the BOTTOM edge is in. Also `floor`: the last row that fits
+    ; entirely is one too few, and the difference is a strip of nothing.
+    fn lastInView:int () {
+        if (rowHeight <= 0.0) {
+            return (0 - 1)
+        }
+        return (this.clampIndex((to_int ((scrollOffset + viewport) / rowHeight))))
+    }
+
+    ; CLAMP FIRST, THEN OVERSCAN. Not the other way round, and the oracle is
+    ; the only reason that is known: at an offset PAST the end of the content
+    ; the raw index is 10869 in a table of 10000, and widening before clamping
+    ; gives 10864 which clamps to 9999 — one row, with the overscan swallowed.
+    ; TanStack clamps to 9999 first and then reaches back five, giving
+    ; 9994..9999.
+    ;
+    ; Nine of two hundred and sixty-nine observations disagreed, all of them
+    ; past the end, and a table scrolled to its bottom is not an exotic state.
+    fn firstVisible:int () {
+        def base:int (this.firstInView())
+        if (base < 0) {
+            return (0 - 1)
+        }
+        return (this.clampIndex((base - overscan)))
+    }
+
+    fn lastVisible:int () {
+        def base:int (this.lastInView())
+        if (base < 0) {
+            return (0 - 1)
+        }
+        return (this.clampIndex((base + overscan)))
+    }
+
+    fn shownCount:int () {
+        def f:int (this.firstVisible())
+        if (f < 0) {
+            return 0
+        }
+        return (((this.lastVisible()) - f) + 1)
+    }
+
+    ; Where a row's top edge sits in the content. Every row the same height, so
+    ; this is a multiplication rather than a running sum.
+    fn startOf:double (index:int) {
+        return ((to_double index) * rowHeight)
+    }
+
+    ; The height the content would have if every row were built. This is what
+    ; a scrollbar is sized from, and getting it from the COUNT rather than from
+    ; the rows that exist is the whole of what makes the scrollbar honest.
+    fn totalSize:double () {
+        return ((to_double count) * rowHeight)
+    }
+
+    ; How far down the page the first built row has to be pushed, so that the
+    ; rows that ARE built land where the rows they stand for would have.
+    fn paddingTop:double () {
+        def f:int (this.firstVisible())
+        if (f < 0) {
+            return 0.0
+        }
+        return (this.startOf(f))
+    }
+
+    fn paddingBottom:double () {
+        def l:int (this.lastVisible())
+        if (l < 0) {
+            return (this.totalSize())
+        }
+        def used:double (this.startOf((l + 1)))
+        def rest:double ((this.totalSize()) - used)
+        if (rest < 0.0) {
+            return 0.0
+        }
+        return rest
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+
+    fn maxScroll:double () {
+        def m:double ((this.totalSize()) - viewport)
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    ; Clamped, because a virtualiser that can be scrolled past its own content
+    ; shows an empty box and no way to tell why. TanStack clamps the RANGE at
+    ; the last row rather than the offset — offset 500000 over 460000 pixels of
+    ; content still reports row 9999 — so this clamps the offset and reaches
+    ; the same answer by the shorter road.
+    fn scrollTo:boolean (offset:double) {
+        def next:double offset
+        if (next < 0.0) {
+            next = 0.0
+        }
+        def m:double (this.maxScroll())
+        if (next > m) {
+            next = m
+        }
+        if (next == scrollOffset) {
+            return false
+        }
+        scrollOffset = next
+        return true
+    }
+
+    fn scrollBy:boolean (delta:double) {
+        return (this.scrollTo((scrollOffset + delta)))
+    }
+
+    ; One row, one screen, and the ends — the keys a scrollable region answers.
+    fn scrollRows:boolean (rows:int) {
+        return (this.scrollBy(((to_double rows) * rowHeight)))
+    }
+
+    fn scrollPages:boolean (pages:int) {
+        return (this.scrollBy(((to_double pages) * viewport)))
+    }
+
+    ; Bring a row into view, moving as little as possible — which is the same
+    ; rule a text field's caret follows and for the same reason: the minimum
+    ; move keeps everything else where the eye left it.
+    fn scrollToIndex:boolean (index:int) {
+        def i:int (this.clampIndex(index))
+        if (i < 0) {
+            return false
+        }
+        def top:double (this.startOf(i))
+        def bottom:double (top + rowHeight)
+        if (top < scrollOffset) {
+            return (this.scrollTo(top))
+        }
+        if (bottom > (scrollOffset + viewport)) {
+            return (this.scrollTo((bottom - viewport)))
+        }
+        return false
+    }
+
+    ; --- what a reader is owed ------------------------------------------------
+
+    ; `aria-rowcount`: how many rows there ARE. Without it a reader is told the
+    ; table has as many rows as happen to be built, which for a virtualised
+    ; table is a number with no meaning — twelve, out of ten thousand.
+    fn rowCount:int () {
+        return count
+    }
+
+    ; `aria-rowindex`, 1-BASED and counting the header. A table whose first
+    ; body row is index 2 is the HTML table it is standing in for; a
+    ; virtualised body that numbered its built rows 1..12 would tell a reader
+    ; they were at the top of the table when they were four thousand rows down.
+    fn rowIndexOf:int (index:int) {
+        return (index + 2)
+    }
+}

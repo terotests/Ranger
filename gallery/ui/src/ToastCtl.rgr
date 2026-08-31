@@ -264,7 +264,10 @@ class ToastCtl extends UiCtl {
         ; go to. Saying otherwise in the accessibility tree would offer a
         ; reader an unnamed, empty node to activate — which is exactly what the
         ; structural lint objected to, and it was right.
-        def viewRow:UiRow (UiRow.of((this.viewportTid()) (EVGA11yRole.none()) ""))
+        ; A LIST of toasts, and each toast a list item. Radix renders the
+        ; viewport as an `<ol>`; this side said nothing, so a reader was told
+        ; how many notifications were waiting by no one.
+        def viewRow:UiRow (UiRow.of((this.viewportTid()) (EVGA11yRole.list()) ""))
         viewRow.parentTid = (this.regionTid())
         push out viewRow
 
@@ -272,7 +275,7 @@ class ToastCtl extends UiCtl {
             return out
         }
 
-        def toastRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        def toastRow:UiRow (UiRow.of(tid (EVGA11yRole.listItem()) ""))
         toastRow.parentTid = (this.viewportTid())
         toastRow.state = "open"
         toastRow.tabStop = true

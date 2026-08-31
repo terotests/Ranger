@@ -113,9 +113,41 @@ class EVGA11yRole {
     ; keeps its old meaning so the datagrid is untouched.
     sfn tableCell:int ()        { return 40 }
 
+    ; A tree, and its rows. Nesting is carried by `aria-level` and not by a
+    ; `group` per folder — which is what headless-tree does, and therefore what
+    ; ReUI's tree does: `getItems()` hands back the visible rows already
+    ; flattened, all siblings, each saying how deep it is.
+    sfn tree:int ()             { return 41 }
+    sfn treeItem:int ()         { return 42 }
+
+    ; A landmark. `navigation` is the one a breadcrumb needs, and it needs a
+    ; NAME with it: a page has several navigations and an unnamed one leaves a
+    ; reader to guess which of them it has landed in.
+    sfn navigation:int ()       { return 43 }
+
+    ; A form is a landmark ONLY when it is named, which is the HTML-ARIA
+    ; mapping and not a simplification: an unnamed <form> is not a landmark,
+    ; because a reader offered "form" with nothing to distinguish it from the
+    ; other three on the page has been given a list and no way to choose from
+    ; it. The demo names its own; a controller that does not should not use
+    ; this role.
+    sfn form:int ()             { return 44 }
+
+    ; `rowgroup` — a thead or a tbody. Missing until a table was built out of
+    ; roles rather than out of `<table>` tags, and an unrecognised role drops
+    ; the element AND EVERYTHING UNDER IT, so the whole body of the dashboard's
+    ; table was absent from the tree while the picture looked perfect. The
+    ; lint is the only reason that was noticed.
+    sfn rowGroup:int ()         { return 45 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
+        if (role == 43) { return "navigation" }
+        if (role == 44) { return "form" }
+        if (role == 45) { return "rowgroup" }
+        if (role == 41) { return "tree" }
+        if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
         if (role == 2)  { return "text" }
         if (role == 3)  { return "heading" }
@@ -195,6 +227,9 @@ class EVGA11yNode {
     ; AT-SPI's localized role name — because some controls are a known role
     ; doing an unfamiliar job, and the role name alone then says nothing useful.
     def roleDescription:string ""
+    ; `aria-haspopup`. What a reader is told about a trigger that opens
+    ; something — a select's closed box is a word in a rectangle without it.
+    def hasPopup:string ""
     ; A field's text, a cell's value — separate from the name, which is the
     ; label that does not change when the content does.
     def value:string ""
@@ -215,6 +250,12 @@ class EVGA11yNode {
     ; difference between "a dialog is open" and "there are two applications".
     def modal:boolean false
     def checked:int 0
+    ; `aria-pressed`, tri-state like `checked`. A toggle button that is ON —
+    ; a carried sortable row, a show/hide switch beside a password — and NOT
+    ; the same claim as `checked`: a pressed button is a button held down, a
+    ; checked one is a box with a tick in it, and a reader says different
+    ; words for each.
+    def pressed:int 0
     def expanded:int 0
     ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
     ;
@@ -223,6 +264,13 @@ class EVGA11yNode {
     ; header keeps its name, its role and its position — so without this the
     ; one thing the control does is the one thing the trace cannot see.
     def sorted:int 0
+    ; `aria-orientation`, verbatim: "horizontal", "vertical", or "" for none.
+    ; A string rather than a code because there are exactly two values and a
+    ; reader says them; the tri-state codes exist where a THIRD state (mixed,
+    ; not-applicable) has to be told apart from false.
+    def orientation:string ""
+    ; `aria-current`, verbatim: "page" on a breadcrumb's last crumb.
+    def current:string ""
 
     ; A number the platform announces: where a slider sits, how far a progress
     ; bar has got. `hasValueNow` is not decoration — a progress bar with a range
@@ -244,6 +292,12 @@ class EVGA11yNode {
     def colCount:int 0
     def posInSet:int 0
     def setSize:int 0
+    ; How deep a `treeitem` sits, counting from 1. A flat list of rows whose
+    ; nesting lives only in this number is what headless-tree publishes and
+    ; what a reader announces as "level 3" — WITHOUT it a tree is announced as
+    ; a flat list of siblings, which is a different structure entirely and not
+    ; the one on screen. 0 means the node is not in a levelled structure.
+    def level:int 0
 
     ; Text fields: caret and selection as offsets into `value`.
     def caret:int 0
@@ -278,8 +332,15 @@ class EVGA11yTree {
     ; already done — a platform accessibility API wants events, not a fresh
     ; tree sixty times a second.
     def generation:int 0
+    ; What the BUILDER could not represent, in its own words. A builder walks
+    ; a source it does not fully control — an element tree, a row list — and
+    ; anything it cannot map lands here rather than being dropped in silence.
+    ; `lint()` reports them first.
+    def notes:[string]
 
     Constructor () {
+        def n:[string]
+        notes = n
     }
 
     fn count:int () {
@@ -427,6 +488,9 @@ class EVGA11yTree {
         if ((strlen n.value) > 0) {
             out = (out + ",\"value\":" + (EVGA11yTree.jsonString(n.value)))
         }
+        if ((strlen n.hasPopup) > 0) {
+            out = (out + ",\"haspopup\":" + (EVGA11yTree.jsonString(n.hasPopup)))
+        }
         if ((strlen n.description) > 0) {
             out = (out + ",\"desc\":" + (EVGA11yTree.jsonString(n.description)))
         }
@@ -460,6 +524,16 @@ class EVGA11yTree {
         if (n.checked != 0) {
             out = (out + ",\"checked\":" + (to_string n.checked))
         }
+
+        if (n.pressed != 0) {
+            out = (out + ",\"pressed\":" + (to_string n.pressed))
+        }
+        if ((strlen n.orientation) > 0) {
+            out = (out + ",\"orientation\":\"" + n.orientation + "\"")
+        }
+        if ((strlen n.current) > 0) {
+            out = (out + ",\"current\":\"" + n.current + "\"")
+        }
         if (n.sorted != 0) {
             out = (out + ",\"sorted\":" + (to_string n.sorted))
         }
@@ -483,6 +557,9 @@ class EVGA11yTree {
         }
         if (n.posInSet != 0) {
             out = (out + ",\"pos\":" + (to_string n.posInSet))
+        }
+        if (n.level != 0) {
+            out = (out + ",\"level\":" + (to_string n.level))
         }
         if (n.setSize != 0) {
             out = (out + ",\"size\":" + (to_string n.setSize))
@@ -606,6 +683,16 @@ class EVGA11yTree {
 
     fn lint:[string] () {
         def problems:[string]
+        ; Whatever the BUILDER could not represent, reported before anything
+        ; this tree can see for itself. A node that was never made breaks no
+        ; rule about the nodes that were, so without this the failure mode of
+        ; an unknown role is a clean audit over an empty tree — which is what
+        ; the tree demo got: eighteen rows on screen, one node, PASS.
+        def i0:int 0
+        while (i0 < (array_length notes)) {
+            push problems (itemAt notes i0)
+            i0 = (i0 + 1)
+        }
         if ((strlen rootId) == 0) {
             push problems "tree has no root"
         }

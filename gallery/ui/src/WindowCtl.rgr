@@ -1,0 +1,624 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; WindowCtl — a window you can move, with anything you like inside it
+; =============================================================================
+; Two things at once, because they are one thing with a flag:
+;
+;   MODAL      a dialog. It takes the page: everything outside it goes out of
+;              the accessibility tree, Escape closes it, and the scrim behind
+;              it can dim, blur, or both. Measured against
+;              @radix-ui/react-dialog by `DialogCtl`, whose contract this one
+;              keeps — see the note on `modal` below.
+;   MOVABLE    a window. It does not take the page: what is behind it stays
+;              reachable, by pointer and by reader, and you can push it out of
+;              the way by its title bar. Often the better answer, and the one
+;              a modal cannot give: a dialog you cannot move is a dialog that
+;              covers the thing you opened it to look at.
+;
+; --- WHY NOT EVGWindow --------------------------------------------------------
+; `gallery/evg/EVGWindow.rgr` is the older layer and it has a fixed vocabulary:
+; `addLabel`, `addButton`, `addRadio`, `addCheckbox`, `addSwatch`, and one
+; `content` rectangle whose pixels the OWNER paints by hand. Anything it does
+; not have a method for cannot go in the window at all — a table, a chart with
+; a legend, a form with a select in it, another window's worth of controls.
+;
+; Here the window owns a FRAME and nothing else. `bodyEl` is an ordinary
+; EVGElement; the caller fills it with whatever tree it likes, from a literal,
+; from another controller's `build()`, from a loop. `build()` re-makes the
+; chrome around it and never touches its children. That is the whole design,
+; and it is why this can hold the table demo where EVGWindow could hold a
+; column of radio buttons.
+;
+; --- WHAT IS MEASURED AND WHAT IS NOT -----------------------------------------
+; The ARIA is Radix's dialog, which the harness already measures: role, the
+; label, the modal masking, Escape, focus on open and focus back on close.
+; Those are not re-derived here.
+;
+; The DRAGGING has no reference — nothing in Radix moves a dialog, and the
+; sortable's oracle is about reordering a list. So it is specified rather than
+; measured, and the specification is the small one: the title bar is the
+; handle, the window moves by the pointer's delta, and it is kept far enough on
+; screen to be grabbed again. `WindowCtl` tests state those as behaviour, and
+; where a browser has an opinion (Escape, focus) the browser is still the
+; authority via DialogCtl.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class WindowCtl extends UiCtl {
+    def open:boolean false
+    ; Takes the page, or shares it. The difference is one flag and four
+    ; observable consequences: the scrim exists, everything outside is hidden,
+    ; the window cannot be moved, and closing restores focus to the trigger.
+    def isModal:boolean false
+    def title:string ""
+    def closeLabel:string "Close"
+    ; Shown under the title. Radix's dialog has one and names the content by
+    ; it, so a reader hears what the dialog is for before its first control.
+    def description:string ""
+
+    ; Where it sits, in page pixels. Only meaningful when it is movable — a
+    ; modal is centred by the overlay layer and these are ignored.
+    def x:double 0.0
+    def y:double 0.0
+    def pageW:double 900.0
+    def pageH:double 560.0
+    ; How much of the window must stay on the page. Enough to grab: a window
+    ; dragged entirely off the bottom is a window nobody can get back.
+    def keepOnScreen:double 48.0
+
+    def dragging:boolean false
+
+    def triggerEl:EVGElement
+    def scrimEl:EVGElement
+    def frameEl:EVGElement
+    def headEl:EVGElement
+    def barEl:EVGElement
+    def titleEl:EVGElement
+    def descEl:EVGElement
+    def closeEl:EVGElement
+    ; The composition point. Everything the caller puts here is the window's
+    ; content, and `build()` leaves it alone.
+    def bodyEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        scrimEl = (EVGElement.createDiv())
+        frameEl = (EVGElement.createDiv())
+        headEl = (EVGElement.createDiv())
+        barEl = (EVGElement.createDiv())
+        titleEl = (EVGElement.createDiv())
+        descEl = (EVGElement.createDiv())
+        closeEl = (EVGElement.createDiv())
+        bodyEl = (EVGElement.createDiv())
+    }
+
+    ; --- the parts ---------------------------------------------------------------
+
+    fn triggerTid:string ()  { return (tid + "-trigger") }
+    fn scrimTid:string ()    { return (tid + "-scrim") }
+    fn frameTid:string ()    { return (tid + "-content") }
+    ; The strip across the top, which is a container and not a control — and
+    ; the handle inside it, which is. They are two elements because a button
+    ; may not contain another one: with the close button inside the handle,
+    ; axe calls it `nested-interactive` and is right. The handle still fills
+    ; everything left of the close button, so the whole bar is grabbable.
+    fn headTid:string ()     { return (tid + "-head") }
+    fn barTid:string ()      { return (tid + "-titlebar") }
+    fn titleTid:string ()    { return (tid + "-title") }
+    fn descTid:string ()     { return (tid + "-description") }
+    fn closeTid:string ()    { return (tid + "-close") }
+    fn bodyTid:string ()     { return (tid + "-body") }
+
+    ; The handle is the title bar AND its label, because the label fills the bar
+    ; and a hit test returns the innermost thing under the pointer. Without
+    ; this, pressing the middle of a title bar reports the title — and the
+    ; window does not move, which is exactly what the first live drag did.
+    ; The close button sits in the same bar and is deliberately not here.
+    fn isHandle:boolean (target:string) {
+        if (target == (this.barTid())) {
+            return true
+        }
+        return (target == (this.titleTid()))
+    }
+
+    fn baseClass:string () {
+        if isModal {
+            return "ui-dialog"
+        }
+        return "ui-window"
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    ; --- building ----------------------------------------------------------------
+    ; The frame, and only the frame. `bodyEl` keeps whatever the caller put in
+    ; it, which is the entire reason this class exists.
+
+    ; ONE description of the window, read two ways.
+    ;
+    ; `rows()` below is what the conformance host publishes; `EVGA11yFromTree`
+    ; walks the ELEMENTS instead, and that is what a page using this controller
+    ; directly publishes — the demo, and any real application. Writing the ARIA
+    ; only into `rows()` left the second path with no dialog at all: the form
+    ; fields were there, the table was there, and the thing containing them was
+    ; invisible. The audit did not catch it, because a node that is missing
+    ; cannot fail a rule about its name.
+    ;
+    ; So `build()` puts the same facts on the elements, and the two paths agree
+    ; by construction rather than by anyone remembering.
+    fn markAria:void () {
+        def trig:EVGElement (unwrap triggerEl)
+        trig.role = "button"
+        trig.a11yLabel = name
+        trig.a11yFocusable = (disabled == false)
+        if open {
+            trig.a11yExpanded = (EVGA11yTri.yes())
+        } {
+            trig.a11yExpanded = (EVGA11yTri.no())
+        }
+
+        def frame:EVGElement (unwrap frameEl)
+        frame.role = "dialog"
+        frame.a11yLabel = title
+
+        def head2:EVGElement (unwrap headEl)
+        head2.role = ""
+        def bar:EVGElement (unwrap barEl)
+        if isModal {
+            ; A heading over the dialog it names, and nothing a reader should
+            ; be offered as a control.
+            bar.role = ""
+            bar.a11yLabel = ""
+            bar.a11yRoleDescription = ""
+            bar.a11yFocusable = false
+        } {
+            bar.role = "button"
+            bar.a11yLabel = (title + ", move window")
+            ; What a reader says INSTEAD of "button": this one is dragged, not
+            ; pressed, and the label alone does not say that.
+            bar.a11yRoleDescription = "draggable"
+            bar.a11yFocusable = true
+        }
+        ; The title is the bar's label in words and must not announce again as
+        ; a node of its own; the same for the close glyph.
+        def titleEl3:EVGElement (unwrap titleEl)
+        titleEl3.a11yHidden = (isModal == false)
+
+        def close:EVGElement (unwrap closeEl)
+        close.role = "button"
+        close.a11yLabel = closeLabel
+        close.a11yFocusable = true
+    }
+
+    fn build:void () {
+        def base:string (this.baseClass())
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = base
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = (base + "-trigger")
+        UiTree.setState(trig (base + "-trigger") word)
+        UiTree.leafText(trig name)
+        UiTree.anchor(trig)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        ; The scrim, for a modal only. It is a sibling of the frame and painted
+        ; first, so the frame sits over it; `backdrop-filter` on it is what
+        ; softens the page underneath, and the stylesheet decides whether it
+        ; dims, blurs or both.
+        if isModal {
+            def scrim:EVGElement (unwrap scrimEl)
+            scrim.id = (this.scrimTid())
+            scrim.className = (base + "-scrim")
+            UiTree.setState(scrim (base + "-scrim") word)
+            UiTree.backdrop(scrim)
+            UiTree.clearChildren(scrim)
+            root.addChild(scrim)
+        }
+
+        def frame:EVGElement (unwrap frameEl)
+        frame.id = (this.frameTid())
+        frame.className = (base + "-content")
+        UiTree.setState(frame (base + "-content") word)
+        UiTree.clearChildren(frame)
+        ; A modal is centred and a window sits where it was left. Both are
+        ; overlays; only the side differs, which is the whole geometric
+        ; difference between the two.
+        if isModal {
+            UiTree.surface(frame "center" "center")
+        } {
+            UiTree.surface(frame "free" "start")
+            frame.overlayX = x
+            frame.overlayY = y
+        }
+
+        ; The title bar: the label, and the handle. A modal has the same bar
+        ; and it simply is not a handle — `dragsFreely` is what says so, not a
+        ; different tree, because a dialog that grows a title bar when you make
+        ; it movable is two components pretending to be one.
+        def head:EVGElement (unwrap headEl)
+        head.id = (this.headTid())
+        head.className = (base + "-titlebar")
+        UiTree.clearChildren(head)
+
+        def bar:EVGElement (unwrap barEl)
+        bar.id = (this.barTid())
+        bar.className = (base + "-handle")
+        UiTree.clearChildren(bar)
+        if dragging {
+            UiTree.addClass(bar (base + "-handle-dragging"))
+        }
+
+        def titleEl2:EVGElement (unwrap titleEl)
+        titleEl2.id = (this.titleTid())
+        titleEl2.className = (base + "-title")
+        UiTree.leafText(titleEl2 title)
+        bar.addChild(titleEl2)
+        head.addChild(bar)
+
+        def close:EVGElement (unwrap closeEl)
+        close.id = (this.closeTid())
+        close.className = (base + "-close")
+        UiTree.leafText(close "×")
+        head.addChild(close)
+        frame.addChild(head)
+
+        if ((strlen description) > 0) {
+            def desc:EVGElement (unwrap descEl)
+            desc.id = (this.descTid())
+            desc.className = (base + "-description")
+            UiTree.leafText(desc description)
+            frame.addChild(desc)
+        }
+
+        ; And the caller's tree, untouched.
+        ;
+        ; The body's own BOX is the frame's business, though, so its class goes
+        ; on unconditionally and ADDS to whatever the caller put there. The
+        ; first version only set it when the caller had left the class empty,
+        ; and the demo — which names its body so it can style it — silently
+        ; lost the frame's padding: the title was indented fourteen pixels and
+        ; every row underneath sat flush against the window's border.
+        ;
+        ; Additive is also what lets a caller override it: `EVGStyleSheet`
+        ; takes the later rule, so a class declared after this one in the sheet
+        ; still wins. What it cannot do any more is take the padding away by
+        ; accident.
+        def body:EVGElement (unwrap bodyEl)
+        body.id = (this.bodyTid())
+        UiTree.addClass(body (base + "-body"))
+        frame.addChild(body)
+
+        root.addChild(frame)
+        this.markAria()
+    }
+
+    ; --- opening and closing -------------------------------------------------------
+
+    fn openWindow:string () {
+        open = true
+        dragging = false
+        this.build()
+        ; Focus lands on the close button, which is what Radix's dialog does
+        ; and what `DialogCtl` is measured doing: it is the one control every
+        ; dialog has, so it is the one place focus can always go.
+        return (this.closeTid())
+    }
+
+    fn closeWindow:string () {
+        open = false
+        dragging = false
+        this.build()
+        return (this.triggerTid())
+    }
+
+    ; --- input -----------------------------------------------------------------------
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if open {
+                return (this.closeWindow())
+            }
+            return (this.openWindow())
+        }
+        if (open == false) {
+            return ""
+        }
+        if (target == (this.closeTid())) {
+            return (this.closeWindow())
+        }
+        ; Pressing the handle focuses the HANDLE, whichever part of it was
+        ; actually hit. A click lands on the label — it fills the bar — and
+        ; leaving focus there would put it on something that answers no keys,
+        ; so the arrows would stop working the moment you clicked the window.
+        if (this.isHandle(target)) {
+            if (isModal == false) {
+                return (this.barTid())
+            }
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                return (this.closeWindow())
+            }
+            return ""
+        }
+        if (UiCtl.activatesOn(key)) {
+            return (this.activate(target))
+        }
+        ; A movable window can be nudged with the arrows while its title bar
+        ; holds focus. Not decoration: dragging is a pointer gesture, and
+        ; without this a keyboard cannot move the window at all — which is the
+        ; same argument the sortable makes for its own arrow keys.
+        if (open == false) {
+            return ""
+        }
+        if isModal {
+            return ""
+        }
+        if ((this.isHandle(target)) == false) {
+            return ""
+        }
+        def step:double 16.0
+        if (key == "ArrowLeft") {
+            this.moveBy((0.0 - step) 0.0)
+            return target
+        }
+        if (key == "ArrowRight") {
+            this.moveBy(step 0.0)
+            return target
+        }
+        if (key == "ArrowUp") {
+            this.moveBy(0.0 (0.0 - step))
+            return target
+        }
+        if (key == "ArrowDown") {
+            this.moveBy(0.0 step)
+            return target
+        }
+        return ""
+    }
+
+    ; --- moving ------------------------------------------------------------------------
+
+    fn dragsFreely:boolean () {
+        if isModal {
+            return false
+        }
+        return open
+    }
+
+    fn press:string (target:string) {
+        if (open == false) {
+            return ""
+        }
+        if isModal {
+            return ""
+        }
+        if ((this.isHandle(target)) == false) {
+            return ""
+        }
+        dragging = true
+        this.build()
+        ; The bar, not whatever was hit: focus belongs on the control, and the
+        ; label is not one. Without this the arrow keys stop working the moment
+        ; a window has been picked up by its title.
+        return (this.barTid())
+    }
+
+    fn dragBy:string (dx:double dy:double) {
+        if (dragging == false) {
+            return ""
+        }
+        this.moveBy(dx dy)
+        return ""
+    }
+
+    fn release:string () {
+        if (dragging == false) {
+            return ""
+        }
+        dragging = false
+        this.build()
+        return ""
+    }
+
+    ; Move, then keep enough of the window on the page to grab again. Clamping
+    ; the TOP-LEFT to the page would be wrong in both directions: it would stop
+    ; the window sliding off to the right long before it needed to, and it
+    ; would happily let it go off the bottom.
+    fn moveBy:void (dx:double dy:double) {
+        x = (x + dx)
+        y = (y + dy)
+        def w:double frameEl.calculatedWidth
+        def h:double frameEl.calculatedHeight
+        ; Before the first layout there is no width to reason about, and a
+        ; clamp against zero would pin the window to the corner.
+        if (w > 0.0) {
+            def minX:double (keepOnScreen - w)
+            def maxX:double (pageW - keepOnScreen)
+            if (x < minX) {
+                x = minX
+            }
+            if (x > maxX) {
+                x = maxX
+            }
+        }
+        if (h > 0.0) {
+            ; The title bar must stay reachable, so the top never goes above
+            ; the page: a window whose handle is off the top cannot be pulled
+            ; back down.
+            if (y < 0.0) {
+                y = 0.0
+            }
+            def maxY:double (pageH - keepOnScreen)
+            if (y > maxY) {
+                y = maxY
+            }
+        }
+        def frame:EVGElement (unwrap frameEl)
+        frame.overlayX = x
+        frame.overlayY = y
+    }
+
+    ; --- what the host and the reader see ------------------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        if open {
+            if isModal {
+                push a (this.scrimTid())
+            }
+            push a (this.frameTid())
+            push a (this.headTid())
+            push a (this.barTid())
+            push a (this.titleTid())
+            if ((strlen description) > 0) {
+                push a (this.descTid())
+            }
+            push a (this.closeTid())
+            push a (this.bodyTid())
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (open == false) {
+            return false
+        }
+        if (target == (this.closeTid())) {
+            return true
+        }
+        ; The bar takes focus only when it is a handle. A modal's bar is a
+        ; label, and a tab stop that does nothing is worse than no tab stop.
+        ; The title counts as the bar here for the same reason it does in
+        ; `isHandle`: it is what a click actually lands on.
+        if (this.isHandle(target)) {
+            return (isModal == false)
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
+        trigRow.state = word
+        trigRow.hasPopup = "dialog"
+        trigRow.disabled = disabled
+        if open {
+            trigRow.expanded = (EVGA11yTri.yes())
+        } {
+            trigRow.expanded = (EVGA11yTri.no())
+        }
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        if isModal {
+            ; No role, like Radix's overlay: it is a surface, not something a
+            ; reader should be offered.
+            def scrimRow:UiRow (UiRow.of((this.scrimTid()) (EVGA11yRole.none()) ""))
+            scrimRow.state = word
+            push out scrimRow
+        }
+
+        def frameRow:UiRow (UiRow.of((this.frameTid()) (EVGA11yRole.dialog()) title))
+        frameRow.state = word
+        ; The one flag that makes a modal modal, as far as a reader is
+        ; concerned: UiHost hides everything that is not inside it. A movable
+        ; window raises nothing, so the page behind it stays readable — which
+        ; is the point of a movable window.
+        frameRow.modal = isModal
+        push out frameRow
+
+        ; The title bar. A handle is a real control and says so; a modal's bar
+        ; is a heading over the dialog it names.
+        def barRole:int (EVGA11yRole.none())
+        def barName:string ""
+        if (isModal == false) {
+            barRole = (EVGA11yRole.button())
+            barName = (title + ", move window")
+        }
+        def headRow:UiRow (UiRow.of((this.headTid()) (EVGA11yRole.none()) ""))
+        headRow.parentTid = (this.frameTid())
+        push out headRow
+
+        def barRow:UiRow (UiRow.of((this.barTid()) barRole barName))
+        barRow.parentTid = (this.headTid())
+        if (isModal == false) {
+            barRow.focusable = true
+            barRow.tabStop = true
+            ; What a reader says instead of "button": this one is not pressed,
+            ; it is dragged, and "move window" alone would not say that.
+            barRow.roleDescription = "draggable"
+        }
+        push out barRow
+
+        if ((strlen description) > 0) {
+            def descRow:UiRow (UiRow.of((this.descTid()) (EVGA11yRole.none()) description))
+            descRow.parentTid = (this.frameTid())
+            push out descRow
+        }
+
+        def closeRow:UiRow (UiRow.of((this.closeTid()) (EVGA11yRole.button()) closeLabel))
+        closeRow.parentTid = (this.headTid())
+        closeRow.focusable = true
+        closeRow.tabStop = true
+        push out closeRow
+
+        ; The body is a container and nothing else. What is IN it belongs to
+        ; whoever composed it — a controller with its own rows, or a tree the
+        ; page walks with EVGA11yFromTree — and this deliberately does not
+        ; invent nodes for children it does not own.
+        def bodyRow:UiRow (UiRow.of((this.bodyTid()) (EVGA11yRole.none()) ""))
+        bodyRow.parentTid = (this.frameTid())
+        push out bodyRow
+
+        return out
+    }
+}

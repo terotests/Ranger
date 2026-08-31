@@ -1,1 +1,17 @@
-bin/
+# Compiler output. Every file here is produced from a `.rgr` in gallery/evg by
+# an npm script that compiles before it runs — `evg:test`, `evg:trace:test`,
+# `evg:compile` and the rest — so a fresh clone builds them and never needs
+# them committed.
+#
+# This used to say `bin/`, which ignores a nested `bin/` directory that does
+# not exist, so seventeen build artifacts were tracked. They were not harmless:
+# every branch that touched EVG recompiled them, and two branches that touched
+# EVG conflicted in a generated file neither of them had edited. The
+# `evg_trace_cli` outputs for Python, C++ and Rust were already ignored a few
+# lines apart in the root .gitignore — only the JavaScript one was kept, and
+# for no reason anybody wrote down.
+#
+# This is the same rule gallery/ui/bin, gallery/vela/bin, gallery/book/bin and
+# gallery/css/bin already use.
+*
+!.gitignore

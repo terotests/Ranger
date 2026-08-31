@@ -1,0 +1,13 @@
+{ "name":"resizable_constraints","component":"resizable",
+  "$comment":"minSize and maxSize are published as aria-valuemin and aria-valuemax, and they are what the LAYOUT allows rather than what the panel asked for. Home and End then stop at them, which is what shows they are deltas and not absolutes.",
+  "behaviours":["separator-constraints","separator-home-end"],
+  "fixture":{"controls":[{"type":"resizable","tid":"rz","orientation":"horizontal",
+    "panels":[
+      {"value":"one","defaultSize":"50%","minSize":"20%","maxSize":"80%"},
+      {"value":"two","defaultSize":"50%"}]}]},
+  "steps":[
+    {"focus":"rz-sep-0"},
+    {"key":"Home"},
+    {"key":"ArrowLeft"},
+    {"key":"End"},
+    {"key":"ArrowRight"}] }

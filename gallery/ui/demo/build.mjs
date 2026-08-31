@@ -28,7 +28,7 @@ function requireDom(name) {
   }
 }
 
-for (const name of ["MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo"]) {
+for (const name of ["MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo"]) {
   if (!fs.existsSync(path.join(UI, "bin", name + ".cjs"))) {
     console.error(`compiled ${name} missing — run \`npm run ui:demo:build\` first`);
     process.exit(3);
@@ -45,7 +45,14 @@ fs.writeFileSync(
     'export { SortableDemo } from "../bin/SortableDemo.cjs";\n' +
     'export { MotionDemo } from "../bin/MotionDemo.cjs";\n' +
     'export { TableDemo } from "../bin/TableDemo.cjs";\n' +
-    'export { DropdownDemo } from "../bin/DropdownDemo.cjs";\n',
+    'export { DropdownDemo } from "../bin/DropdownDemo.cjs";\n' +
+    'export { DialogDemo } from "../bin/DialogDemo.cjs";\n' +
+    'export { TreeDemo } from "../bin/TreeDemo.cjs";\n' +
+    'export { TimelineDemo } from "../bin/TimelineDemo.cjs";\n' +
+    'export { ResizeDemo } from "../bin/ResizeDemo.cjs";\n' +
+    'export { FormDemo } from "../bin/FormDemo.cjs";\n' +
+    'export { ProfileDemo } from "../bin/ProfileDemo.cjs";\n' +
+    'export { DashboardDemo } from "../bin/DashboardDemo.cjs";\n',
 );
 
 const css = (f) => JSON.stringify(fs.readFileSync(path.join(HERE, f), "utf8"));
@@ -57,14 +64,48 @@ fs.writeFileSync(
     `export const SORTABLE_CSS = ${css("sortable.css")};\n` +
     `export const MOTION_CSS = ${css("motion.css")};\n` +
     `export const TABLE_CSS = ${css("table.css")};\n` +
-    `export const DROPDOWN_CSS = ${css("dropdown.css")};\n`,
+    `export const DROPDOWN_CSS = ${css("dropdown.css")};\n` +
+    `export const DIALOG_CSS = ${css("dialog.css")};\n` +
+    `export const TREE_CSS = ${css("tree.css")};\n` +
+    `export const TIMELINE_CSS = ${css("timeline.css")};\n` +
+    `export const RESIZE_CSS = ${css("resize.css")};\n` +
+    `export const FORM_CSS = ${css("form.css")};\n` +
+    `export const PROFILE_CSS = ${css("profile.css")};\n` +
+    `export const DASHBOARD_CSS = ${css("dashboard.css")};\n`,
 );
 
 const esbuild = requireDom("esbuild");
+
+// The dashboard's chart measures its own axis labels with `UITextRenderer`,
+// which owns a `FontManager`, which looks for font FILES — one `existsSync`,
+// and nothing else in the whole bundle touches the filesystem.
+//
+// A browser has no filesystem, so the honest answer to "is there a font file
+// at this path" is NO, and that is exactly what this stub says. It is not a
+// workaround for a dependency that should not be there: `hasFont` stays false
+// and the renderer falls back to its estimating measurer, which is the same
+// path the Node gate takes, because the gate registers no font directory
+// either. If a real face is ever wanted in the browser it arrives as a fetch,
+// not as a file, and this stub goes on telling the truth.
+const noFilesystem = {
+  name: "no-filesystem",
+  setup(build) {
+    build.onResolve({ filter: /^fs$/ }, () => ({ path: "fs", namespace: "stub-fs" }));
+    build.onLoad({ filter: /.*/, namespace: "stub-fs" }, () => ({
+      contents: "export const existsSync = () => false;\n" +
+        "export const readFileSync = () => { throw new Error('no filesystem in the browser'); };\n" +
+        "export const readdirSync = () => [];\n" +
+        "export default { existsSync, readFileSync, readdirSync };\n",
+      loader: "js",
+    }));
+  },
+};
+
 await esbuild.build({
   entryPoints: [path.join(HERE, "main.js")],
   bundle: true,
   format: "esm",
   outfile: path.join(HERE, "bundle.js"),
+  plugins: [noFilesystem],
   logLevel: "info",
 });

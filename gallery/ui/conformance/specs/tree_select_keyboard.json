@@ -1,0 +1,173 @@
+{
+ "name": "tree_select_keyboard",
+ "component": "tree",
+ "behaviours": [
+  "select-ctrl-space",
+  "select-shift-arrow",
+  "select-shift-shrinks",
+  "select-all",
+  "select-ends",
+  "select-space-still-toggles",
+  "select-enter-collapses",
+  "select-all-is-visible-only"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "tree",
+    "tid": "tr",
+    "root": "crm",
+    "indent": 20,
+    "selection": true,
+    "expanded": [
+     "leads",
+     "accounts",
+     "acme"
+    ],
+    "items": [
+     {
+      "value": "crm",
+      "name": "CRM",
+      "children": [
+       "leads",
+       "accounts",
+       "activities"
+      ]
+     },
+     {
+      "value": "leads",
+      "name": "Leads",
+      "children": [
+       "new-lead",
+       "contacted-lead"
+      ]
+     },
+     {
+      "value": "new-lead",
+      "name": "New Lead"
+     },
+     {
+      "value": "contacted-lead",
+      "name": "Contacted Lead"
+     },
+     {
+      "value": "accounts",
+      "name": "Accounts",
+      "children": [
+       "acme"
+      ]
+     },
+     {
+      "value": "acme",
+      "name": "Acme Corp",
+      "children": [
+       "jane",
+       "john"
+      ]
+     },
+     {
+      "value": "jane",
+      "name": "Jane Doe"
+     },
+     {
+      "value": "john",
+      "name": "John Smith"
+     },
+     {
+      "value": "activities",
+      "name": "Activities",
+      "children": [
+       "calls",
+       "emails"
+      ]
+     },
+     {
+      "value": "calls",
+      "name": "Calls"
+     },
+     {
+      "value": "emails",
+      "name": "Emails"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "tr-item-leads"
+  },
+  {
+   "key": "Control+Space",
+   "settle": 80
+  },
+  {
+   "key": "Control+Space",
+   "settle": 80
+  },
+  {
+   "key": "Shift+ArrowDown",
+   "settle": 80
+  },
+  {
+   "key": "Shift+ArrowDown",
+   "settle": 80
+  },
+  {
+   "key": "Shift+ArrowUp",
+   "settle": 80
+  },
+  {
+   "key": "Home",
+   "settle": 80
+  },
+  {
+   "key": "Shift+ArrowUp",
+   "settle": 80
+  },
+  {
+   "key": "Control+KeyA",
+   "settle": 80
+  },
+  {
+   "key": "End",
+   "settle": 80
+  },
+  {
+   "key": "Shift+ArrowDown",
+   "settle": 80
+  },
+  {
+   "key": "Home",
+   "settle": 80
+  },
+  {
+   "key": " ",
+   "settle": 80
+  },
+  {
+   "key": "Control+KeyA",
+   "settle": 80
+  },
+  {
+   "key": "ArrowDown",
+   "settle": 80
+  },
+  {
+   "key": "Enter",
+   "settle": 80
+  },
+  {
+   "key": "Control+KeyA",
+   "settle": 80
+  },
+  {
+   "key": "End",
+   "settle": 80
+  },
+  {
+   "key": "ArrowRight",
+   "settle": 80
+  }
+ ]
+}

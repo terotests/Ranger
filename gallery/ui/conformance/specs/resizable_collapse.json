@@ -1,0 +1,11 @@
+{ "name":"resizable_collapse","component":"resizable",
+  "$comment":"Enter toggles collapse, and it collapses the panel BEFORE the separator rather than the one after. Measured the hard way: with only the second panel collapsible, Enter did nothing at all and looked unimplemented.",
+  "behaviours":["separator-enter-collapses","separator-enter-restores"],
+  "fixture":{"controls":[{"type":"resizable","tid":"rz","orientation":"horizontal",
+    "panels":[
+      {"value":"one","defaultSize":"50%","collapsible":true,"collapsedSize":"0%","minSize":"20%"},
+      {"value":"two","defaultSize":"50%"}]}]},
+  "steps":[
+    {"focus":"rz-sep-0"},
+    {"key":"Enter"},
+    {"key":"Enter"}] }

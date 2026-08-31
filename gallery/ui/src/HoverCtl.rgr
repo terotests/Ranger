@@ -164,6 +164,18 @@ class TooltipCtl extends UiCtl {
             trigRow.tabStop = true
             trigRow.focusable = true
         }
+        ; The tip DESCRIBES the trigger while it is open, which is the whole
+        ; point of a tooltip and was missing entirely: a reader was told the
+        ; button's name and never the sentence the tooltip exists to say.
+        ;
+        ; Only while OPEN. Radix wires `aria-describedby` to the content and
+        ; the content is not in the document until the tip is showing, so a
+        ; closed tooltip describes nothing — which is right: a description a
+        ; reader hears for a tip nobody has opened is a description of
+        ; something that is not there.
+        if open {
+            trigRow.description = bodyText
+        }
         push out trigRow
 
         if (open == false) {

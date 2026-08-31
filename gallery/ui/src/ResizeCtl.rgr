@@ -1,0 +1,507 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ResizeCtl — measured against react-resizable-panels, which is what ReUI's is
+; =============================================================================
+; Not Radix; Radix has no resizable. ReUI's `ResizablePanelGroup` /
+; `ResizablePanel` / `ResizableHandle` is react-resizable-panels underneath, and
+; its own prop names give it away: `orientation` and percentage STRINGS
+; ("50%") are that library's API and nobody else's.
+;
+; A GENEROUS oracle, and an easy one. The whole contract is DOM-observable —
+; one role, four ARIA attributes and a keyboard — so this is ordinary
+; conformance with no bespoke capture, unlike the tree's drop targets or the
+; table's state machine.
+;
+; --- WHAT WAS MEASURED, and four answers that are not the obvious ones --------
+;
+;   THE ORIENTATION INVERTS. A separator in a HORIZONTAL group publishes
+;   `aria-orientation="vertical"`. That is right and it is not a typo: the
+;   attribute describes the separator LINE, which stands across the axis it
+;   resizes. Anyone reading the group's prop and copying it through gets every
+;   separator backwards.
+;
+;   AND THE KEY HANDLER READS THE OTHER ONE. ArrowLeft moves a separator whose
+;   GROUP is horizontal — the same separator that publishes "vertical". Two
+;   orientations, opposite values, both correct. This is why they are separate
+;   things here rather than one field used twice.
+;
+;   `aria-valuenow` IS THE PANEL BEFORE. Not the separator's position in the
+;   group and not a fraction of the whole: it is the percentage size of the
+;   panel immediately preceding it. So moving one separator changes the NEXT
+;   one's published value, and a fixture with three panels shows it.
+;
+;   ENTER COLLAPSES THE PANEL BEFORE, TOO. With only the second panel
+;   collapsible, Enter does nothing at all and reads as unimplemented — which
+;   is exactly how it read here until a fixture put `collapsible` on the first.
+;
+;   F6 STAYS INSIDE ITS OWN GROUP. It walks to the next separator among its
+;   SIBLINGS and wraps. In the reference's own nested example each group has
+;   exactly one separator, so F6 focuses the one it is already on and looks
+;   broken. It took a group of three panels to see it work.
+;
+;   THE SEPARATOR HAS NO NAME. A focusable `separator` with nothing to
+;   announce. That is the reference's choice and not a good one; it is copied,
+;   because this harness records what the reference does and says so.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; One panel. Sizes are percentages of the group, which is what the library
+; normalises everything to before it lays anything out.
+class UiPanel {
+    def value:string ""
+    def size:double 0.0
+    def minSize:double 0.0
+    def maxSize:double 100.0
+    def collapsible:boolean false
+    def collapsedSize:double 0.0
+    ; What Enter puts back. Remembered at the moment of collapse, because the
+    ; reference restores the size the panel HAD and not its minimum.
+    def expandedSize:double 0.0
+    ; A group of its own, for a panel that holds one. Nesting is the
+    ; controller's business the same way a submenu is `MenuCtl`'s.
+    def sub@(optional):ResizeCtl
+
+    Constructor () {
+    }
+}
+
+class ResizeCtl extends UiCtl {
+    def orientation:string "horizontal"
+    def panels:[UiPanel]
+    ; Which separator focus is on, -1 for none. Every separator is its own tab
+    ; stop — there is no roving one — so this is only used by F6 and by the
+    ; key handler to know which separator it was given.
+    def sepFocus:int (0 - 1)
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    ; --- names ----------------------------------------------------------------
+
+    fn panelTid:string (value:string) {
+        return (((tid + "-panel-") + value))
+    }
+
+    fn sepTid:string (i:int) {
+        return (((tid + "-sep-") + (to_string i)))
+    }
+
+    ; The separator LINE's orientation, which is the group's turned through a
+    ; right angle. See the header: this is the finding, not a slip.
+    fn sepOrientation:string () {
+        if (orientation == "horizontal") {
+            return "vertical"
+        }
+        return "horizontal"
+    }
+
+    fn addPanel:UiPanel (value:string size:double) {
+        def p (new UiPanel())
+        p.value = value
+        p.size = size
+        p.expandedSize = size
+        push panels p
+        return p
+    }
+
+    fn panelAt:int (value:string) {
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:UiPanel (itemAt panels i)
+            if (p.value == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Which separator is this tid, or -1.
+    fn sepIndex:int (target:string) {
+        def i:int 0
+        while ((i + 1) < (array_length panels)) {
+            if ((this.sepTid(i)) == target) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; --- the arithmetic --------------------------------------------------------
+    ;
+    ; A separator move is a transfer between the two panels it sits between,
+    ; and both ends clamp it. The library cascades further when a neighbour is
+    ; already at its limit; measured on three panels with no constraints it
+    ; takes from the immediate neighbour and leaves the rest alone, which is
+    ; what this does.
+    ;
+    ; The floor for a collapsible panel is its COLLAPSED size, not its minimum
+    ; — that is what `collapsible` means, and it is why Enter can put a panel
+    ; below a minimum that a drag could not.
+
+    fn floorOf:double (p:UiPanel) {
+        if p.collapsible {
+            return p.collapsedSize
+        }
+        return p.minSize
+    }
+
+    ; How much of `delta` can actually move at separator `i`. Pure: it answers
+    ; the question and changes nothing, so `valueMin` and `valueMax` can ask it
+    ; the same way the arrows do.
+    ;
+    ; It CASCADES. The panel before the separator grows to its own limit and
+    ; the panels after it give up space nearest-first, all of them if need be —
+    ; measured: in a group of three at 20/30/50 the reference publishes
+    ; `aria-valuemax=100` for the first separator, which is only reachable by
+    ; emptying both panels after it.
+    fn roomAfter:double (i:int growing:boolean) {
+        def total:double 0.0
+        def j:int (i + 1)
+        while (j < (array_length panels)) {
+            def q:UiPanel (itemAt panels j)
+            if growing {
+                total = (total + (q.size - (this.floorOf(q))))
+            } {
+                total = (total + (q.maxSize - q.size))
+            }
+            j = (j + 1)
+        }
+        return total
+    }
+
+    fn allowedDelta:double (i:int delta:double) {
+        def a:UiPanel (itemAt panels i)
+        def want:double delta
+        def aLow:double (this.floorOf(a))
+        if ((a.size + want) > a.maxSize) {
+            want = (a.maxSize - a.size)
+        }
+        if ((a.size + want) < aLow) {
+            want = (aLow - a.size)
+        }
+        if (want > 0.0) {
+            def room:double (this.roomAfter(i true))
+            if (want > room) {
+                want = room
+            }
+        } {
+            def room2:double (this.roomAfter(i false))
+            if ((0.0 - want) > room2) {
+                want = (0.0 - room2)
+            }
+        }
+        return want
+    }
+
+    ; The move itself: the panel before takes `moved`, and the panels after
+    ; give (or take) it back nearest-first.
+    fn resizeBy:void (i:int delta:double) {
+        def moved:double (this.allowedDelta(i delta))
+        if (moved == 0.0) {
+            return
+        }
+        def a:UiPanel (itemAt panels i)
+        a.size = (a.size + moved)
+        def left:double moved
+        def j:int (i + 1)
+        while (j < (array_length panels)) {
+            if (left == 0.0) {
+                j = (array_length panels)
+            } {
+                def q:UiPanel (itemAt panels j)
+                def can:double 0.0
+                if (left > 0.0) {
+                    can = (q.size - (this.floorOf(q)))
+                    if (can > left) {
+                        can = left
+                    }
+                    q.size = (q.size - can)
+                    left = (left - can)
+                } {
+                    can = (q.maxSize - q.size)
+                    if (can > (0.0 - left)) {
+                        can = (0.0 - left)
+                    }
+                    q.size = (q.size + can)
+                    left = (left + can)
+                }
+                j = (j + 1)
+            }
+        }
+        this.build()
+    }
+
+    ; `aria-valuenow`: the size of the panel BEFORE the separator.
+    fn valueNowAt:int (i:int) {
+        def a:UiPanel (itemAt panels i)
+        return (to_int (a.size + 0.5))
+    }
+
+    ; `aria-valuemin` / `aria-valuemax`: not what the panel asked for, but what
+    ; the layout can actually give it — the library computes them by simulating
+    ; a resize to each end and reading the result, and so does this.
+    fn valueMinAt:int (i:int) {
+        def a:UiPanel (itemAt panels i)
+        def want:double ((this.floorOf(a)) - a.size)
+        return (to_int ((a.size + (this.allowedDelta(i want))) + 0.5))
+    }
+
+    fn valueMaxAt:int (i:int) {
+        def a:UiPanel (itemAt panels i)
+        def want:double (a.maxSize - a.size)
+        return (to_int ((a.size + (this.allowedDelta(i want))) + 0.5))
+    }
+
+    ; --- the keyboard -----------------------------------------------------------
+
+    ; Every tid this controller answers for, its nested groups included. The
+    ; default is just `tid`, and without this the host cannot find the owner of
+    ; a separator at all — `focus` looked up a controller, found none, and did
+    ; nothing. Every key in every spec then failed, and the trace said only
+    ; that focus had not moved.
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:UiPanel (itemAt panels i)
+            push a (this.panelTid(p.value))
+            if (i > 0) {
+                push a (this.sepTid(i - 1))
+            }
+            if p.sub {
+                def g:ResizeCtl (unwrap p.sub)
+                def kids:[string] (g.tids())
+                def k:int 0
+                while (k < (array_length kids)) {
+                    push a (itemAt kids k)
+                    k = (k + 1)
+                }
+            } {
+                push a ((this.panelTid(p.value)) + "-body")
+            }
+            i = (i + 1)
+        }
+        return a
+    }
+
+    ; Every separator is a tab stop, at every depth. A nested group is not
+    ; registered with the host — this one owns the whole subtree — so both this
+    ; and `keyDown` walk down into it.
+    fn isFocusable:boolean (target:string) {
+        if ((this.sepIndex(target)) >= 0) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length panels)) {
+            def p:UiPanel (itemAt panels i)
+            if p.sub {
+                def g:ResizeCtl (unwrap p.sub)
+                if (g.isFocusable(target)) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn keyDown:string (target:string key:string) {
+        def i:int (this.sepIndex(target))
+        if (i < 0) {
+            ; Not ours; try the groups inside our panels.
+            def k:int 0
+            while (k < (array_length panels)) {
+                def p:UiPanel (itemAt panels k)
+                if p.sub {
+                    def g:ResizeCtl (unwrap p.sub)
+                    def answer:string (g.keyDown(target key))
+                    if ((strlen answer) > 0) {
+                        return answer
+                    }
+                }
+                k = (k + 1)
+            }
+            return ""
+        }
+        sepFocus = i
+
+        ; The arrows read the GROUP's orientation. The pair that does not match
+        ; it does nothing at all — not a clamped move, nothing — which is the
+        ; other half of the inversion in the header.
+        if (orientation == "horizontal") {
+            if (key == "ArrowRight") {
+                this.resizeBy(i 5.0)
+                return ""
+            }
+            if (key == "ArrowLeft") {
+                this.resizeBy(i (0.0 - 5.0))
+                return ""
+            }
+        } {
+            if (key == "ArrowDown") {
+                this.resizeBy(i 5.0)
+                return ""
+            }
+            if (key == "ArrowUp") {
+                this.resizeBy(i (0.0 - 5.0))
+                return ""
+            }
+        }
+        ; Deltas of a hundred rather than absolute ends. With no constraints the
+        ; two are the same answer; with them, this stops at the limit and the
+        ; other would jump past it.
+        if (key == "Home") {
+            this.resizeBy(i (0.0 - 100.0))
+            return ""
+        }
+        if (key == "End") {
+            this.resizeBy(i 100.0)
+            return ""
+        }
+        if (key == "Enter") {
+            this.toggleCollapse(i)
+            return ""
+        }
+        if (key == "F6") {
+            return (this.stepSeparator(i 1))
+        }
+        if (key == "Shift+F6") {
+            return (this.stepSeparator(i (0 - 1)))
+        }
+        return ""
+    }
+
+    ; Enter. The panel BEFORE the separator, and only if it is collapsible.
+    fn toggleCollapse:void (i:int) {
+        def a:UiPanel (itemAt panels i)
+        if (a.collapsible == false) {
+            return
+        }
+        if (a.size == a.collapsedSize) {
+            this.resizeBy(i (a.expandedSize - a.size))
+            return
+        }
+        a.expandedSize = a.size
+        this.resizeBy(i (a.collapsedSize - a.size))
+    }
+
+    ; F6. Among SIBLINGS, wrapping — a nested group's separator is not a
+    ; neighbour of this one, which is why the reference's own example makes
+    ; the key look like it does nothing.
+    fn stepSeparator:string (i:int dir:int) {
+        def n:int ((array_length panels) - 1)
+        if (n <= 0) {
+            return ""
+        }
+        def next:int (i + dir)
+        if (next >= n) {
+            next = 0
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        sepFocus = next
+        return (this.sepTid(next))
+    }
+
+    ; --- the tree ---------------------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-resizable"
+        if (orientation == "vertical") {
+            UiTree.addClass(root "ui-resizable-vertical")
+        }
+        UiTree.clearChildren(root)
+
+        def i:int 0
+        while (i < (array_length panels)) {
+            if (i > 0) {
+                def sep (EVGElement.createDiv())
+                sep.id = (this.sepTid(i - 1))
+                sep.className = "ui-resizable-sep"
+                root.addChild(sep)
+            }
+            def p:UiPanel (itemAt panels i)
+            def pel (EVGElement.createDiv())
+            pel.id = (this.panelTid(p.value))
+            pel.className = "ui-resizable-panel"
+            if p.sub {
+                def g:ResizeCtl (unwrap p.sub)
+                g.build()
+                pel.addChild((unwrap g.rootEl))
+            } {
+                def body (EVGElement.createDiv())
+                body.id = ((this.panelTid(p.value)) + "-body")
+                body.className = "ui-resizable-body"
+                pel.addChild(body)
+            }
+            root.addChild(pel)
+            i = (i + 1)
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) ""))
+        push out rootRow
+
+        def i:int 0
+        while (i < (array_length panels)) {
+            if (i > 0) {
+                ; NAMED, unlike the reference's. See the header: the library
+                ; publishes nothing, which leaves a focusable control saying
+                ; "50, separator" and nothing about what it splits. The name is
+                ; the panel it resizes, and the DOM playground passes the same
+                ; one so the two sides still agree.
+                def before:UiPanel (itemAt panels (i - 1))
+                def s:UiRow (UiRow.of((this.sepTid(i - 1)) (EVGA11yRole.separator()) ("Resize " + before.value)))
+                s.parentTid = tid
+                s.orientation = (this.sepOrientation())
+                s.hasValueNow = true
+                s.hasRange = true
+                s.valueNow = (this.valueNowAt(i - 1))
+                s.valueMin = (this.valueMinAt(i - 1))
+                s.valueMax = (this.valueMaxAt(i - 1))
+                ; Every separator, not one of them. There is no roving tab stop
+                ; here and no single entry point into the group.
+                s.tabStop = true
+                s.focusable = true
+                push out s
+            }
+            def p:UiPanel (itemAt panels i)
+            def prow:UiRow (UiRow.of((this.panelTid(p.value)) (EVGA11yRole.none()) ""))
+            prow.parentTid = tid
+            push out prow
+            if p.sub {
+                def g:ResizeCtl (unwrap p.sub)
+                def kids:[UiRow] (g.rows())
+                def k:int 0
+                while (k < (array_length kids)) {
+                    def kr:UiRow (itemAt kids k)
+                    if ((strlen kr.parentTid) == 0) {
+                        kr.parentTid = (this.panelTid(p.value))
+                    }
+                    push out kr
+                    k = (k + 1)
+                }
+            } {
+                def brow:UiRow (UiRow.of(((this.panelTid(p.value)) + "-body") (EVGA11yRole.none()) ""))
+                brow.parentTid = (this.panelTid(p.value))
+                push out brow
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

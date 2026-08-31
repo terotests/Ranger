@@ -89,6 +89,22 @@ for (const [comp, entry] of Object.entries(catalogue)) {
 }
 const isDisputed = (comp, b) => disputed.some((d) => d.component === comp && d.behaviour === b);
 
+// A third form: { note, oracle }. The behaviour IS measured against the
+// reference, but by a recorded oracle rather than a DOM trace, because the
+// reference publishes it nowhere a trace can see — a drop indicator is CSS,
+// and a move the library swallows changes nothing on the page at all. Those
+// checks run in CI beside this one, so the behaviour counts as covered; it is
+// listed separately below so the distinction stays visible rather than being
+// quietly folded into the headline.
+const byOracle = [];
+for (const [comp, entry] of Object.entries(catalogue)) {
+  for (const [b, v] of Object.entries(entry.behaviours)) {
+    if (v && typeof v === "object" && v.oracle) {
+      byOracle.push({ component: comp, behaviour: b, check: v.oracle });
+    }
+  }
+}
+
 const byComponent = new Map();
 for (const name of Object.keys(catalogue)) {
   byComponent.set(name, {
@@ -104,6 +120,8 @@ for (const name of Object.keys(catalogue)) {
 
 const divergenceByField = Object.fromEntries(FIELDS.map((f) => [f, 0]));
 let missingNodes = 0;
+
+for (const o of byOracle) byComponent.get(o.component).covered.add(o.behaviour);
 
 for (const r of results) {
   const c = byComponent.get(r.spec.component);
@@ -214,6 +232,13 @@ if (gaps.length) {
     if (r.uncovered.length) {
       console.log(`  ${r.component}: uncovered ${r.uncovered.join(", ")}`);
     }
+  }
+}
+
+if (byOracle.length) {
+  console.log("\nmeasured by a recorded oracle, not a DOM trace — the reference shows these nowhere a trace can see");
+  for (const o of byOracle) {
+    console.log(`  ${o.component}.${o.behaviour}  ${o.check}`);
   }
 }
 

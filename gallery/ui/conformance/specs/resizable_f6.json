@@ -1,0 +1,14 @@
+{ "name":"resizable_f6","component":"resizable",
+  "$comment":"F6 walks to the next separator IN THE SAME GROUP, wrapping; Shift+F6 goes back. In a nested layout each group has one separator, so F6 focuses the one it is already on and looks broken — which is exactly how it read until a group with three panels was tried.",
+  "behaviours":["separator-f6-cycles"],
+  "$ignore":"In a group of THREE OR MORE the reference publishes an incoherent range on every separator but the first: measured at 20/30/50, the second says aria-valuemin=50, aria-valuenow=30, aria-valuemax=0. min above now above max is not a range any assistive technology can use, and valuemin tracks the CUMULATIVE size up to that panel rather than any minimum. Copying it would publish nonsense to a real screen reader, so this side publishes a coherent range and the two fields are out of the denominator here. See behaviours.json for the evidence; the two-panel case, where the reference is right, is measured in full by the other five specs.",
+  "ignore":["valuemin","valuemax"],
+  "fixture":{"controls":[{"type":"resizable","tid":"rz","orientation":"horizontal",
+    "panels":[{"value":"a","defaultSize":"33%"},{"value":"b","defaultSize":"33%"},{"value":"c","defaultSize":"34%"}]}]},
+  "steps":[
+    {"focus":"rz-sep-0"},
+    {"key":"F6"},
+    {"key":"ArrowRight"},
+    {"key":"F6"},
+    {"key":"ArrowRight"},
+    {"key":"Shift+F6"}] }

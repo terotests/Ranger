@@ -939,6 +939,1710 @@ know the layout" is not a property anything enforces — and its failure mode is
 not a clean error at the boundary but nonsense that surfaces somewhere
 unrecognisable.
 
+## Dialog and window — and `backdrop-filter: blur()` underneath them
+
+Two things the gallery could not do: soften what is behind a surface, and put
+a window somewhere the user chooses with whatever the caller likes inside it.
+
+### The blur, and two beliefs that turned out to be half right
+
+Measured before a line of it was written, and both halves of the obvious
+answer are wrong in different ways.
+
+**The kernel is not a Gaussian.** `blur(r)` is the SVG filter spec's three-box
+approximation with sigma = r — the CSS filter spec adopts it by reference and
+every engine ships it. Fitted against Chrome at three radii, the three-box
+model is within half a luminance level everywhere; a true Gaussian with the
+same sigma is out by up to 14. So the common belief is exactly half right: the
+sigma IS the radius, and the shape is not a Gaussian. `oracle/css-blur.json`
+records the residuals of all four candidates, so the claim comes with its own
+error bar.
+
+**The backdrop is the element's own region, edge-clamped** — not the page
+behind it. This one was implemented backwards first, and the reason is worth
+keeping: behind a pane over flat grey the browser's result is flat to the
+border, and that was read as proof that the blur samples past the edge. It
+proves nothing. A uniform field is uniform under either rule. The case that
+decides is a feature straddling the border, and it is not subtle — a black
+stripe starting at the pane's left edge reads `255 255 255 | 0 0 0` with no
+ramp at all, while the same boundary 100px further in gets the full smooth
+curve. Outside content does not enter.
+
+One case is recorded and deliberately **not** matched: within a kernel's reach
+of the border, Chrome stops producing a blur profile at all. Across nine
+pixels it is a straight line of about 8 levels each, then a 63-level JUMP at
+the feature's own edge, then another straight line of about 2.5. A blurred step
+is an S-curve; two straight segments with a discontinuity is a compositor's
+downsampled edge handling. EVG clamps at the border — the principled reading of
+the same rule — and agrees with the browser to within 3 levels everywhere the
+border is further away than the kernel reaches.
+
+`gl/blur-check.mjs` is 14 probes under SwiftShader against the oracle's own
+pixels, and six mutations are caught: sigma halved, one box pass instead of
+three, sampling past the border, ignoring the radius, blurring on one axis
+only, and dropping the even-width offsets. Three of those checks exist only
+because an earlier version of them did not catch the mutation they were
+written for — a scene that is uniform along the axis you broke will happily
+report success.
+
+Two implementation notes that were bugs first:
+
+- The blur targets are sized to the region **exactly**. Growing a shared
+  target and reusing it for a smaller region stretches the image by
+  target/region on the first pass and reads back region/target of it on the
+  last, and those cancel along any axis where the picture is uniform. Two
+  scenes written to catch that saw nothing.
+- `TEXTURE0` is the glyph atlas for the whole frame, and the blur borrows it.
+  Leaving it bound meant every letter drawn after a dialog sampled the blur
+  instead of the atlas, came back with alpha 1, and rendered as a solid black
+  rectangle the size of the word — which is exactly what the first screenshot
+  of the dialog demo showed, in every run on the page.
+
+### The window
+
+`EVGWindow` has a fixed vocabulary — `addLabel`, `addButton`, `addRadio`,
+`addCheckbox`, `addSwatch`, and one content rectangle whose pixels the owner
+paints by hand. Anything it has no method for cannot go in the window: a table,
+a form with a select in it, another controller's output.
+
+`WindowCtl` owns a frame and nothing else. `bodyEl` is an ordinary
+`EVGElement`; the caller fills it, and `build()` re-makes the chrome around it
+without touching it. The demo puts a form in one and a small table in the
+other, from two unrelated tree literals, and the class knows about neither.
+
+Modal and movable are the same class with one flag. The ARIA is Radix's dialog
+and is already measured through `DialogCtl`; the DRAGGING has no reference —
+nothing in Radix moves a dialog — so it is specified rather than measured, and
+`UiTest` states the rules: the title bar is the handle and only when movable, a
+modal never drags, enough of the window stays on screen to grab it again, the
+arrow keys move it too, and the caller's content survives every rebuild.
+
+Three things the live page found that the tests had not:
+
+- **The handle is the bar AND its title.** The label fills the bar, and a hit
+  test returns the innermost thing under the pointer, so pressing the middle of
+  a title bar reported the title and the window did not move. The test that now
+  covers it clicks the title, which is what the page actually hands over.
+- **The ARIA was in `rows()` only.** That is what the conformance host reads;
+  `EVGA11yFromTree` walks the ELEMENTS, and that is what a page using the
+  controller directly publishes. The demo's accessible tree had the form fields
+  and the table in it and no dialog at all — and the audit passed, because a
+  node that is missing cannot fail a rule about its name. `build()` now writes
+  the same facts to both.
+- **A button may not contain another one.** With the close button inside the
+  handle, axe says `nested-interactive` and is right. The strip across the top
+  is a roleless container now, with the handle and the close button as
+  siblings; the handle still fills everything left of the close, so the whole
+  bar is grabbable.
+
+`UiCtl` gained a third gesture for this. A slider asks for a fraction of a
+track, a sortable asks what it is over, and a window asks how far the pointer
+has moved — `dragBy(dx, dy)` in page pixels, so the controller never learns
+where it was picked up and a window grabbed by the right end of its bar does
+not jump left.
+
+## Tree — a generous oracle, and a branch no mutation could reach
+
+ReUI's tree is `@headless-tree/react` over `@headless-tree/core`, wired with
+`syncDataLoaderFeature` and `hotkeysCoreFeature` and nothing else; `Tree`,
+`TreeItem` and `TreeItemLabel` are a stylesheet over it. So the library is the
+oracle, the way dnd-kit is for the sortable — and it is a far more generous one
+than TanStack was. The table's library writes not a single attribute, so all of
+the table's ARIA had to be argued from the HTML spec. `getProps()` here hands
+back the role, `aria-expanded`, `aria-level`, `aria-setsize`, `aria-posinset`,
+`aria-selected` and the roving `tabIndex`, so the accessible tree is not
+designed at all — it is copied, and then measured.
+
+Four things the measurement said that a reading of the WAI-ARIA pattern would
+not have:
+
+- **The tree is flat.** `getItems()` returns the visible rows already
+  flattened, every one of them a sibling, and depth is carried by `aria-level`
+  alone. A `role="group"` per folder is equally valid ARIA and would not match,
+  so `TreeCtl` builds a flat list too.
+- **The root is not a row.** A tree rooted at `crm` shows CRM's children and
+  never CRM. This is load-bearing later.
+- **Enter and Space toggle the folder and select nothing**, because
+  `selectionFeature` is not in ReUI's list. And yet every row still publishes
+  `aria-selected="false"` — telling a reader the rows are selectable when
+  nothing can select them. That is the library's choice rather than a good one,
+  and it is copied, because the harness records what the reference does.
+- **ArrowRight on a leaf is not a no-op.** It steps DOWN, exactly as it does on
+  an already-open folder — the library has one `expandOrDown` path and a leaf
+  falls through it. The first reading here said "does nothing", and it came
+  from a spec whose opening `focus` step the reference had silently ignored:
+  headless-tree tracks its own focused item and a DOM focus call does not set
+  it, so several presses were being scored against a tree that had never
+  focused anything. Tree specs click instead. The rule is not new — a step the
+  reference ignores makes every observation after it agreement about nothing —
+  but it is the first time it bit through a *library's* internal state rather
+  than the page's.
+
+Three specs, 3475 observations, eighteen behaviours, all matching. Nine
+mutations were run against them and eight are caught. The ninth is more
+interesting than the eight:
+
+- **The leaf ArrowRight mutation survived the first time.** Not one spec
+  pressed ArrowRight on a leaf — the walks all happened to be on folders. The
+  behaviour was in the catalogue and reported as matched, on evidence that did
+  not exist. `tree_expand`'s walk was rewritten to end on a leaf and it is
+  caught now.
+- **The top-level ArrowLeft mutation was equivalent.** Deleting the guard
+  changed no observable behaviour, and for a good reason: the root is not a
+  row, so a top-level item's parent is not in the visible list and the lookup
+  fails anyway. Two mechanisms were answering one question. The guard is gone
+  and the comment in its place says why, because a branch nothing can reach
+  reads as coverage from the outside.
+
+### The demo, and a second silent hole in the accessible tree
+
+`demo/TreeDemo.rgr` is the same split the table and dropdown demos make: the
+controller decides what is true, the tree literal decides what it looks like.
+It owns two things the controller does not — the twenty-pixel indent, which is
+presentation because depth already lives in `aria-level`, and the twisty, which
+is `aria-hidden` because `aria-expanded` says the same thing in words.
+
+Then the audit reported **1 node**, and passed.
+
+`EVGA11yFromTree` maps an element's `role` string to a role code and drops the
+element — and everything under it — when it does not recognise one. It did not
+know `tree` or `treeitem`. Eighteen rows on screen, one node in the
+accessibility tree, no finding: a node that was never made breaks no rule about
+the nodes that were. This is the second time that exact shape of failure has
+appeared here; the dialog's was the first.
+
+So the second fix matters more than the first. An unrecognised role is now
+REPORTED, through a `notes` list on `EVGA11yTree` that `lint()` empties before
+anything else — the builder gets to say what it could not represent, instead of
+the silence that a passing audit then reads as agreement. There is no safe
+default to substitute: `group` would invent structure, and skipping is what
+caused this.
+
+`aria-level` was missing from the accessible tree entirely — `EVGA11yNode` had
+`posInSet` and `setSize` and no `level`, `UiHost` dropped all three on the way
+from `rows()`, and the DOM mirror wrote none of them. The trace had carried
+them since the controller went in, so the conformance number was right while
+the thing a screen reader actually reads was a flat list of unnumbered rows.
+Fixed on all four: the node, both builders, and `evg-a11y.js`.
+
+## Element identity — `key`, and a reconciler
+
+Every demo in this directory keeps its element tree between frames, and
+`main.js` says so plainly: *"Rebuild only if the data changed."* The comment
+beside it is a measurement rather than a worry —
+
+> every element is new every frame, so every flight establishes at its
+> destination. Measured before it was believed: the rows making room for a
+> dragged item were at their final positions 40ms after the pointer crossed,
+> having travelled through nothing.
+
+So the declarative half of the gallery ran ONCE, at init, and everything after
+that was imperative mutation of the tree it produced. The sortable was the
+clearest case: `applyShift()` re-aimed the live list by hand, walking by INDEX
+— `list.children[i]` assumed to be the row for `order[i]`, which holds only
+because the order does not change mid-drag. A keyed reconciler for one list,
+written without keys, correct by luck. The same workaround had been invented
+independently five times.
+
+### `key` is not `id`
+
+`id` is global and outward-facing: the hit test reports it, the accessible tree
+carries it, and an application addresses a control by it. `key` is
+sibling-scoped and inward-facing: this new child is the same LOGICAL child as
+that live one, so keep its element. Two lists on one page may both key a row
+"video"; two elements may not share an id. The preview in the sortable is the
+case that makes the distinction concrete: it deliberately has no id — hit
+testing scans backwards and an id there would hide the row underneath it — and
+it very much needs a key.
+
+`EVGReconcile.reconcile(live, next)` matches children by (key, tagName), keeps
+what it can, takes `next`'s order, and reports how many it kept, created,
+dropped and moved. An unkeyed child matches by position AMONG UNKEYED SIBLINGS,
+and a mismatch there is a miss rather than a search — falling forward past one
+pairs the second unkeyed child of one render with the third of another, which
+is how an unkeyed list shifts its state by one on every insert.
+
+### The oracle is an invariant, not a capture
+
+Nothing ships a reconciliation you can read pixels off. So the check is:
+
+> a reconciled tree must describe exactly what a freshly built one describes
+
+on all four things a tree produces — display list, layout, hit test, accessible
+tree. That is what makes it field-agnostic. `adoptFrom` copies 180 fields of
+`EVGElement` by name, skipping three (`parent`, `children`, `transitions`), and
+a field somebody adds to the class and forgets to add there would be dropped on
+every rebuild. Four such mutations were run and all four are caught, because a
+dropped field that changes nothing observable changes nothing at all.
+`scripts/check-evg-adopt.mjs` catches the same mistake earlier and by name.
+
+Nine mutations, eight caught. The ninth — swapping the adopt and the match —
+is genuinely equivalent, because `adoptFrom` skips `children`; the comment
+where the order is written down says so rather than warning about a danger that
+is not there.
+
+### The litmus test: `applyShift()` is gone
+
+`gallery/ui/demo/sortable-motion-check.mjs` runs the demo's own pipeline with
+no browser and measures where each row is actually drawn. The gap opens over
+180ms through a spread of positions; with the reconcile taken out, the row is
+simply there one frame later. `applyShift` and `movePreview` are both deleted,
+and the page rebuilds the whole tree on every frame of a drag.
+
+**And the drop regressed, which is the useful half of this.** At the drop the
+list reorders and every shift transform goes to zero in the same frame. With
+the elements kept across that rebuild — which is the feature — the row's new
+layout position is 88px further down while its transform is still +88, so a
+transitioned transform starts from a row drawn 176px low and slides back:
+measured, y=216 jumping to 304 and taking 180ms to return. Keeping identity
+across a layout change is exactly the FLIP problem, and it does not appear
+until identity works.
+
+The fix is the reference's own rule: dnd-kit's `useSortable` transitions
+`transform` only while `isSorting`. `.sr-row-sorting` carries the transform
+transition and is on the rows only while something is being carried, so the
+transform snaps when the drag ends and the two halves cancel. The cost is a 2px
+hover lift that snaps rather than eases outside a drag — which is what the
+reference does. The check now holds both halves: the gap opens, and the drop
+moves nothing.
+
+### What this is NOT yet
+
+It is the identity layer and nothing above it. It does not decide when to
+rebuild, does not track dependencies, and does not know what a component is —
+those are the next steps, and they are language work rather than library work.
+Doing this one first was deliberate: the runtime semantics are provable without
+touching the compiler, and sugar over an unproven runtime is the expensive
+order to work in.
+
+## Component instances — the owner, not another element layer
+
+`EVGReconcile` made an ELEMENT survive a rebuild. This makes the thing that
+BUILT it survive one, which is a different problem and the one that has to be
+solved before `state` means anything.
+
+The distinction matters, because "keyed reconciliation" sounds like it should
+already cover this. A reconciler works on the OUTPUT: two trees exist and it
+decides which of their nodes are the same node. Nothing in that gives the
+builder anywhere to live. A function that returns a subtree starts from nothing
+every time it is called, so a value it would like to remember between calls has
+no home and gets pushed up into a controller. `MenuCtl.pendingTid` and
+`pendingMs` are exactly that: a 100ms submenu timer belonging to ONE ROW, kept
+on the controller because a row is a function call and a function call cannot
+hold a clock.
+
+`EVGComponent` is a separate owner sitting ABOVE the element layer, not a new
+element layer:
+
+```
+EVGComponentHost   key -> instance, and the pass that decides who is still here
+    EVGComponent   props, state, and a view that returns
+        EVGElement     -> EVGReconcile -> layout / display list / hit test / a11y
+```
+
+`EVGReconcile` is untouched by this commit. The two are keyed the same way —
+`render()` stamps the component's path onto its root element's `key` — so the
+host and the reconciler cannot disagree about which row is which. A component
+whose view forgot that would keep its own state and lose its element's, which
+is worse than neither persisting.
+
+### mount / update / dispose
+
+The same three events `EVGReconcileStats` counts for elements (kept, created,
+dropped), one level up and named apart so a number says which layer it came
+from. `endPass` disposes everything the pass did not ask for, and that is the
+half a reconciler cannot do: dropping an element takes a subtree out of the
+tree and tells nobody, which is fine for a box and wrong for anything holding a
+timer, a pointer capture or a subscription. Nothing owns such a resource yet —
+the hook exists first on purpose, because retrofitting a lifecycle onto
+components that already leak is the expensive order.
+
+There is no remove call and there should not be one: a thing leaves a view by
+not being built. The test proves the forget is real by asking for the same key
+again and getting an instance with none of the old one's memory.
+
+### The leg of identity a library cannot have
+
+Identity should be parent + CALL SITE + key. This has the first and the third.
+Two sibling calls with one key are therefore indistinguishable here from one
+component being rebuilt, and they would share an instance and its state. That
+is REPORTED rather than absorbed — quietly handing back the same object is the
+failure mode that looks like it works, and it would show up as two rows
+mysteriously agreeing about everything. Folding the call site in is something a
+compiler can do when `component` becomes a literal, and it is the argument for
+doing that in the compiler rather than here.
+
+### On the page
+
+`TreeDemo`'s rows are `TreeRow` components now, and the demo rebuilds through
+the reconciler on every press. Collapsing a folder is the visible half of the
+lifecycle: ten components live, six after collapsing Accounts, ten again after
+re-opening. The display list and the accessible tree are byte-identical to what
+the hand-built version produced, checked state by state.
+
+`TreeRow` has no local state, and saying so is the honest position: it is a
+pure function of its props today. What being a component buys it now is the
+identity and the lifecycle — and one thing that shows immediately, because the
+elements persist: the focus tint now TRANSITIONS across a state change instead
+of snapping, which a from-scratch rebuild could never do.
+
+### Deliberately not optimised
+
+Every component's view runs on every pass. Nothing tracks which state a view
+read, and nothing skips a subtree. The sortable already rebuilds its whole tree
+on every frame of a drag and keeps all 61 elements, so the simple semantics are
+affordable at this scale; dependency tracking is the answer to a measurement
+nobody has taken yet, and taking it early would buy complexity with no evidence.
+
+## Where the frame actually goes
+
+There was no benchmark. `gallery/ui/bench` is one now, and it exists because a
+claim about which phase is expensive has to be falsifiable — a total says the
+pipeline costs 250ms and gives you nowhere to start.
+
+The fixture is the table demo's row shape at N rows: 14 elements and 6 text
+runs each, real strings so text measurement is not flattered by every run being
+the same width. Median of seven, phases timed separately.
+
+```
+  rows  elements   cmds |  build   style  layout    list |  paint   patch retained rebuild
+   200      2803   1803 |   14.2    19.6     5.1     1.1 |    3.5    54.5     28.8    41.7
+   800     11203   7203 |   49.6    78.1    26.7     8.9 |   10.3   213.6    118.4   171.6
+  1600     22403  14403 |   98.0   178.6    70.5    21.1 |   31.8   561.8    252.9   451.1
+```
+
+Two conclusions, and the second one was not the expected one.
+
+**The painter is not the problem.** 31.8ms to draw 14,403 commands, against
+252.9ms to decide what they are. Optimising WebGL here would be optimising 12%
+of the frame. That much was expected.
+
+**The STYLESHEET is the problem, not layout.** 178.6ms of a 252.9ms retained
+frame — 71% — against layout's 70.5 (28%) and the display list's 21.1 (8%). The
+working assumption before measuring was that layout plus display-list
+construction dominated; they are together barely half of what the cascade costs.
+
+The reason is in `EVGStyleSheet.applyTo`, and it is not subtle. Per element,
+per frame: split the className string, clear the state properties, then FOUR
+passes over the rule set (plain, themed, plain-state, themed-state). At 22,403
+elements that is 22,403 string splits and ~90,000 rule scans every frame — to
+produce **18 distinct answers**, because a 1600-row table has 18 distinct class
+strings in it and the resolved property set depends on nothing else but the
+state flags and the theme.
+
+So the first big win is not incremental layout. It is a resolved-style cache
+keyed on `(className, theme, hovered, pressed, focused)`. That is a real
+refactor rather than a memo one can bolt on — the four passes WRITE onto the
+element instead of producing a value, so they have to be turned into something
+that returns a property set before anything can be cached — and it is guarded
+by the conformance suite, the demo audit and a display-list equality check.
+
+**And `patch` costs more than `rebuild`.** 561.8 against 451.1 at 1600 rows: a
+change to one row's class, taken through build → reconcile → style → layout →
+display list, is more expensive than throwing the tree away. That is not a
+regression and it is not a surprise — the reconciler bought IDENTITY, which is
+what transitions and component state need, and it never claimed to buy speed.
+But it does say plainly what the next layer is for: while `patch` tracks
+`retained`, nothing is being avoided, and one row lighting up logically dirties
+one background colour.
+
+`ui:bench` and `ui:bench:paint` run it. The numbers above are one machine's and
+are meant to be re-measured, not quoted.
+
+## The resolved-style cache
+
+The benchmark said the cascade was 71% of a retained frame. It is not any more.
+
+```
+  1600 rows        style   layout    list  retained   rebuild   patch
+  before           178.6     70.5    21.1     252.9     451.1   561.8
+  after             53.1     45.5    13.6     114.2     207.4   269.1
+```
+
+Style is 3.4× faster and the whole retained frame is 2.2×. Nothing about the
+architecture changed to get it — the cascade was doing the same work over and
+over.
+
+`applyTo` did five full scans of the rule list per element per frame: one to
+clear the state properties and four to apply the groups (plain, themed,
+plain-state, themed-state). What those scans produce is an ordered list of
+(property, value) writes, and that list depends on exactly four things: the
+class string, the theme, the four interaction bits `EVGPseudo.holds` reads, and
+the viewport. A 1600-row table has EIGHTEEN distinct class strings in 22,403
+elements.
+
+So the scan runs once per distinct key and the result is replayed. Plans are
+flat parallel arrays with a start/count index rather than a list of lists — one
+allocation that grows, and no nested array type to thread through the backends.
+The viewport is not in the key: it invalidates the whole cache instead, because
+a sheet is parsed once and a window resizes rarely, and being clever there would
+be optimising the rare case.
+
+`hasInline` was the other half. The sheet asks it once per declaration per
+element — about 180,000 times a frame — and it converted the property name to
+kebab-case before looking in a list that is almost always empty. An early return
+took style from 68ms to 53.
+
+### The oracle, and the two things it could not see
+
+The old implementation is kept as `applyToDirect`. The test builds the same tree
+twice, styles it both ways and compares the DISPLAY LISTS — field-agnostic, for
+the same reason the reconciler's invariant is.
+
+Nine mutations. Three of them exposed the fixture rather than the code, and two
+of those exposed a limit of differential testing itself:
+
+- **The theme was not in the fixture at all.** It said `.dark .box`, which this
+  sheet does not support — only `.theme-<name> .class` — so the rule became a
+  parse error and there was no theme rule to get wrong. `testFixtureParses` now
+  asserts the sheet parses clean, which is the check that would have said so
+  immediately.
+- **A differential oracle is blind to what the two sides share.** Breaking
+  `hasInline` breaks the cached path and the direct path identically, so the two
+  display lists still agreed. Inline precedence needs a direct assertion, and
+  has one.
+- **One sheet, two themes** is a case `testAgreement` structurally cannot reach,
+  because it builds a fresh sheet per comparison — so each cache only ever held
+  one theme and the key never needed to carry it. Dropping the theme from the
+  key passed everything until a test applied one sheet twice.
+
+And one near-miss worth recording: a mutation round used `git checkout` to
+restore a file, which reverted the `hasInline` optimisation because it was not
+committed yet. The benchmark numbers taken after that point were measuring
+source that no longer existed. Restore from a copy, not from HEAD, while the
+thing being measured is uncommitted.
+
+## Invalidation: what a change is allowed to cost
+
+A hover on one row of a 1600-row table logically dirties one background colour.
+It used to cost the whole pipeline.
+
+```
+  1600 rows        style   layout    list   hover  retained   rebuild
+  before            178.6     70.5    21.1   113.5     252.9     451.1
+  after the cache    53.1     45.5    13.6   113.5     114.2     207.4
+  after this          2.5     48.6    13.8    16.3      61.2     242.2
+                                              ^^^^
+                                     paint at 1600 rows is 26.3
+```
+
+**A hover is now cheaper than painting the frame it causes.** Two elements
+re-style — the row that lit up and the one that stopped — 22,401 are skipped,
+and layout does not run at all.
+
+Two mechanisms, both on the element rather than in a side table.
+
+**An element remembers what the sheet last wrote to it**: the class string, the
+theme, the four interaction bits, the sheet's generation and the child count.
+When all five still agree, the element already contains exactly what the pass
+would write and the pass returns without writing. Four scalar comparisons and no
+allocation. The sheet's generation is bumped by re-parsing and by a viewport
+change, so either invalidates every element at once without touching any of
+them.
+
+**A plan knows whether it can move a box.** Each cached plan carries a signature
+of its LAYOUT-relevant declarations only. Two plans with the same signature
+cannot move anything however much else differs between them — which is exactly a
+`:hover` rule that sets a colour. When no element's signature changed, the pass
+reports `layoutClean()` and the caller skips layout entirely.
+
+`isLayoutProperty` is conservative by construction: anything not on the
+paint-only list counts as layout, so a property nobody thought about costs a
+layout pass rather than silently leaving a stale one. `transform` is on the
+paint-only list because EVG applies it to the display list after layout — which
+is what makes a transform-driven drag free of the geometry pipeline.
+
+### The failure this could have had
+
+Skipping a layout that was needed does not crash. It draws a box where it used
+to be — occasionally, only after certain changes, and only until something else
+forces a full pass. So the test does not check the classification, it checks the
+CONSEQUENCE: two trees, the same edit applied to both, one taking the fast path
+and one always laying out, display lists compared. Ten kinds of edit, and each
+case also states what it expected the pass to decide — because a pipeline that
+never skips passes every comparison and is worth nothing.
+
+Seven mutations. Two are worth writing down:
+
+- **`writeBack` invalidated every element, every frame.** `EVGTransition.reconcile`
+  runs on every element in the tree and ends by writing back showing values, and
+  the first version of the invalidation hook sat there unconditionally. So on
+  every page in this gallery — all of which use transitions — nothing was ever
+  skipped. The benchmark could not see it, because a benchmark that runs no
+  transitions is not the page. The second version, "invalidate if it has any
+  flight", was still wrong: a finished flight stays in the list, so every
+  element that had ever transitioned stayed stale forever. It invalidates while
+  a flight is MOVING, and `testSkipSurvivesTransitions` is what says so.
+- **The hook is not load-bearing at all.** Removing it entirely passes every
+  test, because `EVGFlight.hasWrote` already lets a flight recognise its own
+  output and carry on. That mutation was run and survived; the comment says so
+  rather than claiming a necessity that is not there.
+
+### What the sheet still cannot see
+
+`textContent`. It is not a property, it does not change the child count, and it
+changes how wide a run is — so a host that edits text by hand must force a
+layout. Nothing here does: text comes from a rebuild, and a rebuild goes through
+`EVGReconcile`, which overwrites the element and therefore its style state.
+Recorded as a check rather than left as a trap.
+
+A removed child had the same shape and was closed: an element records how many
+children it had. An ADDED child was caught anyway — a new element has never been
+styled — but a removal has no other symptom, and skipping there draws the
+survivors where they used to be.
+
+### `rebuild` and `patch` barely moved, and should not have
+
+242 and 263, against 207 and 269 before. A from-scratch build has nothing to
+skip: every element is new, so every element styles and layout must run. The
+declarative path's cost is the build (81ms) and the reconcile, and lowering
+those is a different project — one the benchmark can now argue about.
+
+## Tree selection, and three things the source said that a reading would not
+
+`selectionFeature` is the first of the ten headless-tree features ReUI's tree
+does not enable. It is a MODE here — off by default, because the eighteen
+behaviours already measured are measured against ReUI's configuration and must
+not move. A fixture asks for it with `"selection": true`, and the DOM reference
+builds a different tree.
+
+Fourteen behaviours, two specs, 4,988 observations. Eight mutations, all caught
+— but only after three of them exposed the fixture rather than the code, which
+is becoming the pattern worth naming: **the mutation that survives is usually
+telling you what your fixture does not contain.**
+
+Three findings, none of which a reading of WAI-ARIA would give you:
+
+- **`space` is COMMENTED OUT of the library's selection hotkeys, and that means
+  the opposite of what it looks like.** Space still selects — through the click
+  path, because a row is a `<button>` and activating one fires `click`, and the
+  selection feature's click handler with no modifiers is
+  `setSelectedItems([itemId])`. So selecting nine rows with Control+A and then
+  pressing Space leaves exactly one selected. The first version kept all nine
+  and the reference had dropped eight.
+- **A modified click does not open a folder.** The base handler reads
+  `if (e.ctrlKey || e.shiftKey || e.metaKey) return;` before the expand branch.
+  Miss it and shift-clicking down a list to select a range opens and closes
+  every folder on the way past. Found by a divergence on a folder the reference
+  had left shut.
+- **Shift+Arrow shrinks as well as grows.** When the focused row AND the one it
+  is moving towards are both already selected, the FOCUSED one is deselected
+  rather than the next one selected. That is what makes walking back over a
+  range give the range back instead of doing nothing.
+
+And the fixture lessons, because each cost a mutation that should have failed:
+
+- A click on a row that is not VISIBLE is not a step. It hits nothing on one
+  side and cannot be found on the other, and the two disagree about what
+  happens to focus — an artefact of the harness, not a finding.
+- "Select all" and "select every node" are the same answer until the fixture
+  has a closed folder with children in it.
+- And even then the difference is invisible, because a hidden row is not in
+  either trace. The step that makes it observable is opening the folder
+  afterwards — with ArrowRight, not Enter, since Enter would collapse the
+  selection first.
+
+The harness grew one thing: a click can carry modifiers (`"mods": ["Shift"]`).
+Keys needed nothing — Playwright already understands `"Shift+ArrowUp"` and the
+Ranger side passes the string through to the controller.
+
+## Tree drag and drop, and a feature the DOM cannot show you
+
+`dragAndDropFeature` + `keyboardDragAndDropFeature`, both halves. The KEYBOARD
+one walks drop targets an arrow at a time; the POINTER one computes a target
+from where in a row the cursor sits. They share the target and the drop and
+agree about nothing else. The pointer half is written up below.
+
+**The DOM is not the oracle here.** A keyboard drag moves a target between rows
+and BETWEEN rows, and the library publishes none of it as an attribute — press
+ArrowDown four times and the trace is identical four times over, until the drop
+lands. So the targets are captured from the library into `oracle/tree-dnd.json`
+and checked field by field, exactly as the table's state machine is:
+`npm run ui:tree:dnd:check`, 280 comparisons over five drags. The DOM-observable
+half — the drop, the cancel, the focus — is two ordinary conformance specs on
+top.
+
+The tree is at 51 of 51 behaviours over 10 specs and 20,521 observations, two
+of them measured by the oracle rather than a trace.
+
+### Three rules that decide the whole walk
+
+- **The default `canDrop` is `target.item.isFolder()`.** So an item target on a
+  LEAF is rejected and the walk recurses straight past it. That is why one
+  ArrowDown can look like it moved two places, and it was the thing that made
+  the first hand-derivation of the algorithm disagree with the measurement.
+- **At the end of a group the walk changes LEVEL, not position.** A line below
+  the last child of a folder steps out to the grandparent's level instead of
+  moving down a row — which is how a keyboard reaches "after this whole subtree"
+  at all.
+- **The insertion index is not the child index.** A child index counts the list
+  as it is; the insertion index counts it as it will be once the dragged rows
+  have been taken out of it.
+
+### Two focuses, and a drag is where they come apart
+
+`moveDragPosition` calls `setFocused()` on an item target. That moves the
+library's own focused item — which the roving `tabIndex` follows — and it is NOT
+followed by `updateDomFocus()`, so the browser's focus stays where the drag
+began.
+
+Both halves were measured the hard way. The first version moved both, and the
+oracle had moved neither. The second moved neither, and the conformance trace
+said the tab stop had moved. And it PERSISTS: Escape cancels the drag and leaves
+the tab stop wherever the last item target put it, so an arrow after a cancelled
+drag starts from there. TreeCtl's key handler reads the library's focused item
+rather than the host's focus for exactly this reason.
+
+Six mutations, all caught: 45 failures for dropping the `isFolder` rule, 45 for
+dropping the reparent branch, 14 for not stepping into an open folder, 7 for an
+uncorrected insertion index, 7 for a drag that carries only the focused row, 1
+for Escape dropping instead of cancelling.
+
+### And two more fixtures that did not contain what they were testing
+
+- A child named and never declared. `acme` had `"children": ["jane"]` with no
+  `jane` node, so one side rendered a nameless row and the other skipped it, and
+  the two disagreed about the fixture before either had done anything.
+- A standalone probe that did not rebuild the reference bundle. Two rounds of
+  "the drop does nothing" were measuring a bundle from before the change. The
+  adapter rebuilds on every run; anything that talks to the page directly has to
+  as well.
+
+## Tree pointer drag and drop, and the branch that could not be reached
+
+The other half. A pointer does not walk — it points, and the target is computed
+from two numbers: how far DOWN the row the cursor is, which picks above / into
+/ below, and how far IN from its left edge, which picks which ancestor's level
+a drop at the end of a group belongs to.
+
+Neither number is a coordinate anywhere in this work. `topPercent` is a
+fraction because the bands are fractions; `leftPixels` is pixels because it is
+only ever compared against the indent, which both sides are told. Sending a
+fraction horizontally would make the answer depend on how wide a row happened
+to be laid out, and the two sides have no reason to agree about that. The first
+capture learnt this the hard way, by recording fractions and getting different
+reparent levels on the two sides.
+
+### Three things in the placement rule that a reading would not give you
+
+- **A row you cannot drop INTO has no middle.** `reorderAreaPercentage` is 0.3
+  normally and 0.5 when `canMakeChild` is false, so on a leaf the two bands
+  meet at the halfway line and there is no third case at all.
+- **An open folder takes children from its whole body**, including the bottom
+  of the row where an ordinary row would reorder below it. The
+  `ExpandedFolder` branch returns before the below-band is ever considered.
+- **The reparent level is a floor, not an answer.** `max(minLevel, floor(x /
+  indent))`, where `minLevel` is the level of the row BELOW — so pointing at
+  the root from the last row of a deep group gets you the next row's level and
+  not the root.
+
+### The drag code, and a move that is not a move
+
+`onDragOver` keys on a CODE — row, placement type, reparent level — and returns
+before computing anything when the code has not changed. That would be a plain
+optimisation except for one detail: **the code's placement is computed with
+`canMakeChild` forced TRUE**, while the target's is computed with the real
+value. So on a row nothing may be dropped into, 0.4 and 0.6 are the same code
+and different targets, and the second move is swallowed. Measured: the target
+stays "above" at 0.6, and the drop — which recomputes from its own coordinates
+— then lands BELOW. The indicator and the outcome legitimately disagree.
+
+And the code is cleared on a successful DROP and nowhere else. Not on a cancel,
+not on a dragstart. So a new drag inherits the last one's code: hold a drag over
+a closed folder, start a second drag, hold it over the same folder at the same
+place, and the folder never opens, because the move that would have armed the
+timer was read as no move at all. That one was found by the DOM harness, not by
+the oracle — every oracle run starts a fresh page with one drag in it, so the
+case could not arise there.
+
+### `openOnDropDelay`, and time in a controller with no clock
+
+800ms over a CLOSED folder opens it under the cursor. Time arrives through
+`dragElapsed(ms)` rather than a wall clock, because a controller that reads the
+clock cannot be tested and because the caller owns the frame loop anyway. The
+harness gained a `"hold": <ms>` on a `dragpoint` step to match: a real wait on
+the DOM side, a clock advance on the Ranger side.
+
+Two of the reference's four arming conditions cannot be observed at all.
+Removing the is-a-folder check or the already-open check passes every test —
+and that is not a hole in the fixture: opening a leaf and re-opening an open
+folder are both `setExpanded(x true)` on something already in that state. They
+are kept because the reference has them, and the code says so.
+
+### A branch that could not be reached, and how that was established
+
+Two guards in the pointer path never fire: the library's second `canDrop` after
+`getDragTarget`, and the climb to the parent when the parent refuses. Both
+survived mutation. The usual reading of a surviving mutation is that the fixture
+does not contain the case — so the case was looked for exhaustively: every row
+dragged onto every other row, at nine heights and ten indents, 7290
+combinations. Zero. The proof is short once you see it: a parent refuses only by
+being a dragged row or a descendant of one, since it is a folder by
+construction, and either makes the row itself a descendant of a dragged row.
+So the row is refused whenever its parent is.
+
+The guards are gone and the argument is in the source. A branch nothing can
+reach is not defensive, it is a claim about behaviour that no test can check.
+
+### Fifteen mutations, all caught
+
+The pointer path is 879 comparisons over 19 runs, and every mutation fails at
+least one: 44 for flipping above and below, 121 for a drag that does not take
+over the selection, 15 for a fixed reorder band, 12 for dropping the reparent
+branch, 6 for dropping the open-folder branch, 6 for the early return on the
+drag code, 6 for computing that code with the real `canMakeChild`, 6 for
+clearing a kept target, 4 each for ignoring the reparent floor and for never
+reading `leftPixels`, 1 each for a drop that reads the stored target and for
+every arming condition on the folder timer.
+
+Four of those runs exist because the mutation survived first. Three of them
+needed the FIXTURE deepened rather than the check sharpened — a second child so
+the reparent floor bites, a chain two levels deep at the end of the tree so
+there is a case where the floor does NOT bite and the cursor's own answer
+survives, and a closed folder, because every other folder in the fixture was
+open and `openOnDropDelay` only fires on a closed one.
+
+### The line in the demo
+
+`TreeDemo` draws it. The drop line is a ROW in the flat list rather than a
+floating bar, because the list is the only thing that knows where row N is —
+and it is two pixels tall with a negative margin either side, so inserting it
+moves nothing. It is indented to the level the drop would land at, which is the
+only feedback the reparent gesture has: dragging left along the last row of a
+group walks the line out one indent at a time, and without the picture there is
+nothing to aim with.
+
+The demo's press does NOT start the drag. It arms one, and the drag begins on
+the first move past four pixels — which is how one gesture can be both "open
+this folder" and "carry it somewhere". Activate on the press and every drag
+would toggle a folder on its way out.
+
+Two things were wrong the first time and both were visible only in the paint:
+the drop line's ink used `flex-grow`, which EVG has no notion of, so the line
+was zero pixels wide and painted nothing (EVG's unit vocabulary has `fill` for
+this); and the drop-into outline shrank the row by its own border, so every row
+below a target jumped up two pixels the moment the cursor entered one. EVG draws
+borders inside the box, the way `border-box` does, and the correction was to
+remove the correction.
+
+## Checkboxes in the tree, and the change that was not needed
+
+ReUI's permissions tree puts a checkbox in every leaf row. It looks like a
+tree feature and it is not one: its `useTree` is configured with
+`syncDataLoaderFeature` and `hotkeysCoreFeature` — the same two as every
+other ReUI tree — and the ticked set is an ordinary `useState<Set<string>>`
+on the page beside it. The tree does not know the boxes exist.
+
+Copying that here changed **two files, both under `demo/`**. `TreeCtl`,
+`UiCtl` and `UiHost` are untouched, and that is the result rather than a
+convenience: it is what the component split was for.
+
+Three things fell out of it that are worth writing down.
+
+**There is no `stopPropagation`, because there is no propagation.** The
+reference needs `onClick={(e) => e.stopPropagation()}` on the checkbox so
+that ticking a row does not also select it. Here the box simply has its own
+id, and `EVGHitTest.idAt` answers with the DEEPEST element carrying one — so
+a click at the box is a click at the box and a click thirty pixels right of
+it is a click at the row. Measured both, at real coordinates.
+
+**The tick travels with the row.** The ticked set is keyed by tree VALUE, so
+dragging `New Lead` out of `Leads` and dropping it after `Globex` carries its
+tick with it. Keying by visible position would have moved the tick to
+whatever row landed in that slot, and nothing on screen would look wrong.
+
+**The reference's accessibility is copied in picture and not in semantics.**
+ReUI nests a real `role="checkbox"` inside the `treeitem`, which makes a
+reader announce two things where a person sees one. WAI-ARIA's
+tree-with-checkboxes pattern has one widget per row and puts `aria-checked`
+on the `treeitem` itself. So the box here is `a11yHidden` decoration and the
+ROW carries `aria-checked` — leaves only, because a folder shows no box and
+`aria-checked="false"` on something uncheckable announces a checkbox that
+does not exist. The audit confirms it: ten treeitems, zero nested
+checkboxes, folders with no checked state at all.
+
+`toggleIconType="plus-minus"` came along with it, since it is the one thing
+in that pattern that IS a Tree option — five lines, and the glyphs are − and
++ rather than the chevrons.
+
+### What was deliberately NOT built
+
+headless-tree ships a real `checkboxesFeature`, and it is a different
+product from the pattern above: a folder's tick propagates to its whole
+subtree, folders gain a third `indeterminate` state, and
+`canCheckFolders` defaults to false whenever propagation is on. None of it
+is in ReUI's pattern, so none of it is here. If it is ever wanted it belongs
+in `TreeCtl`, captured from the library first — propagation rules and a
+tri-state boundary are exactly the shape of thing this repository keeps
+getting wrong by reading rather than measuring.
+
+## Timeline, and the component with no oracle at all
+
+Every other component here is measured against a headless library. ReUI's
+Timeline has none under it — it is a hand-written component — and its source
+could not be reached from this environment: reui.io is refused by the proxy,
+there is no npm package, and the plausible GitHub paths are 404. So there is no
+trace to diff against, no `behaviours.json` entry and no conformance spec. A
+spec here would be a step that cannot fail, which is the thing this harness
+exists to refuse.
+
+**What there is, is a picture, and a picture is a measurement.** The reference
+rendering `defaultValue={3}` over four items shows:
+
+- the DOT filled for steps 1, 2 and 3, and pale for 4
+- the LINE dark between 1–2 and 2–3, and pale between 3–4
+
+So the dot is `step <= value` and the line is `step < value`, and **they are not
+the same predicate**. That is the whole finding. The obvious implementation
+gives both the same `completed` flag and draws a dark line under the current
+step — and `npm run ui:timeline:check` fails four ways when you do.
+
+What the picture does not show is not built rather than guessed: horizontal
+orientation, behaviour at a value outside 1..n, and whether the reference's
+`value`/`onValueChange` make it interactive. As used, it is a list.
+
+**There is no `TimelineCtl`**, because there is nothing to control. `TreeCtl`
+exists because arrows, ranges, drop targets and an insertion index are hard and
+worth measuring; a timeline is a list of records and one integer.
+
+### The icons are the real files
+
+lucide-static 1.37.0 (ISC), pasted verbatim. `EVGDisplayList` imports a whole
+SVG document — circles, lines and paths, fill and stroke — so the file declares
+the geometry and the STYLESHEET decides the colour: `stroke="currentColor"`
+resolves to the hosting element's fill. One copy of each icon serves both a
+dark dot and a pale one.
+
+The gate checks that neither colour is the parser's default black, because a
+mis-spelt property is invisible otherwise — which is exactly what happened.
+
+### Four things that were wrong, and what caught each
+
+- **`fill-color` instead of `fill`.** The property is spelt as SVG spells it.
+  The sheet ignores an unknown property without complaining, so every icon came
+  out black and the page still rendered. Found by reading the display list's
+  colours, not by looking at it.
+- **A 4px gap at the wrong end.** The line stopped four pixels short of the
+  next dot instead of clearing two at each end. The reference's own arithmetic
+  says which: `translate-y-6.5` against a 24px dot is 2, and
+  `calc(100% - 1.5rem - 0.25rem)` takes 28 off the height, so 2 and 2. No
+  screenshot was going to show that; the check did on its first run.
+- **A synthetic probe that lied.** A hand-built row said `align-items: stretch`
+  needs an explicit parent height, and a whole `rowHeight` field was written
+  around that claim. Measured again on the real page, stretch worked — and then
+  removing it changed nothing at all, because the rail's content already adds
+  up to the row's height. The declaration was inert and is gone. **Probe the
+  real thing, not a model of it.**
+- **A stale compiled artifact, twice.** A mutation run leaves the mutated
+  `.cjs` behind; the next check reads it and reports a failure that is not
+  there, and the next screenshot renders a page that does not exist. Both new
+  checks now compile before they read, like every other gate.
+
+`height: fill` is worth one line of its own: it is NOT flex-grow. `EVGUnit`
+resolves it to the parent's size, and a child asking for it stops the parent
+growing at all. The line's height is therefore a number, computed in Ranger —
+the same subtraction the reference writes as a `calc()`, in a language that can
+do arithmetic.
+
+One thing the check cannot catch, and says so: layout clamps a child to the
+space its siblings left, so a line asked for MORE than the rest of the column
+comes out right anyway. Only an undershoot is visible, and there is a mutation
+for that.
+
+### The gates
+
+`ui:timeline:check` is 33 assertions and 10 mutations, all caught bar the two
+that are provably unobservable. `ui:tree:checkbox` is 23 assertions over the
+checkbox composition — the box being its own hit target, a box click leaving
+focus and selection alone, the tick travelling with a dragged row, and
+`aria-checked` on the row with no nested widget — and 5 mutations, all caught.
+Both are in `run-gallery-editor-tests.sh`, which is now 39 suites.
+
+## `aria-orientation`, and six controllers that were quietly silent
+
+Added to the observed field list while starting on the resizable splitter,
+where it is load-bearing: two separators in a nested layout have the same role,
+the same name and the same value range, and the ONLY thing that says ArrowLeft
+moves one and does nothing at all to the other is the orientation.
+
+It was not a resizable problem. Adding the field turned **every** spec red, and
+after the two sides were taught to report an absent value the same way, seven
+specs stayed red — all of them components that had been at parity for months:
+
+| node | what the reference says |
+| --- | --- |
+| every menu surface, submenus included | `vertical` |
+| a menubar's open menu | `vertical` |
+| a VERTICAL separator | `vertical` |
+| the slider's THUMB, not its track | `horizontal` |
+| the toolbar root | `horizontal` |
+| the tabs LIST, not the tabs root | `horizontal` |
+
+Two of those are details a reading would get wrong. **A horizontal separator
+says nothing**: `horizontal` is the ARIA default and Radix leaves the attribute
+off rather than writing the default down, which is why only the vertical one
+diverged. And the orientation sits on **the node that carries the role** — the
+slider's thumb rather than its track, the tabs list rather than the tabs root
+— which is not where a reading would put it either.
+
+`aria-controls` was deliberately not added. It is an id reference and the trace
+is already keyed by test id, so comparing it would only be comparing two id
+schemes that have no reason to agree.
+
++2315 observations, all matching. The lesson is the one `aria-level` taught on
+the tree, at a larger scale: **a field the diff does not carry is a field
+nobody is wrong about.** Parity at 100% over a field list that is missing
+something is parity over the wrong question.
+
+## Plan — Form, and the text field underneath it
+
+The four ReUI patterns asked for (`Field` + `Input`, an error list, a password
+with a show/hide toggle, a two-column form with `Select` and buttons) plus the
+invoice screenshot are ONE component with a lot of dressing. The dressing is a
+weekend. The component is `Input`, and this repo has never had a text field.
+
+> **Reviewed after the resizable and the breadcrumb**, which changed three
+> things below. Phase 0 is partly done and its remaining half is smaller than
+> it looked; a step was missing from it entirely; and Phase 3 needs an
+> affordance the plan did not know about. The revisions are marked ▲.
+
+### Phase 0 — the field list, first, and it will hurt
+
+**Do not start with the components.** `aria-orientation` just taught the lesson
+at scale: a field the diff does not carry is a field nobody can be wrong about.
+Today the trace observes 23 fields and **not one of them can see the text in a
+box**. Build `Input` first and it would reach 100% parity on a trace blind to
+its entire purpose.
+
+What has to go in, and how each is compared:
+
+| field | source | note |
+| --- | --- | --- |
+| `value` | `el.value` | the text itself. Not `aria-valuenow` — that is a number on a slider |
+| `selstart`, `selend` | `el.selectionStart/End` | where the caret is, and what is selected. The only way a keyboard test can fail |
+| `invalid` | `aria-invalid` | the error pattern's whole state |
+| `required` | `aria-required` | Radix already emits it and we have never compared it |
+| `readonly` | `aria-readonly` | mirrored by `evg-a11y.js` already, never compared |
+| `placeholder` | attribute | what a reader announces on an empty box |
+| `describedby` | **resolved to TEXT** | see below |
+
+`describedby` is the interesting one. The error list reaches a reader ONLY
+through `aria-describedby`, and comparing the raw attribute would be comparing
+two id schemes with no reason to agree — the same argument that kept
+`aria-controls` out. So resolve it: follow the ids, concatenate the text, and
+compare THAT. The same resolution is needed for `name`, because an input's
+accessible name comes from a `<label for>` OUTSIDE it and our tree computes
+names from content. **Name-from-elsewhere is a genuine engine gap and Phase 0
+is where it gets closed.**
+
+Expect this phase to turn specs red. That is the return on it.
+
+▲ **Partly done, and it paid immediately.** `invalid`, `required`, `readonly`
+and `current` are in the list now, along with `orientation` from the resizable
+work. Adding `required` — before there is any form — turned the radio group red
+on its first run: **Radix publishes `aria-required="false"` and this side
+published nothing**, and then the toggle group red on its second, because it
+shares the controller and Radix does NOT publish it there. Absent and "false"
+are different claims, and neither was visible before.
+
+Still to do: `value`, `selstart`, `selend`, `placeholder`, and `describedby`
+resolved to text. Those have no source until the text field exists, so they
+belong with Phase 1 rather than ahead of it.
+
+▲ **And a step that was missing: the implicit-role table.** The DOM snapshot
+maps tags to roles for the trace, and that table had grown one component at a
+time — `button`, `a`, `table`, `tr`, `td`, `th`, `input` and nothing else.
+Completing it for the breadcrumb's `nav`/`ol`/`li` turned **two long-passing
+components red**: the navigation menu was not a landmark and its list not a
+list, and the toast viewport was not a list of toasts. It has now been
+completed for a form's tags too — `form` (a landmark only when named, which is
+the HTML-ARIA mapping and not a simplification), `fieldset`, `textarea`,
+`select`, `output` — so that table stops being a component late.
+
+The general form of this is worth stating once: **the trace has two blind
+spots, not one.** A missing FIELD makes a property invisible; a missing tag
+mapping makes a whole NODE's role invisible. Both were found this week, and
+neither by the same instrument — the field by a component that needed it, the
+tag table by a component built from tags nothing had used.
+
+### Phase 1 — the text field primitive
+
+The one real piece of engineering here, and the reason `Input` is not a
+weekend.
+
+**Caret geometry needs no new metric.** `EVGTextEngine.measureRun(text, family,
+size)` measures a whole string, and the caret's x for index `i` is
+`measureRun(text[0..i])`. Exact by construction, because it is the same
+measurement the painter uses — the same reason `breakLines` measures whole
+candidate lines rather than summing words. A click maps back the other way by
+bisecting over prefix widths. O(log n) measurements per click, and no
+per-glyph advance table to keep in step with the font.
+
+What `InputCtl` owns:
+
+- caret index and selection anchor; `selstart`/`selend` derived, never stored
+- insert, Backspace, Delete; Arrows; Shift+Arrows; Home/End; Ctrl+A
+- word motion (Ctrl+Arrow) and double-click-selects-word, which need a word
+  boundary rule — measure the browser's, do not invent one
+- a horizontal scroll offset once the text is wider than the box, and the rule
+  that keeps the caret in view (which is NOT "centre it")
+- `type="password"`: the VALUE is the text and the GLYPHS are bullets, and
+  those must not be the same string anywhere
+- placeholder when empty, which is drawn text and not a value
+
+**The oracle is a real `<input>`.** Everything above is observable — `value`,
+`selectionStart`, `selectionEnd` — so this is ordinary conformance, no
+bespoke capture. That is worth saying out loud: the hardest component here has
+the easiest oracle.
+
+Explicitly NOT in scope, and each is a real thing being declined: IME
+composition, RTL and bidi caret movement, the clipboard, an undo stack,
+spellcheck, autofill.
+
+### Phase 2 — the harness has to be able to type
+
+`{"key": "a"}` already presses one key. Typing needs a step:
+`{"type": "hello"}` → `page.keyboard.type` on the DOM side, characters fed to
+the controller on ours. Small, and nothing in Phase 1 can be tested without it.
+
+### Phase 3 — Field, FieldLabel, FieldError, FieldGroup
+
+▲ **This needs the two-pass affordance the breadcrumb just needed**, and the
+plan did not know it. Layout happens after the tree is built, so any component
+whose CONTENT depends on its own measured size — a breadcrumb that collapses, a
+field whose error list wraps, a label that truncates — needs measure, decide,
+rebuild, and somebody has to own the decision between the passes.
+`BreadcrumbCtl` owns none of it: it is told the width and answers what to draw,
+and the caller does the measuring. That is the shape to reuse, and it should be
+settled here rather than reinvented per component.
+
+▲ **Axe is a third instrument and it finds different things.** On the
+breadcrumb it caught what the diff could not: a `role="list"` whose children
+are buttons is invalid, and Radix's `<li>` carries no test id so it was in
+NEITHER trace. A form is full of that shape — `fieldset`/`legend`,
+`label`/`control`, error lists — so run `ui:a11y` early and often here, not
+only at the end.
+
+
+Mostly composition once Phase 0 exists: the label names the input, the error
+list describes it, `aria-invalid` marks it. `FieldGroup` is a `role="group"`.
+The one thing to measure rather than assume is whether the reference makes the
+error list a live region — if it does, the announcement is part of the
+contract; if it does not, a screen reader user learns about the error only on
+focus, and that is worth writing down either way.
+
+### Phase 4 — the rest of the inputs, in this order
+
+1. **Textarea.** The caret goes 2D; `breakLines` already exists, so this is
+   caret-index ↔ (line, column) and vertical arrows that remember a desired
+   column.
+2. **Number**, which is `Input` plus a step and a range.
+3. **Date field** (the invoice's `Apr 24, 2026` with a calendar button) —
+   segmented editing is its own contract, measure before writing.
+4. **Combobox** (the invoice's `Customer` with a clear ×) — `Select` and
+   `Input` already exist; this is the two wired together, and it is the one
+   with the richest ARIA.
+5. Password show/hide is NOT a component: it is a `button` with `aria-pressed`
+   beside an input whose type flips. Already expressible today.
+
+### Phase 5 — the demo, which is the invoice
+
+Sections with a heading, a description and a badge; two- and three-column
+grids; icons inside inputs; a `+ Add item` button. It is a layout showcase, and
+that is the point: it is where the grid and the intrinsic-width bugs will turn
+up, the way the timeline's rail found `fill` and `stretch`.
+
+### Ordering, in one line
+
+Field list → text field → typing step → Field wrappers → more inputs → invoice.
+Anything that starts further down that list is building on a trace that cannot
+see what it built.
+
+### ▲ Done: phases 0-3, and what they turned up
+
+`InputCtl` exists, the harness types, and nine specs drive it against a real
+`<input>` — `input_typing`, `input_caret`, `input_word_motion`,
+`input_placeholder`, `input_maxlength`, `input_readonly`, `input_disabled`,
+`input_required`, `input_password`. `value`, `placeholder`, `selstart`,
+`selend` and `description` joined the compared fields; `type` and modified
+`key` joined the steps; `keyDownWith` and `typeChar` joined `UiCtl` beside the
+`activateWith` they were modelled on.
+
+**Three rules were wrong on the first run, and the reference said so.**
+
+- **Ctrl+ArrowRight lands on the END of a word, not the start of the next.**
+  The mirror image of `wordLeft` reads naturally and is not what the platform
+  does: on `"alpha  beta gamma"` from 0 it gave 7 where Chromium gives 5.
+  Backwards lands on a word's start and forwards on its end — both on the
+  word's own edge, and the asymmetry is the finding.
+- **A readonly field has no caret at all.** Not "takes arrows but will not
+  change": Chromium reports `selectionStart` at the value's length through
+  Home and every arrow, which is what a field with no selection hands back.
+  Focus alone does not give a readonly input a caret, so there is nothing for
+  a key to move.
+- **`required` and `readonly` are ATTRIBUTES on a native control**, and the
+  snapshot was reading only the aria form — so `<input readonly>` reported
+  nothing at all. The same trap `checked` fell into on a native checkbox, one
+  component later. And the fixture had been written with `aria-required`
+  beside the native one, which is making the oracle agree with this side
+  rather than measuring it.
+
+**And `description` found three holes that had been there for months.** A
+compared field nobody had is a field nobody can be wrong about, and the moment
+`aria-describedby` was resolved to its text, three long-passing components went
+red: **a tooltip that never described its trigger** (the sentence a tooltip
+exists to say, invisible to a reader), an alert dialog whose body text reached
+nobody, and every dnd-kit item's keyboard instructions — a pattern with no
+visible affordance, where the sentence IS the interface.
+
+**Still open, and each for a stated reason rather than an oversight:**
+
+- **`input_click_caret`.** A click DOES place the caret on both sides, and
+  agreeing about where needs the two boxes to be the same width in the same
+  font. They are not — see the measurer task — so `input_caret` uses `focus`.
+  It passed with a click only because `"one two three"` does not fill the box,
+  so the centre landed past the end of the text and both sides said 13. A
+  check that passes by coincidence is worse than no check.
+- **`aria-pressed` on a demo-built tree.** `EVGElement` has no field for it,
+  so the password's show/hide button carries the state in its NAME instead —
+  "Show password" then "Hide password", which is the other accepted spelling.
+- **`required` and `invalid` on `EVGA11yNode`.** Measured properly through the
+  conformance trace; a demo tree cannot state them, and half-stating them
+  would be a second, weaker answer.
+- **Phase 4's textarea, date field and combobox**, which are the three where
+  the caret goes somewhere new.
+
+### ▲ A second reference: Profile Settings, and what it asks for that the first did not
+
+The invoice form is a COLUMN — label above control, one field per row, two
+halves where they fit. The second reference is a **row**: the label sits to the
+left of the control and every control's left edge lines up down a single
+column, which is a different layout claim and the one that finds different
+bugs. Both are worth having, so it is a second demo rather than a rewrite of
+the first.
+
+What it adds, in the order it is worth building:
+
+1. **The label-left layout itself.** A label column of a stated width and a
+   control column that takes the rest, with the two vertically centred against
+   each other whatever height the control is. The switch row and the tag row
+   are different heights and both have to sit right.
+2. **A switch**, which `SwitchCtl` already is — a toggle whose label is beside
+   it rather than above it, and the only control in the picture whose state is
+   drawn as a position rather than a mark.
+3. **A select**, which `SelectCtl` already is: a closed trigger showing the
+   chosen label and a chevron. Opening it needs the overlay the dropdown demo
+   already has, so the open state is real work and not decoration.
+4. **A tag input** — chips with a `×` each, and an inline placeholder after the
+   last one that types into the same box. This is genuinely new: a listbox of
+   removable tokens sharing a line with a text field, and the interesting part
+   is what Backspace does at position 0 (it takes the token before the caret,
+   which is the whole reason the pattern feels right).
+5. **A date field and a time field.** The plan already declines segmented
+   editing until it is measured, and that has not changed — so these are drawn
+   as text fields with an icon, the calendar on the right and the clock on the
+   left, and the demo says so rather than implying a date picker that is not
+   there.
+6. **A badge and icon buttons**, which are presentation: a pill in the header,
+   an avatar with Change/Remove beside it, and a footer with a hint on the left
+   and two buttons on the right.
+
+## The dashboard, and a component from another gallery
+
+shadcn's dashboard-01 is four things this gallery does not have side by side,
+and the interesting one is the chart, because it is not this gallery's to
+build.
+
+**The chart is a Vela render, and there were two routes into EVG.**
+
+An element can carry an SVG string in `svgSource`, and `EVGDisplayList` will
+import it. That works, and it silently drops every LABEL: the importer walks
+vector items and a `<text>` is not one. Forty-seven commands of pure geometry
+and not a single axis tick — and a picture with no numbers on its axes still
+looks like a chart, which is what makes this the kind of bug that ships.
+
+`VlEvgList` is the other half of the same bridge, written for exactly this
+case: it emits geometry and text into a display list the host already holds.
+Seventy-two commands, twenty-five of them words. That is the route.
+
+**The consequence is that the chart is not in the element tree.** It is painted
+at the box the layout reserved, so the placeholder has an id and no children:
+the tree owns where the chart goes and Vela owns what is drawn there. A reader
+gets one named image, because a hundred path commands are not something to
+announce.
+
+**Two numbers, one owner.** The specification is built from `chartW`/`chartH`
+and the placeholder is set to the same two inline, because the box the layout
+reserves and the picture Vela computes have to be the same size. And a gutter,
+measured rather than guessed: Vela puts the plot's corner at the origin and
+draws the y labels to the LEFT of it, so emitting at the box's corner hung
+"600" at x=29 when the box began at 43.
+
+**The browser needed one honest stub.** `UITextRenderer` owns a `FontManager`
+that looks for font files — one `existsSync`, the only filesystem call in the
+whole bundle. A browser has no filesystem, so the honest answer is "no such
+file", and that is what the stub says: `hasFont` stays false and the renderer
+falls back to its estimating measurer, which is the same path the Node gate
+takes because the gate registers no font directory either.
+
+**The DataTable is two controllers, and one of them owns the order.**
+`TableCtl` is measured against TanStack for sorting, paging and selection;
+`SortableCtl` is measured against dnd-kit for what a drag does. Neither knows
+about the other, so `TableCtl.records` owns the order and the sortable is the
+GESTURE — pick up, move, drop or cancel — and a completed drop writes the
+order it arrived at back. The alternative was two lists to keep in step, which
+is how a table ends up showing a row twice, and the write-back refuses to
+write a list that is not the same length as the one it replaces.
+
+A SORT then replaces a hand-made order, and that is not a compromise: sorting
+by Target is a claim about where every row belongs, and honouring a drag
+inside it would mean the column header lied. So a drag clears the sort key.
+
+**`rowgroup` was the FIFTH missing role**, and the worst so far: an
+unrecognised role drops the element AND EVERYTHING UNDER IT, so the entire
+body of the table was absent from the accessibility tree while the picture was
+perfect. Only the lint noticed. `aria-pressed` went in at the same time — a
+carried row is a button held down, not a box with a tick in it, and a reader
+says different words for each.
+
+**Virtualisation, and the two things it turned out to be about.**
+
+`@tanstack/virtual-core` is the headless sibling of the TanStack Table
+`TableCtl` is already measured against, and it is pure computation — count,
+estimate, offset, overscan, and out comes a range. So the oracle needs no
+browser and could be driven over sixty offsets in a second, chosen to land on
+a row boundary, one pixel either side of one, at zero, at the bottom and past
+it. The rule that reproduces all sixty:
+
+    first = clamp(floor(offset / rowHeight) - overscan, 0, count - 1)
+    last  = clamp(floor((offset + viewport) / rowHeight) + overscan, 0, count - 1)
+
+Two things in that are not obvious and both are a blank strip at the edge of
+the viewport. A PARTIALLY scrolled row is in the range — `floor`, not `ceil`,
+at both ends. And the CLAMP COMES BEFORE THE OVERSCAN: past the end of the
+content the raw index is 10869 in a table of 10000, and widening first gives
+one row with the overscan swallowed. Nine of two hundred and sixty-nine
+observations disagreed on that alone, all of them at the bottom of the table,
+which is not an exotic place to be.
+
+**EVG has no scrolling viewport, so the DOM technique does not port.** A
+browser virtualiser puts the whole content height in the document as two
+spacers and lets the scroll container move. Here `overflow: hidden` clips and
+nothing scrolls, so a 230,000-pixel spacer inside a 414-pixel flex column is
+not a spacer — it is content that overflows, and the layout shrinks
+overflowing fixed children to fit. Fourteen rows drew on top of each other in
+one 46-pixel line and it looked exactly like a stylesheet bug. So the offset is
+applied instead: the window holds the rows in range and is slid up by at most
+the overscan plus a part row. `totalSize()` is still the honest content height
+and is what a scrollbar would be sized from; it simply never enters the tree.
+
+**And it is an ACCESSIBILITY change before it is a performance one.** Twelve
+rows in the tree and ten thousand in the data means a reader is told the table
+has twelve rows, and that the third one is row 3 when it is row 4,517.
+`aria-rowcount` and `aria-rowindex` are the whole of the fix, and neither was
+in the trace — a field nobody has is a field nobody can be wrong about. They
+are on `UiRow`, on `EVGElement`, in both snapshots and in the diff now.
+
+**Virtualisation is also what exposed `TableCtl`'s sort.** It was an insertion
+sort, and the comment beside it said why: "the lists here are page-sized and
+the point is the stability, not the asymptotics." True when a page was four
+rows. `setAt` rebuilds the whole array, so the sort was O(n³) and one click on
+a five-thousand-row table took longer than a test runner will wait. It is a
+stable bottom-up merge sort now, and TanStack still agrees about the order —
+which is the only thing the oracle measures. Two other things went the same
+way: the demo was calling `TableCtl.build()` to build five thousand EVG rows
+it never drew, and the drag write-back was looking every record up by key,
+twenty-five million comparisons for one drag. The sortable holds the visible
+window now, because a row you cannot see is a row you cannot pick up.
+
+## The sidebar, and two bugs a picture does not show
+
+A navigation LANDMARK, which is the whole reason it is worth building rather
+than drawing: nine buttons in a column are nine things a reader walks past, and
+a named landmark is one thing they jump to. Nine links in two menus, the second
+named by the words drawn above it and the first named by nothing, because a
+name invented in the builder is a word a reader hears that nobody wrote.
+
+The page got **wider** for it rather than the content getting narrower — 1336 =
+255 sidebar + 1 hairline + 1080. That is arithmetic, not politeness: `chartW`
+is 994 because the card's inner width is 994, and the axis-label positions
+measured against it would all have had to be measured again.
+
+Two things it says that the picture cannot. `aria-current="page"` marks the one
+link you are on, set from the same test as the fill so the two audiences cannot
+be told different stories — and the mutation that proves it is worth having is
+the second one: leaving `aria-current` correct while the fill never moves fails
+two checks and passes three, which is exactly a page that looks right and reads
+wrong. The inbox button carries the name its envelope glyph does not.
+
+**The hairline is an element, because `border-right` does nothing.**
+`setAttribute` has branches for `border`, `border-width`, `border-color` and
+`border-radius` and none for the four sides; the `borderTopWidth`..
+`borderLeftWidth` fields exist on the element, are copied by `adoptFrom`, and
+are read by no renderer, because the box model has one border width and spends
+it on all four sides. No style error either — the stylesheet reports selectors
+it cannot parse, not declarations it cannot use. `border-bottom` in
+dashboard.css and profile.css has been dropped the same silent way all along.
+
+**The account row landed 416 pixels below the bottom of the page, and nothing
+noticed.** A `flex: 1` spacer between the links and the footer looked like the
+right way to push the footer down; the column-axis grow pass counts an
+auto-height sibling as contributing NOTHING to the fixed total, so the spacer
+was handed the nav's height a second time. 416 was precisely the nav's height.
+Reduced to a 200x300 column: CSS gives the spacer 112, EVGLayout gives it 212,
+and the footer ends at 400 inside a 300-pixel box.
+
+Two lessons, and the second is the one worth keeping. The demo does not need
+the fix — the content is what grows, which is what shadcn's sidebar does
+anyway. But the whole-tree overflow sweep this gate has had since the form
+demo only ever compared RIGHT edges. A column overflowing is exactly as wrong
+as a row overflowing and exactly as invisible, and a sweep with one arm
+measures one of them. It has both now, skipping containers that mean to clip,
+and the mutation that proves it is a 200-pixel gap in the menus.
+
+**And putting the page in front of axe for the first time found a third thing,
+which was not the sidebar's.** `aria-rowcount` was on the table AND on the
+table body, on the reasoning that the body is what holds the rows. ARIA does
+not allow it on `rowgroup`: a row group owns no count. Neither of the other two
+instruments could see that — the lint reads the fields a node carries and the
+gate reads their values, and neither asks whether the node's ROLE is allowed to
+carry them at all. The dashboard is a state in the demo audit now, all 218
+nodes of it, and the gate has the narrower claim beside the old one: exactly
+one node on the page reports a row count.
+
+## A scrolling viewport, which is the thing that made the sidebar worth having
+
+The sidebar arrived on a 1420-pixel page, which is not a page — it is a
+document with nothing to scroll. A sidebar earns its keep when the content
+under it moves and it does not, and EVG could not do that: `overflow: hidden`
+CLIPPED, nothing scrolled, and the PLAN, `ScrollAreaCtl` and the virtualiser
+all said so in their own words.
+
+Worse than missing: actively wrong. A flex column with a definite height runs a
+shrink-to-fit pass over children that overflow it, which is the right answer
+for a box with nowhere to put the overflow and catastrophic for one that
+scrolls. That is the pass the virtualiser had to route around — a 230,000-pixel
+spacer became 414 and fourteen rows drew on one 46-pixel line.
+
+**The oracle is a browser, and it was worth asking.** Five questions, four of
+which only have an answer if you measure:
+
+- content in a scroll container is NOT shrunk — the rows stay 60 tall;
+- `scrollHeight` is the PADDING box: eight 60-pixel rows in a box with 10 of
+  padding is 500, not 480. The two definitions give the same `maxScrollTop`
+  because the paddings cancel, so either would have worked — and a number that
+  is only right after you subtract something is a number somebody will forget
+  to subtract;
+- children move by exactly the offset and the box does not move at all;
+- a `scrollTop` past either end is clamped SILENTLY, and reading the property
+  back gives the clamped value. A control that stores what it asked for and one
+  that stores what it got disagree with the screen forever after;
+- `elementFromPoint` does not answer with content that scrolled out of view.
+  EVG's hit test walked a flat paint-order list with no notion of a clip and
+  would have said the opposite: invisible and clickable at once.
+
+41 checks against `oracle/scroll.json`, and three mutations that each break a
+different one of those five. The implementation is four small things: extents
+and an offset on `EVGElement`, both shrink passes skipped when the parent
+clips, a subtree translation at the end of `layoutElement` (reusing the mover
+the RTL mirror already had — measure first, then move, or the extent becomes a
+function of the scroll position and the scrollbar changes size as you drag it),
+and `clipsContent()` replacing the `overflow == "hidden"` test in the display
+list.
+
+**Then the navigation.** Nine links, six builders — the four Documents links
+and More differ by what they list and by nothing else, so writing five
+near-identical page functions would have made them look different in the source
+and identical on the screen. Following a link starts the next page at the top,
+because the offset belonged to the page you left. Home, End, Page Up and Page
+Down reach the scroll region only as a FALLBACK: a Home while a range button
+has focus moves between range buttons, and the gate checks it both ways.
+
+**The scrollbar is drawn, not built**, and the comment says why: its thumb is a
+fraction of the content height, so it cannot be placed until after the layout
+that measures the content — an element would need a second pass. It is honest
+about the cost: an indicator, not a control, because there is no element to
+grab. The wheel, the keys and the sidebar do the scrolling.
+
+**Two things the gate could not see, and one of them was mine.**
+
+`tag Head` was already the table's `<thead>` when a page-header tag two hundred
+lines below was also called `Head`. The compiler said nothing, the later
+definition won, the table's head became a plain div — and the `rowgroup` went
+out of the accessible tree, taking the header row's grouping with it. The
+picture was identical. What noticed was a check that counts row groups, written
+for an unrelated reason weeks earlier. There is now a repo-wide check that no
+two tags in one `treefactory` share a name, because a duplicate is never
+intentional: the whole point of the name is to say which element you meant.
+
+And the chart is appended AFTER the tree walk — that is what puts it outside
+the element tree — so it is outside every clip the walk pushed, and has to be
+clipped by hand. Removing that clip failed nothing: the element tree was
+correct, the accessible tree was correct, and every command was where the chart
+wanted it. The gate walks the clip stack now, the way a renderer does, and asks
+what was in force for each of the chart's paths.
+
+## The icons were text, and text sits on a baseline
+
+Reported from a phone, zoomed in: the sidebar icons sat low against their
+words. One pixel on every row, and no gate could see it — the element tree was
+right, the accessible tree was right, and the overflow sweep only ever asks
+whether a box is INSIDE its parent, never where the ink in it landed.
+
+**Two causes, and only one was a mistake.** The mistake was two numbers where
+there should have been one: `.db-nav-icon` was 18 tall and `.db-nav-text` 20.
+`align-items: center` centres the BOXES, and a text box's baseline is measured
+from its own top, so the taller box's baseline is higher. A browser does the
+same thing with the same declarations — never an engine bug.
+
+The second cause could not be fixed that way. A glyph sits on a baseline and
+where its ink lands above it is the type designer's business. Measured at 13px
+against a capital letter: `●`, `▭`, `◕`, `▦` and `▤` all centre a further
+pixel low, `≡`, `◌` and `⋮` half a pixel, and `↺` exactly on it — which is why
+Lifecycle looked right in the same screenshot where Team and Projects looked
+wrong. Centring a glyph optically needs its ink box, and `EVGTextMeasurer`
+estimates (#66).
+
+**So the icons stopped being text.** Nine lucide icons, verbatim from
+lucide-static 1.37.0, through the mechanism the timeline demo already proved:
+`tagName "path"` plus `svgSource`, sized 16x16 by the sheet. A box has no
+baseline, so the row centres it like any other box — and it is what the
+reference does, because lucide ships SVG. The same for Quick Create's plus and
+the inbox's envelope.
+
+**The badge letters were worse and nobody had noticed.** "A" in the brand
+circle sat 2.7 pixels high. Same root: `height: 18px` on a 14.4-tall line box
+puts the line at the TOP and the slack underneath, in CSS as here. Deleting
+those three hand-rounded heights takes it to 0.9, which is the font-ink
+residual again. Those heights are exactly what task #63 is about, and this is
+the first time one of them has been visible.
+
+**Two checks, both proved by mutation.** Children of a centred row that share a
+FONT SIZE must share a baseline — the narrow rule that is actually true, since
+two sizes on one line have two baselines in CSS as well, so the trend arrow
+beside its sentence is rightly exempt. And every sidebar icon box is centred on
+its label. The second fails when the row stops centring and NOT when the icon's
+height changes, which is correct: centring is height-independent, and that is
+the whole reason the icons are boxes now.
+
+**And a check aged badly in the same commit.** `chartCmds` told the chart's
+commands from the page's by saying "nothing in the element tree draws a path,
+so every path is Vela's". True when written; false the moment the sidebar's
+icons became artwork, and the chart's bounding box silently grew to include a
+folder icon 260 pixels to its left. The demo reports the chart's index range
+now. A property that identifies a thing today is not the same as one that
+defines it.
+
+## Where a line of text sits in its box
+
+The icons became artwork and the labels still read as not centred. `align-items:
+center` was on the row, and it was right — the property was never the problem.
+
+**`align-items: center` centres BOXES.** The label's box was `height: 20px` and
+the line of text inside it was 15.6, and a box taller than its line puts the
+line at the TOP with the slack underneath. So the box was centred and the words
+were 2.5 pixels above the middle of the row. Chromium does exactly the same
+with the same declarations, which is worth stating plainly: this half was the
+stylesheet's fault, not the engine's, and the fix is to stop writing a height
+the engine already computes (#63). Forty of them came out of dashboard.css.
+
+**But asking the browser turned up three engine bugs underneath it**, all in
+the same six lines, all of them wrong in the same direction — text drawn high:
+
+- **The face's metrics were 0.80 and 0.20 em.** They sum to exactly 1.00em and
+  no real face does; measured at 1000px the sans fallback is 0.905 and 0.212,
+  summing to 1.117. The ascent is what puts the baseline inside the line box,
+  so a tenth of an em short is a tenth of an em high, everywhere.
+- **The half-leading was clamped at zero.** `baseline = (lineBox − (ascent +
+  descent)) / 2 + ascent`, and that first term is NEGATIVE whenever the line
+  box is smaller than the face — at `line-height: 1` the browser puts the
+  baseline at 0.846em, which is exactly −0.0585 + 0.905, and the glyphs hang
+  out of the line box rather than being pushed down to fit.
+- **`line-height: normal` was 1.2.** It is the face's own line box: 1.15em for
+  the sans fallback, 1.164 for monospace. 1.2 is a number people type, not one
+  a browser computes, and every text box in the gallery was four per cent
+  taller than the same declarations give in a browser.
+
+**And the painter had a fourth**, which is the one that could not be found by
+reading the layout: `evg-webgl.js` placed a run's baseline one face-ascent
+below the line box top and never added the half-leading. Two baseline formulas
+in one system, and only the layout's had the leading in it. It is computed in
+the painter on purpose — that is where the real face metrics are, and the
+layout only ever has an estimate.
+
+20 checks against `oracle/textbox.json`, including the two negative-leading
+cases, and a check on the demo that every line of text in a centred row is
+centred on it. That last one had to be written twice: the first version
+measured the CONTENT BOX and passed the mutation that puts `height: 20px`
+back — which is the whole bug, a box that is not its line. Measuring the line
+instead, it reports −2.53 against the browser's −2.5.
+
+**Still to come**: the reference's horizontal scroll is not wanted — it scrolls
+because its sidebar takes the width, and this table is sized to its card
+instead, so there is no scroll container and nothing to get wrong. Nor does the
+sidebar collapse to icons; that is a width this page does not have. And the
+scrollbar is not draggable yet.
+
+## Resizable, and a reference that publishes an impossible range
+
+ReUI's is react-resizable-panels, and its own prop names give it away:
+`orientation` and percentage strings (`"50%"`) are that library's API and
+nobody else's. A generous oracle and an easy one — one role, four attributes
+and a keyboard, all DOM-observable — so ordinary conformance, no capture.
+
+Six specs, 12 behaviours, 5245 observations. Five things measured that a
+reading would not give you:
+
+- **The orientation inverts.** A separator in a HORIZONTAL group publishes
+  `aria-orientation="vertical"`. That is right: the attribute describes the
+  separator LINE, which stands across the axis it resizes.
+- **And the key handler reads the other one.** ArrowLeft moves the separator
+  whose GROUP is horizontal — the same separator that publishes "vertical".
+  Two orientations, opposite values, both correct.
+- **`aria-valuenow` is the panel BEFORE**, so moving one separator changes the
+  next one's published value.
+- **Enter collapses the panel before, too.** With only the second panel
+  collapsible, Enter does nothing at all and reads as unimplemented — which is
+  exactly how it read here until a fixture put `collapsible` on the first.
+- **F6 stays inside its own group.** In the reference's own nested example each
+  group has one separator, so F6 focuses the one it is already on and looks
+  broken. It took a group of three panels to see it work.
+
+### Two places this deliberately does not copy the reference
+
+**An impossible range.** From three panels up, every separator but the first
+publishes an incoherent one. Measured at 20/30/50, the second says
+`aria-valuemin=50`, `aria-valuenow=30`, `aria-valuemax=0` — min above now above
+max, with valuemin tracking the CUMULATIVE size up to that panel rather than
+any minimum. No assistive technology can use that. So this side publishes a
+coherent range, `separator-constraints` is catalogued **disputed** with the
+numbers, and the harness gained a per-spec **`ignore`** list: fields a spec
+declares disputed go out of the denominator entirely rather than counting as
+matches, with `$ignore` in the spec saying what was measured and why. Two
+panels, where the reference is right, are measured in full.
+
+**An unnamed focusable control.** The library names no separator, leaving one
+announcing "50, separator" and nothing about what it splits. That is an
+omission, not a contract, so both sides name it after the panel it resizes —
+a divergence that ADDS rather than changes, and the only one here.
+
+The a11y gate found the second one, along with a separator that had no height
+at all — which is not pedantry: a focusable control with no box is one a
+pointer cannot reach and a focus ring cannot be drawn around.
+
+## Breadcrumb, a component with no oracle, and a role table that was short
+
+Radix has no breadcrumb and neither does anything else ReUI uses: the
+reference is markup. So the DOM side of these two specs is a SECOND
+IMPLEMENTATION of the HTML and ARIA specs, written here — it catches the two
+sides disagreeing and **cannot catch both of them being wrong**. That is a
+weaker guarantee than the tree's or the table's and the catalogue says so.
+
+The half worth having is the collapse. A trail too wide for its box drops
+crumbs, and which it keeps is a rule rather than a preference: **the first,
+because it is the way out; the last, because it is where you are; the one
+before it, because it is one step back.** Everything else becomes one ellipsis,
+named "More" so a reader learns crumbs are missing rather than hearing three
+dots. That is what the reference's screenshot shows — `Home > … > Components >
+Breadcrumb` — and it is the floor, too: below first-plus-last there is nothing
+left to drop, so the trail OVERFLOWS rather than lying about where you are.
+
+The controller measures nothing. It is told the available width and each
+crumb's width and answers which to draw, which keeps the rule testable without
+a font — and it is the only shape that works in EVG at all: **layout happens
+after the tree is built, so a component whose CONTENT depends on its own width
+needs two passes and somebody has to own the decision between them.** Here the
+caller owns it. That is the affordance a `Field` will need too, and it is worth
+knowing before the form work starts.
+
+### Two more fields, and two more silent controllers
+
+`aria-current` went into the observed field list, because a breadcrumb's whole
+claim is which crumb is the page you are on and the trace could not see it.
+
+Then the DOM snapshot's implicit-role table turned out to be **short**. It knew
+`button`, `a`, `table`, `tr`, `td`, `th` and `input` — grown one component at a
+time — and had never needed `nav`, `ol`, `ul` or `li`. Completing it turned two
+long-passing components red:
+
+- **the navigation menu was not a landmark.** Radix renders
+  `NavigationMenu.Root` as a `<nav>` and its List as an `<ol>`; this side
+  reported no role for either, so a reader could not jump to it.
+- **the toast viewport was not a list**, and each toast not a list item, so
+  nothing told a reader how many notifications were waiting.
+
+And then axe found what the diff still could not: a `role="list"` whose
+children are buttons is invalid, because Radix's `<li>` carries no test id and
+was in **neither** trace. Tagging it made both sides able to be wrong about it.
+Three different instruments, three different findings, none of which the other
+two could have made.
+
+## How much of a component is hand-work the engine should have done
+
+Asked directly, and worth answering with a measurement rather than an opinion:
+strip one hardcoded size at a time from a demo's stylesheet, lay out again, and
+compare. **A declaration that changes nothing is one the engine was going to
+work out anyway.** Across `tree.css`, `timeline.css` and `resize.css`, 56 fixed
+sizes:
+
+| | count | what it means |
+| --- | --- | --- |
+| the engine already knows it | **20** | pure redundancy, delete on sight |
+| the engine says a DIFFERENT number | 24 | a hand-rounded override — usually wrong |
+| the engine genuinely cannot | 12 | a real gap, or a real decision |
+
+The middle row is the uncomfortable one. `.tv-label { width: 340px }` makes a
+tree label 340 pixels wide when its text is **38.5** — which is why the
+checkbox beside it needed a margin, and why hit-testing a label hits far past
+the text. `.tl-title { width: 362px }` against 129. These are not conservative
+defaults; they are wrong numbers that happen to look right because nothing
+beside them is competing for the space.
+
+### The gap that caused most of it, now closed
+
+`EVGLayout.intrinsicWidth` stopped at text leaves, and its comment said why:
+*"sizing a container to its subtree needs a real intrinsic pass, and reporting
+a made-up number would silently misplace every neighbour."* Fair when the
+alternative was a guess. The alternative had become **every component
+hand-setting a width its own children already knew**, which is worse and does
+not stay correct.
+
+So the pass is written: a container's max-content width is the sum of its
+children along the row axis and the widest of them down the column, plus gaps
+and chrome — the recursive definition, terminating on the leaves that were
+already handled. And a width-less flex CONTAINER now shrink-wraps to it, which
+is what `flex: 0 1 auto` does in CSS and what this engine did not do.
+
+Measured on the breadcrumb, which is where it was noticed: six hand-set widths
+in the demo, **five of them redundant** — the engine already sized every text
+leaf correctly at 32, 86, 40, 72, 75 — and the sixth compensating for the
+container gap. After the change: **none**. Every gate stayed green, including
+all 40 editor suites.
+
+### The gaps still open, in order of how much hand-work they cost
+
+1. **Intrinsic HEIGHT for text is computed but routinely overridden.** The
+   engine does line-count × line-spacing correctly; the stylesheets state
+   rounded numbers instead (`height: 20px` against 16.8, `22px` against 18).
+   Twenty of the twenty-four overrides are heights. Nothing needs building —
+   the numbers need deleting, one component at a time, with a look at each.
+2. **`align-items: stretch` against a content-sized parent.** A splitter has to
+   state `height: 298px` to span its group. This was written up earlier as
+   "inert" on the timeline, and that was true THERE for a specific reason: the
+   rail's content already summed to the row height. It is not inert in general
+   and the earlier note oversold it.
+3. **An SVG element has no intrinsic size.** `.tl-icon` reports 0 without a
+   stated width, so every icon states one. A `viewBox` is an aspect ratio and
+   the engine could use it the way a browser uses an image's.
+
+### And one that was invisible from either direction
+
+`EVGA11yFromTree` could not read a value range off an element at all — no
+`a11yValueNow` field existed. A page built from a CONTROLLER publishes one
+through `UiRow`; a page built from ELEMENTS could not, and the two paths feed
+the same tree. Axe found it, on a focusable `separator` with no value: not a
+splitter, a decoration that has taken a tab stop. Now readable from both.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
@@ -988,6 +2692,44 @@ utility-class theme.
       specificity
 - [ ] Compound selectors (`.ui-toggle.state-on`), then attribute selectors
 - [ ] A generated Tailwind-subset utility sheet + theme tokens on top of that
+
+## Next — from identity to a component model
+
+`key` and `EVGReconcile` are step one of a longer list, and the rest is
+language work rather than library work. In the order that pays:
+
+- [x] **Persistent component instances.** `EVGComponent` + `EVGComponentHost`,
+      above the element layer rather than inside it
+- [ ] **`component` / `state` / `view` as syntax**, lowering the way
+      `treefactory` does — to code the type checker already knows how to check.
+      Two things the compiler can do that the library cannot: fold the CALL
+      SITE into a component's identity, and give `state` a static slot so it
+      never depends on the order the view ran (which is the whole reason React
+      has to forbid a hook inside an `if`)
+- [ ] **The litmus test for that step: `Tabs`.** Small enough to read in one
+      screen and it proves three things at once — the component instance
+      survives, its `state active` survives, and the element identity survives.
+      Dialog and Menu come after it, for focus and ARIA; a Grid is the stress
+      test, not the first test
+- [x] **A resolved-style cache.** 3.4× on the cascade, 2.2× on the whole
+      retained frame
+- [x] **Invalidation classes.** A hover is 16.3ms against a 26.3ms paint at
+      1600 rows — cheaper than drawing the frame it causes
+- [ ] **A retained display list.** It is what is left of a hover: 13.8 of the
+      16.3ms. Per-element command spans, patched rather than rebuilt
+- [ ] **A transform-only path for motion values.** Half of it exists already —
+      `transform` is classified paint-only, so a drag skips layout. What is left
+      is skipping the style pass and the display-list rebuild too
+- [ ] **Dependency tracking**, and not before the three above have been
+      measured
+- [ ] **Declarative event handlers**, so a component reads from one place
+- [ ] **`computed`**
+- [ ] **A high-frequency path for motion values.** Structural state (order,
+      selection, which folder is open) can drive a rebuild; pointer position
+      and drag offset change 60–120 times a second and should invalidate paint
+      without re-laying-out a subtree. `dragPage`'s preview coordinates are
+      that case today, and they currently go through a full rebuild
+- [ ] **`context`**, and only then a store
 
 ## Next — the actual point
 

@@ -150,18 +150,49 @@ class EVGLayout {
         this.log("EVGLayout: Layout complete")
     }
     
+    ; Whether the element about to be laid out sits along a ROW.
+    ;
+    ; A field rather than a parameter, and rather than reading `child.parent`,
+    ; because EVGElement deliberately has no parent back-reference: it was
+    ; write-only and, in the C++ backend, assigning `this` to a shared_ptr
+    ; field forces `enable_shared_from_this` and breaks the native build. Its
+    ; own comment says so, which is the only reason this is a field.
+    ;
+    ; The flex pass sets it before each child and puts it back afterwards. The
+    ; default is true, which is the block behaviour the root and any non-flex
+    ; parent want.
+    def layingOutAlongRow:boolean true
+
+    ; And, for a COLUMN parent, whether the cross axis shrink-wraps.
+    ;
+    ; `width: auto` on a flex item is stretch only while `align-items` is
+    ; stretch; under `center` or `flex-end` it is fit-content, which is the
+    ; difference between a breadcrumb trail centred under the label it belongs
+    ; to and one pinned to the left edge of a box it has filled.
+    ;
+    ; This engine's `alignItems` default is "flex-start" where CSS's is
+    ; "stretch", and everything built so far leans on the stretch. So only an
+    ; EXPLICIT centre or end shrinks: a container that never mentioned
+    ; `align-items` keeps exactly the behaviour it has today.
+    def columnCrossShrinks:boolean false
+
     fn layoutElement:void (element:EVGElement parentX:double parentY:double parentWidth:double parentHeight:double) {
         ; Resolve units for this element (will be skipped if already resolved in layoutChildren)
         element.resolveUnits(parentWidth parentHeight)
         
-        ; Calculate element dimensions
+        ; Calculate element dimensions. Same order as `layoutChildren`: a width
+        ; the flex pass decided wins over the declared one, because it IS the
+        ; declared one after shrinking.
         def width:double parentWidth
         if element.width.isSet {
             width = element.width.pixels
         }
+        if element.hasFlexWidth {
+            width = element.calculatedFlexWidth
+        }
         
         ; Text leaf nodes without explicit width shrink-wrap to measured content
-        if (element.width.isSet == false) {
+        if ((element.width.isSet == false) && (element.hasFlexWidth == false)) {
             def textContent:string element.textContent
             if ((strlen textContent) > 0) {
                 if ((element.getChildCount()) == 0) {
@@ -176,6 +207,28 @@ class EVGLayout {
                     def measuredW:double (contentW + element.box.paddingLeftPx + element.box.paddingRightPx + (element.box.borderWidthPx * 2.0))
                     if (measuredW < parentWidth) {
                         width = measuredW
+                    }
+                }
+            } {
+                ; A width-less flex CONTAINER shrink-wraps too — but only in a
+                ; ROW. This is `width: auto` in CSS and it resolves two
+                ; different ways: fit-content for an item laid out along a row,
+                ; and STRETCH for one in a column, where the cross axis fills
+                ; because `align-items` defaults to stretch.
+                ;
+                ; The first version of this shrank in both, and the damage was
+                ; exactly what the rule predicts: in a vertical panel group,
+                ; every panel collapsed to the width of the label inside it and
+                ; the divider collapsed to the width of its grip. Correct on
+                ; the axis it was written for and wrong on the other one.
+                if (element.display == "flex") {
+                    if (this.crossAxisFits(element)) {
+                        def intrinsic:double (this.intrinsicWidth(element false))
+                        if (intrinsic > 0.0) {
+                            if (intrinsic < parentWidth) {
+                                width = intrinsic
+                            }
+                        }
                     }
                 }
             }
@@ -359,11 +412,17 @@ class EVGLayout {
                 }
                 
                 ; Get line height
-                def lineHeightFactor:double element.lineHeight
-                if (lineHeightFactor <= 0.0) {
-                    lineHeightFactor = 1.2
+                ; `line-height: normal` — zero here means nobody asked for a
+                ; number — is the FACE's own line box, so it is asked of the
+                ; thing that knows about faces. It used to be a flat 1.2, which
+                ; is a number people type and not one a browser computes: the
+                ; sans fallback's normal is 1.15em and monospace's is 1.164.
+                def lineSpacing:double 0.0
+                if (element.lineHeight > 0.0) {
+                    lineSpacing = (fontSize * element.lineHeight)
+                } {
+                    lineSpacing = (textEngine.lineHeightFor((element.effectiveFontFamily()) fontSize))
                 }
-                def lineSpacing:double (fontSize * lineHeightFactor)
                 
                 ; Line count comes from the shared wrap, not a second estimate,
                 ; so the height reserved here matches the lines paint will draw.
@@ -375,11 +434,16 @@ class EVGLayout {
                 ; Baseline of the FIRST line, measured from this element's top
                 ; border edge, for align-items: baseline. The glyphs sit inside
                 ; the line box, so half the leading is above the ascent.
+                ;
+                ; THE HALF-LEADING MAY BE NEGATIVE, and it used to be clamped at
+                ; zero. `line-height: 1` gives a line box smaller than the face
+                ; — 1.0em against 1.117 — and CSS lets the glyphs hang out of it
+                ; equally top and bottom rather than pushing them down to fit.
+                ; Measured: at line-height 1 the browser puts the baseline at
+                ; 0.846em, which is exactly -0.0585 + 0.905. The clamp made that
+                ; 0.905 and moved every tightly-led line down by the difference.
                 def metrics:EVGTextMetrics (textEngine.measureRun(textContent (element.effectiveFontFamily()) fontSize))
                 def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
-                if (leading < 0.0) {
-                    leading = 0.0
-                }
                 element.calculatedBaseline = (element.box.paddingTopPx + element.box.borderWidthPx + leading + metrics.ascent)
                 element.calculatedDescent = metrics.descent
                 element.hasBaseline = true
@@ -426,10 +490,93 @@ class EVGLayout {
         if ((element.hasBaseline == false) && (childCount > 0)) {
             this.inheritBaselineFromFirstChild(element)
         }
+
+        ; --- SCROLLING --------------------------------------------------------
+        ;
+        ; The last thing that happens to an element, and it has to be: the
+        ; extents are measured from where the children ENDED UP, so this runs
+        ; after every one of them is placed. `layoutChildren` has already been
+        ; through the whole subtree by the time control gets back here.
+        if (element.clipsContent()) {
+            this.applyScroll(element)
+        }
         
         this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
     }
     
+    ; What a scroll container owes: how big its content is, and where the
+    ; content currently sits.
+    ;
+    ; The offset is applied as a TRANSLATION of the placed subtree rather than
+    ; as an origin the flow is run from. That is not a shortcut. The flow has
+    ; to run at the content's natural size for the extent to mean anything —
+    ; measure first, then move — and running it from a shifted origin would
+    ; make the extent a function of the scroll position, which is how a
+    ; scrollbar ends up changing size as you drag it.
+    ;
+    ; EVERYTHING inside moves, absolutely positioned children and overlay
+    ; surfaces alike. That is what a browser does: an absolute box is
+    ; positioned against this one, so it belongs to its content, and a dropdown
+    ; opened from a row inside a scrolled panel travels with the row. Only
+    ; `position: fixed` escapes, and EVG has no such thing.
+    ;
+    ; It reuses the mover the RTL mirror already had. One function that walks a
+    ; placed subtree and adds an offset to it is enough; a second one would be
+    ; two places for the same rule to be got wrong.
+    fn applyScroll:void (el:EVGElement) {
+        def innerX:double (el.calculatedX + el.box.borderWidthPx + el.box.paddingLeftPx)
+        def innerY:double (el.calculatedY + el.box.borderWidthPx + el.box.paddingTopPx)
+        def w:double 0.0
+        def h:double 0.0
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (el.getChild(i))
+            def right:double ((kid.calculatedX + kid.calculatedWidth) - innerX)
+            def bottom:double ((kid.calculatedY + kid.calculatedHeight) - innerY)
+            if (right > w) {
+                w = right
+            }
+            if (bottom > h) {
+                h = bottom
+            }
+            i = (i + 1)
+        }
+        ; PADDING BOX, like the DOM: the content extent plus the paddings on
+        ; both sides. Measured, not assumed — eight 60-pixel rows in a box with
+        ; 10 of padding gives the browser 500.
+        el.scrollWidth = ((w + el.box.paddingLeftPx) + el.box.paddingRightPx)
+        el.scrollHeight = ((h + el.box.paddingTopPx) + el.box.paddingBottomPx)
+
+        ; Clamped, the way a browser clamps `scrollTop`: an application that
+        ; asks to scroll past the end has asked for the end. Doing it here and
+        ; not in the setter is what makes it correct — how far there is to go
+        ; is not known until the content has been measured, and it changes
+        ; every time the content does.
+        def maxY:double (el.maxScrollTop())
+        if (el.scrollTop > maxY) {
+            el.scrollTop = maxY
+        }
+        if (el.scrollTop < 0.0) {
+            el.scrollTop = 0.0
+        }
+        def maxX:double (el.maxScrollLeft())
+        if (el.scrollLeft > maxX) {
+            el.scrollLeft = maxX
+        }
+        if (el.scrollLeft < 0.0) {
+            el.scrollLeft = 0.0
+        }
+
+        if ((el.scrollTop == 0.0) && (el.scrollLeft == 0.0)) {
+            return
+        }
+        def j:int 0
+        while (j < (el.getChildCount())) {
+            this.translateSubtree((el.getChild(j)) (0.0 - el.scrollLeft) (0.0 - el.scrollTop))
+            j = (j + 1)
+        }
+    }
+
     fn layoutChildren:double (parent:EVGElement) {
         ; Layout all children using flow algorithm
         ; Returns total content height
@@ -510,7 +657,9 @@ class EVGLayout {
                             fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
                         } {
                             def avail:double (innerWidth - c.box.marginLeftPx - c.box.marginRightPx)
-                            def estW:double (this.estimateChildWidth(c avail))
+                            ; This IS the row flex pass, so along a row by
+                            ; construction.
+                            def estW:double (this.estimateChildWidth(c avail true))
                             fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
                         }
                     }
@@ -591,7 +740,7 @@ class EVGLayout {
                                 settled = false
                             }
                             c.calculatedFlexWidth = clampedW
-                            c.width.isSet = false
+                            c.hasFlexWidth = true
                         }
                         j = j + 1
                     }
@@ -659,8 +808,18 @@ class EVGLayout {
                 ; holds its size while the rest absorb the overflow. With every
                 ; factor left at the CSS default of 1 this is the same uniform
                 ; scale as before.
+                ;
+                ; NOT in a scroll container. Shrinking is what a box does when
+                ; the overflow has nowhere to go; a scroll container is the
+                ; statement that it does have somewhere to go. This is the pass
+                ; the virtualiser had to route around — a 230,000-pixel spacer
+                ; in a 414-pixel column was scaled to fit and fourteen rows drew
+                ; on one 46-pixel line.
                 def contentH:double (fixedHeight + gapTotalC)
                 def overflowH:double (contentH - innerHeight)
+                if (parent.clipsContent()) {
+                    overflowH = 0.0
+                }
                 if ((overflowH > 0.0) && (fixedHeight > 0.0)) {
                     def weightedH:double 0.0
                     def jq:int 0
@@ -718,6 +877,11 @@ class EVGLayout {
                 if (flowCount2 > 1) { gapTotal2 = ((to_double (flowCount2 - 1)) * gapPx) }
                 def contentW2:double (fixedW2 + gapTotal2)
                 def overflowW:double (contentW2 - innerWidth)
+                ; Same reason as the column above: a scroll container's content
+                ; is not squeezed to fit, it is scrolled to.
+                if (parent.clipsContent()) {
+                    overflowW = 0.0
+                }
                 if ((totalFlex2 == 0.0) && (overflowW > 0.0) && (fixedW2 > 0.0)) {
                     ; Weighted by (flex-shrink x width), so flex-shrink: 0 keeps
                     ; its size and its siblings absorb the whole overflow.
@@ -741,7 +905,7 @@ class EVGLayout {
                                     finalW = 0.0
                                 }
                                 c.calculatedFlexWidth = finalW
-                                c.width.isSet = false
+                                c.hasFlexWidth = true
                             }
                             jw = (jw + 1)
                         }
@@ -795,7 +959,13 @@ class EVGLayout {
                     ; move the finished subtree into place afterwards: the
                     ; positions inside it are relative to the element, so one
                     ; translation carries all of them.
+                    def wasRow0:boolean layingOutAlongRow
+                    def wasShrink0:boolean columnCrossShrinks
+                    layingOutAlongRow = (isColumn == false)
+                    columnCrossShrinks = (this.crossShrinksUnder(parent))
                     this.layoutElement(child 0.0 0.0 innerWidth innerHeight)
+                    layingOutAlongRow = wasRow0
+                    columnCrossShrinks = wasShrink0
                     this.translateSubtree(child startX startY)
                 }
                 i = i + 1
@@ -804,22 +974,26 @@ class EVGLayout {
             
             ; Calculate child dimensions
             def availableForChild:double (innerWidth - child.box.marginLeftPx - child.box.marginRightPx)
-            def childWidth:double (this.estimateChildWidth(child availableForChild))
+            def childWidth:double (this.estimateChildWidth(child availableForChild ((isColumn == false) || (this.crossShrinksUnder(parent)))))
             
-            if child.width.isSet {
-                ; If width is explicitly set and it's 100% (resolved to innerWidth), 
-                ; we should still subtract margins for proper fit
-                if (child.width.pixels >= innerWidth) {
-                    ; Width was 100% - use available space after margins
-                    childWidth = availableForChild
-                } {
-                    ; Width was set to a specific value - use it
-                    childWidth = child.width.pixels
-                }
+            ; The flex pass gets the FIRST say, because when it has run it has
+            ; already taken the declared width into account and squeezed it.
+            ; It used to say so by clearing `width.isSet`, which destroyed the
+            ; declaration for every frame after; now it says so with a flag and
+            ; the declaration survives.
+            if child.hasFlexWidth {
+                childWidth = child.calculatedFlexWidth
             } {
-                ; No width set - check if this child has a calculated flex width
-                if (child.calculatedFlexWidth > 0.0) {
-                    childWidth = child.calculatedFlexWidth
+                if child.width.isSet {
+                    ; If width is explicitly set and it's 100% (resolved to innerWidth),
+                    ; we should still subtract margins for proper fit
+                    if (child.width.pixels >= innerWidth) {
+                        ; Width was 100% - use available space after margins
+                        childWidth = availableForChild
+                    } {
+                        ; Width was set to a specific value - use it
+                        childWidth = child.width.pixels
+                    }
                 }
             }
             ; row alignItems:stretch — a child with no explicit height fills the
@@ -871,7 +1045,17 @@ class EVGLayout {
             
             ; Layout child element (recursive)
             ; Units were already resolved in layoutChildren, pass childWidth so layoutElement knows the actual size
+            ; Tell the child which axis it is being laid along, so a width-less
+            ; flex container knows whether `width: auto` means fit-content (a
+            ; row) or stretch (a column). Restored afterwards because this pass
+            ; recurses.
+            def wasRow:boolean layingOutAlongRow
+            def wasShrink:boolean columnCrossShrinks
+            layingOutAlongRow = (isColumn == false)
+            columnCrossShrinks = (this.crossShrinksUnder(parent))
             this.layoutElement(child child.calculatedX child.calculatedY childWidth innerHeight)
+            layingOutAlongRow = wasRow
+            columnCrossShrinks = wasShrink
             
             ; Get actual child height after layout
             def childHeight:double child.calculatedHeight
@@ -1250,6 +1434,23 @@ class EVGLayout {
             rowWidth = rowWidth + el.calculatedWidth + el.box.marginLeftPx + el.box.marginRightPx
             i = i + 1
         }
+        ; THE GAPS ARE PART OF THE ROW. This summed the boxes and forgot the
+        ; space the flow had already put between them, so `justify-content:
+        ; flex-end` pushed the row right by exactly the total gap and the last
+        ; item hung over the end of its container — a footer's two buttons with
+        ; an 8px gap ended 8px past the card. `space-between` and friends read
+        ; the same number for their free space, so they were out by the same
+        ; amount in the other direction.
+        def rowGapPx:double 0.0
+        if parent.gap.isSet {
+            rowGapPx = parent.gap.pixels
+        }
+        if parent.columnGap.isSet {
+            rowGapPx = parent.columnGap.pixels
+        }
+        if (elementCount > 1) {
+            rowWidth = (rowWidth + ((to_double (elementCount - 1)) * rowGapPx))
+        }
         
         ; Determine alignment based on flexDirection
         ; For row direction: justifyContent = horizontal, alignItems = vertical
@@ -1316,14 +1517,35 @@ class EVGLayout {
             }
         }
         
-        ; For vertical alignment, use parent's inner height if it has a fixed height
-        ; This allows verticalAlign to work when parent has explicit height
+        ; The box a child is centred in. `alignItems` places a child inside its
+        ; LINE; when the parent cannot wrap there is only one line and the line
+        ; IS the content box, so the child may use all of it.
+        ;
+        ; The old test was `parent.height.isSet`, which asks where the height
+        ; came from rather than whether there is one. A divider whose height
+        ; came from the group's `align-items: stretch` has a perfectly definite
+        ; 298 pixels and no declaration, so it failed the test and its grip
+        ; stayed pinned to the top of a divider it was supposed to sit in the
+        ; middle of. `hasDefiniteHeight` is the question that was meant:
+        ; declared or resolved, the height is known before the children are
+        ; placed either way.
+        ;
+        ; A parent that CAN wrap keeps the old test. There the lines are placed
+        ; by `applyAlignContent` and a line is not the box — letting each line
+        ; claim the whole box would stack them all on top of one another.
         def effectiveRowHeight:double rowHeight
-        if parent.height.isSet {
-            def parentInnerHeight:double parent.calculatedInnerHeight
-            if (parentInnerHeight > rowHeight) {
-                effectiveRowHeight = parentInnerHeight
+        def crossBox:double 0.0
+        if (parent.flexWrap == "nowrap") {
+            if parent.hasDefiniteHeight {
+                crossBox = parent.calculatedInnerHeight
             }
+        } {
+            if parent.height.isSet {
+                crossBox = parent.calculatedInnerHeight
+            }
+        }
+        if (crossBox > rowHeight) {
+            effectiveRowHeight = crossBox
         }
         
         ; align-items: baseline — line the row up on the text baselines rather
@@ -1652,6 +1874,21 @@ class EVGLayout {
             y = ((pageHeight - h) / 2.0)
             surface.overlayPlacedSide = "center"
         } {
+        if (surface.overlaySide == "free") {
+            ; Wherever it was put. A window someone has dragged has no anchor
+            ; and no side: its owner holds the coordinates and this pass takes
+            ; them as given. It is still an overlay — out of its parent's flow,
+            ; painted above the page, hit-tested in front — and that is the
+            ; only reason it comes through here at all.
+            ;
+            ; Not clamped to the page either. Where a window is allowed to go
+            ; is its controller's rule, not the layout's: `WindowCtl` keeps
+            ; enough of it on screen to grab, and a different owner might want
+            ; a palette that hangs off the edge.
+            x = surface.overlayX
+            y = surface.overlayY
+            surface.overlayPlacedSide = "free"
+        } {
             def maybe@(optional):EVGElement (this.findOverlayAnchor(surface parent))
             if (null? maybe) {
                 ; Named, not silently at (0,0). An unanchored surface in the
@@ -1702,6 +1939,7 @@ class EVGLayout {
             ; its anchor.
             x = (EVGLayout.clampTo(x 0.0 (pageWidth - w)))
             y = (EVGLayout.clampTo(y 0.0 (pageHeight - h)))
+        }
         }
         }
 
@@ -1755,13 +1993,21 @@ class EVGLayout {
     ; Auto-flow row placement over a fixed column count. Items may span columns
     ; and rows; an occupancy map keeps spans from overlapping. Returns the total
     ; content height, same contract as layoutChildren.
-    ; What a grid item contributes to an intrinsic track.
+    ; What an item contributes to an intrinsic size — CSS's `max-content` and
+    ; `min-content`, and now for CONTAINERS as well as leaves.
     ;
     ; A definite width is both the min- and max-content size, so it is the
-    ; whole answer. A text leaf contributes its longest unbroken line. Anything
-    ; else contributes nothing: sizing a container to its subtree needs a real
-    ; intrinsic pass, and reporting a made-up number would silently misplace
-    ; every neighbour rather than merely leave a track narrow.
+    ; whole answer. A text leaf contributes its longest unbroken line (or its
+    ; longest word, for the min). A CONTAINER contributes the sum of its
+    ; children along the row axis and the widest of them down the column axis,
+    ; plus gaps and its own chrome — which is the recursive definition, and it
+    ; terminates on the leaves above.
+    ;
+    ; This used to stop at the leaves, and the comment here said why: sizing a
+    ; container to its subtree needs a real intrinsic pass. This IS that pass.
+    ; It was written when the alternative was reporting a made-up number; the
+    ; alternative now is every component hand-setting a width its own children
+    ; already know, which is worse and does not stay correct.
     fn intrinsicWidthOf:double (el:EVGElement) {
         return (this.intrinsicWidth(el false))
     }
@@ -1795,12 +2041,122 @@ class EVGLayout {
                     }
                     outer = (contentW + (el.box.getHorizontalChrome()))
                 }
+            } {
+                outer = (this.intrinsicOfChildren(el wantMin))
             }
         }
         if (outer <= 0.0) {
             return 0.0
         }
         return ((outer + el.box.marginLeftPx) + el.box.marginRightPx)
+    }
+
+    ; Is this element laid out along a row? An element with no parent, or one
+    ; whose parent is not a flex container, is treated as a row item — which is
+    ; the block default: `width: auto` on a block fills, and the caller has
+    ; already set `width = parentWidth` before asking.
+    fn parentIsRow:boolean (el:EVGElement) {
+        return layingOutAlongRow
+    }
+
+    ; Does a width-less child of this container shrink to its content?
+    ; Only when the container is a column that has explicitly asked for
+    ; something other than the stretch.
+    fn crossShrinksUnder:boolean (parent:EVGElement) {
+        if (parent.flexDirection != "column") {
+            return false
+        }
+        def a:string parent.alignItems
+        if (a == "center") {
+            return true
+        }
+        if (a == "flex-end") {
+            return true
+        }
+        if (a == "end") {
+            return true
+        }
+        return false
+    }
+
+    ; Whether `width: auto` on this element means fit-content rather than
+    ; stretch: along a row it always does, and down a column it does when the
+    ; parent aligns its items anywhere but the stretch.
+    fn crossAxisFits:boolean (el:EVGElement) {
+        if (this.parentIsRow(el)) {
+            return true
+        }
+        return columnCrossShrinks
+    }
+
+    ; The recursive half. A row adds its children up; a column takes the widest.
+    ; Absolutely positioned children are out of flow and contribute nothing, the
+    ; same way they contribute nothing to the flow itself.
+    ;
+    ; `wrap` is treated as a row here on purpose: max-content is defined as the
+    ; size the box would take with unlimited space, and with unlimited space a
+    ; wrapping row does not wrap.
+    fn intrinsicOfChildren:double (el:EVGElement wantMin:boolean) {
+        def n:int (el.getChildCount())
+        if (n == 0) {
+            return 0.0
+        }
+        def isColumn:boolean ((el.flexDirection == "column") || (el.flexDirection == "column-reverse"))
+        def gapPx:double 0.0
+        if el.gap.isSet {
+            gapPx = el.gap.pixels
+        }
+        if el.columnGap.isSet {
+            gapPx = el.columnGap.pixels
+        }
+
+        def total:double 0.0
+        def widest:double 0.0
+        def counted:int 0
+        def i:int 0
+        while (i < n) {
+            def kid:EVGElement (el.getChild(i))
+            if (kid.position == "absolute") {
+            } {
+                ; RESOLVE THE KID FIRST. Its padding and border live in
+                ; `kid.box` as pixels, and `resolveUnits` is what puts them
+                ; there — the flow calls it on each child just before laying it
+                ; out, so a child IS resolved by the time it is measured, and a
+                ; GRANDCHILD is not. This pass walks grandchildren.
+                ;
+                ; The symptom was a container narrower than the things inside
+                ; it: a footer's two buttons came to 216 and their row was
+                ; sized 164, which is 216 less exactly two buttons' worth of
+                ; chrome, and the pair hung out over the right edge of the
+                ; card. "Containers leak over" is what a missing padding term
+                ; looks like from the outside.
+                ;
+                ; The basis is this element's own inner box, which is what the
+                ; flow will use a moment later. It matters only for a
+                ; PERCENTAGE padding, whose max-content size is undefined in
+                ; CSS anyway and which nothing in this gallery uses; `px` and
+                ; `em` resolve the same whatever they are given.
+                kid.resolveUnits(el.calculatedInnerWidth el.calculatedInnerHeight)
+                def w:double (this.intrinsicWidth(kid wantMin))
+                if (w > widest) {
+                    widest = w
+                }
+                if (counted > 0) {
+                    total = (total + gapPx)
+                }
+                total = (total + w)
+                counted = (counted + 1)
+            }
+            i = (i + 1)
+        }
+        def inner:double total
+        if isColumn {
+            inner = widest
+        }
+        if (inner <= 0.0) {
+            return 0.0
+        }
+        return (inner + (el.box.getHorizontalChrome()))
     }
 
     fn layoutGrid:double (parent:EVGElement) {
@@ -2399,12 +2755,21 @@ class EVGLayout {
         return total
     }
 
-    fn estimateChildWidth:double (child:EVGElement maxInnerWidth:double) {
+    ; `alongRow` is the same question `crossAxisFits` asks of the element being
+    ; laid out, asked here of one being estimated: does `width: auto` mean
+    ; fit-content, or stretch? It has to be passed rather than read off the
+    ; ambient flag, because this runs BEFORE the child is laid out and the flag
+    ; still describes whoever was laid out last.
+    ;
+    ; Getting it wrong is not subtle. Shrink-wrapping unconditionally shrank
+    ; the profile card's header — a column child that should fill — to the
+    ; width of the two things inside it.
+    fn estimateChildWidth:double (child:EVGElement maxInnerWidth:double alongRow:boolean) {
         ; Width used for row flow / flex pre-calc — matches layoutElement shrink-wrap
         if child.width.isSet {
             return child.width.pixels
         }
-        if (child.calculatedFlexWidth > 0.0) {
+        if (child.hasFlexWidth) {
             return child.calculatedFlexWidth
         }
         def textContent:string child.textContent
@@ -2421,6 +2786,25 @@ class EVGLayout {
                 def measuredW:double (contentW + child.box.paddingLeftPx + child.box.paddingRightPx + (child.box.borderWidthPx * 2.0))
                 if (measuredW < maxInnerWidth) {
                     return measuredW
+                }
+            }
+        }
+        ; A width-less flex CONTAINER is worth as much as its contents, the
+        ; same as it is in `layoutElement`. This used to fall straight through
+        ; to `maxInnerWidth` — the whole row — so a row holding a container and
+        ; a `flex: 1` spacer computed no free space at all and the spacer got
+        ; nothing. The header of the profile demo is exactly that shape: a
+        ; title block, a spacer, and a badge that was supposed to sit at the
+        ; far end and sat against the title instead.
+        ;
+        ; It is the same question `layoutElement` asks two hundred lines up,
+        ; and asking it two different ways is what let the flex basis and the
+        ; finished width disagree.
+        if ((child.display == "flex") && alongRow) {
+            def intrinsic:double (this.intrinsicWidth(child false))
+            if (intrinsic > 0.0) {
+                if (intrinsic < maxInnerWidth) {
+                    return intrinsic
                 }
             }
         }

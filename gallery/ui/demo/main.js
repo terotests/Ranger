@@ -25,15 +25,18 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS } from "./generated.js";
 
+// The default stage width. A demo wider than this says so — the dashboard
+// grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
+// report the extra, it crops it.
 const W = 1240;
 
 const CHECK_ITEMS = ["Always Show Bookmarks Bar", "Always Show Full URLs"];
@@ -118,6 +121,13 @@ function keptTree(mod, css, label, size) {
     for (let i = 0; i < el.children.length; i++) mark(el.children[i]);
   };
 
+  // Kept across frames, so a frame that changes nothing geometric can reuse
+  // the positions rather than recompute them. There is no "is this the same
+  // tree" check: a freshly built tree has no element the sheet has written to
+  // and a reconciled one has had every element overwritten, so either reports
+  // itself layout-dirty and lays out without being asked.
+  let lay = null;
+
   const laidOut = () => {
     sheet.setViewport(size[0], size[1], false);
     mark(root);
@@ -125,11 +135,23 @@ function keptTree(mod, css, label, size) {
     // The sheet has written what it WANTS; this leaves on the element what is
     // actually showing, which for a property in flight is neither end.
     transitions.reconcileTree(root);
-    const lay = new mod.EVGLayout();
-    lay.setPageSize(size[0], size[1]);
-    lay.layout(root);
+    if (!lay) {
+      lay = new mod.EVGLayout();
+      lay.setPageSize(size[0], size[1]);
+      lay.layout(root);
+      return lay;
+    }
+    // The invalidation decision. `layoutClean()` is true when nothing the
+    // sheet wrote this pass can have moved a box — a hover that changes a
+    // colour, a transform, an opacity. On a large page that is most of the
+    // frame; see gallery/evg/EVGInvalidateTest.rgr for what it is allowed to
+    // mean and the one thing it cannot see (a bare `textContent` edit, which
+    // nothing here does: text comes from a rebuild).
+    if (!sheet.layoutClean()) lay.layout(root);
     return lay;
   };
+
+  const reconciler = new mod.EVGReconcile();
 
   return {
     /** Rebuild only if the data changed. */
@@ -138,6 +160,30 @@ function keptTree(mod, css, label, size) {
       key = nextKey;
       root = build();
     },
+    /**
+     * Rebuild EVERY time, and keep the elements.
+     *
+     * `sync` above is the old answer to a problem that has a real one now: a
+     * tree built from scratch has different elements in every position, so
+     * anything an element remembers — a flight, most of all — is gone, and the
+     * only way to keep it was to not rebuild. `EVGReconcile` matches the new
+     * children against the live ones by key and moves the elements instead of
+     * replacing them, so a rebuild is once again the way to say what changed.
+     *
+     * The first call has nothing to reconcile against and simply takes the
+     * tree.
+     */
+    rebuild(build) {
+      const next = build();
+      if (!root) {
+        root = next;
+        return;
+      }
+      reconciler.resetStats();
+      reconciler.reconcile(root, next);
+    },
+    /** How the last rebuild went, for a page that wants to prove it works. */
+    reconcileStats: () => reconciler.stats,
     setHover(id) {
       if (id === hovered) return false;
       hovered = id;
@@ -229,6 +275,57 @@ table.init(TABLE_CSS);
 const dropdown = new DropdownDemo();
 dropdown.init(DROPDOWN_CSS);
 let lastDropdownHover = "";
+
+/**
+ * The dialog and the window — the same class twice, with one flag different.
+ *
+ * This is the demo with a gesture the others do not have: the window's title
+ * bar is DRAGGED, and a drag is not a click. The pointer handlers below ask
+ * the controller whether a press starts one, and while it has, every move is
+ * a delta rather than a position — which is what lets the window be picked up
+ * anywhere along its bar and not jump.
+ *
+ * Both windows start open, because a page whose demo is two closed triggers
+ * shows nothing.
+ */
+const dialog = new DialogDemo();
+dialog.init(DIALOG_CSS);
+dialog.openWindow();
+dialog.openModal();
+let lastDialogHover = "";
+// Where the pointer was when the drag began, in page pixels. The controller
+// only ever hears "this much further", so the subtracting happens here.
+let dialogDragAt = null;
+
+/**
+ * The tree. Every arrow, Home, End, Enter and Space on this page is answered
+ * by `TreeCtl` — the same controller three conformance specs run against — so
+ * the demo owns the look and not one rule of the behaviour.
+ */
+const treeview = new TreeDemo();
+treeview.init(TREE_CSS);
+
+// The timeline. The one demo on this page with no controller behind it,
+// because there is nothing to control: a list of records and one integer.
+const timeline = new TimelineDemo();
+timeline.init(TIMELINE_CSS);
+
+// Nested resizable panels, with a breadcrumb in the left one that gives way as
+// the panel narrows. The one demo here whose CONTENT depends on its own size.
+const resize = new ResizeDemo();
+resize.init(RESIZE_CSS);
+const form = new FormDemo();
+form.init(FORM_CSS);
+let lastFormHover = "";
+const profile = new ProfileDemo();
+profile.init(PROFILE_CSS);
+let lastProfileHover = "";
+const dashboard = new DashboardDemo();
+dashboard.init(DASHBOARD_CSS);
+let lastDashHover = "";
+let lastResizeHover = "";
+let lastTreeHover = "";
+let lastTimelineHover = "";
 
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
@@ -340,6 +437,262 @@ const DEMOS = {
     animated: true,
   },
 
+  tree: {
+    height: () => treeview.heightPx(),
+    list: () => treeview.displayListJson(),
+    hit: (x, y) => treeview.hitId(x, y),
+    a11y: (gen, focus) => treeview.a11yJson(gen, focus),
+    // The gesture protocol, same three as the dialog and the sortable. The
+    // press only ARMS a drag: `TreeDemo` starts one on the first move past a
+    // threshold, so a press that never travels ends as an ordinary click and
+    // still opens the folder under it.
+    press: (id) => treeview.beginPress(id, grabPointer.x, grabPointer.y),
+    drag: (id, ev) => treeview.dragMove(ev.offsetX, ev.offsetY),
+    drop: () => treeview.dragDrop(),
+    hover: (id) => {
+      if (id === lastTreeHover) return false;
+      lastTreeHover = id;
+      treeview.setHover(id);
+      return true;
+    },
+    // Straight through to TreeCtl, like the dropdown's.
+    key: (k) => treeview.key(k),
+    host: () => ({
+      // `openOnDropDelay` lives on this clock. A folder held under a drag
+      // opens after 800ms, and the only place that time exists is the frame
+      // loop — so the tick asks, and says whether anything changed.
+      tick: (dt) => {
+        const opened = treeview.dragHold(dt);
+        const busy = treeview.tick(dt);
+        return opened || busy;
+      },
+      // A drag held perfectly still still needs frames: nothing is moving, but
+      // 800ms of nothing is what opens a folder. Without this the loop stops
+      // the moment the pointer does and the delay never runs out.
+      busy: () => treeview.busyNow() || treeview.dragWaiting(),
+      setHover: (id) => {
+        if (id === lastTreeHover) return false;
+        lastTreeHover = id;
+        treeview.setHover(id);
+        return true;
+      },
+      setPressed: (id) => treeview.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  // The timeline. Presentational: a press steps the value on and the picture
+  // is redrawn from it, which is the only interaction there is — the reference
+  // has none at all, and a page with a value in it and no way to change it
+  // cannot show that the value is what draws the picture.
+  resizable: {
+    height: () => resize.heightPx(),
+    list: () => resize.displayListJson(),
+    hit: (x, y) => resize.hitId(x, y),
+    a11y: (gen, focus) => resize.a11yJson(gen, focus),
+    // The gesture protocol again: press arms, move drags, release drops.
+    press: (id) => resize.beginPress(id, grabPointer.x, grabPointer.y),
+    drag: (id, ev) => resize.dragMove(ev.offsetX, ev.offsetY),
+    drop: () => resize.dragDrop(),
+    hover: (id) => {
+      if (id === lastResizeHover) return false;
+      lastResizeHover = id;
+      resize.setHover(id);
+      return true;
+    },
+    key: (k) => resize.key(k),
+    host: () => ({
+      tick: (dt) => resize.tick(dt),
+      busy: () => resize.busyNow(),
+      setHover: (id) => {
+        if (id === lastResizeHover) return false;
+        lastResizeHover = id;
+        resize.setHover(id);
+        return true;
+      },
+      setPressed: (id) => resize.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  // The form. A press moves focus and, on a field, puts the caret where the
+  // pointer landed — which is the one interaction here that is a measurement
+  // rather than a state change, and the reason the press carries an x.
+  form: {
+    height: () => form.heightPx(),
+    list: () => form.displayListJson(),
+    hit: (x, y) => form.hitId(x, y),
+    a11y: (gen, focus) => form.a11yJson(gen, focus),
+    press: (id) => form.press(id),
+    hover: (id) => {
+      if (id === lastFormHover) return false;
+      lastFormHover = id;
+      form.setHover(id);
+      return true;
+    },
+    // Shift and Control matter here and nowhere else: Shift+Arrow extends the
+    // selection a plain Arrow collapses, and Ctrl+Arrow moves by a word. A
+    // printable key goes through the same door — `keyWith` treats any
+    // single-character unmodified key as an insertion — so there is no
+    // separate typing hook to keep in step with this one.
+    keyWith: (k, shift, ctrl) => form.keyWith(k, shift, ctrl),
+    key: (k) => form.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastFormHover) return false;
+        lastFormHover = id;
+        form.setHover(id);
+        return true;
+      },
+      setPressed: (id) => form.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  // The label-left form. Same shape as the invoice's entry; the difference is
+  // in the layout, not the wiring.
+  profile: {
+    height: () => profile.heightPx(),
+    list: () => profile.displayListJson(),
+    hit: (x, y) => profile.hitId(x, y),
+    a11y: (gen, focus) => profile.a11yJson(gen, focus),
+    press: (id) => profile.press(id),
+    hover: (id) => {
+      if (id === lastProfileHover) return false;
+      lastProfileHover = id;
+      profile.setHover(id);
+      return true;
+    },
+    keyWith: (k, shift, ctrl) => profile.keyWith(k, shift, ctrl),
+    key: (k) => profile.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastProfileHover) return false;
+        lastProfileHover = id;
+        profile.setHover(id);
+        return true;
+      },
+      setPressed: (id) => profile.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  // Four cards and a chart that is really drawn: the display list this hands
+  // back has the page's own commands and Vela's in it, which is the whole
+  // point of the page.
+  dashboard: {
+    scroll: (dy) => dashboard.scrollBy(dy),
+    width: () => dashboard.widthPx(),
+    height: () => dashboard.heightPx(),
+    list: () => dashboard.displayListJson(),
+    hit: (x, y) => dashboard.hitId(x, y),
+    a11y: (gen, focus) => dashboard.a11yJson(gen, focus),
+    press: (id) => dashboard.press(id),
+    hover: (id) => {
+      if (id === lastDashHover) return false;
+      lastDashHover = id;
+      dashboard.setHover(id);
+      return true;
+    },
+    key: (k) => dashboard.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastDashHover) return false;
+        lastDashHover = id;
+        dashboard.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dashboard.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  timeline: {
+    height: () => timeline.heightPx(),
+    list: () => timeline.displayListJson(),
+    hit: (x, y) => timeline.hitId(x, y),
+    a11y: (gen, focus) => timeline.a11yJson(gen, focus),
+    press: (id) => timeline.press(id),
+    hover: (id) => {
+      if (id === lastTimelineHover) return false;
+      lastTimelineHover = id;
+      timeline.setHover(id);
+      return true;
+    },
+    key: (k) => timeline.key(k),
+    host: () => ({
+      tick: (dt) => timeline.tick(dt),
+      busy: () => timeline.busyNow(),
+      setHover: (id) => {
+        if (id === lastTimelineHover) return false;
+        lastTimelineHover = id;
+        timeline.setHover(id);
+        return true;
+      },
+      setPressed: (id) => timeline.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  dialog: {
+    height: () => dialog.heightPx(),
+    list: () => dialog.displayListJson(),
+    hit: (x, y) => dialog.hitId(x, y),
+    a11y: (gen, focus) => dialog.a11yJson(gen, focus),
+    // The page's gesture protocol: `press` picks something up and says so,
+    // `drag` carries it, `drop` puts it down. The sortable uses the same three.
+    //
+    // A press that is NOT the window's title bar has to do the ordinary thing
+    // instead, and do it here: once a demo has a `drag`, the page stops calling
+    // its plain click path and this is the only handler a button will get.
+    press: (id) => {
+      if (dialog.beginDrag(id)) {
+        // `grabPointer` is set by the pointerdown handler just before this
+        // runs, so the press point is already recorded and needs no argument.
+        dialogDragAt = { x: grabPointer.x, y: grabPointer.y };
+        return true;
+      }
+      dialog.press(id);
+      return false;
+    },
+    // Deltas, not positions. The controller never learns where it was picked
+    // up, so a window grabbed by the right end of its bar does not jump left.
+    drag: (id, ev) => {
+      if (!dialogDragAt) return false;
+      dialog.dragBy(ev.offsetX - dialogDragAt.x, ev.offsetY - dialogDragAt.y);
+      dialogDragAt = { x: ev.offsetX, y: ev.offsetY };
+      return true;
+    },
+    drop: () => {
+      dialogDragAt = null;
+      dialog.endDrag();
+      return true;
+    },
+    hover: (id) => {
+      if (id === lastDialogHover) return false;
+      lastDialogHover = id;
+      dialog.setHover(id);
+      return true;
+    },
+    key: (k) => dialog.key(k),
+    host: () => ({
+      tick: (dt) => dialog.tick(dt),
+      busy: () => dialog.busyNow(),
+      setHover: (id) => {
+        if (id === lastDialogHover) return false;
+        lastDialogHover = id;
+        dialog.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dialog.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
   motion: {
     height: () => motion.heightPx(),
     // Persistent: the three thunks below go to the kept host rather than
@@ -363,26 +716,27 @@ const DEMOS = {
     height: 560,
     args: () => [SORTABLE_CSS, state.order, state.dragging],
     module: SortableDemo,
-    // Through the kept tree, so a hover does not rebuild and a
-    // transition has something to remember.
-    // The preview's position is deliberately NOT in the key. It changes on
-    // every pointer move, and a tree rebuilt every frame has new elements in
-    // it, so the rows opening a gap would have no flight to travel along and
-    // would simply appear where they were going. What the key holds is
-    // STRUCTURE — the order, what is being carried, and where it is headed —
-    // and the preview is then moved by hand below.
+    // Rebuilt from the whole state on every frame of a drag, target and
+    // preview position included, and reconciled into the live tree.
+    //
+    // This is the one place in the gallery where the declarative claim is
+    // actually being made at 60Hz. It used to be three things: a `sync` whose
+    // key deliberately left out the target and the preview position, a
+    // hand-written `applyShift` that re-aimed the existing rows, and a
+    // `movePreview` that reached in and set two attributes. All three existed
+    // because a rebuilt row was a NEW row with no flight, so the gap appeared
+    // instead of opening. With keys it is one call.
     sync: () => {
-      HOSTS.sortable.sync(
-        JSON.stringify([state.order, state.dragging, state.floating]),
-        () => SortableDemo.dragPage(state.order, state.dragging, state.over, 0, 0, state.floating),
+      HOSTS.sortable.rebuild(() =>
+        SortableDemo.dragPage(
+          state.order,
+          state.dragging,
+          state.over,
+          state.previewX,
+          state.previewY,
+          state.floating,
+        ),
       );
-      // The TARGET is not in the key either. It changes every time the pointer
-      // crosses a row, which is exactly the moment the gap has to open — and a
-      // rebuild there would hand every row a new element with no flight to
-      // travel along, so the gap would appear rather than open.
-      const root = HOSTS.sortable.root();
-      if (root) SortableDemo.applyShift(root, state.order, state.dragging, state.over);
-      movePreview();
     },
     list: () => HOSTS.sortable.list(),
     hit: (x, y) => HOSTS.sortable.hit(x, y),
@@ -417,6 +771,10 @@ window.__sortState = () => ({ dragging: state.dragging, over: state.over, order:
 window.__mbState = () => ({ open: state.open, focus: state.focus, which: state.which });
 // The dropdown's state is MenuCtl's, so this reads the controller rather than
 // the page: what is open, where focus is, and how deep the submenu stack goes.
+window.__dlgState = () => ({
+  summary: dialog.summary(),
+  dragging: dialog.isDragging(),
+});
 window.__ddState = () => ({
   open: dropdown.model.open,
   focus: dropdown.focused,
@@ -424,20 +782,6 @@ window.__ddState = () => ({
   status: dropdown.status,
   theme: dropdown.theme,
 });
-
-function movePreview() {
-  const root = HOSTS.sortable.root();
-  if (!root) return;
-  for (let i = 0; i < root.children.length; i++) {
-    const kid = root.children[i];
-    if ((kid.className || "").indexOf("sr-row-preview") < 0) continue;
-    kid.setAttribute("left", state.previewX + "px");
-    kid.setAttribute("top", state.previewY + "px");
-    kid.markInline("left");
-    kid.markInline("top");
-    return;
-  }
-}
 
 // --- the sortable's gesture ---------------------------------------------------
 // Reordering is `arrayMove`, not a swap: the item is taken out and put back at
@@ -849,6 +1193,7 @@ function paint() {
     const d = demo();
     if (d.sync) d.sync();
     const H = typeof d.height === "function" ? d.height() : d.height;
+    const W2 = typeof d.width === "function" ? d.width() : W;
     const listJson = d.list();
     // The last frame's display list, for anything driving this page from
     // outside: a browser check needs the COLOUR a control was painted, and
@@ -856,13 +1201,13 @@ function paint() {
     // reason.
     window.__lastList = listJson;
     const list = JSON.parse(listJson);
-    const doc = { width: W, height: H, list };
+    const doc = { width: W2, height: H, list };
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.style.width = W + "px";
+    canvas.style.width = W2 + "px";
     canvas.style.height = H + "px";
-    canvas.width = Math.round(W * dpr);
+    canvas.width = Math.round(W2 * dpr);
     canvas.height = Math.round(H * dpr);
-    stage.style.width = W + "px";
+    stage.style.width = W2 + "px";
     stage.style.height = H + "px";
     const gl = canvas.getContext("webgl2", {
       antialias: true,
@@ -967,7 +1312,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "dropdown", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "profile", "dashboard", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;
@@ -1120,11 +1465,30 @@ canvas.addEventListener("pointerleave", () => {
     if (d.animated) animate();
   }
 });
+// The wheel, for a demo that has somewhere to scroll to. `passive: false`
+// because a page that scrolls its own canvas must be able to stop the window
+// from scrolling underneath it — and `scroll` returning false (already at an
+// end) lets the window have the gesture back, which is what a nested scroll
+// area is supposed to do.
+canvas.addEventListener("wheel", (ev) => {
+  const d = demo();
+  if (!d.scroll) return;
+  if (!d.scroll(ev.deltaY)) return;
+  ev.preventDefault();
+  paint();
+}, { passive: false });
+
 // Keys are the window's: the canvas is not focusable, and the mirror element
 // that has the focus is inside this page.
 window.addEventListener("keydown", (ev) => {
   if (ev.target instanceof HTMLInputElement) return;
-  if (!demo().key(ev.key)) return;
+  const d0 = demo();
+  // A demo that reads modifiers gets them; the rest keep the one-argument
+  // door they have always had.
+  const took = d0.keyWith
+    ? d0.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)
+    : d0.key(ev.key);
+  if (!took) return;
   ev.preventDefault();
   paint();
   // A key that opened a menu asked for a row inside it, and the rows only

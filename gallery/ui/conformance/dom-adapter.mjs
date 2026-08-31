@@ -133,11 +133,43 @@ export async function run(spec) {
       if ("click" in step) {
         // force: a user can put the pointer on a disabled control's rectangle;
         // what the browser then does with focus is part of the contract.
-        await page.locator(sel(step.click)).click({ force: true }).catch(() => {});
-        await observe("click " + step.click);
+        // `mods` is Playwright's own modifier list — ["Shift"], ["Control"],
+        // or both. A multi-select is the only thing that reads them, and the
+        // label carries them so a trace says which click it was.
+        const mods = step.mods || [];
+        await page
+          .locator(sel(step.click))
+          .click({ force: true, modifiers: mods })
+          .catch(() => {});
+        await observe("click " + step.click + (mods.length ? " [" + mods.join("+") + "]" : ""));
       } else if ("key" in step) {
-        await page.keyboard.press(step.key === " " ? "Space" : step.key);
-        await observe("key " + JSON.stringify(step.key));
+        // `mods` on a key, the same list `click` already takes. Playwright
+        // spells a modified press "Control+ArrowRight", so the list is joined
+        // onto the front rather than passed separately.
+        const kmods = step.mods || [];
+        const base = step.key === " " ? "Space" : step.key;
+        await page.keyboard.press(kmods.length ? kmods.join("+") + "+" + base : base);
+        // Some components move focus in an EFFECT rather than in the handler,
+        // so state and DOM focus disagree for a frame or two after the key.
+        // headless-tree is one: its roving tabIndex moves immediately and the
+        // `.focus()` lands about 32ms later, which is exactly where two
+        // animation frames put the observation — some steps caught up and some
+        // did not, in the same run. `settle` waits past it. See SPEC.md.
+        if (step.settle) await page.waitForTimeout(step.settle);
+        await observe("key " + JSON.stringify(step.key) +
+          (kmods.length ? " [" + kmods.join("+") + "]" : "") +
+          (step.settle ? " +" + step.settle + "ms" : ""));
+      } else if ("type" in step) {
+        // ONE CHARACTER PER OBSERVATION. `page.keyboard.type("hello")` would
+        // be one row at the end, and a caret that goes wrong on the second
+        // keystroke looks identical to one that goes wrong on the fifth. The
+        // whole reason to have a typing step rather than five `key` steps is
+        // that the spec reads as a word; the trace still has to read as
+        // keystrokes.
+        for (const ch of step.type) {
+          await page.keyboard.type(ch);
+          await observe("type " + JSON.stringify(ch));
+        }
       } else if ("focus" in step) {
         await page.locator(sel(step.focus)).focus().catch(() => {});
         await observe("focus " + step.focus);
@@ -174,6 +206,61 @@ export async function run(spec) {
           await page.mouse.down();
         }
         await observe("press " + step.press + " @" + (step.at ?? 0.5));
+      } else if ("dragpick" in step) {
+        // An HTML5 drag, not a mouse one. Playwright cannot drive native
+        // drag-and-drop through the mouse, and the library reads nothing from
+        // it but `clientX`, `clientY` and the row's own rectangle — so the
+        // events are synthesised, carrying one DataTransfer for the gesture.
+        await page.evaluate((id) => {
+          const el = document.querySelector(`[data-tid="${id}"]`);
+          const dt = new DataTransfer();
+          window.__dt = dt;
+          el.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+        }, step.dragpick);
+        await observe("dragpick " + step.dragpick);
+      } else if ("dragpoint" in step) {
+        await page.evaluate(
+          ([id, aty, x]) => {
+            const el = document.querySelector(`[data-tid="${id}"]`);
+            const b = el.getBoundingClientRect();
+            el.dispatchEvent(
+              new DragEvent("dragover", {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: window.__dt,
+                clientX: b.left + x,
+                clientY: b.top + b.height * aty,
+              }),
+            );
+          },
+          [step.dragpoint, step.aty ?? 0.5, step.x ?? 0],
+        );
+        // A HOLD, in ms. `openOnDropDelay` opens a folder under a cursor that
+        // waits on it, and nothing shorter than the delay can observe that.
+        await page.waitForTimeout(step.hold ?? 40);
+        await observe(
+          "dragpoint " + step.dragpoint + " y" + (step.aty ?? 0.5) + " x" + (step.x ?? 0) +
+            (step.hold ? " +" + step.hold + "ms" : ""),
+        );
+      } else if ("dragland" in step) {
+        await page.evaluate(
+          ([id, aty, x]) => {
+            const el = document.querySelector(`[data-tid="${id}"]`);
+            const b = el.getBoundingClientRect();
+            el.dispatchEvent(
+              new DragEvent("drop", {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: window.__dt,
+                clientX: b.left + x,
+                clientY: b.top + b.height * aty,
+              }),
+            );
+          },
+          [step.dragland, step.aty ?? 0.5, step.x ?? 0],
+        );
+        await page.waitForTimeout(120);
+        await observe("dragland " + step.dragland + " y" + (step.aty ?? 0.5) + " x" + (step.x ?? 0));
       } else if ("dragto" in step) {
         if (dragBox) {
           await page.mouse.move(

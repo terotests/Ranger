@@ -169,6 +169,7 @@ class ToolbarCtl extends UiCtl {
     fn rows:[UiRow] () {
         def out:[UiRow]
         def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.toolbar()) name))
+        rootRow.orientation = "horizontal"
         rootRow.tabStop = true
         push out rootRow
         def i:int 0

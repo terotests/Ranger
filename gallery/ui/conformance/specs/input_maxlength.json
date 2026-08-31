@@ -1,0 +1,12 @@
+{
+  "name": "input_maxlength",
+  "component": "input",
+  "behaviours": ["input-maxlength"],
+  "fixture": { "controls": [{ "type": "input", "tid": "in", "name": "Code", "maxlength": 4 }] },
+  "steps": [
+    { "focus": "in" },
+    { "type": "abcdef" },
+    { "key": "Home" },
+    { "type": "Z" }
+  ]
+}

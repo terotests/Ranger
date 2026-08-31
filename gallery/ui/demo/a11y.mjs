@@ -40,12 +40,24 @@ const { SortableDemo } = require(path.join(ROOT, "gallery/ui/bin/SortableDemo.cj
 const { MotionDemo } = require(path.join(ROOT, "gallery/ui/bin/MotionDemo.cjs"));
 const { TableDemo } = require(path.join(ROOT, "gallery/ui/bin/TableDemo.cjs"));
 const { DropdownDemo } = require(path.join(ROOT, "gallery/ui/bin/DropdownDemo.cjs"));
+const { DialogDemo } = require(path.join(ROOT, "gallery/ui/bin/DialogDemo.cjs"));
+const { TreeDemo } = require(path.join(ROOT, "gallery/ui/bin/TreeDemo.cjs"));
+const { TimelineDemo } = require(path.join(ROOT, "gallery/ui/bin/TimelineDemo.cjs"));
+const { ResizeDemo } = require(path.join(ROOT, "gallery/ui/bin/ResizeDemo.cjs"));
+const { FormDemo } = require(path.join(ROOT, "gallery/ui/bin/FormDemo.cjs"));
+const { DashboardDemo } = require(path.join(ROOT, "gallery/ui/bin/DashboardDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
 const MOTION_CSS = fs.readFileSync(path.join(HERE, "motion.css"), "utf8");
 const TABLE_CSS = fs.readFileSync(path.join(HERE, "table.css"), "utf8");
 const DROPDOWN_CSS = fs.readFileSync(path.join(HERE, "dropdown.css"), "utf8");
+const DIALOG_CSS = fs.readFileSync(path.join(HERE, "dialog.css"), "utf8");
+const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
+const TIMELINE_CSS = fs.readFileSync(path.join(HERE, "timeline.css"), "utf8");
+const RESIZE_CSS = fs.readFileSync(path.join(HERE, "resize.css"), "utf8");
+const FORM_CSS = fs.readFileSync(path.join(HERE, "form.css"), "utf8");
+const DASHBOARD_CSS = fs.readFileSync(path.join(HERE, "dashboard.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -67,6 +79,31 @@ table.init(TABLE_CSS);
 // get to is a state not worth auditing.
 const dropdown = new DropdownDemo();
 dropdown.init(DROPDOWN_CSS);
+
+// The dialog and the window. Two dialogs on one page is the state worth
+// auditing: a modal and a non-modal one, side by side, each with its own name
+// — and a title bar that is a real control in one and a heading in the other.
+const dialog = new DialogDemo();
+dialog.init(DIALOG_CSS);
+
+// The tree. Rows that are SIBLINGS with their nesting in `aria-level` is a
+// shape axe has opinions about — `aria-required-children` on the tree, and
+// `aria-required-parent` on every row — and it is the shape headless-tree
+// renders, so the audit is what decides whether copying it is defensible.
+const treeview = new TreeDemo();
+treeview.init(TREE_CSS);
+
+const timeline = new TimelineDemo();
+timeline.init(TIMELINE_CSS);
+
+const resize = new ResizeDemo();
+resize.init(RESIZE_CSS);
+const form = new FormDemo();
+form.init(FORM_CSS);
+const dashboard = new DashboardDemo();
+dashboard.init(DASHBOARD_CSS);
+// The chart's commands are built on demand and the tree is rebuilt with them.
+dashboard.displayListJson();
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -166,6 +203,20 @@ const STATES = [
     tree: () => table.a11yJson(11, "tbl-prev"),
   },
   {
+    // The whole dashboard, and the sidebar is why it is here. axe is the third
+    // instrument: the lint sees the tree the builder made and the gate sees the
+    // fields it carries, but only axe knows that a landmark wants a name, that
+    // `aria-current` takes a value from a fixed list, and that a link whose
+    // whole content is a glyph is a link with nothing to say.
+    name: "dashboard — the sidebar, the chart and a virtual table",
+    size: [1336, 900],
+    lint: () => {
+      dashboard.displayListJson();
+      return dashboard.a11yProblems();
+    },
+    tree: () => dashboard.a11yJson(20, "db-nav-dashboard"),
+  },
+  {
     name: "dropdown — closed",
     size: [900, 560],
     lint: () => dropdown.a11yProblems(),
@@ -186,6 +237,95 @@ const STATES = [
       return dropdown.a11yProblems();
     },
     tree: () => dropdown.a11yJson(13, "dd-item-status-item-available"),
+  },
+  {
+    // A modal and a movable window at once. Two things axe is good at and this
+    // is the only page with either: a dialog needs an accessible name, and a
+    // control whose whole affordance is "you can drag me" needs to say so in
+    // words — the bar carries a roledescription for exactly that reason.
+    name: "dialog — a modal and a window, both open",
+    size: [900, 560],
+    lint: () => {
+      dialog.openModal();
+      dialog.openWindow();
+      return dialog.a11yProblems();
+    },
+    tree: () => dialog.a11yJson(14, "win-titlebar"),
+  },
+  {
+    // The window alone. With the modal shut, nothing masks the page behind it
+    // — which is the whole difference between the two, and means everything
+    // under the window is audited as reachable rather than hidden.
+    name: "dialog — the window alone, page still reachable",
+    size: [900, 560],
+    lint: () => {
+      dialog.press("dlg-close");
+      return dialog.a11yProblems();
+    },
+    tree: () => dialog.a11yJson(15, ""),
+  },
+  {
+    // Two separators and a breadcrumb, with the trail collapsed — which is the
+    // state worth auditing: an ellipsis has to say that crumbs are missing,
+    // and a splitter has to be named and have a range.
+    name: "resizable — nested panels, the trail given way",
+    size: [900, 520],
+    lint: () => {
+      const p = resize.outer.panels[0];
+      const q = resize.outer.panels[1];
+      q.size += p.size - 45;
+      p.size = 45;
+      resize.rebuild();
+      return resize.a11yProblems();
+    },
+    tree: () => resize.a11yJson(18, "rz-sep-0"),
+  },
+  {
+    // A form is full of the shapes axe minds and the diff cannot see: a label
+    // that names a control, a message that describes it, a required marker
+    // that is a glyph rather than a claim, and a group of radios. The state
+    // worth auditing is the one with something WRONG in it — a field in error
+    // has to say what is wrong where a reader will hear it, and a red ring is
+    // not a sentence.
+    name: "form — six controls, one of them in error",
+    size: [620, 560],
+    lint: () => form.a11yProblems(),
+    tree: () => form.a11yJson(19, "fm-amount"),
+  },
+  {
+    // The rail is a picture of the value and says nothing a reader needs, so
+    // it is out of the tree entirely — which means this case is checking that
+    // the LIST survived being the only thing left. A timeline whose rail was
+    // announced would read as eight items where a person sees four.
+    name: "timeline — a list of four events, three of them reached",
+    size: [900, 520],
+    lint: () => timeline.a11yProblems().concat(timeline.hostProblems()),
+    tree: () => timeline.a11yJson(17, ""),
+  },
+  {
+    name: "tree — three folders open, focus on a nested row",
+    size: [900, 520],
+    // The component host's own complaints ride along with the tree's. A page
+    // that misuses the host — a `use` outside a pass, an unclosed `enter` —
+    // renders a perfectly plausible frame and gets the lifecycle wrong, which
+    // is exactly the kind of failure that has to announce itself.
+    lint: () => {
+      treeview.press("tv-item-jane");
+      return treeview.a11yProblems().concat(treeview.hostProblems());
+    },
+    tree: () => treeview.a11yJson(16, "tv-item-jane"),
+  },
+  {
+    // The same tree with a folder shut. Rows that were in the tree a moment
+    // ago are GONE, not hidden — a browser drops collapsed items too, and
+    // leaving them in would hand a reader rows nobody can reach.
+    name: "tree — a folder collapsed",
+    size: [900, 520],
+    lint: () => {
+      treeview.press("tv-item-accounts");
+      return treeview.a11yProblems().concat(treeview.hostProblems());
+    },
+    tree: () => treeview.a11yJson(17, "tv-item-accounts"),
   },
   {
     name: "toolbar",

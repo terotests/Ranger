@@ -392,6 +392,14 @@ class SortableCtl extends UiCtl {
         return out
     }
 
+    ; The reference's own wording, character for character. dnd-kit renders it
+    ; into a visually-hidden node and points every item at it with
+    ; `aria-describedby`; this side has no hidden node, so the string is the
+    ; description and the effect is the same thing announced.
+    sfn dragInstructions:string () {
+        return "To pick up a draggable item, press the space bar. While dragging, use the arrow keys to move the item. Press space again to drop the item in its new position, or press escape to cancel."
+    }
+
     fn rows:[UiRow] () {
         def out:[UiRow]
         ; The list itself is a named box and nothing more. The reference is a
@@ -407,6 +415,13 @@ class SortableCtl extends UiCtl {
             def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.button()) it.name))
             row.parentTid = tid
             row.roleDescription = "sortable"
+            ; dnd-kit's keyboard instructions, on EVERY draggable item, which
+            ; is where it puts them. It is a mouthful and it is not optional:
+            ; this pattern has no visible affordance a reader can discover, so
+            ; the sentence IS the interface. Verbatim, because paraphrasing it
+            ; would be inventing a different set of instructions for the same
+            ; keys.
+            row.description = SortableCtl.dragInstructions()
             row.disabled = it.disabled
             if (it.disabled == false) {
                 row.focusable = true

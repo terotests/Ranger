@@ -792,6 +792,11 @@ class MenuCtl extends UiCtl {
 
         def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.menu()) ""))
         contentRow.state = word
+        ; Every Radix menu surface says it, submenus included. It is not
+        ; decoration: a reader uses it to know that Up and Down are the keys
+        ; that walk this thing, and a menu that says nothing is a menu the
+        ; reader has to guess at.
+        contentRow.orientation = "vertical"
         contentRow.modal = true
         contentRow.focusable = true
         push out contentRow
@@ -835,6 +840,7 @@ class MenuCtl extends UiCtl {
                 if (this.isOpenSub(rtid)) {
                     def subRow:UiRow (UiRow.of((MenuCtl.subContentTid(rtid)) (EVGA11yRole.menu()) ""))
                     subRow.state = "open"
+                    subRow.orientation = "vertical"
                     subRow.parentTid = rtid
                     subRow.focusable = true
                     push out subRow

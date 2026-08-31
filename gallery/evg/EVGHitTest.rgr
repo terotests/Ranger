@@ -79,6 +79,52 @@ class EVGHitTest {
         return true
     }
 
+    ; The same walk, minus what the point cannot see.
+    ;
+    ; A clipping box the point is OUTSIDE takes its whole subtree with it. That
+    ; is not an optimisation: without it, a row scrolled out of a viewport is
+    ; still sitting under the pointer at its unclipped position — invisible and
+    ; clickable at once, which is the worst of the two. The paint order and the
+    ; hit order have to agree about what is on the screen, and the display list
+    ; stops drawing at exactly this boundary.
+    ;
+    ; The point is needed to do it, which is why this is a second walk rather
+    ; than a rule inside `collect`: `paintOrder` answers "what is drawn, in
+    ; order" and has no point to test against.
+    fn collectAt:void (el:EVGElement px:double py:double) {
+        if (el.clipsContent()) {
+            if ((EVGHitTest.containsPoint(el px py)) == false) {
+                return
+            }
+        }
+        push order el
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            if kid.isOverlay {
+                push deferred kid
+            } {
+                this.collectAt(kid px py)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A surface is deferred here exactly as it is in `paintOrder`, so an
+    ; overlay opened from inside a scroll box is still reachable after the box
+    ; has clipped everything else — which is the whole point of deferring it.
+    fn paintOrderAt:[EVGElement] (root:EVGElement px:double py:double) {
+        clear order
+        clear deferred
+        this.collectAt(root px py)
+        def i:int 0
+        while (i < (array_length deferred)) {
+            this.collectAt((itemAt deferred i) px py)
+            i = (i + 1)
+        }
+        return order
+    }
+
     ; The id of the topmost element under the point that HAS one.
     ;
     ; Unnamed elements are passed over rather than answered with "": a label
@@ -86,7 +132,7 @@ class EVGHitTest {
     ; row that owns it. Giving a thing an id is how this file is told the thing
     ; is a target — the same convention `UiHost` uses with test ids.
     fn idAt:string (root:EVGElement px:double py:double) {
-        def list:[EVGElement] (this.paintOrder(root))
+        def list:[EVGElement] (this.paintOrderAt(root px py))
         def i:int ((array_length list) - 1)
         while (i >= 0) {
             def el:EVGElement (itemAt list i)
@@ -103,7 +149,7 @@ class EVGHitTest {
     ; Same scan, for a caller that wants the class list — a hover highlight asks
     ; "is this a row?" and does not care which row.
     fn classAt:string (root:EVGElement px:double py:double) {
-        def list:[EVGElement] (this.paintOrder(root))
+        def list:[EVGElement] (this.paintOrderAt(root px py))
         def i:int ((array_length list) - 1)
         while (i >= 0) {
             def el:EVGElement (itemAt list i)

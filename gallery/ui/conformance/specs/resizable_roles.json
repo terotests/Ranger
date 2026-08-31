@@ -1,0 +1,10 @@
+{ "name":"resizable_roles","component":"resizable",
+  "$comment":"What a splitter publishes before anything is touched. The nested shape is the reference's own example — a horizontal pair whose right half is a vertical pair — and it is the only way to see that the two separators are different things. The orientation INVERSION is the finding: a separator in a horizontal group says vertical, because aria-orientation describes the separator LINE and not the axis it resizes.",
+  "behaviours":["separator-role","separator-orientation-inverts","separator-value-is-the-panel-before","separator-tabstop","separator-unnamed"],
+  "fixture":{"controls":[{"type":"resizable","tid":"rz","orientation":"horizontal",
+    "panels":[
+      {"value":"one","defaultSize":"50%"},
+      {"value":"two","defaultSize":"50%","group":{"orientation":"vertical","panels":[
+        {"value":"top","defaultSize":"25%"},
+        {"value":"bottom","defaultSize":"75%"}]}}]}]},
+  "steps":[{"focus":"rz-sep-0"}] }

@@ -53,6 +53,31 @@ A drag is three steps, and there are two kinds of them:
   thing ONTO another. No geometry at all: what is under the pointer is a test
   id, and each side resolves it with the same hit test a click uses.
 
+An HTML5 drag is a third kind, and it needs geometry the other two do not:
+
+- `{"dragpick": tid}`, then `{"dragpoint": tid, "aty": 0.9, "x": 25}` as many
+  times as the gesture has moves, then `{"dragland": tid, "aty": 0.9, "x": 25}`.
+  A tree's drop target is decided by WHERE IN A ROW the cursor is — how far
+  down picks above / into / below, how far in picks which ancestor a reorder
+  belongs to — so both numbers travel with the move.
+
+  `aty` is a fraction of the row's height, because the bands are fractions.
+  `x` is in PIXELS from the row's left edge, because it is only ever compared
+  against the indent, which the fixture states and both sides are given.
+  A fraction there would make the answer depend on how wide a row happened to
+  be laid out, and the two sides have no reason to agree about that.
+
+  `"hold": <ms>` on a `dragpoint` keeps the cursor still for that long. It is
+  how `openOnDropDelay` is measurable at all: a folder opens under a drag that
+  waits 800ms on it, and nothing shorter can observe it. On the Ranger side the
+  hold advances the controller's own clock, which has no wall time in it; on
+  the DOM side it is a real wait.
+
+  Playwright cannot drive native drag-and-drop through the mouse, so the DOM
+  adapter synthesises the three `DragEvent`s. That is not a compromise: the
+  library reads nothing from them but `clientX`, `clientY` and the row's
+  rectangle.
+
 `observe` names anything the spec wants looked at beyond the nodes themselves.
 Today there is one: `"observe": ["announce"]` adds a node with the reserved id
 `@announce` whose `name` is what the page's live region currently says.
@@ -65,6 +90,16 @@ picture. Without this the spec would contain a step that cannot fail. It is not
 global because Radix's toast also renders a live region, and what it says there
 is a concatenation of nodes the trace already carries ("Notification SavedAll
 goodUndo") — comparing that would be comparing one library's copy-writing.
+
+`ignore` is a list of FIELD names this spec does not compare, and it is not a
+convenience. It exists for one situation: the reference publishes something a
+real assistive technology cannot use, so copying it would be worse than
+diverging from it. The fields go out of the denominator entirely rather than
+being counted as matches, the spec carries an `$ignore` saying what was
+measured and why, and the behaviour is marked `disputed` in `behaviours.json`
+so it stays uncovered in the score with the evidence attached. Today there is
+exactly one: a splitter's `aria-valuemin`/`aria-valuemax` in a group of three
+or more, where the reference reports min above now above max.
 
 `behaviours` must name entries from `behaviours.json`; `report.mjs` refuses a
 spec that invents one, so the catalogue cannot rot quietly. Specs are kept

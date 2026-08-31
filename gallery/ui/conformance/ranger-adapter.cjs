@@ -48,6 +48,18 @@ function run(spec, css) {
         selected: null,
         disabled: false,
         tabstop: false,
+        invalid: null,
+        required: null,
+        readonly: null,
+        current: null,
+        orientation: null,
+        value: null,
+        placeholder: null,
+        selstart: null,
+        selend: null,
+        description: null,
+        rowcount: null,
+        rowindex: null,
         valuenow: null,
         valuemin: null,
         valuemax: null,
@@ -57,6 +69,9 @@ function run(spec, css) {
         roledescription: null,
         sort: null,
         haspopup: null,
+        level: null,
+        setsize: null,
+        setpos: null,
         parent: "",
         posinset: 0,
       });
@@ -67,11 +82,27 @@ function run(spec, css) {
   observe("initial");
   for (const step of spec.steps) {
     if ("click" in step) {
-      host.click(step.click);
-      observe("click " + step.click);
+      const mods = step.mods || [];
+      host.clickWith(step.click, mods.includes("Shift"), mods.includes("Control"));
+      observe("click " + step.click + (mods.length ? " [" + mods.join("+") + "]" : ""));
+    } else if ("type" in step) {
+      // One character per observation, for the reason the DOM side gives:
+      // a caret bug has to be visible at the keystroke that caused it.
+      for (const ch of step.type) {
+        host.type(ch);
+        observe("type " + JSON.stringify(ch));
+      }
     } else if ("key" in step) {
-      host.key(step.key);
-      observe("key " + JSON.stringify(step.key));
+      const kmods = step.mods || [];
+      host.keyWith(step.key, kmods.includes("Shift"), kmods.includes("Control"));
+      // `settle` is deliberately NOT ticked here, unlike on a hover step. It
+      // exists because the REFERENCE moves focus in an effect and needs a
+      // moment to finish; this side has no async at all and is settled the
+      // instant `key` returns. Advancing a clock here would move controller
+      // timers the reference's wait does not.
+      observe("key " + JSON.stringify(step.key) +
+        (kmods.length ? " [" + kmods.join("+") + "]" : "") +
+        (step.settle ? " +" + step.settle + "ms" : ""));
     } else if ("focus" in step) {
       host.focus(step.focus);
       observe("focus " + step.focus);
@@ -108,6 +139,19 @@ function run(spec, css) {
       // the sortable's gesture starts here and needs no geometry.
       host.pressOn(step.press);
       observe("press " + step.press + " @" + (step.at ?? 0.5));
+    } else if ("dragpick" in step) {
+      host.dragPick(step.dragpick);
+      observe("dragpick " + step.dragpick);
+    } else if ("dragpoint" in step) {
+      host.dragPoint(step.dragpoint, step.aty ?? 0.5, step.x ?? 0);
+      if (step.hold) host.dragHold(step.hold);
+      observe(
+        "dragpoint " + step.dragpoint + " y" + (step.aty ?? 0.5) + " x" + (step.x ?? 0) +
+          (step.hold ? " +" + step.hold + "ms" : ""),
+      );
+    } else if ("dragland" in step) {
+      host.dragLand(step.dragland, step.aty ?? 0.5, step.x ?? 0);
+      observe("dragland " + step.dragland + " y" + (step.aty ?? 0.5) + " x" + (step.x ?? 0));
     } else if ("dragto" in step) {
       host.dragFraction(step.dragto);
       observe("dragto " + step.dragto);

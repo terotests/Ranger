@@ -1,0 +1,34 @@
+{ "name":"tree_dnd_pointer_nesting","component":"tree",
+  "$comment":"Where in a row's WIDTH the cursor sits, which is the half of the placement rule the vertical bands do not decide. Far left on the LAST row of a group means 'out of this group' — and how far in picks which ancestor, floored by the level of the row BELOW. The `ops` chain is two deep at the very end of the tree so its last row has nothing below it and the floor is 0; everywhere shallower the floor swallows the cursor's own answer.",
+  "behaviours":["dnd-pointer-open-folder-takes-children","dnd-pointer-reparent","dnd-pointer-reparent-floor"],
+  "fixture":{"controls":[{"type":"tree","tid":"tr","root":"crm","indent":20,"selection":true,"dnd":true,
+     "expanded":["leads","accounts","acme","ops","ops-team"],
+     "items":[
+       {"value":"crm","name":"CRM","children":["leads","accounts","activities","ops"]},
+       {"value":"leads","name":"Leads","children":["new-lead","contacted-lead"]},
+       {"value":"new-lead","name":"New Lead"},
+       {"value":"contacted-lead","name":"Contacted Lead"},
+       {"value":"accounts","name":"Accounts","children":["acme","globex"]},
+       {"value":"acme","name":"Acme Corp","children":["jane"]},
+       {"value":"jane","name":"Jane Doe"},
+       {"value":"globex","name":"Globex"},
+       {"value":"activities","name":"Activities"},
+       {"value":"ops","name":"Operations","children":["ops-team"]},
+       {"value":"ops-team","name":"Operations Team","children":["ops-lead"]},
+       {"value":"ops-lead","name":"Operations Lead"}]}]},
+  "steps":[
+    {"dragpick":"tr-item-activities"},
+    {"dragpoint":"tr-item-leads","aty":0.9,"x":60},
+    {"dragland":"tr-item-leads","aty":0.9,"x":60},
+
+    {"dragpick":"tr-item-new-lead"},
+    {"dragpoint":"tr-item-jane","aty":0.9,"x":1},
+    {"dragland":"tr-item-jane","aty":0.9,"x":1},
+
+    {"dragpick":"tr-item-globex"},
+    {"dragpoint":"tr-item-ops-lead","aty":0.9,"x":4},
+    {"dragland":"tr-item-ops-lead","aty":0.9,"x":4},
+
+    {"dragpick":"tr-item-contacted-lead"},
+    {"dragpoint":"tr-item-ops-lead","aty":0.9,"x":25},
+    {"dragland":"tr-item-ops-lead","aty":0.9,"x":25}] }

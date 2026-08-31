@@ -1,0 +1,789 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * shadcn's dashboard-01: a row of four figures, then a chart card. Pale, thin
+ * borders, generous radius — and NO size on the chart's placeholder, because
+ * the demo sets that inline from the same two numbers the Vega specification
+ * is built with.
+ */
+
+/* The page is a ROW now: the sidebar, the hairline that separates it, and
+ * everything that was the page before. Widening rather than narrowing is
+ * deliberate — the content column keeps its 1032, so the chart's 994 and every
+ * measured label position under it are the numbers they already were. The
+ * reference is wider than its content for exactly the same reason, which is
+ * why it scrolls sideways. */
+.db-page {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  background-color: #fafafa;
+  width: 1336px;
+  height: 1420px;
+}
+
+/* THE SCROLL CONTAINER. `overflow: hidden` with a definite height, which in
+ * EVG is now a box whose content keeps its own size and is MOVED rather than
+ * squeezed to fit — measured against a browser, see oracle/scroll.json. The
+ * height is set inline from `pageH`, so the viewport the layout gives it and
+ * the viewport the demo pages by cannot be two different numbers. */
+.db-scroll {
+  overflow: hidden;
+  width: 1080px;
+}
+
+/* --- the sidebar --------------------------------------------------------- */
+
+.db-side {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  background-color: #ffffff;
+  padding: 8px;
+  width: 255px;
+  height: 1420px;
+}
+
+/* A hairline, and it is an ELEMENT rather than `border-right` on the sidebar,
+ * because `border-right` is dropped in silence: nothing parses it, and the
+ * per-side width fields it would write are read by no renderer — the box model
+ * has one border width and uses it on all four sides. A one-pixel column is
+ * not a workaround for a missing feature so much as an honest statement that
+ * the feature is missing; see the note in the demo. */
+.db-side-edge {
+  background-color: #e4e4e7;
+  width: 1px;
+  height: 1420px;
+}
+
+/* AUTO HEIGHT, deliberately. This is the content inside the scroll box, and
+ * the whole arrangement depends on it being as tall as it needs: the container
+ * measures it to find out how far there is to scroll. Giving it a height would
+ * make that number the height somebody typed. */
+.db-content {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 24px;
+  width: 1080px;
+}
+
+/* The brand. A button in the reference — it opens a team switcher — so it is
+ * one here, focusable and named, even though this demo has one team. */
+.db-brand {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 48px;
+}
+
+.db-brand:hover { background-color: #f4f4f5; }
+
+.db-brand-mark {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background-color: #18181b;
+  width: 24px;
+  height: 24px;
+}
+
+/* NO HEIGHT on a glyph that is alone in a centred box. A text box taller than
+ * its own line box puts the line at the TOP and the slack underneath — CSS
+ * does the same — so an 18-tall box around a 14.4-tall line pushed this letter
+ * 2.7 pixels above the centre of its circle. Letting it size to its line is
+ * the whole fix, and it is the same hand-rounded height the engine already
+ * computes that task #63 is about. */
+.db-brand-mark-text { color: #ffffff; font-size: 12px; font-weight: 600; }
+.db-brand-text { color: #09090b; font-size: 14px; font-weight: 600; }
+
+/* Header, content, footer — and the CONTENT is what grows, which is both what
+ * the reference does and the only shape that lands the account row on the
+ * bottom edge. A `flex: 1` spacer between the links and the footer looks like
+ * the same thing and is not: the grow pass counts an auto-height sibling as
+ * zero, so the spacer is handed the nav's height a second time and the footer
+ * ends up 416 pixels past the bottom of a 1420-pixel column. See the task
+ * about column flex-grow; here there is nothing to work around, because a
+ * scroll box that takes the slack is the honest markup anyway. */
+.db-side-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  padding: 8px 0 0 0;
+  flex: 1;
+}
+
+.db-side-group {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+/* Visible text, and the name of the list under it. Not a heading: the
+ * reference draws a `<div>`, and a level-2 heading inside a navigation
+ * landmark would put a rung in the document outline that the page does not
+ * have. */
+.db-group-label {
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 8px;
+  height: 32px;
+}
+
+.db-menu {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+/* The `<li>`. It carries no styling and exists so that the link inside it can
+ * be a link and the thing around it can still be an item of a list — one node
+ * cannot be both, and a reader counting "5 items" is worth one div. */
+.db-menu-item {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+/* The first row of the first group: the filled action, and a square beside it.
+ * `align-items: center` rather than stretch, so the 32-pixel square does not
+ * become as tall as the row it shares. */
+.db-quick-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 4px 0;
+}
+
+.db-quick {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  background-color: #18181b;
+  padding: 0 10px;
+  height: 32px;
+  flex: 1;
+}
+
+.db-quick:hover { background-color: #27272a; }
+.db-quick-icon { width: 16px; height: 16px; fill: #ffffff; }
+.db-quick-text { color: #ffffff; font-size: 13px; font-weight: 500; }
+
+.db-iconbtn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  width: 32px;
+  height: 32px;
+}
+
+.db-iconbtn:hover { background-color: #f4f4f5; }
+.db-iconbtn-icon { width: 15px; height: 15px; fill: #52525b; }
+
+.db-nav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 32px;
+}
+
+.db-nav:hover { background-color: #f4f4f5; }
+
+/* The page you are on. The fill is the only thing on screen that says so, and
+ * `aria-current="page"` is the only thing that says it to a reader — neither
+ * one stands in for the other. */
+.db-nav-on { background-color: #f4f4f5; }
+
+/* A 16x16 BOX of artwork, and a box is all it is: `align-items: center` on the
+ * row centres it and there is no baseline anywhere in the arrangement. That is
+ * the whole fix. As a text glyph it had two problems — an 18-tall box beside a
+ * 20-tall label put it a pixel low, and the ink of "●" centres a further pixel
+ * below the ink of a capital letter whatever the boxes do.
+ *
+ * `stroke="currentColor"` in the imported file resolves to the element's
+ * `fill`, so this one declaration is the whole of the icon's theming. */
+.db-nav-icon { width: 16px; height: 16px; fill: #52525b; }
+.db-nav-text { color: #27272a; font-size: 13px; }
+.db-nav-text-on { color: #09090b; font-size: 13px; font-weight: 500; }
+/* The last row of the Documents group is a dimmer "More", like the reference. */
+.db-nav-text-dim { color: #71717a; font-size: 13px; }
+
+.db-user {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 48px;
+}
+
+.db-user:hover { background-color: #f4f4f5; }
+
+.db-avatar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: #e4e4e7;
+  width: 32px;
+  height: 32px;
+}
+
+.db-avatar-text { color: #3f3f46; font-size: 12px; font-weight: 600; }
+
+.db-user-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-user-name { color: #09090b; font-size: 13px; font-weight: 500; }
+.db-user-mail { color: #71717a; font-size: 11px; }
+
+.db-main {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  width: 1032px;
+}
+
+.db-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 16px;
+}
+
+/* A card. `align-items: stretch` is what makes four of them the same height
+ * when one has a two-line trend and the others have one — the row decides, not
+ * the longest string. */
+.db-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-card-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 24px;
+}
+
+.db-card-label { color: #71717a; font-size: 13px; }
+
+/* Eats the slack so the badge sits at the far end. `justify-content:
+ * space-between` would also shove the label away from the leading edge on a
+ * row with one child. */
+.db-spacer { flex: 1; }
+
+.db-badge {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 3px 7px;
+}
+
+.db-badge-up { }
+.db-badge-text { color: #18181b; font-size: 11px; font-weight: 500; }
+.db-arrow { color: #52525b; font-family: Arial; font-size: 11px; }
+
+.db-big {
+  color: #09090b;
+  font-size: 28px;
+  font-weight: 600;
+  padding: 10px 0 0 0;
+  height: 38px;
+}
+
+.db-card-foot {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 12px 0 0 0;
+}
+
+.db-card-foot-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.db-trend { color: #18181b; font-size: 13px; font-weight: 500; }
+.db-card-sub { color: #71717a; font-size: 12px; }
+
+.db-chart-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-chart-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 0 14px 0;
+}
+
+.db-chart-head-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-chart-title { color: #09090b; font-size: 16px; font-weight: 600; }
+.db-chart-sub { color: #71717a; font-size: 13px; }
+
+/* The segmented control: one bordered strip with the chosen cell filled. */
+.db-segs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 9px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 3px;
+  gap: 2px;
+}
+
+.db-seg {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  padding: 6px 12px;
+}
+
+.db-seg-on { background-color: #f4f4f5; }
+.db-seg-text { color: #3f3f46; font-size: 12px; font-weight: 500; }
+
+/* NO width or height. The demo sets both inline from the two numbers the
+ * specification is built with — the box the layout reserves and the picture
+ * Vela computes have to be the same size, and one owner is how that stays
+ * true. */
+.db-chart-box { }
+
+.db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; }
+
+/* --- the data table ----------------------------------------------------------
+ *
+ * Column widths are stated on `.db-col-*` and apply to BOTH the header cell
+ * and the body cells, because a table whose header and body size themselves
+ * independently is a table whose columns do not line up. One rule per column,
+ * one number per column.
+ */
+
+.db-tabs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 9px;
+  background-color: #f4f4f5;
+  padding: 3px;
+  gap: 2px;
+}
+
+.db-tab {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  padding: 6px 11px;
+}
+
+.db-tab-on { background-color: #ffffff; }
+.db-tab-text { color: #3f3f46; font-size: 12px; font-weight: 500; }
+
+.db-tab-pill {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: #e4e4e7;
+  width: 18px;
+  height: 16px;
+}
+
+.db-tab-pill-text { color: #52525b; font-size: 10px; font-weight: 500; }
+
+.db-tools {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-tool {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 7px 11px;
+}
+
+.db-tool-text { color: #18181b; font-size: 12px; font-weight: 500; }
+.db-tool-icon { color: #52525b; font-family: Arial; font-size: 12px; }
+.db-chevron { color: #71717a; font-family: Arial; font-size: 11px; }
+
+.db-table {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+}
+
+.db-thead {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  background-color: #fafafa;
+}
+
+.db-tbody {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-tr {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-bottom: 1px solid #f4f4f5;
+  padding: 0 12px;
+  height: 46px;
+}
+
+.db-tr-on { background-color: #fafafa; }
+
+.db-th {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 34px;
+}
+
+.db-td {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 34px;
+}
+
+/* One number per column, shared by the header cell and the body cell. */
+.db-col-header { width: 330px; }
+.db-col-type { width: 160px; }
+.db-col-status { width: 130px; }
+.db-col-target { width: 80px; }
+.db-col-limit { width: 80px; }
+.db-col-reviewer { width: 190px; }
+
+.db-cell-text { color: #3f3f46; font-size: 13px; }
+.db-cell-strong { color: #09090b; font-weight: 500; }
+
+.db-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  padding: 3px 8px;
+}
+
+.db-chip-text { color: #52525b; font-size: 11px; }
+
+.db-status {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  padding: 3px 8px;
+}
+
+.db-status-icon { color: #a1a1aa; font-family: Arial; font-size: 11px; }
+.db-status-text { color: #52525b; font-size: 11px; }
+/* The done tick is green. Its OWN class rather than a descendant selector:
+ * this sheet supports `.theme-<name> .class` and nothing else, and it says so
+ * rather than quietly ignoring the rule — which it did, and the tick stayed
+ * grey while the sheet looked correct. */
+.db-status-icon-done { color: #16a34a; }
+
+.db-grip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+}
+
+.db-grip-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; }
+
+.db-check {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid #d4d4d8;
+  background-color: #ffffff;
+  width: 15px;
+  height: 15px;
+}
+
+.db-tick { color: #18181b; font-family: Arial; font-size: 10px; }
+
+.db-more {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+}
+
+.db-more-icon { color: #71717a; font-family: Arial; font-size: 13px; }
+
+.db-assign {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 0 8px;
+  width: 158px;
+  height: 30px;
+}
+
+.db-assign-text { color: #a1a1aa; font-size: 12px; }
+
+/* What dnd-kit says out loud while a row is carried. Off the page rather than
+ * hidden: `aria-hidden` would take it out of the tree and a live region a
+ * reader cannot reach announces nothing. */
+.db-live { color: #71717a; font-size: 11px; padding: 8px 0 0 0; }
+
+/* The clip box. Its height is set inline from the same number the virtualiser
+ * reasons about, because a viewport the layout and the range disagree about is
+ * a strip of nothing at one edge. `position: relative` is what makes the
+ * window's `top` mean "from the top of this box". */
+.db-tbody { overflow: hidden; position: relative; }
+
+/* The rows in range, slid up by the part of the first one that is scrolled
+ * past. Absolutely positioned, so its height is its own business and not
+ * something the 414-pixel column has an opinion about — which is the whole
+ * reason the spacers had to go. */
+.db-window {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  position: absolute;
+  left: 0;
+  width: 100%;
+}
+
+/* --- the views ----------------------------------------------------------- */
+
+.db-view {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  width: 1032px;
+}
+
+.db-head {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 0 0 4px 0;
+}
+
+.db-head-title { color: #09090b; font-size: 22px; font-weight: 600; }
+.db-head-sub { color: #71717a; font-size: 13px; }
+
+.db-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-panel-head {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 0 0 10px 0;
+}
+
+.db-panel-title { color: #09090b; font-size: 16px; font-weight: 600; }
+.db-panel-sub { color: #71717a; font-size: 13px; }
+
+.db-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-item {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+}
+
+.db-item-mark {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: #f4f4f5;
+  width: 32px;
+  height: 32px;
+}
+
+.db-item-mark-text { color: #52525b; font-size: 12px; font-weight: 600; }
+
+.db-item-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-item-name { color: #18181b; font-size: 13px; font-weight: 500; }
+.db-item-sub { color: #71717a; font-size: 12px; }
+
+.db-item-tag {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 3px 8px;
+}
+
+.db-item-tag-text { color: #52525b; font-size: 11px; font-weight: 500; }
+
+.db-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.db-tile {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-tile-title { color: #09090b; font-size: 15px; font-weight: 600; }
+.db-tile-sub { color: #71717a; font-size: 12px; }
+
+/* The track and the bit of it that is filled. Two elements rather than one
+ * with a background, because the fill is a PERCENTAGE and a percentage needs
+ * something to be a percentage of. */
+.db-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  border-radius: 3px;
+  background-color: #f4f4f5;
+  margin: 12px 0 0 0;
+  height: 6px;
+}
+
+.db-bar-fill {
+  border-radius: 3px;
+  background-color: #18181b;
+  height: 6px;
+}
+
+.db-bar-text { color: #71717a; font-size: 11px; padding: 6px 0 0 0; }
