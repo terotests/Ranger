@@ -152,6 +152,59 @@
             horizontal arrows are for nesting and nothing else.
           </p>
         </section>
+        <section data-for="dashboard">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Press a range button</strong>, or focus one and use the
+            arrows. The chart is not a picture: it is a Vega specification run
+            by <strong>Vela</strong>, turned into draw commands, and appended
+            to this page&rsquo;s display list by <code>VlEvgList</code>. Ninety
+            points go in as data and the outline that comes out is the one
+            Vela computed.
+          </p>
+          <p class="hint">
+            There were two routes. An element can carry the SVG in
+            <code>svgSource</code> and <code>EVGDisplayList</code> imports it
+            &mdash; and that drops every <em>label</em>, because the importer
+            walks vector items and a <code>&lt;text&gt;</code> is not one:
+            forty-seven commands of geometry and not one axis tick. A picture
+            with no numbers on its axes still looks like a chart, which is why
+            the gate counts words as well as outlines.
+          </p>
+          <p class="hint">
+            The chart is therefore <em>not in the element tree</em>. It is
+            painted at the box the layout reserved, which is why the
+            placeholder has an id and no children: the tree owns where it goes
+            and Vela owns what is drawn there.
+          </p>
+          <p class="hint">
+            The range is a <strong>radio group</strong> and not a toggle group,
+            and the difference is measured: clicking the chosen item of a
+            toggle group deselects it, and a range picker with no range picked
+            is a chart with nothing to draw.
+          </p>
+        </section>
+        <section data-for="profile">
+          <h2>what to try</h2>
+          <p class="hint">
+            The other form shape: <strong>label to the left</strong>, every
+            control&rsquo;s left edge on one column. The rows are deliberately
+            three different heights &mdash; a text box is 38, the photo row 40,
+            the switch row 22 &mdash; so a layout that only worked when they
+            matched would have nowhere to hide.
+          </p>
+          <p class="hint">
+            <strong>Tab and type.</strong> The clock in the time field is a
+            <em>leading</em> icon and the calendar a trailing one, and the
+            caret has to know: a leading icon moves where the run starts.
+          </p>
+          <p class="hint">
+            The date and time boxes are <em>text fields with an icon</em>.
+            Segmented editing &mdash; where ArrowUp on the month changes the
+            month and not the caret &mdash; is its own contract, and it is not
+            built here rather than half-built.
+          </p>
+        </section>
         <section data-for="form">
           <h2>what to try</h2>
           <p class="hint">

@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -314,6 +314,12 @@ resize.init(RESIZE_CSS);
 const form = new FormDemo();
 form.init(FORM_CSS);
 let lastFormHover = "";
+const profile = new ProfileDemo();
+profile.init(PROFILE_CSS);
+let lastProfileHover = "";
+const dashboard = new DashboardDemo();
+dashboard.init(DASHBOARD_CSS);
+let lastDashHover = "";
 let lastResizeHover = "";
 let lastTreeHover = "";
 let lastTimelineHover = "";
@@ -538,6 +544,62 @@ const DEMOS = {
         return true;
       },
       setPressed: (id) => form.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  // The label-left form. Same shape as the invoice's entry; the difference is
+  // in the layout, not the wiring.
+  profile: {
+    height: () => profile.heightPx(),
+    list: () => profile.displayListJson(),
+    hit: (x, y) => profile.hitId(x, y),
+    a11y: (gen, focus) => profile.a11yJson(gen, focus),
+    press: (id) => profile.press(id),
+    hover: (id) => {
+      if (id === lastProfileHover) return false;
+      lastProfileHover = id;
+      profile.setHover(id);
+      return true;
+    },
+    keyWith: (k, shift, ctrl) => profile.keyWith(k, shift, ctrl),
+    key: (k) => profile.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastProfileHover) return false;
+        lastProfileHover = id;
+        profile.setHover(id);
+        return true;
+      },
+      setPressed: (id) => profile.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  // Four cards and a chart that is really drawn: the display list this hands
+  // back has the page's own commands and Vela's in it, which is the whole
+  // point of the page.
+  dashboard: {
+    height: () => dashboard.heightPx(),
+    list: () => dashboard.displayListJson(),
+    hit: (x, y) => dashboard.hitId(x, y),
+    a11y: (gen, focus) => dashboard.a11yJson(gen, focus),
+    press: (id) => dashboard.press(id),
+    hover: (id) => {
+      if (id === lastDashHover) return false;
+      lastDashHover = id;
+      dashboard.setHover(id);
+      return true;
+    },
+    key: (k) => dashboard.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastDashHover) return false;
+        lastDashHover = id;
+        dashboard.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dashboard.setPressed(id),
       root: () => null,
     }),
   },
@@ -1244,7 +1306,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "profile", "dashboard", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

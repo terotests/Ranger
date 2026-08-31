@@ -53,6 +53,8 @@ SUITES=(
   ui:timeline:check
   ui:resize:check
   ui:form:check
+  ui:profile:check
+  ui:dashboard:check
 )
 
 failed=()

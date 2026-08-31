@@ -44,6 +44,24 @@ const DEMOS = {
       M.ToolbarDemo.displayListJson(css, true, false, false, "center", "Edited 2 hours ago"),
     errors: (M, css) => M.ToolbarDemo.styleErrors(css),
   },
+  dashboard: {
+    module: "gallery/ui/bin/DashboardDemo.cjs",
+    css: "dashboard.css",
+    height: 760,
+    list: (M, css) => {
+      const d = new M.DashboardDemo();
+      d.init(css);
+      const r = process.env.DASH_RANGE;
+      if (r) d.selectRange(r);
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.DashboardDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
   profile: {
     module: "gallery/ui/bin/ProfileDemo.cjs",
     css: "profile.css",
@@ -155,7 +173,7 @@ const port = server.address().port;
 
 const { chromium } = requireDom("playwright-core");
 const browser = await chromium.launch({ executablePath: findChromium() });
-const p = await browser.newPage({ viewport: { width: 1320, height: demo.height + 60 }, deviceScaleFactor: 2 });
+const p = await browser.newPage({ viewport: { width: 1400, height: demo.height + 60 }, deviceScaleFactor: 2 });
 p.on("pageerror", (e) => console.error("PAGEERROR:", e.message));
 p.on("console", (m) => { if (m.type() === "error") console.error("CONSOLE:", m.text()); });
 await p.goto(`http://127.0.0.1:${port}/`);

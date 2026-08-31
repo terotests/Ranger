@@ -1,0 +1,163 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * shadcn's dashboard-01: a row of four figures, then a chart card. Pale, thin
+ * borders, generous radius — and NO size on the chart's placeholder, because
+ * the demo sets that inline from the same two numbers the Vega specification
+ * is built with.
+ */
+
+.db-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 24px;
+  background-color: #fafafa;
+  width: 1080px;
+  height: 760px;
+}
+
+.db-main {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  width: 1032px;
+}
+
+.db-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 16px;
+}
+
+/* A card. `align-items: stretch` is what makes four of them the same height
+ * when one has a two-line trend and the others have one — the row decides, not
+ * the longest string. */
+.db-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-card-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 24px;
+}
+
+.db-card-label { color: #71717a; font-size: 13px; height: 20px; }
+
+/* Eats the slack so the badge sits at the far end. `justify-content:
+ * space-between` would also shove the label away from the leading edge on a
+ * row with one child. */
+.db-spacer { flex: 1; }
+
+.db-badge {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 3px 7px;
+}
+
+.db-badge-up { }
+.db-badge-text { color: #18181b; font-size: 11px; font-weight: 500; height: 16px; }
+.db-arrow { color: #52525b; font-family: Arial; font-size: 11px; height: 16px; }
+
+.db-big {
+  color: #09090b;
+  font-size: 28px;
+  font-weight: 600;
+  padding: 10px 0 0 0;
+  height: 38px;
+}
+
+.db-card-foot {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 12px 0 0 0;
+}
+
+.db-card-foot-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.db-trend { color: #18181b; font-size: 13px; font-weight: 500; height: 20px; }
+.db-card-sub { color: #71717a; font-size: 12px; height: 18px; }
+
+.db-chart-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-chart-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 0 14px 0;
+}
+
+.db-chart-head-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-chart-title { color: #09090b; font-size: 16px; font-weight: 600; height: 24px; }
+.db-chart-sub { color: #71717a; font-size: 13px; height: 20px; }
+
+/* The segmented control: one bordered strip with the chosen cell filled. */
+.db-segs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 9px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 3px;
+  gap: 2px;
+}
+
+.db-seg {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  padding: 6px 12px;
+}
+
+.db-seg-on { background-color: #f4f4f5; }
+.db-seg-text { color: #3f3f46; font-size: 12px; font-weight: 500; height: 18px; }
+
+/* NO width or height. The demo sets both inline from the two numbers the
+ * specification is built with — the box the layout reserves and the picture
+ * Vela computes have to be the same size, and one owner is how that stays
+ * true. */
+.db-chart-box { }
+
+.db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; height: 34px; }

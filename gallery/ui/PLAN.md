@@ -2147,6 +2147,49 @@ What it adds, in the order it is worth building:
    an avatar with Change/Remove beside it, and a footer with a hint on the left
    and two buttons on the right.
 
+## The dashboard, and a component from another gallery
+
+shadcn's dashboard-01 is four things this gallery does not have side by side,
+and the interesting one is the chart, because it is not this gallery's to
+build.
+
+**The chart is a Vela render, and there were two routes into EVG.**
+
+An element can carry an SVG string in `svgSource`, and `EVGDisplayList` will
+import it. That works, and it silently drops every LABEL: the importer walks
+vector items and a `<text>` is not one. Forty-seven commands of pure geometry
+and not a single axis tick — and a picture with no numbers on its axes still
+looks like a chart, which is what makes this the kind of bug that ships.
+
+`VlEvgList` is the other half of the same bridge, written for exactly this
+case: it emits geometry and text into a display list the host already holds.
+Seventy-two commands, twenty-five of them words. That is the route.
+
+**The consequence is that the chart is not in the element tree.** It is painted
+at the box the layout reserved, so the placeholder has an id and no children:
+the tree owns where the chart goes and Vela owns what is drawn there. A reader
+gets one named image, because a hundred path commands are not something to
+announce.
+
+**Two numbers, one owner.** The specification is built from `chartW`/`chartH`
+and the placeholder is set to the same two inline, because the box the layout
+reserves and the picture Vela computes have to be the same size. And a gutter,
+measured rather than guessed: Vela puts the plot's corner at the origin and
+draws the y labels to the LEFT of it, so emitting at the box's corner hung
+"600" at x=29 when the box began at 43.
+
+**The browser needed one honest stub.** `UITextRenderer` owns a `FontManager`
+that looks for font files — one `existsSync`, the only filesystem call in the
+whole bundle. A browser has no filesystem, so the honest answer is "no such
+file", and that is what the stub says: `hasFont` stays false and the renderer
+falls back to its estimating measurer, which is the same path the Node gate
+takes because the gate registers no font directory either.
+
+**Still to come**: the DataTable from the second screenshot — `TableCtl` is
+already measured against TanStack for sorting, paging and selection, and the
+screenshot adds drag handles, status badges, a per-row menu and a tab strip —
+and the sidebar, which is a navigation landmark with sections.
+
 ## Resizable, and a reference that publishes an impossible range
 
 ReUI's is react-resizable-panels, and its own prop names give it away:

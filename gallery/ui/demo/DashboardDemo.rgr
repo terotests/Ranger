@@ -1,0 +1,621 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; DashboardDemo — four cards and a chart that is really drawn
+; =============================================================================
+; shadcn's dashboard-01, and the first page here that puts a component from
+; ANOTHER gallery on the same surface as this one's.
+;
+; --- THE CHART IS A VELA RENDER, NOT A PICTURE OF ONE ------------------------
+;
+; The area chart is a Vega specification, run by `VlRuntime`, turned into draw
+; commands by `VlSceneCommands`, and appended to this page's display list by
+; `VlEvgList`. Nothing is traced, embedded or approximated: the ninety points
+; below go in as data and the outline that comes out is the one Vela computed.
+;
+; There were two routes and the difference matters. An element can carry an SVG
+; string in `svgSource` and `EVGDisplayList` will import it — that works, and it
+; drops every LABEL, because the importer walks vector items and a `<text>` is
+; not one. Forty-seven commands of geometry and not a single axis tick. So this
+; uses the other bridge, `VlEvgList`, which was written for precisely this case
+; and emits geometry and text together: seventy-two commands, twenty-five of
+; them words.
+;
+; The consequence is that the chart is not in the ELEMENT tree. It is painted
+; into the display list at the position the layout put its card, which is why
+; `chartBox` is a placeholder with an id and no children: the tree owns where
+; the chart goes and Vela owns what is drawn there. A reader gets the card's
+; label and the summary under it, because a hundred path commands are not
+; something to announce.
+;
+; --- WHAT A CARD IS ----------------------------------------------------------
+;
+; A rounded box with a header row, a big number and a footer line. It is not a
+; controller: there is nothing to control. `TableCtl` exists because sorting,
+; paging and selection are hard; a card is a box with four strings in it, and
+; putting it behind a controller would be ceremony.
+;
+; --- WHAT IS NOT HERE YET ----------------------------------------------------
+;
+; The DataTable from the second screenshot, which is `TableCtl` (already
+; measured against TanStack) plus drag handles, status badges and a per-row
+; menu — a real piece of work rather than a section of this file. And the
+; sidebar, which is a navigation landmark with sections.
+; =============================================================================
+
+Import "../src/RadioGroupCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../vela/src/VlRuntime.rgr"
+Import "../../vela/src/VlCommand.rgr"
+Import "../../vela/src/VlJson.rgr"
+Import "../../vela/src/VlEvgList.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+treefactory Db {
+    child addChild
+    text  textContent
+
+    tag Page    EVGElement (props (className "db-page"))
+    tag Main    EVGElement (props (className "db-main") (role "region") (a11yLabel "Dashboard"))
+    tag Cards   EVGElement (props (className "db-cards") (role "list") (a11yLabel "Key figures"))
+
+    tag Card    EVGElement (props (className "db-card") (role "listitem"))
+    tag CardTop EVGElement (props (className "db-card-top"))
+    tag CardLbl EVGElement (props (className "db-card-label") (elementType 1))
+    tag Badge   EVGElement (props (className "db-badge"))
+    tag BadgeUp EVGElement (props (className "db-badge db-badge-up"))
+    tag BadgeTx EVGElement (props (className "db-badge-text") (elementType 1))
+    tag Big     EVGElement (props (className "db-big") (elementType 1))
+    tag Foot    EVGElement (props (className "db-card-foot"))
+    tag FootTop EVGElement (props (className "db-card-foot-top"))
+    tag Trend   EVGElement (props (className "db-trend") (elementType 1))
+    ; The arrow beside the trend line. Decoration: "up" is already in the
+    ; sentence beside it, and a glyph read aloud after it says it twice.
+    tag Arrow   EVGElement (props (className "db-arrow") (elementType 1) (a11yHidden true))
+    tag Sub     EVGElement (props (className "db-card-sub") (elementType 1))
+
+    tag Chart   EVGElement (props (className "db-chart-card"))
+    tag ChartHd EVGElement (props (className "db-chart-head"))
+    tag ChartTx EVGElement (props (className "db-chart-head-text"))
+    tag Title   EVGElement (props (className "db-chart-title") (elementType 1) (role "heading") (a11yLevel 2))
+    tag ChartSub EVGElement (props (className "db-chart-sub") (elementType 1))
+    tag Spacer  EVGElement (props (className "db-spacer"))
+    tag Segs    EVGElement (props (className "db-segs") (role "radiogroup") (a11yLabel "Range"))
+    tag Seg     EVGElement (props (className "db-seg") (role "radio"))
+    tag SegOn   EVGElement (props (className "db-seg db-seg-on") (role "radio"))
+    tag SegTx   EVGElement (props (className "db-seg-text") (elementType 1))
+    ; Where the chart goes. A placeholder with an id and nothing in it: the
+    ; tree owns the position and Vela owns the drawing.
+    tag ChartBox EVGElement (props (className "db-chart-box") (role "img"))
+
+    tag Note    EVGElement (props (className "db-note") (elementType 1))
+}
+
+; One of the four figures across the top.
+class DbCard {
+    def tid:string ""
+    def label:string ""
+    def value:string ""
+    def delta:string ""
+    def up:boolean true
+    def trend:string ""
+    def sub:string ""
+
+    Constructor () {
+    }
+}
+
+class DashboardDemo {
+
+    def cards:[DbCard]
+    ; Ninety days of visitors. Generated rather than pasted, so the range
+    ; buttons have something real to narrow.
+    def visitors:[int]
+    def range:RadioGroupCtl (new RadioGroupCtl())
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+
+    def pageW:double 1080.0
+    def pageH:double 760.0
+    ; The chart's drawn size. ONE owner: the spec is built from these numbers
+    ; and the placeholder box is set to them inline, so the box the layout
+    ; reserves and the picture Vela computes cannot disagree.
+    ;
+    ; `chartW` is the CARD's inner width — 1032 less two 18px paddings and two
+    ; 1px borders — because a chart that stops short of the card it is in reads
+    ; as a mistake rather than as a margin.
+    def chartW:double 994.0
+    def chartH:double 300.0
+    ; Room for the labels, which Vela draws OUTSIDE the plot: the y ticks to
+    ; the left of x=0 and the x ticks below y=height. The command coordinates
+    ; put the plot's corner at the origin, so emitting at the box's corner
+    ; hangs the y labels off its left edge — measured, not guessed: geometry
+    ; came back spanning 43..938 while "600" and "400" drew at 29.
+    ;
+    ; So the plot is inset by the gutter and shrunk by it, and the two numbers
+    ; are stated once here rather than folded into the spec.
+    def gutterX:double 46.0
+    def gutterY:double 34.0
+
+    Constructor () {
+    }
+
+    ; --- the data -------------------------------------------------------------
+
+    ; A deterministic wobble. Not random: a demo whose picture changes every
+    ; run has nothing a gate can assert about it.
+    fn buildSeries:void () {
+        def i:int 0
+        while (i < 90) {
+            def base:double (220.0 + ((to_double i) * 2.4))
+            def wobble:double (((to_double ((i * 37) % 61)) - 30.0) * 3.1)
+            def weekly:double (((to_double ((i * 53) % 7)) - 3.0) * 14.0)
+            def v:double ((base + wobble) + weekly)
+            if (v < 40.0) {
+                v = 40.0
+            }
+            push visitors (to_int v)
+            i = (i + 1)
+        }
+    }
+
+    fn rangeDays:int () {
+        if (range.value == "d7") {
+            return 7
+        }
+        if (range.value == "d30") {
+            return 30
+        }
+        return 90
+    }
+
+    fn rangeLabel:string () {
+        if (range.value == "d7") {
+            return "Total for the last 7 days"
+        }
+        if (range.value == "d30") {
+            return "Total for the last 30 days"
+        }
+        return "Total for the last 3 months"
+    }
+
+    ; --- the specification ----------------------------------------------------
+
+    ; Vega, built here rather than read from a file, because the number of
+    ; points depends on the range button and a chart that cannot change is not
+    ; a chart this page needs.
+    fn specText:string () {
+        def days:int (this.rangeDays())
+        def first:int (90 - days)
+        def rows:string ""
+        def i:int first
+        while (i < 90) {
+            if (i > first) {
+                rows = (rows + ",")
+            }
+            rows = (((((rows + "{\"d\":") + (to_string (i - first))) + ",\"v\":") + (to_string (itemAt visitors i))) + "}")
+            i = (i + 1)
+        }
+
+        def s:string "{"
+        s = (s + "\"$schema\":\"https://vega.github.io/schema/vega/v6.json\",")
+        s = (s + "\"background\":null,\"padding\":0,")
+        s = ((((s + "\"width\":") + (to_string (to_int (chartW - gutterX)))) + ",\"height\":") + (to_string (to_int (chartH - gutterY))))
+        s = (s + ",\"style\":\"cell\",")
+        s = (((s + "\"data\":[{\"name\":\"src\",\"values\":[") + rows) + "]}],")
+        s = (s + "\"marks\":[")
+        ; The filled body, then the line on top of it. Two marks over one
+        ; dataset, which is the shape the reference draws and the thing a
+        ; single `AreaChart` component cannot express.
+        s = (s + "{\"type\":\"area\",\"from\":{\"data\":\"src\"},\"encode\":{\"update\":{")
+        s = (s + "\"orient\":{\"value\":\"vertical\"},\"fill\":{\"value\":\"#d4d4d8\"},\"fillOpacity\":{\"value\":0.55},")
+        s = (s + "\"x\":{\"scale\":\"x\",\"field\":\"d\"},\"y\":{\"scale\":\"y\",\"field\":\"v\"},\"y2\":{\"scale\":\"y\",\"value\":0}}}},")
+        s = (s + "{\"type\":\"line\",\"from\":{\"data\":\"src\"},\"encode\":{\"update\":{")
+        s = (s + "\"stroke\":{\"value\":\"#3f3f46\"},\"strokeWidth\":{\"value\":1.5},")
+        s = (s + "\"x\":{\"scale\":\"x\",\"field\":\"d\"},\"y\":{\"scale\":\"y\",\"field\":\"v\"}}}}")
+        s = (s + "],")
+        s = (s + "\"scales\":[")
+        s = (s + "{\"name\":\"x\",\"type\":\"linear\",\"domain\":{\"data\":\"src\",\"field\":\"d\"},\"range\":[0,{\"signal\":\"width\"}],\"zero\":false},")
+        s = (s + "{\"name\":\"y\",\"type\":\"linear\",\"domain\":{\"data\":\"src\",\"field\":\"v\"},\"range\":[{\"signal\":\"height\"},0],\"nice\":true,\"zero\":true}")
+        s = (s + "],")
+        s = (s + "\"axes\":[")
+        s = (s + "{\"scale\":\"x\",\"orient\":\"bottom\",\"grid\":false,\"tickCount\":6,\"labelColor\":\"#71717a\",\"labelFontSize\":11,\"domainColor\":\"#e4e4e7\",\"tickColor\":\"#e4e4e7\"},")
+        s = (s + "{\"scale\":\"y\",\"orient\":\"left\",\"grid\":true,\"tickCount\":4,\"labelColor\":\"#71717a\",\"labelFontSize\":11,\"domain\":false,\"ticks\":false,\"gridColor\":\"#f4f4f5\"}")
+        s = (s + "]}")
+        return s
+    }
+
+    ; --- setup ----------------------------------------------------------------
+
+    fn addCard:DbCard (tid:string label:string value:string delta:string up:boolean trend:string sub:string) {
+        def c (new DbCard())
+        c.tid = tid
+        c.label = label
+        c.value = value
+        c.delta = delta
+        c.up = up
+        c.trend = trend
+        c.sub = sub
+        push cards c
+        return c
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        this.buildSeries()
+
+        this.addCard("db-revenue" "Total Revenue" "$1,250.00" "+12.5%" true
+            "Trending up this month" "Visitors for the last 6 months")
+        this.addCard("db-customers" "New Customers" "1,234" "-20%" false
+            "Down 20% this period" "Acquisition needs attention")
+        this.addCard("db-accounts" "Active Accounts" "45,678" "+12.5%" true
+            "Strong user retention" "Engagement exceed targets")
+        this.addCard("db-growth" "Growth Rate" "4.5%" "+4.5%" true
+            "Steady performance increase" "Meets growth projections")
+
+        ; A RADIO GROUP, not a toggle group. The two differ in one measured
+        ; way: clicking the selected item of a toggle group DESELECTS it, and
+        ; a range picker with no range picked is a chart with nothing to draw.
+        range.tid = "db-range"
+        range.name = "Range"
+        range.addItem("d90" "Last 3 months" false)
+        range.addItem("d30" "Last 30 days" false)
+        range.addItem("d7" "Last 7 days" false)
+        range.value = "d90"
+        range.build()
+
+        focused = "db-range-d90"
+        this.rebuild()
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    fn cardBody:EVGElement (c:DbCard) {
+        def card (tree Db (Card (props (id c.tid) (a11yLabel ((c.label + ", ") + c.value)))))
+
+        def top (tree Db (CardTop))
+        top.addChild((tree Db (CardLbl c.label)))
+        top.addChild((tree Db (Spacer)))
+        def badge (tree Db (Badge))
+        if c.up {
+            badge = (tree Db (BadgeUp))
+        }
+        def arrow:string "↘"
+        if c.up {
+            arrow = "↗"
+        }
+        badge.addChild((tree Db (Arrow arrow)))
+        badge.addChild((tree Db (BadgeTx c.delta)))
+        top.addChild(badge)
+        card.addChild(top)
+
+        card.addChild((tree Db (Big c.value)))
+
+        def foot (tree Db (Foot))
+        def ftop (tree Db (FootTop))
+        ftop.addChild((tree Db (Trend c.trend)))
+        ftop.addChild((tree Db (Arrow arrow)))
+        foot.addChild(ftop)
+        foot.addChild((tree Db (Sub c.sub)))
+        card.addChild(foot)
+        return card
+    }
+
+    fn chartCard:EVGElement () {
+        def card (tree Db (Chart (props (id "db-chart"))))
+
+        def head (tree Db (ChartHd))
+        def ht (tree Db (ChartTx))
+        ht.addChild((tree Db (Title "Total Visitors")))
+        ht.addChild((tree Db (ChartSub (this.rangeLabel()))))
+        head.addChild(ht)
+        head.addChild((tree Db (Spacer)))
+
+        def segs (tree Db (Segs (props (id "db-range"))))
+        def i:int 0
+        while (i < (array_length range.items)) {
+            def it:UiItem (itemAt range.items i)
+            def on:boolean (range.value == it.value)
+            def seg (tree Db (Seg (props (id ("db-range-" + it.value)) (a11yLabel it.name))))
+            if on {
+                seg = (tree Db (SegOn (props (id ("db-range-" + it.value)) (a11yLabel it.name))))
+            }
+            seg.a11yFocusable = true
+            if on {
+                seg.a11yChecked = (EVGA11yTri.yes())
+            } {
+                seg.a11yChecked = (EVGA11yTri.no())
+            }
+            seg.addChild((tree Db (SegTx it.name)))
+            segs.addChild(seg)
+            i = (i + 1)
+        }
+        head.addChild(segs)
+        card.addChild(head)
+
+        ; The placeholder. Its size is set from the SAME two numbers the
+        ; specification is built with, inline rather than in the sheet, because
+        ; two owners for one number is how the resize demo lost a frame.
+        def box (tree Db (ChartBox (props (id "db-chart-box")
+            (a11yLabel ("Visitors, " + (this.rangeLabel()))))))
+        box.width = (EVGUnit.px(chartW))
+        box.height = (EVGUnit.px(chartH))
+        card.addChild(box)
+        return card
+    }
+
+    fn pageBody:EVGElement () {
+        def page (tree Db (Page (props (id "page"))))
+        def main (tree Db (Main (props (id "db-main"))))
+
+        def row (tree Db (Cards (props (id "db-cards"))))
+        def i:int 0
+        while (i < (array_length cards)) {
+            def c:DbCard (itemAt cards i)
+            def el:EVGElement (this.cardBody(c))
+            el.width = (EVGUnit.percent(25.0))
+            row.addChild(el)
+            i = (i + 1)
+        }
+        main.addChild(row)
+        main.addChild((this.chartCard()))
+        page.addChild(main)
+        page.addChild((tree Db (Note "The chart is a Vega specification run by Vela and painted into this page's display list — geometry and axis labels both. Press a range button or use the arrows.")))
+        return page
+    }
+
+    fn rebuild:void () {
+        root = (this.pageBody())
+    }
+
+    ; --- layout ---------------------------------------------------------------
+
+    fn laidOut:EVGLayout () {
+        if layout {
+            return (unwrap layout)
+        }
+        return (this.laidOutOnce())
+    }
+
+    fn laidOutOnce:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        this.markStates(r)
+        s.applyTree(r "")
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        layout = lay
+        return lay
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hovered) > 0) && (el.id == hovered)
+        el.isFocused = ((strlen focused) > 0) && (el.id == focused)
+        el.isPressed = ((strlen pressed) > 0) && (el.id == pressed)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn findEl:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            return el
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def found:EVGElement (this.findEl((itemAt el.children i) id))
+            if ((strlen found.id) > 0) {
+                return found
+            }
+            i = (i + 1)
+        }
+        return (EVGElement.createDiv())
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn ring:[string] () {
+        def a:[string]
+        def i:int 0
+        while (i < (array_length range.items)) {
+            def it:UiItem (itemAt range.items i)
+            push a ("db-range-" + it.value)
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn selectRange:boolean (value:string) {
+        if (range.value == value) {
+            return false
+        }
+        range.value = value
+        focused = ("db-range-" + value)
+        this.rebuild()
+        return true
+    }
+
+    fn press:boolean (target:string) {
+        def i:int 0
+        while (i < (array_length range.items)) {
+            def it:UiItem (itemAt range.items i)
+            if (target == ("db-range-" + it.value)) {
+                focused = target
+                return (this.selectRange(it.value))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Arrows move AND select, which is what a radio group does — a reader
+    ; arrowing through one hears each option chosen as they land on it.
+    fn key:boolean (k:string) {
+        def r:[string] (this.ring())
+        def n:int (array_length r)
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt r i) == focused) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return false
+        }
+        def next:int at
+        if ((k == "ArrowRight") || (k == "ArrowDown")) {
+            next = (at + 1)
+        }
+        if ((k == "ArrowLeft") || (k == "ArrowUp")) {
+            next = (at - 1)
+        }
+        if (k == "Home") {
+            next = 0
+        }
+        if (k == "End") {
+            next = (n - 1)
+        }
+        if (next == at) {
+            return false
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        def it:UiItem (itemAt range.items next)
+        focused = (itemAt r next)
+        return (this.selectRange(it.value))
+    }
+
+    fn setHover:void (id:string) { hovered = id }
+    fn setPressed:void (id:string) { pressed = id }
+    fn setFocus:void (id:string) { focused = id }
+
+    ; --- the picture ----------------------------------------------------------
+
+    ; The page, and then the chart on top of it at the box the layout reserved.
+    ;
+    ; The chart is NOT in the element tree — see the header. This is where the
+    ; two halves meet, and the only place either of them knows about the other.
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.build(r)
+
+        def box:EVGElement (this.findEl(r "db-chart-box"))
+        if ((strlen box.id) > 0) {
+            def parser (new VlJsonParser())
+            def specJson:VlJson (parser.parse((this.specText())))
+            if parser.ok {
+                def rt (new VlRuntime())
+                def scene:VlSceneMark (rt.run(specJson))
+                if ((array_length rt.errors) == 0) {
+                    def list:VlCommandList (VlSceneCommands.build(scene))
+                    def tr (new UITextRenderer())
+                    def bridge (new VlEvgList())
+                    ; The axis labels sit to the left of and below the plot,
+                    ; and Vela measures its own origin — so the offset is the
+                    ; box's corner and nothing else.
+                    bridge.emit(dl list tr (box.calculatedX + gutterX) box.calculatedY 1.0)
+                }
+            }
+        }
+        return (dl.toJson())
+    }
+
+    ; How many commands the chart contributed. The gate's way of asking whether
+    ; there IS a chart, without asserting a particular outline.
+    fn chartCommandCount:int () {
+        def parser (new VlJsonParser())
+        def specJson:VlJson (parser.parse((this.specText())))
+        if (! parser.ok) {
+            return 0
+        }
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(specJson))
+        if ((array_length rt.errors) > 0) {
+            return 0
+        }
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def dl (new EVGDisplayList())
+        def tr (new UITextRenderer())
+        def bridge (new VlEvgList())
+        bridge.emit(dl list tr 0.0 0.0 1.0)
+        return (array_length dl.cmds)
+    }
+
+    fn specErrors:string () {
+        def parser (new VlJsonParser())
+        def specJson:VlJson (parser.parse((this.specText())))
+        if (! parser.ok) {
+            return ("json: " + parser.err)
+        }
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(specJson))
+        if ((array_length rt.errors) > 0) {
+            return (itemAt rt.errors 0)
+        }
+        return ""
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dashboard demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dashboard demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (array_length s.errors)
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (itemAt s.errors i)
+    }
+
+    fn widthPx:double () { return pageW }
+    fn heightPx:double () { return pageH }
+}
