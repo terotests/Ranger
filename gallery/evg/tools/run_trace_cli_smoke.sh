@@ -71,6 +71,34 @@ else
 fi
 
 echo
+echo "### argument order"
+# The two paths have to be accepted wherever they fall among the options.
+# `in.png --colorCount 4 out.svg` reading --colorCount as the output path is
+# what this is here to stop coming back.
+for form in "SRC --colorCount 4 DST" "SRC DST --colorCount 4" "--colorCount 4 SRC DST" "SRC DST --colorCount=4"; do
+  args=${form//SRC/$SAMPLE}
+  out="$OUT/order.svg"
+  args=${args//DST/$out}
+  rm -f "$out"
+  if ! node gallery/evg/bin/evg_trace_cli.js $args >/dev/null 2>&1 || [ ! -s "$out" ]; then
+    echo "  FAILED: $form"; status=1; continue
+  fi
+  if [ -n "${orderRef:-}" ]; then
+    cmp -s "$orderRef" "$out" || { echo "  DIFFERS: $form"; status=1; }
+  else
+    orderRef="$OUT/order_ref.svg"; cp "$out" "$orderRef"
+  fi
+done
+[ "$status" -eq 0 ] && echo "  every order gives the same file"
+
+echo "### bad input"
+if node gallery/evg/bin/evg_trace_cli.js "$OUT/no-such-file.png" "$OUT/x.svg" 2>&1 | grep -q "no such file"; then
+  echo "  a missing input is one line, not a stack trace"
+else
+  echo "  a missing input did not report cleanly"; status=1
+fi
+
+echo
 if [ "$status" -eq 0 ]; then
   echo "evg-trace CLI ALL GREEN"
 else

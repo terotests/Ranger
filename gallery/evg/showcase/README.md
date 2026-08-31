@@ -54,7 +54,9 @@ npm run evg:trace:cli -- photo.jpg out.svg --colorCount 12 --paletteMute 130
 
 The option names are the fields of `EvgTraceOptions`, so there is nothing extra
 to learn — `--colorCount 12` sets `colorCount`, and an unrecognised name is
-refused rather than ignored. Presets are `lineart`, `poster`, `photo`, `print`
+refused rather than ignored. The two paths may come anywhere among the options
+(`in.jpg --colorCount 4 out.svg` works), and an option may be written
+`--name value` or `--name=value`. Presets are `lineart`, `poster`, `photo`, `print`
 and `broken`. PNG and JPEG (baseline and progressive) are decoded by
 [`tools/evg_trace_cli.rgr`](../tools/evg_trace_cli.rgr) itself, so the compiled
 program is one self-contained file with nothing to install.

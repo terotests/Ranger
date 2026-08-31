@@ -392,10 +392,44 @@ class EvgTraceCli {
         return false
     }
 
+    ; Which options are switches. A switch may be written bare, so it must not
+    ; swallow the token after it — and the token after it is very often the
+    ; output path.
+    sfn isSwitch:boolean (name:string) {
+        if (name == "optcurve") {
+            return true
+        }
+        if (name == "blackOnWhite") {
+            return true
+        }
+        if (name == "edgeSnap") {
+            return true
+        }
+        if (name == "overlayFollowBase") {
+            return true
+        }
+        if (name == "detailTrueColor") {
+            return true
+        }
+        if (name == "gradientFill") {
+            return true
+        }
+        return false
+    }
+
+    ; Whether a token reads as a value for a switch, as opposed to being the
+    ; next thing on the line.
+    sfn looksBoolean:boolean (s:string) {
+        return ((indexOf "|0|1|true|false|yes|no|on|off|" ("|" + s + "|")) >= 0)
+    }
+
     fn printUsage:void () {
         print "evg-trace — bitmap to SVG (Ranger EvgBitmapTracer)"
         print ""
         print "  evg-trace <input.png|.jpg> <output.svg> [options]"
+        print ""
+        print "  The two paths may come anywhere among the options, and an"
+        print "  option may be written --name value or --name=value."
         print ""
         print "  --preset <name>   lineart | poster | photo | print | broken"
         print "  --<option> <value>"
@@ -481,51 +515,121 @@ class EvgTraceCli {
 
     fn run:void () {
         def argCount:int (shell_arg_cnt)
-        if (argCount < 2) {
+        if (argCount < 1) {
             this.printUsage()
             return
         }
-        def inputPath:string (shell_arg 0)
-        def outputPath:string (shell_arg 1)
 
+        ; Positionals are taken wherever they fall. Requiring them first is the
+        ; one thing about a command line nobody remembers, and
+        ; `in.jpg --colorCount 4 out.svg` reading `--colorCount` as the output
+        ; path is a confusing way to say so.
         def opts:EvgTraceOptions (EvgTraceOptions.defaults())
-        def i:int 2
+        def positional:[string]
+        def i:int 0
         def bad:boolean false
+        def wantHelp:boolean false
         while (i < argCount) {
             def arg:string (shell_arg i)
-            if ((indexOf arg "--") == 0) {
-                def name:string (substring arg 2 (strlen arg))
-                def value:string "true"
-                if ((i + 1) < argCount) {
-                    def peek:string (shell_arg (i + 1))
-                    if ((indexOf peek "--") != 0) {
-                        value = peek
-                        i = (i + 1)
-                    }
-                }
-                if (name == "preset") {
-                    opts = (EvgTraceOptions.preset(value))
-                } {
-                    def ok:boolean (this.applyOption(opts name value))
-                    if (ok == false) {
-                        print ("unknown option --" + name)
-                        bad = true
-                    }
-                }
+            if ((arg == "-h") || (arg == "--help")) {
+                wantHelp = true
             } {
-                print ("unexpected argument " + arg)
-                bad = true
+                if ((indexOf arg "--") == 0) {
+                    def body:string (substring arg 2 (strlen arg))
+                    def name:string body
+                    def value:string ""
+                    def haveValue:boolean false
+                    ; --name=value is accepted as well as --name value.
+                    def eq:int (indexOf body "=")
+                    if (eq >= 0) {
+                        name = (substring body 0 eq)
+                        value = (substring body (eq + 1) (strlen body))
+                        haveValue = true
+                    }
+                    def isFlag:boolean (EvgTraceCli.isSwitch(name))
+                    if (haveValue == false) {
+                        if ((i + 1) < argCount) {
+                            def peek:string (shell_arg (i + 1))
+                            def peekIsOption:boolean ((indexOf peek "--") == 0)
+                            def take:boolean false
+                            if (peekIsOption == false) {
+                                take = true
+                                if (isFlag) {
+                                    ; A switch only eats what reads as a switch
+                                    ; value; anything else is a positional.
+                                    take = (EvgTraceCli.looksBoolean(peek))
+                                }
+                            }
+                            if (take) {
+                                value = peek
+                                haveValue = true
+                                i = (i + 1)
+                            }
+                        }
+                    }
+                    if ((haveValue == false) && isFlag) {
+                        value = "true"
+                        haveValue = true
+                    }
+                    if (haveValue == false) {
+                        print (("--" + name) + " needs a value")
+                        bad = true
+                    } {
+                        if (name == "preset") {
+                            opts = (EvgTraceOptions.preset(value))
+                        } {
+                            def ok:boolean (this.applyOption(opts name value))
+                            if (ok == false) {
+                                print ("unknown option --" + name)
+                                bad = true
+                            }
+                        }
+                    }
+                } {
+                    push positional arg
+                }
             }
             i = (i + 1)
+        }
+
+        if (wantHelp) {
+            this.printUsage()
+            return
+        }
+        def pn:int (array_length positional)
+        if (pn > 2) {
+            print (("expected an input and an output path, got " + (to_string pn)) + ":")
+            def pi:int 0
+            while (pi < pn) {
+                print ("  " + (itemAt positional pi))
+                pi = (pi + 1)
+            }
+            bad = true
+        }
+        if (pn < 2) {
+            if (bad == false) {
+                print "an input path and an output path are both needed"
+            }
+            bad = true
         }
         if (bad) {
             print ""
             this.printUsage()
             return
         }
+        def inputPath:string (itemAt positional 0)
+        def outputPath:string (itemAt positional 1)
 
         def inDir:string (EvgTraceCli.dirOf(inputPath))
         def inFile:string (EvgTraceCli.fileOf(inputPath))
+        ; Asked for a file that is not there, buffer_read_file raises on some
+        ; targets and returns nothing on others. Neither is a message, so look
+        ; first: a mistyped path is the most ordinary thing that can happen
+        ; here and it should read as one line, not as a stack trace.
+        if ((file_exists inDir inFile) == false) {
+            print ("no such file: " + inputPath)
+            return
+        }
         def bytes:buffer (buffer_read_file inDir inFile)
         if ((buffer_length bytes) == 0) {
             print ("cannot read " + inputPath)
