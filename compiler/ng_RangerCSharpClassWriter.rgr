@@ -36,29 +36,6 @@ class RangerCSharpClassWriter {
   ; Serial number for the lambda parameter renaming in CreateLambda below.
   def csLambdaArgCounter:int 0
 
-  ; `public ` or `internal `, from the doc block. The gate is the CLASS: a
-  ; class with no doc block is not opted into the API model at all and keeps
-  ; the all-public output every existing program depends on. Inside a class
-  ; that IS documented, a member without `public` is an implementation detail
-  ; and must not be in the assembly's API surface.
-  fn csMemberVisibility:string (cl:RangerAppClassDesc member:RangerAppParamDesc) {
-    if (cl.has_doc == false) {
-      return "public "
-    }
-    if (member.has_doc == false) {
-      return "internal "
-    }
-    def md@(optional):RangerDocBlock member.docBlock
-    if (null? md) {
-      return "internal "
-    }
-    def doc:RangerDocBlock (unwrap md)
-    if doc.is_public {
-      return "public "
-    }
-    return "internal "
-  }
-
   fn writeCSharpUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if csharp_unions_written {
       return
@@ -750,7 +727,8 @@ class RangerCSharpClassWriter {
         def fDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
         fDocWr.writeCsDocForField(pvar wr)
       }
-      wr.out((this.csMemberVisibility((unwrap cl) pvar)) false)
+      def fVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+      wr.out((fVis.memberVisibility((unwrap cl) pvar "public " "public " "internal ")) false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -825,7 +803,8 @@ class RangerCSharpClassWriter {
           def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
           sDocWr.writeCsDocForMethod(variant wr)
         }
-        wr.out((this.csMemberVisibility((unwrap cl) variant)) false)
+        def sVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+        wr.out((sVis.memberVisibility((unwrap cl) variant "public " "public " "internal ")) false)
         wr.out('static ' false)
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
         wr.out(' ' false)
@@ -853,7 +832,8 @@ class RangerCSharpClassWriter {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
           mDocWr.writeCsDocForMethod(variant wr)
         }
-        wr.out((this.csMemberVisibility((unwrap cl) variant)) false)
+        def mVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+        wr.out((mVis.memberVisibility((unwrap cl) variant "public " "public " "internal ")) false)
         ; `override` only when the parent really declares the same method --
         ; matched on the compiled name AND the argument count, because a
         ; same-named method with a different signature is an overload and

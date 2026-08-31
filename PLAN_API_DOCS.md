@@ -5,12 +5,13 @@ Scope: a `doc { … }` metadata block that attaches to a Ranger declaration, a c
 outputs generated from that IR — doc comments and annotations inside the emitted code,
 the package and layout each platform expects, and standalone API artifacts.
 
-> **Status: phases A, B (JavaScript and C#) and D are implemented.** The
-> `doc { … }` tail, the detach pass, the model, the validation, `api.json` /
-> `api.md` / `api.txt`, JSDoc emission for JavaScript, XML documentation
-> emission and doc-driven visibility for C#, and the npm and NuGet packaging
-> are in the tree. §17 records what shipped and what each part is verified
-> against. The rest of this document is the design, unchanged.
+> **Status: phases A, B (JavaScript, C#, Kotlin, Swift) and D are implemented.**
+> The `doc { … }` tail, the detach pass, the model, the validation including
+> the public-API type-leak check, `api.json` / `api.md` / `api.txt`, doc-comment
+> emission and doc-driven visibility for four targets, and the npm, NuGet,
+> Gradle/Dokka and SwiftPM/DocC packaging are in the tree. §17 records what
+> shipped and what each part is verified against. The rest of this document is
+> the design, unchanged.
 
 This is **not** [`PLAN_DOCS.md`](PLAN_DOCS.md). That document is about the *language's own*
 reference site, generated from the operator definitions in `compiler/Lang.rgr` and `lib/`.
@@ -1316,6 +1317,8 @@ against golden files alone.
 | `has_doc` / `docBlock` on a descriptor | `compiler/ng_RangerAppParamDesc.rgr` |
 | JSDoc emission | `compiler/ng_RangerJavaScriptClassWriter.rgr` |
 | XML documentation, namespace, visibility | `compiler/ng_RangerCSharpClassWriter.rgr` |
+| KDoc, package statement, visibility | `compiler/ng_RangerKotlinClassWriter.rgr` |
+| DocC markup, visibility | `compiler/ng_RangerSwift6ClassWriter.rgr` |
 | Pipeline and options | `compiler/VirtualCompiler.rgr` |
 | Tests and fixtures | `tests/api-docs.test.ts`, `tests/fixtures/api_docs_*.rgr` |
 
@@ -1328,6 +1331,7 @@ against golden files alone.
 | `-apipackage` | Also write the packaging the target ecosystem expects |
 | `-apistrict` | An undocumented public declaration or parameter is an error, not a warning |
 | `-csnamespace=<name>` | The C# namespace; defaults to `-name=` under `-apipackage` |
+| `-ktpackage=<name>` | The Kotlin package; defaults to `-name=` under `-apipackage` |
 
 ### 17.3 JavaScript
 
@@ -1392,7 +1396,99 @@ plugin, which is §7.3 met for .NET.
 A block namespace is emitted rather than the file-scoped C# 10 form: Mono's
 `mcs` is a supported host for this repository and rejects `namespace X;`.
 
-### 17.5 The bug this uncovered
+### 17.5 Kotlin
+
+```bash
+node bin/output.js -l=kotlin a11y.rgr -d=out -o=EvgA11y.kt \
+  -apidoc=docs -apipackage -name=com.evg.a11y -version=1.2.0
+```
+
+writes `EvgA11y.kt` with `package com.evg.a11y` and KDoc, plus `build.gradle.kts`
+(Kotlin JVM, Dokka, `maven-publish`), `module.md`, `README.md` and the artifacts.
+`-name=` with a dot is read as a Maven coordinate: everything before the last dot
+is the group, the last segment is the artifact.
+
+Kotlin is the inverse of C# and Swift: it defaults to **public**, so the modifier
+that has to be written is the restrictive one. A member without `public` in a
+documented class becomes `internal`, and Dokka then leaves it out of the
+rendered API entirely.
+
+`deprecated` becomes `@Deprecated("…", ReplaceWith("find(id)"))`, and the
+argument list in `ReplaceWith` is built from the **replacement's own signature**,
+looked up in the class that declares it. If no such method exists the hint is
+left out rather than guessed — a wrong `ReplaceWith` is a refactoring the IDE
+will happily apply.
+
+**Verified:** `kotlinc 2.0.21` compiles the output and it runs; `gradle dokkaHtml`
+builds the HTML reference from the generated project with no Ranger-specific
+configuration. The rendered `find` page carries the description, `Return`,
+`Since 1.2`, the `Parameters` table and a resolved `See also` link to
+`EVGA11yNode`; the `oldFind` page carries the deprecation with a copyable
+`Replace with find(id)` action; `rebuildIndex` and `secretHelper` appear nowhere
+in the output. With `kotlinc` on the PATH the repository's own Kotlin suites also
+pass: `compiler-kotlin` 19/19, and 9 more tests in the process and chain suites
+that had been skipping for want of a compiler.
+
+The generated build script deliberately pins **no** `jvmToolchain(…)`. The first
+version pinned 17, which failed the build before it compiled anything on a
+JDK-21 machine with no toolchain repositories configured — a generated file
+cannot know which JDKs are installed.
+
+### 17.6 Swift
+
+```bash
+node bin/output.js -l=swift6 a11y.rgr -d=out -o=EvgA11y.swift \
+  -apidoc=docs -apipackage -name=EVGA11y -version=1.2.0
+```
+
+writes `EvgA11y.swift` with DocC markup, `Package.swift`, a
+`EVGA11y.docc/EVGA11y.md` catalog, `README.md` and the artifacts.
+
+The catalog's `## Topics` section is grouped by the `category` entry of each
+public type. That is the first thing in the implementation that uses `category`
+for what §10 says it is for — a hint, consumed by the reference organisation,
+not a property of the symbol.
+
+`- Parameter` is used for a single parameter and `- Parameters:` for several,
+which is what DocC expects. `since` becomes a `> Since:` **callout**, never
+`@available`: that attribute is OS availability, not library version, and
+emitting it would gate the symbol on a platform the author never mentioned.
+Deprecation does become `@available(*, deprecated, renamed: "find", message: …)`.
+
+Swift, like C#, defaults to internal, so `public` from a doc block is what makes
+a module export anything at all.
+
+**Not compiler-verified.** There is no Swift toolchain in this environment and
+`download.swift.org` is blocked by the proxy, so the Swift output is asserted
+structurally in `tests/api-docs.test.ts` and has not been through `swiftc` or
+`swift package generate-documentation`. That is the one place in this work where
+§7.3's criterion is claimed rather than demonstrated, and it should be run before
+the Swift path is relied on.
+
+`Package.swift` uses the flat layout — `path: "."` with the one generated file
+named in `sources:` — because Ranger still emits one file per target. The
+`Sources/<Target>/` tree is the multi-file layout, which is Phase F.
+
+### 17.7 Visibility: the rule and the bug it hid
+
+One helper decides the modifier for every target
+(`RangerDocCommentWriter.memberVisibility` / `classVisibility`), and it takes
+**three** values, not two:
+
+| | C# | Swift | Kotlin |
+| --- | --- | --- | --- |
+| class has no doc block (legacy) | `public ` | *(nothing)* | *(nothing)* |
+| documented `public` | `public ` | `public ` | *(nothing)* |
+| documented, or undocumented member of a documented class | `internal ` | *(nothing)* | `internal ` |
+
+The legacy column is not the same as the public column, and the first version of
+the helper conflated them. C# had written `public ` on everything, so reusing the
+public form for the legacy case was invisible there — and on Swift it silently
+turned **every undocumented class in every existing program** into `public`. The
+byte-for-byte parity check against the previous compiler caught it; the test
+suite did not. The three-value form is what the table above requires.
+
+### 17.8 The bug this uncovered
 
 [ISSUES.md #75](ISSUES.md) — `class X { … } doc { … }`, and any other trailing
 `token { block }` on a class, made `EnterClass` take the trailing block for the
@@ -1403,9 +1499,13 @@ regression test that compiles **and runs** the result. The underlying arity
 check in `EnterClass` is still wrong for any other trailing token and is filed
 separately.
 
-### 17.6 Not built
+### 17.9 Not built
 
-Phases C (visibility on the other ten targets), E (`docs { }`) and F (language ×
-platform, multi-file layout) are unchanged from the plan above. C# has doc-driven
-visibility because a NuGet package is not an API without it; every other target
-still emits what it emitted before.
+Phases C (the remaining eight targets), E (`docs { }`) and F (language × platform,
+multi-file layout) are unchanged from the plan above. JavaScript, C#, Kotlin and
+Swift carry doc comments and doc-driven visibility; Go, Rust, Python, Java, Dart,
+C++, PHP and Scala still emit exactly what they emitted before.
+
+The type-leak check of §5.2 **is** implemented and runs for every target, because
+it is the check that keeps a `public` Swift or Rust declaration from failing in
+the target compiler rather than in Ranger.

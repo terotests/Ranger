@@ -1137,6 +1137,12 @@ class RangerSwift6ClassWriter {
     ; replace the method. A class that no class in this compilation extends
     ; therefore gets `final`. `is_inherited` is set by the flow parser for
     ; every class that another class names after `extends`.
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeSwiftDocForClass((unwrap cl) wr)
+    }
+    def swVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+    wr.out((swVis.classVisibility((unwrap cl) "" "public " "")) false)
     if cl.is_inherited {
     } {
       wr.out("final " false)
@@ -1172,6 +1178,12 @@ class RangerSwift6ClassWriter {
         wr.out("// WAS DECLARED : " + pvar.name , true)
         continue
       }
+      if pvar.has_doc {
+        def fDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        fDocWr.writeSwiftDocForField(pvar wr)
+      }
+      def fVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+      wr.out((fVis.memberVisibility((unwrap cl) pvar "" "public " "")) false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -1241,11 +1253,22 @@ class RangerSwift6ClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
+      def sIsOverride:boolean false
       if (has parentStaticFunction variant.name) {
         def pStatic:RangerAppFunctionDesc (unwrap (get parentStaticFunction variant.name))
         if (this.haveSameSig(variant pStatic ctx)) {
-          wr.out("override " false)
+          sIsOverride = true
         }
+      }
+      if variant.has_doc {
+        def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        sDocWr.writeSwiftDocForMethod(variant wr)
+      }
+      if sIsOverride {
+        wr.out("override " false)
+      } {
+        def sVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+        wr.out((sVis.memberVisibility((unwrap cl) variant "" "public " "")) false)
       }
       wr.out((("class func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
@@ -1295,11 +1318,23 @@ class RangerSwift6ClassWriter {
         if(has dblDeclaredFunction variant.compiledName) {
           continue
         }
+        def isOverride:boolean false
         if(has declaredFunction variant.name) {
-          wr.out("override " false)
+          isOverride = true
         }
-
         set dblDeclaredFunction variant.compiledName true
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeSwiftDocForMethod(variant wr)
+        }
+        if isOverride {
+          wr.out("override " false)
+        } {
+          ; an override may not narrow the visibility it inherits, so only a
+          ; declaration that is not one takes a modifier from its doc block
+          def mVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+          wr.out((mVis.memberVisibility((unwrap cl) variant "" "public " "")) false)
+        }
         wr.out((("func " + variant.compiledName) + "(") false)
 
         if(has parentFunction variant.name) {

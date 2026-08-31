@@ -579,7 +579,8 @@ class tester {
       'operatordoc'  'write operator documention into .md file'
       'apidoc'  'write the API documentation artifacts into this subdirectory'
       'apiformat'  'which API artifacts to write: json, markdown, report (default json,markdown)'
-      'csnamespace'  'C# file-scoped namespace for the generated types'
+      'csnamespace'  'C# namespace for the generated types'
+      'ktpackage'  'Kotlin package for the generated types'
     ))
 
     def valid_flags:[string] ([] _:string

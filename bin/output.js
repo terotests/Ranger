@@ -746,6 +746,8 @@ class RangerApiModel  {
 class RangerApiBuilder  {
   constructor() {
     this.strict = false;
+    this.publicClassNames = {};
+    this.internalClassNames = {};
   }
   typeNameOf (node) {
     let base = "";
@@ -820,6 +822,36 @@ class RangerApiBuilder  {
       };
     }
   };
+  typeNamesOf (node) {
+    let out = [];
+    switch (node.value_type ) { 
+      case 6 : 
+        out.push(node.array_type);
+        break;
+      case 7 : 
+        out.push(node.key_type);
+        out.push(node.array_type);
+        break;
+      default: 
+        out.push(node.type_name);
+        break;
+    };
+    return out;
+  };
+  checkNoLeak (ctx, node, what, role, typeNode) {
+    const names = this.typeNamesOf(typeNode);
+    for ( let i = 0; i < names.length; i++) {
+      var tn = names[i];
+      if ( (tn.length) == 0 ) {
+        continue;
+      }
+      if ( (( typeof(this.publicClassNames[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.publicClassNames, tn) )) == false ) {
+        if ( ( typeof(this.internalClassNames[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.internalClassNames, tn) ) ) {
+          ctx.addError(node, ((((((("public " + what) + " ") + role) + " the internal type `") + tn) + "`. Add `public` to its doc block, or make ") + what) + " internal.");
+        }
+      }
+    };
+  };
   buildMethod (fd, ctx, isStatic) {
     const m = new RangerApiMethod();
     m.name = fd.name;
@@ -855,6 +887,19 @@ class RangerApiBuilder  {
     }
     return m;
   };
+  checkMethodLeaks (m, fd, ctx) {
+    if ( m.is_public == false ) {
+      return;
+    }
+    const node = fd.nameNode;
+    const what = ("method `" + m.name) + "`";
+    this.checkNoLeak(ctx, node, what, "returns", node);
+    for ( let i = 0; i < fd.params.length; i++) {
+      var p = fd.params[i];
+      const pn = p.nameNode;
+      this.checkNoLeak(ctx, node, what, ("takes parameter `" + p.name) + "` of", pn);
+    };
+  };
   build (ctx) {
     const model = new RangerApiModel();
     this.strict = ctx.hasCompilerFlag("apistrict");
@@ -868,9 +913,33 @@ class RangerApiBuilder  {
       model.description = ctx.getCompilerSetting("description");
     }
     const root = ctx.getRoot();
+    for ( let pi = 0; pi < root.definedClassList.length; pi++) {
+      var cname = root.definedClassList[pi];
+      const pcl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
+      if ( pcl.isNormalClass() == false ) {
+        continue;
+      }
+      if ( pcl.is_template ) {
+        continue;
+      }
+      const pnode = pcl.classNode;
+      let isApi = false;
+      if ( (typeof(pnode) === "undefined") == false ) {
+        const pn = pnode;
+        if ( pn.has_doc_tail ) {
+          const pdoc = this.readDocOf(pn, ctx);
+          isApi = pdoc.is_public;
+        }
+      }
+      if ( isApi ) {
+        this.publicClassNames[pcl.name] = true;
+      } else {
+        this.internalClassNames[pcl.name] = true;
+      }
+    };
     for ( let ci = 0; ci < root.definedClassList.length; ci++) {
-      var cname = root.definedClassList[ci];
-      const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
+      var cname_1 = root.definedClassList[ci];
+      const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname_1) ? root.definedClasses[cname_1] : undefined );
       if ( cl.is_system ) {
         continue;
       }
@@ -921,18 +990,24 @@ class RangerApiBuilder  {
             v.docBlock = af.doc;
           }
         }
+        if ( af.is_public ) {
+          const fnode = v.nameNode;
+          this.checkNoLeak(ctx, fnode, ("field `" + af.name) + "`", "is", fnode);
+        }
         ac.fields.push(af);
       };
       for ( let mi = 0; mi < cl.methods.length; mi++) {
         var fd = cl.methods[mi];
         const m = this.buildMethod(fd, ctx, false);
         this.validateMethod(model, m, ctx);
+        this.checkMethodLeaks(m, fd, ctx);
         ac.methods.push(m);
       };
       for ( let si = 0; si < cl.static_methods.length; si++) {
         var fd_1 = cl.static_methods[si];
         const m_1 = this.buildMethod(fd_1, ctx, true);
         this.validateMethod(model, m_1, ctx);
+        this.checkMethodLeaks(m_1, fd_1, ctx);
         ac.methods.push(m_1);
       };
       if ( ac.is_public == false ) {
@@ -1193,6 +1268,263 @@ class RangerDocCommentWriter  {
       wr.out(a, true);
     };
   };
+  swiftTypeName (t) {
+    let out = t;
+    switch (t ) { 
+      case "boolean" : 
+        out = "Bool";
+        break;
+      case "string" : 
+        out = "String";
+        break;
+      case "int" : 
+        out = "Int";
+        break;
+      case "double" : 
+        out = "Double";
+        break;
+      case "float" : 
+        out = "Float";
+        break;
+      case "void" : 
+        out = "Void";
+        break;
+      default: 
+        out = t;
+        break;
+    };
+    return out;
+  };
+  writeSwiftDoc (doc, retType, params, wr) {
+    let wroteBody = false;
+    const descLines = this.linesOf(doc.description);
+    for ( let i = 0; i < descLines.length; i++) {
+      var line = descLines[i];
+      if ( (line.length) == 0 ) {
+        wr.out("///", true);
+      } else {
+        wr.out("/// " + line, true);
+      }
+      wroteBody = true;
+    };
+    let documented = [];
+    for ( let i_1 = 0; i_1 < params.length; i_1++) {
+      var p = params[i_1];
+      if ( (p.description.length) > 0 ) {
+        documented.push(p);
+      }
+    };
+    const paramCount = documented.length;
+    if ( paramCount > 0 ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      if ( paramCount == 1 ) {
+        const only = documented[0];
+        wr.out((("/// - Parameter " + only.compiledName) + ": ") + only.description, true);
+      } else {
+        wr.out("/// - Parameters:", true);
+        for ( let i_2 = 0; i_2 < documented.length; i_2++) {
+          var p_1 = documented[i_2];
+          wr.out((("///   - " + p_1.compiledName) + ": ") + p_1.description, true);
+        };
+      }
+      wroteBody = true;
+    }
+    if ( (doc.returns.length) > 0 ) {
+      if ( retType == "Void" ) {
+      } else {
+        wr.out("/// - Returns: " + doc.returns, true);
+        wroteBody = true;
+      }
+    }
+    for ( let i_3 = 0; i_3 < doc.throws.length; i_3++) {
+      var t = doc.throws[i_3];
+      wr.out("/// - Throws: " + t, true);
+      wroteBody = true;
+    };
+    if ( (doc.since.length) > 0 ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      wr.out("/// > Since: " + doc.since, true);
+      wroteBody = true;
+    }
+    if ( doc.is_experimental ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      wr.out("/// > Experimental: This API may change without notice.", true);
+      wroteBody = true;
+    }
+    if ( (doc.see.length) > 0 ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      for ( let i_4 = 0; i_4 < doc.see.length; i_4++) {
+        var sname = doc.see[i_4];
+        wr.out(("/// See also: ``" + sname) + "``", true);
+      };
+    }
+    for ( let i_5 = 0; i_5 < doc.examples.length; i_5++) {
+      var e = doc.examples[i_5];
+      wr.out("///", true);
+      wr.out("/// ```swift", true);
+      const exLines = this.linesOf(e);
+      for ( let j = 0; j < exLines.length; j++) {
+        var line_1 = exLines[j];
+        wr.out("/// " + line_1, true);
+      };
+      wr.out("/// ```", true);
+    };
+  };
+  writeSwiftAttrs (doc, wr) {
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      let attr = "@available(*, deprecated";
+      if ( (dep.use.length) > 0 ) {
+        attr = ((attr + ", renamed: \"") + dep.use) + "\"";
+      }
+      let msg = dep.description;
+      if ( (msg.length) == 0 ) {
+        if ( (dep.since.length) > 0 ) {
+          msg = ("Deprecated since " + dep.since) + ".";
+        }
+      } else {
+        if ( (dep.since.length) > 0 ) {
+          msg = (("Since " + dep.since) + ". ") + msg;
+        }
+      }
+      if ( (msg.length) > 0 ) {
+        attr = ((attr + ", message: \"") + msg) + "\"";
+      }
+      attr = attr + ")";
+      wr.out(attr, true);
+    }
+    for ( let i = 0; i < doc.attrs.length; i++) {
+      var a = doc.attrs[i];
+      wr.out(a, true);
+    };
+  };
+  kotlinTypeName (t) {
+    let out = t;
+    switch (t ) { 
+      case "boolean" : 
+        out = "Boolean";
+        break;
+      case "string" : 
+        out = "String";
+        break;
+      case "int" : 
+        out = "Int";
+        break;
+      case "double" : 
+        out = "Double";
+        break;
+      case "float" : 
+        out = "Float";
+        break;
+      case "void" : 
+        out = "Unit";
+        break;
+      default: 
+        out = t;
+        break;
+    };
+    return out;
+  };
+  writeKotlinDoc (doc, retType, params, wr) {
+    wr.out("/**", true);
+    const descLines = this.linesOf(doc.description);
+    let wroteBody = false;
+    for ( let i = 0; i < descLines.length; i++) {
+      var line = descLines[i];
+      if ( (line.length) == 0 ) {
+        wr.out(" *", true);
+      } else {
+        wr.out(" * " + line, true);
+      }
+      wroteBody = true;
+    };
+    if ( doc.is_experimental ) {
+      if ( wroteBody ) {
+        wr.out(" *", true);
+      }
+      wr.out(" * **Experimental.** This API may change without notice.", true);
+      wroteBody = true;
+    }
+    let wroteTag = false;
+    for ( let i_1 = 0; i_1 < params.length; i_1++) {
+      var p = params[i_1];
+      if ( (p.description.length) > 0 ) {
+        if ( wroteBody && (wroteTag == false) ) {
+          wr.out(" *", true);
+        }
+        wr.out(((" * @param " + p.compiledName) + " ") + p.description, true);
+        wroteTag = true;
+      }
+    };
+    if ( (doc.returns.length) > 0 ) {
+      if ( retType == "Unit" ) {
+      } else {
+        if ( wroteBody && (wroteTag == false) ) {
+          wr.out(" *", true);
+        }
+        wr.out(" * @return " + doc.returns, true);
+        wroteTag = true;
+      }
+    }
+    for ( let i_2 = 0; i_2 < doc.throws.length; i_2++) {
+      var t = doc.throws[i_2];
+      wr.out(" * @throws Exception " + t, true);
+      wroteTag = true;
+    };
+    if ( (doc.since.length) > 0 ) {
+      wr.out(" * @since " + doc.since, true);
+      wroteTag = true;
+    }
+    for ( let i_3 = 0; i_3 < doc.see.length; i_3++) {
+      var sname = doc.see[i_3];
+      wr.out(" * @see " + sname, true);
+      wroteTag = true;
+    };
+    for ( let i_4 = 0; i_4 < doc.examples.length; i_4++) {
+      var e = doc.examples[i_4];
+      wr.out(" *", true);
+      wr.out(" * ```", true);
+      const exLines = this.linesOf(e);
+      for ( let j = 0; j < exLines.length; j++) {
+        var line_1 = exLines[j];
+        wr.out(" * " + line_1, true);
+      };
+      wr.out(" * ```", true);
+    };
+    wr.out(" */", true);
+  };
+  writeKotlinAttrs (doc, replaceWith, wr) {
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      let msg = dep.description;
+      if ( (msg.length) == 0 ) {
+        if ( (dep.use.length) > 0 ) {
+          msg = ("Use " + dep.use) + " instead.";
+        }
+      }
+      if ( (dep.since.length) > 0 ) {
+        msg = (("Since " + dep.since) + ". ") + msg;
+      }
+      let attr = ("@Deprecated(\"" + msg) + "\"";
+      if ( (replaceWith.length) > 0 ) {
+        attr = ((attr + ", ReplaceWith(\"") + replaceWith) + "\")";
+      }
+      attr = attr + ")";
+      wr.out(attr, true);
+    }
+    for ( let i = 0; i < doc.attrs.length; i++) {
+      var a = doc.attrs[i];
+      wr.out(a, true);
+    };
+  };
   paramsOf (fd, doc, forJs) {
     let out = [];
     for ( let i = 0; i < fd.params.length; i++) {
@@ -1252,6 +1584,124 @@ class RangerDocCommentWriter  {
     let ps = [];
     this.writeCsDoc(view, "void", ps, wr);
     this.writeCsAttrs(view, wr);
+  };
+  writeSwiftDocForMethod (fd, wr) {
+    if ( fd.has_doc == false ) {
+      return;
+    }
+    const doc = fd.docBlock;
+    const view = doc.viewFor("swift6");
+    const ps = this.paramsOf(fd, view, false);
+    const rn = fd.nameNode;
+    const rt = this.swiftTypeName(rn.type_name);
+    this.writeSwiftDoc(view, rt, ps, wr);
+    this.writeSwiftAttrs(view, wr);
+  };
+  writeSwiftDocForClass (cl, wr) {
+    if ( cl.has_doc == false ) {
+      return;
+    }
+    const doc = cl.docBlock;
+    const view = doc.viewFor("swift6");
+    let ps = [];
+    this.writeSwiftDoc(view, "Void", ps, wr);
+    this.writeSwiftAttrs(view, wr);
+  };
+  writeSwiftDocForField (p, wr) {
+    if ( p.has_doc == false ) {
+      return;
+    }
+    const doc = p.docBlock;
+    const view = doc.viewFor("swift6");
+    let ps = [];
+    this.writeSwiftDoc(view, "Void", ps, wr);
+    this.writeSwiftAttrs(view, wr);
+  };
+  kotlinReplaceWith (cl, doc) {
+    if ( doc.is_deprecated == false ) {
+      return "";
+    }
+    const dep = doc.deprecation;
+    if ( (dep.use.length) == 0 ) {
+      return "";
+    }
+    const target = cl.findMethod(dep.use);
+    if ( typeof(target) === "undefined" ) {
+      return "";
+    }
+    const t = target;
+    let out = dep.use + "(";
+    for ( let i = 0; i < t.params.length; i++) {
+      var p = t.params[i];
+      if ( i > 0 ) {
+        out = out + ", ";
+      }
+      out = out + p.compiledName;
+    };
+    return out + ")";
+  };
+  writeKotlinDocForMethod (cl, fd, wr) {
+    if ( fd.has_doc == false ) {
+      return;
+    }
+    const doc = fd.docBlock;
+    const view = doc.viewFor("kotlin");
+    const ps = this.paramsOf(fd, view, false);
+    const rn = fd.nameNode;
+    const rt = this.kotlinTypeName(rn.type_name);
+    this.writeKotlinDoc(view, rt, ps, wr);
+    this.writeKotlinAttrs(view, this.kotlinReplaceWith(cl, view), wr);
+  };
+  writeKotlinDocForClass (cl, wr) {
+    if ( cl.has_doc == false ) {
+      return;
+    }
+    const doc = cl.docBlock;
+    const view = doc.viewFor("kotlin");
+    let ps = [];
+    this.writeKotlinDoc(view, "Unit", ps, wr);
+    this.writeKotlinAttrs(view, "", wr);
+  };
+  writeKotlinDocForField (p, wr) {
+    if ( p.has_doc == false ) {
+      return;
+    }
+    const doc = p.docBlock;
+    const view = doc.viewFor("kotlin");
+    let ps = [];
+    this.writeKotlinDoc(view, "Unit", ps, wr);
+    this.writeKotlinAttrs(view, "", wr);
+  };
+  memberVisibility (cl, member, whenLegacy, whenPublic, whenInternal) {
+    if ( cl.has_doc == false ) {
+      return whenLegacy;
+    }
+    if ( member.has_doc == false ) {
+      return whenInternal;
+    }
+    const md = member.docBlock;
+    if ( typeof(md) === "undefined" ) {
+      return whenInternal;
+    }
+    const doc = md;
+    if ( doc.is_public ) {
+      return whenPublic;
+    }
+    return whenInternal;
+  };
+  classVisibility (cl, whenLegacy, whenPublic, whenInternal) {
+    if ( cl.has_doc == false ) {
+      return whenLegacy;
+    }
+    const cd = cl.docBlock;
+    if ( typeof(cd) === "undefined" ) {
+      return whenInternal;
+    }
+    const doc = cd;
+    if ( doc.is_public ) {
+      return whenPublic;
+    }
+    return whenInternal;
   };
   writeJsDocForField (p, wr) {
     if ( p.has_doc == false ) {
@@ -1771,6 +2221,173 @@ class RangerApiPackageWriter  {
     wr.indent(-1);
     wr.out("}", true);
   };
+  swiftModuleName (raw) {
+    const parts = raw.split(".");
+    let out = "";
+    for ( let i = 0; i < parts.length; i++) {
+      var piece = parts[i];
+      out = out + piece;
+    };
+    if ( (out.length) == 0 ) {
+      out = "RangerApi";
+    }
+    return out;
+  };
+  writeSwiftPackage (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const moduleName = this.swiftModuleName(raw);
+    const srcFile = this.settingOr(ctx, "o", "output.swift");
+    const wr = orig_wr.getFileWriter(".", "Package.swift");
+    wr.out("// swift-tools-version:5.7", true);
+    wr.out("import PackageDescription", true);
+    wr.out("", true);
+    wr.out("let package = Package(", true);
+    wr.indent(1);
+    wr.out(("name: \"" + moduleName) + "\",", true);
+    wr.out("products: [", true);
+    wr.indent(1);
+    wr.out((((".library(name: \"" + moduleName) + "\", targets: [\"") + moduleName) + "\"])", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("targets: [", true);
+    wr.indent(1);
+    wr.out(".target(", true);
+    wr.indent(1);
+    wr.out(("name: \"" + moduleName) + "\",", true);
+    wr.out("path: \".\",", true);
+    wr.out(("sources: [\"" + srcFile) + "\"]", true);
+    wr.indent(-1);
+    wr.out(")", true);
+    wr.indent(-1);
+    wr.out("]", true);
+    wr.indent(-1);
+    wr.out(")", true);
+  };
+  writeDocCCatalog (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const moduleName = this.swiftModuleName(raw);
+    const dir = moduleName + ".docc";
+    const wr = orig_wr.getFileWriter(dir, (moduleName + ".md"));
+    wr.out(("# ``" + moduleName) + "``", true);
+    wr.out("", true);
+    if ( (model.description.length) > 0 ) {
+      wr.out(model.description, true);
+      wr.out("", true);
+    }
+    wr.out("## Topics", true);
+    let categories = [];
+    let seen = {};
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( c.is_public == false ) {
+        continue;
+      }
+      let cat = "Types";
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        if ( (cdoc.category.length) > 0 ) {
+          cat = cdoc.category;
+        }
+      }
+      if ( (( typeof(seen[cat] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, cat) )) == false ) {
+        seen[cat] = true;
+        categories.push(cat);
+      }
+    };
+    for ( let i = 0; i < categories.length; i++) {
+      var cat_1 = categories[i];
+      wr.out("", true);
+      wr.out("### " + cat_1, true);
+      wr.out("", true);
+      for ( let ci_1 = 0; ci_1 < model.classes.length; ci_1++) {
+        var c_1 = model.classes[ci_1];
+        if ( c_1.is_public == false ) {
+          continue;
+        }
+        let ccat = "Types";
+        if ( c_1.has_doc ) {
+          const cdoc_1 = c_1.doc;
+          if ( (cdoc_1.category.length) > 0 ) {
+            ccat = cdoc_1.category;
+          }
+        }
+        if ( ccat == cat_1 ) {
+          wr.out(("- ``" + c_1.name) + "``", true);
+        }
+      };
+    };
+  };
+  writeKotlinGradle (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const srcFile = this.settingOr(ctx, "o", "output.kt");
+    let groupId = "";
+    let artifactId = raw;
+    const parts = raw.split(".");
+    const n = parts.length;
+    if ( n > 1 ) {
+      artifactId = parts[(n - 1)];
+      let gi = 0;
+      while (gi < (n - 1)) {
+        if ( gi > 0 ) {
+          groupId = groupId + ".";
+        }
+        groupId = groupId + (parts[gi]);
+        gi = gi + 1;
+      };
+    }
+    const wr = orig_wr.getFileWriter(".", "build.gradle.kts");
+    wr.out("plugins {", true);
+    wr.indent(1);
+    wr.out("kotlin(\"jvm\") version \"2.0.21\"", true);
+    wr.out("id(\"org.jetbrains.dokka\") version \"1.9.20\"", true);
+    wr.out("`maven-publish`", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("", true);
+    if ( (groupId.length) > 0 ) {
+      wr.out(("group = \"" + groupId) + "\"", true);
+    }
+    wr.out(("version = \"" + version) + "\"", true);
+    wr.out("", true);
+    wr.out("repositories { mavenCentral() }", true);
+    wr.out("", true);
+    wr.out("", true);
+    wr.out("sourceSets.main {", true);
+    wr.indent(1);
+    wr.out("kotlin.setSrcDirs(listOf(\".\"))", true);
+    wr.out(("kotlin.include(\"" + srcFile) + "\")", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("", true);
+    wr.out("publishing {", true);
+    wr.indent(1);
+    wr.out("publications {", true);
+    wr.indent(1);
+    wr.out("create<MavenPublication>(\"maven\") {", true);
+    wr.indent(1);
+    wr.out(("artifactId = \"" + artifactId) + "\"", true);
+    wr.out("from(components[\"java\"])", true);
+    if ( (descr.length) > 0 ) {
+      wr.out(("pom { description.set(\"" + descr) + "\") }", true);
+    }
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeDokkaModuleDoc (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const wr = orig_wr.getFileWriter(".", "module.md");
+    wr.out("# Module " + raw, true);
+    wr.out("", true);
+    if ( (model.description.length) > 0 ) {
+      wr.out(model.description, true);
+    }
+  };
   writeReadme (model, ctx, orig_wr) {
     const wr = orig_wr.getFileWriter(".", "README.md");
     const aw = new RangerApiArtifactWriter();
@@ -1785,6 +2402,21 @@ class RangerApiPackageWriter  {
       case "csharp" : 
         this.writeCsProject(model, ctx, orig_wr);
         this.writeDocFxConfig(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "swift6" : 
+        this.writeSwiftPackage(model, ctx, orig_wr);
+        this.writeDocCCatalog(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "swift3" : 
+        this.writeSwiftPackage(model, ctx, orig_wr);
+        this.writeDocCCatalog(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "kotlin" : 
+        this.writeKotlinGradle(model, ctx, orig_wr);
+        this.writeDokkaModuleDoc(model, ctx, orig_wr);
         this.writeReadme(model, ctx, orig_wr);
         break;
       default: 
@@ -23772,6 +24404,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("return l === r", true);
           wr.indent(-1);
           wr.out("}", true);
+          if ( cl.has_doc ) {
+            const clDocWr = new RangerDocCommentWriter();
+            clDocWr.writeSwiftDocForClass(cl, wr);
+          }
+          const swVis = new RangerDocCommentWriter();
+          wr.out(swVis.classVisibility((cl), "", "public ", ""), false);
           if ( cl.is_inherited ) {
           } else {
             wr.out("final ", false);
@@ -23804,6 +24442,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("// WAS DECLARED : " + pvar_1.name, true);
               continue;
             }
+            if ( pvar_1.has_doc ) {
+              const fDocWr = new RangerDocCommentWriter();
+              fDocWr.writeSwiftDocForField(pvar_1, wr);
+            }
+            const fVis = new RangerDocCommentWriter();
+            wr.out(fVis.memberVisibility((cl), pvar_1, "", "public ", ""), false);
             await this.writeVarDef(pvar_1.node, ctx, wr);
           };
           if ( cl.has_constructor ) {
@@ -23872,11 +24516,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( variant_2.nameNode.hasFlag("main") ) {
               continue;
             }
+            let sIsOverride = false;
             if ( ( typeof(parentStaticFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(parentStaticFunction, variant_2.name) ) ) {
               const pStatic = (( Object.prototype.hasOwnProperty.call(parentStaticFunction, variant_2.name) ? parentStaticFunction[variant_2.name] : undefined ));
               if ( this.haveSameSig(variant_2, pStatic, ctx) ) {
-                wr.out("override ", false);
+                sIsOverride = true;
               }
+            }
+            if ( variant_2.has_doc ) {
+              const sDocWr = new RangerDocCommentWriter();
+              sDocWr.writeSwiftDocForMethod(variant_2, wr);
+            }
+            if ( sIsOverride ) {
+              wr.out("override ", false);
+            } else {
+              const sVis = new RangerDocCommentWriter();
+              wr.out(sVis.memberVisibility((cl), variant_2, "", "public ", ""), false);
             }
             wr.out(("class func " + variant_2.compiledName) + "(", false);
             await this.writeArgsDef(variant_2, ctx, wr);
@@ -23929,10 +24584,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( ( typeof(dblDeclaredFunction[variant_3.compiledName] ) != "undefined" && Object.prototype.hasOwnProperty.call(dblDeclaredFunction, variant_3.compiledName) ) ) {
                 continue;
               }
+              let isOverride = false;
               if ( ( typeof(declaredFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_3.name) ) ) {
-                wr.out("override ", false);
+                isOverride = true;
               }
               dblDeclaredFunction[variant_3.compiledName] = true;
+              if ( variant_3.has_doc ) {
+                const mDocWr = new RangerDocCommentWriter();
+                mDocWr.writeSwiftDocForMethod(variant_3, wr);
+              }
+              if ( isOverride ) {
+                wr.out("override ", false);
+              } else {
+                const mVis = new RangerDocCommentWriter();
+                wr.out(mVis.memberVisibility((cl), variant_3, "", "public ", ""), false);
+              }
               wr.out(("func " + variant_3.compiledName) + "(", false);
               if ( ( typeof(parentFunction[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(parentFunction, variant_3.name) ) ) {
                 await this.writeArgsDefWithLocals((( Object.prototype.hasOwnProperty.call(parentFunction, variant_3.name) ? parentFunction[variant_3.name] : undefined )), variant_3, ctx, wr);
@@ -35875,6 +36541,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           constructor() {
                             super()
                             this.kotlin_unions_written = false;
+                            this.kotlin_package_written = false;
                           }
                           writeKotlinUnionInterfaces (ctx, wr) {
                             if ( this.kotlin_unions_written ) {
@@ -36542,8 +37209,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let declaredVariable = {};
                             const wr = orig_wr;
                             const importFork = wr.fork();
+                            if ( this.kotlin_package_written == false ) {
+                              this.kotlin_package_written = true;
+                              let pkgName = "";
+                              if ( ctx.hasCompilerSetting("ktpackage") ) {
+                                pkgName = ctx.getCompilerSetting("ktpackage");
+                              } else {
+                                if ( ctx.hasCompilerFlag("apipackage") ) {
+                                  if ( ctx.hasCompilerSetting("name") ) {
+                                    pkgName = ctx.getCompilerSetting("name");
+                                  }
+                                }
+                              }
+                              if ( (pkgName.length) > 0 ) {
+                                const pkgHead = wr.getTag("before_imports");
+                                pkgHead.out("package " + pkgName, true);
+                                pkgHead.out("", true);
+                              }
+                            }
                             this.writeKotlinUnionInterfaces(ctx, wr);
                             wr.out("", true);
+                            if ( cl.has_doc ) {
+                              const clDocWr = new RangerDocCommentWriter();
+                              clDocWr.writeKotlinDocForClass(cl, wr);
+                            }
+                            const ktVis = new RangerDocCommentWriter();
+                            wr.out(ktVis.classVisibility((cl), "", "", "internal "), false);
                             if ( cl.is_extended_by_children || (cl.name == "RangerProcessBase") ) {
                               wr.out("open class " + cl.name, false);
                             } else {
@@ -36649,6 +37340,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
                                 continue;
                               }
+                              if ( pvar_1.has_doc ) {
+                                const fDocWr = new RangerDocCommentWriter();
+                                fDocWr.writeKotlinDocForField(pvar_1, wr);
+                              }
+                              const fVis = new RangerDocCommentWriter();
+                              wr.out(fVis.memberVisibility((cl), pvar_1, "", "", "internal "), false);
                               await this.writeVarDef(pvar_1.node, ctx, wr);
                             };
                             if ( cl.has_constructor ) {
@@ -36714,8 +37411,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( variant_1.nameNode.hasFlag("open") ) {
                                 wr.out("open ", false);
                               }
-                              if ( variant_1.nameNode.hasFlag("override") ) {
+                              const sIsOverride = variant_1.nameNode.hasFlag("override");
+                              if ( variant_1.has_doc ) {
+                                const sDocWr = new RangerDocCommentWriter();
+                                sDocWr.writeKotlinDocForMethod(cl, variant_1, wr);
+                              }
+                              if ( sIsOverride ) {
                                 wr.out("override ", false);
+                              } else {
+                                const sVis = new RangerDocCommentWriter();
+                                wr.out(sVis.memberVisibility((cl), variant_1, "", "", "internal "), false);
                               }
                               wr.out("fun ", false);
                               wr.out(" ", false);
@@ -36760,9 +37465,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     shouldOverride = true;
                                   }
                                 }
+                                if ( variant_2.has_doc ) {
+                                  const mDocWr = new RangerDocCommentWriter();
+                                  mDocWr.writeKotlinDocForMethod(cl, variant_2, wr);
+                                }
                                 if ( shouldOverride ) {
                                   wr.out("override ", false);
                                 } else {
+                                  const mVis = new RangerDocCommentWriter();
+                                  wr.out(mVis.memberVisibility((cl), variant_2, "", "", "internal "), false);
                                   if ( cl.is_extended_by_children ) {
                                     wr.out("open ", false);
                                   }
@@ -37676,23 +38387,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return tn;
                           };
-                          csMemberVisibility (cl, member) {
-                            if ( cl.has_doc == false ) {
-                              return "public ";
-                            }
-                            if ( member.has_doc == false ) {
-                              return "internal ";
-                            }
-                            const md = member.docBlock;
-                            if ( typeof(md) === "undefined" ) {
-                              return "internal ";
-                            }
-                            const doc = md;
-                            if ( doc.is_public ) {
-                              return "public ";
-                            }
-                            return "internal ";
-                          };
                           writeCSharpUnionInterfaces (ctx, wr) {
                             if ( this.csharp_unions_written ) {
                               return;
@@ -38262,7 +38956,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 const fDocWr = new RangerDocCommentWriter();
                                 fDocWr.writeCsDocForField(pvar, wr);
                               }
-                              wr.out(this.csMemberVisibility((cl), pvar), false);
+                              const fVis = new RangerDocCommentWriter();
+                              wr.out(fVis.memberVisibility((cl), pvar, "public ", "public ", "internal "), false);
                               await this.writeVarDef(pvar.node, ctx, wr);
                             };
                             if ( cl.has_constructor ) {
@@ -38333,7 +39028,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const sDocWr = new RangerDocCommentWriter();
                                   sDocWr.writeCsDocForMethod(variant, wr);
                                 }
-                                wr.out(this.csMemberVisibility((cl), variant), false);
+                                const sVis = new RangerDocCommentWriter();
+                                wr.out(sVis.memberVisibility((cl), variant, "public ", "public ", "internal "), false);
                                 wr.out("static ", false);
                                 await this.writeTypeDef(variant.nameNode, ctx, wr);
                                 wr.out(" ", false);
@@ -38359,7 +39055,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const mDocWr = new RangerDocCommentWriter();
                                   mDocWr.writeCsDocForMethod(variant_1, wr);
                                 }
-                                wr.out(this.csMemberVisibility((cl), variant_1), false);
+                                const mVis = new RangerDocCommentWriter();
+                                wr.out(mVis.memberVisibility((cl), variant_1, "public ", "public ", "internal "), false);
                                 const parentArgc = ( Object.prototype.hasOwnProperty.call(inheritedMethods, variant_1.compiledName) ? inheritedMethods[variant_1.compiledName] : undefined );
                                 if ( (typeof(parentArgc) !== "undefined" && parentArgc != null )  ) {
                                   if ( (parentArgc) == (variant_1.params.length) ) {
@@ -64074,7 +64771,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               let the_file = "";
                                                               let plugins_only = false;
-                                                              const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file", "apidoc", "write the API documentation artifacts into this subdirectory", "apiformat", "which API artifacts to write: json, markdown, report (default json,markdown)", "csnamespace", "C# file-scoped namespace for the generated types"];
+                                                              const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file", "apidoc", "write the API documentation artifacts into this subdirectory", "apiformat", "which API artifacts to write: json, markdown, report (default json,markdown)", "csnamespace", "C# namespace for the generated types", "ktpackage", "Kotlin package for the generated types"];
                                                               const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "apistrict", "An undocumented public declaration or parameter is an error, not a warning", "apipackage", "Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet", "docstyle-none", "Do not write documentation comments into the generated code", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                                               const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                                               if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {

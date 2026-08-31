@@ -362,3 +362,150 @@ describe("C# target: XML documentation a NuGet package can ship", () => {
     expect(xml).not.toContain("secretHelper");
   });
 });
+
+describe("Kotlin target: KDoc that Dokka reads", () => {
+  let kt = "";
+  let dir = "";
+  beforeAll(() => {
+    const r = compile(
+      "tests/fixtures/api_docs_a11y.rgr",
+      [
+        "-l=kotlin",
+        "-o=EvgA11y.kt",
+        "-apidoc=docs",
+        "-apipackage",
+        "-name=com.evg.a11y",
+        "-version=1.2.0",
+        "-description=Accessibility tree",
+      ],
+      "kotlin"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    dir = r.dir;
+    kt = read(dir, "EvgA11y.kt");
+  });
+
+  it("writes KDoc with the tags Dokka renders", () => {
+    expect(kt).toContain("@param id The stable accessibility identifier.");
+    // KDoc spells it @return, not @returns
+    expect(kt).toContain("@return The matching node");
+    expect(kt).not.toContain("@returns ");
+    expect(kt).toContain("@since 1.2");
+    expect(kt).toContain("@see EVGA11yNode");
+  });
+
+  it("builds ReplaceWith from the replacement's own signature", () => {
+    expect(kt).toContain('@Deprecated("Since 2.0. Use find instead.", ReplaceWith("find(id)"))');
+  });
+
+  it("puts the types in a package and marks non-API members internal", () => {
+    expect(kt).toContain("package com.evg.a11y");
+    // Kotlin defaults to public, so the modifier that has to be written is
+    // the restrictive one
+    expect(kt).toContain("internal fun  rebuildIndex()");
+    expect(kt).toContain("internal fun  secretHelper()");
+    expect(kt).toMatch(/class EVGA11yTree/);
+    expect(kt).not.toMatch(/internal[^\n]*class EVGA11yTree/);
+  });
+
+  it("writes a Gradle build with Dokka and no pinned toolchain", () => {
+    const gradle = read(dir, "build.gradle.kts");
+    expect(gradle).toContain('id("org.jetbrains.dokka")');
+    expect(gradle).toContain('group = "com.evg"');
+    expect(gradle).toContain('artifactId = "a11y"');
+    // pinning a JDK the machine does not have fails the build before it
+    // compiles anything
+    expect(gradle).not.toContain("jvmToolchain");
+    expect(fs.existsSync(path.join(dir, "module.md"))).toBe(true);
+  });
+
+  const kotlinc = "/tmp/kotlinc/bin/kotlinc";
+  const haveKotlinc = fs.existsSync(kotlinc);
+
+  it.runIf(haveKotlinc)("compiles with kotlinc", () => {
+    execFileSync(kotlinc, ["EvgA11y.kt", "-d", "out.jar"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(fs.existsSync(path.join(dir, "out.jar"))).toBe(true);
+  }, 600000);
+});
+
+describe("Swift target: DocC markup", () => {
+  let sw = "";
+  let dir = "";
+  beforeAll(() => {
+    const r = compile(
+      "tests/fixtures/api_docs_a11y.rgr",
+      [
+        "-l=swift6",
+        "-o=EvgA11y.swift",
+        "-apidoc=docs",
+        "-apipackage",
+        "-name=EVGA11y",
+        "-version=1.2.0",
+        "-description=Accessibility tree",
+      ],
+      "swift"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    dir = r.dir;
+    sw = read(dir, "EvgA11y.swift");
+  });
+
+  it("writes the DocC sections", () => {
+    expect(sw).toContain("/// - Parameter id: The stable accessibility identifier.");
+    expect(sw).toContain("/// - Returns: The matching node");
+    expect(sw).toContain("/// See also: ``EVGA11yNode``");
+    // a single parameter takes `- Parameter`, several take `- Parameters:`
+    expect(sw).toContain("/// - Parameter node: The node to add");
+  });
+
+  it("renders since as a callout, never as @available", () => {
+    expect(sw).toContain("/// > Since: 1.2");
+    // @available is OS availability, not library version: emitting it would
+    // gate the symbol on a platform the author never mentioned
+    expect(sw).not.toMatch(/@available\([^)]*1\.2/);
+  });
+
+  it("maps deprecation onto @available", () => {
+    expect(sw).toContain(
+      '@available(*, deprecated, renamed: "find", message: "Since 2.0. Use find instead.")'
+    );
+  });
+
+  it("marks the API public and leaves the rest internal", () => {
+    // Swift defaults to internal, so a module whose types carry no modifier
+    // exports nothing at all
+    expect(sw).toContain("public final class EVGA11yTree");
+    expect(sw).toContain("public func find(id : String)");
+    expect(sw).toContain("public var focusId");
+    expect(sw).toMatch(/\n {2}func rebuildIndex\(\)/);
+    expect(sw).toMatch(/\n {2}func secretHelper\(\)/);
+  });
+
+  it("writes a SwiftPM manifest and a DocC catalog", () => {
+    const pkg = read(dir, "Package.swift");
+    expect(pkg).toContain("// swift-tools-version:5.7");
+    expect(pkg).toContain('.library(name: "EVGA11y", targets: ["EVGA11y"])');
+    expect(pkg).toContain('sources: ["EvgA11y.swift"]');
+    // the catalog's Topics section is built from the `category` entries
+    const catalog = read(dir, "EVGA11y.docc", "EVGA11y.md");
+    expect(catalog).toContain("# ``EVGA11y``");
+    expect(catalog).toContain("### Accessibility");
+    expect(catalog).toContain("- ``EVGA11yTree``");
+  });
+});
+
+describe("a public API may not expose an internal type", () => {
+  it("rejects a public method that returns an undocumented class", () => {
+    const r = compile(
+      "tests/fixtures/api_docs_leak.rgr",
+      ["-es6", "-o=index.js"],
+      "leak"
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stdout).toContain("returns the internal type `InternalCache`");
+  });
+});

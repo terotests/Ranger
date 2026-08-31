@@ -143,8 +143,9 @@ doc { … }           -> documented, internal
 doc { public … }    -> exported public API
 ```
 
-`-apidoc=<dir>` writes `api.json` / `api.md`; `-apipackage` writes the npm or
-NuGet packaging. JavaScript gets JSDoc, C# gets XML documentation.
+`-apidoc=<dir>` writes `api.json` / `api.md`; `-apipackage` writes the packaging.
+JavaScript gets JSDoc (documentation.js), C# XML docs (DocFX), Kotlin KDoc
+(Dokka), Swift DocC markup.
 
 ## Generic classes
 

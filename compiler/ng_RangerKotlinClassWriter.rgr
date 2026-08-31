@@ -790,6 +790,10 @@ class RangerKotlinClassWriter {
       wr.out(")" false)
     }
   }
+  ; The package statement is written once, before the imports. A library whose
+  ; types sit in the default package is not one anybody can depend on.
+  def kotlin_package_written:boolean false
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -805,8 +809,34 @@ class RangerKotlinClassWriter {
     def declaredVariable:[string:boolean]
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
+    if (kotlin_package_written == false) {
+      kotlin_package_written = true
+      def pkgName:string ""
+      if (ctx.hasCompilerSetting("ktpackage")) {
+        pkgName = (ctx.getCompilerSetting("ktpackage"))
+      } {
+        if (ctx.hasCompilerFlag("apipackage")) {
+          if (ctx.hasCompilerSetting("name")) {
+            pkgName = (ctx.getCompilerSetting("name"))
+          }
+        }
+      }
+      if ((strlen pkgName) > 0) {
+        ; `package` has to be the FIRST statement of a Kotlin file, ahead of
+        ; the imports, so it goes in the tag that precedes them
+        def pkgHead:CodeWriter (wr.getTag("before_imports"))
+        pkgHead.out(("package " + pkgName) true)
+        pkgHead.out("" true)
+      }
+    }
     this.writeKotlinUnionInterfaces(ctx wr)
     wr.out("" true)
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeKotlinDocForClass((unwrap cl) wr)
+    }
+    def ktVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+    wr.out((ktVis.classVisibility((unwrap cl) "" "" "internal ")) false)
     if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
       wr.out(("open class " + cl.name) false)
     } {
@@ -906,6 +936,12 @@ class RangerKotlinClassWriter {
       if (has declaredVariable pvar.name) {
         continue _
       }
+      if pvar.has_doc {
+        def fDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        fDocWr.writeKotlinDocForField(pvar wr)
+      }
+      def fVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+      wr.out((fVis.memberVisibility((unwrap cl) pvar "" "" "internal ")) false)
       this.writeVarDef((unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -968,8 +1004,18 @@ class RangerKotlinClassWriter {
       if (variant.nameNode.hasFlag("open")) {
         wr.out("open " false)
       }
-      if (variant.nameNode.hasFlag("override")) {
+      def sIsOverride:boolean (variant.nameNode.hasFlag("override"))
+      if variant.has_doc {
+        def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        sDocWr.writeKotlinDocForMethod((unwrap cl) variant wr)
+      }
+      if sIsOverride {
         wr.out("override " false)
+      } {
+        ; an override may not change the visibility it inherits, so only a
+        ; declaration that is not one takes a modifier from its doc block
+        def sVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+        wr.out((sVis.memberVisibility((unwrap cl) variant "" "" "internal ")) false)
       }
       wr.out("fun " false)
       wr.out(" " false)
@@ -1017,9 +1063,15 @@ class RangerKotlinClassWriter {
             shouldOverride = true
           }
         }
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeKotlinDocForMethod((unwrap cl) variant wr)
+        }
         if shouldOverride {
           wr.out("override " false)
         } {
+          def mVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+          wr.out((mVis.memberVisibility((unwrap cl) variant "" "" "internal ")) false)
           if cl.is_extended_by_children {
             wr.out("open " false)
           }

@@ -90,6 +90,10 @@ class RangerApiModel {
 class RangerApiBuilder {
 
   def strict:boolean false
+  ; the classes this program declares, split by whether they are API. Filled
+  ; in a first pass so the leak check can look forward as well as back.
+  def publicClassNames:[string:boolean]
+  def internalClassNames:[string:boolean]
 
   fn typeNameOf:string (node:CodeNode) {
     def base:string ""
@@ -169,6 +173,43 @@ class RangerApiBuilder {
     }
   }
 
+  ; Every type name a declaration mentions: the type itself plus the element
+  ; and key types of a collection.
+  fn typeNamesOf:[string] (node:CodeNode) {
+    def out:[string]
+    switch node.value_type {
+      case RangerNodeType.Array {
+        push out node.array_type
+      }
+      case RangerNodeType.Hash {
+        push out node.key_type
+        push out node.array_type
+      }
+      default {
+        push out node.type_name
+      }
+    }
+    return out
+  }
+
+  ; A public declaration may not expose a type that is not itself public.
+  ; Rust rejects this (E0446) and so does Swift; the other targets accept it
+  ; and produce an API nobody outside the module can call. Checked once here,
+  ; for every target, before any of them is written.
+  fn checkNoLeak:void (ctx:RangerAppWriterContext node:CodeNode what:string role:string typeNode:CodeNode) {
+    def names:[string] (this.typeNamesOf(typeNode))
+    for names tn:string i {
+      if ((strlen tn) == 0) {
+        continue
+      }
+      if ((has publicClassNames tn) == false) {
+        if (has internalClassNames tn) {
+          ctx.addError(node ("public " + what + " " + role + " the internal type `" + tn + "`. Add `public` to its doc block, or make " + what + " internal."))
+        }
+      }
+    }
+  }
+
   fn buildMethod:RangerApiMethod (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext isStatic:boolean) {
     def m:RangerApiMethod (new RangerApiMethod)
     m.name = fd.name
@@ -203,6 +244,19 @@ class RangerApiBuilder {
     return m
   }
 
+  fn checkMethodLeaks:void (m:RangerApiMethod fd:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (m.is_public == false) {
+      return
+    }
+    def node:CodeNode (unwrap fd.nameNode)
+    def what:string ("method `" + m.name + "`")
+    this.checkNoLeak(ctx node what "returns" node)
+    for fd.params p:RangerAppParamDesc i {
+      def pn:CodeNode (unwrap p.nameNode)
+      this.checkNoLeak(ctx node what ("takes parameter `" + p.name + "` of") pn)
+    }
+  }
+
   fn build:RangerApiModel (ctx:RangerAppWriterContext) {
     def model:RangerApiModel (new RangerApiModel)
     strict = (ctx.hasCompilerFlag("apistrict"))
@@ -216,6 +270,31 @@ class RangerApiBuilder {
       model.description = (ctx.getCompilerSetting("description"))
     }
     def root:RangerAppWriterContext (ctx.getRoot())
+    ; pass one: which declared classes are API. A method can name a class the
+    ; registry lists after it, so the answer has to exist before the check.
+    for root.definedClassList cname:string pi {
+      def pcl:RangerAppClassDesc (get root.definedClasses cname)
+      if ((pcl.isNormalClass()) == false) {
+        continue
+      }
+      if pcl.is_template {
+        continue
+      }
+      def pnode@(optional):CodeNode pcl.classNode
+      def isApi:boolean false
+      if ((null? pnode) == false) {
+        def pn:CodeNode (unwrap pnode)
+        if pn.has_doc_tail {
+          def pdoc:RangerDocBlock (this.readDocOf(pn ctx))
+          isApi = pdoc.is_public
+        }
+      }
+      if isApi {
+        set publicClassNames pcl.name true
+      } {
+        set internalClassNames pcl.name true
+      }
+    }
     for root.definedClassList cname:string ci {
       def cl:RangerAppClassDesc (get root.definedClasses cname)
       if (cl.is_system) {
@@ -266,16 +345,22 @@ class RangerApiBuilder {
             v.docBlock = af.doc
           }
         }
+        if af.is_public {
+          def fnode:CodeNode (unwrap v.nameNode)
+          this.checkNoLeak(ctx fnode ("field `" + af.name + "`") "is" fnode)
+        }
         push ac.fields af
       }
       for cl.methods fd:RangerAppFunctionDesc mi {
         def m:RangerApiMethod (this.buildMethod(fd ctx false))
         this.validateMethod(model m ctx)
+        this.checkMethodLeaks(m fd ctx)
         push ac.methods m
       }
       for cl.static_methods fd:RangerAppFunctionDesc si {
         def m:RangerApiMethod (this.buildMethod(fd ctx true))
         this.validateMethod(model m ctx)
+        this.checkMethodLeaks(m fd ctx)
         push ac.methods m
       }
       ; A member may not be public when the class that holds it is not:
@@ -553,6 +638,269 @@ class RangerDocCommentWriter {
     }
   }
 
+  ; ------------------------------------------- Swift / DocC markup comments
+  ;
+  ; DocC reads `- Parameter`, `- Parameters:`, `- Returns:` and `- Throws:`
+  ; sections out of `///` comments. `since` does NOT become `@available`:
+  ; that attribute is OS availability, not library version, and emitting it
+  ; would gate the symbol on a platform the author never mentioned.
+
+  fn swiftTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "Bool"
+      }
+      case "string" {
+        out = "String"
+      }
+      case "int" {
+        out = "Int"
+      }
+      case "double" {
+        out = "Double"
+      }
+      case "float" {
+        out = "Float"
+      }
+      case "void" {
+        out = "Void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn writeSwiftDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    def wroteBody:boolean false
+    def descLines:[string] (this.linesOf(doc.description))
+    for descLines line:string i {
+      if ((strlen line) == 0) {
+        wr.out("///" true)
+      } {
+        wr.out(("/// " + line) true)
+      }
+      wroteBody = true
+    }
+    def documented:[RangerApiParam]
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        push documented p
+      }
+    }
+    def paramCount:int (array_length documented)
+    if (paramCount > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      if (paramCount == 1) {
+        def only:RangerApiParam (itemAt documented 0)
+        wr.out(("/// - Parameter " + only.compiledName + ": " + only.description) true)
+      } {
+        wr.out("/// - Parameters:" true)
+        for documented p:RangerApiParam i {
+          wr.out(("///   - " + p.compiledName + ": " + p.description) true)
+        }
+      }
+      wroteBody = true
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "Void") {
+      } {
+        wr.out(("/// - Returns: " + doc.returns) true)
+        wroteBody = true
+      }
+    }
+    for doc.throws t:string i {
+      wr.out(("/// - Throws: " + t) true)
+      wroteBody = true
+    }
+    ; DocC renders `> Name: text` as a callout, which is where a library
+    ; version and a stability note belong
+    if ((strlen doc.since) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out(("/// > Since: " + doc.since) true)
+      wroteBody = true
+    }
+    if doc.is_experimental {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out("/// > Experimental: This API may change without notice." true)
+      wroteBody = true
+    }
+    if ((array_length doc.see) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      for doc.see sname:string i {
+        wr.out(("/// See also: ``" + sname + "``") true)
+      }
+    }
+    for doc.examples e:string i {
+      wr.out("///" true)
+      wr.out("/// ```swift" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("/// " + line) true)
+      }
+      wr.out("/// ```" true)
+    }
+  }
+
+  fn writeSwiftAttrs:void (doc:RangerDocBlock wr:CodeWriter) {
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def attr:string "@available(*, deprecated"
+      if ((strlen dep.use) > 0) {
+        attr = attr + ", renamed: \"" + dep.use + "\""
+      }
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.since) > 0) {
+          msg = "Deprecated since " + dep.since + "."
+        }
+      } {
+        if ((strlen dep.since) > 0) {
+          msg = "Since " + dep.since + ". " + msg
+        }
+      }
+      if ((strlen msg) > 0) {
+        attr = attr + ", message: \"" + msg + "\""
+      }
+      attr = attr + ")"
+      wr.out(attr true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
+  ; ----------------------------------------------- Kotlin / KDoc comments
+  ;
+  ; KDoc spells the return tag `@return`, not `@returns`. Dokka reads these.
+
+  fn kotlinTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "Boolean"
+      }
+      case "string" {
+        out = "String"
+      }
+      case "int" {
+        out = "Int"
+      }
+      case "double" {
+        out = "Double"
+      }
+      case "float" {
+        out = "Float"
+      }
+      case "void" {
+        out = "Unit"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn writeKotlinDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    wr.out("/**" true)
+    def descLines:[string] (this.linesOf(doc.description))
+    def wroteBody:boolean false
+    for descLines line:string i {
+      if ((strlen line) == 0) {
+        wr.out(" *" true)
+      } {
+        wr.out((" * " + line) true)
+      }
+      wroteBody = true
+    }
+    if doc.is_experimental {
+      if wroteBody {
+        wr.out(" *" true)
+      }
+      wr.out(" * **Experimental.** This API may change without notice." true)
+      wroteBody = true
+    }
+    def wroteTag:boolean false
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        if (wroteBody && (wroteTag == false)) {
+          wr.out(" *" true)
+        }
+        wr.out((" * @param " + p.compiledName + " " + p.description) true)
+        wroteTag = true
+      }
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "Unit") {
+      } {
+        if (wroteBody && (wroteTag == false)) {
+          wr.out(" *" true)
+        }
+        wr.out((" * @return " + doc.returns) true)
+        wroteTag = true
+      }
+    }
+    for doc.throws t:string i {
+      wr.out((" * @throws Exception " + t) true)
+      wroteTag = true
+    }
+    if ((strlen doc.since) > 0) {
+      wr.out((" * @since " + doc.since) true)
+      wroteTag = true
+    }
+    for doc.see sname:string i {
+      wr.out((" * @see " + sname) true)
+      wroteTag = true
+    }
+    for doc.examples e:string i {
+      wr.out(" *" true)
+      wr.out(" * ```" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out((" * " + line) true)
+      }
+      wr.out(" * ```" true)
+    }
+    wr.out(" */" true)
+  }
+
+  ; `replaceWith` is only ever built from the REPLACEMENT's own signature, so
+  ; a rename whose argument list differs never produces a wrong suggestion.
+  fn writeKotlinAttrs:void (doc:RangerDocBlock replaceWith:string wr:CodeWriter) {
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      if ((strlen dep.since) > 0) {
+        msg = "Since " + dep.since + ". " + msg
+      }
+      def attr:string ("@Deprecated(\"" + msg + "\"")
+      if ((strlen replaceWith) > 0) {
+        attr = attr + ", ReplaceWith(\"" + replaceWith + "\")"
+      }
+      attr = attr + ")"
+      wr.out(attr true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
   ; ------------------------------------------------ descriptor convenience
   ;
   ; A language writer holds a RangerAppFunctionDesc, not an ApiIR method, so
@@ -620,6 +968,146 @@ class RangerDocCommentWriter {
     def ps:[RangerApiParam]
     this.writeCsDoc(view "void" ps wr)
     this.writeCsAttrs(view wr)
+  }
+
+  fn writeSwiftDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("swift6"))
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.swiftTypeName(rn.type_name))
+    this.writeSwiftDoc(view rt ps wr)
+    this.writeSwiftAttrs(view wr)
+  }
+
+  fn writeSwiftDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("swift6"))
+    def ps:[RangerApiParam]
+    this.writeSwiftDoc(view "Void" ps wr)
+    this.writeSwiftAttrs(view wr)
+  }
+
+  fn writeSwiftDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("swift6"))
+    def ps:[RangerApiParam]
+    this.writeSwiftDoc(view "Void" ps wr)
+    this.writeSwiftAttrs(view wr)
+  }
+
+  ; The ReplaceWith argument list comes from the REPLACEMENT's own signature,
+  ; looked up in the class that declares it. If there is no such method the
+  ; hint is left out rather than guessed.
+  fn kotlinReplaceWith:string (cl:RangerAppClassDesc doc:RangerDocBlock) {
+    if (doc.is_deprecated == false) {
+      return ""
+    }
+    def dep:RangerDocDeprecation (unwrap doc.deprecation)
+    if ((strlen dep.use) == 0) {
+      return ""
+    }
+    def target@(optional):RangerAppFunctionDesc (cl.findMethod(dep.use))
+    if (null? target) {
+      return ""
+    }
+    def t:RangerAppFunctionDesc (unwrap target)
+    def out:string (dep.use + "(")
+    for t.params p:RangerAppParamDesc i {
+      if (i > 0) {
+        out = out + ", "
+      }
+      out = out + p.compiledName
+    }
+    return (out + ")")
+  }
+
+  fn writeKotlinDocForMethod:void (cl:RangerAppClassDesc fd:RangerAppFunctionDesc wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("kotlin"))
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.kotlinTypeName(rn.type_name))
+    this.writeKotlinDoc(view rt ps wr)
+    this.writeKotlinAttrs(view (this.kotlinReplaceWith(cl view)) wr)
+  }
+
+  fn writeKotlinDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("kotlin"))
+    def ps:[RangerApiParam]
+    this.writeKotlinDoc(view "Unit" ps wr)
+    this.writeKotlinAttrs(view "" wr)
+  }
+
+  fn writeKotlinDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("kotlin"))
+    def ps:[RangerApiParam]
+    this.writeKotlinDoc(view "Unit" ps wr)
+    this.writeKotlinAttrs(view "" wr)
+  }
+
+  ; The visibility modifier for a declaration, from its doc block.
+  ;
+  ; The gate is always the CLASS: a class with no doc block is not opted into
+  ; the API model at all and gets `whenLegacy` -- whatever the target wrote
+  ; before this feature existed, so no existing program changes. That value is
+  ; NOT the same as `whenPublic`: C# wrote `public ` on everything and Swift
+  ; and Kotlin wrote nothing, and reusing the public form for the legacy case
+  ; silently made every undocumented Swift class part of the module's API.
+  ;
+  ; `whenPublic` and `whenInternal` also differ per target because the language
+  ; defaults do: Swift and C# default to internal, Kotlin defaults to public.
+  fn memberVisibility:string (cl:RangerAppClassDesc member:RangerAppParamDesc whenLegacy:string whenPublic:string whenInternal:string) {
+    if (cl.has_doc == false) {
+      return whenLegacy
+    }
+    if (member.has_doc == false) {
+      return whenInternal
+    }
+    def md@(optional):RangerDocBlock member.docBlock
+    if (null? md) {
+      return whenInternal
+    }
+    def doc:RangerDocBlock (unwrap md)
+    if doc.is_public {
+      return whenPublic
+    }
+    return whenInternal
+  }
+
+  fn classVisibility:string (cl:RangerAppClassDesc whenLegacy:string whenPublic:string whenInternal:string) {
+    if (cl.has_doc == false) {
+      return whenLegacy
+    }
+    def cd@(optional):RangerDocBlock cl.docBlock
+    if (null? cd) {
+      return whenInternal
+    }
+    def doc:RangerDocBlock (unwrap cd)
+    if doc.is_public {
+      return whenPublic
+    }
+    return whenInternal
   }
 
   fn writeJsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
@@ -1167,6 +1655,197 @@ class RangerApiPackageWriter {
     wr.out("}" true)
   }
 
+  ; -------------------------------------------------- Swift / SwiftPM
+
+  ; A module name, not a namespace: Swift has no namespace hierarchy, so a
+  ; dotted logical module name collapses into one identifier.
+  fn swiftModuleName:string (raw:string) {
+    def parts:[string] (strsplit raw ".")
+    def out:string ""
+    for parts piece:string i {
+      out = out + piece
+    }
+    if ((strlen out) == 0) {
+      out = "RangerApi"
+    }
+    return out
+  }
+
+  fn writeSwiftPackage:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def raw:string (this.settingOr(ctx "name" model.moduleName))
+    def moduleName:string (this.swiftModuleName(raw))
+    def srcFile:string (this.settingOr(ctx "o" "output.swift"))
+    def wr:CodeWriter (orig_wr.getFileWriter("." "Package.swift"))
+    wr.out("// swift-tools-version:5.7" true)
+    wr.out("import PackageDescription" true)
+    wr.out("" true)
+    wr.out("let package = Package(" true)
+    wr.indent(1)
+    wr.out(("name: \"" + moduleName + "\",") true)
+    wr.out("products: [" true)
+    wr.indent(1)
+    wr.out((".library(name: \"" + moduleName + "\", targets: [\"" + moduleName + "\"])") true)
+    wr.indent(-1)
+    wr.out("]," true)
+    wr.out("targets: [" true)
+    wr.indent(1)
+    ; a flat layout: the target is the output directory itself, with the one
+    ; generated file named explicitly. The Sources/<Target>/ tree is the
+    ; multi-file layout, which is a separate piece of work.
+    wr.out(".target(" true)
+    wr.indent(1)
+    wr.out(("name: \"" + moduleName + "\",") true)
+    wr.out("path: \".\"," true)
+    wr.out(("sources: [\"" + srcFile + "\"]") true)
+    wr.indent(-1)
+    wr.out(")" true)
+    wr.indent(-1)
+    wr.out("]" true)
+    wr.indent(-1)
+    wr.out(")" true)
+  }
+
+  ; The DocC catalog. `## Topics` is the reference organisation, and it is
+  ; built from the `category` of each public type -- which is what that entry
+  ; is for.
+  fn writeDocCCatalog:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def raw:string (this.settingOr(ctx "name" model.moduleName))
+    def moduleName:string (this.swiftModuleName(raw))
+    def dir:string (moduleName + ".docc")
+    def wr:CodeWriter (orig_wr.getFileWriter(dir (moduleName + ".md")))
+    wr.out(("# ``" + moduleName + "``") true)
+    wr.out("" true)
+    if ((strlen model.description) > 0) {
+      wr.out(model.description true)
+      wr.out("" true)
+    }
+    wr.out("## Topics" true)
+
+    def categories:[string]
+    def seen:[string:boolean]
+    for model.classes c:RangerApiClass ci {
+      if (c.is_public == false) {
+        continue
+      }
+      def cat:string "Types"
+      if c.has_doc {
+        def cdoc:RangerDocBlock (unwrap c.doc)
+        if ((strlen cdoc.category) > 0) {
+          cat = cdoc.category
+        }
+      }
+      if ((has seen cat) == false) {
+        set seen cat true
+        push categories cat
+      }
+    }
+    for categories cat:string i {
+      wr.out("" true)
+      wr.out(("### " + cat) true)
+      wr.out("" true)
+      for model.classes c:RangerApiClass ci {
+        if (c.is_public == false) {
+          continue
+        }
+        def ccat:string "Types"
+        if c.has_doc {
+          def cdoc:RangerDocBlock (unwrap c.doc)
+          if ((strlen cdoc.category) > 0) {
+            ccat = cdoc.category
+          }
+        }
+        if (ccat == cat) {
+          wr.out(("- ``" + c.name + "``") true)
+        }
+      }
+    }
+  }
+
+  ; ------------------------------------------------- Kotlin / Gradle + Dokka
+
+  fn writeKotlinGradle:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def raw:string (this.settingOr(ctx "name" model.moduleName))
+    def version:string (this.settingOr(ctx "version" "0.1.0"))
+    def descr:string (this.settingOr(ctx "description" model.description))
+    def srcFile:string (this.settingOr(ctx "o" "output.kt"))
+    ; a dotted name is a Maven coordinate: everything before the last dot is
+    ; the group, the last segment is the artifact
+    def groupId:string ""
+    def artifactId:string raw
+    def parts:[string] (strsplit raw ".")
+    def n:int (array_length parts)
+    if (n > 1) {
+      artifactId = (itemAt parts (n - 1))
+      def gi:int 0
+      while (gi < (n - 1)) {
+        if (gi > 0) {
+          groupId = groupId + "."
+        }
+        groupId = groupId + (itemAt parts gi)
+        gi = gi + 1
+      }
+    }
+    def wr:CodeWriter (orig_wr.getFileWriter("." "build.gradle.kts"))
+    wr.out("plugins {" true)
+    wr.indent(1)
+    wr.out("kotlin(\"jvm\") version \"2.0.21\"" true)
+    wr.out("id(\"org.jetbrains.dokka\") version \"1.9.20\"" true)
+    wr.out("`maven-publish`" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.out("" true)
+    if ((strlen groupId) > 0) {
+      wr.out(("group = \"" + groupId + "\"") true)
+    }
+    wr.out(("version = \"" + version + "\"") true)
+    wr.out("" true)
+    wr.out("repositories { mavenCentral() }" true)
+    wr.out("" true)
+    ; deliberately NO jvmToolchain(...): pinning a version the machine does
+    ; not have fails the build before it compiles anything, and a generated
+    ; file cannot know which JDKs are installed. Add one when the project
+    ; needs a specific bytecode level.
+    wr.out("" true)
+    ; a flat layout: the sources are the output directory itself. The build
+    ; script is .kts and is excluded so Gradle does not try to compile it.
+    wr.out("sourceSets.main {" true)
+    wr.indent(1)
+    wr.out("kotlin.setSrcDirs(listOf(\".\"))" true)
+    wr.out(("kotlin.include(\"" + srcFile + "\")") true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.out("" true)
+    wr.out("publishing {" true)
+    wr.indent(1)
+    wr.out("publications {" true)
+    wr.indent(1)
+    wr.out("create<MavenPublication>(\"maven\") {" true)
+    wr.indent(1)
+    wr.out(("artifactId = \"" + artifactId + "\"") true)
+    wr.out("from(components[\"java\"])" true)
+    if ((strlen descr) > 0) {
+      wr.out(("pom { description.set(\"" + descr + "\") }") true)
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  ; Dokka reads the KDoc the compiler wrote. This only names the module, which
+  ; is the one thing it cannot infer.
+  fn writeDokkaModuleDoc:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def raw:string (this.settingOr(ctx "name" model.moduleName))
+    def wr:CodeWriter (orig_wr.getFileWriter("." "module.md"))
+    wr.out(("# Module " + raw) true)
+    wr.out("" true)
+    if ((strlen model.description) > 0) {
+      wr.out(model.description true)
+    }
+  }
+
   ; --------------------------------------------------------------- README
 
   fn writeReadme:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
@@ -1184,6 +1863,21 @@ class RangerApiPackageWriter {
       case "csharp" {
         this.writeCsProject(model ctx orig_wr)
         this.writeDocFxConfig(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      case "swift6" {
+        this.writeSwiftPackage(model ctx orig_wr)
+        this.writeDocCCatalog(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      case "swift3" {
+        this.writeSwiftPackage(model ctx orig_wr)
+        this.writeDocCCatalog(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      case "kotlin" {
+        this.writeKotlinGradle(model ctx orig_wr)
+        this.writeDokkaModuleDoc(model ctx orig_wr)
         this.writeReadme(model ctx orig_wr)
       }
       default {

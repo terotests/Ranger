@@ -400,7 +400,8 @@ Options: -<option>=<value>
   -operatordoc=<value>   write operator documention into .md file
   -apidoc=<value>        write the API documentation artifacts into this subdirectory
   -apiformat=<value>     which API artifacts to write: json, markdown, report (default json,markdown)
-  -csnamespace=<value>   C# file namespace for the generated types
+  -csnamespace=<value>   C# namespace for the generated types
+  -ktpackage=<value>     Kotlin package for the generated types
 Flags: -<flag>
   -apipackage    Write the packaging the target ecosystem expects (package.json for npm, .csproj and docfx.json for NuGet)
   -apistrict     An undocumented public declaration or parameter is an error, not a warning
@@ -823,10 +824,19 @@ rgrc -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
   -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
 ```
 
-JavaScript gets JSDoc (`@param {string} id`, `@public` / `@private`), C# gets
-XML documentation (`<summary>`, `<param>`, `<seealso cref>`, `[System.Obsolete]`),
-a namespace, and `public` / `internal` from the doc blocks. Design and the
-remaining targets: [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
+Four targets carry the documentation into the generated code today:
+
+| Target | Comment form | Packaging | Doc tool |
+| --- | --- | --- | --- |
+| JavaScript | JSDoc (`@param {string} id`, `@public` / `@private`) | `package.json` | documentation.js |
+| C# | XML docs (`<summary>`, `<param>`, `<seealso cref>`, `[System.Obsolete]`) | `.csproj`, `docfx.json` | DocFX, Sandcastle |
+| Kotlin | KDoc (`@param`, `@return`, `@see`, `@Deprecated(… ReplaceWith)`) | `build.gradle.kts` | Dokka |
+| Swift | DocC (`- Parameter`, `- Returns`, `> Since:`, `@available`) | `Package.swift`, `.docc` catalog | DocC |
+
+Each also gets a namespace or package and `public` / `internal` from the doc
+blocks. A class with no doc block is not opted into the API model and compiles
+exactly as it did before. Design and the remaining targets:
+[`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
 
 ## Types
 
