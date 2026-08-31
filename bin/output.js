@@ -26307,7 +26307,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( p.rust_interior_cell ) {
                   const cellNameN = p.nameNode;
                   if ( this.rustCellIsCopy(p) ) {
-                    wr.out("Cell<", false);
+                    wr.out("std::cell::Cell<", false);
                     await this.writeTypeDef(cellNameN, ctx, wr);
                     wr.out(">", false);
                     return;
@@ -30731,7 +30731,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         header.out("use std::rc::Weak;", true);
                       }
                       header.out("use std::cell::RefCell;", true);
-                      header.out("use std::cell::Cell;", true);
                       header.out("", true);
                       const unionNames = this.sealableUnionNames(ctx);
                       for ( let uni = 0; uni < unionNames.length; uni++) {
@@ -31180,7 +31179,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(this.adjustType(pvar_1.compiledName) + ":", false);
                                 if ( pvar_1.rust_interior_cell ) {
                                   if ( this.rustCellIsCopy(pvar_1) ) {
-                                    wr.out("Cell::new(", false);
+                                    wr.out("std::cell::Cell::new(", false);
                                   } else {
                                     wr.out("RefCell::new(", false);
                                   }
@@ -33425,12 +33424,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 preeval_name = ctx.rustGetTempVar();
                                 wr.out(("let " + preeval_name) + " = ", false);
                                 ctx.setInExpr();
-                                await this.WalkNode(right, ctx, wr);
-                                if ( should_clone_rhs ) {
-                                  if ( rhs_str_ref ) {
-                                    wr.out(".to_string()", false);
-                                  } else {
-                                    wr.out(".clone()", false);
+                                let preevalWroteUnion = false;
+                                if ( is_optional == false ) {
+                                  preevalWroteUnion = await this.rustWriteUnionValue(field_type_name, right, ctx, wr);
+                                  if ( preevalWroteUnion ) {
+                                    if ( rhs_is_optional ) {
+                                      wr.out(".unwrap()", false);
+                                    }
+                                  }
+                                }
+                                if ( preevalWroteUnion == false ) {
+                                  await this.WalkNode(right, ctx, wr);
+                                  if ( should_clone_rhs ) {
+                                    if ( rhs_str_ref ) {
+                                      wr.out(".to_string()", false);
+                                    } else {
+                                      wr.out(".clone()", false);
+                                    }
                                   }
                                 }
                                 ctx.unsetInExpr();

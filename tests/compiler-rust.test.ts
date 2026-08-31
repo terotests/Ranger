@@ -83,6 +83,37 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  describe("Names the Rust preamble could shadow", () => {
+    // `use std::cell::Cell` was in the preamble of every generated program, so
+    // a program declaring its own `Cell` collided with it and every later
+    // mention resolved to the std type. The class here is also a subclass
+    // carrying a scalar its root lacks, which is the shape that gets an
+    // interior cell — so the std type still has to be reachable, spelled out.
+    it("should compile a program that declares its own class named Cell", () => {
+      const result = compileRangerToRust(
+        "tests/fixtures/rust_class_named_cell.rgr"
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("should run it and agree with the other targets", () => {
+      expectRustOutput("tests/fixtures/rust_class_named_cell.rgr", [
+        "cell 7",
+        "plain 0",
+        "done",
+      ]);
+    });
+
+    it("should not import Cell, and should spell the std type in full", () => {
+      const result = getGeneratedRustCode(
+        "tests/fixtures/rust_class_named_cell.rgr"
+      );
+      expect(result.success).toBe(true);
+      expect(result.code).not.toContain("use std::cell::Cell;");
+      expect(result.code).toContain("std::cell::Cell<");
+    });
+  });
+
   describe("Polyfill Deduplication", () => {
     it("should not duplicate polyfills when on_keypress is used multiple times", () => {
       const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");

@@ -112,6 +112,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a `let` lifted out of it lands where `item` does not exist. Hoisting into
   loop bodies took the compiler's own Rust rendering from 6 errors to 119.
 
+- **A union-typed field keeps its variant wrap when the right side goes to a
+  temporary.** `body = (new EvalValue.Map(…))` stores a member into a slot of
+  the family type, and Rust wants the enum variant around it. The wrap was
+  written at the assignment, so a right side pre-evaluated into a local — which
+  is what a receiverless method does, to keep a `borrow_mut()` from spanning
+  the right side — left the assignment with only `= <name>` to write, and the
+  bare member went into the slot: "expected `union_EvalValue`, found
+  `EvalValue_Map`". The wrap travels with the value into the temporary now. It
+  fixed 13 of the 14 Rust shape tests, which were failing on this one cause.
+
+- **A program may name a class `Cell`.** The Rust preamble imported
+  `std::cell::Cell` into every generated program, so a class of that name
+  collided with it — "the name `Cell` is defined multiple times" — and every
+  later mention resolved to the std type instead, with `value` suddenly a
+  private field and a missing generic argument. The std type is spelled in full
+  at its two use sites now, as the pool header already did with `UnsafeCell`,
+  so nothing is brought into scope to be shadowed. It also drops an unused
+  import from every generated program that has no interior cell at all — the
+  `evg-trace` Rust build now compiles with no warnings rather than one.
+
 - **`evg-trace` builds for Rust.** The tracer's palette refinement is where the
   nested-call shape above came from, so `-l=rust` produced a program rustc
   rejected. `npm run evg:trace:cli:rust` now builds it, and the smoke test

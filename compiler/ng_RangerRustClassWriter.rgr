@@ -2146,7 +2146,7 @@ class RangerRustClassWriter {
     if p.rust_interior_cell {
       def cellNameN:CodeNode (unwrap p.nameNode)
       if (this.rustCellIsCopy(p)) {
-        wr.out("Cell<" false)
+        wr.out("std::cell::Cell<" false)
         this.writeTypeDef(cellNameN ctx wr)
         wr.out(">" false)
         return
@@ -7561,7 +7561,15 @@ class RangerRustClassWriter {
         header.out("use std::rc::Weak;" true)
       }
       header.out("use std::cell::RefCell;" true)
-      header.out("use std::cell::Cell;" true)
+      ; …but `Cell` is NOT imported. A program is free to declare a class of
+      ; its own by that name, and the import made the two collide — `struct
+      ; Cell` against `use std::cell::Cell` is "the name `Cell` is defined
+      ; multiple times", and every later mention resolved to the std type
+      ; instead ("field `value` is private", "missing generics"). The interior
+      ; cell spells the std type in full at its two use sites, as the pool
+      ; header already does with UnsafeCell, so nothing is brought into scope
+      ; to be shadowed. It also drops an unused-import warning from every
+      ; generated program that has no interior cell at all.
       header.out("" true)
       ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
       ; per member, each holding that member's cell. A `case` narrowing is then
@@ -8104,7 +8112,7 @@ class RangerRustClassWriter {
           wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
           if pvar.rust_interior_cell {
             if (this.rustCellIsCopy(pvar)) {
-              wr.out("Cell::new(" false)
+              wr.out("std::cell::Cell::new(" false)
             } {
               wr.out("RefCell::new(" false)
             }
@@ -10854,12 +10862,33 @@ class RangerRustClassWriter {
         preeval_name = (ctx.rustGetTempVar())
         wr.out((("let " + preeval_name) + " = ") false)
         ctx.setInExpr()
-        this.WalkNode(right ctx wr)
-        if should_clone_rhs {
-          if rhs_str_ref {
-            wr.out(".to_string()" false)
-          } {
-            wr.out(".clone()" false)
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value is wrapped
+        ; in its variant — and when the right side goes to a temporary, the
+        ; WRAP goes with it. The assignment below has only `= <name>` left to
+        ; write, so a temporary holding the bare member is stored into a slot
+        ; of the family type: "expected `union_EvalValue`, found
+        ; `EvalValue_Map`". `body = (new EvalValue.Map(…))` inside a
+        ; receiverless method is the shape that showed it.
+        ; The guards mirror the non-preeval site below exactly — it wraps only
+        ; on the non-optional path — so this changes where the wrap is written,
+        ; never whether one is.
+        def preevalWroteUnion:boolean false
+        if (is_optional == false) {
+          preevalWroteUnion = (this.rustWriteUnionValue(field_type_name right ctx wr))
+          if preevalWroteUnion {
+            if rhs_is_optional {
+              wr.out(".unwrap()" false)
+            }
+          }
+        }
+        if (preevalWroteUnion == false) {
+          this.WalkNode(right ctx wr)
+          if should_clone_rhs {
+            if rhs_str_ref {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
           }
         }
         ctx.unsetInExpr()
