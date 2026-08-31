@@ -22,7 +22,15 @@
  *
  *   apt install potrace                 # the mono reference (also Inkscape's engine)
  *   npm i --no-save imagetracerjs       # colour, pure JS
+ *   npm i --no-save potrace             # Inkscape's multi-scan, as a JS port
  *   cargo install vtracer-cli           # colour, or point VTRACER at a binary
+ *   build autotrace and set AUTOTRACE   # colour, the other classic
+ *
+ * Inkscape is not run directly and does not need to be: its Trace Bitmap is
+ * potrace, and 1.2 exposes no trace action to a command line (`--action-list`
+ * has none), so it cannot be scripted anyway. The `potrace posterize` row is
+ * the same algorithm its Multiple Scans mode uses — potrace over N brightness
+ * layers, stacked — through the npm port.
  *
  * Chromium comes from Playwright; PLAYWRIGHT_CHROMIUM may point at another one.
  *
@@ -190,6 +198,41 @@ if (VT) {
     catch { console.log(`  skip ${name} (vtracer refused these options)`); }
   }
 } else console.log("  skip vtracer (not installed — cargo install vtracer-cli)");
+
+const AT = process.env.AUTOTRACE || (has("autotrace") ? "autotrace" : null);
+if (AT) {
+  // More colours make autotrace worse here, not better, and its despeckle is
+  // worth more than either — both were swept before these were picked.
+  for (const [name, extra] of [["autotrace c8", []],
+                               ["autotrace c8 despeckled", ["-despeckle-level", "4"]],
+                               ["autotrace c4", ["-color-count", "4"]]]) {
+    const f = path.join(OUT, name.replace(/\W+/g, "_") + ".svg");
+    const args = ["-input-format", path.extname(SRC).slice(1), "-output-format", "svg",
+                  "-color-count", "8", ...extra, "-output-file", f, SRC];
+    const t0 = performance.now();
+    try { execFileSync(AT, args, { stdio: "ignore" }); record(name, f, Math.round(performance.now() - t0)); }
+    catch { console.log(`  skip ${name} (autotrace refused this input)`); }
+  }
+} else console.log("  skip autotrace (not installed — set AUTOTRACE to a built binary)");
+
+// Inkscape's Multiple Scans is potrace over N brightness layers. It is slow
+// enough that the step count has to be kept low: 4 steps is seconds, 8 did not
+// finish in seven minutes here.
+if (hasModule("potrace")) {
+  const potrace = require("potrace");
+  for (const steps of [4]) {
+    const f = path.join(OUT, `potrace_posterize${steps}.svg`);
+    const t0 = performance.now();
+    try {
+      const svg = await new Promise((res, rej) => {
+        const timer = setTimeout(() => rej(new Error("timeout")), 120000);
+        potrace.posterize(SRC, { steps }, (e, v) => { clearTimeout(timer); e ? rej(e) : res(v); });
+      });
+      fs.writeFileSync(f, svg);
+      record(`potrace posterize ${steps} (Inkscape)`, f, Math.round(performance.now() - t0));
+    } catch (e) { console.log(`  skip potrace posterize ${steps} (${e.message})`); }
+  }
+} else console.log("  skip potrace posterize (npm i --no-save potrace)");
 
 if (hasModule("imagetracerjs")) {
   const ImageTracer = require("imagetracerjs");

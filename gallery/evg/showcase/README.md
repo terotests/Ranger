@@ -71,10 +71,15 @@ Because it is Ranger, that file can be any of them:
 | Rust | `npm run evg:trace:cli:rust` → one `.rs`, then `rustc` | ~0.21 s |
 
 `npm run evg:trace:bench:others` scores the tracer against the other
-open-source ones — [potrace](https://potrace.sourceforge.net/) (also Inkscape's
-engine), [vtracer](https://github.com/visioncortex/vtracer) and
-[ImageTracerJS](https://github.com/jankovicsandras/imagetracerjs) — on the same
-image and by the same measure. Wall-clock alone says nothing about a tracer and
+open-source ones — [potrace](https://potrace.sourceforge.net/),
+[vtracer](https://github.com/visioncortex/vtracer),
+[ImageTracerJS](https://github.com/jankovicsandras/imagetracerjs) and
+[autotrace](https://github.com/autotrace/autotrace) — on the same image and by
+the same measure. Inkscape is not among them because it cannot be: its Trace
+Bitmap is potrace, and 1.2 exposes no trace action to a command line, so the
+`potrace posterize` row stands in for its Multiple Scans — the same algorithm
+through the npm port. That row is greyscale, as Inkscape's brightness-steps
+mode is; its Colors mode has no headless equivalent. Wall-clock alone says nothing about a tracer and
 neither does file size, since one that drops half the picture is fast and small,
 so each SVG is rasterized back with Chromium and compared to the source it came
 from. Every competitor is optional and skipped when absent. The mono half of it
