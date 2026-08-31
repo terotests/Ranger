@@ -209,7 +209,7 @@ const STATES = [
     // `aria-current` takes a value from a fixed list, and that a link whose
     // whole content is a glyph is a link with nothing to say.
     name: "dashboard — the sidebar, the chart and a virtual table",
-    size: [1336, 1420],
+    size: [1336, 900],
     lint: () => {
       dashboard.displayListJson();
       return dashboard.a11yProblems();

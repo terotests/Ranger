@@ -228,7 +228,29 @@ class EVGElement {
     def isInline:boolean false
     def lineBreak:boolean false
     def overflow:string "visible"
-    
+
+    ; --- SCROLLING ------------------------------------------------------------
+    ;
+    ; How far the content inside this element is pushed up and left. Set by the
+    ; APPLICATION, not by a stylesheet — a scroll position is state, and the
+    ; sheet has no business owning it — and clamped by the layout to what there
+    ; actually is to scroll, the way a browser clamps `scrollTop`.
+    def scrollTop:double 0.0
+    def scrollLeft:double 0.0
+    ; How big the content turned out to be, written by the layout. These are
+    ; the numbers a scrollbar is sized from and the reason a scroll container
+    ; is not the same thing as a clipped box: a clipped box throws the overflow
+    ; away, a scroll container remembers how much of it there was.
+    ;
+    ; Measured the way the DOM measures them, PADDING BOX and not content box:
+    ; eight 60-pixel rows in a box with 10 of padding gives 500, not 480. The
+    ; two definitions produce the same `maxScrollTop` — the paddings cancel —
+    ; so this could have been either, and it is the browser's, because a number
+    ; that is only right after you subtract something is a number somebody
+    ; will forget to subtract.
+    def scrollWidth:double 0.0
+    def scrollHeight:double 0.0
+
     ; Typography (inherited)
     def fontSize:EVGUnit
     ; fontSize starts UNSET: an element is born without one so that "the author
@@ -802,6 +824,46 @@ class EVGElement {
     
     fn getChildCount:int () {
         return (array_length children)
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+    ;
+    ; A box that does not let its content out. `visible` is the only CSS value
+    ; that does not clip, and every other one — `hidden` included — makes a
+    ; SCROLL CONTAINER. That `hidden` scrolls is the part worth stating: it is
+    ; a container with no scrollbar, not a box that throws the overflow away,
+    ; and a program can scroll it even though a pointer cannot.
+    fn clipsContent:boolean () {
+        return (overflow != "visible")
+    }
+
+    ; The visible box, the DOM's `clientHeight`/`clientWidth`: everything
+    ; inside the border, padding included.
+    fn clientHeight:double () {
+        return (calculatedHeight - (box.borderWidthPx * 2.0))
+    }
+
+    fn clientWidth:double () {
+        return (calculatedWidth - (box.borderWidthPx * 2.0))
+    }
+
+    ; How far there is to go. Zero when the content fits, which is also the
+    ; answer for every element that is not a scroll container at all, because
+    ; the layout only ever writes an extent for one that is.
+    fn maxScrollTop:double () {
+        def m:double (scrollHeight - (this.clientHeight()))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    fn maxScrollLeft:double () {
+        def m:double (scrollWidth - (this.clientWidth()))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
     }
     
     fn getChild:EVGElement (index:int) {
@@ -1936,6 +1998,10 @@ class EVGElement {
         isInline = other.isInline
         lineBreak = other.lineBreak
         overflow = other.overflow
+        scrollTop = other.scrollTop
+        scrollLeft = other.scrollLeft
+        scrollWidth = other.scrollWidth
+        scrollHeight = other.scrollHeight
         fontSize = other.fontSize
         fontSizeInherited = other.fontSizeInherited
         fontSizeBase = other.fontSizeBase
@@ -2520,6 +2586,20 @@ class EVGElement {
         }
         if (name == "overflow") {
             overflow = value
+            return
+        }
+        ; The scroll POSITION is settable, because a demo restoring where it
+        ; was is setting state and not styling. The extents are not: they are
+        ; the layout's answer, and an author writing one would only be telling
+        ; the layout what it is about to work out for itself.
+        if ((name == "scroll-top") || (name == "scrollTop")) {
+            def st@(optional):double (to_double value)
+            scrollTop = (unwrap st)
+            return
+        }
+        if ((name == "scroll-left") || (name == "scrollLeft")) {
+            def sl@(optional):double (to_double value)
+            scrollLeft = (unwrap sl)
             return
         }
         

@@ -2310,10 +2310,83 @@ carry them at all. The dashboard is a state in the demo audit now, all 218
 nodes of it, and the gate has the narrower claim beside the old one: exactly
 one node on the page reports a row count.
 
+## A scrolling viewport, which is the thing that made the sidebar worth having
+
+The sidebar arrived on a 1420-pixel page, which is not a page — it is a
+document with nothing to scroll. A sidebar earns its keep when the content
+under it moves and it does not, and EVG could not do that: `overflow: hidden`
+CLIPPED, nothing scrolled, and the PLAN, `ScrollAreaCtl` and the virtualiser
+all said so in their own words.
+
+Worse than missing: actively wrong. A flex column with a definite height runs a
+shrink-to-fit pass over children that overflow it, which is the right answer
+for a box with nowhere to put the overflow and catastrophic for one that
+scrolls. That is the pass the virtualiser had to route around — a 230,000-pixel
+spacer became 414 and fourteen rows drew on one 46-pixel line.
+
+**The oracle is a browser, and it was worth asking.** Five questions, four of
+which only have an answer if you measure:
+
+- content in a scroll container is NOT shrunk — the rows stay 60 tall;
+- `scrollHeight` is the PADDING box: eight 60-pixel rows in a box with 10 of
+  padding is 500, not 480. The two definitions give the same `maxScrollTop`
+  because the paddings cancel, so either would have worked — and a number that
+  is only right after you subtract something is a number somebody will forget
+  to subtract;
+- children move by exactly the offset and the box does not move at all;
+- a `scrollTop` past either end is clamped SILENTLY, and reading the property
+  back gives the clamped value. A control that stores what it asked for and one
+  that stores what it got disagree with the screen forever after;
+- `elementFromPoint` does not answer with content that scrolled out of view.
+  EVG's hit test walked a flat paint-order list with no notion of a clip and
+  would have said the opposite: invisible and clickable at once.
+
+41 checks against `oracle/scroll.json`, and three mutations that each break a
+different one of those five. The implementation is four small things: extents
+and an offset on `EVGElement`, both shrink passes skipped when the parent
+clips, a subtree translation at the end of `layoutElement` (reusing the mover
+the RTL mirror already had — measure first, then move, or the extent becomes a
+function of the scroll position and the scrollbar changes size as you drag it),
+and `clipsContent()` replacing the `overflow == "hidden"` test in the display
+list.
+
+**Then the navigation.** Nine links, six builders — the four Documents links
+and More differ by what they list and by nothing else, so writing five
+near-identical page functions would have made them look different in the source
+and identical on the screen. Following a link starts the next page at the top,
+because the offset belonged to the page you left. Home, End, Page Up and Page
+Down reach the scroll region only as a FALLBACK: a Home while a range button
+has focus moves between range buttons, and the gate checks it both ways.
+
+**The scrollbar is drawn, not built**, and the comment says why: its thumb is a
+fraction of the content height, so it cannot be placed until after the layout
+that measures the content — an element would need a second pass. It is honest
+about the cost: an indicator, not a control, because there is no element to
+grab. The wheel, the keys and the sidebar do the scrolling.
+
+**Two things the gate could not see, and one of them was mine.**
+
+`tag Head` was already the table's `<thead>` when a page-header tag two hundred
+lines below was also called `Head`. The compiler said nothing, the later
+definition won, the table's head became a plain div — and the `rowgroup` went
+out of the accessible tree, taking the header row's grouping with it. The
+picture was identical. What noticed was a check that counts row groups, written
+for an unrelated reason weeks earlier. There is now a repo-wide check that no
+two tags in one `treefactory` share a name, because a duplicate is never
+intentional: the whole point of the name is to say which element you meant.
+
+And the chart is appended AFTER the tree walk — that is what puts it outside
+the element tree — so it is outside every clip the walk pushed, and has to be
+clipped by hand. Removing that clip failed nothing: the element tree was
+correct, the accessible tree was correct, and every command was where the chart
+wanted it. The gate walks the clip stack now, the way a renderer does, and asks
+what was in force for each of the chart's paths.
+
 **Still to come**: the reference's horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the
-sidebar collapse to icons; that is a width this page does not have.
+sidebar collapse to icons; that is a width this page does not have. And the
+scrollbar is not draggable yet.
 
 ## Resizable, and a reference that publishes an impossible range
 

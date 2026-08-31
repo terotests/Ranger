@@ -522,6 +522,176 @@ console.log("--- pressing a link moves the current page in BOTH vocabularies ---
   ok("pressing a menu is not pressing a link", d.press("db-menu-docs") === false);
 }
 
+console.log("--- the main region scrolls, and the sidebar does not ---");
+{
+  const d = fresh();
+  const scroll = one(d, "db-scroll").el;
+  const side = one(d, "db-side").el;
+  // The container has to be TALLER-CONTENTED than itself or there is nothing
+  // being tested. This is also the check that the layout stopped shrinking:
+  // before the scroll container existed, a column with a definite height
+  // squeezed its children until they fit and `scrollHeight` was the box.
+  ok("there is more content than viewport",
+    scroll.scrollHeight > scroll.clientHeight(),
+    scroll.scrollHeight + " vs " + scroll.clientHeight());
+  ok("so there is something to scroll", scroll.maxScrollTop() > 100,
+    "" + scroll.maxScrollTop());
+
+  const cardsY0 = one(d, "db-cards").el.calculatedY;
+  const sideY0 = side.calculatedY;
+  ok("scrolling down is a change", d.scrollBy(200));
+  d.displayListJson();
+  ok("the content moved by exactly that much",
+    Math.abs((cardsY0 - one(d, "db-cards").el.calculatedY) - 200) < 0.5,
+    (cardsY0 - one(d, "db-cards").el.calculatedY).toFixed(1));
+  // THE POINT OF A SIDEBAR. It is outside the scroll container, so it does not
+  // move — a navigation you have to scroll back up to reach is a navigation
+  // that is only there some of the time.
+  ok("and the sidebar did not", one(d, "db-side").el.calculatedY === sideY0);
+
+  // Clamped, like a browser: asking for more than there is gives the end, and
+  // the demo is told so rather than going on believing it asked for 9000.
+  d.scrollTo(9000);
+  const max = d.maxScroll();
+  ok("scrolling past the end lands on the end", Math.abs(d.scrollY - max) < 0.5,
+    d.scrollY + " vs " + max);
+  ok("and there is no room left", d.scrollBy(50) === false);
+  // Focus first, and it MATTERS which. Home while a range button has focus
+  // moves between range buttons and never reaches the page — the control that
+  // has focus gets the key, and the scroll region is the fallback for a key
+  // nothing else wanted. Proved both ways below.
+  d.setFocus("db-range-d90");
+  ok("Home goes to the range group while it has focus, not the page",
+    d.key("Home") === false || d.scrollY > 0, "" + d.scrollY);
+  d.scrollTo(max);
+  d.setFocus("db-quick");
+  ok("Home goes back to the top", d.key("Home") && d.scrollY === 0, "" + d.scrollY);
+  ok("End goes to the bottom", d.key("End") && Math.abs(d.scrollY - max) < 0.5,
+    "" + d.scrollY);
+  ok("Page Up from the bottom moves", d.key("PageUp") && d.scrollY < max,
+    "" + d.scrollY);
+  ok("Page Down brings it back", d.key("PageDown") && Math.abs(d.scrollY - max) < 0.5,
+    "" + d.scrollY);
+
+  // What is scrolled out of sight is not under the pointer. The whole page is
+  // 1336 wide and the region starts at 256; a point near the top of it, after
+  // scrolling, must not answer with a card that is now above the viewport.
+  d.scrollTo(0);
+  d.displayListJson();
+  const cards = one(d, "db-cards").el;
+  const probeY = cards.calculatedY + 10;
+  const insideBefore = d.hitId(600, probeY);
+  d.scrollTo(400);
+  d.displayListJson();
+  const insideAfter = d.hitId(600, probeY);
+  ok("the same point had a card under it before the scroll",
+    insideBefore.startsWith("db-"), insideBefore);
+  ok("and something else after it", insideAfter !== insideBefore,
+    insideBefore + " -> " + insideAfter);
+}
+
+console.log("--- the sidebar navigates ---");
+{
+  const PAGES = ["dashboard", "analytics", "lifecycle", "projects", "team",
+    "library", "reports", "assistant", "more"];
+  const titleOf = (d) => {
+    const t = one(d, "db-head-title");
+    return t ? t.el.textContent : "(the dashboard, which has no page title)";
+  };
+  const d = fresh();
+  // Every link leads somewhere, every somewhere is a different somewhere, and
+  // the tree it produces has no lint against it. Nine links and six builders
+  // is a claim that has to hold for all nine.
+  const seen = new Set();
+  for (const p of PAGES) {
+    d.press("db-nav-" + p);
+    d.displayListJson();
+    const t = titleOf(d);
+    ok(`${p}: has content of its own`, !seen.has(t), t);
+    seen.add(t);
+    ok(`${p}: no lint`, d.a11yProblems().length === 0, d.a11yProblems().join("; "));
+    // The whole-tree sweep, on every page and not only the first — a view
+    // nobody rendered is a view nobody checked.
+    const bad = [];
+    const walk = (el) => {
+      const clips = el.overflow === "hidden";
+      for (const k of el.children) {
+        if (k.position !== "absolute") {
+          if (k.calculatedX + k.calculatedWidth > el.calculatedX + el.calculatedWidth + 0.5)
+            bad.push("wide: " + (k.className || "?"));
+          if (!clips && k.calculatedY + k.calculatedHeight > el.calculatedY + el.calculatedHeight + 0.5)
+            bad.push("tall: " + (k.className || "?"));
+        }
+        walk(k);
+      }
+    };
+    walk(d.root);
+    ok(`${p}: nothing leaks out of its container`, bad.length === 0, bad.join("; "));
+  }
+
+  // Following a link puts you at the TOP of what you followed it to.
+  const e = fresh();
+  e.scrollTo(300);
+  ok("scrolled down the dashboard", e.scrollY > 0, "" + e.scrollY);
+  e.press("db-nav-analytics");
+  ok("and following a link starts the next page at the top", e.scrollY === 0,
+    "" + e.scrollY);
+
+  // The chart is on two pages now, so the emit is not tied to the dashboard.
+  // Counted in the LIST, not by asking the spec how many commands it would
+  // make: `chartCommandCount` runs Vela on its own and would answer the same
+  // number on a page with no chart on it at all.
+  const f = fresh();
+  f.press("db-nav-analytics");
+  ok("the chart is drawn on Analytics too", chartCmds(f).length > 10,
+    "" + chartCmds(f).length);
+  f.press("db-nav-team");
+  ok("and not on a page without one", chartCmds(f).length === 0,
+    "" + chartCmds(f).length);
+}
+
+console.log("--- the chart is inside the scroll region's clip ---");
+{
+  // The chart is appended AFTER the tree walk — that is what puts it outside
+  // the element tree — so it is also outside every clip the walk pushed and
+  // popped, and it has to be clipped by hand. Scrolled up, an unclipped chart
+  // draws straight across the sidebar, and nothing else in this file would
+  // notice: the element tree is correct, the a11y tree is correct, and the
+  // commands are all where the chart wanted them.
+  const d = fresh();
+  d.scrollTo(300);
+  const scroll = one(d, "db-scroll").el;
+  const list = JSON.parse(d.displayListJson());
+  // Walk the list keeping the clip stack, the way a renderer does, and ask
+  // what was in force for each of the chart's path commands.
+  const stack = [];
+  let unclipped = 0;
+  let outside = 0;
+  let paths = 0;
+  for (const c of list.cmds) {
+    if (c.k === 4) { stack.push(c); continue; }
+    if (c.k === 5) { stack.pop(); continue; }
+    if (c.pts === undefined) continue;
+    paths++;
+    const clip = stack[stack.length - 1];
+    if (!clip) { unclipped++; continue; }
+    if (clip.y < scroll.calculatedY - 0.5 ||
+        clip.y + clip.h > scroll.calculatedY + scroll.calculatedHeight + 0.5 ||
+        clip.x < scroll.calculatedX - 0.5 ||
+        clip.x + clip.w > scroll.calculatedX + scroll.calculatedWidth + 0.5) outside++;
+  }
+  ok("the scrolled page still draws a chart", paths > 10, "" + paths);
+  ok("every one of its commands is under a clip", unclipped === 0, "" + unclipped);
+  ok("and that clip is no bigger than the scroll region", outside === 0, "" + outside);
+  // And the geometry really does run past the top edge, or the two checks
+  // above would hold on a chart that happened to fit.
+  const above = chartCmds(d).some((c) => {
+    for (let i = 1; i < c.pts.length; i += 2) if (c.pts[i] < scroll.calculatedY) return true;
+    return false;
+  });
+  ok("with geometry above the top edge to clip", above);
+}
+
 console.log("--- what a reader is told about a carried row ---");
 {
   const d = fresh();

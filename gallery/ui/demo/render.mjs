@@ -48,7 +48,7 @@ const DEMOS = {
     module: "gallery/ui/bin/DashboardDemo.cjs",
     css: "dashboard.css",
     width: 1336,
-    height: 1420,
+    height: 900,
     list: (M, css) => {
       const d = new M.DashboardDemo();
       d.init(css);
@@ -56,6 +56,10 @@ const DEMOS = {
       if (r) d.selectRange(r);
       const sc = process.env.DASH_SCROLL;
       if (sc) { d.virt.scrollTo(Number(sc)); d.rebuild(); }
+      const nav = process.env.DASH_NAV;
+      if (nav) d.press("db-nav-" + nav);
+      const py = process.env.DASH_PAGE_SCROLL;
+      if (py) d.scrollTo(Number(py));
       return d.displayListJson();
     },
     errors: (M, css) => {

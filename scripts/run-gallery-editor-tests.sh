@@ -46,6 +46,8 @@ SUITES=(
   evg:stylecache:test
   evg:invalidate:test
   evg:adopt:check
+  evg:scroll:check
+  evg:tags:check
   ui:sortable:motion
   ui:table:check
   ui:virtual:check

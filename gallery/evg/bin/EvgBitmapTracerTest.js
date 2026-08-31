@@ -4293,6 +4293,10 @@ class EVGElement  {
     this.isInline = false;
     this.lineBreak = false;
     this.overflow = "visible";
+    this.scrollTop = 0.0;
+    this.scrollLeft = 0.0;
+    this.scrollWidth = 0.0;
+    this.scrollHeight = 0.0;
     this.fontSizeInherited = false;
     this.fontSizeBase = 14.0;
     this.rootFontSize = 14.0;
@@ -4478,6 +4482,29 @@ class EVGElement  {
   };
   getChildCount () {
     return this.children.length;
+  };
+  clipsContent () {
+    return this.overflow != "visible";
+  };
+  clientHeight () {
+    return this.calculatedHeight - (this.box.borderWidthPx * 2.0);
+  };
+  clientWidth () {
+    return this.calculatedWidth - (this.box.borderWidthPx * 2.0);
+  };
+  maxScrollTop () {
+    const m = this.scrollHeight - this.clientHeight();
+    if ( m < 0.0 ) {
+      return 0.0;
+    }
+    return m;
+  };
+  maxScrollLeft () {
+    const m = this.scrollWidth - this.clientWidth();
+    if ( m < 0.0 ) {
+      return 0.0;
+    }
+    return m;
   };
   getChild (index) {
     return this.children[index];
@@ -4924,6 +4951,10 @@ class EVGElement  {
     this.isInline = other.isInline;
     this.lineBreak = other.lineBreak;
     this.overflow = other.overflow;
+    this.scrollTop = other.scrollTop;
+    this.scrollLeft = other.scrollLeft;
+    this.scrollWidth = other.scrollWidth;
+    this.scrollHeight = other.scrollHeight;
     this.fontSize = other.fontSize;
     this.fontSizeInherited = other.fontSizeInherited;
     this.fontSizeBase = other.fontSizeBase;
@@ -5456,6 +5487,16 @@ class EVGElement  {
     }
     if ( name == "overflow" ) {
       this.overflow = value;
+      return;
+    }
+    if ( (name == "scroll-top") || (name == "scrollTop") ) {
+      const st = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.scrollTop = st;
+      return;
+    }
+    if ( (name == "scroll-left") || (name == "scrollLeft") ) {
+      const sl = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.scrollLeft = sl;
       return;
     }
     if ( name == "display" ) {

@@ -1446,6 +1446,10 @@ class EVGElement  {
     this.isInline = false;
     this.lineBreak = false;
     this.overflow = "visible";
+    this.scrollTop = 0.0;
+    this.scrollLeft = 0.0;
+    this.scrollWidth = 0.0;
+    this.scrollHeight = 0.0;
     this.fontSizeInherited = false;
     this.fontSizeBase = 14.0;
     this.rootFontSize = 14.0;
@@ -1631,6 +1635,29 @@ class EVGElement  {
   };
   getChildCount () {
     return this.children.length;
+  };
+  clipsContent () {
+    return this.overflow != "visible";
+  };
+  clientHeight () {
+    return this.calculatedHeight - (this.box.borderWidthPx * 2.0);
+  };
+  clientWidth () {
+    return this.calculatedWidth - (this.box.borderWidthPx * 2.0);
+  };
+  maxScrollTop () {
+    const m = this.scrollHeight - this.clientHeight();
+    if ( m < 0.0 ) {
+      return 0.0;
+    }
+    return m;
+  };
+  maxScrollLeft () {
+    const m = this.scrollWidth - this.clientWidth();
+    if ( m < 0.0 ) {
+      return 0.0;
+    }
+    return m;
   };
   getChild (index) {
     return this.children[index];
@@ -2077,6 +2104,10 @@ class EVGElement  {
     this.isInline = other.isInline;
     this.lineBreak = other.lineBreak;
     this.overflow = other.overflow;
+    this.scrollTop = other.scrollTop;
+    this.scrollLeft = other.scrollLeft;
+    this.scrollWidth = other.scrollWidth;
+    this.scrollHeight = other.scrollHeight;
     this.fontSize = other.fontSize;
     this.fontSizeInherited = other.fontSizeInherited;
     this.fontSizeBase = other.fontSizeBase;
@@ -2609,6 +2640,16 @@ class EVGElement  {
     }
     if ( name == "overflow" ) {
       this.overflow = value;
+      return;
+    }
+    if ( (name == "scroll-top") || (name == "scrollTop") ) {
+      const st = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.scrollTop = st;
+      return;
+    }
+    if ( (name == "scroll-left") || (name == "scrollLeft") ) {
+      const sl = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.scrollLeft = sl;
       return;
     }
     if ( name == "display" ) {
@@ -6590,7 +6631,53 @@ class EVGLayout  {
     if ( (element.hasBaseline == false) && (childCount > 0) ) {
       this.inheritBaselineFromFirstChild(element);
     }
+    if ( element.clipsContent() ) {
+      this.applyScroll(element);
+    }
     this.log((((((((((("  Laid out " + element.tagName) + " id=") + element.id) + " at (") + ((element.calculatedX.toString()))) + ",") + ((element.calculatedY.toString()))) + ") size=") + ((width.toString()))) + "x") + ((height.toString())));
+  };
+  applyScroll (el) {
+    const innerX = (el.calculatedX + el.box.borderWidthPx) + el.box.paddingLeftPx;
+    const innerY = (el.calculatedY + el.box.borderWidthPx) + el.box.paddingTopPx;
+    let w = 0.0;
+    let h = 0.0;
+    let i = 0;
+    while (i < el.getChildCount()) {
+      const kid = el.getChild(i);
+      const right = (kid.calculatedX + kid.calculatedWidth) - innerX;
+      const bottom = (kid.calculatedY + kid.calculatedHeight) - innerY;
+      if ( right > w ) {
+        w = right;
+      }
+      if ( bottom > h ) {
+        h = bottom;
+      }
+      i = i + 1;
+    };
+    el.scrollWidth = (w + el.box.paddingLeftPx) + el.box.paddingRightPx;
+    el.scrollHeight = (h + el.box.paddingTopPx) + el.box.paddingBottomPx;
+    const maxY = el.maxScrollTop();
+    if ( el.scrollTop > maxY ) {
+      el.scrollTop = maxY;
+    }
+    if ( el.scrollTop < 0.0 ) {
+      el.scrollTop = 0.0;
+    }
+    const maxX = el.maxScrollLeft();
+    if ( el.scrollLeft > maxX ) {
+      el.scrollLeft = maxX;
+    }
+    if ( el.scrollLeft < 0.0 ) {
+      el.scrollLeft = 0.0;
+    }
+    if ( (el.scrollTop == 0.0) && (el.scrollLeft == 0.0) ) {
+      return;
+    }
+    let j = 0;
+    while (j < el.getChildCount()) {
+      this.translateSubtree(el.getChild(j), 0.0 - el.scrollLeft, 0.0 - el.scrollTop);
+      j = j + 1;
+    };
   };
   layoutChildren (parent) {
     const childCount = parent.getChildCount();
@@ -6767,7 +6854,10 @@ class EVGLayout  {
         };
       } else {
         const contentH = fixedHeight + gapTotalC;
-        const overflowH = contentH - innerHeight;
+        let overflowH = contentH - innerHeight;
+        if ( parent.clipsContent() ) {
+          overflowH = 0.0;
+        }
         if ( (overflowH > 0.0) && (fixedHeight > 0.0) ) {
           let weightedH = 0.0;
           let jq = 0;
@@ -6822,7 +6912,10 @@ class EVGLayout  {
           gapTotal2 = ((flowCount2 - 1)) * gapPx;
         }
         const contentW2 = fixedW2 + gapTotal2;
-        const overflowW = contentW2 - innerWidth;
+        let overflowW = contentW2 - innerWidth;
+        if ( parent.clipsContent() ) {
+          overflowW = 0.0;
+        }
         if ( ((totalFlex2 == 0.0) && (overflowW > 0.0)) && (fixedW2 > 0.0) ) {
           let weightedW = 0.0;
           let jz = 0;
@@ -11712,7 +11805,7 @@ class EVGDisplayList  {
         li = li + 1;
       };
     }
-    const clips = el.overflow == "hidden";
+    const clips = el.clipsContent();
     if ( clips ) {
       const cp = new EVGDrawCmd();
       cp.kind = 4;

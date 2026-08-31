@@ -68,12 +68,29 @@
 ; cannot be told different stories — and the inbox button carries the name its
 ; envelope glyph does not.
 ;
+; --- AND THE PAGE SCROLLS -----------------------------------------------------
+;
+; `pageH` is a VIEWPORT now. The sidebar is outside the scroll container and
+; stands still; everything else is inside one and moves, which is the whole
+; reason a sidebar is worth having — a navigation you have to scroll back up to
+; reach is a navigation that is only there some of the time.
+;
+; EVG could not do this until this page needed it: `overflow: hidden` clipped
+; and nothing scrolled, and a flex column with a definite height SHRANK
+; children that overflowed it. See `oracle/scroll_check.mjs` for the browser
+; behaviour that decides all of it.
+;
+; The nine links lead to six builders. The four Documents links and More differ
+; by WHAT THEY LIST and by nothing else, so they share one — five near-identical
+; page functions would have looked different here and identical on the screen.
+;
 ; --- WHAT IS NOT HERE YET ----------------------------------------------------
 ;
 ; The reference's horizontal scroll, which it has because its sidebar takes the
 ; width — this table is sized to its card instead, so there is nothing to
-; scroll and no scroll container to get wrong. And the sidebar does not
-; collapse to icons; that is a width the page does not have.
+; scroll and no scroll container to get wrong. The sidebar does not collapse to
+; icons; that is a width the page does not have. And the scrollbar is an
+; indicator rather than a control — see `displayListJson`.
 ; =============================================================================
 
 Import "../src/RadioGroupCtl.rgr"
@@ -217,6 +234,49 @@ treefactory Db {
     tag UserTx   EVGElement (props (className "db-user-text"))
     tag UserName EVGElement (props (className "db-user-name") (elementType 1))
     tag UserMail EVGElement (props (className "db-user-mail") (elementType 1))
+
+    ; --- the scrolling main region --------------------------------------------
+    ; A real scroll container: `overflow: hidden` with a definite height, which
+    ; in EVG is now a box whose content keeps its own size and is moved rather
+    ; than squeezed. Its `scrollTop` is set from `scrollY` before the layout and
+    ; read back after, because the layout is the only thing that knows how far
+    ; there is to go.
+    tag Scroll   EVGElement (props (className "db-scroll") (role "region") (a11yLabel "Main content"))
+    ; The bar is DRAWN, not built: see `displayListJson`.
+    ;
+    ; --- the views ------------------------------------------------------------
+    tag View     EVGElement (props (className "db-view"))
+    ; NOT `Head`. That name was already the table's `<thead>` — a second `tag
+    ; Head` two hundred lines further down silently won, the table's head
+    ; became a plain div, and the rowgroup it had been went out of the
+    ; accessible tree with it. The picture was identical; a gate that counts
+    ; row groups is what noticed.
+    tag ViewHd   EVGElement (props (className "db-head"))
+    tag ViewTx   EVGElement (props (className "db-head-title") (elementType 1) (role "heading") (a11yLevel 1))
+    tag ViewSub  EVGElement (props (className "db-head-sub") (elementType 1))
+
+    tag Panel    EVGElement (props (className "db-panel"))
+    tag PanelHd  EVGElement (props (className "db-panel-head"))
+    tag PanelTx  EVGElement (props (className "db-panel-title") (elementType 1) (role "heading") (a11yLevel 2))
+    tag PanelSub EVGElement (props (className "db-panel-sub") (elementType 1))
+    tag PanelBd  EVGElement (props (className "db-panel-body") (role "list"))
+
+    tag Item     EVGElement (props (className "db-item") (role "listitem"))
+    tag ItemMark EVGElement (props (className "db-item-mark"))
+    tag ItemMkTx EVGElement (props (className "db-item-mark-text") (elementType 1))
+    tag ItemTx   EVGElement (props (className "db-item-text"))
+    tag ItemName EVGElement (props (className "db-item-name") (elementType 1))
+    tag ItemSub  EVGElement (props (className "db-item-sub") (elementType 1))
+    tag ItemTag  EVGElement (props (className "db-item-tag"))
+    tag ItemTagT EVGElement (props (className "db-item-tag-text") (elementType 1))
+
+    tag Grid     EVGElement (props (className "db-grid") (role "list"))
+    tag Tile     EVGElement (props (className "db-tile") (role "listitem"))
+    tag TileTx   EVGElement (props (className "db-tile-title") (elementType 1))
+    tag TileSub  EVGElement (props (className "db-tile-sub") (elementType 1))
+    tag Bar      EVGElement (props (className "db-bar"))
+    tag BarFill  EVGElement (props (className "db-bar-fill"))
+    tag BarTx    EVGElement (props (className "db-bar-text") (elementType 1))
 }
 
 ; One of the four figures across the top.
@@ -251,6 +311,11 @@ class DashboardDemo {
     def virt:VirtualCtl (new VirtualCtl())
     ; What a row is about, keyed the way the records are — the badge columns
     ; are not strings the table sorts on, they are pictures of one.
+    ; What the Documents pages list. One table of data behind four links —
+    ; see `documentsView`.
+    def docTitles:[string]
+    def docKinds:[string]
+    def docWhen:[string]
     def sectionOf:[string]
     def statusOf:[string]
     def reviewerOf:[string]
@@ -271,7 +336,14 @@ class DashboardDemo {
     ; keeps its 1032 and the chart keeps its 994 — and every measured label
     ; position under it is the number it already was.
     def pageW:double 1336.0
-    def pageH:double 1420.0
+    ; A VIEWPORT height now, not a document height. The dashboard's own content
+    ; is about 1370 tall and the page is 900, which is the whole point: the
+    ; sidebar stands still and the content moves under it.
+    def pageH:double 900.0
+    ; How far the main region is scrolled. Written here, applied to the element
+    ; before the layout runs and read back after — the layout clamps it, and it
+    ; is the only thing that knows what to clamp it to.
+    def scrollY:double 0.0
     ; The chart's drawn size. ONE owner: the spec is built from these numbers
     ; and the placeholder box is set to them inline, so the box the layout
     ; reserves and the picture Vela computes cannot disagree.
@@ -416,6 +488,14 @@ class DashboardDemo {
             "Steady performance increase" "Meets growth projections")
 
         this.buildTable()
+        this.addDoc("Q3 revenue extract" "Dataset" "Updated 2 days ago")
+        this.addDoc("Churn cohort 2025" "Dataset" "Updated 6 days ago")
+        this.addDoc("Support volume by week" "Dataset" "Updated 3 weeks ago")
+        this.addDoc("Quarterly business review" "Report" "Generated 1 day ago")
+        this.addDoc("Pipeline forecast" "Report" "Generated 5 days ago")
+        this.addDoc("Renewal risk" "Report" "Generated 2 weeks ago")
+        this.addDoc("Cover letter, EMR bid" "Draft" "Written 4 hours ago")
+        this.addDoc("Executive summary, v3" "Draft" "Written yesterday")
 
         ; A RADIO GROUP, not a toggle group. The two differ in one measured
         ; way: clicking the selected item of a toggle group DESELECTS it, and
@@ -442,6 +522,12 @@ class DashboardDemo {
     }
 
     ; --- the table's data -----------------------------------------------------
+
+    fn addDoc:void (title:string kind:string when:string) {
+        push docTitles title
+        push docKinds kind
+        push docWhen when
+    }
 
     fn addSection:void (key:string header:string section:string status:string target:string limit:string reviewer:string) {
         def cells:[string]
@@ -1079,13 +1165,171 @@ class DashboardDemo {
         return card
     }
 
-    fn pageBody:EVGElement () {
-        def page (tree Db (Page (props (id "page"))))
-        page.addChild((this.sidebar()))
-        page.addChild((tree Db (SideEdge)))
-        def content (tree Db (Content (props (id "db-content"))))
-        def main (tree Db (Main (props (id "db-main"))))
+    ; --- the views ------------------------------------------------------------
+    ;
+    ; Nine links and six builders, which is a claim and not a shortcut: the
+    ; four Documents links and More differ by WHAT THEY LIST and by nothing
+    ; else, so they share a builder and are told apart by an argument. Writing
+    ; five near-identical page functions would have made them look different in
+    ; the source and identical on the screen, which is the wrong way round.
 
+    ; The page's h1 and a panel's h2 both need an ID. Without one the a11y
+    ; builder invents `<nearest ancestor with an id>/heading@0` for each, and
+    ; two headings whose nearest identified ancestor is the same scroll region
+    ; get the SAME invented id — a duplicate the lint catches and a screen
+    ; reader would have no way to tell apart.
+    fn headOf:EVGElement (title:string sub:string) {
+        def h (tree Db (ViewHd))
+        def t:EVGElement (tree Db (ViewTx title))
+        t.id = "db-head-title"
+        h.addChild(t)
+        h.addChild((tree Db (ViewSub sub)))
+        return h
+    }
+
+    ; One row of a panel: a mark, a name over a note, and a chip at the end.
+    fn itemOf:EVGElement (mark:string name:string sub:string tagText:string) {
+        def it (tree Db (Item))
+        def mk (tree Db (ItemMark))
+        mk.addChild((tree Db (ItemMkTx mark)))
+        it.addChild(mk)
+        def tx (tree Db (ItemTx))
+        tx.addChild((tree Db (ItemName name)))
+        tx.addChild((tree Db (ItemSub sub)))
+        it.addChild(tx)
+        it.addChild((tree Db (Spacer)))
+        if ((strlen tagText) > 0) {
+            def tg (tree Db (ItemTag))
+            tg.addChild((tree Db (ItemTagT tagText)))
+            it.addChild(tg)
+        }
+        return it
+    }
+
+    fn panelOf:EVGElement (pid:string title:string sub:string) {
+        def p (tree Db (Panel (props (id pid))))
+        def hd (tree Db (PanelHd))
+        def pt:EVGElement (tree Db (PanelTx title))
+        pt.id = (pid + "-title")
+        hd.addChild(pt)
+        if ((strlen sub) > 0) {
+            hd.addChild((tree Db (PanelSub sub)))
+        }
+        p.addChild(hd)
+        p.addChild((tree Db (PanelBd (props (id (pid + "-list")) (a11yLabel title)))))
+        return p
+    }
+
+    fn panelBody:EVGElement (panel:EVGElement) {
+        return (itemAt panel.children 1)
+    }
+
+    fn analyticsView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Analytics" "Traffic and conversion, last 90 days")))
+        v.addChild((this.cardRow()))
+        v.addChild((this.chartCard()))
+        def p:EVGElement (this.panelOf("db-top" "Top pages" "By visitors"))
+        def b:EVGElement (this.panelBody(p))
+        b.addChild((this.itemOf("1" "/pricing" "12,480 visitors" "+18%")))
+        b.addChild((this.itemOf("2" "/docs/getting-started" "9,120 visitors" "+7%")))
+        b.addChild((this.itemOf("3" "/changelog" "6,004 visitors" "-3%")))
+        b.addChild((this.itemOf("4" "/blog/why-we-measure" "4,870 visitors" "+41%")))
+        v.addChild(p)
+        return v
+    }
+
+    fn lifecycleView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Lifecycle" "Where every proposal is in the process")))
+        def p:EVGElement (this.panelOf("db-stages" "Stages" "Six, in order"))
+        def b:EVGElement (this.panelBody(p))
+        b.addChild((this.itemOf("1" "Intake" "12 in this stage" "Done")))
+        b.addChild((this.itemOf("2" "Qualification" "8 in this stage" "Done")))
+        b.addChild((this.itemOf("3" "Drafting" "21 in this stage" "Active")))
+        b.addChild((this.itemOf("4" "Internal review" "5 in this stage" "Active")))
+        b.addChild((this.itemOf("5" "Client review" "3 in this stage" "Waiting")))
+        b.addChild((this.itemOf("6" "Signed" "17 in this stage" "Done")))
+        v.addChild(p)
+        return v
+    }
+
+    fn projectsView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Projects" "Six running, two of them behind")))
+        def g (tree Db (Grid (props (id "db-projects") (a11yLabel "Projects"))))
+        g.addChild((this.tileOf("Migration" "Platform" 82)))
+        g.addChild((this.tileOf("Cover redesign" "Design" 45)))
+        g.addChild((this.tileOf("Quarterly report" "Finance" 96)))
+        g.addChild((this.tileOf("Onboarding rewrite" "Docs" 30)))
+        g.addChild((this.tileOf("EMR integration" "Platform" 61)))
+        g.addChild((this.tileOf("Field research" "Research" 12)))
+        v.addChild(g)
+        return v
+    }
+
+    fn tileOf:EVGElement (title:string kind:string pct:int) {
+        def t (tree Db (Tile (props (a11yLabel ((((title + ", ") + kind) + ", ") + ((to_string pct) + "% complete"))))))
+        ; Three across, in pixels rather than thirds. 33.33% of 1032 is 344 and
+        ; three of those plus two 16-pixel gaps is 1064 — the row wraps to two
+        ; and the grid looks like a bug. A percentage is a share of the parent
+        ; and knows nothing about the gaps between its siblings.
+        t.width = (EVGUnit.px(333.0))
+        t.addChild((tree Db (TileTx title)))
+        t.addChild((tree Db (TileSub kind)))
+        def bar (tree Db (Bar))
+        def fill (tree Db (BarFill))
+        fill.width = (EVGUnit.percent((to_double pct)))
+        bar.addChild(fill)
+        t.addChild(bar)
+        t.addChild((tree Db (BarTx ((to_string pct) + "% complete"))))
+        return t
+    }
+
+    fn teamView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Team" "Six people, and who reviews what")))
+        def p:EVGElement (this.panelOf("db-people" "People" ""))
+        def b:EVGElement (this.panelBody(p))
+        b.addChild((this.itemOf("EL" "Eddie Lake" "eddie@example.com" "Reviewer")))
+        b.addChild((this.itemOf("JT" "Jamik Tashpulatov" "jamik@example.com" "Reviewer")))
+        b.addChild((this.itemOf("TT" "Tero Tolonen" "tero@example.com" "Owner")))
+        b.addChild((this.itemOf("AM" "Aino Makela" "aino@example.com" "Editor")))
+        b.addChild((this.itemOf("BN" "Benoit Nadeau" "benoit@example.com" "Editor")))
+        b.addChild((this.itemOf("LR" "Luis Ramos" "luis@example.com" "Viewer")))
+        v.addChild(p)
+        return v
+    }
+
+    ; The four Documents links, and the one builder behind them. `only` is the
+    ; kind each page shows; "" is More, which shows everything.
+    fn documentsView:EVGElement (title:string sub:string only:string) {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf(title sub)))
+        def p:EVGElement (this.panelOf("db-docs" title ""))
+        def b:EVGElement (this.panelBody(p))
+        def i:int 0
+        def shown:int 0
+        while (i < (array_length docTitles)) {
+            def kind:string (itemAt docKinds i)
+            def keep:boolean ((strlen only) == 0)
+            if (kind == only) {
+                keep = true
+            }
+            if keep {
+                b.addChild((this.itemOf("▭" (itemAt docTitles i) (itemAt docWhen i) kind)))
+                shown = (shown + 1)
+            }
+            i = (i + 1)
+        }
+        if (shown == 0) {
+            b.addChild((this.itemOf("◌" "Nothing here yet" "This page has no documents" "")))
+        }
+        v.addChild(p)
+        return v
+    }
+
+    fn cardRow:EVGElement () {
         def row (tree Db (Cards (props (id "db-cards"))))
         def i:int 0
         while (i < (array_length cards)) {
@@ -1095,12 +1339,58 @@ class DashboardDemo {
             row.addChild(el)
             i = (i + 1)
         }
-        main.addChild(row)
+        return row
+    }
+
+    fn dashboardView:EVGElement () {
+        def main (tree Db (Main (props (id "db-main"))))
+        main.addChild((this.cardRow()))
         main.addChild((this.chartCard()))
         main.addChild((this.tableCard()))
-        content.addChild(main)
-        content.addChild((tree Db (Note "The chart is a Vega specification run by Vela and painted into this page's display list — geometry and axis labels both. Press a range button or use the arrows.")))
-        page.addChild(content)
+        return main
+    }
+
+    ; Which page the sidebar is pointing at. One place, so the link that is
+    ; marked current and the content that is shown cannot come apart.
+    fn viewFor:EVGElement (key:string) {
+        if (key == "analytics") { return (this.analyticsView()) }
+        if (key == "lifecycle") { return (this.lifecycleView()) }
+        if (key == "projects")  { return (this.projectsView()) }
+        if (key == "team")      { return (this.teamView()) }
+        if (key == "library")   { return (this.documentsView("Data Library" "Everything the team has filed" "Dataset")) }
+        if (key == "reports")   { return (this.documentsView("Reports" "Generated, and when" "Report")) }
+        if (key == "assistant") { return (this.documentsView("Word Assistant" "Drafts it has written" "Draft")) }
+        if (key == "more")      { return (this.documentsView("Documents" "Everything, in one list" "")) }
+        return (this.dashboardView())
+    }
+
+    fn noteFor:string () {
+        if (navPage == "dashboard") {
+            return "The chart is a Vega specification run by Vela and painted into this page's display list — geometry and axis labels both. Press a range button, or use the arrows."
+        }
+        if (navPage == "analytics") {
+            return "The same chart, on another page. Press a range button, or use the arrows."
+        }
+        return "The sidebar navigates: the link marked current and the content shown come from one field. The main region scrolls — Page Down, Page Up, Home, End, or the wheel."
+    }
+
+    fn pageBody:EVGElement () {
+        def page (tree Db (Page (props (id "page"))))
+        page.addChild((this.sidebar()))
+        page.addChild((tree Db (SideEdge)))
+
+        ; THE SCROLL CONTAINER. Its height is the page's, its content is
+        ; whatever the current view came to, and the offset is put on before
+        ; the layout so the layout can clamp it.
+        def scroll (tree Db (Scroll (props (id "db-scroll"))))
+        scroll.height = (EVGUnit.px(pageH))
+        scroll.scrollTop = scrollY
+
+        def content (tree Db (Content (props (id "db-content"))))
+        content.addChild((this.viewFor(navPage)))
+        content.addChild((tree Db (Note (this.noteFor()))))
+        scroll.addChild(content)
+        page.addChild(scroll)
         return page
     }
 
@@ -1125,9 +1415,52 @@ class DashboardDemo {
         def lay (new EVGLayout())
         lay.setPageSize(pageW pageH)
         lay.layout(r)
+        ; READ THE OFFSET BACK. The layout clamps `scrollTop` to what there
+        ; actually is to scroll, and it is the only thing that knows: the
+        ; content's height is its answer. A demo that kept what it ASKED for
+        ; would go on believing it was scrolled to 4000 on a page with 300 to
+        ; go, and the next scroll-by would do nothing visible for thirteen
+        ; presses.
+        def sc:EVGElement (this.findEl(r "db-scroll"))
+        if ((strlen sc.id) > 0) {
+            scrollY = sc.scrollTop
+        }
         layout = lay
         return lay
     }
+
+    ; --- scrolling ------------------------------------------------------------
+
+    ; How far there is to go on the current view. Zero before anything has been
+    ; laid out, which is the honest answer: nothing has been measured yet.
+    fn maxScroll:double () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def sc:EVGElement (this.findEl(r "db-scroll"))
+        if ((strlen sc.id) == 0) {
+            return 0.0
+        }
+        return (sc.maxScrollTop())
+    }
+
+    fn scrollTo:boolean (y:double) {
+        def before:double scrollY
+        scrollY = y
+        if (scrollY < 0.0) {
+            scrollY = 0.0
+        }
+        this.rebuild()
+        ; The rebuild throws the layout away, so the clamp happens on the next
+        ; one — ask for it here rather than leaving a number nobody has checked
+        ; sitting in the field.
+        this.laidOutOnce()
+        return (scrollY != before)
+    }
+
+    fn scrollBy:boolean (dy:double) {
+        return (this.scrollTo((scrollY + dy)))
+    }
+
 
     fn markStates:void (el:EVGElement) {
         el.isHovered = ((strlen hovered) > 0) && (el.id == hovered)
@@ -1268,6 +1601,10 @@ class DashboardDemo {
         }
         navPage = (substring target 7 (strlen target))
         focused = target
+        ; BACK TO THE TOP. Following a link and landing halfway down the next
+        ; page is what a browser does not do, and the reason it does not is
+        ; that the offset belonged to the page you left.
+        scrollY = 0.0
         this.rebuild()
         return true
     }
@@ -1368,7 +1705,14 @@ class DashboardDemo {
             i = (i + 1)
         }
         if (at < 0) {
-            return (this.tableKey(k))
+            if (this.tableKey(k)) {
+                return true
+            }
+            ; Nothing else wanted it, so it goes to the scroll region. LAST,
+            ; not first: a Home that moves between range buttons and a Home
+            ; that jumps to the top of the page are the same key, and the
+            ; control that has focus is the one that gets to say which.
+            return (this.scrollKey(k))
         }
         def next:int at
         if ((k == "ArrowRight") || (k == "ArrowDown")) {
@@ -1397,6 +1741,20 @@ class DashboardDemo {
         return (this.selectRange(it.value))
     }
 
+    ; What the keys do to the main region. A page is the viewport less a
+    ; couple of lines of overlap, the way every document reader does it: land
+    ; with something you have already read still on the screen.
+    fn scrollKey:boolean (k:string) {
+        def page:double (pageH - 40.0)
+        if (k == "PageDown") { return (this.scrollBy(page)) }
+        if (k == "PageUp")   { return (this.scrollBy((0.0 - page))) }
+        if (k == "Home")     { return (this.scrollTo(0.0)) }
+        if (k == "End")      { return (this.scrollTo((this.maxScroll()))) }
+        if (k == "ArrowDown") { return (this.scrollBy(48.0)) }
+        if (k == "ArrowUp")   { return (this.scrollBy(-48.0)) }
+        return false
+    }
+
     fn setHover:void (id:string) { hovered = id }
     fn setPressed:void (id:string) { pressed = id }
     fn setFocus:void (id:string) { focused = id }
@@ -1413,6 +1771,7 @@ class DashboardDemo {
         def dl (new EVGDisplayList())
         dl.build(r)
 
+        def scroll:EVGElement (this.findEl(r "db-scroll"))
         def box:EVGElement (this.findEl(r "db-chart-box"))
         if ((strlen box.id) > 0) {
             def parser (new VlJsonParser())
@@ -1424,11 +1783,55 @@ class DashboardDemo {
                     def list:VlCommandList (VlSceneCommands.build(scene))
                     def tr (new UITextRenderer())
                     def bridge (new VlEvgList())
+                    ; CLIPPED BY HAND, and it has to be. The chart is appended
+                    ; after `dl.build(root)` has walked the whole tree — that
+                    ; is what puts it outside the element tree — so it is also
+                    ; outside every clip the walk pushed and popped. Scrolled
+                    ; up, an unclipped chart draws straight across the sidebar.
+                    ;
+                    ; The box it is clipped to is the scroll region, which is
+                    ; the same box the walk would have clipped it to had it
+                    ; been a child.
+                    dl.addClip(scroll.calculatedX scroll.calculatedY scroll.calculatedWidth scroll.calculatedHeight)
                     ; The axis labels sit to the left of and below the plot,
                     ; and Vela measures its own origin — so the offset is the
-                    ; box's corner and nothing else.
+                    ; box's corner and nothing else. `calculatedY` has already
+                    ; had the scroll offset applied to it by the layout, so the
+                    ; chart travels with the card it belongs to for free.
                     bridge.emit(dl list tr (box.calculatedX + gutterX) box.calculatedY 1.0)
+                    dl.addClipEnd()
                 }
+            }
+        }
+
+        ; --- THE SCROLLBAR ----------------------------------------------------
+        ;
+        ; Drawn, not built. It is the one thing on the page whose size and
+        ; position are not known until AFTER the layout has run — the thumb is
+        ; a fraction of the content height — and an element that has to be
+        ; measured before it can be placed would need a second layout pass to
+        ; put in the tree.
+        ;
+        ; So it is two rectangles in the display list, and it is honest about
+        ; what that costs: it is an INDICATOR, not a control. There is nothing
+        ; to grab, because there is no element to hit. The wheel, the keys and
+        ; the sidebar do the scrolling.
+        if ((strlen scroll.id) > 0) {
+            def travel:double (scroll.maxScrollTop())
+            if (travel > 0.0) {
+                def trackX:double (((scroll.calculatedX + scroll.calculatedWidth) - 10.0))
+                def trackY:double (scroll.calculatedY + 6.0)
+                def trackH:double (scroll.calculatedHeight - 12.0)
+                dl.addRect(trackX trackY 4.0 trackH (EVGColor.parse("#f4f4f5")))
+                def visible:double (scroll.clientHeight())
+                def frac:double (visible / scroll.scrollHeight)
+                def thumbH:double (trackH * frac)
+                if (thumbH < 24.0) {
+                    thumbH = 24.0
+                }
+                def at:double (scrollY / travel)
+                def thumbY:double (trackY + (at * (trackH - thumbH)))
+                dl.addRect(trackX thumbY 4.0 thumbH (EVGColor.parse("#d4d4d8")))
             }
         }
         return (dl.toJson())

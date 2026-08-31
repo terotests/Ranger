@@ -583,6 +583,7 @@ const DEMOS = {
   // back has the page's own commands and Vela's in it, which is the whole
   // point of the page.
   dashboard: {
+    scroll: (dy) => dashboard.scrollBy(dy),
     width: () => dashboard.widthPx(),
     height: () => dashboard.heightPx(),
     list: () => dashboard.displayListJson(),
@@ -1464,6 +1465,19 @@ canvas.addEventListener("pointerleave", () => {
     if (d.animated) animate();
   }
 });
+// The wheel, for a demo that has somewhere to scroll to. `passive: false`
+// because a page that scrolls its own canvas must be able to stop the window
+// from scrolling underneath it — and `scroll` returning false (already at an
+// end) lets the window have the gesture back, which is what a nested scroll
+// area is supposed to do.
+canvas.addEventListener("wheel", (ev) => {
+  const d = demo();
+  if (!d.scroll) return;
+  if (!d.scroll(ev.deltaY)) return;
+  ev.preventDefault();
+  paint();
+}, { passive: false });
+
 // Keys are the window's: the canvas is not focusable, and the mirror element
 // that has the focus is inside this page.
 window.addEventListener("keydown", (ev) => {

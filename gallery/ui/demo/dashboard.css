@@ -21,6 +21,16 @@
   height: 1420px;
 }
 
+/* THE SCROLL CONTAINER. `overflow: hidden` with a definite height, which in
+ * EVG is now a box whose content keeps its own size and is MOVED rather than
+ * squeezed to fit — measured against a browser, see oracle/scroll.json. The
+ * height is set inline from `pageH`, so the viewport the layout gives it and
+ * the viewport the demo pages by cannot be two different numbers. */
+.db-scroll {
+  overflow: hidden;
+  width: 1080px;
+}
+
 /* --- the sidebar --------------------------------------------------------- */
 
 .db-side {
@@ -45,13 +55,16 @@
   height: 1420px;
 }
 
+/* AUTO HEIGHT, deliberately. This is the content inside the scroll box, and
+ * the whole arrangement depends on it being as tall as it needs: the container
+ * measures it to find out how far there is to scroll. Giving it a height would
+ * make that number the height somebody typed. */
 .db-content {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
   padding: 24px;
   width: 1080px;
-  height: 1420px;
 }
 
 /* The brand. A button in the reference — it opens a team switcher — so it is
@@ -627,3 +640,136 @@
   left: 0;
   width: 100%;
 }
+
+/* --- the views ----------------------------------------------------------- */
+
+.db-view {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  width: 1032px;
+}
+
+.db-head {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 0 0 4px 0;
+}
+
+.db-head-title { color: #09090b; font-size: 22px; font-weight: 600; height: 30px; }
+.db-head-sub { color: #71717a; font-size: 13px; height: 20px; }
+
+.db-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-panel-head {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 0 0 10px 0;
+}
+
+.db-panel-title { color: #09090b; font-size: 16px; font-weight: 600; height: 24px; }
+.db-panel-sub { color: #71717a; font-size: 13px; height: 20px; }
+
+.db-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-item {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+}
+
+.db-item-mark {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: #f4f4f5;
+  width: 32px;
+  height: 32px;
+}
+
+.db-item-mark-text { color: #52525b; font-size: 12px; font-weight: 600; height: 18px; }
+
+.db-item-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-item-name { color: #18181b; font-size: 13px; font-weight: 500; height: 20px; }
+.db-item-sub { color: #71717a; font-size: 12px; height: 18px; }
+
+.db-item-tag {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 3px 8px;
+}
+
+.db-item-tag-text { color: #52525b; font-size: 11px; font-weight: 500; height: 16px; }
+
+.db-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.db-tile {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 18px;
+}
+
+.db-tile-title { color: #09090b; font-size: 15px; font-weight: 600; height: 22px; }
+.db-tile-sub { color: #71717a; font-size: 12px; height: 18px; }
+
+/* The track and the bit of it that is filled. Two elements rather than one
+ * with a background, because the fill is a PERCENTAGE and a percentage needs
+ * something to be a percentage of. */
+.db-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  border-radius: 3px;
+  background-color: #f4f4f5;
+  margin: 12px 0 0 0;
+  height: 6px;
+}
+
+.db-bar-fill {
+  border-radius: 3px;
+  background-color: #18181b;
+  height: 6px;
+}
+
+.db-bar-text { color: #71717a; font-size: 11px; padding: 6px 0 0 0; height: 16px; }

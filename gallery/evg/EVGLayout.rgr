@@ -479,10 +479,93 @@ class EVGLayout {
         if ((element.hasBaseline == false) && (childCount > 0)) {
             this.inheritBaselineFromFirstChild(element)
         }
+
+        ; --- SCROLLING --------------------------------------------------------
+        ;
+        ; The last thing that happens to an element, and it has to be: the
+        ; extents are measured from where the children ENDED UP, so this runs
+        ; after every one of them is placed. `layoutChildren` has already been
+        ; through the whole subtree by the time control gets back here.
+        if (element.clipsContent()) {
+            this.applyScroll(element)
+        }
         
         this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
     }
     
+    ; What a scroll container owes: how big its content is, and where the
+    ; content currently sits.
+    ;
+    ; The offset is applied as a TRANSLATION of the placed subtree rather than
+    ; as an origin the flow is run from. That is not a shortcut. The flow has
+    ; to run at the content's natural size for the extent to mean anything —
+    ; measure first, then move — and running it from a shifted origin would
+    ; make the extent a function of the scroll position, which is how a
+    ; scrollbar ends up changing size as you drag it.
+    ;
+    ; EVERYTHING inside moves, absolutely positioned children and overlay
+    ; surfaces alike. That is what a browser does: an absolute box is
+    ; positioned against this one, so it belongs to its content, and a dropdown
+    ; opened from a row inside a scrolled panel travels with the row. Only
+    ; `position: fixed` escapes, and EVG has no such thing.
+    ;
+    ; It reuses the mover the RTL mirror already had. One function that walks a
+    ; placed subtree and adds an offset to it is enough; a second one would be
+    ; two places for the same rule to be got wrong.
+    fn applyScroll:void (el:EVGElement) {
+        def innerX:double (el.calculatedX + el.box.borderWidthPx + el.box.paddingLeftPx)
+        def innerY:double (el.calculatedY + el.box.borderWidthPx + el.box.paddingTopPx)
+        def w:double 0.0
+        def h:double 0.0
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (el.getChild(i))
+            def right:double ((kid.calculatedX + kid.calculatedWidth) - innerX)
+            def bottom:double ((kid.calculatedY + kid.calculatedHeight) - innerY)
+            if (right > w) {
+                w = right
+            }
+            if (bottom > h) {
+                h = bottom
+            }
+            i = (i + 1)
+        }
+        ; PADDING BOX, like the DOM: the content extent plus the paddings on
+        ; both sides. Measured, not assumed — eight 60-pixel rows in a box with
+        ; 10 of padding gives the browser 500.
+        el.scrollWidth = ((w + el.box.paddingLeftPx) + el.box.paddingRightPx)
+        el.scrollHeight = ((h + el.box.paddingTopPx) + el.box.paddingBottomPx)
+
+        ; Clamped, the way a browser clamps `scrollTop`: an application that
+        ; asks to scroll past the end has asked for the end. Doing it here and
+        ; not in the setter is what makes it correct — how far there is to go
+        ; is not known until the content has been measured, and it changes
+        ; every time the content does.
+        def maxY:double (el.maxScrollTop())
+        if (el.scrollTop > maxY) {
+            el.scrollTop = maxY
+        }
+        if (el.scrollTop < 0.0) {
+            el.scrollTop = 0.0
+        }
+        def maxX:double (el.maxScrollLeft())
+        if (el.scrollLeft > maxX) {
+            el.scrollLeft = maxX
+        }
+        if (el.scrollLeft < 0.0) {
+            el.scrollLeft = 0.0
+        }
+
+        if ((el.scrollTop == 0.0) && (el.scrollLeft == 0.0)) {
+            return
+        }
+        def j:int 0
+        while (j < (el.getChildCount())) {
+            this.translateSubtree((el.getChild(j)) (0.0 - el.scrollLeft) (0.0 - el.scrollTop))
+            j = (j + 1)
+        }
+    }
+
     fn layoutChildren:double (parent:EVGElement) {
         ; Layout all children using flow algorithm
         ; Returns total content height
@@ -714,8 +797,18 @@ class EVGLayout {
                 ; holds its size while the rest absorb the overflow. With every
                 ; factor left at the CSS default of 1 this is the same uniform
                 ; scale as before.
+                ;
+                ; NOT in a scroll container. Shrinking is what a box does when
+                ; the overflow has nowhere to go; a scroll container is the
+                ; statement that it does have somewhere to go. This is the pass
+                ; the virtualiser had to route around — a 230,000-pixel spacer
+                ; in a 414-pixel column was scaled to fit and fourteen rows drew
+                ; on one 46-pixel line.
                 def contentH:double (fixedHeight + gapTotalC)
                 def overflowH:double (contentH - innerHeight)
+                if (parent.clipsContent()) {
+                    overflowH = 0.0
+                }
                 if ((overflowH > 0.0) && (fixedHeight > 0.0)) {
                     def weightedH:double 0.0
                     def jq:int 0
@@ -773,6 +866,11 @@ class EVGLayout {
                 if (flowCount2 > 1) { gapTotal2 = ((to_double (flowCount2 - 1)) * gapPx) }
                 def contentW2:double (fixedW2 + gapTotal2)
                 def overflowW:double (contentW2 - innerWidth)
+                ; Same reason as the column above: a scroll container's content
+                ; is not squeezed to fit, it is scrolled to.
+                if (parent.clipsContent()) {
+                    overflowW = 0.0
+                }
                 if ((totalFlex2 == 0.0) && (overflowW > 0.0) && (fixedW2 > 0.0)) {
                     ; Weighted by (flex-shrink x width), so flex-shrink: 0 keeps
                     ; its size and its siblings absorb the whole overflow.

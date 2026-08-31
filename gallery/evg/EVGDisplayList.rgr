@@ -977,8 +977,11 @@ class EVGDisplayList {
             }
         }
 
-        ; Children, clipped when the element says so.
-        def clips:boolean (el.overflow == "hidden")
+        ; Children, clipped when the element says so. EVERY overflow value but
+        ; `visible` clips — this used to name `hidden` alone, which meant a
+        ; scroll container drew its content straight over whatever was beside
+        ; it, and the one thing a scrolling box has to do is stay inside itself.
+        def clips:boolean (el.clipsContent())
         if clips {
             def cp (new EVGDrawCmd())
             cp.kind = 4
