@@ -84,6 +84,14 @@
 ; by WHAT THEY LIST and by nothing else, so they share one — five near-identical
 ; page functions would have looked different here and identical on the screen.
 ;
+; --- THE ICONS ARE ARTWORK, NOT GLYPHS ----------------------------------------
+;
+; Nine lucide icons, verbatim from lucide-static 1.37.0, through the mechanism
+; the timeline demo already proved. They were text glyphs and they sat low
+; against their labels, for two reasons of which only one was a mistake — see
+; the note above `svgOpen`. A 16x16 `path` element is a box, and a box has no
+; baseline to be low against.
+;
 ; --- WHAT IS NOT HERE YET ----------------------------------------------------
 ;
 ; The reference's horizontal scroll, which it has because its sidebar takes the
@@ -216,15 +224,15 @@ treefactory Db {
     tag MenuItem EVGElement (props (className "db-menu-item") (role "listitem"))
     tag QuickRow EVGElement (props (className "db-quick-row"))
     tag Quick    EVGElement (props (className "db-quick") (role "button"))
-    tag QuickIc  EVGElement (props (className "db-quick-icon") (elementType 1) (a11yHidden true))
+    tag QuickIc  EVGElement (props (className "db-quick-icon") (tagName "path") (a11yHidden true))
     tag QuickTx  EVGElement (props (className "db-quick-text") (elementType 1))
     tag IconBtn  EVGElement (props (className "db-iconbtn") (role "button"))
-    tag IconBtnI EVGElement (props (className "db-iconbtn-icon") (elementType 1) (a11yHidden true))
+    tag IconBtnI EVGElement (props (className "db-iconbtn-icon") (tagName "path") (a11yHidden true))
     ; A LINK, not a button. The difference is what a reader is told will
     ; happen: a link goes somewhere, a button does something here.
     tag NavItem   EVGElement (props (className "db-nav") (role "link"))
     tag NavItemOn EVGElement (props (className "db-nav db-nav-on") (role "link"))
-    tag NavIc    EVGElement (props (className "db-nav-icon") (elementType 1) (a11yHidden true))
+    tag NavIc    EVGElement (props (className "db-nav-icon") (tagName "path") (a11yHidden true))
     tag NavTx    EVGElement (props (className "db-nav-text") (elementType 1))
     tag NavTxOn  EVGElement (props (className "db-nav-text-on") (elementType 1))
     tag NavTxDim EVGElement (props (className "db-nav-text-dim") (elementType 1))
@@ -344,6 +352,16 @@ class DashboardDemo {
     ; before the layout runs and read back after — the layout clamps it, and it
     ; is the only thing that knows what to clamp it to.
     def scrollY:double 0.0
+    ; Which slice of the last display list is the CHART's.
+    ;
+    ; The gate used to tell the chart's commands from the page's by saying
+    ; "nothing in the element tree draws a path, so every path is Vela's". That
+    ; was true until the sidebar's icons became real SVG artwork, and then it
+    ; was silently wrong — the chart's bounding box grew to include a folder
+    ; icon 260 pixels to its left. So the demo says where the chart is instead
+    ; of the gate guessing, because the demo is the only thing that knows.
+    def chartFrom:int 0
+    def chartTo:int 0
     ; The chart's drawn size. ONE owner: the spec is built from these numbers
     ; and the placeholder box is set to them inline, so the box the layout
     ; reserves and the picture Vela computes cannot disagree.
@@ -670,6 +688,78 @@ class DashboardDemo {
 
     ; --- the tree -------------------------------------------------------------
 
+    ; --- the sidebar's icons, verbatim from lucide-static 1.37.0 (ISC) --------
+    ;
+    ; REAL ARTWORK, and the reason is a bug report from a phone: the icons used
+    ; to be text glyphs — "●", "▭", "◕" — and they sat low against
+    ; the words beside them. Two causes, and only one of them was a mistake.
+    ;
+    ; The mistake was two numbers where there should have been one: the icon
+    ; box was 18 tall and the label 20, `align-items: center` centres the
+    ; BOXES, and a text box's baseline is measured from its own top. One pixel,
+    ; every row. A browser does the same with the same declarations.
+    ;
+    ; The other cause was not fixable that way. A glyph sits on a BASELINE, and
+    ; where its ink lands above that baseline is the type designer's business:
+    ; measured at 13px, the ink of "●" and "▭" centres a further pixel
+    ; below the ink of a capital letter, while "↺" centres exactly on it —
+    ; which is why the Lifecycle row looked right in the same screenshot where
+    ; Team and Projects looked wrong. Centring a glyph OPTICALLY needs its ink
+    ; box, and `EVGTextMeasurer` estimates.
+    ;
+    ; So the icons stop being text. A 16x16 `path` element is a BOX, centred by
+    ; the row like any other box, with no baseline anywhere in the arrangement —
+    ; which is also exactly what the reference does, because lucide ships SVG.
+    ; The mechanism is the timeline demo's, unchanged.
+    sfn svgOpen:string () {
+        return "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    }
+
+    ; layout-dashboard
+    sfn icoDashboard:string () {
+        return ((DashboardDemo.svgOpen()) + "<rect width='7' height='9' x='3' y='3' rx='1'/><rect width='7' height='5' x='14' y='3' rx='1'/><rect width='7' height='9' x='14' y='12' rx='1'/><rect width='7' height='5' x='3' y='16' rx='1'/></svg>")
+    }
+    ; list-checks
+    sfn icoLifecycle:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M13 5h8'/><path d='M13 12h8'/><path d='M13 19h8'/><path d='m3 17 2 2 4-4'/><path d='m3 7 2 2 4-4'/></svg>")
+    }
+    ; chart-column
+    sfn icoAnalytics:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M3 3v16a2 2 0 0 0 2 2h16'/><path d='M18 17V9'/><path d='M13 17V5'/><path d='M8 17v-3'/></svg>")
+    }
+    ; folder
+    sfn icoProjects:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/></svg>")
+    }
+    ; users
+    sfn icoTeam:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><path d='M16 3.128a4 4 0 0 1 0 7.744'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><circle cx='9' cy='7' r='4'/></svg>")
+    }
+    ; database
+    sfn icoLibrary:string () {
+        return ((DashboardDemo.svgOpen()) + "<ellipse cx='12' cy='5' rx='9' ry='3'/><path d='M3 5V19A9 3 0 0 0 21 19V5'/><path d='M3 12A9 3 0 0 0 21 12'/></svg>")
+    }
+    ; file-text
+    sfn icoReports:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z'/><path d='M14 2v5a1 1 0 0 0 1 1h5'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>")
+    }
+    ; file-type-2
+    sfn icoAssistant:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M12 22h6a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v6'/><path d='M14 2v5a1 1 0 0 0 1 1h5'/><path d='M3 16v-1.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5V16'/><path d='M6 22h2'/><path d='M7 14v8'/></svg>")
+    }
+    ; ellipsis
+    sfn icoMore:string () {
+        return ((DashboardDemo.svgOpen()) + "<circle cx='12' cy='12' r='1'/><circle cx='19' cy='12' r='1'/><circle cx='5' cy='12' r='1'/></svg>")
+    }
+    ; circle-plus
+    sfn icoCreate:string () {
+        return ((DashboardDemo.svgOpen()) + "<circle cx='12' cy='12' r='10'/><path d='M8 12h8'/><path d='M12 8v8'/></svg>")
+    }
+    ; mail
+    sfn icoMail:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7'/><rect x='2' y='4' width='20' height='16' rx='2'/></svg>")
+    }
+
     ; --- the sidebar ----------------------------------------------------------
 
     ; One link. The fill and `aria-current` are set from the SAME test, because
@@ -687,7 +777,9 @@ class DashboardDemo {
         if on {
             row.a11yCurrent = "page"
         }
-        row.addChild((tree Db (NavIc icon)))
+        def ic:EVGElement (tree Db (NavIc))
+        ic.svgSource = icon
+        row.addChild(ic)
         if on {
             row.addChild((tree Db (NavTxOn label)))
         } {
@@ -741,7 +833,9 @@ class DashboardDemo {
         def qrow (tree Db (QuickRow))
         def quick (tree Db (Quick (props (id "db-quick") (a11yLabel "Quick Create"))))
         quick.a11yFocusable = true
-        quick.addChild((tree Db (QuickIc "+")))
+        def qi:EVGElement (tree Db (QuickIc))
+        qi.svgSource = (DashboardDemo.icoCreate())
+        quick.addChild(qi)
         quick.addChild((tree Db (QuickTx "Quick Create")))
         qrow.addChild(quick)
         ; An icon with no words. The label is the whole interface for a reader,
@@ -750,18 +844,20 @@ class DashboardDemo {
         ; same thing said twice in two vocabularies.
         def inbox (tree Db (IconBtn (props (id "db-inbox") (a11yLabel "Inbox"))))
         inbox.a11yFocusable = true
-        inbox.addChild((tree Db (IconBtnI "✉")))
+        def mi:EVGElement (tree Db (IconBtnI))
+        mi.svgSource = (DashboardDemo.icoMail())
+        inbox.addChild(mi)
         qrow.addChild(inbox)
         g1.addChild(qrow)
 
         ; No name on this list. The reference draws no label above it, and a
         ; name invented here is a word a reader hears that nobody wrote.
         def m1 (tree Db (Menu (props (id "db-menu-pages"))))
-        m1.addChild((this.navRow("dashboard" "Dashboard" "▦" false)))
-        m1.addChild((this.navRow("lifecycle" "Lifecycle" "↺" false)))
-        m1.addChild((this.navRow("analytics" "Analytics" "◕" false)))
-        m1.addChild((this.navRow("projects" "Projects" "▭" false)))
-        m1.addChild((this.navRow("team" "Team" "●" false)))
+        m1.addChild((this.navRow("dashboard" "Dashboard" (DashboardDemo.icoDashboard()) false)))
+        m1.addChild((this.navRow("lifecycle" "Lifecycle" (DashboardDemo.icoLifecycle()) false)))
+        m1.addChild((this.navRow("analytics" "Analytics" (DashboardDemo.icoAnalytics()) false)))
+        m1.addChild((this.navRow("projects" "Projects" (DashboardDemo.icoProjects()) false)))
+        m1.addChild((this.navRow("team" "Team" (DashboardDemo.icoTeam()) false)))
         g1.addChild(m1)
         body.addChild(g1)
 
@@ -770,10 +866,10 @@ class DashboardDemo {
         ; This one IS named, by the words drawn above it. A group label a
         ; reader cannot associate with the group is a label for nobody.
         def m2 (tree Db (Menu (props (id "db-menu-docs") (a11yLabel "Documents"))))
-        m2.addChild((this.navRow("library" "Data Library" "▤" false)))
-        m2.addChild((this.navRow("reports" "Reports" "≡" false)))
-        m2.addChild((this.navRow("assistant" "Word Assistant" "◌" false)))
-        m2.addChild((this.navRow("more" "More" "⋮" true)))
+        m2.addChild((this.navRow("library" "Data Library" (DashboardDemo.icoLibrary()) false)))
+        m2.addChild((this.navRow("reports" "Reports" (DashboardDemo.icoReports()) false)))
+        m2.addChild((this.navRow("assistant" "Word Assistant" (DashboardDemo.icoAssistant()) false)))
+        m2.addChild((this.navRow("more" "More" (DashboardDemo.icoMore()) true)))
         g2.addChild(m2)
         body.addChild(g2)
 
@@ -1770,6 +1866,8 @@ class DashboardDemo {
         def r:EVGElement (unwrap root)
         def dl (new EVGDisplayList())
         dl.build(r)
+        chartFrom = 0
+        chartTo = 0
 
         def scroll:EVGElement (this.findEl(r "db-scroll"))
         def box:EVGElement (this.findEl(r "db-chart-box"))
@@ -1792,6 +1890,7 @@ class DashboardDemo {
                     ; The box it is clipped to is the scroll region, which is
                     ; the same box the walk would have clipped it to had it
                     ; been a child.
+                    chartFrom = (array_length dl.cmds)
                     dl.addClip(scroll.calculatedX scroll.calculatedY scroll.calculatedWidth scroll.calculatedHeight)
                     ; The axis labels sit to the left of and below the plot,
                     ; and Vela measures its own origin — so the offset is the
@@ -1800,6 +1899,7 @@ class DashboardDemo {
                     ; chart travels with the card it belongs to for free.
                     bridge.emit(dl list tr (box.calculatedX + gutterX) box.calculatedY 1.0)
                     dl.addClipEnd()
+                    chartTo = (array_length dl.cmds)
                 }
             }
         }

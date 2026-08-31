@@ -48,12 +48,16 @@ const has = (n, c) => new RegExp("(^|\\s)" + c + "(\\s|$)").test(n.cls);
 const find = (d, c) => flat(d).filter((n) => has(n, c));
 const one = (d, id) => flat(d).find((n) => n.el.id === id);
 
-// The chart's own commands, told apart from the page's by falling outside the
-// element tree — nothing in the tree draws a path, so every path command on
-// the page came from Vela.
+// The chart's own commands. Taken from the range the DEMO reports rather than
+// guessed from the shape of a command: this used to say "nothing in the
+// element tree draws a path, so every path is Vela's", which was true until
+// the sidebar's icons became real SVG artwork — and then it was silently
+// wrong, and the chart's bounding box grew to include a folder icon 260
+// pixels to its left. A property that identifies a thing today is not the
+// same as one that defines it.
 function chartCmds(d) {
   const list = JSON.parse(d.displayListJson());
-  return list.cmds.filter((c) => c.pts !== undefined);
+  return list.cmds.slice(d.chartFrom, d.chartTo).filter((c) => c.pts !== undefined);
 }
 function chartTexts(d, box) {
   const list = JSON.parse(d.displayListJson());
@@ -668,10 +672,12 @@ console.log("--- the chart is inside the scroll region's clip ---");
   let unclipped = 0;
   let outside = 0;
   let paths = 0;
-  for (const c of list.cmds) {
+  for (let i = 0; i < list.cmds.length; i++) {
+    const c = list.cmds[i];
     if (c.k === 4) { stack.push(c); continue; }
     if (c.k === 5) { stack.pop(); continue; }
     if (c.pts === undefined) continue;
+    if (i < d.chartFrom || i >= d.chartTo) continue;
     paths++;
     const clip = stack[stack.length - 1];
     if (!clip) { unclipped++; continue; }
@@ -690,6 +696,84 @@ console.log("--- the chart is inside the scroll region's clip ---");
     return false;
   });
   ok("with geometry above the top edge to clip", above);
+}
+
+console.log("--- an icon and its label sit on one baseline ---");
+{
+  // Reported from a phone, zoomed in: the sidebar icons sat low against their
+  // words. One pixel, every row, and no gate could see it — the tree was
+  // right, the a11y tree was right, and the overflow sweep only ever asks
+  // whether a box is INSIDE its parent, never where the ink in it landed.
+  //
+  // The cause was two numbers where there should have been one:
+  // `.db-nav-icon` was 18 tall and `.db-nav-text` 20. `align-items: center`
+  // centres the BOXES, and a text box's baseline is measured from its own
+  // top, so the taller box's baseline is higher. A browser does the same
+  // thing with the same declarations — it was never an engine bug.
+  //
+  // The rule this checks is the narrow one that is actually true: children of
+  // a centred row that share a FONT SIZE must share a baseline. Two different
+  // sizes on one line have two baselines in CSS as well, so the trend arrow
+  // beside its sentence is exempt and rightly so.
+  const bad = [];
+  const d = fresh();
+  for (const page of ["dashboard", "analytics", "lifecycle", "projects", "team", "more"]) {
+    d.press("db-nav-" + page);
+    d.displayListJson();
+    const walk = (el) => {
+      if (el.display === "flex" && el.flexDirection === "row" && el.alignItems === "center") {
+        const leaves = el.children.filter((k) => (k.textContent || "").length > 0 && k.children.length === 0);
+        const bySize = new Map();
+        for (const k of leaves) {
+          const f = k.fontSize && k.fontSize.pixels;
+          if (!bySize.has(f)) bySize.set(f, []);
+          bySize.get(f).push(k);
+        }
+        for (const [size, group] of bySize) {
+          if (group.length < 2) continue;
+          const bl = group.map((k) => k.calculatedY + k.calculatedBaseline);
+          const spread = Math.max(...bl) - Math.min(...bl);
+          if (spread > 0.01) {
+            bad.push(`${page}: ${el.className || "?"} at ${size}px — ` +
+              group.map((k, i) => `${k.className}=${bl[i].toFixed(1)}`).join(" vs "));
+          }
+        }
+      }
+      for (const k of el.children) walk(k);
+    };
+    walk(d.root);
+  }
+  ok("same size, same baseline, on every page", bad.length === 0,
+    [...new Set(bad)].join("; "));
+
+  // And the sidebar's icons, which are no longer text at all. A 16x16 `path`
+  // is a BOX, so the claim is the simple one a box can make: its centre and
+  // its label's centre are the same line. This is what the reported bug was
+  // asking for, and as glyphs it could not be had — a glyph sits on a
+  // baseline, and where its ink lands above that baseline is the type
+  // designer's business, not the layout's.
+  const off = [];
+  const e = fresh();
+  const walk2 = (el) => {
+    if ((el.className || "").startsWith("db-nav")) {
+      const icon = el.children.find((k) => (k.className || "").includes("db-nav-icon"));
+      const text = el.children.find((k) => (k.className || "").includes("db-nav-text"));
+      if (icon && text) {
+        const a = icon.calculatedY + icon.calculatedHeight / 2;
+        const b = text.calculatedY + text.calculatedHeight / 2;
+        if (Math.abs(a - b) > 0.01) off.push(`${el.id}: icon ${a} vs text ${b}`);
+      }
+    }
+    for (const k of el.children) walk2(k);
+  };
+  walk2(e.root);
+  ok("every sidebar icon is centred on its label", off.length === 0, off.join("; "));
+  ok("and there are nine of them", find(e, "db-nav-icon").length === 9,
+    "" + find(e, "db-nav-icon").length);
+  // Real artwork, not a glyph: each icon must actually draw something.
+  const list = JSON.parse(e.displayListJson());
+  const iconPaths = list.cmds.slice(0, e.chartFrom).filter((c) => c.pts !== undefined);
+  ok("drawn as real paths", iconPaths.length >= 9, "" + iconPaths.length);
 }
 
 console.log("--- what a reader is told about a carried row ---");

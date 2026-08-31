@@ -2382,6 +2382,57 @@ correct, the accessible tree was correct, and every command was where the chart
 wanted it. The gate walks the clip stack now, the way a renderer does, and asks
 what was in force for each of the chart's paths.
 
+## The icons were text, and text sits on a baseline
+
+Reported from a phone, zoomed in: the sidebar icons sat low against their
+words. One pixel on every row, and no gate could see it — the element tree was
+right, the accessible tree was right, and the overflow sweep only ever asks
+whether a box is INSIDE its parent, never where the ink in it landed.
+
+**Two causes, and only one was a mistake.** The mistake was two numbers where
+there should have been one: `.db-nav-icon` was 18 tall and `.db-nav-text` 20.
+`align-items: center` centres the BOXES, and a text box's baseline is measured
+from its own top, so the taller box's baseline is higher. A browser does the
+same thing with the same declarations — never an engine bug.
+
+The second cause could not be fixed that way. A glyph sits on a baseline and
+where its ink lands above it is the type designer's business. Measured at 13px
+against a capital letter: `●`, `▭`, `◕`, `▦` and `▤` all centre a further
+pixel low, `≡`, `◌` and `⋮` half a pixel, and `↺` exactly on it — which is why
+Lifecycle looked right in the same screenshot where Team and Projects looked
+wrong. Centring a glyph optically needs its ink box, and `EVGTextMeasurer`
+estimates (#66).
+
+**So the icons stopped being text.** Nine lucide icons, verbatim from
+lucide-static 1.37.0, through the mechanism the timeline demo already proved:
+`tagName "path"` plus `svgSource`, sized 16x16 by the sheet. A box has no
+baseline, so the row centres it like any other box — and it is what the
+reference does, because lucide ships SVG. The same for Quick Create's plus and
+the inbox's envelope.
+
+**The badge letters were worse and nobody had noticed.** "A" in the brand
+circle sat 2.7 pixels high. Same root: `height: 18px` on a 14.4-tall line box
+puts the line at the TOP and the slack underneath, in CSS as here. Deleting
+those three hand-rounded heights takes it to 0.9, which is the font-ink
+residual again. Those heights are exactly what task #63 is about, and this is
+the first time one of them has been visible.
+
+**Two checks, both proved by mutation.** Children of a centred row that share a
+FONT SIZE must share a baseline — the narrow rule that is actually true, since
+two sizes on one line have two baselines in CSS as well, so the trend arrow
+beside its sentence is rightly exempt. And every sidebar icon box is centred on
+its label. The second fails when the row stops centring and NOT when the icon's
+height changes, which is correct: centring is height-independent, and that is
+the whole reason the icons are boxes now.
+
+**And a check aged badly in the same commit.** `chartCmds` told the chart's
+commands from the page's by saying "nothing in the element tree draws a path,
+so every path is Vela's". True when written; false the moment the sidebar's
+icons became artwork, and the chart's bounding box silently grew to include a
+folder icon 260 pixels to its left. The demo reports the chart's index range
+now. A property that identifies a thing today is not the same as one that
+defines it.
+
 **Still to come**: the reference's horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the

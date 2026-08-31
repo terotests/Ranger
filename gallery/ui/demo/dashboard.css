@@ -94,7 +94,13 @@
   height: 24px;
 }
 
-.db-brand-mark-text { color: #ffffff; font-size: 12px; font-weight: 600; height: 18px; }
+/* NO HEIGHT on a glyph that is alone in a centred box. A text box taller than
+ * its own line box puts the line at the TOP and the slack underneath — CSS
+ * does the same — so an 18-tall box around a 14.4-tall line pushed this letter
+ * 2.7 pixels above the centre of its circle. Letting it size to its line is
+ * the whole fix, and it is the same hand-rounded height the engine already
+ * computes that task #63 is about. */
+.db-brand-mark-text { color: #ffffff; font-size: 12px; font-weight: 600; }
 .db-brand-text { color: #09090b; font-size: 14px; font-weight: 600; height: 20px; }
 
 /* Header, content, footer — and the CONTENT is what grows, which is both what
@@ -175,7 +181,7 @@
 }
 
 .db-quick:hover { background-color: #27272a; }
-.db-quick-icon { color: #ffffff; font-family: Arial; font-size: 14px; height: 20px; }
+.db-quick-icon { width: 16px; height: 16px; fill: #ffffff; }
 .db-quick-text { color: #ffffff; font-size: 13px; font-weight: 500; height: 20px; }
 
 .db-iconbtn {
@@ -192,7 +198,7 @@
 }
 
 .db-iconbtn:hover { background-color: #f4f4f5; }
-.db-iconbtn-icon { color: #52525b; font-family: Arial; font-size: 13px; height: 18px; }
+.db-iconbtn-icon { width: 15px; height: 15px; fill: #52525b; }
 
 .db-nav {
   display: flex;
@@ -212,7 +218,15 @@
  * one stands in for the other. */
 .db-nav-on { background-color: #f4f4f5; }
 
-.db-nav-icon { color: #52525b; font-family: Arial; font-size: 13px; height: 18px; }
+/* A 16x16 BOX of artwork, and a box is all it is: `align-items: center` on the
+ * row centres it and there is no baseline anywhere in the arrangement. That is
+ * the whole fix. As a text glyph it had two problems — an 18-tall box beside a
+ * 20-tall label put it a pixel low, and the ink of "●" centres a further pixel
+ * below the ink of a capital letter whatever the boxes do.
+ *
+ * `stroke="currentColor"` in the imported file resolves to the element's
+ * `fill`, so this one declaration is the whole of the icon's theming. */
+.db-nav-icon { width: 16px; height: 16px; fill: #52525b; }
 .db-nav-text { color: #27272a; font-size: 13px; height: 20px; }
 .db-nav-text-on { color: #09090b; font-size: 13px; font-weight: 500; height: 20px; }
 /* The last row of the Documents group is a dimmer "More", like the reference. */
@@ -243,7 +257,7 @@
   height: 32px;
 }
 
-.db-avatar-text { color: #3f3f46; font-size: 12px; font-weight: 600; height: 18px; }
+.db-avatar-text { color: #3f3f46; font-size: 12px; font-weight: 600; }
 
 .db-user-text {
   display: flex;
@@ -708,7 +722,7 @@
   height: 32px;
 }
 
-.db-item-mark-text { color: #52525b; font-size: 12px; font-weight: 600; height: 18px; }
+.db-item-mark-text { color: #52525b; font-size: 12px; font-weight: 600; }
 
 .db-item-text {
   display: flex;
