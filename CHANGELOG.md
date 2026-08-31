@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Cylinder continuity: written, measured, and off.** The idea is that what
+  the cut leaves behind at a limb is a *stripe* of it — a foot below the shadow
+  across the shin, the white of a flagpole below the black band, the next
+  stripe of a zebra's tail — and that what tells such a piece from a rag of
+  background lying against the same shoulder is shape, not colour. A limb joins
+  the answer across a **neck**, runs away from that neck rather than along it,
+  and does not fan out past it. `wandCylinders` measures exactly that, three
+  scale-free ratios per piece: how far it runs over how wide the join is, the
+  widest band past the join over the band at the join, and its area against the
+  body's.
+
+  It is off, because the measurement says the premise is wrong, and the new
+  `tracer/cyl.mjs` prints why. **The coherence pass is not what cuts the foot
+  off**: of everything the cut chose and the tidy-up then dropped, 30 px on the
+  beach picture and 8 px on the portrait are actually the person — against
+  17 063 px of background it drops on the portrait alone. The missing foot was
+  never selected in the first place, so the candidates for such a rule are the
+  pieces the *cut* rejected, and among those the geometry does not separate
+  well enough to pay:
+
+  | asetus | ranta | muotokuva |
+  |---|---|---|
+  | pois | 0.649 | 0.812 |
+  | L=0.6 F=2 A=0.15 | 0.639 | 0.800 |
+  | L=1 F=1.5 A=0.05 | **0.661** | 0.807 |
+  | L=1 F=1.2 A=0.02 | 0.649 | 0.808 |
+  | L=1.5 F=1.1 A=0.01 | 0.649 | 0.810 |
+
+  The setting that wins a limb on the beach loses as much drapery on the
+  portrait; tightening it only walks back to doing nothing. The recursion the
+  idea invites — running it again on its own answer, which is what a striped
+  tail asks for — was measured too and it loses: four rounds turn +713/+192 px
+  into +755/+359 and the score falls back. Worth recording that the same sweep
+  run on the *scoring* raster reads +0.03 rather than +0.01: the wand's own
+  raster is 1.5× finer and the same drape comes out admissible there, which is
+  why the rule was put in the page and swept in place before being believed.
+
+  Kept, off, because the geometry is sound and it is the candidate set that
+  fails: give the cut a reason to reach the foot — a boundary term that knows a
+  real edge from an invented one — and this is the rule that decides what to do
+  with it. `npm run evg:trace:web:cyl` after `photo.mjs --write`.
+
 - **The wand's brush gives evidence instead of drawing a border.** Drag over
   the thing you want and the regions under the brush become *certain
   foreground*; ⌥-drag and they become *certain background*; everything else is

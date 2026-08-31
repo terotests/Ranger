@@ -2678,6 +2678,7 @@
     wandCohere(g, sel, wandFg);
     wandEncloseSmart(g, sel);
     wandFillHoles(g, sel);
+    wandCylinders(g, sel);
     wandSel = sel;
     wandManualApply(g);
     wandSel = sel;
@@ -2997,6 +2998,159 @@
                       skipped: skipped, big: nBig, added: sel.size - before,
                       log: window.__addLog.slice(0, 12) };
     window.__addLog = null;
+  }
+
+  // ------------------------------------------------------ a limb is a cylinder
+  //
+  // The idea, and it is a good one: what the cut leaves behind at a limb is a
+  // stripe of it — a foot below the shadow across the shin, the white of a
+  // flagpole below the black band, the next stripe of a zebra's tail. What
+  // tells such a piece from a rag of background lying against the same
+  // shoulder is not colour but shape, and the shape is a cylinder. It joins
+  // what is already selected across a *neck*, it runs away from that neck
+  // rather than along it, and it does not fan out past it: a leg is the same
+  // leg below the shadow as above it.
+  //
+  // Three ratios per piece, so none of them cares how big the picture is:
+  //
+  //   pituus / jänne   how far the piece runs from the join, over how wide the
+  //                    join is. A rag along a seam scores 0.05, a limb 1.
+  //   levein / kaula   the widest band the piece reaches past the join, over
+  //                    the band at the join — "suppeneva": a cylinder keeps
+  //                    its cross-section, it does not swell.
+  //   ala / runko      and never a piece the size of the body itself, whatever
+  //                    the other two say.
+  //
+  // Written, and measured, and **off**, because the measurement says the
+  // premise is wrong. See tracer/cyl.mjs, which prints every piece that
+  // touches the answer with its ratios and the truth beside it. Two numbers
+  // settle it:
+  //
+  //   · The coherence pass is not what cuts the foot off. Of everything the
+  //     cut chose and coherence then dropped, **30 px** on the beach picture
+  //     and **8 px** on the portrait are actually the person — against 17 063
+  //     px of background it drops on the portrait alone. The missing foot was
+  //     never selected. It is the cut that does not want it, and no rule about
+  //     what to keep can keep what was never there.
+  //
+  //   · So the candidates are pieces the cut *rejected*, and among those the
+  //     geometry does not separate. Swept at the wand's own raster:
+  //
+  //       asetus                 ranta            muotokuva
+  //       pois                   0.649            0.812
+  //       L=0.6 F=2   A=0.15     0.639            0.800
+  //       L=1   F=1.5 A=0.05     0.661            0.807
+  //       L=1   F=1.2 A=0.02     0.649            0.808
+  //       L=1.5 F=1.1 A=0.01     0.649            0.810
+  //
+  //     The one setting that wins a limb on the beach loses as much drapery on
+  //     the portrait, and tightening it further only walks back to doing
+  //     nothing. Recursion — running it again on its own answer, which is what
+  //     a striped tail asks for — was measured too and it loses: four rounds
+  //     turn +713/+192 px into +755/+359 and the score falls back.
+  //
+  // Kept, off, because the geometry is sound and the candidate set is what
+  // fails: give the cut a reason to reach the foot in the first place — a
+  // boundary term that knows a real edge from an invented one — and this is
+  // the rule that would decide what to do with it.
+  var WAND_CYL_LONG = 1e9;   // 1e9 = off, which is the default and is measured
+  var WAND_CYL_FAN = 1.5;
+  var WAND_CYL_AREA = 0.05;
+  var WAND_CYL_MIN = 8;
+
+  function wandCylinders(g, sel) {
+    if (!sel.size || WAND_CYL_LONG >= 1e9) return;
+    var cw = g.cw, ch = g.ch, n = cw * ch, p, x, y;
+    var eff = wandCells(g, sel);
+
+    // the body: the largest connected piece of the answer as it stands
+    var comp = new Int32Array(n).fill(-1), stack = [], nc = 0, bodyId = -1, bodyN = 0;
+    for (var s = 0; s < n; s++) {
+      if (!eff[s] || comp[s] >= 0) continue;
+      var id = nc++, count = 0;
+      comp[s] = id; stack.push(s);
+      while (stack.length) {
+        var q = stack.pop(); count++;
+        var qx = q % cw, qy = (q / cw) | 0;
+        if (qx > 0 && eff[q-1] && comp[q-1] < 0) { comp[q-1] = id; stack.push(q-1); }
+        if (qx < cw-1 && eff[q+1] && comp[q+1] < 0) { comp[q+1] = id; stack.push(q+1); }
+        if (qy > 0 && eff[q-cw] && comp[q-cw] < 0) { comp[q-cw] = id; stack.push(q-cw); }
+        if (qy < ch-1 && eff[q+cw] && comp[q+cw] < 0) { comp[q+cw] = id; stack.push(q+cw); }
+      }
+      if (count > bodyN) { bodyN = count; bodyId = id; }
+    }
+    if (bodyId < 0) return;
+
+    // the candidates: connected pieces of one region that the answer left out.
+    // One region at a time, because a piece of the base surface and a piece of
+    // the shadow beside it are different things even where they touch.
+    var cand = new Int32Array(n).fill(-1), info = [], cn = 0;
+    for (var s2 = 0; s2 < n; s2++) {
+      if (eff[s2] || !g.ids[s2] || cand[s2] >= 0) continue;
+      var cid = cn++, reg = g.ids[s2], area = 0, frame = 0;
+      cand[s2] = cid; stack.push(s2);
+      while (stack.length) {
+        var q2 = stack.pop(); area++;
+        var ax = q2 % cw, ay = (q2 / cw) | 0;
+        if (ax === 0 || ay === 0 || ax === cw-1 || ay === ch-1) frame++;
+        var step = function (t) {
+          if (!eff[t] && g.ids[t] === reg && cand[t] < 0) { cand[t] = cid; stack.push(t); }
+        };
+        if (ax > 0) step(q2-1);
+        if (ax < cw-1) step(q2+1);
+        if (ay > 0) step(q2-cw);
+        if (ay < ch-1) step(q2+cw);
+      }
+      info.push({ area: area, frame: frame, join: 0, x0: cw, x1: 0, y0: ch, y1: 0, band: [] });
+    }
+
+    // the join: where a candidate touches the body, and how wide that is
+    var dist = new Int32Array(n).fill(-1), queue = new Int32Array(n), qh = 0, qt = 0;
+    for (p = 0; p < n; p++) {
+      var c = cand[p];
+      if (c < 0) continue;
+      x = p % cw; y = (p / cw) | 0;
+      var touch = (x > 0 && comp[p-1] === bodyId) || (x < cw-1 && comp[p+1] === bodyId)
+        || (y > 0 && comp[p-cw] === bodyId) || (y < ch-1 && comp[p+cw] === bodyId);
+      if (!touch) continue;
+      var f = info[c];
+      f.join++;
+      if (x < f.x0) f.x0 = x; if (x > f.x1) f.x1 = x;
+      if (y < f.y0) f.y0 = y; if (y > f.y1) f.y1 = y;
+      dist[p] = 0; queue[qt++] = p;
+    }
+    // one walk for all of them at once: the pieces are disjoint, so a band
+    // count kept per piece is the piece's own cross-section at that depth
+    while (qh < qt) {
+      var q3 = queue[qh++], t = dist[q3], cc = cand[q3], b = info[cc].band;
+      b[t] = (b[t] || 0) + 1;
+      var bx = q3 % cw, by = (q3 / cw) | 0;
+      var walk = function (u) {
+        if (cand[u] === cc && dist[u] < 0) { dist[u] = t + 1; queue[qt++] = u; }
+      };
+      if (bx > 0) walk(q3-1);
+      if (bx < cw-1) walk(q3+1);
+      if (by > 0) walk(q3-cw);
+      if (by < ch-1) walk(q3+cw);
+    }
+
+    var take = new Uint8Array(cn), any = false;
+    for (var k = 0; k < cn; k++) {
+      var r = info[k];
+      if (!r.join || r.frame) continue;                   // no neck, or it runs off the picture
+      if (r.area < WAND_CYL_MIN) continue;
+      if (r.area > WAND_CYL_AREA * bodyN) continue;
+      var span = Math.hypot(r.x1 - r.x0 + 1, r.y1 - r.y0 + 1);
+      var depth = r.band.length - 1, neck = r.band[0] || 1, widest = 0;
+      for (var t2 = 1; t2 <= depth; t2++) if ((r.band[t2] || 0) > widest) widest = r.band[t2] || 0;
+      if (depth / span < WAND_CYL_LONG) continue;
+      if (widest / neck > WAND_CYL_FAN) continue;
+      take[k] = 1; any = true;
+    }
+    if (!any) return;
+    var keep = Uint8Array.from(eff);
+    for (p = 0; p < n; p++) if (cand[p] >= 0 && take[cand[p]]) keep[p] = 1;
+    wandApplyMask(g, sel, keep, true);
   }
 
   function wandCohere(g, sel, fg) {
