@@ -1,0 +1,49 @@
+; Test: a program may name a class `Cell`.
+;
+; The Rust preamble used to bring `std::cell::Cell` into scope unconditionally,
+; so a class of that name collided with it — "the name `Cell` is defined
+; multiple times", and every later mention resolved to the std type instead
+; ("field `value` is private", "missing generics"). The std type is spelled in
+; full at its use sites now, so nothing is imported to be shadowed.
+;
+; `Cell` is also a subclass carrying a scalar the root does not have, which is
+; exactly the shape the Rust backend gives an interior `std::cell::Cell<i64>`
+; — so the full spelling is exercised here, not only the absence of the import.
+;
+; Expected: cell 7 / plain 0 / done
+
+class Slot {
+    fn label:string () {
+        return "plain"
+    }
+    fn amount:int () {
+        return 0
+    }
+}
+
+class Cell extends Slot {
+    def value:int 0
+
+    Constructor (v:int) {
+        value = v
+    }
+
+    fn label:string () {
+        return "cell"
+    }
+    fn amount:int () {
+        return value
+    }
+}
+
+class Test_RustClassNamedCell {
+    sfn m@(main):void () {
+        def items:[Slot]
+        push items (new Cell(7))
+        push items (new Slot())
+        for items s:Slot i {
+            print ((s.label()) + " " + (to_string (s.amount())))
+        }
+        print "done"
+    }
+}

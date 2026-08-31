@@ -267,6 +267,14 @@ class RangerRustClassWriter {
     if (v.value_type == RangerNodeType.VRef) {
       return true
     }
+    ; …and a field read whose OBJECT is an expression — `(st.getSecond())
+    ; .vref` — which is a read exactly as `st.vref` is, only spelled through
+    ; a call. It is a property node, so the expression test below turned it
+    ; away and the field moved out of its `Ref` (E0507). The callers gate
+    ; this on the PARAMETER's type, so a scalar still takes nothing.
+    if (v.isFirstVref("property")) {
+      return true
+    }
     if v.expression {
       return false
     }
@@ -2146,7 +2154,7 @@ class RangerRustClassWriter {
     if p.rust_interior_cell {
       def cellNameN:CodeNode (unwrap p.nameNode)
       if (this.rustCellIsCopy(p)) {
-        wr.out("Cell<" false)
+        wr.out("std::cell::Cell<" false)
         this.writeTypeDef(cellNameN ctx wr)
         wr.out(">" false)
         return
@@ -2699,6 +2707,16 @@ class RangerRustClassWriter {
             vardef_is_name_read = true
           }
         }
+        ; …and the same field read spelled through an EXPRESSION rather than a
+        ; name: `def n:string ((node.getSecond()).vref)` reads `vref` out of a
+        ; borrow exactly as `head.vref` does, but it is a property node with no
+        ; dotted path, so neither test above saw it and no clone was written —
+        ; the String moved out of the `Ref` (E0507). This is the shape the
+        ; compiler's own tree-literal lowering is written in.
+        def vardef_is_prop_get:boolean (valueInner.isFirstVref("property"))
+        if vardef_is_prop_get {
+          vardef_is_name_read = true
+        }
         if vardef_is_name_read {
           def should_clone_vardef:boolean false
           ; a static-string read into an owned String local always converts —
@@ -2711,7 +2729,7 @@ class RangerRustClassWriter {
               should_clone_vardef = true
             }
             ; Clone if accessing a field (has dot path)
-            if ((array_length valueInner.ns) > 1) {
+            if (((array_length valueInner.ns) > 1) || vardef_is_prop_get) {
               should_clone_vardef = true
             } {
               ; For simple variable references, clone if ref_cnt > 1 (used elsewhere)
@@ -2721,6 +2739,22 @@ class RangerRustClassWriter {
                   should_clone_vardef = true
                 }
               }
+            }
+          }
+          ; …and so is a non-scalar read through a property expression. The
+          ; dotted path gets this from the class-variable rule below, which a
+          ; property node has no descriptor for; the local's own declared type
+          ; answers instead. Scalars are Copy and take nothing.
+          if vardef_is_prop_get {
+            def pg_type:RangerNodeType nameN.value_type
+            if ((pg_type == RangerNodeType.Object) || (pg_type == RangerNodeType.VRef) || (pg_type == RangerNodeType.NoType)) {
+              pg_type = (nameN.typeNameAsType(ctx))
+            }
+            if ((((pg_type == RangerNodeType.Object) || (pg_type == RangerNodeType.Array)) || (pg_type == RangerNodeType.Hash)) || (pg_type == RangerNodeType.Buffer)) {
+              should_clone_vardef = true
+            }
+            if (pg_type == RangerNodeType.IntBuffer) {
+              should_clone_vardef = true
             }
           }
           ; a borrowed parameter (&Vec<T> / &[T] / &String) read into an
@@ -5921,6 +5955,49 @@ class RangerRustClassWriter {
     return false
   }
 
+  ; The self calls an argument only CONTAINS, rather than IS. isSelfMethodCall
+  ; tests the argument's own head, so a call reached through anything else —
+  ; most often an index — was never seen: `itemAt outR (this.nearestIndex(…))`
+  ; borrows self to compute the index while the enclosing call is borrowing it
+  ; too, which is E0499. rustc's own advice is a local per call, so they are
+  ; collected here for the caller to hoist.
+  ; Each is collected AS IT SITS in the tree, parens and all: the operand and
+  ; index writers look for rust_use_tmpvar on the child they hold, before any
+  ; unwrapping of their own.
+  ; Nothing that opens a SCOPE is searched, and the search stops at the branch
+  ; rather than stepping over it. A loop body is the case that matters: `for
+  ; xs item { this.markAsyncFrom(item visited) }` becomes a closure taking
+  ; `item`, so the call in it borrows self when the closure runs, not here, and
+  ; a `let` lifted out of it lands where `item` does not exist. That is a block
+  ; node, not a lambda_ctx, so both are tested — along with a subtree that
+  ; merely CONTAINS a closure, which is skipped whole: an argument this pass
+  ; leaves alone still compiles, one hoisted out of its scope does not.
+  fn rustCollectNestedSelfCalls:void (node:CodeNode into:[CodeNode]) {
+    for node.children ch:CodeNode i {
+      def chScoped:boolean false
+      if (this.rustNodeIsLambda(ch)) {
+        chScoped = true
+      }
+      if ch.is_block_node {
+        chScoped = true
+      }
+      if ch.has_lambda {
+        chScoped = true
+      }
+      if ch.has_lambda_call {
+        chScoped = true
+      }
+      if (chScoped == false) {
+        def chReal:CodeNode (this.rustUnwrapParens(ch))
+        if (this.isSelfMethodCall(chReal)) {
+          push into ch
+        } {
+          this.rustCollectNestedSelfCalls(chReal into)
+        }
+      }
+    }
+  }
+
   ; Check if any argument contains a self method call - returns the argument index, -1 if none
   fn findSelfCallInArgs:int (node:CodeNode) {
     if node.hasFnCall {
@@ -7518,7 +7595,15 @@ class RangerRustClassWriter {
         header.out("use std::rc::Weak;" true)
       }
       header.out("use std::cell::RefCell;" true)
-      header.out("use std::cell::Cell;" true)
+      ; …but `Cell` is NOT imported. A program is free to declare a class of
+      ; its own by that name, and the import made the two collide — `struct
+      ; Cell` against `use std::cell::Cell` is "the name `Cell` is defined
+      ; multiple times", and every later mention resolved to the std type
+      ; instead ("field `value` is private", "missing generics"). The interior
+      ; cell spells the std type in full at its two use sites, as the pool
+      ; header already does with UnsafeCell, so nothing is brought into scope
+      ; to be shadowed. It also drops an unused-import warning from every
+      ; generated program that has no interior cell at all.
       header.out("" true)
       ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
       ; per member, each holding that member's cell. A `case` narrowing is then
@@ -8061,7 +8146,7 @@ class RangerRustClassWriter {
           wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
           if pvar.rust_interior_cell {
             if (this.rustCellIsCopy(pvar)) {
-              wr.out("Cell::new(" false)
+              wr.out("std::cell::Cell::new(" false)
             } {
               wr.out("RefCell::new(" false)
             }
@@ -9290,6 +9375,40 @@ class RangerRustClassWriter {
           wr.out(";" true)
           cA.rust_use_tmpvar = cTmp
         }
+        ; …and an argument that is not a self call but CARRIES one further
+        ; down keeps the same conflict: only the nested call moves out, so an
+        ; index stays the place it names and nothing is moved out of it.
+        def cArgScoped:boolean false
+        if (this.rustNodeIsLambda(cA)) {
+          cArgScoped = true
+        }
+        if cA.is_block_node {
+          cArgScoped = true
+        }
+        if cA.has_lambda {
+          cArgScoped = true
+        }
+        if cA.has_lambda_call {
+          cArgScoped = true
+        }
+        if (cNeedsTmp || cArgScoped) {
+        } {
+          def cNested:[CodeNode]
+          this.rustCollectNestedSelfCalls(cReal cNested)
+          for cNested nA:CodeNode nI {
+            if ((strlen nA.rust_use_tmpvar) == 0) {
+              ; the nested call's OWN arguments may carry the same conflict
+              this.rustExtractSelfCallConflicts(nA ctx wr)
+              def nTmp:string (ctx.rustGetTempVar())
+              wr.out((("let mut " + nTmp) + " = ") false)
+              ctx.setInExpr()
+              this.WalkNode(nA ctx wr)
+              ctx.unsetInExpr()
+              wr.out(";" true)
+              nA.rust_use_tmpvar = nTmp
+            }
+          }
+        }
       }
       ; a self call has no receiver of its own to hoist, and its arguments
       ; are now all accounted for
@@ -9843,6 +9962,21 @@ class RangerRustClassWriter {
           ctx.setInExpr()
           this.WalkNode(bosReal ctx wr)
           ctx.unsetInExpr()
+          ; the temporary has to OWN what it holds — the Ref the operand was
+          ; read through is gone by the time the operator runs, and the value
+          ; the operand names is not the temporary's to move. `set
+          ; treeChildCall fname ((st.getSecond()).vref)` hoisted the field
+          ; read and then moved the String out of its `Ref` (E0507). The
+          ; sibling hoist below already spells this; only a COMPUTED operand
+          ; reaches here, so a bare name is never cloned into a copy of
+          ; itself.
+          if (this.rustStrRefRead(bosReal)) {
+            wr.out(".to_string()" false)
+          } {
+            if (this.rustArgIsNameRead(bosReal)) {
+              wr.out(".clone()" false)
+            }
+          }
           wr.out(";" true)
           bosArg.rust_use_tmpvar = bosTmp
         }
@@ -10777,12 +10911,33 @@ class RangerRustClassWriter {
         preeval_name = (ctx.rustGetTempVar())
         wr.out((("let " + preeval_name) + " = ") false)
         ctx.setInExpr()
-        this.WalkNode(right ctx wr)
-        if should_clone_rhs {
-          if rhs_str_ref {
-            wr.out(".to_string()" false)
-          } {
-            wr.out(".clone()" false)
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value is wrapped
+        ; in its variant — and when the right side goes to a temporary, the
+        ; WRAP goes with it. The assignment below has only `= <name>` left to
+        ; write, so a temporary holding the bare member is stored into a slot
+        ; of the family type: "expected `union_EvalValue`, found
+        ; `EvalValue_Map`". `body = (new EvalValue.Map(…))` inside a
+        ; receiverless method is the shape that showed it.
+        ; The guards mirror the non-preeval site below exactly — it wraps only
+        ; on the non-optional path — so this changes where the wrap is written,
+        ; never whether one is.
+        def preevalWroteUnion:boolean false
+        if (is_optional == false) {
+          preevalWroteUnion = (this.rustWriteUnionValue(field_type_name right ctx wr))
+          if preevalWroteUnion {
+            if rhs_is_optional {
+              wr.out(".unwrap()" false)
+            }
+          }
+        }
+        if (preevalWroteUnion == false) {
+          this.WalkNode(right ctx wr)
+          if should_clone_rhs {
+            if rhs_str_ref {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
           }
         }
         ctx.unsetInExpr()

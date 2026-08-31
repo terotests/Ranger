@@ -93,6 +93,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   get slower for it (704 ms → 788 ms). Past 64 the returns stop being worth the
   bytes: 128 buys seven more layers for another half megabyte.
 
+### Fixed
+
+- **The Rust backend hoists a self call the argument only *contains*.** One
+  written directly as an argument — `this.dist(this.near(x))` — was already
+  lifted into a local, because both calls borrow `self` and Rust allows only
+  one such borrow at a time (E0499). One reached through anything else was not:
+  the check looked at the argument's own head, so `itemAt outR (this
+  .nearestIndex(…))` hid the call behind an index and the generated code did
+  not compile. Only the nested call moves out now, into a local of its own,
+  which is what rustc's own advice on the error says: an index stays the place
+  it names and nothing is moved out of it.
+
+  Nothing that opens a scope is searched, and the search stops at that branch
+  rather than stepping over it. A loop body is the case that matters — `for xs
+  item { this.markAsyncFrom(item visited) }` becomes a closure taking `item`,
+  so the call in it borrows `self` when the closure runs, not at the call site,
+  and a `let` lifted out of it lands where `item` does not exist. Hoisting into
+  loop bodies took the compiler's own Rust rendering from 6 errors to 119.
+
+- **The compiler's own Rust rendering compiles with no rustc errors.** It had
+  stood at 6, all one defect: a field read whose object is an EXPRESSION rather
+  than a name. `(node.getSecond()).vref` reads a String out of a `Ref` exactly
+  as `head.vref` does, but it is a property node with no dotted path, so every
+  test that decides "this read has to be cloned" turned it away and the String
+  moved out of the borrow (E0507). Three places asked that question and each
+  now recognises the shape: a local's initializer, a call argument, and the
+  temporary an operator hoists its operand into — the last of which was not
+  taking ownership of anything it hoisted. `rustc -O` builds the 81 000-line
+  rendering, and that binary compiles the compiler's own sources to output
+  byte-identical to the JavaScript build's.
+
+- **A union-typed field keeps its variant wrap when the right side goes to a
+  temporary.** `body = (new EvalValue.Map(…))` stores a member into a slot of
+  the family type, and Rust wants the enum variant around it. The wrap was
+  written at the assignment, so a right side pre-evaluated into a local — which
+  is what a receiverless method does, to keep a `borrow_mut()` from spanning
+  the right side — left the assignment with only `= <name>` to write, and the
+  bare member went into the slot: "expected `union_EvalValue`, found
+  `EvalValue_Map`". The wrap travels with the value into the temporary now. It
+  fixed 13 of the 14 Rust shape tests, which were failing on this one cause.
+
+- **A program may name a class `Cell`.** The Rust preamble imported
+  `std::cell::Cell` into every generated program, so a class of that name
+  collided with it — "the name `Cell` is defined multiple times" — and every
+  later mention resolved to the std type instead, with `value` suddenly a
+  private field and a missing generic argument. The std type is spelled in full
+  at its two use sites now, as the pool header already did with `UnsafeCell`,
+  so nothing is brought into scope to be shadowed. It also drops an unused
+  import from every generated program that has no interior cell at all — the
+  `evg-trace` Rust build now compiles with no warnings rather than one.
+
+- **`evg-trace` builds for Rust.** The tracer's palette refinement is where the
+  nested-call shape above came from, so `-l=rust` produced a program rustc
+  rejected. `npm run evg:trace:cli:rust` now builds it, and the smoke test
+  checks four targets rather than three: Node, Python, C++ and Rust all return
+  byte-for-byte the same SVG.
+
 ### Changed
 
 - **Tarkennin is the tool the edit mode opens on**, rather than Yhdistä. It is

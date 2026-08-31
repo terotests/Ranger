@@ -3,15 +3,16 @@
 # run_trace_cli_smoke.sh — build evg-trace for every target and check they agree
 # ==============================================================================
 #
-# The point of compiling one tracer to three runtimes is that it is one tracer.
-# This asserts that: the same input through the Node, Python and C++ builds has
-# to come out byte for byte the same SVG. A target-specific difference in
-# integer division, string formatting or float printing shows up here as a
-# differing file rather than as a picture somebody notices months later.
+# The point of compiling one tracer to four runtimes is that it is one tracer.
+# This asserts that: the same input through the Node, Python, C++ and Rust
+# builds has to come out byte for byte the same SVG. A target-specific
+# difference in integer division, string formatting or float printing shows up
+# here as a differing file rather than as a picture somebody notices months
+# later.
 #
 #   npm run evg:trace:cli:smoke
 #
-# Python and C++ are skipped (not failed) when their toolchain is absent.
+# Python, C++ and Rust are skipped (not failed) when their toolchain is absent.
 set -u
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
@@ -68,6 +69,26 @@ if command -v g++ >/dev/null 2>&1; then
   else status=1; fi
 else
   echo "  skip (no g++)"
+fi
+
+echo
+echo "### evg-trace (rust)"
+if command -v rustc >/dev/null 2>&1; then
+  if compile rust evg_trace_cli.rs; then
+    if rustc --edition 2021 -O -o gallery/evg/bin/evg_trace_cli_rust \
+         gallery/evg/bin/evg_trace_cli.rs 2>"$OUT/rustc.log"; then
+      ./gallery/evg/bin/evg_trace_cli_rust "$SAMPLE" "$OUT/rust.svg" "${ARGS[@]}" | sed 's/^/  /'
+      if cmp -s "$OUT/node.svg" "$OUT/rust.svg"; then
+        echo "  identical to the node build"
+      else
+        echo "  DIFFERS from the node build"; status=1
+      fi
+    else
+      echo "  rustc FAILED"; grep -m 20 -E "^error" "$OUT/rustc.log"; status=1
+    fi
+  else status=1; fi
+else
+  echo "  skip (no rustc)"
 fi
 
 echo

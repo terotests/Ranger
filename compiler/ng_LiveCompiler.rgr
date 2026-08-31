@@ -1127,6 +1127,42 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             while (barg.expression && ((array_length barg.children) == 1)) {
               barg = (barg.getFirst())
             }
+            ; a field read through an EXPRESSION — `(st.getSecond()).vref` —
+            ; is the same read as `st.vref`, and the same move out of a Ref
+            ; (E0507). The property node is an expression with children, so
+            ; every test below turned it away; its PROPERTY child is a plain
+            ; name carrying the field's descriptor, which is exactly what they
+            ; ask for.
+            def bargPropDesc@(optional):RangerAppParamDesc
+            if (barg.isFirstVref("property")) {
+              if ((array_length barg.children) > 2) {
+                ; the property name carries no descriptor of its own — it was
+                ; never resolved against a name — so the OBJECT's class is
+                ; asked for the field, exactly as the property writer does
+                def pgObj:CodeNode (barg.getSecond())
+                def pgProp:CodeNode (barg.getThird())
+                def pgFldName:string pgProp.vref
+                if ((strlen pgFldName) > 0) {
+                  if ((charAt pgFldName 0) == 46) {
+                    pgFldName = (substring pgFldName 1 ((strlen pgFldName) - 1))
+                  }
+                }
+                def pgType:string pgObj.eval_type_name
+                if ((strlen pgType) == 0) {
+                  pgType = pgObj.type_name
+                }
+                if ((strlen pgType) > 0) {
+                  if (ctx.isDefinedClass(pgType)) {
+                    def pgCl:RangerAppClassDesc (ctx.findClass(pgType))
+                    def pgFld@(optional):RangerAppParamDesc (pgCl.findVariable(pgFldName))
+                    if (!null? pgFld) {
+                      bargPropDesc = pgFld
+                    }
+                  }
+                }
+                barg = pgProp
+              }
+            }
             if (((barg.expression == false) && ((strlen barg.vref) > 0)) && ((array_length barg.children) == 0)) {
               ; the deciding desc: the name itself, or — for a dotted
               ; field read, which comes out of a Ref and cannot move
@@ -1137,6 +1173,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
               if (((array_length barg.ns) > 1) && ((array_length barg.nsp) > 0)) {
                 bpd2 = (itemAt barg.nsp ((array_length barg.nsp) - 1))
+              }
+              if (!null? bargPropDesc) {
+                bpd2 = (unwrap bargPropDesc)
               }
               if (!null? bpd2) {
                 def bpd:RangerAppParamDesc (unwrap bpd2)
