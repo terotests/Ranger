@@ -45,6 +45,7 @@ const { TreeDemo } = require(path.join(ROOT, "gallery/ui/bin/TreeDemo.cjs"));
 const { TimelineDemo } = require(path.join(ROOT, "gallery/ui/bin/TimelineDemo.cjs"));
 const { ResizeDemo } = require(path.join(ROOT, "gallery/ui/bin/ResizeDemo.cjs"));
 const { FormDemo } = require(path.join(ROOT, "gallery/ui/bin/FormDemo.cjs"));
+const { DashboardDemo } = require(path.join(ROOT, "gallery/ui/bin/DashboardDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
@@ -56,6 +57,7 @@ const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
 const TIMELINE_CSS = fs.readFileSync(path.join(HERE, "timeline.css"), "utf8");
 const RESIZE_CSS = fs.readFileSync(path.join(HERE, "resize.css"), "utf8");
 const FORM_CSS = fs.readFileSync(path.join(HERE, "form.css"), "utf8");
+const DASHBOARD_CSS = fs.readFileSync(path.join(HERE, "dashboard.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -98,6 +100,10 @@ const resize = new ResizeDemo();
 resize.init(RESIZE_CSS);
 const form = new FormDemo();
 form.init(FORM_CSS);
+const dashboard = new DashboardDemo();
+dashboard.init(DASHBOARD_CSS);
+// The chart's commands are built on demand and the tree is rebuilt with them.
+dashboard.displayListJson();
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -195,6 +201,20 @@ const STATES = [
       return table.a11yProblems();
     },
     tree: () => table.a11yJson(11, "tbl-prev"),
+  },
+  {
+    // The whole dashboard, and the sidebar is why it is here. axe is the third
+    // instrument: the lint sees the tree the builder made and the gate sees the
+    // fields it carries, but only axe knows that a landmark wants a name, that
+    // `aria-current` takes a value from a fixed list, and that a link whose
+    // whole content is a glyph is a link with nothing to say.
+    name: "dashboard — the sidebar, the chart and a virtual table",
+    size: [1336, 1420],
+    lint: () => {
+      dashboard.displayListJson();
+      return dashboard.a11yProblems();
+    },
+    tree: () => dashboard.a11yJson(20, "db-nav-dashboard"),
   },
   {
     name: "dropdown — closed",

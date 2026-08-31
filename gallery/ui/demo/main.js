@@ -34,6 +34,9 @@ import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
 import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS } from "./generated.js";
 
+// The default stage width. A demo wider than this says so — the dashboard
+// grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
+// report the extra, it crops it.
 const W = 1240;
 
 const CHECK_ITEMS = ["Always Show Bookmarks Bar", "Always Show Full URLs"];
@@ -580,6 +583,7 @@ const DEMOS = {
   // back has the page's own commands and Vela's in it, which is the whole
   // point of the page.
   dashboard: {
+    width: () => dashboard.widthPx(),
     height: () => dashboard.heightPx(),
     list: () => dashboard.displayListJson(),
     hit: (x, y) => dashboard.hitId(x, y),
@@ -1188,6 +1192,7 @@ function paint() {
     const d = demo();
     if (d.sync) d.sync();
     const H = typeof d.height === "function" ? d.height() : d.height;
+    const W2 = typeof d.width === "function" ? d.width() : W;
     const listJson = d.list();
     // The last frame's display list, for anything driving this page from
     // outside: a browser check needs the COLOUR a control was painted, and
@@ -1195,13 +1200,13 @@ function paint() {
     // reason.
     window.__lastList = listJson;
     const list = JSON.parse(listJson);
-    const doc = { width: W, height: H, list };
+    const doc = { width: W2, height: H, list };
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.style.width = W + "px";
+    canvas.style.width = W2 + "px";
     canvas.style.height = H + "px";
-    canvas.width = Math.round(W * dpr);
+    canvas.width = Math.round(W2 * dpr);
     canvas.height = Math.round(H * dpr);
-    stage.style.width = W + "px";
+    stage.style.width = W2 + "px";
     stage.style.height = H + "px";
     const gl = canvas.getContext("webgl2", {
       antialias: true,

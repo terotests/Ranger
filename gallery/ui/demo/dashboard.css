@@ -6,15 +6,240 @@
  * is built with.
  */
 
+/* The page is a ROW now: the sidebar, the hairline that separates it, and
+ * everything that was the page before. Widening rather than narrowing is
+ * deliberate — the content column keeps its 1032, so the chart's 994 and every
+ * measured label position under it are the numbers they already were. The
+ * reference is wider than its content for exactly the same reason, which is
+ * why it scrolls sideways. */
 .db-page {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  background-color: #fafafa;
+  width: 1336px;
+  height: 1420px;
+}
+
+/* --- the sidebar --------------------------------------------------------- */
+
+.db-side {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  background-color: #ffffff;
+  padding: 8px;
+  width: 255px;
+  height: 1420px;
+}
+
+/* A hairline, and it is an ELEMENT rather than `border-right` on the sidebar,
+ * because `border-right` is dropped in silence: nothing parses it, and the
+ * per-side width fields it would write are read by no renderer — the box model
+ * has one border width and uses it on all four sides. A one-pixel column is
+ * not a workaround for a missing feature so much as an honest statement that
+ * the feature is missing; see the note in the demo. */
+.db-side-edge {
+  background-color: #e4e4e7;
+  width: 1px;
+  height: 1420px;
+}
+
+.db-content {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
   padding: 24px;
-  background-color: #fafafa;
   width: 1080px;
   height: 1420px;
 }
+
+/* The brand. A button in the reference — it opens a team switcher — so it is
+ * one here, focusable and named, even though this demo has one team. */
+.db-brand {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 48px;
+}
+
+.db-brand:hover { background-color: #f4f4f5; }
+
+.db-brand-mark {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background-color: #18181b;
+  width: 24px;
+  height: 24px;
+}
+
+.db-brand-mark-text { color: #ffffff; font-size: 12px; font-weight: 600; height: 18px; }
+.db-brand-text { color: #09090b; font-size: 14px; font-weight: 600; height: 20px; }
+
+/* Header, content, footer — and the CONTENT is what grows, which is both what
+ * the reference does and the only shape that lands the account row on the
+ * bottom edge. A `flex: 1` spacer between the links and the footer looks like
+ * the same thing and is not: the grow pass counts an auto-height sibling as
+ * zero, so the spacer is handed the nav's height a second time and the footer
+ * ends up 416 pixels past the bottom of a 1420-pixel column. See the task
+ * about column flex-grow; here there is nothing to work around, because a
+ * scroll box that takes the slack is the honest markup anyway. */
+.db-side-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  padding: 8px 0 0 0;
+  flex: 1;
+}
+
+.db-side-group {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+/* Visible text, and the name of the list under it. Not a heading: the
+ * reference draws a `<div>`, and a level-2 heading inside a navigation
+ * landmark would put a rung in the document outline that the page does not
+ * have. */
+.db-group-label {
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 8px;
+  height: 32px;
+}
+
+.db-menu {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+/* The `<li>`. It carries no styling and exists so that the link inside it can
+ * be a link and the thing around it can still be an item of a list — one node
+ * cannot be both, and a reader counting "5 items" is worth one div. */
+.db-menu-item {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+/* The first row of the first group: the filled action, and a square beside it.
+ * `align-items: center` rather than stretch, so the 32-pixel square does not
+ * become as tall as the row it shares. */
+.db-quick-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 4px 0;
+}
+
+.db-quick {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  background-color: #18181b;
+  padding: 0 10px;
+  height: 32px;
+  flex: 1;
+}
+
+.db-quick:hover { background-color: #27272a; }
+.db-quick-icon { color: #ffffff; font-family: Arial; font-size: 14px; height: 20px; }
+.db-quick-text { color: #ffffff; font-size: 13px; font-weight: 500; height: 20px; }
+
+.db-iconbtn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  width: 32px;
+  height: 32px;
+}
+
+.db-iconbtn:hover { background-color: #f4f4f5; }
+.db-iconbtn-icon { color: #52525b; font-family: Arial; font-size: 13px; height: 18px; }
+
+.db-nav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 32px;
+}
+
+.db-nav:hover { background-color: #f4f4f5; }
+
+/* The page you are on. The fill is the only thing on screen that says so, and
+ * `aria-current="page"` is the only thing that says it to a reader — neither
+ * one stands in for the other. */
+.db-nav-on { background-color: #f4f4f5; }
+
+.db-nav-icon { color: #52525b; font-family: Arial; font-size: 13px; height: 18px; }
+.db-nav-text { color: #27272a; font-size: 13px; height: 20px; }
+.db-nav-text-on { color: #09090b; font-size: 13px; font-weight: 500; height: 20px; }
+/* The last row of the Documents group is a dimmer "More", like the reference. */
+.db-nav-text-dim { color: #71717a; font-size: 13px; height: 20px; }
+
+.db-user {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  height: 48px;
+}
+
+.db-user:hover { background-color: #f4f4f5; }
+
+.db-avatar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: #e4e4e7;
+  width: 32px;
+  height: 32px;
+}
+
+.db-avatar-text { color: #3f3f46; font-size: 12px; font-weight: 600; height: 18px; }
+
+.db-user-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-user-name { color: #09090b; font-size: 13px; font-weight: 500; height: 18px; }
+.db-user-mail { color: #71717a; font-size: 11px; height: 16px; }
 
 .db-main {
   display: flex;

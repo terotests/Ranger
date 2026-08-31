@@ -47,6 +47,7 @@ const DEMOS = {
   dashboard: {
     module: "gallery/ui/bin/DashboardDemo.cjs",
     css: "dashboard.css",
+    width: 1336,
     height: 1420,
     list: (M, css) => {
       const d = new M.DashboardDemo();
@@ -133,7 +134,10 @@ const errors = demo.errors(M, css);
 if (errors > 0) throw new Error(`the stylesheet has ${errors} error(s)`);
 
 const list = JSON.parse(demo.list(M, css));
-const doc = { width: 1240, height: demo.height, list };
+// The canvas is as wide as the demo says it is. The dashboard grew past
+// 1240 when the sidebar arrived, and a canvas that stays 1240 does not
+// report the overflow, it crops it.
+const doc = { width: demo.width || 1240, height: demo.height, list };
 
 const html = `<!doctype html><meta charset="utf-8">
 <link rel="icon" href="data:,">
@@ -175,7 +179,7 @@ const port = server.address().port;
 
 const { chromium } = requireDom("playwright-core");
 const browser = await chromium.launch({ executablePath: findChromium() });
-const p = await browser.newPage({ viewport: { width: 1400, height: demo.height + 60 }, deviceScaleFactor: 2 });
+const p = await browser.newPage({ viewport: { width: doc.width + 60, height: demo.height + 60 }, deviceScaleFactor: 2 });
 p.on("pageerror", (e) => console.error("PAGEERROR:", e.message));
 p.on("console", (m) => { if (m.type() === "error") console.error("CONSOLE:", m.text()); });
 await p.goto(`http://127.0.0.1:${port}/`);

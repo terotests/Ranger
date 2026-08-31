@@ -318,6 +318,13 @@ console.log("--- what a reader is told about five thousand rows ---");
   // THE FINDING. Without this a reader is told the table has fourteen rows.
   ok("the table says how many rows it really has", table && table.rows === 5000,
     table ? JSON.stringify(table.rows) : "absent");
+  // And ONLY the table. `aria-rowcount` on a `rowgroup` is not allowed — the
+  // body holds the rows but owns no count — and it sat there unnoticed,
+  // because a lint that reads the fields a node carries cannot tell you the
+  // node's ROLE may not carry them. axe found it; this keeps it found.
+  ok("and nothing else claims a count",
+    nodes.filter((n) => n.rows !== undefined).length === 1,
+    JSON.stringify(nodes.filter((n) => n.rows !== undefined).map((n) => n.id + ":" + n.role)));
   const rows = nodes.filter((n) => n.role === "row");
   ok("and the tree holds a dozen", rows.length < 20, "" + rows.length);
 
@@ -341,21 +348,38 @@ console.log("--- what a reader is told about five thousand rows ---");
 console.log("--- nothing leaks out of its container ---");
 {
   const d = fresh();
-  const bad = [];
+  const wide = [];
+  const tall = [];
+  // `overflow: hidden` is a container that MEANS to clip — the table body is
+  // one, and its window is taller than it on purpose. Everything else that
+  // ends past its parent is a bug the picture will not necessarily show,
+  // because a canvas paints what it is told and says nothing about the edge.
   const walk = (el) => {
+    const clips = el.overflow === "hidden";
     for (const k of el.children) {
       if (k.position !== "absolute") {
         const right = k.calculatedX + k.calculatedWidth;
         const parentRight = el.calculatedX + el.calculatedWidth;
         if (right > parentRight + 0.5) {
-          bad.push((k.className || "?") + " ends " + right.toFixed(0) + " inside " + (el.className || "?") + " ending " + parentRight.toFixed(0));
+          wide.push((k.className || "?") + " ends " + right.toFixed(0) + " inside " + (el.className || "?") + " ending " + parentRight.toFixed(0));
+        }
+        const bottom = k.calculatedY + k.calculatedHeight;
+        const parentBottom = el.calculatedY + el.calculatedHeight;
+        if (!clips && bottom > parentBottom + 0.5) {
+          tall.push((k.className || "?") + " ends " + bottom.toFixed(0) + " inside " + (el.className || "?") + " ending " + parentBottom.toFixed(0));
         }
       }
       walk(k);
     }
   };
   walk(d.root);
-  ok("every element ends inside its parent", bad.length === 0, bad.join("; "));
+  ok("every element ends inside its parent", wide.length === 0, wide.join("; "));
+  // The DOWNWARD arm, which this sweep did not have. The sidebar's account row
+  // sat 416 pixels below the bottom of the page and the only thing that
+  // noticed was a screenshot with nothing at the bottom of it — a column
+  // overflowing is exactly as wrong as a row overflowing and exactly as
+  // invisible, and a check with one arm is a check that measures one of them.
+  ok("and below it too", tall.length === 0, tall.join("; "));
 }
 
 console.log("--- what a reader gets ---");
@@ -364,10 +388,16 @@ console.log("--- what a reader gets ---");
   const nodes = JSON.parse(d.a11yJson(1, "db-range-d90")).nodes;
   const by = (id) => nodes.find((n) => n.id === id);
 
-  const lists = nodes.filter((n) => n.role === "list");
-  ok("the figures are a named list", lists.length === 1 && lists[0].name === "Key figures",
-    JSON.stringify(lists.map((n) => n.name)));
-  ok("of four items", nodes.filter((n) => n.role === "listitem").length === 4);
+  // Scoped to THIS list by name, not "the only list on the page" — the
+  // sidebar's menus are lists too, and a count over the whole tree would have
+  // to be edited every time one arrives, which is a check measuring the page's
+  // furniture instead of its claim.
+  const figures = nodes.find((n) => n.role === "list" && n.name === "Key figures");
+  ok("the figures are a named list", !!figures,
+    JSON.stringify(nodes.filter((n) => n.role === "list").map((n) => n.name)));
+  ok("of four items",
+    nodes.filter((n) => n.role === "listitem" && n.p === figures.id).length === 4,
+    "got " + nodes.filter((n) => n.role === "listitem" && n.p === figures.id).length);
   // A card announces its label AND its number: "Total Revenue" alone tells a
   // reader there is a figure and not what it is.
   ok("each carrying its figure", by("db-revenue") && by("db-revenue").name === "Total Revenue, $1,250.00",
@@ -412,6 +442,84 @@ console.log("--- what a reader gets ---");
   ok("and the pill is not announced on its own", !nodes.some((n) => (n.name || "") === "3"));
 
   ok("no lint", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
+}
+
+console.log("--- the sidebar is a landmark, and it says which page you are on ---");
+{
+  const d = fresh();
+  const nodes = JSON.parse(d.a11yJson(1, "db-range-d90")).nodes;
+  const by = (id) => nodes.find((n) => n.id === id);
+
+  // A LANDMARK. This is the whole reason a sidebar is not just a column of
+  // buttons: it is the thing a reader jumps to. An unnamed one is a landmark
+  // they have to open to find out what it is.
+  const navs = nodes.filter((n) => n.role === "navigation");
+  ok("one navigation landmark", navs.length === 1, "got " + navs.length);
+  ok("and it is named", navs.length === 1 && navs[0].name === "Main",
+    JSON.stringify(navs.map((n) => n.name)));
+
+  // LINKS, not buttons. The difference is what a reader is told will happen.
+  const links = nodes.filter((n) => n.role === "link");
+  ok("nine links", links.length === 9, "got " + links.length);
+  ok("every one of them named", links.every((n) => (n.name || "").length > 0),
+    JSON.stringify(links.map((n) => n.name)));
+
+  // The two menus. The one with words above it is named by them; the one with
+  // no label has no name, because a name invented here is a word a reader
+  // hears that nobody wrote.
+  const menus = nodes.filter((n) => n.role === "list" && n.p === "db-side");
+  ok("two menus under it", menus.length === 2, "got " + menus.length);
+  ok("the labelled one carries its label",
+    menus.some((n) => n.name === "Documents"), JSON.stringify(menus.map((n) => n.name)));
+  ok("and the unlabelled one invents nothing",
+    menus.some((n) => !n.name), JSON.stringify(menus.map((n) => n.name)));
+  ok("every link is an item of one of them",
+    links.every((n) => (n.p || "").startsWith("db-menu-")),
+    JSON.stringify(links.map((n) => n.p)));
+
+  // The actions are BUTTONS and they sit outside the lists: "Quick Create"
+  // goes nowhere, it does something.
+  ok("Quick Create is a button", by("db-quick") && by("db-quick").role === "button");
+  ok("and it is not in a menu", by("db-quick").p === "db-side", by("db-quick").p);
+  // An icon with no words. The name is the entire interface here.
+  ok("the inbox has the name its glyph cannot give it",
+    by("db-inbox") && by("db-inbox").name === "Inbox",
+    by("db-inbox") ? JSON.stringify(by("db-inbox").name) : "absent");
+  ok("and the envelope itself is not announced",
+    !nodes.some((n) => (n.name || "").includes("\u2709")));
+  // Both open menus, and both say so before they are pressed.
+  ok("the brand says it opens a menu", by("db-brand") && by("db-brand").haspopup === "menu");
+  ok("so does the account", by("db-user") && by("db-user").haspopup === "menu");
+
+  ok("no lint", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
+}
+
+console.log("--- pressing a link moves the current page in BOTH vocabularies ---");
+{
+  const d = fresh();
+  const currentOf = (dd) => {
+    const nodes = JSON.parse(dd.a11yJson(1, "")).nodes;
+    return nodes.filter((n) => n.current === "page").map((n) => n.id);
+  };
+  const filled = (dd) => find(dd, "db-nav-on").map((n) => n.el.id);
+
+  ok("exactly one link is current at rest", currentOf(d).join(",") === "db-nav-dashboard",
+    currentOf(d).join(","));
+  // The FILL and `aria-current` are set from the same test, so they cannot
+  // disagree — a highlighted row that does not say it is current, or a current
+  // one that is not highlighted, is one of the two audiences told the truth.
+  ok("and the fill is on the same one", filled(d).join(",") === "db-nav-dashboard",
+    filled(d).join(","));
+
+  ok("pressing another one is a change", d.press("db-nav-analytics"));
+  d.displayListJson();
+  ok("the current link moved", currentOf(d).join(",") === "db-nav-analytics",
+    currentOf(d).join(","));
+  ok("and it is still exactly one", currentOf(d).length === 1, "" + currentOf(d).length);
+  ok("the fill moved with it", filled(d).join(",") === "db-nav-analytics", filled(d).join(","));
+  // The menu ids share the `db-nav-` prefix's neighbourhood; pressing the list
+  // itself must not make a tenth page appear.
+  ok("pressing a menu is not pressing a link", d.press("db-menu-docs") === false);
 }
 
 console.log("--- what a reader is told about a carried row ---");

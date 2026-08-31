@@ -2255,10 +2255,65 @@ it never drew, and the drag write-back was looking every record up by key,
 twenty-five million comparisons for one drag. The sortable holds the visible
 window now, because a row you cannot see is a row you cannot pick up.
 
-**Still to come**: the sidebar, which is a navigation landmark with sections.
-The reference's horizontal scroll is not wanted: it scrolls because its
-sidebar takes the width, and this table is sized to its card instead — no
-scroll container, nothing to get wrong.
+## The sidebar, and two bugs a picture does not show
+
+A navigation LANDMARK, which is the whole reason it is worth building rather
+than drawing: nine buttons in a column are nine things a reader walks past, and
+a named landmark is one thing they jump to. Nine links in two menus, the second
+named by the words drawn above it and the first named by nothing, because a
+name invented in the builder is a word a reader hears that nobody wrote.
+
+The page got **wider** for it rather than the content getting narrower — 1336 =
+255 sidebar + 1 hairline + 1080. That is arithmetic, not politeness: `chartW`
+is 994 because the card's inner width is 994, and the axis-label positions
+measured against it would all have had to be measured again.
+
+Two things it says that the picture cannot. `aria-current="page"` marks the one
+link you are on, set from the same test as the fill so the two audiences cannot
+be told different stories — and the mutation that proves it is worth having is
+the second one: leaving `aria-current` correct while the fill never moves fails
+two checks and passes three, which is exactly a page that looks right and reads
+wrong. The inbox button carries the name its envelope glyph does not.
+
+**The hairline is an element, because `border-right` does nothing.**
+`setAttribute` has branches for `border`, `border-width`, `border-color` and
+`border-radius` and none for the four sides; the `borderTopWidth`..
+`borderLeftWidth` fields exist on the element, are copied by `adoptFrom`, and
+are read by no renderer, because the box model has one border width and spends
+it on all four sides. No style error either — the stylesheet reports selectors
+it cannot parse, not declarations it cannot use. `border-bottom` in
+dashboard.css and profile.css has been dropped the same silent way all along.
+
+**The account row landed 416 pixels below the bottom of the page, and nothing
+noticed.** A `flex: 1` spacer between the links and the footer looked like the
+right way to push the footer down; the column-axis grow pass counts an
+auto-height sibling as contributing NOTHING to the fixed total, so the spacer
+was handed the nav's height a second time. 416 was precisely the nav's height.
+Reduced to a 200x300 column: CSS gives the spacer 112, EVGLayout gives it 212,
+and the footer ends at 400 inside a 300-pixel box.
+
+Two lessons, and the second is the one worth keeping. The demo does not need
+the fix — the content is what grows, which is what shadcn's sidebar does
+anyway. But the whole-tree overflow sweep this gate has had since the form
+demo only ever compared RIGHT edges. A column overflowing is exactly as wrong
+as a row overflowing and exactly as invisible, and a sweep with one arm
+measures one of them. It has both now, skipping containers that mean to clip,
+and the mutation that proves it is a 200-pixel gap in the menus.
+
+**And putting the page in front of axe for the first time found a third thing,
+which was not the sidebar's.** `aria-rowcount` was on the table AND on the
+table body, on the reasoning that the body is what holds the rows. ARIA does
+not allow it on `rowgroup`: a row group owns no count. Neither of the other two
+instruments could see that — the lint reads the fields a node carries and the
+gate reads their values, and neither asks whether the node's ROLE is allowed to
+carry them at all. The dashboard is a state in the demo audit now, all 218
+nodes of it, and the gate has the narrower claim beside the old one: exactly
+one node on the page reports a row count.
+
+**Still to come**: the reference's horizontal scroll is not wanted — it scrolls
+because its sidebar takes the width, and this table is sized to its card
+instead, so there is no scroll container and nothing to get wrong. Nor does the
+sidebar collapse to icons; that is a width this page does not have.
 
 ## Resizable, and a reference that publishes an impossible range
 

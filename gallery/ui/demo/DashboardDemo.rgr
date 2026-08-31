@@ -52,12 +52,28 @@
 ; Target is a claim about where every row belongs, and honouring a drag inside
 ; it would mean the column header lied. The demo says so under the table.
 ;
+; --- THE SIDEBAR --------------------------------------------------------------
+;
+; A NAVIGATION LANDMARK, which is the only reason it is worth building rather
+; than drawing: a column of nine buttons is nine things a reader walks past,
+; and a named landmark is one thing they jump to.
+;
+; The page got WIDER for it instead of the content getting narrower. That is
+; not politeness towards the chart, it is arithmetic: `chartW` is 994 because
+; the card's inner width is 994, and every axis-label position measured against
+; that number would have had to be measured again. 1336 = 255 + 1 + 1080.
+;
+; Two things it says that a picture cannot. `aria-current="page"` marks the one
+; link you are on — set from the same test as the fill, so the two audiences
+; cannot be told different stories — and the inbox button carries the name its
+; envelope glyph does not.
+;
 ; --- WHAT IS NOT HERE YET ----------------------------------------------------
 ;
-; The sidebar, which is a navigation landmark with sections. And the
-; reference's horizontal scroll, which it has because its sidebar takes the
+; The reference's horizontal scroll, which it has because its sidebar takes the
 ; width — this table is sized to its card instead, so there is nothing to
-; scroll and no scroll container to get wrong.
+; scroll and no scroll container to get wrong. And the sidebar does not
+; collapse to icons; that is a width the page does not have.
 ; =============================================================================
 
 Import "../src/RadioGroupCtl.rgr"
@@ -162,6 +178,45 @@ treefactory Db {
     tag Live    EVGElement (props (className "db-live") (elementType 1) (role "status"))
 
     tag Note    EVGElement (props (className "db-note") (elementType 1))
+
+    ; --- the sidebar ----------------------------------------------------------
+    ; A NAVIGATION landmark. That is not decoration: it is the thing that lets a
+    ; reader jump straight to the page's links, and a column of buttons with no
+    ; landmark around them is a column a reader has to walk.
+    tag Side     EVGElement (props (className "db-side") (role "navigation") (a11yLabel "Main"))
+    ; The hairline between the sidebar and the page. An ELEMENT, because
+    ; `border-right` is dropped in silence — see the note in `sidebar`.
+    tag SideEdge EVGElement (props (className "db-side-edge") (a11yHidden true))
+    tag Content  EVGElement (props (className "db-content"))
+    tag Brand    EVGElement (props (className "db-brand") (role "button"))
+    tag BrandMk  EVGElement (props (className "db-brand-mark") (a11yHidden true))
+    tag BrandMkT EVGElement (props (className "db-brand-mark-text") (elementType 1))
+    tag BrandTx  EVGElement (props (className "db-brand-text") (elementType 1))
+    tag SideBody EVGElement (props (className "db-side-body"))
+    tag SideGrp  EVGElement (props (className "db-side-group"))
+    tag GrpLbl   EVGElement (props (className "db-group-label") (elementType 1))
+    tag Menu     EVGElement (props (className "db-menu") (role "list"))
+    tag MenuItem EVGElement (props (className "db-menu-item") (role "listitem"))
+    tag QuickRow EVGElement (props (className "db-quick-row"))
+    tag Quick    EVGElement (props (className "db-quick") (role "button"))
+    tag QuickIc  EVGElement (props (className "db-quick-icon") (elementType 1) (a11yHidden true))
+    tag QuickTx  EVGElement (props (className "db-quick-text") (elementType 1))
+    tag IconBtn  EVGElement (props (className "db-iconbtn") (role "button"))
+    tag IconBtnI EVGElement (props (className "db-iconbtn-icon") (elementType 1) (a11yHidden true))
+    ; A LINK, not a button. The difference is what a reader is told will
+    ; happen: a link goes somewhere, a button does something here.
+    tag NavItem   EVGElement (props (className "db-nav") (role "link"))
+    tag NavItemOn EVGElement (props (className "db-nav db-nav-on") (role "link"))
+    tag NavIc    EVGElement (props (className "db-nav-icon") (elementType 1) (a11yHidden true))
+    tag NavTx    EVGElement (props (className "db-nav-text") (elementType 1))
+    tag NavTxOn  EVGElement (props (className "db-nav-text-on") (elementType 1))
+    tag NavTxDim EVGElement (props (className "db-nav-text-dim") (elementType 1))
+    tag User     EVGElement (props (className "db-user") (role "button"))
+    tag Avatar   EVGElement (props (className "db-avatar") (a11yHidden true))
+    tag AvatarTx EVGElement (props (className "db-avatar-text") (elementType 1))
+    tag UserTx   EVGElement (props (className "db-user-text"))
+    tag UserName EVGElement (props (className "db-user-name") (elementType 1))
+    tag UserMail EVGElement (props (className "db-user-mail") (elementType 1))
 }
 
 ; One of the four figures across the top.
@@ -207,8 +262,15 @@ class DashboardDemo {
     def hovered:string ""
     def pressed:string ""
     def focused:string ""
+    ; Which sidebar link is the page you are on. One string, because
+    ; `aria-current="page"` is a claim about exactly one link.
+    def navPage:string "dashboard"
 
-    def pageW:double 1080.0
+    ; The page got WIDER when the sidebar arrived, rather than the content
+    ; getting narrower. 1336 = 255 sidebar + 1 hairline + 1080, so `db-main`
+    ; keeps its 1032 and the chart keeps its 994 — and every measured label
+    ; position under it is the number it already was.
+    def pageW:double 1336.0
     def pageH:double 1420.0
     ; The chart's drawn size. ONE owner: the spec is built from these numbers
     ; and the placeholder box is set to them inline, so the box the layout
@@ -521,6 +583,132 @@ class DashboardDemo {
     }
 
     ; --- the tree -------------------------------------------------------------
+
+    ; --- the sidebar ----------------------------------------------------------
+
+    ; One link. The fill and `aria-current` are set from the SAME test, because
+    ; a highlighted row that does not say it is current, or a current one that
+    ; is not highlighted, is one of the two audiences being told the truth.
+    fn navRow:EVGElement (key:string label:string icon:string dim:boolean) {
+        def id:string ("db-nav-" + key)
+        def on:boolean (navPage == key)
+        def item (tree Db (MenuItem))
+        def row (tree Db (NavItem (props (id id) (a11yLabel label))))
+        if on {
+            row = (tree Db (NavItemOn (props (id id) (a11yLabel label))))
+        }
+        row.a11yFocusable = true
+        if on {
+            row.a11yCurrent = "page"
+        }
+        row.addChild((tree Db (NavIc icon)))
+        if on {
+            row.addChild((tree Db (NavTxOn label)))
+        } {
+            if dim {
+                row.addChild((tree Db (NavTxDim label)))
+            } {
+                row.addChild((tree Db (NavTx label)))
+            }
+        }
+        item.addChild(row)
+        return item
+    }
+
+    ; The reference's sidebar: a brand, an action, two groups of links and the
+    ; account at the bottom.
+    ;
+    ; --- WHY THE HAIRLINE IS AN ELEMENT ---------------------------------------
+    ;
+    ; It wants to be `border-right: 1px solid #e4e4e7` on `.db-side`, and that
+    ; line would do NOTHING. `setAttribute` has branches for `border`,
+    ; `border-width`, `border-color` and `border-radius` and none for the four
+    ; sides; the `borderTopWidth`..`borderLeftWidth` fields exist on the element
+    ; and are read by no renderer, because the box model has one border width
+    ; and spends it on all four sides. No style error either — the stylesheet
+    ; reports selectors it cannot parse, not declarations it cannot use.
+    ;
+    ; So a one-pixel column, which is a true statement about a missing feature
+    ; rather than a trick to hide one. `border-bottom` in this very sheet and in
+    ; profile.css is dropped the same silent way and has been all along.
+    fn sidebar:EVGElement () {
+        def side (tree Db (Side (props (id "db-side"))))
+
+        def brand (tree Db (Brand (props (id "db-brand") (a11yLabel "Acme Inc."))))
+        brand.a11yFocusable = true
+        ; It opens a team switcher in the reference, so it says so. A button
+        ; that silently turns out to be a menu is a surprise a reader gets
+        ; after committing to the press.
+        brand.a11yHasPopup = "menu"
+        brand.a11yExpanded = (EVGA11yTri.no())
+        def mark (tree Db (BrandMk))
+        mark.addChild((tree Db (BrandMkT "A")))
+        brand.addChild(mark)
+        brand.addChild((tree Db (BrandTx "Acme Inc.")))
+        side.addChild(brand)
+
+        def body (tree Db (SideBody))
+
+        def g1 (tree Db (SideGrp))
+        ; The action pair. BUTTONS, both of them, and not part of the list
+        ; below: "Quick Create" goes nowhere, it does something.
+        def qrow (tree Db (QuickRow))
+        def quick (tree Db (Quick (props (id "db-quick") (a11yLabel "Quick Create"))))
+        quick.a11yFocusable = true
+        quick.addChild((tree Db (QuickIc "+")))
+        quick.addChild((tree Db (QuickTx "Quick Create")))
+        qrow.addChild(quick)
+        ; An icon with no words. The label is the whole interface for a reader,
+        ; which is why it is stated rather than left to the glyph — and the
+        ; glyph is hidden, because "envelope" read out after "Inbox" is the
+        ; same thing said twice in two vocabularies.
+        def inbox (tree Db (IconBtn (props (id "db-inbox") (a11yLabel "Inbox"))))
+        inbox.a11yFocusable = true
+        inbox.addChild((tree Db (IconBtnI "✉")))
+        qrow.addChild(inbox)
+        g1.addChild(qrow)
+
+        ; No name on this list. The reference draws no label above it, and a
+        ; name invented here is a word a reader hears that nobody wrote.
+        def m1 (tree Db (Menu (props (id "db-menu-pages"))))
+        m1.addChild((this.navRow("dashboard" "Dashboard" "▦" false)))
+        m1.addChild((this.navRow("lifecycle" "Lifecycle" "↺" false)))
+        m1.addChild((this.navRow("analytics" "Analytics" "◕" false)))
+        m1.addChild((this.navRow("projects" "Projects" "▭" false)))
+        m1.addChild((this.navRow("team" "Team" "●" false)))
+        g1.addChild(m1)
+        body.addChild(g1)
+
+        def g2 (tree Db (SideGrp))
+        g2.addChild((tree Db (GrpLbl "Documents")))
+        ; This one IS named, by the words drawn above it. A group label a
+        ; reader cannot associate with the group is a label for nobody.
+        def m2 (tree Db (Menu (props (id "db-menu-docs") (a11yLabel "Documents"))))
+        m2.addChild((this.navRow("library" "Data Library" "▤" false)))
+        m2.addChild((this.navRow("reports" "Reports" "≡" false)))
+        m2.addChild((this.navRow("assistant" "Word Assistant" "◌" false)))
+        m2.addChild((this.navRow("more" "More" "⋮" true)))
+        g2.addChild(m2)
+        body.addChild(g2)
+
+        ; The body GROWS (see the sheet), so the account row below it sits on
+        ; the bottom edge whatever the links above it add up to.
+        side.addChild(body)
+
+        def user (tree Db (User (props (id "db-user") (a11yLabel "Account, Tero Tolonen"))))
+        user.a11yFocusable = true
+        user.a11yHasPopup = "menu"
+        user.a11yExpanded = (EVGA11yTri.no())
+        def av (tree Db (Avatar))
+        av.addChild((tree Db (AvatarTx "TT")))
+        user.addChild(av)
+        def ut (tree Db (UserTx))
+        ut.addChild((tree Db (UserName "Tero Tolonen")))
+        ut.addChild((tree Db (UserMail "tero@example.com")))
+        user.addChild(ut)
+        side.addChild(user)
+        return side
+    }
 
     fn cardBody:EVGElement (c:DbCard) {
         def card (tree Db (Card (props (id c.tid) (a11yLabel ((c.label + ", ") + c.value)))))
@@ -842,9 +1030,13 @@ class DashboardDemo {
         ; simply never enters the tree.
         def tbody (tree Db (Body (props (id "db-tbody"))))
         tbody.height = (EVGUnit.px(tableViewport))
-        ; What a reader is owed, and the whole reason this is an accessibility
-        ; change and not only a performance one.
-        tbody.a11yRowCount = (virt.rowCount())
+        ; NO `aria-rowcount` here. It went on the body as well as the table at
+        ; first, on the reasoning that the body is what holds the rows — and
+        ; ARIA does not allow it on `rowgroup`, which owns no count. Neither
+        ; the lint nor the gate could see that: they check the fields a node
+        ; carries, not whether its ROLE is allowed to carry them. axe did, the
+        ; first time this page was put in front of it. The count is on
+        ; `db-table`, which is the element the attribute belongs to.
 
         ; The SORTED list, which is what the virtualiser's indices are into.
         def rows:[UiRecord] (table.sortedRecords())
@@ -889,6 +1081,9 @@ class DashboardDemo {
 
     fn pageBody:EVGElement () {
         def page (tree Db (Page (props (id "page"))))
+        page.addChild((this.sidebar()))
+        page.addChild((tree Db (SideEdge)))
+        def content (tree Db (Content (props (id "db-content"))))
         def main (tree Db (Main (props (id "db-main"))))
 
         def row (tree Db (Cards (props (id "db-cards"))))
@@ -903,8 +1098,9 @@ class DashboardDemo {
         main.addChild(row)
         main.addChild((this.chartCard()))
         main.addChild((this.tableCard()))
-        page.addChild(main)
-        page.addChild((tree Db (Note "The chart is a Vega specification run by Vela and painted into this page's display list — geometry and axis labels both. Press a range button or use the arrows.")))
+        content.addChild(main)
+        content.addChild((tree Db (Note "The chart is a Vega specification run by Vela and painted into this page's display list — geometry and axis labels both. Press a range button or use the arrows.")))
+        page.addChild(content)
         return page
     }
 
@@ -1060,7 +1256,26 @@ class DashboardDemo {
         return ""
     }
 
+    ; A sidebar link. Nothing NAVIGATES — there is one page — but the current
+    ; link moves, which is the visible and the announced half of navigation
+    ; both, and it is the half a layout gets wrong.
+    fn navPress:boolean (target:string) {
+        if ((strlen target) < 8) {
+            return false
+        }
+        if (((substring target 0 7)) != "db-nav-") {
+            return false
+        }
+        navPage = (substring target 7 (strlen target))
+        focused = target
+        this.rebuild()
+        return true
+    }
+
     fn press:boolean (target:string) {
+        if (this.navPress(target)) {
+            return true
+        }
         def i:int 0
         while (i < (array_length range.items)) {
             def it:UiItem (itemAt range.items i)
