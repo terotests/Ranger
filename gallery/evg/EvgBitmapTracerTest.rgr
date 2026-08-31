@@ -45,6 +45,14 @@ class EvgBitmapTracerTest {
         test.testOverlaySimilarityDecidesHowManyStack(t)
         test.testDetailMaskFindsTheEyeNotTheRamp(t)
         test.testDetailNeighbourhoodGetsItsOwnPalette(t)
+        test.testCompactNumberFormatting(t)
+        test.testCompactEncodingDrawsTheSamePath(t)
+        test.testOklabIsOnTheSameScale(t)
+        test.testAbsorbContrastKeepsAStandoutSpeck(t)
+        test.testPresetsAreStartingPoints(t)
+        test.testOklabRoundTripsThroughSrgb(t)
+        test.testDistinctBiasSurvivesTheLloydPasses(t)
+        test.testPaletteDialsMoveWhereTheySay(t)
         t.summary()
     }
 
@@ -1567,4 +1575,545 @@ class EvgBitmapTracerTest {
         def plain:EvgTraceOptions (EvgTraceOptions.defaults())
         t.ok("contour smoothing is still off by default" ((plain.contourMode) == "off"))
     }
+
+    ; ----------------------------------------------------------------------
+    ; Compact path encoding (EvgTracePath)
+    ; ----------------------------------------------------------------------
+
+    fn testCompactNumberFormatting:void (t:RgTest) {
+        t.eqStr("a whole number keeps no point" (EvgTracePath.num(12.0 2)) "12")
+        t.eqStr("trailing zeros go" (EvgTracePath.num(3.50 2)) "3.5")
+        t.eqStr("interior zeros stay" (EvgTracePath.num(3.05 2)) "3.05")
+        t.eqStr("a pure fraction loses its leading zero" (EvgTracePath.num(0.5 2)) ".5")
+        t.eqStr("and so does a negative one" (EvgTracePath.num((0.0 - 0.5) 2)) "-.5")
+        t.eqStr("rounding is to the asked-for place" (EvgTracePath.num(1.2345 2)) "1.23")
+        t.eqStr("and one place is one place" (EvgTracePath.num(1.2345 1)) "1.2")
+        t.eqStr("a value that rounds away is plain zero" (EvgTracePath.num((0.0 - 0.001) 2)) "0")
+
+        ; The separator rule, which is where this went wrong: a minus sign
+        ; STARTS a number. Reading it as an interior character makes ".2-1"
+        ; look like one number that has already spent its dot, and the ".44"
+        ; after it is then written with no separator — ".2-1.44" is three
+        ; numbers where four were meant, and the path silently breaks there.
+        t.eqStr("the last number is the last number" (EvgTracePath.lastNum("s.2-1")) "-1")
+        t.eqStr("a dot is interior to it" (EvgTracePath.lastNum("c1.5")) "1.5")
+        t.eqStr("nothing follows a command letter" (EvgTracePath.lastNum("M")) "")
+        t.eqStr("a number may run onto one that spent its dot" (EvgTracePath.joinNum("c1.5" "1.5" ".25")) "c1.5.25")
+        t.eqStr("but not onto one that did not" (EvgTracePath.joinNum("c-1" "-1" ".44")) "c-1 .44")
+        t.eqStr("a minus never needs a separator" (EvgTracePath.joinNum("c5" "5" "-1")) "c5-1")
+    }
+
+    ; Every command letter and the count of numbers it must be given.
+    sfn arityOf:int (letter:string) {
+        if ((indexOf "MmLl" letter) >= 0) {
+            return 2
+        }
+        if ((indexOf "HhVv" letter) >= 0) {
+            return 1
+        }
+        if ((indexOf "Cc" letter) >= 0) {
+            return 6
+        }
+        if ((indexOf "SsQq" letter) >= 0) {
+            return 4
+        }
+        if ((indexOf "Zz" letter) >= 0) {
+            return 0
+        }
+        return (0 - 1)
+    }
+
+    ; Count the numbers a real SVG parser would read out of `d`, and check each
+    ; command got exactly as many as it takes. A run-on that swallows a number
+    ; shows up here as an arity that is one short.
+    fn miscountedCommands:int (d:string) {
+        def bad:int 0
+        def n:int (strlen d)
+        def i:int 0
+        def want:int 0
+        def have:int 0
+        def inNum:boolean false
+        def hadDot:boolean false
+        while (i < n) {
+            def ch:string (substring d i (i + 1))
+            def isDigit:boolean ((indexOf "0123456789" ch) >= 0)
+            if (isDigit) {
+                if (inNum == false) {
+                    inNum = true
+                    hadDot = false
+                    have = (have + 1)
+                }
+            } {
+                if (ch == ".") {
+                    ; A second dot cannot continue the number, so it opens one.
+                    if ((inNum == false) || hadDot) {
+                        inNum = true
+                        have = (have + 1)
+                    }
+                    hadDot = true
+                } {
+                    if (ch == "-") {
+                        inNum = true
+                        hadDot = false
+                        have = (have + 1)
+                    } {
+                        inNum = false
+                        hadDot = false
+                        def a:int (EvgBitmapTracerTest.arityOf(ch))
+                        if (a >= 0) {
+                            if (have != want) {
+                                bad = (bad + 1)
+                            }
+                            want = a
+                            have = 0
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (have != want) {
+            bad = (bad + 1)
+        }
+        return bad
+    }
+
+    fn testCompactEncodingDrawsTheSamePath:void (t:RgTest) {
+        ; A checkerboard gives axis-aligned runs (H/V), a ring gives long
+        ; smooth curves (S), and both give plenty of negative deltas.
+        def shapes:[EvgBinaryBitmap]
+        push shapes (this.makeChecker(64 8))
+        push shapes (this.makeRing(64))
+
+        def si:int 0
+        while (si < (array_length shapes)) {
+            def bm:EvgBinaryBitmap (itemAt shapes si)
+
+            def cOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            def compact:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm cOpts))
+            compact.trace()
+
+            def pOpts:EvgTraceOptions (EvgTraceOptions.defaults())
+            pOpts.pathFormat = "plain"
+            def plain:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm pOpts))
+            plain.trace()
+
+            t.eqInt("the same rings either way" (compact.ringCount()) (plain.ringCount()))
+            t.eqInt("and the same commands" (compact.commandCount()) (plain.commandCount()))
+            def cd:string (compact.getPathData())
+            def pd:string (plain.getPathData())
+            def miscount:int (this.miscountedCommands(cd))
+            t.eqInt("every compact command is given the numbers it takes" miscount 0)
+            def clen:int (strlen cd)
+            def plen:int (strlen pd)
+            t.ok("and it is the shorter of the two" (clen < plen))
+            si = (si + 1)
+        }
+    }
+
+    ; A filled disc, for curves that actually curve.
+    fn makeRing:EvgBinaryBitmap (n:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(n n))
+        def c:int (idiv n 2)
+        def r2:int (((idiv n 3) * (idiv n 3)))
+        def y:int 0
+        while (y < n) {
+            def x:int 0
+            while (x < n) {
+                def dx:int (x - c)
+                def dy:int (y - c)
+                if ((((dx * dx) + (dy * dy))) <= r2) {
+                    bm.setBit(x y true)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
+    }
+
+    ; ----------------------------------------------------------------------
+    ; OKLab color distance (EvgTraceColor)
+    ; ----------------------------------------------------------------------
+
+    fn testOklabIsOnTheSameScale:void (t:RgTest) {
+        def lin:[double] (EvgTraceColor.buildLinearTable())
+        t.eqInt("the transfer table has one entry per channel value" (array_length lin) 256)
+        def black:double (itemAt lin 0)
+        def white:double (itemAt lin 255)
+        t.ok("black is 0 in linear light" (black < 0.000001))
+        def whiteOk:boolean (((white > 0.9999) && (white < 1.0001)))
+        t.ok("and white is 1" whiteOk)
+
+        def p (new EvgOklab())
+        def q (new EvgOklab())
+        p.setFrom(lin 0 0 0)
+        q.setFrom(lin 255 255 255)
+        def bw:double (EvgTraceColor.dist2(p q))
+        def scaled:boolean (((bw > 390149.0) && (bw < 390151.0)))
+        t.ok("black against white reads the same as it does in RGB" scaled)
+
+        q.setFrom(lin 0 0 0)
+        t.ok("a color is no distance from itself" ((EvgTraceColor.dist2(p q)) < 0.000001))
+
+        ; What the space is for: RGB puts a dark navy and a dark green the same
+        ; distance apart as two mid greys that a viewer separates far more
+        ; easily. OKLab does not.
+        def a (new EvgOklab())
+        def b (new EvgOklab())
+        a.setFrom(lin 20 20 90)
+        b.setFrom(lin 20 90 20)
+        def okDark:double (EvgTraceColor.dist2(a b))
+        a.setFrom(lin 130 130 130)
+        b.setFrom(lin 200 200 200)
+        def okGrey:double (EvgTraceColor.dist2(a b))
+        def rgbDark:double (EvgBitmapTracer.colorDist2(20 20 90 20 90 20 3))
+        def rgbGrey:double (EvgBitmapTracer.colorDist2(130 130 130 200 200 200 3))
+        t.ok("RGB calls the grey step the larger one" (rgbGrey > rgbDark))
+        t.ok("OKLab calls the hue step the larger one" (okDark > okGrey))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Contrast-aware speckle absorb (options.absorbContrast)
+    ; ----------------------------------------------------------------------
+
+    ; A dark field with one small bright mark in it — a speck that is the
+    ; subject, not noise, and one that is not.
+    fn makeSpeckField:ImageBuffer (speckR:int speckG:int speckB:int) {
+        def img (new ImageBuffer())
+        img.init(40 40)
+        def y:int 0
+        while (y < 40) {
+            def x:int 0
+            while (x < 40) {
+                img.setPixelRGB(x y 30 40 120)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; Five across, so the mark has interior pixels of its own: only those
+        ; vote for a swatch (buildFlatMask keeps the anti-aliased rim out), and
+        ; a mark with no interior never earns one to be kept or absorbed.
+        y = 18
+        while (y < 23) {
+            def x2:int 18
+            while (x2 < 23) {
+                img.setPixelRGB(x2 y speckR speckG speckB)
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    fn speckSurvives:boolean (o:EvgTraceOptions speckR:int speckG:int speckB:int) {
+        def img:ImageBuffer (this.makeSpeckField(speckR speckG speckB))
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img o))
+        tr.trace()
+        def i:int 0
+        while (i < (array_length tr.labels)) {
+            if ((itemAt tr.labels i) != (itemAt tr.labels 0)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn testAbsorbContrastKeepsAStandoutSpeck:void (t:RgTest) {
+        ; Twenty-five pixels against a minRegion of forty, so size alone
+        ; condemns the mark either way. What decides is whether it stands out
+        ; from the field around it.
+        def keep:EvgTraceOptions (EvgTraceOptions.defaults())
+        keep.colorCount = 4
+        keep.bgMode = "none"
+        keep.minRegion = 40
+        t.ok("a bright mark on a dark field survives minRegion"
+             (this.speckSurvives(keep 240 240 230)))
+
+        def off:EvgTraceOptions (EvgTraceOptions.defaults())
+        off.colorCount = 4
+        off.bgMode = "none"
+        off.minRegion = 40
+        off.absorbContrast = 0
+        t.ok("and is absorbed once the contrast test is switched off"
+             ((this.speckSurvives(off 240 240 230)) == false))
+
+        ; A mark the quantizer cannot tell from its field is not a mark.
+        t.ok("a mark that matches its field is absorbed either way"
+             ((this.speckSurvives(keep 32 42 122)) == false))
+    }
+
+    fn testPresetsAreStartingPoints:void (t:RgTest) {
+        def line:EvgTraceOptions (EvgTraceOptions.preset("lineart"))
+        t.eqInt("line art is one color" (line.colorCount) 1)
+        t.ok("and lets Otsu pick the threshold" ((line.threshold) < 0))
+        t.eqInt("and never medians a thin stroke away" (line.smooth) 0)
+
+        def photo:EvgTraceOptions (EvgTraceOptions.preset("photo"))
+        t.ok("a photograph is medianed first" ((photo.smooth) > 0))
+        def print:EvgTraceOptions (EvgTraceOptions.preset("print"))
+        t.ok("and absorbs more speckle than a print does"
+             ((photo.absorbContrast) > (print.absorbContrast)))
+
+        def unknown:EvgTraceOptions (EvgTraceOptions.preset("no-such-preset"))
+        def plain:EvgTraceOptions (EvgTraceOptions.defaults())
+        t.eqInt("an unknown name is just the defaults" (unknown.colorCount) (plain.colorCount))
+        t.eqStr("compact path data is the default" (plain.pathFormat) "compact")
+        t.eqStr("and RGB is still the default space" (plain.colorSpace) "rgb")
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; The palette objective
+    ; ----------------------------------------------------------------------
+
+    fn testOklabRoundTripsThroughSrgb:void (t:RgTest) {
+        def lin:[double] (EvgTraceColor.buildLinearTable())
+        def o (new EvgOklab())
+        def worst:int 0
+        def k:int 0
+        while (k < 400) {
+            def r:int (k - ((idiv k 256) * 256))
+            def g:int ((k * 7) - ((idiv (k * 7) 256) * 256))
+            def b:int ((k * 13) - ((idiv (k * 13) 256) * 256))
+            o.setFrom(lin r g b)
+            def ol:double o.l
+            def oa:double o.a
+            def ob:double o.b
+            def back:[int] (EvgTraceColor.srgbOf(ol oa ob))
+            def dr:int ((itemAt back 0) - r)
+            def dg:int ((itemAt back 1) - g)
+            def db:int ((itemAt back 2) - b)
+            def e:int (EvgBitmapTracer.absI(dr))
+            def e2:int (EvgBitmapTracer.absI(dg))
+            def e3:int (EvgBitmapTracer.absI(db))
+            if (e2 > e) {
+                e = e2
+            }
+            if (e3 > e) {
+                e = e3
+            }
+            if (e > worst) {
+                worst = e
+            }
+            k = (k + 1)
+        }
+        t.eqInt("a color survives the trip into OKLab and back" worst 0)
+    }
+
+    ; A large flat field with one small saturated mark in it. Weighted by area
+    ; the mark is nothing; the question is whether the quantizer keeps a swatch
+    ; for it anyway.
+    fn makeMarkOnField:ImageBuffer () {
+        def img (new ImageBuffer())
+        img.init(80 80)
+        ; Four grey bands, so four swatches are already spoken for by area.
+        def y:int 0
+        while (y < 80) {
+            def band:int (idiv y 20)
+            def v:int 60
+            if (band == 1) {
+                v = 110
+            }
+            if (band == 2) {
+                v = 160
+            }
+            if (band == 3) {
+                v = 215
+            }
+            def x:int 0
+            while (x < 80) {
+                img.setPixelRGB(x y v (v - 2) (v - 6))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        ; And one small ochre mark: 121 pixels, under two percent of the frame.
+        y = 34
+        while (y < 45) {
+            def x2:int 34
+            while (x2 < 45) {
+                img.setPixelRGB(x2 y 178 158 101)
+                x2 = (x2 + 1)
+            }
+            y = (y + 1)
+        }
+        return img
+    }
+
+    ; The r/g/b of a layer's fill, 0..255.
+    fn fillRgb:[int] (tr:EvgBitmapTracer i:int) {
+        def layers:[EvgTraceLayer] (tr.getLayers())
+        def layer:EvgTraceLayer (itemAt layers i)
+        def hex:string layer.fillHex
+        ; EVGColor keeps r/g/b in 0..255 already.
+        def c:EVGColor (EVGColor.parseHex(hex))
+        def out:[int]
+        push out (to_int ((c.r) + 0.5))
+        push out (to_int ((c.g) + 0.5))
+        push out (to_int ((c.b) + 0.5))
+        return out
+    }
+
+    ; How far the nearest palette entry sits from a color, largest per-channel.
+    fn nearestFillDistance:int (tr:EvgBitmapTracer r:int g:int b:int) {
+        def best:int 999
+        def i:int 0
+        def layers:[EvgTraceLayer] (tr.getLayers())
+        while (i < (array_length layers)) {
+            def rgb:[int] (this.fillRgb(tr i))
+            def cr:int (itemAt rgb 0)
+            def cg:int (itemAt rgb 1)
+            def cb:int (itemAt rgb 2)
+            def d1:int (EvgBitmapTracer.absI((cr - r)))
+            def d2:int (EvgBitmapTracer.absI((cg - g)))
+            def d3:int (EvgBitmapTracer.absI((cb - b)))
+            def d:int d1
+            if (d2 > d) {
+                d = d2
+            }
+            if (d3 > d) {
+                d = d3
+            }
+            if (d < best) {
+                best = d
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn traceMark:EvgBitmapTracer (bias:string chroma:int) {
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        o.colorCount = 4
+        o.bgMode = "none"
+        o.paletteBias = bias
+        o.paletteChroma = chroma
+        def img:ImageBuffer (this.makeMarkOnField())
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img o))
+        tr.trace()
+        return tr
+    }
+
+    fn testDistinctBiasSurvivesTheLloydPasses:void (t:RgTest) {
+        ; Steering only the seeds is the same as not steering: the Lloyd passes
+        ; that follow are what decides where a swatch settles, and run on
+        ; population they walk every seed back onto the mass it was chosen to
+        ; get away from. This is that regression.
+        def area:EvgBitmapTracer (this.traceMark("area" 0))
+        def distinct:EvgBitmapTracer (this.traceMark("distinct" 0))
+        def dArea:int (this.nearestFillDistance(area 178 158 101))
+        def dDist:int (this.nearestFillDistance(distinct 178 158 101))
+        t.ok("area spends every swatch on the four big bands" (dArea > 40))
+        t.ok("distinct keeps one for the mark" (dDist < 32))
+        t.ok("and it is the closer of the two" (dDist < dArea))
+
+        ; Colorfulness counts on top of whichever bias is in force.
+        def plain:EvgBitmapTracer (this.traceMark("area" 0))
+        def chroma:EvgBitmapTracer (this.traceMark("area" 300))
+        def dPlain:int (this.nearestFillDistance(plain 178 158 101))
+        def dChroma:int (this.nearestFillDistance(chroma 178 158 101))
+        t.ok("weighting colorfulness moves the palette toward the mark" (dChroma <= dPlain))
+    }
+
+    ; OKLab chroma of a palette entry, in thousandths.
+    fn fillChroma:int (tr:EvgBitmapTracer i:int) {
+        def lin:[double] (EvgTraceColor.buildLinearTable())
+        def rgb:[int] (this.fillRgb(tr i))
+        def cr:int (itemAt rgb 0)
+        def cg:int (itemAt rgb 1)
+        def cb:int (itemAt rgb 2)
+        def o (new EvgOklab())
+        o.setFrom(lin cr cg cb)
+        def oa:double o.a
+        def ob:double o.b
+        def mag:double (sqrt ((oa * oa) + (ob * ob)))
+        return (to_int ((mag * 1000.0) + 0.5))
+    }
+
+    fn traceGraded:EvgBitmapTracer (mute:int tint:int warm:int contrast:int) {
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        o.colorCount = 4
+        o.bgMode = "none"
+        o.paletteMute = mute
+        o.paletteTint = tint
+        o.paletteWarm = warm
+        o.paletteContrast = contrast
+        def img:ImageBuffer (this.makeMarkOnField())
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img o))
+        tr.trace()
+        return tr
+    }
+
+    fn lowestChroma:int (tr:EvgBitmapTracer) {
+        def best:int 9999
+        def i:int 0
+        def layers:[EvgTraceLayer] (tr.getLayers())
+        while (i < (array_length layers)) {
+            def c:int (this.fillChroma(tr i))
+            if (c < best) {
+                best = c
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn highestChroma:int (tr:EvgBitmapTracer) {
+        def best:int 0
+        def i:int 0
+        def layers:[EvgTraceLayer] (tr.getLayers())
+        while (i < (array_length layers)) {
+            def c:int (this.fillChroma(tr i))
+            if (c > best) {
+                best = c
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn testPaletteDialsMoveWhereTheySay:void (t:RgTest) {
+        def plain:EvgBitmapTracer (this.traceGraded(100 0 0 100))
+        def muted:EvgBitmapTracer (this.traceGraded(50 0 0 100))
+        def rich:EvgBitmapTracer (this.traceGraded(180 0 0 100))
+        def hi1:int (this.highestChroma(plain))
+        def hi2:int (this.highestChroma(muted))
+        def hi3:int (this.highestChroma(rich))
+        t.ok("mute below 100 breaks the palette toward grey" (hi2 < hi1))
+        t.ok("and above 100 enriches it" (hi3 > hi1))
+
+        ; The floor is what keeps a broken palette off dead grey.
+        def dead:int (this.lowestChroma(plain))
+        def tinted:EvgBitmapTracer (this.traceGraded(50 40 0 100))
+        def lifted:int (this.lowestChroma(tinted))
+        t.ok("the picture holds a near-neutral" (dead < 40))
+        t.ok("and the tint floor lifts it off grey" (lifted >= 38))
+
+        ; Identity at the defaults: an untouched trace is byte for byte what it
+        ; was before the dials existed.
+        def a:EvgBitmapTracer (this.traceGraded(100 0 0 100))
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        o.colorCount = 4
+        o.bgMode = "none"
+        def img:ImageBuffer (this.makeMarkOnField())
+        def b:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img o))
+        b.trace()
+        t.eqStr("the dials are identity where they are left alone" (a.getPathData()) (b.getPathData()))
+        def la:[EvgTraceLayer] (a.getLayers())
+        def lb:[EvgTraceLayer] (b.getLayers())
+        def sameFills:boolean true
+        def i:int 0
+        while (i < (array_length la)) {
+            def x:EvgTraceLayer (itemAt la i)
+            def y:EvgTraceLayer (itemAt lb i)
+            if ((x.fillHex) != (y.fillHex)) {
+                sameFills = false
+            }
+            i = (i + 1)
+        }
+        t.ok("including every color in the palette" sameFills)
+    }
+
 }
