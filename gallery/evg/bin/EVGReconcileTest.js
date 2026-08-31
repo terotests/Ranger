@@ -1543,6 +1543,11 @@ class EVGElement  {
     this.a11ySorted = 0;
     this.a11yOrientation = "";
     this.a11yCurrent = "";
+    this.a11yHasValue = false;
+    this.a11yValueNow = 0;
+    this.a11yHasRange = false;
+    this.a11yValueMin = 0;
+    this.a11yValueMax = 0;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2190,6 +2195,11 @@ class EVGElement  {
     this.a11ySorted = other.a11ySorted;
     this.a11yOrientation = other.a11yOrientation;
     this.a11yCurrent = other.a11yCurrent;
+    this.a11yHasValue = other.a11yHasValue;
+    this.a11yValueNow = other.a11yValueNow;
+    this.a11yHasRange = other.a11yHasRange;
+    this.a11yValueMin = other.a11yValueMin;
+    this.a11yValueMax = other.a11yValueMax;
     this.a11yChecked = other.a11yChecked;
     this.a11yExpanded = other.a11yExpanded;
     this.a11ySelected = other.a11ySelected;
@@ -5886,6 +5896,15 @@ class EVGLayout  {
             width = measuredW;
           }
         }
+      } else {
+        if ( element.display == "flex" ) {
+          const intrinsic = this.intrinsicWidth(element, false);
+          if ( intrinsic > 0.0 ) {
+            if ( intrinsic < parentWidth ) {
+              width = intrinsic;
+            }
+          }
+        }
       }
     }
     let height = 0.0;
@@ -7066,12 +7085,56 @@ class EVGLayout  {
           }
           outer = contentW + el.box.getHorizontalChrome();
         }
+      } else {
+        outer = this.intrinsicOfChildren(el, wantMin);
       }
     }
     if ( outer <= 0.0 ) {
       return 0.0;
     }
     return (outer + el.box.marginLeftPx) + el.box.marginRightPx;
+  };
+  intrinsicOfChildren (el, wantMin) {
+    const n = el.getChildCount();
+    if ( n == 0 ) {
+      return 0.0;
+    }
+    const isColumn = (el.flexDirection == "column") || (el.flexDirection == "column-reverse");
+    let gapPx = 0.0;
+    if ( el.gap.isSet ) {
+      gapPx = el.gap.pixels;
+    }
+    if ( el.columnGap.isSet ) {
+      gapPx = el.columnGap.pixels;
+    }
+    let total = 0.0;
+    let widest = 0.0;
+    let counted = 0;
+    let i = 0;
+    while (i < n) {
+      const kid = el.getChild(i);
+      if ( kid.position == "absolute" ) {
+      } else {
+        const w = this.intrinsicWidth(kid, wantMin);
+        if ( w > widest ) {
+          widest = w;
+        }
+        if ( counted > 0 ) {
+          total = total + gapPx;
+        }
+        total = total + w;
+        counted = counted + 1;
+      }
+      i = i + 1;
+    };
+    let inner = total;
+    if ( isColumn ) {
+      inner = widest;
+    }
+    if ( inner <= 0.0 ) {
+      return 0.0;
+    }
+    return inner + el.box.getHorizontalChrome();
   };
   layoutGrid (parent) {
     const innerWidth = parent.calculatedInnerWidth;
@@ -12810,6 +12873,11 @@ class EVGA11yFromTree  {
       n.sorted = el.a11ySorted;
       n.orientation = el.a11yOrientation;
       n.current = el.a11yCurrent;
+      n.hasValueNow = el.a11yHasValue;
+      n.valueNow = el.a11yValueNow;
+      n.hasValueRange = el.a11yHasRange;
+      n.valueMin = el.a11yValueMin;
+      n.valueMax = el.a11yValueMax;
       if ( el.a11ySelected == 2 ) {
         n.selected = true;
       }
@@ -12872,6 +12940,9 @@ EVGA11yFromTree.roleCode = function(name) {
   }
   if ( name == "link" ) {
     return EVGA11yRole.link();
+  }
+  if ( name == "navigation" ) {
+    return EVGA11yRole.navigation();
   }
   if ( name == "tablist" ) {
     return EVGA11yRole.tabList();

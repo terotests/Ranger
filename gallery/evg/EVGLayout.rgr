@@ -178,6 +178,22 @@ class EVGLayout {
                         width = measuredW
                     }
                 }
+            } {
+                ; A width-less flex CONTAINER shrink-wraps too, which is what
+                ; `flex: 0 1 auto` does in CSS and what this engine used to get
+                ; wrong: a row with no width took its parent's whole width, so
+                ; every component that put a label in a wrapper had to state a
+                ; width the children already knew. The intrinsic pass answers
+                ; it, and only shrinks — a container wider than its parent
+                ; still fills and lets the flex rules squeeze it.
+                if (element.display == "flex") {
+                    def intrinsic:double (this.intrinsicWidth(element false))
+                    if (intrinsic > 0.0) {
+                        if (intrinsic < parentWidth) {
+                            width = intrinsic
+                        }
+                    }
+                }
             }
         }
         
@@ -1771,13 +1787,21 @@ class EVGLayout {
     ; Auto-flow row placement over a fixed column count. Items may span columns
     ; and rows; an occupancy map keeps spans from overlapping. Returns the total
     ; content height, same contract as layoutChildren.
-    ; What a grid item contributes to an intrinsic track.
+    ; What an item contributes to an intrinsic size — CSS's `max-content` and
+    ; `min-content`, and now for CONTAINERS as well as leaves.
     ;
     ; A definite width is both the min- and max-content size, so it is the
-    ; whole answer. A text leaf contributes its longest unbroken line. Anything
-    ; else contributes nothing: sizing a container to its subtree needs a real
-    ; intrinsic pass, and reporting a made-up number would silently misplace
-    ; every neighbour rather than merely leave a track narrow.
+    ; whole answer. A text leaf contributes its longest unbroken line (or its
+    ; longest word, for the min). A CONTAINER contributes the sum of its
+    ; children along the row axis and the widest of them down the column axis,
+    ; plus gaps and its own chrome — which is the recursive definition, and it
+    ; terminates on the leaves above.
+    ;
+    ; This used to stop at the leaves, and the comment here said why: sizing a
+    ; container to its subtree needs a real intrinsic pass. This IS that pass.
+    ; It was written when the alternative was reporting a made-up number; the
+    ; alternative now is every component hand-setting a width its own children
+    ; already know, which is worse and does not stay correct.
     fn intrinsicWidthOf:double (el:EVGElement) {
         return (this.intrinsicWidth(el false))
     }
@@ -1811,12 +1835,65 @@ class EVGLayout {
                     }
                     outer = (contentW + (el.box.getHorizontalChrome()))
                 }
+            } {
+                outer = (this.intrinsicOfChildren(el wantMin))
             }
         }
         if (outer <= 0.0) {
             return 0.0
         }
         return ((outer + el.box.marginLeftPx) + el.box.marginRightPx)
+    }
+
+    ; The recursive half. A row adds its children up; a column takes the widest.
+    ; Absolutely positioned children are out of flow and contribute nothing, the
+    ; same way they contribute nothing to the flow itself.
+    ;
+    ; `wrap` is treated as a row here on purpose: max-content is defined as the
+    ; size the box would take with unlimited space, and with unlimited space a
+    ; wrapping row does not wrap.
+    fn intrinsicOfChildren:double (el:EVGElement wantMin:boolean) {
+        def n:int (el.getChildCount())
+        if (n == 0) {
+            return 0.0
+        }
+        def isColumn:boolean ((el.flexDirection == "column") || (el.flexDirection == "column-reverse"))
+        def gapPx:double 0.0
+        if el.gap.isSet {
+            gapPx = el.gap.pixels
+        }
+        if el.columnGap.isSet {
+            gapPx = el.columnGap.pixels
+        }
+
+        def total:double 0.0
+        def widest:double 0.0
+        def counted:int 0
+        def i:int 0
+        while (i < n) {
+            def kid:EVGElement (el.getChild(i))
+            if (kid.position == "absolute") {
+            } {
+                def w:double (this.intrinsicWidth(kid wantMin))
+                if (w > widest) {
+                    widest = w
+                }
+                if (counted > 0) {
+                    total = (total + gapPx)
+                }
+                total = (total + w)
+                counted = (counted + 1)
+            }
+            i = (i + 1)
+        }
+        def inner:double total
+        if isColumn {
+            inner = widest
+        }
+        if (inner <= 0.0) {
+            return 0.0
+        }
+        return (inner + (el.box.getHorizontalChrome()))
     }
 
     fn layoutGrid:double (parent:EVGElement) {

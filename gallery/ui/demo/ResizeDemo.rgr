@@ -1,0 +1,499 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ResizeDemo — the reference's nested panels, with a breadcrumb that gives way
+; =============================================================================
+; The layout is the pattern's: a horizontal pair whose right half is a vertical
+; pair. `One | Two / Three`. Drag either separator; the arrows and Home/End
+; work on whichever one has focus, because that is `ResizeCtl` and it is
+; measured against react-resizable-panels.
+;
+; --- WHY THIS DEMO EXISTS, WHICH IS NOT THE PANELS ----------------------------
+;
+; `BreadcrumbCtl` knows a rule — first crumb, last two, ellipsis for the middle
+; — and the conformance specs prove the rule with widths the FIXTURE states.
+; Nothing had ever seen it fire from a real layout, and a rule that has only
+; been tested against numbers somebody typed is a rule that has not met a font.
+;
+; So the left panel holds a breadcrumb and the panel is draggable. Narrow it and
+; the trail gives way; widen it and the crumbs come back.
+;
+; --- MEASURE, DECIDE, REBUILD -------------------------------------------------
+;
+; This is the first component here whose CONTENT depends on its own size, and
+; EVG lays out after the tree is built. So one pass cannot do it:
+;
+;   1. lay out, which gives the panel a width
+;   2. tell the breadcrumb that width; it answers how many crumbs fit
+;   3. if the answer CHANGED, rebuild and lay out again
+;
+; The third step is conditional and that matters. Rebuilding unconditionally
+; would rebuild sixty times a second during a drag, and rebuilding without
+; checking whether the decision moved would mean the loop never settles. The
+; check is on the DECISION — how many crumbs — and not on the width, because
+; the width changes on every frame of a drag and the answer does not.
+;
+; Crumb widths are measured with the SAME text engine the painter uses, so the
+; number the rule sees is the number that will be drawn. That is the same
+; discipline `EVGTextEngine.breakLines` follows for wrapping.
+; =============================================================================
+
+Import "../src/ResizeCtl.rgr"
+Import "../src/BreadcrumbCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Rz {
+    child addChild
+    text  textContent
+
+    tag Page   EVGElement (props (className "rz-page"))
+    tag Card   EVGElement (props (className "rz-card"))
+    tag Group  EVGElement (props (className "rz-group"))
+    tag VGroup EVGElement (props (className "rz-group rz-group-v"))
+    tag Panel  EVGElement (props (className "rz-panel"))
+    ; The handle. `role="separator"` with the value range on it — the whole
+    ; contract `ResizeCtl` publishes, drawn.
+    tag Sep    EVGElement (props (className "rz-sep") (role "separator"))
+    tag Grip   EVGElement (props (className "rz-grip") (a11yHidden true))
+    tag Label  EVGElement (props (className "rz-label") (elementType 1))
+    tag Crumbs EVGElement (props (className "rz-crumbs") (role "navigation") (a11yLabel "Breadcrumb"))
+    tag List   EVGElement (props (className "rz-crumb-list") (role "list"))
+    tag Item   EVGElement (props (className "rz-crumb-li") (role "listitem"))
+    tag Link   EVGElement (props (className "rz-crumb") (elementType 1) (role "link"))
+    tag Sep2   EVGElement (props (className "rz-crumb-sep") (elementType 1) (a11yHidden true))
+    tag Dots   EVGElement (props (className "rz-crumb-dots") (elementType 1))
+    tag Note   EVGElement (props (className "rz-note") (elementType 1))
+}
+
+class ResizeDemo {
+
+    def outer:ResizeCtl (new ResizeCtl())
+    def inner:ResizeCtl (new ResizeCtl())
+    def trail:BreadcrumbCtl (new BreadcrumbCtl())
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def transitions:EVGTransition (new EVGTransition())
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 900.0
+    def pageH:double 520.0
+    ; The group's own width in pixels, which is what a percentage means.
+    def groupW:double 720.0
+    def groupH:double 300.0
+
+    ; What the drag is holding, "" for nothing, and where it started.
+    def dragSep:string ""
+    def dragAt:double 0.0
+
+    ; The decision the last pass reached. The rebuild is conditional on THIS
+    ; changing and not on the width, because the width moves every frame of a
+    ; drag and the answer does not.
+    def lastTail:int (0 - 1)
+    ; How many times the trail has actually been rebuilt, so a test can say the
+    ; loop settles rather than assuming it.
+    def rebuilds:int 0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        outer.tid = "rz"
+        outer.orientation = "horizontal"
+        def one:UiPanel (outer.addPanel("one" 60.0))
+        one.minSize = 15.0
+        def two:UiPanel (outer.addPanel("two" 40.0))
+        two.minSize = 15.0
+
+        inner.tid = "rz-panel-two-group"
+        inner.orientation = "vertical"
+        def top:UiPanel (inner.addPanel("top" 25.0))
+        top.minSize = 10.0
+        def bottom:UiPanel (inner.addPanel("bottom" 75.0))
+        bottom.minSize = 10.0
+        two.sub = inner
+
+        trail.tid = "bc"
+        trail.name = "Breadcrumb"
+        trail.addCrumb("home" "Home" 0.0)
+        trail.addCrumb("docs" "Documentation" 0.0)
+        trail.addCrumb("guides" "Guides" 0.0)
+        trail.addCrumb("components" "Components" 0.0)
+        trail.addCrumb("crumb" "Breadcrumb" 0.0)
+
+        outer.build()
+        this.rebuild()
+    }
+
+    ; --- measure ----------------------------------------------------------------
+
+    ; Every crumb, measured with the engine that will draw it. Called once, not
+    ; per frame: the text does not change, only the box around it.
+    fn measureCrumbs:void (lay:EVGLayout) {
+        def eng:EVGTextEngine (lay.getTextEngine())
+        def i:int 0
+        while (i < (array_length trail.crumbs)) {
+            def c:UiCrumb (itemAt trail.crumbs i)
+            def m:EVGTextMetrics (eng.measureRun(c.label "Arial" 13.0))
+            c.width = m.width
+            i = (i + 1)
+        }
+        ; The separator's spacing is inside the STRING, so the measured width
+        ; is the drawn width. A CSS padding here would be a number the rule
+        ; cannot see, and the first version had one.
+        def sepM:EVGTextMetrics (eng.measureRun(" / " "Arial" 13.0))
+        trail.separatorWidth = sepM.width
+        def dotM:EVGTextMetrics (eng.measureRun("…" "Arial" 13.0))
+        trail.ellipsisWidth = dotM.width
+    }
+
+    ; How wide the left panel's content box is, in pixels.
+    fn panelWidth:double () {
+        def p:UiPanel (itemAt outer.panels 0)
+        ; The group's width less the separator, shared out by percentage. The
+        ; padding is the stylesheet's and is taken off here because the trail
+        ; has to fit INSIDE it.
+        def usable:double (groupW - 6.0)
+        return (((usable * p.size) / 100.0) - 24.0)
+    }
+
+    ; --- the tree ---------------------------------------------------------------
+
+    fn crumbBlock:EVGElement () {
+        def nav (tree Rz (Crumbs (props (id "bc"))))
+        def list (tree Rz (List (props (id "bc-list"))))
+        nav.addChild(list)
+
+        def n:int (array_length trail.crumbs)
+        def tail:int (trail.shownTail())
+        def firstShown:int (n - tail)
+        def drawn:int 0
+        def i:int 0
+        while (i < n) {
+            def show:boolean ((i == 0) || (i >= firstShown))
+            if show {
+                if (drawn > 0) {
+                    def sp (tree Rz (Sep2 " / "))
+                    list.addChild(sp)
+                }
+                if (i == firstShown) {
+                    if (firstShown > 1) {
+                        def dli (tree Rz (Item (props (id "bc-ellipsis-li") (a11yLabel "More"))))
+                        ; The GLYPH is hidden and the item carries the name.
+                        ; Three dots read aloud is not "some crumbs are
+                        ; missing", and a label on the glyph loses to its own
+                        ; text content — which is shadcn's shape too: an
+                        ; aria-hidden span beside a visually-hidden word.
+                        def dt (tree Rz (Dots (props (id "bc-ellipsis") (a11yHidden true)) "…"))
+                        dli.addChild(dt)
+                        list.addChild(dli)
+                        def sp2 (tree Rz (Sep2 " / "))
+                        list.addChild(sp2)
+                        drawn = (drawn + 1)
+                    }
+                }
+                def c:UiCrumb (itemAt trail.crumbs i)
+                ; The WRAPPER needs the width too. A flex row with no width
+                ; fills its parent, so the list item took half the panel and
+                ; the crumb inside it looked correctly sized while sitting in
+                ; the wrong place. Every box on the path from the text to the
+                ; measured constraint has to carry the number.
+                def li (tree Rz (Item (props (id (("bc-item-" + c.value) + "-li")))))
+                def link (tree Rz (Link (props (id ("bc-item-" + c.value))) c.label))
+                ; The MEASURED width, set on the element. EVG has no
+                ; intrinsic text sizing — a text child with no width fills its
+                ; parent, which is why the first version's trail ran off the
+                ; end of the card while the arithmetic said it fitted. Setting
+                ; it here closes the loop: the number the rule decided with is
+                ; the number that gets drawn.
+                if (i == (n - 1)) {
+                    link.className = "rz-crumb rz-crumb-page"
+                    link.a11yCurrent = "page"
+                    link.a11yDisabled = true
+                }
+                li.addChild(link)
+                list.addChild(li)
+                drawn = (drawn + 1)
+            }
+            i = (i + 1)
+        }
+        return nav
+    }
+
+    fn panelBody:EVGElement (label:string withCrumbs:boolean) {
+        def p (tree Rz (Panel))
+        if withCrumbs {
+            p.addChild((this.crumbBlock()))
+        }
+        p.addChild((tree Rz (Label label)))
+        return p
+    }
+
+    fn sepFor:EVGElement (ctl:ResizeCtl i:int) {
+        def before:UiPanel (itemAt ctl.panels i)
+        def s (tree Rz (Sep (props (id (ctl.sepTid(i))) (a11yLabel ("Resize " + before.value)))))
+        s.a11yOrientation = (ctl.sepOrientation())
+        s.a11yFocusable = true
+        ; A focusable separator MUST carry a value range — ARIA says so and axe
+        ; enforces it. Without it this is not a splitter, it is a decoration
+        ; that has taken a tab stop. `ResizeCtl` publishes the range through
+        ; its rows; a demo that builds its own tree has to publish it here, and
+        ; the first version did not.
+        s.a11yHasValue = true
+        s.a11yValueNow = (ctl.valueNowAt(i))
+        s.a11yHasRange = true
+        s.a11yValueMin = (ctl.valueMinAt(i))
+        s.a11yValueMax = (ctl.valueMaxAt(i))
+        s.addChild((tree Rz (Grip)))
+        return s
+    }
+
+    fn pageBody:EVGElement () {
+        def page (tree Rz (Page (props (id "page"))))
+        def card (tree Rz (Card (props (id "card"))))
+
+        def g (tree Rz (Group (props (id "rz"))))
+        def one:UiPanel (itemAt outer.panels 0)
+        def two:UiPanel (itemAt outer.panels 1)
+
+        def leftEl:EVGElement (this.panelBody("One" true))
+        leftEl.id = "rz-panel-one"
+        leftEl.width = (EVGUnit.percent(one.size))
+        g.addChild(leftEl)
+
+        g.addChild((this.sepFor(outer 0)))
+
+        def rightEl (tree Rz (Panel (props (id "rz-panel-two"))))
+        rightEl.width = (EVGUnit.percent(two.size))
+        def vg (tree Rz (VGroup (props (id "rz-panel-two-group"))))
+        def top:UiPanel (itemAt inner.panels 0)
+        def bot:UiPanel (itemAt inner.panels 1)
+        def topEl:EVGElement (this.panelBody("Two" false))
+        topEl.id = "rz-panel-two-group-panel-top"
+        topEl.height = (EVGUnit.percent(top.size))
+        vg.addChild(topEl)
+        vg.addChild((this.sepFor(inner 0)))
+        def botEl:EVGElement (this.panelBody("Three" false))
+        botEl.id = "rz-panel-two-group-panel-bottom"
+        botEl.height = (EVGUnit.percent(bot.size))
+        vg.addChild(botEl)
+        rightEl.addChild(vg)
+        g.addChild(rightEl)
+
+        card.addChild(g)
+        page.addChild(card)
+        page.addChild((tree Rz (Note "Drag a divider, or focus one and use the arrows. Narrow the left panel and the trail gives way.")))
+        return page
+    }
+
+    fn rebuild:void () {
+        root = (this.pageBody())
+        rebuilds = (rebuilds + 1)
+    }
+
+    ; --- the two passes ---------------------------------------------------------
+    ;
+    ; Lay out, ask the trail what fits, and rebuild only if the ANSWER moved.
+    ; Guarded against running twice: the second layout cannot change the panel's
+    ; width, so one extra pass is always enough.
+    fn settle:void () {
+        def lay:EVGLayout (this.laidOutOnce())
+        this.measureCrumbs(lay)
+        trail.available = (this.panelWidth())
+        def tail:int (trail.shownTail())
+        if (tail != lastTail) {
+            lastTail = tail
+            this.rebuild()
+            this.laidOutOnce()
+        }
+    }
+
+    fn laidOutOnce:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            lay.layout(r)
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn laidOut:EVGLayout () {
+        this.settle()
+        return (unwrap layout)
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) { el.isHovered = true }
+            if (el.id == pressed) { el.isPressed = true }
+            if (el.id == focused) { el.isFocused = true }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    ; --- input --------------------------------------------------------------------
+
+    fn key:boolean (k:string) {
+        def next:string (outer.keyDown(focused k))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn beginPress:boolean (target:string px:double py:double) {
+        if ((outer.isFocusable(target)) == false) {
+            return false
+        }
+        focused = target
+        dragSep = target
+        dragAt = px
+        if (target == (inner.sepTid(0))) {
+            dragAt = py
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn dragMove:boolean (px:double py:double) {
+        if ((strlen dragSep) == 0) {
+            return false
+        }
+        ; Pixels to percent, against the axis the group runs along.
+        if (dragSep == (inner.sepTid(0))) {
+            def dy:double (py - dragAt)
+            if (dy == 0.0) { return false }
+            dragAt = py
+            inner.resizeBy(0 ((dy * 100.0) / groupH))
+        } {
+            def dx:double (px - dragAt)
+            if (dx == 0.0) { return false }
+            dragAt = px
+            outer.resizeBy(0 ((dx * 100.0) / groupW))
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn dragDrop:boolean () {
+        if ((strlen dragSep) == 0) {
+            return false
+        }
+        dragSep = ""
+        return true
+    }
+
+    fn press:boolean (target:string) {
+        return false
+    }
+
+    fn setHover:void (id:string) { hovered = id }
+    fn setPressed:void (id:string) { pressed = id }
+    fn setFocus:void (id:string) { focused = id }
+
+    ; --- what the page asks for -----------------------------------------------------
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Resizable demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Resizable demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () { return pageH }
+
+    fn leftPercent:int () {
+        def p:UiPanel (itemAt outer.panels 0)
+        return (to_int (p.size + 0.5))
+    }
+
+    fn shownCrumbs:int () {
+        return (trail.shownTail())
+    }
+
+    fn summary:string () {
+        return ((("left " + (to_string (this.leftPercent()))) + "%, crumbs shown ") + (to_string (trail.shownTail())))
+    }
+}

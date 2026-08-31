@@ -1,0 +1,130 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The pattern's own shape: a rounded bordered card holding a horizontal pair,
+ * whose right half is a vertical pair. The handles carry a grip, which is what
+ * `withHandle` draws in the reference.
+ */
+
+.rz-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 30px;
+  background-color: #fafafa;
+  width: 900px;
+  height: 520px;
+}
+
+.rz-card {
+  border-radius: 16px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  width: 720px;
+  height: 300px;
+}
+
+.rz-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 718px;
+  height: 298px;
+}
+
+.rz-group-v { flex-direction: column; width: 100%; height: 100%; }
+
+.rz-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 12px;
+  height: 298px;
+}
+
+/* The divider, and the grip in the middle of it. Six pixels of hit area around
+ * a one-pixel line: the line is the picture and the six pixels are what a
+ * pointer can actually land on. */
+.rz-sep {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 6px;
+  height: 298px;
+  background-color: #f4f4f5;
+  transition: background-color 120ms ease-out;
+}
+
+.rz-sep:hover { background-color: #e4e4e7; }
+.rz-sep:focus { background-color: #c7d2fe; }
+
+.rz-grip {
+  width: 4px;
+  height: 24px;
+  border-radius: 2px;
+  background-color: #d4d4d8;
+}
+
+.rz-label {
+  color: #18181b;
+  padding: 60px 0 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  height: 20px;
+  text-align: center;
+}
+
+/* --- the trail ---------------------------------------------------------------
+ * No widths here. The demo measures each crumb with the same text engine the
+ * painter uses and tells the controller — a stylesheet cannot answer "does this
+ * fit", and a guessed width would be a different number from the drawn one. */
+.rz-crumbs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 20px;
+  padding: 0 0 10px 0;
+}
+
+.rz-crumb-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 20px;
+}
+
+.rz-crumb-li {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 20px;
+}
+
+/* The FAMILY is stated, and that is not decoration. The demo measures each
+ * crumb with the text engine before deciding what fits, and a measurement in
+ * one family against a drawing in another is two different numbers — the first
+ * version measured Arial, drew the sheet's default, and the trail ran off the
+ * end of the card while the arithmetic said it fitted comfortably.
+ *
+ * And no padding on the separator: its spacing lives inside the STRING it
+ * draws, " / ", so the measured width is the drawn width with nothing to add
+ * on. A padding here would be a number the rule cannot see. */
+.rz-crumb {
+  color: #71717a;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rz-crumb-page { color: #18181b; }
+.rz-crumb-sep { color: #d4d4d8; font-family: Arial; font-size: 13px; height: 18px; }
+.rz-crumb-dots { color: #71717a; font-family: Arial; font-size: 13px; height: 18px; }
+
+.rz-note {
+  color: #71717a;
+  font-size: 12px;
+  padding: 14px 0 0 0;
+  width: 720px;
+  height: 18px;
+}

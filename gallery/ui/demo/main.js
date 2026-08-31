@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -306,6 +306,12 @@ treeview.init(TREE_CSS);
 // because there is nothing to control: a list of records and one integer.
 const timeline = new TimelineDemo();
 timeline.init(TIMELINE_CSS);
+
+// Nested resizable panels, with a breadcrumb in the left one that gives way as
+// the panel narrows. The one demo here whose CONTENT depends on its own size.
+const resize = new ResizeDemo();
+resize.init(RESIZE_CSS);
+let lastResizeHover = "";
 let lastTreeHover = "";
 let lastTimelineHover = "";
 
@@ -468,6 +474,37 @@ const DEMOS = {
   // is redrawn from it, which is the only interaction there is — the reference
   // has none at all, and a page with a value in it and no way to change it
   // cannot show that the value is what draws the picture.
+  resizable: {
+    height: () => resize.heightPx(),
+    list: () => resize.displayListJson(),
+    hit: (x, y) => resize.hitId(x, y),
+    a11y: (gen, focus) => resize.a11yJson(gen, focus),
+    // The gesture protocol again: press arms, move drags, release drops.
+    press: (id) => resize.beginPress(id, grabPointer.x, grabPointer.y),
+    drag: (id, ev) => resize.dragMove(ev.offsetX, ev.offsetY),
+    drop: () => resize.dragDrop(),
+    hover: (id) => {
+      if (id === lastResizeHover) return false;
+      lastResizeHover = id;
+      resize.setHover(id);
+      return true;
+    },
+    key: (k) => resize.key(k),
+    host: () => ({
+      tick: (dt) => resize.tick(dt),
+      busy: () => resize.busyNow(),
+      setHover: (id) => {
+        if (id === lastResizeHover) return false;
+        lastResizeHover = id;
+        resize.setHover(id);
+        return true;
+      },
+      setPressed: (id) => resize.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
   timeline: {
     height: () => timeline.heightPx(),
     list: () => timeline.displayListJson(),
@@ -1170,7 +1207,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

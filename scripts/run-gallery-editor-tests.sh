@@ -51,6 +51,7 @@ SUITES=(
   ui:tree:dnd:check
   ui:tree:checkbox
   ui:timeline:check
+  ui:resize:check
 )
 
 failed=()

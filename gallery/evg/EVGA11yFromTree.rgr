@@ -55,6 +55,12 @@ class EVGA11yFromTree {
         if (name == "textbox")          { return (EVGA11yRole.textField()) }
         if (name == "img")              { return (EVGA11yRole.image()) }
         if (name == "link")             { return (EVGA11yRole.link()) }
+        ; A landmark. Missing until a demo used one, and the LINT is what said
+        ; so — an unrecognised role drops the element AND everything under it,
+        ; a silent hole with no symptom on screen. Third time this table has
+        ; been one role short; the `notes` list exists because of the first two.
+        ; `list`, `listitem` and `separator` were already here, further down.
+        if (name == "navigation")       { return (EVGA11yRole.navigation()) }
         if (name == "tablist")          { return (EVGA11yRole.tabList()) }
         if (name == "tab")              { return (EVGA11yRole.tab()) }
         if (name == "toolbar")          { return (EVGA11yRole.toolbar()) }
@@ -174,6 +180,11 @@ class EVGA11yFromTree {
             n.sorted = el.a11ySorted
             n.orientation = el.a11yOrientation
             n.current = el.a11yCurrent
+            n.hasValueNow = el.a11yHasValue
+            n.valueNow = el.a11yValueNow
+            n.hasValueRange = el.a11yHasRange
+            n.valueMin = el.a11yValueMin
+            n.valueMax = el.a11yValueMax
             if (el.a11ySelected == 2) {
                 n.selected = true
             }

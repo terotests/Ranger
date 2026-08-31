@@ -2152,6 +2152,72 @@ was in **neither** trace. Tagging it made both sides able to be wrong about it.
 Three different instruments, three different findings, none of which the other
 two could have made.
 
+## How much of a component is hand-work the engine should have done
+
+Asked directly, and worth answering with a measurement rather than an opinion:
+strip one hardcoded size at a time from a demo's stylesheet, lay out again, and
+compare. **A declaration that changes nothing is one the engine was going to
+work out anyway.** Across `tree.css`, `timeline.css` and `resize.css`, 56 fixed
+sizes:
+
+| | count | what it means |
+| --- | --- | --- |
+| the engine already knows it | **20** | pure redundancy, delete on sight |
+| the engine says a DIFFERENT number | 24 | a hand-rounded override — usually wrong |
+| the engine genuinely cannot | 12 | a real gap, or a real decision |
+
+The middle row is the uncomfortable one. `.tv-label { width: 340px }` makes a
+tree label 340 pixels wide when its text is **38.5** — which is why the
+checkbox beside it needed a margin, and why hit-testing a label hits far past
+the text. `.tl-title { width: 362px }` against 129. These are not conservative
+defaults; they are wrong numbers that happen to look right because nothing
+beside them is competing for the space.
+
+### The gap that caused most of it, now closed
+
+`EVGLayout.intrinsicWidth` stopped at text leaves, and its comment said why:
+*"sizing a container to its subtree needs a real intrinsic pass, and reporting
+a made-up number would silently misplace every neighbour."* Fair when the
+alternative was a guess. The alternative had become **every component
+hand-setting a width its own children already knew**, which is worse and does
+not stay correct.
+
+So the pass is written: a container's max-content width is the sum of its
+children along the row axis and the widest of them down the column, plus gaps
+and chrome — the recursive definition, terminating on the leaves that were
+already handled. And a width-less flex CONTAINER now shrink-wraps to it, which
+is what `flex: 0 1 auto` does in CSS and what this engine did not do.
+
+Measured on the breadcrumb, which is where it was noticed: six hand-set widths
+in the demo, **five of them redundant** — the engine already sized every text
+leaf correctly at 32, 86, 40, 72, 75 — and the sixth compensating for the
+container gap. After the change: **none**. Every gate stayed green, including
+all 40 editor suites.
+
+### The gaps still open, in order of how much hand-work they cost
+
+1. **Intrinsic HEIGHT for text is computed but routinely overridden.** The
+   engine does line-count × line-spacing correctly; the stylesheets state
+   rounded numbers instead (`height: 20px` against 16.8, `22px` against 18).
+   Twenty of the twenty-four overrides are heights. Nothing needs building —
+   the numbers need deleting, one component at a time, with a look at each.
+2. **`align-items: stretch` against a content-sized parent.** A splitter has to
+   state `height: 298px` to span its group. This was written up earlier as
+   "inert" on the timeline, and that was true THERE for a specific reason: the
+   rail's content already summed to the row height. It is not inert in general
+   and the earlier note oversold it.
+3. **An SVG element has no intrinsic size.** `.tl-icon` reports 0 without a
+   stated width, so every icon states one. A `viewBox` is an aspect ratio and
+   the engine could use it the way a browser uses an image's.
+
+### And one that was invisible from either direction
+
+`EVGA11yFromTree` could not read a value range off an element at all — no
+`a11yValueNow` field existed. A page built from a CONTROLLER publishes one
+through `UiRow`; a page built from ELEMENTS could not, and the two paths feed
+the same tree. Axe found it, on a focusable `separator` with no value: not a
+splitter, a decoration that has taken a tab stop. Now readable from both.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

@@ -592,6 +592,22 @@ class EVGElement {
     def a11yOrientation:string ""
     ; `aria-current`. "page" on the crumb you are on.
     def a11yCurrent:string ""
+    ; `aria-valuenow` / `valuemin` / `valuemax`. Absent until a page built out
+    ; of ELEMENTS needed to publish a splitter, and the gap was invisible
+    ; because a page built out of a CONTROLLER publishes them through `UiRow`
+    ; instead — two paths to the same tree and only one of them complete. Axe
+    ; found it: a focusable `separator` without a value is not a splitter, it
+    ; is a decoration that steals a tab stop.
+    ;
+    ; `hasValue` and `hasRange` are separate from the numbers for the reason
+    ; `EVGA11yNode` keeps them separate: a progress bar with a range and NO
+    ; position is how every platform spells "busy, length unknown", and 0 is a
+    ; different claim.
+    def a11yHasValue:boolean false
+    def a11yValueNow:int 0
+    def a11yHasRange:boolean false
+    def a11yValueMin:int 0
+    def a11yValueMax:int 0
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
@@ -2013,6 +2029,11 @@ class EVGElement {
         a11ySorted = other.a11ySorted
         a11yOrientation = other.a11yOrientation
         a11yCurrent = other.a11yCurrent
+        a11yHasValue = other.a11yHasValue
+        a11yValueNow = other.a11yValueNow
+        a11yHasRange = other.a11yHasRange
+        a11yValueMin = other.a11yValueMin
+        a11yValueMax = other.a11yValueMax
         a11yChecked = other.a11yChecked
         a11yExpanded = other.a11yExpanded
         a11ySelected = other.a11ySelected

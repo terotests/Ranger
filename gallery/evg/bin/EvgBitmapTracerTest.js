@@ -4390,6 +4390,11 @@ class EVGElement  {
     this.a11ySorted = 0;
     this.a11yOrientation = "";
     this.a11yCurrent = "";
+    this.a11yHasValue = false;
+    this.a11yValueNow = 0;
+    this.a11yHasRange = false;
+    this.a11yValueMin = 0;
+    this.a11yValueMax = 0;
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -5037,6 +5042,11 @@ class EVGElement  {
     this.a11ySorted = other.a11ySorted;
     this.a11yOrientation = other.a11yOrientation;
     this.a11yCurrent = other.a11yCurrent;
+    this.a11yHasValue = other.a11yHasValue;
+    this.a11yValueNow = other.a11yValueNow;
+    this.a11yHasRange = other.a11yHasRange;
+    this.a11yValueMin = other.a11yValueMin;
+    this.a11yValueMax = other.a11yValueMax;
     this.a11yChecked = other.a11yChecked;
     this.a11yExpanded = other.a11yExpanded;
     this.a11ySelected = other.a11ySelected;

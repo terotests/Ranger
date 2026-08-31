@@ -43,6 +43,7 @@ const { DropdownDemo } = require(path.join(ROOT, "gallery/ui/bin/DropdownDemo.cj
 const { DialogDemo } = require(path.join(ROOT, "gallery/ui/bin/DialogDemo.cjs"));
 const { TreeDemo } = require(path.join(ROOT, "gallery/ui/bin/TreeDemo.cjs"));
 const { TimelineDemo } = require(path.join(ROOT, "gallery/ui/bin/TimelineDemo.cjs"));
+const { ResizeDemo } = require(path.join(ROOT, "gallery/ui/bin/ResizeDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
@@ -52,6 +53,7 @@ const DROPDOWN_CSS = fs.readFileSync(path.join(HERE, "dropdown.css"), "utf8");
 const DIALOG_CSS = fs.readFileSync(path.join(HERE, "dialog.css"), "utf8");
 const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
 const TIMELINE_CSS = fs.readFileSync(path.join(HERE, "timeline.css"), "utf8");
+const RESIZE_CSS = fs.readFileSync(path.join(HERE, "resize.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -89,6 +91,9 @@ treeview.init(TREE_CSS);
 
 const timeline = new TimelineDemo();
 timeline.init(TIMELINE_CSS);
+
+const resize = new ResizeDemo();
+resize.init(RESIZE_CSS);
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -234,6 +239,22 @@ const STATES = [
       return dialog.a11yProblems();
     },
     tree: () => dialog.a11yJson(15, ""),
+  },
+  {
+    // Two separators and a breadcrumb, with the trail collapsed — which is the
+    // state worth auditing: an ellipsis has to say that crumbs are missing,
+    // and a splitter has to be named and have a range.
+    name: "resizable — nested panels, the trail given way",
+    size: [900, 520],
+    lint: () => {
+      const p = resize.outer.panels[0];
+      const q = resize.outer.panels[1];
+      q.size += p.size - 45;
+      p.size = 45;
+      resize.rebuild();
+      return resize.a11yProblems();
+    },
+    tree: () => resize.a11yJson(18, "rz-sep-0"),
   },
   {
     // The rail is a picture of the value and says nothing a reader needs, so
