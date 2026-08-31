@@ -2845,7 +2845,13 @@
     }
     for (var i = 0; i < g.n; i++) {
       var had = sel.has(i);
-      if (!tot[i]) continue;
+      // A region with no cell of its own is one the z-buffer never sees: it
+      // lies entirely under other shapes. Leaving it in the answer is
+      // harmless right up to the moment something above it is clipped, and
+      // then it appears out of nowhere — 10 177 px of it on the beach picture
+      // the first time a rule clipped a covering path. It shows nothing while
+      // it is covered, so dropping it costs nothing and stops the surprise.
+      if (!tot[i]) { if (had) sel.delete(i); continue; }
       if (!inm[i]) { if (had) sel.delete(i); continue; }
       if (!had && !grow) continue;
       if (!had) {
@@ -2868,18 +2874,68 @@
     var n = g.cw * g.ch;
     if (!mask) { mask = new Uint8Array(n); mask.fill(1); }
     var eTot = new Int32Array(g.nEls), eKeep = new Int32Array(g.nEls);
+    // Where a clip takes area *away* is the interesting part, because the SVG
+    // has more in it than the z-buffer does: under every visible shape lies
+    // whatever it covers, and some of that is chosen too. Cut a hole in the
+    // shape on top and the thing beneath walks into the answer — 10 177 px of
+    // sea on the beach picture, the first time a rule clipped a covering path.
+    // So remember the box each clip empties, and clip everything selected that
+    // is painted under it as well.
+    var lx0 = new Int32Array(g.nEls).fill(1e9), ly0 = new Int32Array(g.nEls).fill(1e9);
+    var lx1 = new Int32Array(g.nEls).fill(-1), ly1 = new Int32Array(g.nEls).fill(-1);
     for (var p = 0; p < n; p++) {
       var id = g.ids[p];
       if (!id) continue;
       var e = g.elOf[id - 1];
       eTot[e]++;
       if (mask[p] && sel.has(id - 1)) eKeep[e]++;
+      else if (sel.has(id - 1)) {
+        var px = p % g.cw, py = (p / g.cw) | 0;
+        if (px < lx0[e]) lx0[e] = px; if (px > lx1[e]) lx1[e] = px;
+        if (py < ly0[e]) ly0[e] = py; if (py > ly1[e]) ly1[e] = py;
+      }
     }
+    var need = new Uint8Array(g.nEls);
     for (var e2 = 0; e2 < g.nEls; e2++) {
-      if (!eTot[e2]) continue;
-      if (eKeep[e2] === 0 || eKeep[e2] === eTot[e2]) { wandDropAutoClip(e2); continue; }
-      wandClipElement(g, e2, mask, sel);
+      if (!eTot[e2] || !eKeep[e2] || eKeep[e2] === eTot[e2]) continue;
+      need[e2] = 1;
     }
+    // and everything selected that lies under one of those holes and is
+    // painted earlier, which is what "under" means in an SVG
+    var box = wandElBoxes(g);
+    for (var e3 = 0; e3 < g.nEls; e3++) {
+      if (!need[e3] || lx1[e3] < 0) continue;
+      for (var e4 = 0; e4 < e3; e4++) {
+        if (need[e4] || !eKeep[e4]) continue;
+        var b = box[e4];
+        if (!b) continue;
+        if (b[2] < lx0[e3] || b[0] > lx1[e3] || b[3] < ly0[e3] || b[1] > ly1[e3]) continue;
+        need[e4] = 1;
+      }
+    }
+    for (var e5 = 0; e5 < g.nEls; e5++) {
+      if (!eTot[e5]) continue;
+      if (need[e5]) wandClipElement(g, e5, mask, sel);
+      else if (eKeep[e5] === 0 || eKeep[e5] === eTot[e5]) wandDropAutoClip(e5);
+    }
+  }
+
+  // Each element's box in raster cells, worked out once per trace. It is the
+  // painted box, not the visible one: what a shape covers is exactly what can
+  // reappear when the shape above it is cut.
+  function wandElBoxes(g) {
+    if (g.boxes) return g.boxes;
+    var boxes = [];
+    for (var e = 0; e < g.nEls; e++) {
+      var el = g.els[e], b = null;
+      try { b = el.getBBox(); } catch (err) { b = null; }
+      if (!b || !isFinite(b.width)) { boxes.push(null); continue; }
+      boxes.push([Math.floor((b.x - g.vb[0]) * g.sc), Math.floor((b.y - g.vb[1]) * g.sc),
+                  Math.ceil((b.x + b.width - g.vb[0]) * g.sc),
+                  Math.ceil((b.y + b.height - g.vb[1]) * g.sc)]);
+    }
+    g.boxes = boxes;
+    return boxes;
   }
 
   function wandDropAutoClip(e) {
@@ -3067,8 +3123,8 @@
   // It costs a stroke about 70 ms on the beach picture and 200 ms on the
   // portrait — 450 ms to 650 ms all told, which is still one gesture, one
   // answer.
-  var WAND_CYL = { long: 1, fan: 1.5, area: 0.05, min: 8,
-                   rag: 1.5, share: 0.12, parts: 8, slack: 0.15 };
+  var WAND_CYL = { long: 0, fan: 1.5, area: 0.2, min: 8,
+                   rag: 3, share: 0.15, parts: 8, slack: 0.15, patience: 2 };
 
   function wandCylinders(g, sel) {
     var C = window.__cylSet || WAND_CYL;
@@ -3229,43 +3285,91 @@
     // that touches the body and keep adding the neighbour that leaves the
     // group *smoothest*, stopping when the best available one would make it
     // rougher than it already is.
+    // Why a segment was refused is worth keeping: window.__cylWhy collects it
+    // for every segment that touches the answer at all, which is how you find
+    // out that a leg was thrown out by a size cap rather than by its shape.
+    var why = window.__cylWhy || null;
+    var note = function (reason, seedId, group, st) {
+      if (!why) return;
+      var A = 0, x0 = cw, x1 = 0, y0 = ch, y1 = 0;
+      for (var wm = 0; wm < group.length; wm++) {
+        A += area[group[wm]];
+        for (var wc = at[group[wm]]; wc < at[group[wm]+1]; wc++) {
+          var wp = cells[wc], wx = wp % cw, wy = (wp / cw) | 0;
+          if (wx < x0) x0 = wx; if (wx > x1) x1 = wx;
+          if (wy < y0) y0 = wy; if (wy > y1) y1 = wy;
+        }
+      }
+      why.push({ reason: reason, seed: seedId, parts: group.length, area: A,
+        long: st ? +st.long.toFixed(2) : null, fan: st ? +st.fan.toFixed(2) : null,
+        rag: st ? +st.rag.toFixed(2) : null, share: st ? +st.share.toFixed(3) : null,
+        box: [x0, y0, x1, y1], cw: cw, ch: ch });
+    };
+
     var order = [];
-    for (i = 0; i < cn; i++) if (cont[i] && !frame[i] && area[i] >= C.min) order.push(i);
+    for (i = 0; i < cn; i++) {
+      if (!cont[i]) continue;
+      if (frame[i]) { note("kehys", i, [i], null); continue; }
+      if (area[i] < C.min) { note("pieni", i, [i], null); continue; }
+      order.push(i);
+    }
     order.sort(function (a, b) { return cont[b] - cont[a]; });
-    var take = new Uint8Array(cn), any = false, budget = 4000;
+    var take = new Uint8Array(cn), any = false, budget = 6000;
     for (var oi = 0; oi < order.length && budget > 0; oi++) {
       var seed = order[oi];
       if (inGroup[seed]) continue;
       var group = [seed], st = statsOf(group);
       if (!st) continue;
-      while (group.length < C.parts && budget > 0) {
+      // Grow towards smoothness, and let it pass *through* rough states on the
+      // way. This is the whole of the second idea: one band across a shin is
+      // not a smooth anything — it is three cells deep, it meanders, its
+      // outline is four times a cylinder's — and the group only becomes a leg
+      // once several of them are stacked. Pruning on the union's roughness at
+      // every step forbids exactly that, so the walk is greedy on roughness
+      // and the *best passing group seen along the way* is what is kept.
+      var bestSt = null, bestGroup = null, capped = false, worse = 0;
+      for (var step = 0; step <= C.parts && budget > 0; step++) {
+        if (ok(st) && (!bestSt || st.rag < bestSt.rag)) { bestSt = st; bestGroup = group.slice(); }
+        if (step === C.parts) break;
         var pick = -1, pickSt = null;
         for (var m3 = 0; m3 < group.length; m3++) {
           var lst = nb[group[m3]];
           for (var e2 = 0; e2 < lst.length; e2++) {
             var j = lst[e2];
             if (inGroup[j] || frame[j] || group.indexOf(j) >= 0) continue;
-            if (st.area + area[j] > C.area * bodyN) continue;
+            if (st.area + area[j] > C.area * bodyN) { capped = true; continue; }
             budget--;
-            var trial = group.concat([j]), tst = statsOf(trial);
-            if (!tst || tst.fan > C.fan || tst.rag > C.rag) continue;
+            var tst = statsOf(group.concat([j]));
+            if (!tst) continue;
             if (!pickSt || tst.rag < pickSt.rag) { pick = j; pickSt = tst; }
           }
         }
-        if (pick < 0 || pickSt.rag > st.rag + C.slack) break;
+        if (pick < 0) break;
+        worse = pickSt.rag > st.rag + C.slack ? worse + 1 : 0;
+        if (worse > C.patience) break;
         group.push(pick); st = pickSt;
       }
-      if (!ok(st)) continue;
-      for (var m4 = 0; m4 < group.length; m4++) { inGroup[group[m4]] = 1; take[group[m4]] = 1; }
+      if (!bestSt) {
+        note(st.long < C.long ? "lyhyt" : st.fan > C.fan ? "paisuu"
+           : st.rag > C.rag ? "rosoinen" : "irrallinen", seed, group, st);
+        continue;
+      }
+      note(capped ? "ok (katkaisi katto)" : "ok", seed, bestGroup, bestSt);
+      for (var m4 = 0; m4 < bestGroup.length; m4++) { inGroup[bestGroup[m4]] = 1; take[bestGroup[m4]] = 1; }
       any = true;
-      if (window.__cylProbe) window.__cylProbe.push([group.length, st.area,
-        +st.long.toFixed(2), +st.fan.toFixed(2), +st.rag.toFixed(2),
-        +st.share.toFixed(3)]);
+      if (window.__cylProbe) window.__cylProbe.push([bestGroup.length, bestSt.area,
+        +bestSt.long.toFixed(2), +bestSt.fan.toFixed(2), +bestSt.rag.toFixed(2),
+        +bestSt.share.toFixed(3)]);
     }
     if (!any) return;
     var keep = Uint8Array.from(eff);
     for (p = 0; p < n; p++) if (cand[p] >= 0 && take[cand[p]]) keep[p] = 1;
     wandApplyMask(g, sel, keep, true);
+    if (window.__cylKeepOut) {
+      var was = 0, now = 0, wants = 0, got = wandCells(g, sel);
+      for (p = 0; p < n; p++) { if (eff[p]) was++; if (keep[p]) wants++; if (got[p]) now++; }
+      window.__cylKeepOut = { was: was, wants: wants, now: now };
+    }
   }
 
   function wandCohere(g, sel, fg) {
