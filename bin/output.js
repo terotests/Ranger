@@ -24843,6 +24843,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( v.value_type == 11 ) {
                 return true;
               }
+              if ( v.isFirstVref("property") ) {
+                return true;
+              }
               if ( v.expression ) {
                 return false;
               }
@@ -26731,6 +26734,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         vardef_is_name_read = true;
                       }
                     }
+                    const vardef_is_prop_get = valueInner.isFirstVref("property");
+                    if ( vardef_is_prop_get ) {
+                      vardef_is_name_read = true;
+                    }
                     if ( vardef_is_name_read ) {
                       let should_clone_vardef = false;
                       let vardef_src_ref_str = this.rustStrRefRead(valueInner);
@@ -26738,7 +26745,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( vardef_src_ref_str ) {
                           should_clone_vardef = true;
                         }
-                        if ( (valueInner.ns.length) > 1 ) {
+                        if ( ((valueInner.ns.length) > 1) || vardef_is_prop_get ) {
                           should_clone_vardef = true;
                         } else {
                           if ( valueInner.hasParamDesc ) {
@@ -26747,6 +26754,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               should_clone_vardef = true;
                             }
                           }
+                        }
+                      }
+                      if ( vardef_is_prop_get ) {
+                        let pg_type = nameN.value_type;
+                        if ( ((pg_type == 10) || (pg_type == 11)) || (pg_type == 0) ) {
+                          pg_type = nameN.typeNameAsType(ctx);
+                        }
+                        if ( (((pg_type == 10) || (pg_type == 6)) || (pg_type == 7)) || (pg_type == 16) ) {
+                          should_clone_vardef = true;
+                        }
+                        if ( pg_type == 17 ) {
+                          should_clone_vardef = true;
                         }
                       }
                       if ( valueInner.hasParamDesc ) {
@@ -32673,6 +32692,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   ctx.setInExpr();
                                   await this.WalkNode(bosReal, ctx, wr);
                                   ctx.unsetInExpr();
+                                  if ( this.rustStrRefRead(bosReal) ) {
+                                    wr.out(".to_string()", false);
+                                  } else {
+                                    if ( this.rustArgIsNameRead(bosReal) ) {
+                                      wr.out(".clone()", false);
+                                    }
+                                  }
                                   wr.out(";", true);
                                   bosArg.rust_use_tmpvar = bosTmp;
                                 }
@@ -58225,6 +58251,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     while (barg.expression && ((barg.children.length) == 1)) {
                                       barg = barg.getFirst();
                                     };
+                                    let bargPropDesc;
+                                    if ( barg.isFirstVref("property") ) {
+                                      if ( (barg.children.length) > 2 ) {
+                                        const pgObj = barg.getSecond();
+                                        const pgProp = barg.getThird();
+                                        let pgFldName = pgProp.vref;
+                                        if ( (pgFldName.length) > 0 ) {
+                                          if ( (pgFldName.charCodeAt(0 )) == 46 ) {
+                                            pgFldName = pgFldName.substring(1, ((pgFldName.length) - 1) );
+                                          }
+                                        }
+                                        let pgType = pgObj.eval_type_name;
+                                        if ( (pgType.length) == 0 ) {
+                                          pgType = pgObj.type_name;
+                                        }
+                                        if ( (pgType.length) > 0 ) {
+                                          if ( ctx.isDefinedClass(pgType) ) {
+                                            const pgCl = ctx.findClass(pgType);
+                                            const pgFld = pgCl.findVariable(pgFldName);
+                                            if ( (typeof(pgFld) !== "undefined" && pgFld != null )  ) {
+                                              bargPropDesc = pgFld;
+                                            }
+                                          }
+                                        }
+                                        barg = pgProp;
+                                      }
+                                    }
                                     if ( ((barg.expression == false) && ((barg.vref.length) > 0)) && ((barg.children.length) == 0) ) {
                                       let bpd2;
                                       if ( ((barg.ns.length) == 1) && barg.hasParamDesc ) {
@@ -58232,6 +58285,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       }
                                       if ( ((barg.ns.length) > 1) && ((barg.nsp.length) > 0) ) {
                                         bpd2 = barg.nsp[((barg.nsp.length) - 1)];
+                                      }
+                                      if ( (typeof(bargPropDesc) !== "undefined" && bargPropDesc != null )  ) {
+                                        bpd2 = bargPropDesc;
                                       }
                                       if ( (typeof(bpd2) !== "undefined" && bpd2 != null )  ) {
                                         const bpd = bpd2;

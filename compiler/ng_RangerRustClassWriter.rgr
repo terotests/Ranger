@@ -267,6 +267,14 @@ class RangerRustClassWriter {
     if (v.value_type == RangerNodeType.VRef) {
       return true
     }
+    ; …and a field read whose OBJECT is an expression — `(st.getSecond())
+    ; .vref` — which is a read exactly as `st.vref` is, only spelled through
+    ; a call. It is a property node, so the expression test below turned it
+    ; away and the field moved out of its `Ref` (E0507). The callers gate
+    ; this on the PARAMETER's type, so a scalar still takes nothing.
+    if (v.isFirstVref("property")) {
+      return true
+    }
     if v.expression {
       return false
     }
@@ -2699,6 +2707,16 @@ class RangerRustClassWriter {
             vardef_is_name_read = true
           }
         }
+        ; …and the same field read spelled through an EXPRESSION rather than a
+        ; name: `def n:string ((node.getSecond()).vref)` reads `vref` out of a
+        ; borrow exactly as `head.vref` does, but it is a property node with no
+        ; dotted path, so neither test above saw it and no clone was written —
+        ; the String moved out of the `Ref` (E0507). This is the shape the
+        ; compiler's own tree-literal lowering is written in.
+        def vardef_is_prop_get:boolean (valueInner.isFirstVref("property"))
+        if vardef_is_prop_get {
+          vardef_is_name_read = true
+        }
         if vardef_is_name_read {
           def should_clone_vardef:boolean false
           ; a static-string read into an owned String local always converts —
@@ -2711,7 +2729,7 @@ class RangerRustClassWriter {
               should_clone_vardef = true
             }
             ; Clone if accessing a field (has dot path)
-            if ((array_length valueInner.ns) > 1) {
+            if (((array_length valueInner.ns) > 1) || vardef_is_prop_get) {
               should_clone_vardef = true
             } {
               ; For simple variable references, clone if ref_cnt > 1 (used elsewhere)
@@ -2721,6 +2739,22 @@ class RangerRustClassWriter {
                   should_clone_vardef = true
                 }
               }
+            }
+          }
+          ; …and so is a non-scalar read through a property expression. The
+          ; dotted path gets this from the class-variable rule below, which a
+          ; property node has no descriptor for; the local's own declared type
+          ; answers instead. Scalars are Copy and take nothing.
+          if vardef_is_prop_get {
+            def pg_type:RangerNodeType nameN.value_type
+            if ((pg_type == RangerNodeType.Object) || (pg_type == RangerNodeType.VRef) || (pg_type == RangerNodeType.NoType)) {
+              pg_type = (nameN.typeNameAsType(ctx))
+            }
+            if ((((pg_type == RangerNodeType.Object) || (pg_type == RangerNodeType.Array)) || (pg_type == RangerNodeType.Hash)) || (pg_type == RangerNodeType.Buffer)) {
+              should_clone_vardef = true
+            }
+            if (pg_type == RangerNodeType.IntBuffer) {
+              should_clone_vardef = true
             }
           }
           ; a borrowed parameter (&Vec<T> / &[T] / &String) read into an
@@ -9928,6 +9962,21 @@ class RangerRustClassWriter {
           ctx.setInExpr()
           this.WalkNode(bosReal ctx wr)
           ctx.unsetInExpr()
+          ; the temporary has to OWN what it holds — the Ref the operand was
+          ; read through is gone by the time the operator runs, and the value
+          ; the operand names is not the temporary's to move. `set
+          ; treeChildCall fname ((st.getSecond()).vref)` hoisted the field
+          ; read and then moved the String out of its `Ref` (E0507). The
+          ; sibling hoist below already spells this; only a COMPUTED operand
+          ; reaches here, so a bare name is never cloned into a copy of
+          ; itself.
+          if (this.rustStrRefRead(bosReal)) {
+            wr.out(".to_string()" false)
+          } {
+            if (this.rustArgIsNameRead(bosReal)) {
+              wr.out(".clone()" false)
+            }
+          }
           wr.out(";" true)
           bosArg.rust_use_tmpvar = bosTmp
         }

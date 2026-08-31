@@ -114,6 +114,39 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  describe("A field read through an expression", () => {
+    // `(this.first()).name` is the same read as `b.name`, spelled through a
+    // call. It is a property node with no dotted path, so the tests that
+    // decide "this read has to be cloned" all turned it away and the String
+    // moved out of its `Ref`. This is the shape the compiler's own
+    // tree-literal lowering uses, and the last thing keeping the compiler
+    // from compiling itself to Rust.
+    it("should compile a property read of a call result", () => {
+      const result = compileRangerToRust(
+        "tests/fixtures/rust_prop_read_of_call.rgr"
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("should run it and agree with the other targets", () => {
+      expectRustOutput(
+        "tests/fixtures/rust_prop_read_of_call.rgr",
+        "hello hello hello"
+      );
+    });
+
+    it("should clone the read rather than move out of the borrow", () => {
+      const result = getGeneratedRustCode(
+        "tests/fixtures/rust_prop_read_of_call.rgr"
+      );
+      expect(result.success).toBe(true);
+      // every `(…).borrow().name` in this program is a read into an owned
+      // String, so none of them may stand without a clone
+      const bare = result.code.match(/\)\.borrow\(\)\.name(?!\.clone\(\))/g);
+      expect(bare).toBeNull();
+    });
+  });
+
   describe("Polyfill Deduplication", () => {
     it("should not duplicate polyfills when on_keypress is used multiple times", () => {
       const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");

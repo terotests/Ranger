@@ -4,6 +4,14 @@ This document describes the current status and remaining issues with Rust code g
 
 ## Current Status (August 2026)
 
+The compiler itself now compiles with **zero rustc errors** as well, and
+`npm run selfhost:parity:rust` passes end to end: `rustc -O` builds the
+81 000-line rendering of `ng_Compiler.rgr`, and that binary compiles the
+compiler's own sources to output byte-identical to the JavaScript build's. The
+six errors that had been left were one defect — a field read whose object is an
+expression rather than a name (`(node.getSecond()).vref`), which no
+clone-decision saw, so the String moved out of its `Ref` (E0507).
+
 `evg_component_tool` and the PPTX viewer (`gallery/pptx/web/pptx_web.rgr`,
 79 160 lines of generated Rust) both compile with **zero rustc errors**. The
 sections below the historical table are kept for the reasoning; the counts in

@@ -112,6 +112,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a `let` lifted out of it lands where `item` does not exist. Hoisting into
   loop bodies took the compiler's own Rust rendering from 6 errors to 119.
 
+- **The compiler's own Rust rendering compiles with no rustc errors.** It had
+  stood at 6, all one defect: a field read whose object is an EXPRESSION rather
+  than a name. `(node.getSecond()).vref` reads a String out of a `Ref` exactly
+  as `head.vref` does, but it is a property node with no dotted path, so every
+  test that decides "this read has to be cloned" turned it away and the String
+  moved out of the borrow (E0507). Three places asked that question and each
+  now recognises the shape: a local's initializer, a call argument, and the
+  temporary an operator hoists its operand into — the last of which was not
+  taking ownership of anything it hoisted. `rustc -O` builds the 81 000-line
+  rendering, and that binary compiles the compiler's own sources to output
+  byte-identical to the JavaScript build's.
+
 - **A union-typed field keeps its variant wrap when the right side goes to a
   temporary.** `body = (new EvalValue.Map(…))` stores a member into a slot of
   the family type, and Rust wants the enum variant around it. The wrap was
