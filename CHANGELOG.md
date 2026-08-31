@@ -123,6 +123,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The harness could not see a clip, and read a collapse that was not there.**
+  Every scorer drew the answer path by path, filling each shape's `d` with
+  `Path2D` — which ignores `clip-path`. That was harmless until the wand began
+  clipping a region it keeps only part of. Then a background shape kept for
+  **95 of its 71 107 cells** scored as though all 71 107 were selected, and the
+  bench reported a twenty-point collapse while the cut on screen was clean. All
+  three scorers now rasterise the SVG itself, so what is measured is what is
+  drawn. The numbers in the entry below were measured with the blind scorer;
+  read against the corrected one that build scores 95% / 98% on the bench and
+  0.788 on the portrait.
+
+- **Holes the answer closes over belong to it.** A face out of a photograph is
+  freckled with them and so is a patterned tie — every speck the tracer could
+  not name falls to a shape that is not selected. On the portrait there were
+  **1 380 enclosed holes, 8 041 px between them**. They are filled now, but only
+  the small ones: the gap between a figure's legs is enclosed too and is not
+  part of the figure, so the limit is 2% of the body, measured against the body
+  rather than in pixels so it means the same on a thumbnail and a photograph.
+  It leaves 2 809 px, none of them larger than a freckle.
+
+- **Close before eroding.** The body is found by eroding until hair-thin joins
+  snap — and hair is not a solid band but a mesh of strands a cell or two
+  apart, so eroding it directly wiped it out. The body then stopped at the
+  forehead, its hull came to a point above the brow, and a man with a full head
+  of hair had a fence drawn round him that excluded it. Growing the mask before
+  shrinking it welds the strands into something an erosion can bite and leaves
+  a solid shape's outline where it was.
+
+  Everything measured against the previous build with the corrected scorer, so
+  the comparison is honest in both columns:
+
+  | | before | after |
+  |---|---|---|
+  | bench, one stroke | 95% | **96%** |
+  | bench + one ⌥ | 98% | 98% |
+  | jitter worst / median | 88% / 95% | 88% / **96%** |
+  | steerability | 56% → 89% → 84% | unchanged |
+  | the beach photograph | 0.617 (94%) | **0.649 (99%)** |
+  | the portrait | 0.788 (100%) | **0.812 (100%)**, precision 0.893 |
+  | the portrait, cut out | 36 pieces | **29** (3 over 40 px), largest 99.5% |
+
+  Two things are still wrong on the portrait and both are named rather than
+  hidden. **The hair is not selected at all** — dumping the selection's cells
+  shows it black before any of this post-processing runs, so it is the cut that
+  misses it and not the tidying that eats it, and it is worth about five points
+  of recall. And 401 px still hangs off the shoulder, inside the body's hull
+  and joined to it, where the jacket's own edge says it should not be.
+
 - **The answer has to cohere, and one shape was 732 islands.** Cutting the
   portrait out showed what no score had: the man, both flags, and 356 loose
   fragments, with **9.5% of the cut area outside its largest piece**. Tidiness

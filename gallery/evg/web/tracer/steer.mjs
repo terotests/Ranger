@@ -102,7 +102,7 @@ for (const c of CASES) {
         send("pointerup", q[q.length - 1]);
       },
       // The current answer, as a mask and a score.
-      look() {
+      async look() {
         const svg = document.querySelector("#outStage svg");
         const c2 = document.createElement("canvas");
         c2.width = window.__W; c2.height = window.__H;
@@ -110,11 +110,19 @@ for (const c of CASES) {
         const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
         g.setTransform(window.__W / vb[2], 0, 0, window.__H / vb[3],
                        -vb[0] * window.__W / vb[2], -vb[1] * window.__H / vb[3]);
-        [...svg.querySelectorAll("path")].forEach((p) => {
+        // Through the SVG itself: filling each `d` with Path2D ignores
+        // `clip-path`, and the wand clips a region it keeps only part of.
+        const clone = svg.cloneNode(true);
+        [...clone.querySelectorAll("path")].forEach((p) => {
           if (p.closest("mask") || p.closest("clipPath")) return;
-          g.fillStyle = p.classList.contains("wand-off") ? "#fff" : "#000";
-          g.fill(new Path2D(p.getAttribute("d")), "evenodd");
+          p.setAttribute("fill", p.classList.contains("wand-off") ? "#ffffff" : "#000000");
+          p.setAttribute("fill-rule", "evenodd");
         });
+        const url = "data:image/svg+xml;base64,"
+          + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))));
+        const im = new Image(); im.src = url; await im.decode();
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.drawImage(im, 0, 0, window.__W, window.__H);
         const d = g.getImageData(0, 0, window.__W, window.__H).data;
         let tp = 0, fp = 0, fn = 0;
         const got = new Uint8Array(window.__W * window.__H);
@@ -203,10 +211,10 @@ for (const c of CASES) {
   const shares = [];
   for (let k = 0; k < 20; k++) {
     const pts = jitter(base, 1000 + k * 37);
-    shares.push(await page.evaluate(({ pts }) => {
+    shares.push(await page.evaluate(async ({ pts }) => {
       window.__k.reset();
       window.__k.drag(pts, false);
-      return window.__k.look().iou;
+      return (await window.__k.look()).iou;
     }, { pts }) / ceiling);
   }
   shares.sort((a, b) => a - b);
@@ -218,7 +226,7 @@ for (const c of CASES) {
   // stroke off the edge of the picture — the harness measuring its own
   // mistake as "corrections do nothing".
   const baseFrac = base.map(([x, y]) => [x / W, y / H]);
-  const steer = await page.evaluate(({ pts }) => {
+  const steer = await page.evaluate(async ({ pts }) => {
     window.__k.reset();
     // Deliberately meagre, so there is something for the corrections to do:
     // the first twelfth of the intended stroke. As a fraction of the stroke
@@ -229,13 +237,13 @@ for (const c of CASES) {
     const n = Math.max(2, Math.round((pts.length - 1) / 12) + 1);
     const short = pts.slice(0, n);
     window.__k.drag(short, false);
-    const a = window.__k.look();
+    const a = await window.__k.look();
     const aimFn = window.__k.aim(a.got, true);
     if (aimFn) window.__k.drag(aimFn, false);
-    const b = window.__k.look();
+    const b = await window.__k.look();
     const aimFp = window.__k.aim(b.got, false);
     if (aimFp) window.__k.drag(aimFp, true);
-    const c3 = window.__k.look();
+    const c3 = await window.__k.look();
     return { first: a.iou, afterAdd: b.iou, afterAlt: c3.iou,
              hadFn: !!aimFn, hadFp: !!aimFp,
              note: document.getElementById("editNote").textContent.slice(0, 60),
@@ -252,33 +260,33 @@ for (const c of CASES) {
   // same as if the smaller one had never been drawn.
   const mid = baseFrac[Math.floor(baseFrac.length / 2)];
   const wrongAt = c.wrongAt || [0.06, 0.5];
-  const scen = await page.evaluate(({ pts, mid, wrongAt }) => {
+  const scen = await page.evaluate(async ({ pts, mid, wrongAt }) => {
     const K = window.__k;
     const dab = (p, len) => [[p[0], p[1] - len], [p[0], p[1] + len]];
 
     K.reset();
     K.drag(dab(mid, 0.03), false);
-    const small = K.look().iou;
+    const small = (await K.look()).iou;
 
     // A stroke on the wrong thing, then ⌥ over it, then a right one.
     K.reset();
     K.drag(dab(wrongAt, 0.06), false);
-    const wrong = K.look().iou;
+    const wrong = (await K.look()).iou;
     K.drag(dab(wrongAt, 0.06), true);
-    const undone = K.look().iou;
+    const undone = (await K.look()).iou;
     K.drag(pts, false);
-    const recovered = K.look().iou;
+    const recovered = (await K.look()).iou;
 
     // The same place, two strokes, different amounts.
     K.reset();
     K.drag(pts, false);
-    const plain = K.look().iou;
+    const plain = (await K.look()).iou;
     K.drag(dab(mid, 0.02), true);          // a quarter of the positive's reach
-    const contested = K.look().iou;
+    const contested = (await K.look()).iou;
     K.reset();
     K.drag(dab(mid, 0.02), false);         // and the other way round
     K.drag(pts, true);
-    const flipped = K.look().iou;
+    const flipped = (await K.look()).iou;
     return { small, wrong, undone, recovered, plain, contested, flipped };
   }, { pts: baseFrac, mid, wrongAt });
 

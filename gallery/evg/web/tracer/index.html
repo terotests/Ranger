@@ -2293,6 +2293,7 @@
     wandTrim(g, sel, +wandTidyEl.value);
     wandCohere(g, sel, wandFg);
     wandEncloseSmart(g, sel);
+    wandFillHoles(g, sel);
     wandSel = sel;
     wandPaint();
     // A window onto the decision, for the benchmarks. Every failure in this
@@ -2338,7 +2339,25 @@
   //
   // Closing holes comes after all three: doing it first welds a stray to the
   // body and then every test believes it.
-  var WAND_SNAP = 4;
+  var WAND_SNAP = 4, WAND_CLOSE = 5;
+
+  function wandDilate(mask, cw, ch, r) {
+    var cur = mask;
+    for (var pass = 0; pass < r; pass++) {
+      var next = new Uint8Array(cur.length);
+      for (var y = 0; y < ch; y++) {
+        var row = y * cw;
+        for (var x = 0; x < cw; x++) {
+          var p = row + x;
+          if (cur[p]
+            || (x > 0 && cur[p-1]) || (x < cw-1 && cur[p+1])
+            || (y > 0 && cur[p-cw]) || (y < ch-1 && cur[p+cw])) next[p] = 1;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
 
   function wandErode(mask, cw, ch, r) {
     var cur = mask;
@@ -2382,47 +2401,55 @@
     return { comp: comp, seeded: seeded, sizes: sizes, n: nc };
   }
 
-  // Every region whose visible cells are mostly outside `inside` goes. A region
-  // that is partly in and partly out is *clipped* rather than dropped, because
-  // of one shape in particular.
+  // Make the answer be exactly `mask`, region by region. A region wholly inside
+  // it is selected plain; one wholly outside is dropped; one that is partly in
+  // is *clipped* rather than dropped, because of one shape in particular.
   //
   // The tracer draws a base surface under the whole stack, and on a photograph
   // it shows through wherever nothing else was painted. On the official
   // portrait that one path is visible in **732 separate islands** totalling
   // 65 565 pixels — a fifth of the frame — and among them are the man's own
   // chest and the gaps inside the flag beside him. One node in the graph, so
-  // taking it takes the flag's holes and dropping it takes his chest. No
-  // amount of work on the selection can decide that, because the question is
-  // asked one level too high: a shape scattered over 732 islands is not one
-  // thing, and the answer is to keep the islands that belong to the body and
-  // clip away the rest. The clip is the same mechanism a drawn line already
-  // uses to cut a shape it crosses, and like everything here it only removes.
-  function wandDropOutside(g, sel, eff, inside, spare) {
+  // taking it takes the flag and dropping it takes his chest. No amount of work
+  // on the selection can decide that, because the question is being asked one
+  // level too high: a shape scattered over 732 islands is not one thing. The
+  // clip is the same mechanism a drawn line already uses to cut a shape it
+  // crosses.
+  function wandApplyMask(g, sel, mask, grow) {
     var cw = g.cw, ch = g.ch, n = cw * ch;
-    var mine = new Int32Array(g.n), kept = new Int32Array(g.n);
+    var tot = new Int32Array(g.n), inm = new Int32Array(g.n);
     for (var p = 0; p < n; p++) {
-      if (!eff[p]) continue;
-      var r = g.ids[p];
-      if (!r) continue;
-      mine[r-1]++;
-      if (inside[p]) kept[r-1]++;
+      var id = g.ids[p];
+      if (!id) continue;
+      tot[id-1]++;
+      if (mask[p]) inm[id-1]++;
     }
-    var clipMe = [];
-    sel.forEach(function (i) {
-      if (spare && spare.has(i)) return;
-      if (!mine[i]) return;
-      if (!kept[i]) { sel.delete(i); return; }
-      if (kept[i] < mine[i]) clipMe.push(i);
-    });
-    if (!clipMe.length) return;
-    // One clip path per region, built from its kept cells as rows of
-    // rectangles in user space.
-    clipMe.forEach(function (i) {
-      var d = [], id1 = i + 1;
+    function dropAuto(i) {
+      var cid = wandClipOf.get(i);
+      if (cid === undefined || !wandAutoClips.has(cid)) return;
+      var el = wandClipEls.get(cid);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      wandClipEls.delete(cid); wandClipRaster.delete(cid);
+      wandAutoClips.delete(cid); wandClipOf.delete(i);
+    }
+    var part = [];
+    for (var i = 0; i < g.n; i++) {
+      var had = sel.has(i);
+      if (!tot[i]) continue;
+      if (!inm[i]) { if (had) { sel.delete(i); dropAuto(i); } continue; }
+      if (!had && !grow) continue;
+      if (!had) { sel.add(i);
+        if (window.__addLog) window.__addLog.push([i, tot[i], inm[i]]); }
+      if (inm[i] === tot[i]) { dropAuto(i); continue; }
+      part.push(i);
+    }
+    part.forEach(function (i) {
+      dropAuto(i);
+      var id1 = i + 1, d = [];
       for (var y = 0; y < ch; y++) {
         var row = y * cw, run = -1;
         for (var x = 0; x <= cw; x++) {
-          var on = x < cw && eff[row + x] && inside[row + x] && g.ids[row + x] === id1;
+          var on = x < cw && mask[row + x] && g.ids[row + x] === id1;
           if (on && run < 0) run = x;
           if (!on && run >= 0) {
             var ux = g.vb[0] + run / g.sc, uy = g.vb[1] + y / g.sc;
@@ -2446,10 +2473,79 @@
       wandClipEls.set(cid, cp);
       wandAutoClips.add(cid);
       var mark = new Uint8Array(n);
-      for (var p2 = 0; p2 < n; p2++) if (inside[p2] && g.ids[p2] === id1) mark[p2] = 1;
+      for (var p2 = 0; p2 < n; p2++) if (mask[p2] && g.ids[p2] === id1) mark[p2] = 1;
       wandClipRaster.set(cid, mark);
       wandClipOf.set(i, cid);
     });
+  }
+
+  // A hole the answer closes over is part of it. The face comes out of a
+  // photograph freckled with them — 1 380 of them on the portrait, 8 041 cells
+  // between them — and so does a patterned tie, because every speck the tracer
+  // could not name falls to a shape that is not selected. They are only holes
+  // if the answer surrounds them entirely, and only small ones are filled: the
+  // gap between a figure's legs is enclosed too, and it is not part of the
+  // figure. Measured against the body rather than in pixels, so it means the
+  // same on a thumbnail and on a photograph.
+  var WAND_HOLE = 0.01;
+  function wandFillHoles(g, sel) {
+    if (!sel.size) return;
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+    var eff = wandCells(g, sel);
+    var body = 0;
+    for (var p0 = 0; p0 < n; p0++) if (eff[p0]) body++;
+    if (!body) return;
+    var limit = body * WAND_HOLE;
+
+    // Background you can walk to from the frame is not a hole.
+    var outside = new Uint8Array(n), stack = [];
+    for (var x0 = 0; x0 < cw; x0++) {
+      if (!eff[x0]) { outside[x0] = 1; stack.push(x0); }
+      var bq = (ch-1)*cw + x0;
+      if (!eff[bq] && !outside[bq]) { outside[bq] = 1; stack.push(bq); }
+    }
+    for (var y0 = 0; y0 < ch; y0++) {
+      var lq = y0*cw, rq = y0*cw + cw - 1;
+      if (!eff[lq] && !outside[lq]) { outside[lq] = 1; stack.push(lq); }
+      if (!eff[rq] && !outside[rq]) { outside[rq] = 1; stack.push(rq); }
+    }
+    while (stack.length) {
+      var q = stack.pop(), qx = q % cw, qy = (q / cw) | 0;
+      if (qx > 0 && !eff[q-1] && !outside[q-1]) { outside[q-1] = 1; stack.push(q-1); }
+      if (qx < cw-1 && !eff[q+1] && !outside[q+1]) { outside[q+1] = 1; stack.push(q+1); }
+      if (qy > 0 && !eff[q-cw] && !outside[q-cw]) { outside[q-cw] = 1; stack.push(q-cw); }
+      if (qy < ch-1 && !eff[q+cw] && !outside[q+cw]) { outside[q+cw] = 1; stack.push(q+cw); }
+    }
+
+    // Each enclosed hole, kept if it is small against the body.
+    var mask = new Uint8Array(n);
+    for (var p1 = 0; p1 < n; p1++) mask[p1] = eff[p1];
+    var seen = new Uint8Array(n), run = [];
+    var filled = 0, nHoles = 0, skipped = 0, nBig = 0;
+    for (var s = 0; s < n; s++) {
+      if (eff[s] || outside[s] || seen[s]) continue;
+      run.length = 0;
+      var cells = [s];
+      seen[s] = 1;
+      while (cells.length) {
+        var c = cells.pop(); run.push(c);
+        var cx = c % cw, cy = (c / cw) | 0;
+        if (cx > 0 && !eff[c-1] && !outside[c-1] && !seen[c-1]) { seen[c-1]=1; cells.push(c-1); }
+        if (cx < cw-1 && !eff[c+1] && !outside[c+1] && !seen[c+1]) { seen[c+1]=1; cells.push(c+1); }
+        if (cy > 0 && !eff[c-cw] && !outside[c-cw] && !seen[c-cw]) { seen[c-cw]=1; cells.push(c-cw); }
+        if (cy < ch-1 && !eff[c+cw] && !outside[c+cw] && !seen[c+cw]) { seen[c+cw]=1; cells.push(c+cw); }
+      }
+      if (run.length <= limit) { filled += run.length; nHoles++;
+        for (var k = 0; k < run.length; k++) mask[run[k]] = 1; }
+      else { skipped += run.length; nBig++; }
+    }
+    var before = sel.size;
+    window.__addLog = [];
+    wandApplyMask(g, sel, mask, true);
+    window.__fill = { body: body, limit: limit, filled: filled, holes: nHoles,
+                      skipped: skipped, big: nBig, added: sel.size - before,
+                      log: window.__addLog.slice(0, 12) };
+    window.__addLog = null;
   }
 
   function wandCohere(g, sel, fg) {
@@ -2459,7 +2555,13 @@
 
     // 1 — the body
     var eff = wandCells(g, sel);
-    var thin = wandErode(eff, cw, ch, WAND_SNAP);
+    // Close before eroding. Hair is not a solid band but a mesh of strands a
+    // cell or two apart, and eroding it directly wipes it out: the body then
+    // stopped at the forehead, its hull came to a point above the brow, and the
+    // whole head of hair fell outside a fence drawn around a man who has one.
+    // Closing first — grow, then shrink — welds the strands into something an
+    // erosion can bite, and leaves a solid shape's outline where it was.
+    var thin = wandErode(wandDilate(eff, cw, ch, WAND_CLOSE), cw, ch, WAND_CLOSE + WAND_SNAP);
     var core = wandPieces(g, thin, fg);
     var bodyId = -1, bodyN = 0;
     for (var c = 0; c < core.n; c++) {
@@ -2509,7 +2611,7 @@
           var base = y2 * cw;
           for (var x2 = loX[y2]; x2 <= hiX[y2]; x2++) inHull[base + x2] = 1;
         }
-        wandDropOutside(g, sel, eff, inHull, null);
+        wandApplyMask(g, sel, inHull, false);
       }
     }
 
@@ -2528,7 +2630,7 @@
     // is not part of the answer.
     if (!sel.size) return;
     var eff2 = wandCells(g, sel);
-    var thin2 = wandErode(eff2, cw, ch, WAND_SNAP);
+    var thin2 = wandErode(wandDilate(eff2, cw, ch, WAND_CLOSE), cw, ch, WAND_CLOSE + WAND_SNAP);
     var cores = wandPieces(g, thin2, fg);
     if (!cores.n) return;
     var anySeed = false;
@@ -2552,7 +2654,7 @@
       var o2 = owner[p3];
       if (o2 >= 0 && cores.seeded[o2]) keep[p3] = 1;
     }
-    wandDropOutside(g, sel, eff2, keep, null);
+    wandApplyMask(g, sel, keep, false);
   }
 
   function wandEncloseSmart(g, sel) {

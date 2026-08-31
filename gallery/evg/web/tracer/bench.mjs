@@ -156,11 +156,22 @@ for (const c of CASES) {
     const g = c2.getContext("2d");
     const vb = svg.getAttribute("viewBox").split(/[\s,]+/).map(Number);
     g.setTransform(W / vb[2], 0, 0, H / vb[3], -vb[0] * W / vb[2], -vb[1] * H / vb[3]);
-    [...svg.querySelectorAll("path")].forEach((p) => {
+    // Through the SVG itself, not path by path. Filling each `d` with Path2D
+    // ignores `clip-path`, and the wand now clips a region it keeps only part
+    // of — so a background shape kept for ninety-five of its seventy-one
+    // thousand cells scored as if all seventy-one thousand were selected, and
+    // the bench read a 20-point collapse that was not in the picture.
+    const clone = svg.cloneNode(true);
+    [...clone.querySelectorAll("path")].forEach((p) => {
       if (p.closest("mask") || p.closest("clipPath")) return;
-      g.fillStyle = p.classList.contains("wand-off") ? "#fff" : "#000";
-      g.fill(new Path2D(p.getAttribute("d")), "evenodd");
+      p.setAttribute("fill", p.classList.contains("wand-off") ? "#ffffff" : "#000000");
+      p.setAttribute("fill-rule", "evenodd");
     });
+    const url = "data:image/svg+xml;base64,"
+      + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))));
+    const im = new Image(); im.src = url; await im.decode();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(im, 0, 0, W, H);
     const d = g.getImageData(0, 0, W, H).data;
     let tp = 0, fp = 0, fn = 0;
     for (let y = 0; y < H; y++) {
