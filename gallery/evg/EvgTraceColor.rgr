@@ -1,0 +1,162 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgTraceColor.rgr — perceptual color distance for the tracer
+; ==============================================================================
+;
+; The posterizer decides everything by asking "how far apart are these two
+; colors": which swatches k-means keeps, which of them merge, and which one a
+; pixel joins. Asked in RGB that question has a known wrong answer — the space
+; is not perceptually uniform, so a step across a dark blue counts for far less
+; than the same step across a mid green, and the palette is spent accordingly.
+; EvgBitmapTracer's own metric adds a luma term to patch the worst of it
+; (a dark ink line must not collapse into a mid-tone of the same hue), which
+; helps but does not make the space uniform.
+;
+; OKLab (Björn Ottosson, 2020) is a space where plain Euclidean distance does
+; approximate perceived difference. This file converts into it and measures
+; there.
+;
+; Scale: `dist2` is multiplied so that black against white reads 390150 —
+; exactly what the legacy metric gives for the same pair at the default
+; lumaWeight (3·255² + 3·255²). Every threshold already tuned against that
+; metric therefore keeps its meaning, and only the *shape* of the space
+; changes. See EvgBitmapTracer.dist2Limit.
+;
+; No pow/exp/log: the Ranger operator set has sqrt and nothing above it, so the
+; two fractional powers OKLab needs (the sRGB transfer curve's 2.4 and the
+; cube root) are Newton iterations seeded from a chain of square roots. Both
+; are integer-free and identical on every target.
+; ==============================================================================
+
+; One color in OKLab. A mutable holder rather than a returned triple: the
+; distance is asked once per palette entry per pixel, and an allocation there
+; costs more than the arithmetic does.
+class EvgOklab {
+    def l:double 0.0
+    def a:double 0.0
+    def b:double 0.0
+
+    Constructor () {
+    }
+
+    ; `lin` is the 256-entry sRGB → linear-light table from
+    ; EvgTraceColor.buildLinearTable().
+    ; `blue` rather than `b`, which is the field this writes.
+    fn setFrom:void (lin:[double] red:int green:int blue:int) {
+        def lr:double (itemAt lin red)
+        def lg:double (itemAt lin green)
+        def lb:double (itemAt lin blue)
+
+        def cl:double ((((0.4122214708 * lr) + (0.5363325363 * lg)) + (0.0514459929 * lb)))
+        def cm:double ((((0.2119034982 * lr) + (0.6806995451 * lg)) + (0.1073969566 * lb)))
+        def cs:double ((((0.0883024619 * lr) + (0.2817188376 * lg)) + (0.6299787005 * lb)))
+
+        def l_:double (EvgTraceColor.cbrt(cl))
+        def m_:double (EvgTraceColor.cbrt(cm))
+        def s_:double (EvgTraceColor.cbrt(cs))
+
+        l = ((((0.2104542553 * l_) + (0.7936177850 * m_)) - (0.0040720468 * s_)))
+        a = ((((1.9779984951 * l_) - (2.4285922050 * m_)) + (0.4505937099 * s_)))
+        b = ((((0.0259040371 * l_) + (0.7827717662 * m_)) - (0.8086757660 * s_)))
+    }
+}
+
+class EvgTraceColor {
+
+    Constructor () {
+    }
+
+    ; Black against white, so a threshold written for the RGB metric still
+    ; means what it meant. Also the divisor in EvgBitmapTracer.dist2Limit.
+    sfn okScale:double () {
+        return 390150.0
+    }
+
+    ; Cube root by Newton on y³ = a, seeded with a^(3/8) — three square roots,
+    ; which is within a few percent of the answer everywhere in [0,1], so the
+    ; iteration is converged long before it runs out.
+    sfn cbrt:double (a:double) {
+        if (a <= 0.0) {
+            return 0.0
+        }
+        def s1:double (sqrt a)
+        def s2:double (sqrt s1)
+        def s3:double (sqrt s2)
+        def y:double (s2 * s3)
+        def i:int 0
+        while (i < 8) {
+            def y2:double (y * y)
+            def q:double (a / y2)
+            y = (((2.0 * y) + q) / 3.0)
+            i = (i + 1)
+        }
+        return y
+    }
+
+    ; Fifth root by Newton on y⁵ = a, seeded with a^(3/16) (3/16 = 0.1875
+    ; against the 0.2 wanted). Only the 256-entry table calls this.
+    sfn root5:double (a:double) {
+        if (a <= 0.0) {
+            return 0.0
+        }
+        def s1:double (sqrt a)
+        def s2:double (sqrt s1)
+        def s3:double (sqrt s2)
+        def s4:double (sqrt s3)
+        def y:double (s3 * s4)
+        def i:int 0
+        while (i < 10) {
+            def y2:double (y * y)
+            def y4:double (y2 * y2)
+            def q:double (a / y4)
+            def step:double ((q - y) / 5.0)
+            y = (y + step)
+            i = (i + 1)
+        }
+        return y
+    }
+
+    ; x^2.4 for x in [0,1] — the sRGB transfer curve's exponent, written as
+    ; x² · (x^(1/5))².
+    sfn pow24:double (x:double) {
+        if (x <= 0.0) {
+            return 0.0
+        }
+        def r5:double (EvgTraceColor.root5(x))
+        def t:double (r5 * r5)
+        def sq:double (x * x)
+        return (sq * t)
+    }
+
+    ; sRGB 0..255 → linear light 0..1, one entry per channel value. Built once
+    ; and shared by every conversion; 256 fifth roots, paid at most once per
+    ; trace.
+    sfn buildLinearTable:[double] () {
+        def t:[double]
+        def i:int 0
+        while (i < 256) {
+            def c:double ((to_double i) / 255.0)
+            if (c <= 0.04045) {
+                def lo:double (c / 12.92)
+                push t lo
+            } {
+                def u:double ((c + 0.055) / 1.055)
+                def hi:double (EvgTraceColor.pow24(u))
+                push t hi
+            }
+            i = (i + 1)
+        }
+        return t
+    }
+
+    ; Squared OKLab distance, scaled onto the legacy metric's range.
+    sfn dist2:double (p:EvgOklab q:EvgOklab) {
+        def dl:double ((p.l) - (q.l))
+        def da:double ((p.a) - (q.a))
+        def db:double ((p.b) - (q.b))
+        def raw:double ((((dl * dl) + (da * da)) + (db * db)))
+        def s:double (EvgTraceColor.okScale())
+        return (raw * s)
+    }
+}

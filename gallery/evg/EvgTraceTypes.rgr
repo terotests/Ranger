@@ -106,7 +106,18 @@ class EvgTraceOptions {
     ; 1.0 = only when it fits at least as well; larger = snap more eagerly.
     def snapRatio:double 1.5
     ; Extra weight on the luma term of the palette distance (1 = plain RGB).
+    ; Only consulted by colorSpace "rgb".
     def lumaWeight:int 3
+    ; Which space the posterizer measures color difference in:
+    ;   "rgb"   — weighted RGB with an extra luma term (lumaWeight)
+    ;   "oklab" — Euclidean distance in OKLab, where that distance actually
+    ;             tracks perceived difference. Scaled onto the same numeric
+    ;             range as "rgb" (black against white is 390150 in both), so
+    ;             minColorDelta, snapRatio and the rest keep their meaning.
+    ; Costs two cube roots per comparison; buys a palette that is spent on
+    ; colors a viewer can tell apart rather than on whatever RGB happened to
+    ; stretch.
+    def colorSpace:string "rgb"
     ; How the palette is decided:
     ;   "auto"   — quantize the image; paletteHex is ignored
     ;   "fixed"  — use paletteHex exactly, in the given order; colorCount is
@@ -261,6 +272,19 @@ class EvgTraceOptions {
     ;   "flat"    — one disjoint region per swatch; smaller, and correct only if
     ;               nothing is ever going to look at the seams.
     def layerMode:string "stacked"
+    ; How the `d` attribute is written. The geometry is the same either way:
+    ;   "plain"   — absolute M/L/C at four decimals, what VectorShapes writes
+    ;               for the rest of the vector stack
+    ;   "compact" — per segment the shorter of the absolute and relative form,
+    ;               H/V for axis-aligned lines, S for mirrored cubic handles,
+    ;               numbers trimmed to pathPrecision, and separators only where
+    ;               the SVG grammar needs one. Same picture, roughly half the
+    ;               bytes. See EvgTracePath.
+    def pathFormat:string "compact"
+    ; Decimal places kept in "compact". Two is a hundredth of a pixel, well
+    ; below what a trace resolves; the coordinates are rounded before the
+    ; degenerate-segment cleanup, so the rounding does not leave debris behind.
+    def pathPrecision:int 2
     ; Posterize: passes of a 3×3 median over the color planes before anything
     ; else looks at them. A photograph's per-pixel noise otherwise survives
     ; quantization as speckle, and every extra color splits it further, so the
@@ -271,6 +295,17 @@ class EvgTraceOptions {
     ; around it instead of being traced. Without it turdsize simply deletes
     ; those rings and leaves holes, so coverage falls as colorCount rises.
     def minRegion:int 6
+    ; The other half of the minRegion test, in per-channel color units: a run
+    ; below minRegion is still kept when the swatch it would be absorbed into
+    ; is at least this far away. Size on its own cannot tell noise from
+    ; subject — the spray off a wave, a boat on the sea and the white of an eye
+    ; are each a few pixels that no larger shape puts back, while a few pixels
+    ; of a neighbouring blue inside blue are exactly what minRegion is for.
+    ; Measured on the Hokusai wave at colorCount 16: absorbing everything costs
+    ; 15 RMSE points and both boats; keeping what stands out recovers nearly
+    ; all of it at a third of the extra bytes. 0 restores the unconditional
+    ; absorb.
+    def absorbContrast:int 40
     ; Background handling for posterize:
     ;   "auto" — flood the page color in from the border and drop only that,
     ;            so a white belly or highlight inside the subject survives.
@@ -294,6 +329,58 @@ class EvgTraceOptions {
 
     sfn defaults:EvgTraceOptions () {
         return (new EvgTraceOptions())
+    }
+
+    ; A starting point for a kind of picture. Forty-one knobs is the right
+    ; number for a tracer that has to handle a scanned blueprint and a
+    ; photograph with the same code, and the wrong number to hand somebody who
+    ; has one image and a deadline. Each preset below is a setting that was
+    ; measured rather than guessed; from there the individual knobs still work.
+    ;
+    ;   "lineart"  — one-color ink on paper. No median (it eats thin strokes),
+    ;                no speckle absorb, Otsu picks the threshold.
+    ;   "poster"   — flat-color art: few colors, hard edges, keep every one.
+    ;   "photo"    — a photograph: median away the sensor grain, absorb the
+    ;                speckle it leaves, and spend the palette on area.
+    ;   "print"    — a detailed picture with hard edges and fine marks, the
+    ;                Hokusai wave being the case it was tuned on: absorb small
+    ;                runs, but not the ones that stand out from what surrounds
+    ;                them, which is where the spray and the boats live.
+    ;
+    ; An unknown name returns the plain defaults.
+    sfn preset:EvgTraceOptions (name:string) {
+        def o (new EvgTraceOptions())
+        if (name == "lineart") {
+            o.colorCount = 1
+            o.threshold = (0 - 1)
+            o.smooth = 0
+            o.minRegion = 0
+            return o
+        }
+        if (name == "poster") {
+            o.colorCount = 8
+            o.smooth = 0
+            o.minRegion = 4
+            o.absorbContrast = 24
+            o.minColorDelta = 12
+            return o
+        }
+        if (name == "photo") {
+            o.colorCount = 16
+            o.smooth = 1
+            o.minRegion = 8
+            o.absorbContrast = 56
+            o.paletteBias = "area"
+            return o
+        }
+        if (name == "print") {
+            o.colorCount = 16
+            o.smooth = 0
+            o.minRegion = 6
+            o.absorbContrast = 32
+            return o
+        }
+        return o
     }
 }
 

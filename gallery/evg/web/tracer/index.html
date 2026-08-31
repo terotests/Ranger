@@ -326,6 +326,10 @@
           <input id="minRegion" type="range" min="0" max="400" step="2" value="6">
           <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150. <b>Päällekkäiset muodot</b> -algoritmissa tämä on se säädin, joka pitää tuloksen kohtuullisen kokoisena: valokuvassa 6 → 24 pudotti muotojen määrän noin neljäsosaan.</span>
         </label>
+        <label class="row color-only hidden">Erottuvuusraja <span class="val" id="v-absorbContrast">40</span>
+          <input id="absorbContrast" type="range" min="0" max="120" step="4" value="40">
+          <span class="hint">Pienin alue nielaisee myös sen, mikä <i>erottuu</i> ympäristöstään, ellei tämä estä sitä: tätä kauempana olevan sävyn saanut läiskä säilyy koostaan riippumatta. Aallon vaahto ja veneet ovat tällaisia. 0 = vanha ehdoton nielaisu.</span>
+        </label>
         <div class="row color-only hidden" style="display:block">
           <div class="actions" style="margin:0 0 4px">
             <button type="button" id="presetArt">Piirros</button>
@@ -491,6 +495,7 @@
   var srcStage = $("srcStage"), outStage = $("outStage"), statusEl = $("status"), paletteEl = $("palette");
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
+  var absorbContrast = $("absorbContrast");
   var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth"), layerMode = $("layerMode");
   var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
@@ -700,6 +705,7 @@
   bindRange(skipLuma, $("v-skipLuma"));
   bindRange(minColorDelta, $("v-minColorDelta"));
   bindRange(minRegion, $("v-minRegion"));
+  bindRange(absorbContrast, $("v-absorbContrast"));
   bindRange(smooth, $("v-smooth"));
   bindRange(bgTolerance, $("v-bgTolerance"));
   bindRange(contourEdge, $("v-contourEdge"));
@@ -2619,6 +2625,7 @@
         opts.bgMode = bgMode.value;
         opts.minColorDelta = +minColorDelta.value;
         opts.minRegion = +minRegion.value;
+        opts.absorbContrast = +absorbContrast.value;
         opts.smooth = +smooth.value;
         opts.layerMode = layerMode.value;
         opts.bgColor = bgColor.value;
