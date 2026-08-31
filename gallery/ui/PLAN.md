@@ -1901,6 +1901,11 @@ with a show/hide toggle, a two-column form with `Select` and buttons) plus the
 invoice screenshot are ONE component with a lot of dressing. The dressing is a
 weekend. The component is `Input`, and this repo has never had a text field.
 
+> **Reviewed after the resizable and the breadcrumb**, which changed three
+> things below. Phase 0 is partly done and its remaining half is smaller than
+> it looked; a step was missing from it entirely; and Phase 3 needs an
+> affordance the plan did not know about. The revisions are marked ▲.
+
 ### Phase 0 — the field list, first, and it will hurt
 
 **Do not start with the components.** `aria-orientation` just taught the lesson
@@ -1931,6 +1936,34 @@ names from content. **Name-from-elsewhere is a genuine engine gap and Phase 0
 is where it gets closed.**
 
 Expect this phase to turn specs red. That is the return on it.
+
+▲ **Partly done, and it paid immediately.** `invalid`, `required`, `readonly`
+and `current` are in the list now, along with `orientation` from the resizable
+work. Adding `required` — before there is any form — turned the radio group red
+on its first run: **Radix publishes `aria-required="false"` and this side
+published nothing**, and then the toggle group red on its second, because it
+shares the controller and Radix does NOT publish it there. Absent and "false"
+are different claims, and neither was visible before.
+
+Still to do: `value`, `selstart`, `selend`, `placeholder`, and `describedby`
+resolved to text. Those have no source until the text field exists, so they
+belong with Phase 1 rather than ahead of it.
+
+▲ **And a step that was missing: the implicit-role table.** The DOM snapshot
+maps tags to roles for the trace, and that table had grown one component at a
+time — `button`, `a`, `table`, `tr`, `td`, `th`, `input` and nothing else.
+Completing it for the breadcrumb's `nav`/`ol`/`li` turned **two long-passing
+components red**: the navigation menu was not a landmark and its list not a
+list, and the toast viewport was not a list of toasts. It has now been
+completed for a form's tags too — `form` (a landmark only when named, which is
+the HTML-ARIA mapping and not a simplification), `fieldset`, `textarea`,
+`select`, `output` — so that table stops being a component late.
+
+The general form of this is worth stating once: **the trace has two blind
+spots, not one.** A missing FIELD makes a property invisible; a missing tag
+mapping makes a whole NODE's role invisible. Both were found this week, and
+neither by the same instrument — the field by a component that needed it, the
+tag table by a component built from tags nothing had used.
 
 ### Phase 1 — the text field primitive
 
@@ -1973,6 +2006,23 @@ spellcheck, autofill.
 the controller on ours. Small, and nothing in Phase 1 can be tested without it.
 
 ### Phase 3 — Field, FieldLabel, FieldError, FieldGroup
+
+▲ **This needs the two-pass affordance the breadcrumb just needed**, and the
+plan did not know it. Layout happens after the tree is built, so any component
+whose CONTENT depends on its own measured size — a breadcrumb that collapses, a
+field whose error list wraps, a label that truncates — needs measure, decide,
+rebuild, and somebody has to own the decision between the passes.
+`BreadcrumbCtl` owns none of it: it is told the width and answers what to draw,
+and the caller does the measuring. That is the shape to reuse, and it should be
+settled here rather than reinvented per component.
+
+▲ **Axe is a third instrument and it finds different things.** On the
+breadcrumb it caught what the diff could not: a `role="list"` whose children
+are buttons is invalid, and Radix's `<li>` carries no test id so it was in
+NEITHER trace. A form is full of that shape — `fieldset`/`legend`,
+`label`/`control`, error lists — so run `ui:a11y` early and often here, not
+only at the end.
+
 
 Mostly composition once Phase 0 exists: the label names the input, the error
 list describes it, `aria-invalid` marks it. `FieldGroup` is a `role="group"`.

@@ -1284,6 +1284,9 @@ class UiHost {
             out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
             out = out + ",\"orientation\":" + (UiHost.textOrNull(row.orientation))
             out = out + ",\"current\":" + (UiHost.textOrNull(row.current))
+            out = out + ",\"invalid\":" + (UiHost.textOrNull(row.invalid))
+            out = out + ",\"required\":" + (UiHost.textOrNull(row.required))
+            out = out + ",\"readonly\":" + (UiHost.textOrNull(row.readOnly))
             ; `aria-haspopup`, absent rather than empty when there is none —
             ; the DOM reports null for a node without the attribute, and "" is
             ; a different thing from "not there".

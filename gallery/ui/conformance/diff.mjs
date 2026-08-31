@@ -46,6 +46,14 @@ export const FIELDS = [
   // `aria-current`. A breadcrumb's whole claim is which crumb is the page you
   // are on, and without this the trail is a list of links the diff cannot tell
   // apart. It is not breadcrumb-only: any navigation marks its current item.
+  // The form triad. `aria-invalid` and `aria-required` are emitted by the
+  // reference TODAY on several controls and have never been compared;
+  // `aria-readonly` is already mirrored by `evg-a11y.js` and was never in the
+  // list either. Added before the text field rather than with it, so the
+  // trace can see a form's state before there is a form.
+  "invalid",
+  "required",
+  "readonly",
   "current",
   "orientation",
   "level",

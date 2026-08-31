@@ -55,6 +55,14 @@ class UiRow {
     ; `aria-current`, as the DOM spells it: "page" on the crumb you are on, ""
     ; on everything else. A breadcrumb's whole claim, and invisible without it.
     def current:string ""
+    ; `aria-invalid`, `aria-required` and `aria-readonly`, as the DOM spells
+    ; them: "true"/"false", or "" for a control that says nothing. Strings
+    ; rather than booleans because ABSENT and "false" are different claims —
+    ; a field that says `aria-required="false"` has been asked and answered,
+    ; and one that says nothing has not.
+    def invalid:string ""
+    def required:string ""
+    def readOnly:string ""
     ; `aria-haspopup`, as the DOM spells it: "menu" on a row that opens one,
     ; "" on everything else. The one attribute that separates a submenu's
     ; parent from the item beside it — both are menuitems, both are named, and

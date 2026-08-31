@@ -253,6 +253,16 @@ class RadioGroupCtl extends UiCtl {
     fn rows:[UiRow] () {
         def out:[UiRow]
         def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.radioGroup()) name))
+        ; `aria-required="false"`, written down rather than left off — and only
+        ; on a RADIO group. Radix's radio group publishes it; its toggle group,
+        ; which shares this controller, publishes nothing. The distinction is
+        ; real: a group that says false has been asked and answered, and one
+        ; that says nothing has not. Both halves were invisible until
+        ; `required` joined the observed fields, and the field found the first
+        ; on its first run and the second on its second.
+        if (toggleMode == false) {
+            rootRow.required = "false"
+        }
         rootRow.tabStop = true
         push out rootRow
         def i:int 0

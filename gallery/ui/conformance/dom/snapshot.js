@@ -46,6 +46,14 @@ export function snapshotDom(options) {
     // why a `<nav>` and an `<li>` both reported "none" — the table below grew
     // one component at a time and nothing before this was built out of them.
     if (tag === "nav") return "navigation";
+    // A form's own tags, added before the form so the table stops growing one
+    // component late. `<form>` is only a landmark when it is NAMED, which is
+    // the HTML-ARIA mapping and not a simplification.
+    if (tag === "form") return el.getAttribute("aria-label") || el.getAttribute("aria-labelledby") ? "form" : "none";
+    if (tag === "fieldset") return "group";
+    if (tag === "textarea") return "textbox";
+    if (tag === "select") return el.multiple || el.size > 1 ? "listbox" : "combobox";
+    if (tag === "output") return "status";
     if (tag === "ol" || tag === "ul") return "list";
     if (tag === "li") return "listitem";
     if (tag === "table") return "table";
@@ -140,6 +148,9 @@ export function snapshotDom(options) {
       // Would Tab land here? Roving focus is exactly this going false on the
       // items a composite does not want in the tab order.
       tabstop: el.tabIndex >= 0 && !disabled,
+      invalid: el.getAttribute("aria-invalid"),
+      required: el.getAttribute("aria-required"),
+      readonly: el.getAttribute("aria-readonly"),
       current: el.getAttribute("aria-current"),
       orientation: el.getAttribute("aria-orientation"),
       valuenow: num("aria-valuenow"),
@@ -229,6 +240,9 @@ export function snapshotDom(options) {
       selected: null,
       disabled: false,
       tabstop: false,
+      invalid: null,
+      required: null,
+      readonly: null,
       current: null,
       orientation: null,
       valuenow: null,
