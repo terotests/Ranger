@@ -826,6 +826,56 @@ console.log("--- an icon and its label sit on one baseline ---");
     high.length === 0, [...new Set(high)].join("; "));
 }
 
+console.log("--- the surface's drops, and the wake a drag leaves ---");
+{
+  // `evg-surface-effect: ripple` is an EVG EXTENSION rather than CSS, so there
+  // is no browser to measure it against; what is checked is the arithmetic the
+  // shader is handed. Here rather than in the page check because the clock is
+  // this test's: in a browser drawn by SwiftShader a single frame can take two
+  // seconds and thin the wake out before it can be counted.
+  const d = fresh();
+  const drops = () => JSON.parse(d.displayListJson()).effect.drops;
+  ok("nothing is in flight at rest", drops().length === 0, JSON.stringify(drops()));
+
+  d.ripple(300, 300);
+  d.tick(80);
+  d.ripple(700, 400);
+  d.tick(80);
+  d.ripple(500, 600);
+  const three = drops();
+  ok("three touches coexist", three.length === 3, String(three.length));
+  // Each with its OWN age. They are summed in the shader, so two rings that
+  // cross reinforce where their crests meet — which is what makes this a
+  // surface rather than an effect, and it needs the ages to be different.
+  ok("each with an age of its own",
+    new Set(three.map((p) => p[2])).size === 3, JSON.stringify(three.map((p) => p[2])));
+  ok("oldest first", three[0][2] > three[1][2] && three[1][2] > three[2][2],
+    JSON.stringify(three.map((p) => p[2])));
+
+  // A WAKE: one source every step, not one that follows the pointer.
+  const e = fresh();
+  e.ripple(100, 100);
+  for (let x = 100; x <= 500; x += 10) e.rippleDragTo(x, 100);
+  const wake = JSON.parse(e.displayListJson()).effect.drops;
+  ok("a drag leaves a row of them", wake.length === 8, String(wake.length));
+  const xs = wake.map((p) => p[0]);
+  ok("evenly spaced", xs.every((x, i) => i === 0 || x - xs[i - 1] === 30),
+    JSON.stringify(xs));
+  // The cap retires the OLDEST, which is also the one that has faded most.
+  ok("and the oldest is the one that went", xs[0] > 100, JSON.stringify(xs));
+  // A move shorter than the step adds nothing: closer together and the rings
+  // pile into one bright blob.
+  const before = JSON.parse(e.displayListJson()).effect.drops.length;
+  e.rippleDragTo(505, 100);
+  ok("a step too short adds nothing",
+    JSON.parse(e.displayListJson()).effect.drops.length === before);
+
+  // They age out on their own.
+  for (let i = 0; i < 40; i++) e.tick(100);
+  ok("and they all retire", e.dropCount() === 0, String(e.dropCount()));
+  ok("so the page goes quiet", e.busyNow() === false);
+}
+
 console.log("--- what a reader is told about a carried row ---");
 {
   const d = fresh();

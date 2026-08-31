@@ -2603,9 +2603,36 @@ rasterisation does, and on a GPU a four-tap fullscreen pass is well under a
 millisecond. The measurement is recorded rather than optimised away, because
 the thing to fix would be the container and not the shader.
 
-**Still to come**: a height-field version — several drops, interfering, and a
-finger you can drag across the surface — which needs a simulation texture and a
-wave equation per pixel rather than one analytic ring. And the reference's
+### Many drops, and interference for free
+
+Up to eight touches in flight at once, summed. **Interference is not something
+the shader implements** — two rings that cross reinforce where their crests
+meet and cancel where a crest meets a trough, because that is what adding waves
+does. The displacement is summed as a VECTOR rather than as a scalar amplitude,
+so two rings arriving from opposite sides push the surface in opposite
+directions and the pixel between them stays where it was.
+
+A dragged finger leaves a WAKE: one source every 26 pixels, not one ring that
+follows the pointer — a wake is a row of sources, and a source that moves has
+no history. The eighth drop retires the first, which is also the one that has
+faded most.
+
+Because the rings interfere, the numbers can stay quiet and the effect still
+reads. What was raised was the HIGHLIGHT rather than the displacement, and for
+a reason worth writing down: displacement only shows on edges, and most of this
+page is flat. The highlight shades flat ground, so it is what makes a ring
+visible across the middle of a chart's fill.
+
+**The wake is checked in Node and not in the browser.** In this container a
+rippling frame can take over two seconds, so one `tick` ages every drop added
+before it past its lifetime and the wake is thinned out by the machine rather
+than by the code. The page check asserts only that a drag makes drops; the
+shape of the wake — eight of them, evenly spaced, oldest retired — is asserted
+where the clock belongs to the test.
+
+**Still to come**: a height-field version, which would let the waves reflect off
+the cards rather than pass through them, and needs a simulation texture with a
+wave equation per pixel rather than analytic rings. And the reference's
 horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the

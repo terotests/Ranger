@@ -263,12 +263,21 @@ class EVGElement {
 
     ; --- and the state it needs, which is not styling ---------------------------
     ;
-    ; Where the surface was touched and how long ago. Set by the APPLICATION,
-    ; like `scrollTop`: a stylesheet has no business owning where somebody
-    ; clicked. A negative age means no ripple is in flight.
-    def rippleX:double 0.0
-    def rippleY:double 0.0
-    def rippleAge:double -1.0
+    ; Where the surface was touched and how long ago — for EVERY touch still in
+    ; flight, not just the last one. Set by the APPLICATION, like `scrollTop`:
+    ; a stylesheet has no business owning where somebody clicked.
+    ;
+    ; Three parallel arrays rather than an array of triples, because that is
+    ; what goes into a `vec3` uniform array without a copy at the other end.
+    ; Empty means nothing is in flight.
+    ;
+    ; MANY of them, and that is the whole difference between an effect and a
+    ; surface: two rings that cross ADD, so the crests reinforce where they
+    ; meet and cancel a quarter-wavelength away. Interference is not something
+    ; the shader implements — it is what summing waves does.
+    def rippleXs:[double]
+    def rippleYs:[double]
+    def rippleAges:[double]
 
     ; --- SCROLLING ------------------------------------------------------------
     ;
@@ -2087,9 +2096,9 @@ class EVGElement {
         rippleStrength = other.rippleStrength
         rippleDecay = other.rippleDecay
         rippleHighlight = other.rippleHighlight
-        rippleX = other.rippleX
-        rippleY = other.rippleY
-        rippleAge = other.rippleAge
+        rippleXs = other.rippleXs
+        rippleYs = other.rippleYs
+        rippleAges = other.rippleAges
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth

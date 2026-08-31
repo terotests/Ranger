@@ -204,16 +204,57 @@ console.log("--- the surface ripples where it was touched ---");
   const at = await effect();
   ok("the sheet's effect reaches the list", at && at.kind === "ripple",
     JSON.stringify(at));
-  ok("and it is at rest until something touches it", at && at.t < 0, String(at && at.t));
+  ok("and it is at rest until something touches it",
+    at && at.drops.length === 0, JSON.stringify(at && at.drops));
 
   const box = await (await page.$("#stage canvas")).boundingBox();
   await page.mouse.click(box.x + 700, box.y + 430);
   await page.waitForTimeout(150);
   const live = await effect();
   ok("a click becomes the ripple's origin",
-    live && Math.abs(live.x - 700) < 3 && Math.abs(live.y - 430) < 3,
-    JSON.stringify(live && [live.x, live.y]));
-  ok("and its clock starts", live && live.t >= 0, String(live && live.t));
+    live && live.drops.length >= 1 &&
+      Math.abs(live.drops[0][0] - 700) < 3 && Math.abs(live.drops[0][1] - 430) < 3,
+    JSON.stringify(live && live.drops[0]));
+  ok("and its clock starts", live && live.drops[0][2] >= 0,
+    String(live && live.drops[0][2]));
+
+  // MANY AT ONCE, which is the difference between an effect and a surface:
+  // three taps in different places have to coexist with three different ages,
+  // not replace one another.
+  await page.mouse.click(box.x + 420, box.y + 330);
+  await page.waitForTimeout(90);
+  await page.mouse.click(box.x + 900, box.y + 520);
+  await page.waitForTimeout(90);
+  const many = await effect();
+  ok("three touches are three drops", many && many.drops.length >= 3,
+    String(many && many.drops.length));
+  ok("each with an age of its own",
+    many && new Set(many.drops.map((d) => d[2])).size === many.drops.length,
+    JSON.stringify(many && many.drops.map((d) => d[2])));
+  // Oldest first, which is the order the ring buffer retires them in.
+  ok("oldest first",
+    many && many.drops.every((d, i) => i === 0 || d[2] <= many.drops[i - 1][2]),
+    JSON.stringify(many && many.drops.map((d) => d[2])));
+
+  // A dragged finger leaves a WAKE. What is asserted here is only that a drag
+  // makes drops at all: this container draws with SwiftShader on the CPU, and
+  // a rippling frame can take over two seconds, so one `tick` ages everything
+  // added before it past its lifetime and the wake is thinned out by the
+  // machine rather than by the code. The wake's real shape — eight of them, a
+  // step apart, oldest retired — is checked in `dashboard-check.mjs`, where
+  // the clock is the test's and not the renderer's.
+  await page.mouse.move(box.x + 300, box.y + 600);
+  await page.mouse.down();
+  for (let x = 300; x <= 620; x += 40) {
+    await page.mouse.move(box.x + x, box.y + 600);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(80);
+  const wake = await effect();
+  ok("a drag leaves drops behind it", wake && wake.drops.length >= 1,
+    String(wake && wake.drops.length));
+  ok("and never more than the shader can hold", wake && wake.drops.length <= 8,
+    String(wake && wake.drops.length));
 
   // The second pass really ran: `rippled` is the renderer saying it drew the
   // page into a texture and put it on the screen through the shader.

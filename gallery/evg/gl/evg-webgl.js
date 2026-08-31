@@ -841,8 +841,12 @@ const RIPPLE_FRAG = `#version 300 es
 precision highp float;
 uniform sampler2D uSrc;
 uniform vec2 uRes;        // page pixels
-uniform vec2 uDrop;       // where it was touched, page pixels
-uniform float uAge;       // seconds since
+// Up to this many touches at once. Eight is not a limit anybody reaches by
+// tapping; it is what a FINGER DRAGGED across the surface fills in a third of
+// a second, and the oldest is retired to make room.
+#define MAX_DROPS 8
+uniform vec3 uDrops[MAX_DROPS];  // x, y in page pixels; z is seconds since
+uniform int uCount;
 uniform float uSpeed;     // px per second the ring travels
 uniform float uWidth;     // the envelope's sigma, px
 uniform float uStrength;  // displacement at the crest, px
@@ -853,17 +857,33 @@ out vec4 outColor;
 
 void main() {
   vec2 p = vUV * uRes;
-  vec2 delta = p - uDrop;
-  float d = length(delta);
-  vec2 dir = delta / max(d, 0.001);
 
-  float radius = uAge * uSpeed;
-  // A Gaussian ring: the wave only exists near the front, so the rest of the
-  // page is sampled exactly where it was drawn and stays sharp.
-  float env = exp(-pow((d - radius) / uWidth, 2.0));
-  float wave = sin((d - radius) * 0.16) * env * exp(-uAge * uDecay);
+  // SUM the drops. This is the whole of the interference: two rings that
+  // cross reinforce where their crests meet and cancel where a crest meets a
+  // trough, and nothing here implements that — it is what adding waves does.
+  //
+  // The displacement is summed as a VECTOR, not as a scalar amplitude, so two
+  // rings arriving from opposite sides push the surface in opposite
+  // directions and the pixel between them stays where it was.
+  vec2 push = vec2(0.0);
+  float crest = 0.0;
+  for (int i = 0; i < MAX_DROPS; i++) {
+    if (i >= uCount) break;
+    vec3 drop = uDrops[i];
+    vec2 delta = p - drop.xy;
+    float d = length(delta);
+    vec2 dir = delta / max(d, 0.001);
+    float radius = drop.z * uSpeed;
+    // A Gaussian ring: the wave only exists near the front, so the rest of
+    // the page is sampled exactly where it was drawn and stays sharp.
+    float env = exp(-pow((d - radius) / uWidth, 2.0));
+    float wave = sin((d - radius) * 0.16) * env * exp(-drop.z * uDecay);
+    push += dir * wave;
+    crest += wave;
+  }
 
-  vec2 offset = dir * wave * uStrength / uRes;
+  float wave = crest;
+  vec2 offset = push * uStrength / uRes;
 
   // A whisper of chromatic aberration along the crest. The numbers are 1.08
   // and 0.92 rather than anything bolder for a reason: past about a tenth the
@@ -1018,8 +1038,8 @@ function programsFor(gl) {
     ripplePosLoc: gl.getAttribLocation(rippleProg, "aPos"),
     rippleSrc: gl.getUniformLocation(rippleProg, "uSrc"),
     rippleRes: gl.getUniformLocation(rippleProg, "uRes"),
-    rippleDrop: gl.getUniformLocation(rippleProg, "uDrop"),
-    rippleAge: gl.getUniformLocation(rippleProg, "uAge"),
+    rippleDrops: gl.getUniformLocation(rippleProg, "uDrops"),
+    rippleCount: gl.getUniformLocation(rippleProg, "uCount"),
     rippleSpeed: gl.getUniformLocation(rippleProg, "uSpeed"),
     rippleWidth: gl.getUniformLocation(rippleProg, "uWidth"),
     rippleStrength: gl.getUniformLocation(rippleProg, "uStrength"),
@@ -1297,8 +1317,11 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // with no touch behind it (`t` below zero) costs a comparison and nothing
   // else, which is what lets a page carry the declaration all the time.
   const fx = doc.list.effect;
-  const rippling = !!fx && fx.kind === "ripple" && fx.t >= 0 &&
-    Math.exp(-fx.t * fx.decay) > 0.004;
+  // Live while ANY drop still has something left in it. The application
+  // retires them, so in practice this is "are there any"; the decay test
+  // stays as the renderer's own guard against being asked to draw nothing.
+  const rippling = !!fx && fx.kind === "ripple" && fx.drops && fx.drops.length > 0 &&
+    fx.drops.some((d) => Math.exp(-d[2] * fx.decay) > 0.004);
   let target = rippling
     ? rippleTargetFor(gl, gl.canvas.width, gl.canvas.height)
     : null;
@@ -1545,8 +1568,17 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // In PAGE pixels, which is the space the drop was recorded in — the
     // texture is in device pixels and the shader never has to know.
     gl.uniform2f(built.rippleRes, doc.width, doc.height);
-    gl.uniform2f(built.rippleDrop, fx.x, fx.y);
-    gl.uniform1f(built.rippleAge, fx.t);
+    // Flattened to (x, y, age) triples, oldest first — the order is the
+    // application's and the shader does not care, because addition does not.
+    const drops = new Float32Array(24);
+    const n = Math.min(8, fx.drops.length);
+    for (let i = 0; i < n; i++) {
+      drops[i * 3] = fx.drops[i][0];
+      drops[i * 3 + 1] = fx.drops[i][1];
+      drops[i * 3 + 2] = fx.drops[i][2];
+    }
+    gl.uniform3fv(built.rippleDrops, drops);
+    gl.uniform1i(built.rippleCount, n);
     gl.uniform1f(built.rippleSpeed, fx.speed);
     gl.uniform1f(built.rippleWidth, fx.width);
     gl.uniform1f(built.rippleStrength, fx.strength);

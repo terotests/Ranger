@@ -372,9 +372,16 @@ class DashboardDemo {
     ;
     ; A negative age means nothing is in flight, which is the resting state and
     ; costs the renderer one comparison.
-    def dropX:double 0.0
-    def dropY:double 0.0
-    def dropAge:double -1.0
+    ; EVERY touch still in flight, oldest first. Three parallel arrays because
+    ; that is the shape the uniform wants at the other end.
+    def dropXs:[double]
+    def dropYs:[double]
+    def dropAges:[double]
+    ; Where the last drop was left, so a finger dragged across the surface
+    ; leaves a TRAIL rather than one ring that follows it about. -1 means the
+    ; pointer is not down.
+    def lastDropX:double -1.0
+    def lastDropY:double -1.0
     ; The chart's drawn size. ONE owner: the spec is built from these numbers
     ; and the placeholder box is set to them inline, so the box the layout
     ; reserves and the picture Vela computes cannot disagree.
@@ -1486,10 +1493,61 @@ class DashboardDemo {
     ; A touch, in page pixels. The click that presses a button is the same
     ; click that starts the ripple: the surface reacts to being touched, and
     ; nothing about the button had to know.
+    ; The most drops that can be in flight. Eight is not a number anybody
+    ; reaches by tapping — it is what a dragged finger fills in a third of a
+    ; second, and the oldest is dropped to make room, which is also the one
+    ; that has faded most.
+    sfn maxDrops:int () {
+        return 8
+    }
+
     fn ripple:void (px:double py:double) {
-        dropX = px
-        dropY = py
-        dropAge = 0.0
+        push dropXs px
+        push dropYs py
+        push dropAges 0.0
+        lastDropX = px
+        lastDropY = py
+        if ((array_length dropAges) > (DashboardDemo.maxDrops())) {
+            this.retireOldest()
+        }
+    }
+
+    ; A finger moving across the surface. One ring per step rather than one
+    ; ring that follows the pointer: a wake is a row of sources, and a single
+    ; source that moves is a source that has no history.
+    fn rippleDragTo:void (px:double py:double) {
+        if (lastDropX < 0.0) {
+            return
+        }
+        def dx:double (px - lastDropX)
+        def dy:double (py - lastDropY)
+        ; Every 26 pixels. Closer and the rings pile into one bright blob;
+        ; further and the wake reads as a row of separate taps.
+        if (((dx * dx) + (dy * dy)) < 676.0) {
+            return
+        }
+        this.ripple(px py)
+    }
+
+    fn rippleRelease:void () {
+        lastDropX = -1.0
+        lastDropY = -1.0
+    }
+
+    fn retireOldest:void () {
+        def xs:[double]
+        def ys:[double]
+        def ts:[double]
+        def i:int 1
+        while (i < (array_length dropAges)) {
+            push xs (itemAt dropXs i)
+            push ys (itemAt dropYs i)
+            push ts (itemAt dropAges i)
+            i = (i + 1)
+        }
+        dropXs = xs
+        dropYs = ys
+        dropAges = ts
     }
 
     ; Milliseconds, because that is what a frame loop has.
@@ -1501,19 +1559,38 @@ class DashboardDemo {
     ; most expensive thing on it — the age is stamped onto the root at paint
     ; time instead, in `displayListJson`.
     fn tick:void (dtMs:double) {
-        if (dropAge < 0.0) {
-            return
+        def dt:double (dtMs / 1000.0)
+        def xs:[double]
+        def ys:[double]
+        def ts:[double]
+        def i:int 0
+        while (i < (array_length dropAges)) {
+            def age:double ((itemAt dropAges i) + dt)
+            ; Retired when there is nothing left in it. The threshold is the
+            ; renderer's own — a drop whose decay has taken it under a
+            ;250th is a drop that is not on the screen.
+            if (age < 3.0) {
+                push xs (itemAt dropXs i)
+                push ys (itemAt dropYs i)
+                push ts age
+            }
+            i = (i + 1)
         }
-        dropAge = (dropAge + (dtMs / 1000.0))
+        dropXs = xs
+        dropYs = ys
+        dropAges = ts
     }
 
     ; Is anything still moving? The ripple dies with its own decay, so this
     ; asks the same question the shader does rather than guessing a duration.
     fn busyNow:boolean () {
-        if (dropAge < 0.0) {
-            return false
-        }
-        return (dropAge < 3.0)
+        return ((array_length dropAges) > 0)
+    }
+
+    ; How many touches are in flight. The gate's way of asking whether the
+    ; drops really coexist rather than replacing one another.
+    fn dropCount:int () {
+        return (array_length dropAges)
     }
 
     fn pageBody:EVGElement () {
@@ -1914,9 +1991,9 @@ class DashboardDemo {
         ; tree's shape — nothing about the page depends on it — so it does not
         ; belong in `pageBody` where it would make every frame of the effect a
         ; rebuild.
-        r.rippleX = dropX
-        r.rippleY = dropY
-        r.rippleAge = dropAge
+        r.rippleXs = dropXs
+        r.rippleYs = dropYs
+        r.rippleAges = dropAges
         def dl (new EVGDisplayList())
         dl.build(r)
         chartFrom = 0

@@ -588,6 +588,11 @@ const DEMOS = {
     // anything happened, which is the point: the effect is over the finished
     // picture and knows nothing about the tree that drew it.
     ripple: (x, y) => dashboard.ripple(x, y),
+    // A finger dragged across the surface leaves a WAKE — one source every
+    // few pixels, not one that follows the pointer, because a wake is a row
+    // of sources and a source that moves has no history.
+    rippleTo: (x, y) => dashboard.rippleDragTo(x, y),
+    rippleEnd: () => dashboard.rippleRelease(),
     animated: true,
     scroll: (dy) => dashboard.scrollBy(dy),
     width: () => dashboard.widthPx(),
@@ -1466,6 +1471,9 @@ canvas.addEventListener("pointermove", (ev) => {
   const d = demo();
   const id = hitAt(ev.offsetX, ev.offsetY);
   setCursor(id, ev.offsetX, ev.offsetY);
+  // `ev.buttons` rather than a flag of our own: the pointer can go down
+  // outside the canvas and come back, and the browser already knows.
+  if (d.rippleTo && ev.buttons) { d.rippleTo(ev.offsetX, ev.offsetY); animate(); }
   if (held && d.drag) {
     if (d.drag(id, ev)) {
       paint();
@@ -1493,6 +1501,7 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 canvas.addEventListener("pointerup", () => {
   const d = demo();
+  if (d.rippleEnd) d.rippleEnd();
   const h = d.host && d.host();
   if (h) {
     h.setPressed("");

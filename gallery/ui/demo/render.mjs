@@ -62,11 +62,20 @@ const DEMOS = {
       if (py) d.scrollTo(Number(py));
       // "x,y,seconds" — a ripple frozen at an age, so the effect can be looked
       // at rather than caught mid-flight.
+      // "x,y,t;x,y,t;..." — several drops, each frozen at its own age, so the
+      // interference can be looked at rather than caught mid-flight.
       const rp = process.env.DASH_RIPPLE;
       if (rp) {
-        const [x, y, t] = rp.split(",").map(Number);
-        d.ripple(x, y);
-        d.tick(t * 1000);
+        const drops = rp.split(";").map((g) => g.split(",").map(Number));
+        // Oldest first: place it, age everything, place the next.
+        const byAge = drops.slice().sort((a, b) => b[2] - a[2]);
+        let now = byAge[0][2];
+        for (const [x, y, t] of byAge) {
+          d.tick((now - t) * 1000);
+          now = t;
+          d.ripple(x, y);
+        }
+        d.tick(now * 1000);
       }
       return d.displayListJson();
     },

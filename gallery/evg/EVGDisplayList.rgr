@@ -681,6 +681,12 @@ class EVGDisplayList {
         clear cmds
         clear deferredOverlays
         effectKind = ""
+        def noX:[double]
+        def noY:[double]
+        def noT:[double]
+        effectXs = noX
+        effectYs = noY
+        effectAges = noT
         this.readEffect(root)
         this.walk(root)
         def i:int 0
@@ -1326,9 +1332,10 @@ class EVGDisplayList {
     ; page and ignores the field, which is the whole reason it is here and not
     ; in the command stream.
     def effectKind:string ""
-    def effectX:double 0.0
-    def effectY:double 0.0
-    def effectAge:double -1.0
+    ; Every drop still in flight: x, y and how long ago, in step.
+    def effectXs:[double]
+    def effectYs:[double]
+    def effectAges:[double]
     def effectSpeed:double 0.0
     def effectWidth:double 0.0
     def effectStrength:double 0.0
@@ -1344,9 +1351,9 @@ class EVGDisplayList {
         }
         if ((strlen el.surfaceEffect) > 0) {
             effectKind = el.surfaceEffect
-            effectX = el.rippleX
-            effectY = el.rippleY
-            effectAge = el.rippleAge
+            effectXs = el.rippleXs
+            effectYs = el.rippleYs
+            effectAges = el.rippleAges
             effectSpeed = el.rippleSpeed
             effectWidth = el.rippleWidth
             effectStrength = el.rippleStrength
@@ -1364,9 +1371,18 @@ class EVGDisplayList {
         def out:string "{"
         if ((strlen effectKind) > 0) {
             out = (out + "\"effect\":{\"kind\":\"" + effectKind + "\"")
-            out = (out + ",\"x\":" + (EVGDisplayList.num(effectX)))
-            out = (out + ",\"y\":" + (EVGDisplayList.num(effectY)))
-            out = (out + ",\"t\":" + (EVGDisplayList.num(effectAge)))
+            out = (out + ",\"drops\":[")
+            def di:int 0
+            while (di < (array_length effectAges)) {
+                if (di > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "[" + (EVGDisplayList.num((itemAt effectXs di))))
+                out = (out + "," + (EVGDisplayList.num((itemAt effectYs di))))
+                out = (out + "," + (EVGDisplayList.num((itemAt effectAges di))) + "]")
+                di = (di + 1)
+            }
+            out = (out + "]")
             out = (out + ",\"speed\":" + (EVGDisplayList.num(effectSpeed)))
             out = (out + ",\"width\":" + (EVGDisplayList.num(effectWidth)))
             out = (out + ",\"strength\":" + (EVGDisplayList.num(effectStrength)))
