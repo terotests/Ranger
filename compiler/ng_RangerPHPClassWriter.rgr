@@ -204,7 +204,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       wr.out(("$this->" + p.compiledName) false)
       if ((array_length node.children) > 2) {
@@ -227,7 +227,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
       wr.out(";" false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       wr.newline()
     }
@@ -237,7 +237,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       wr.out(("$" + p.compiledName) false)
       if ((array_length node.children) > 2) {
@@ -258,7 +258,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ ;" true)

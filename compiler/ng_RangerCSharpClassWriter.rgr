@@ -28,8 +28,36 @@ class RangerCSharpClassWriter {
   ; check and routed each call through the DLR.
   def csharp_unions_written:boolean false
 
+  ; The file-scoped namespace is written once, before the first type. A NuGet
+  ; package whose types sit in the global namespace is not a package anybody
+  ; can consume next to another one.
+  def csharp_namespace_written:boolean false
+
   ; Serial number for the lambda parameter renaming in CreateLambda below.
   def csLambdaArgCounter:int 0
+
+  ; `public ` or `internal `, from the doc block. The gate is the CLASS: a
+  ; class with no doc block is not opted into the API model at all and keeps
+  ; the all-public output every existing program depends on. Inside a class
+  ; that IS documented, a member without `public` is an implementation detail
+  ; and must not be in the assembly's API surface.
+  fn csMemberVisibility:string (cl:RangerAppClassDesc member:RangerAppParamDesc) {
+    if (cl.has_doc == false) {
+      return "public "
+    }
+    if (member.has_doc == false) {
+      return "internal "
+    }
+    def md@(optional):RangerDocBlock member.docBlock
+    if (null? md) {
+      return "internal "
+    }
+    def doc:RangerDocBlock (unwrap md)
+    if doc.is_public {
+      return "public "
+    }
+    return "internal "
+  }
 
   fn writeCSharpUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if csharp_unions_written {
@@ -429,7 +457,7 @@ class RangerCSharpClassWriter {
         }
       }
       if (unusedDef && (keepsCall == false)) {
-        wr.out('/** unused:  ' false)
+        wr.out('/* unused:  ' false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("" false)
@@ -472,7 +500,7 @@ class RangerCSharpClassWriter {
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out('     /** note: unused */' false)
+        wr.out('     /* note: unused */' false)
       }
       if (unusedDef && (keepsCall == false)) {
         wr.out("   **/ ;" true)
@@ -653,7 +681,37 @@ class RangerCSharpClassWriter {
     
     this.import_lib("System" ctx wr)
 
+    if (csharp_namespace_written == false) {
+      csharp_namespace_written = true
+      def nsName:string ""
+      if (ctx.hasCompilerSetting("csnamespace")) {
+        nsName = (ctx.getCompilerSetting("csnamespace"))
+      } {
+        if (ctx.hasCompilerFlag("apipackage")) {
+          if (ctx.hasCompilerSetting("name")) {
+            nsName = (ctx.getCompilerSetting("name"))
+          }
+        }
+      }
+      if ((strlen nsName) > 0) {
+        ; a BLOCK namespace, not the file-scoped C# 10 form: Mono's mcs is a
+        ; supported host for this repository and rejects `namespace X;`
+        def nsHead:CodeWriter (wr.getTag("after_imports"))
+        nsHead.out(("namespace " + nsName + " {") true)
+        def nsEnd:CodeWriter (wr.getTag("file_end"))
+        nsEnd.out("}" true)
+        wr.indent(1)
+      }
+    }
     this.writeCSharpUnionInterfaces(ctx wr)
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeCsDocForClass((unwrap cl) wr)
+      def clDoc:RangerDocBlock (unwrap cl.docBlock)
+      if clDoc.is_public {
+        wr.out('public ' false)
+      }
+    }
     wr.out(('class ' + cl.name + ' ') false )
     def csUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ( ( array_length cl.extends_classes ) > 0 ) { 
@@ -688,7 +746,11 @@ class RangerCSharpClassWriter {
       if (has inheritedVars pvar.name) {
         continue
       }
-      wr.out('public ' false)
+      if pvar.has_doc {
+        def fDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        fDocWr.writeCsDocForField(pvar wr)
+      }
+      wr.out((this.csMemberVisibility((unwrap cl) pvar)) false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -759,7 +821,12 @@ class RangerCSharpClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         wr.out('static void Main( string [] args ) {' true)
       } {
-        wr.out('public static ' false)
+        if variant.has_doc {
+          def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          sDocWr.writeCsDocForMethod(variant wr)
+        }
+        wr.out((this.csMemberVisibility((unwrap cl) variant)) false)
+        wr.out('static ' false)
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
         wr.out(' ' false)
         ; compiledName, not name: a method called `string` or `null` in Ranger
@@ -782,7 +849,11 @@ class RangerCSharpClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        wr.out('public ' false)
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeCsDocForMethod(variant wr)
+        }
+        wr.out((this.csMemberVisibility((unwrap cl) variant)) false)
         ; `override` only when the parent really declares the same method --
         ; matched on the compiled name AND the argument count, because a
         ; same-named method with a different signature is an overload and

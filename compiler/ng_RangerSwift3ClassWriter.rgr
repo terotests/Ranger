@@ -392,7 +392,7 @@ class RangerSwift3ClassWriter {
 
       ; wr.out("// set " + p.set_cnt +" ref " + p.ref_cnt , true)
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out((("var " + p.compiledName) + " : ") false)
@@ -426,7 +426,7 @@ class RangerSwift3ClassWriter {
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ " true)

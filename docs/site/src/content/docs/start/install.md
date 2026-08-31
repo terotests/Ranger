@@ -41,6 +41,10 @@ rgrc program.rgr -l=go -d=./bin -o=program.go
 | `-rust-value-classes` | Rust only: emit every class as a plain value `struct`. By default a class the compiler proves shared becomes `Rc<RefCell<T>>` so that objects share on Rust the way they do on every other target; this flag restores the old all-value model. See [Memory management](/Ranger/docs/targets/memory/). |
 | `-operatordoc=<file>` | Write the operator table into a Markdown file. |
 | `-classdoc=<file>` | Write the class documentation into a Markdown file. |
+| `-apidoc=<dir>` | Write the API artifacts (`api.json`, `api.md`) built from the `doc { … }` blocks into that subdirectory. |
+| `-apiformat=<list>` | Which API artifacts to write: `json`, `markdown`, `report`. Default `json,markdown`. |
+| `-apipackage` | Also write the packaging the target ecosystem expects: `package.json` for npm, `.csproj` and `docfx.json` for NuGet. |
+| `-apistrict` | An undocumented public declaration or parameter is an error, not a warning. |
 
 To see the complete list, run `rgrc` with no arguments.
 

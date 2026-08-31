@@ -21,7 +21,7 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
-- Issue #75: `class X { … } doc { … }` (any trailing block on a class declaration) makes `EnterClass` take the trailing block for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`) (August 2026)
+- Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
@@ -2628,8 +2628,13 @@ misattributed to that suite's 2,138-probe corpus — which in fact parses at dep
 
 ## Issue #75: A trailing block on a `class` is taken for the class body, so the real body is never analysed
 
-**Status:** open. Found while designing [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md); it is
-independent of that feature.
+**Status:** partially fixed. The `doc { … }` case is gone: `DetachDocBlocks`
+(`compiler/ng_RangerFlowParser.rgr`) removes a documentation tail from the
+declaration node before `CollectMethods`, so `EnterClass` counts the children it
+counted before the feature existed. `tests/api-docs.test.ts` compiles and runs
+the reproduction. The underlying arity check is still wrong for any OTHER
+trailing token, which is what the Fix section below describes; that part is
+open.
 
 ### Reproduction
 

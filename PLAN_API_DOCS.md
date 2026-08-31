@@ -5,6 +5,13 @@ Scope: a `doc { … }` metadata block that attaches to a Ranger declaration, a c
 outputs generated from that IR — doc comments and annotations inside the emitted code,
 the package and layout each platform expects, and standalone API artifacts.
 
+> **Status: phases A, B (JavaScript and C#) and D are implemented.** The
+> `doc { … }` tail, the detach pass, the model, the validation, `api.json` /
+> `api.md` / `api.txt`, JSDoc emission for JavaScript, XML documentation
+> emission and doc-driven visibility for C#, and the npm and NuGet packaging
+> are in the tree. §17 records what shipped and what each part is verified
+> against. The rest of this document is the design, unchanged.
+
 This is **not** [`PLAN_DOCS.md`](PLAN_DOCS.md). That document is about the *language's own*
 reference site, generated from the operator definitions in `compiler/Lang.rgr` and `lib/`.
 This one is about **the programs people write in Ranger**: how an author marks up an
@@ -1289,3 +1296,116 @@ the layout work is additive when it comes.
    be a `ranger.toml` or command-line flags. Proposed: in the source, because the module ↔
    package ↔ assembly ↔ namespace mapping is a property of the API, not of a build
    invocation — but this is the decision most likely to be revisited.
+
+
+---
+
+## 17. What shipped
+
+Implemented on this branch, verified against the tools named in §12 rather than
+against golden files alone.
+
+### 17.1 Compiler
+
+| Piece | Where |
+| --- | --- |
+| `doc { … }` model, reader, doc-comment renderers | `compiler/ng_RangerDocBlock.rgr` |
+| ApiIR, builder, validation, artifacts, packaging | `compiler/ng_RangerApiDoc.rgr` |
+| `DetachDocBlocks` pass, at the head of `CollectMethods` | `compiler/ng_RangerFlowParser.rgr` |
+| `has_doc_tail` / `docNode` on a node | `compiler/ng_CodeNodeCompilerExtensions.rgr` |
+| `has_doc` / `docBlock` on a descriptor | `compiler/ng_RangerAppParamDesc.rgr` |
+| JSDoc emission | `compiler/ng_RangerJavaScriptClassWriter.rgr` |
+| XML documentation, namespace, visibility | `compiler/ng_RangerCSharpClassWriter.rgr` |
+| Pipeline and options | `compiler/VirtualCompiler.rgr` |
+| Tests and fixtures | `tests/api-docs.test.ts`, `tests/fixtures/api_docs_*.rgr` |
+
+### 17.2 Command line
+
+| Option | Effect |
+| --- | --- |
+| `-apidoc=<dir>` | Write the API artifacts into that subdirectory of the output directory |
+| `-apiformat=json,markdown,report` | Which artifacts. Default `json,markdown` |
+| `-apipackage` | Also write the packaging the target ecosystem expects |
+| `-apistrict` | An undocumented public declaration or parameter is an error, not a warning |
+| `-csnamespace=<name>` | The C# namespace; defaults to `-name=` under `-apipackage` |
+
+### 17.3 JavaScript
+
+```bash
+node bin/output.js -es6 a11y.rgr -d=out -o=index.js -nodemodule \
+  -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0 -license=MIT
+```
+
+writes `index.js` with JSDoc, `package.json`, `README.md`, `docs/api.json` and
+`docs/api.md`. In the package, `npm run docs` is `documentation build index.js
+-f html -o docs/api`.
+
+The JSDoc carries the compiler's types, never the author's: `@param {string} id`,
+`@returns {EVGA11yNode}`, `@type {string}` on a field. `public` becomes `@public`
+and a documented-internal member becomes `@private`, so a default
+`documentation build` renders exactly the public API and `--private` renders
+everything — which is the three-state model of §5 expressed in the tool's own
+terms.
+
+**Verified:** `documentation@14` builds JSON, Markdown and HTML from the output
+with no configuration, and `documentation lint` reports nothing. Asserted in
+`tests/api-docs.test.ts`; the two interop tests skip unless documentation.js is
+installed (`npm i -D documentation`), because it is a 270-package tree and this
+repository keeps six devDependencies.
+
+One defect had to be fixed to get there. The compiler marks an unused member
+with `/** note: unused */`, which is a **doc comment**: documentation.js
+attached it to nothing and reported two anonymous symbols in the API. The same
+markers exist in eleven writers, so Javadoc, KDoc, Doxygen and DocFX all had the
+same hole. They are now `/* note: unused */`.
+
+### 17.4 C#
+
+```bash
+node bin/output.js -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
+  -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
+```
+
+writes `EvgA11y.cs` with XML documentation comments inside `namespace Evg.A11y { … }`,
+plus `Evg.A11y.csproj`, `docfx.json`, `README.md` and the artifacts.
+
+The csproj sets `<GenerateDocumentationFile>true</GenerateDocumentationFile>`,
+which is the line the whole .NET documentation path depends on: without it the
+compiler discards the comments and DocFX has nothing to read.
+
+**Visibility is real on this target.** A C# type with no access modifier is
+internal, so the writer's unconditional `public` was the only thing making the
+output usable — and it made every implementation detail part of the assembly's
+API. Now `public` in a doc block becomes `public` and everything else becomes
+`internal`. The gate is the **class**: a class with no doc block is not opted
+into the API model and keeps the previous all-public output exactly, so no
+existing program changes.
+
+**Verified:** `mcs -langversion:latest -doc:Evg.A11y.xml` compiles the output and
+produces a well-formed XML documentation file. The C# compiler resolves
+`see EVGA11yNode` to `<seealso cref="T:Evg.A11y.EVGA11yNode" />` — a fully
+qualified reference it only emits for a type it found, so the cross-reference is
+checked by two compilers rather than spelled by the author. That file plus the
+assembly is exactly DocFX's and Sandcastle's input, with no Ranger-specific
+plugin, which is §7.3 met for .NET.
+
+A block namespace is emitted rather than the file-scoped C# 10 form: Mono's
+`mcs` is a supported host for this repository and rejects `namespace X;`.
+
+### 17.5 The bug this uncovered
+
+[ISSUES.md #75](ISSUES.md) — `class X { … } doc { … }`, and any other trailing
+`token { block }` on a class, made `EnterClass` take the trailing block for the
+class body. The real body was never flow-analysed, the compiler reported
+success, and `return (x + 1)` came out as `return+x1`. The detach pass removes
+the shape for the documented case and `tests/api-docs.test.ts` holds a
+regression test that compiles **and runs** the result. The underlying arity
+check in `EnterClass` is still wrong for any other trailing token and is filed
+separately.
+
+### 17.6 Not built
+
+Phases C (visibility on the other ten targets), E (`docs { }`) and F (language ×
+platform, multi-file layout) are unchanged from the plan above. C# has doc-driven
+visibility because a NuGet package is not an API without it; every other target
+still emits what it emitted before.

@@ -362,11 +362,1436 @@ class RangerAppTodo  {
 }
 class RangerCompilerMessage  {
   constructor() {
-    this.error_level = 0;     /** note: unused */
-    this.code_line = 0;     /** note: unused */
-    this.fileName = "";     /** note: unused */
+    this.error_level = 0;     /* note: unused */
+    this.code_line = 0;     /* note: unused */
+    this.fileName = "";     /* note: unused */
     this.description = "";
   }
+}
+class RangerDocParam  {
+  constructor() {
+    this.name = "";
+    this.text = "";
+  }
+}
+class RangerDocDeprecation  {
+  constructor() {
+    this.since = "";
+    this.use = "";
+    this.description = "";
+  }
+}
+class RangerDocBlock  {
+  constructor() {
+    this.is_public = false;
+    this.is_internal = false;
+    this.is_experimental = false;
+    this.description = "";
+    this.params = [];
+    this.returns = "";
+    this.throws = [];
+    this.since = "";
+    this.is_deprecated = false;
+    this.see = [];
+    this.examples = [];
+    this.category = "";
+    this.platform = "";
+    this.attrs = [];
+    this.targets = {};
+    this.targetNames = [];
+  }
+  hasParamDoc (n) {
+    for ( let i = 0; i < this.params.length; i++) {
+      var p = this.params[i];
+      if ( p.name == n ) {
+        return true;
+      }
+    };
+    return false;
+  };
+  paramText (n) {
+    for ( let i = 0; i < this.params.length; i++) {
+      var p = this.params[i];
+      if ( p.name == n ) {
+        return p.text;
+      }
+    };
+    return "";
+  };
+  hasTargetView (name) {
+    for ( let i = 0; i < this.targetNames.length; i++) {
+      var tn = this.targetNames[i];
+      if ( tn == name ) {
+        return true;
+      }
+    };
+    return false;
+  };
+  viewFor (name) {
+    if ( this.hasTargetView(name) == false ) {
+      return this;
+    }
+    const ov = ( Object.prototype.hasOwnProperty.call(this.targets, name) ? this.targets[name] : undefined );
+    const merged = new RangerDocBlock();
+    merged.is_public = this.is_public;
+    merged.is_internal = this.is_internal;
+    merged.is_experimental = this.is_experimental;
+    merged.description = this.description;
+    merged.returns = this.returns;
+    merged.since = this.since;
+    merged.is_deprecated = this.is_deprecated;
+    merged.deprecation = this.deprecation;
+    merged.category = this.category;
+    merged.platform = this.platform;
+    merged.node = this.node;
+    for ( let i = 0; i < this.params.length; i++) {
+      var p = this.params[i];
+      merged.params.push(p);
+    };
+    for ( let i_1 = 0; i_1 < this.throws.length; i_1++) {
+      var t = this.throws[i_1];
+      merged.throws.push(t);
+    };
+    for ( let i_2 = 0; i_2 < this.see.length; i_2++) {
+      var s = this.see[i_2];
+      merged.see.push(s);
+    };
+    for ( let i_3 = 0; i_3 < this.examples.length; i_3++) {
+      var e = this.examples[i_3];
+      merged.examples.push(e);
+    };
+    for ( let i_4 = 0; i_4 < ov.attrs.length; i_4++) {
+      var a = ov.attrs[i_4];
+      merged.attrs.push(a);
+    };
+    if ( (ov.description.length) > 0 ) {
+      merged.description = ov.description;
+    }
+    if ( (ov.returns.length) > 0 ) {
+      merged.returns = ov.returns;
+    }
+    for ( let i_5 = 0; i_5 < ov.params.length; i_5++) {
+      var p_1 = ov.params[i_5];
+      merged.params.push(p_1);
+    };
+    return merged;
+  };
+}
+class RangerDocReader  {
+  constructor() {
+  }
+  wordAt (node, idx) {
+    if ( idx >= node.chlen() ) {
+      return "";
+    }
+    const ch = node.children[idx];
+    if ( ch.value_type == 4 ) {
+      return ch.string_value;
+    }
+    return ch.vref;
+  };
+  textFrom (node, startIndex) {
+    let out = "";
+    let i = startIndex;
+    const cnt = node.chlen();
+    while (i < cnt) {
+      const piece = this.wordAt(node, i);
+      if ( (piece.length) > 0 ) {
+        if ( (out.length) > 0 ) {
+          out = out + " ";
+        }
+        out = out + piece;
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  blockArgOf (node) {
+    const cnt = node.chlen();
+    let i = 1;
+    while (i < cnt) {
+      const ch = node.children[i];
+      if ( ch.is_block_node ) {
+        return ch;
+      }
+      i = i + 1;
+    };
+    return node.children[0];
+  };
+  hasBlockArg (node) {
+    const cnt = node.chlen();
+    let i = 1;
+    while (i < cnt) {
+      const ch = node.children[i];
+      if ( ch.is_block_node ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  readDeprecation (blockNode, ctx) {
+    const dep = new RangerDocDeprecation();
+    for ( let i = 0; i < blockNode.children.length; i++) {
+      var item = blockNode.children[i];
+      const cmd = item.getVRefAt(0);
+      switch (cmd ) { 
+        case "since" : 
+          dep.since = this.textFrom(item, 1);
+          break;
+        case "use" : 
+          dep.use = this.textFrom(item, 1);
+          break;
+        case "description" : 
+          dep.description = this.textFrom(item, 1);
+          break;
+        default: 
+          ctx.addError(item, ("Unknown entry `" + cmd) + "` in a deprecated block. Expected since, use or description.");
+          break;
+      };
+    };
+    return dep;
+  };
+  fill (doc, blockNode, ctx, allowTargets) {
+    for ( let i = 0; i < blockNode.children.length; i++) {
+      var item = blockNode.children[i];
+      const cmd = item.getVRefAt(0);
+      const argc = item.chlen();
+      switch (cmd ) { 
+        case "public" : 
+          doc.is_public = true;
+          break;
+        case "internal" : 
+          doc.is_internal = true;
+          break;
+        case "experimental" : 
+          doc.is_experimental = true;
+          break;
+        case "description" : 
+          const txt = this.textFrom(item, 1);
+          if ( (doc.description.length) > 0 ) {
+            doc.description = (doc.description + "\n\n") + txt;
+          } else {
+            doc.description = txt;
+          }
+          break;
+        case "param" : 
+          if ( argc < 2 ) {
+            ctx.addError(item, "param needs a parameter name");
+          } else {
+            const p = new RangerDocParam();
+            p.name = this.wordAt(item, 1);
+            p.node = item;
+            let third;
+            if ( argc > 2 ) {
+              third = item.children[2];
+              if ( third.value_type != 4 ) {
+                ctx.addError(item, ((("param `" + p.name) + "` restates a type. The compiler already knows it: write `param ") + p.name) + " \"…\"`.");
+              }
+            }
+            p.text = this.textFrom(item, 2);
+            doc.params.push(p);
+          }
+          break;
+        case "returns" : 
+          doc.returns = this.textFrom(item, 1);
+          break;
+        case "throws" : 
+          doc.throws.push(this.textFrom(item, 1));
+          break;
+        case "since" : 
+          doc.since = this.textFrom(item, 1);
+          break;
+        case "see" : 
+          doc.see.push(this.textFrom(item, 1));
+          break;
+        case "example" : 
+          doc.examples.push(this.textFrom(item, 1));
+          break;
+        case "category" : 
+          doc.category = this.textFrom(item, 1);
+          break;
+        case "platform" : 
+          doc.platform = this.textFrom(item, 1);
+          break;
+        case "attr" : 
+          doc.attrs.push(this.textFrom(item, 1));
+          break;
+        case "deprecated" : 
+          doc.is_deprecated = true;
+          if ( this.hasBlockArg(item) ) {
+            const depBlock = this.blockArgOf(item);
+            doc.deprecation = this.readDeprecation(depBlock, ctx);
+          } else {
+            const dep = new RangerDocDeprecation();
+            dep.description = this.textFrom(item, 1);
+            doc.deprecation = dep;
+          }
+          break;
+        case "target" : 
+          if ( allowTargets == false ) {
+            ctx.addError(item, "a target block can not contain another target block");
+          } else {
+            if ( argc < 3 ) {
+              ctx.addError(item, "target needs a target name and a block");
+            } else {
+              const tname = this.wordAt(item, 1);
+              const tBlock = this.blockArgOf(item);
+              const view = new RangerDocBlock();
+              view.node = tBlock;
+              this.fill(view, tBlock, ctx, false);
+              if ( view.is_public || view.is_internal ) {
+                ctx.addError(item, ("visibility is portable and can not be restated for target `" + tname) + "`");
+              }
+              if ( view.is_deprecated ) {
+                ctx.addError(item, ("deprecation is portable and can not be restated for target `" + tname) + "`");
+              }
+              doc.targets[tname] = view;
+              doc.targetNames.push(tname);
+            }
+          }
+          break;
+        default: 
+          if ( (cmd.length) > 0 ) {
+            ctx.addError(item, ("Unknown documentation entry `" + cmd) + "`");
+          }
+          break;
+      };
+    };
+  };
+  read (blockNode, ctx) {
+    const doc = new RangerDocBlock();
+    doc.node = blockNode;
+    this.fill(doc, blockNode, ctx, true);
+    return doc;
+  };
+}
+class RangerApiParam  {
+  constructor() {
+    this.name = "";
+    this.compiledName = "";
+    this.typeName = "";
+    this.description = "";
+  }
+}
+class RangerApiMethod  {
+  constructor() {
+    this.name = "";
+    this.compiledName = "";
+    this.is_static = false;
+    this.is_constructor = false;     /* note: unused */
+    this.is_public = false;
+    this.returnType = "";
+    this.returnDoc = "";
+    this.params = [];
+    this.has_doc = false;
+  }
+}
+class RangerApiField  {
+  constructor() {
+    this.name = "";
+    this.compiledName = "";
+    this.typeName = "";
+    this.is_public = false;
+    this.is_static = false;
+    this.has_doc = false;
+  }
+}
+class RangerApiClass  {
+  constructor() {
+    this.name = "";
+    this.compiledName = "";
+    this.kind = "class";
+    this.is_public = false;
+    this.extendsName = "";
+    this.fields = [];
+    this.methods = [];
+    this.has_doc = false;
+  }
+  hasPublicMember () {
+    for ( let i = 0; i < this.methods.length; i++) {
+      var m = this.methods[i];
+      if ( m.is_public ) {
+        return true;
+      }
+    };
+    for ( let i_1 = 0; i_1 < this.fields.length; i_1++) {
+      var f = this.fields[i_1];
+      if ( f.is_public ) {
+        return true;
+      }
+    };
+    return false;
+  };
+}
+class RangerApiModel  {
+  constructor() {
+    this.moduleName = "";
+    this.version = "";
+    this.description = "";
+    this.classes = [];
+    this.warnings = [];
+  }
+  publicClassCount () {
+    let n = 0;
+    for ( let i = 0; i < this.classes.length; i++) {
+      var c = this.classes[i];
+      if ( c.is_public ) {
+        n = n + 1;
+      }
+    };
+    return n;
+  };
+}
+class RangerApiBuilder  {
+  constructor() {
+    this.strict = false;
+  }
+  typeNameOf (node) {
+    let base = "";
+    switch (node.value_type ) { 
+      case 6 : 
+        base = ("[" + node.array_type) + "]";
+        break;
+      case 7 : 
+        base = ((("[" + node.key_type) + ":") + node.array_type) + "]";
+        break;
+      default: 
+        base = node.type_name;
+        break;
+    };
+    if ( (base.length) == 0 ) {
+      base = "void";
+    }
+    if ( node.hasFlag("optional") ) {
+      base = base + "?";
+    }
+    return base;
+  };
+  readDocOf (node, ctx) {
+    const reader = new RangerDocReader();
+    const blockNode = node.docNode;
+    return reader.read(blockNode, ctx);
+  };
+  warn (model, ctx, node, msg) {
+    if ( this.strict ) {
+      ctx.addError(node, msg);
+    } else {
+      model.warnings.push(msg);
+    }
+  };
+  validateMethod (model, m, ctx) {
+    if ( m.has_doc == false ) {
+      return;
+    }
+    const doc = m.doc;
+    let seen = {};
+    for ( let i = 0; i < doc.params.length; i++) {
+      var dp = doc.params[i];
+      let found = false;
+      for ( let j = 0; j < m.params.length; j++) {
+        var p = m.params[j];
+        if ( p.name == dp.name ) {
+          found = true;
+        }
+      };
+      if ( found == false ) {
+        ctx.addError(dp.node, ((("`param " + dp.name) + "` does not name a parameter of `") + m.name) + "`");
+      }
+      if ( ( typeof(seen[dp.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, dp.name) ) ) {
+        ctx.addError(dp.node, ("parameter `" + dp.name) + "` is documented twice");
+      }
+      seen[dp.name] = true;
+    };
+    if ( (doc.returns.length) > 0 ) {
+      if ( m.returnType == "void" ) {
+        ctx.addError(m.node, ("`returns` on `" + m.name) + "`, which returns void");
+      }
+    }
+    if ( m.is_public ) {
+      if ( (doc.description.length) == 0 ) {
+        this.warn(model, ctx, m.node, ("public `" + m.name) + "` has no description");
+      }
+      for ( let j_1 = 0; j_1 < m.params.length; j_1++) {
+        var p_1 = m.params[j_1];
+        if ( doc.hasParamDoc(p_1.name) == false ) {
+          this.warn(model, ctx, m.node, ((("public `" + m.name) + "` does not document parameter `") + p_1.name) + "`");
+        }
+      };
+    }
+  };
+  buildMethod (fd, ctx, isStatic) {
+    const m = new RangerApiMethod();
+    m.name = fd.name;
+    m.compiledName = fd.compiledName;
+    m.is_static = isStatic;
+    m.node = fd.node;
+    const nn = fd.nameNode;
+    m.returnType = this.typeNameOf(nn);
+    for ( let i = 0; i < fd.params.length; i++) {
+      var p = fd.params[i];
+      const ap = new RangerApiParam();
+      ap.name = p.name;
+      ap.compiledName = p.compiledName;
+      const pn = p.nameNode;
+      ap.typeName = this.typeNameOf(pn);
+      m.params.push(ap);
+    };
+    const dn = fd.node;
+    if ( dn.has_doc_tail ) {
+      m.doc = this.readDocOf(dn, ctx);
+      m.has_doc = true;
+      m.is_public = m.doc.is_public;
+      m.returnDoc = m.doc.returns;
+      fd.has_doc = true;
+      fd.docBlock = m.doc;
+      if ( (m.doc.description.length) > 0 ) {
+        fd.git_doc = m.doc.description;
+      }
+      for ( let j = 0; j < m.params.length; j++) {
+        var ap_1 = m.params[j];
+        ap_1.description = m.doc.paramText(ap_1.name);
+      };
+    }
+    return m;
+  };
+  build (ctx) {
+    const model = new RangerApiModel();
+    this.strict = ctx.hasCompilerFlag("apistrict");
+    if ( ctx.hasCompilerSetting("name") ) {
+      model.moduleName = ctx.getCompilerSetting("name");
+    }
+    if ( ctx.hasCompilerSetting("version") ) {
+      model.version = ctx.getCompilerSetting("version");
+    }
+    if ( ctx.hasCompilerSetting("description") ) {
+      model.description = ctx.getCompilerSetting("description");
+    }
+    const root = ctx.getRoot();
+    for ( let ci = 0; ci < root.definedClassList.length; ci++) {
+      var cname = root.definedClassList[ci];
+      const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
+      if ( cl.is_system ) {
+        continue;
+      }
+      if ( cl.is_template ) {
+        continue;
+      }
+      if ( cl.isNormalClass() == false ) {
+        continue;
+      }
+      const ac = new RangerApiClass();
+      ac.name = cl.name;
+      ac.compiledName = cl.compiledName;
+      if ( cl.is_record ) {
+        ac.kind = "record";
+      }
+      for ( let ei = 0; ei < cl.extends_classes.length; ei++) {
+        var en = cl.extends_classes[ei];
+        ac.extendsName = en;
+      };
+      const cnode = cl.classNode;
+      if ( (typeof(cnode) === "undefined") == false ) {
+        const cn = cnode;
+        ac.node = cn;
+        if ( cn.has_doc_tail ) {
+          ac.doc = this.readDocOf(cn, ctx);
+          ac.has_doc = true;
+          ac.is_public = ac.doc.is_public;
+          cl.has_doc = true;
+          cl.docBlock = ac.doc;
+        }
+      }
+      for ( let vi = 0; vi < cl.variables.length; vi++) {
+        var v = cl.variables[vi];
+        const af = new RangerApiField();
+        af.name = v.name;
+        af.compiledName = v.compiledName;
+        af.is_static = v.is_static;
+        const vn = v.nameNode;
+        af.typeName = this.typeNameOf(vn);
+        const vnode = v.node;
+        if ( (typeof(vnode) === "undefined") == false ) {
+          const vd = vnode;
+          if ( vd.has_doc_tail ) {
+            af.doc = this.readDocOf(vd, ctx);
+            af.has_doc = true;
+            af.is_public = af.doc.is_public;
+            v.has_doc = true;
+            v.docBlock = af.doc;
+          }
+        }
+        ac.fields.push(af);
+      };
+      for ( let mi = 0; mi < cl.methods.length; mi++) {
+        var fd = cl.methods[mi];
+        const m = this.buildMethod(fd, ctx, false);
+        this.validateMethod(model, m, ctx);
+        ac.methods.push(m);
+      };
+      for ( let si = 0; si < cl.static_methods.length; si++) {
+        var fd_1 = cl.static_methods[si];
+        const m_1 = this.buildMethod(fd_1, ctx, true);
+        this.validateMethod(model, m_1, ctx);
+        ac.methods.push(m_1);
+      };
+      if ( ac.is_public == false ) {
+        if ( ac.hasPublicMember() ) {
+          ctx.addError(ac.node, ("class `" + ac.name) + "` has public members but is not itself public. Add `public` to its doc block.");
+        }
+      }
+      model.classes.push(ac);
+    };
+    return model;
+  };
+}
+class RangerDocCommentWriter  {
+  constructor() {
+  }
+  jsTypeName (t) {
+    let out = t;
+    switch (t ) { 
+      case "int" : 
+        out = "number";
+        break;
+      case "double" : 
+        out = "number";
+        break;
+      case "float" : 
+        out = "number";
+        break;
+      case "long" : 
+        out = "number";
+        break;
+      case "char" : 
+        out = "number";
+        break;
+      case "boolean" : 
+        out = "boolean";
+        break;
+      case "string" : 
+        out = "string";
+        break;
+      case "void" : 
+        out = "void";
+        break;
+      case "" : 
+        out = "void";
+        break;
+      default: 
+        out = t;
+        break;
+    };
+    return out;
+  };
+  jsTypeOf (node) {
+    let out = "";
+    switch (node.value_type ) { 
+      case 6 : 
+        out = ("Array<" + this.jsTypeName(node.array_type)) + ">";
+        break;
+      case 7 : 
+        out = ((("Object<" + this.jsTypeName(node.key_type)) + ", ") + this.jsTypeName(node.array_type)) + ">";
+        break;
+      default: 
+        out = this.jsTypeName(node.type_name);
+        break;
+    };
+    return out;
+  };
+  csTypeName (t) {
+    let out = t;
+    switch (t ) { 
+      case "boolean" : 
+        out = "bool";
+        break;
+      case "void" : 
+        out = "void";
+        break;
+      case "" : 
+        out = "void";
+        break;
+      default: 
+        out = t;
+        break;
+    };
+    return out;
+  };
+  xmlEscape (value) {
+    let out = "";
+    let i = 0;
+    const n = value.length;
+    while (i < n) {
+      const piece = value.substring(i, (i + 1) );
+      const ch = piece.charCodeAt(0);
+      switch (ch ) { 
+        case 38 : 
+          out = out + "&amp;";
+          break;
+        case 60 : 
+          out = out + "&lt;";
+          break;
+        case 62 : 
+          out = out + "&gt;";
+          break;
+        default: 
+          out = out + piece;
+          break;
+      };
+      i = i + 1;
+    };
+    return out;
+  };
+  linesOf (text) {
+    return text.split("\n");
+  };
+  writeJsDoc (doc, retType, params, wr) {
+    this.writeJsDocTyped(doc, retType, params, "", wr);
+  };
+  writeJsDocTyped (doc, retType, params, valueType, wr) {
+    wr.out("/**", true);
+    const descLines = this.linesOf(doc.description);
+    let wroteBody = false;
+    for ( let i = 0; i < descLines.length; i++) {
+      var line = descLines[i];
+      wr.out(" * " + line, true);
+      wroteBody = true;
+    };
+    if ( doc.is_experimental ) {
+      if ( wroteBody ) {
+        wr.out(" *", true);
+      }
+      wr.out(" * **Experimental.** This API may change without notice.", true);
+      wroteBody = true;
+    }
+    if ( doc.is_deprecated == false ) {
+    } else {
+      const dep = doc.deprecation;
+      let msg = dep.description;
+      if ( (msg.length) == 0 ) {
+        if ( (dep.use.length) > 0 ) {
+          msg = ("Use {@link " + dep.use) + "} instead.";
+        }
+      }
+      if ( (dep.since.length) > 0 ) {
+        msg = (("Since " + dep.since) + ". ") + msg;
+      }
+      wr.out(" * @deprecated " + msg, true);
+    }
+    if ( (valueType.length) > 0 ) {
+      wr.out((" * @type {" + valueType) + "}", true);
+    }
+    for ( let i_1 = 0; i_1 < params.length; i_1++) {
+      var p = params[i_1];
+      let line_1 = ((" * @param {" + p.typeName) + "} ") + p.compiledName;
+      if ( (p.description.length) > 0 ) {
+        line_1 = (line_1 + " - ") + p.description;
+      }
+      wr.out(line_1, true);
+    };
+    if ( retType == "void" ) {
+    } else {
+      let rline = (" * @returns {" + retType) + "}";
+      if ( (doc.returns.length) > 0 ) {
+        rline = (rline + " ") + doc.returns;
+      }
+      wr.out(rline, true);
+    }
+    for ( let i_2 = 0; i_2 < doc.throws.length; i_2++) {
+      var t = doc.throws[i_2];
+      wr.out(" * @throws {Error} " + t, true);
+    };
+    if ( (doc.since.length) > 0 ) {
+      wr.out(" * @since " + doc.since, true);
+    }
+    for ( let i_3 = 0; i_3 < doc.see.length; i_3++) {
+      var s = doc.see[i_3];
+      wr.out(" * @see " + s, true);
+    };
+    for ( let i_4 = 0; i_4 < doc.examples.length; i_4++) {
+      var e = doc.examples[i_4];
+      wr.out(" * @example", true);
+      const exLines = this.linesOf(e);
+      for ( let j = 0; j < exLines.length; j++) {
+        var line_2 = exLines[j];
+        wr.out(" * " + line_2, true);
+      };
+    };
+    if ( doc.is_public ) {
+      wr.out(" * @public", true);
+    } else {
+      wr.out(" * @private", true);
+    }
+    for ( let i_5 = 0; i_5 < doc.attrs.length; i_5++) {
+      var a = doc.attrs[i_5];
+      wr.out(" * " + a, true);
+    };
+    wr.out(" */", true);
+  };
+  writeXmlLines (tag, attrs, text, wr) {
+    const lines = this.linesOf(text);
+    const open = (("/// <" + tag) + attrs) + ">";
+    if ( (lines.length) < 2 ) {
+      wr.out((((open + this.xmlEscape(text)) + "</") + tag) + ">", true);
+      return;
+    }
+    wr.out(open, true);
+    for ( let i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      wr.out("/// " + this.xmlEscape(line), true);
+    };
+    wr.out(("/// </" + tag) + ">", true);
+  };
+  writeCsDoc (doc, retType, params, wr) {
+    if ( (doc.description.length) > 0 ) {
+      this.writeXmlLines("summary", "", doc.description, wr);
+    }
+    if ( doc.is_experimental ) {
+      this.writeXmlLines("remarks", "", "Experimental. This API may change without notice.", wr);
+    }
+    for ( let i = 0; i < params.length; i++) {
+      var p = params[i];
+      const attrs = (" name=\"" + p.compiledName) + "\"";
+      this.writeXmlLines("param", attrs, p.description, wr);
+    };
+    if ( retType == "void" ) {
+    } else {
+      this.writeXmlLines("returns", "", doc.returns, wr);
+    }
+    for ( let i_1 = 0; i_1 < doc.throws.length; i_1++) {
+      var t = doc.throws[i_1];
+      this.writeXmlLines("exception", " cref=\"System.Exception\"", t, wr);
+    };
+    for ( let i_2 = 0; i_2 < doc.see.length; i_2++) {
+      var s = doc.see[i_2];
+      wr.out(("/// <seealso cref=\"" + this.xmlEscape(s)) + "\"/>", true);
+    };
+    for ( let i_3 = 0; i_3 < doc.examples.length; i_3++) {
+      var e = doc.examples[i_3];
+      wr.out("/// <example><code>", true);
+      const exLines = this.linesOf(e);
+      for ( let j = 0; j < exLines.length; j++) {
+        var line = exLines[j];
+        wr.out("/// " + this.xmlEscape(line), true);
+      };
+      wr.out("/// </code></example>", true);
+    };
+  };
+  writeCsAttrs (doc, wr) {
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      let msg = dep.description;
+      if ( (msg.length) == 0 ) {
+        if ( (dep.use.length) > 0 ) {
+          msg = ("Use " + dep.use) + " instead.";
+        }
+      }
+      wr.out(("[System.Obsolete(\"" + msg) + "\")]", true);
+    }
+    for ( let i = 0; i < doc.attrs.length; i++) {
+      var a = doc.attrs[i];
+      wr.out(a, true);
+    };
+  };
+  paramsOf (fd, doc, forJs) {
+    let out = [];
+    for ( let i = 0; i < fd.params.length; i++) {
+      var p = fd.params[i];
+      const ap = new RangerApiParam();
+      ap.name = p.name;
+      ap.compiledName = p.compiledName;
+      const pn = p.nameNode;
+      if ( forJs ) {
+        ap.typeName = this.jsTypeOf(pn);
+      } else {
+        ap.typeName = this.csTypeName(pn.type_name);
+      }
+      ap.description = doc.paramText(p.name);
+      out.push(ap);
+    };
+    return out;
+  };
+  writeJsDocForMethod (fd, wr) {
+    if ( fd.has_doc == false ) {
+      return;
+    }
+    const doc = fd.docBlock;
+    const view = doc.viewFor("es6");
+    const ps = this.paramsOf(fd, view, true);
+    const rn = fd.nameNode;
+    const rt = this.jsTypeOf(rn);
+    this.writeJsDoc(view, rt, ps, wr);
+  };
+  writeCsDocForMethod (fd, wr) {
+    if ( fd.has_doc == false ) {
+      return;
+    }
+    const doc = fd.docBlock;
+    const view = doc.viewFor("csharp");
+    const ps = this.paramsOf(fd, view, false);
+    const rn = fd.nameNode;
+    const rt = this.csTypeName(rn.type_name);
+    this.writeCsDoc(view, rt, ps, wr);
+    this.writeCsAttrs(view, wr);
+  };
+  writeJsDocForClass (cl, wr) {
+    if ( cl.has_doc == false ) {
+      return;
+    }
+    const doc = cl.docBlock;
+    const view = doc.viewFor("es6");
+    let ps = [];
+    this.writeJsDoc(view, "void", ps, wr);
+  };
+  writeCsDocForClass (cl, wr) {
+    if ( cl.has_doc == false ) {
+      return;
+    }
+    const doc = cl.docBlock;
+    const view = doc.viewFor("csharp");
+    let ps = [];
+    this.writeCsDoc(view, "void", ps, wr);
+    this.writeCsAttrs(view, wr);
+  };
+  writeJsDocForField (p, wr) {
+    if ( p.has_doc == false ) {
+      return;
+    }
+    const doc = p.docBlock;
+    const view = doc.viewFor("es6");
+    let ps = [];
+    const pn = p.nameNode;
+    this.writeJsDocTyped(view, "void", ps, this.jsTypeOf(pn), wr);
+  };
+  writeCsDocForField (p, wr) {
+    if ( p.has_doc == false ) {
+      return;
+    }
+    const doc = p.docBlock;
+    const view = doc.viewFor("csharp");
+    let ps = [];
+    this.writeCsDoc(view, "void", ps, wr);
+    this.writeCsAttrs(view, wr);
+  };
+}
+class RangerApiArtifactWriter  {
+  constructor() {
+  }
+  jsonEscape (value) {
+    let out = "";
+    let i = 0;
+    const n = value.length;
+    while (i < n) {
+      const piece = value.substring(i, (i + 1) );
+      const ch = piece.charCodeAt(0);
+      switch (ch ) { 
+        case 34 : 
+          out = out + "\\\"";
+          break;
+        case 92 : 
+          out = out + "\\\\";
+          break;
+        case 10 : 
+          out = out + "\\n";
+          break;
+        case 13 : 
+          out = out + "\\r";
+          break;
+        case 9 : 
+          out = out + "\\t";
+          break;
+        default: 
+          out = out + piece;
+          break;
+      };
+      i = i + 1;
+    };
+    return out;
+  };
+  jsonString (value) {
+    return ("\"" + this.jsonEscape(value)) + "\"";
+  };
+  jsonBool (value) {
+    if ( value ) {
+      return "true";
+    }
+    return "false";
+  };
+  jsonStringList (items) {
+    let out = "[";
+    for ( let i = 0; i < items.length; i++) {
+      var s = items[i];
+      if ( i > 0 ) {
+        out = out + ", ";
+      }
+      out = out + this.jsonString(s);
+    };
+    return out + "]";
+  };
+  docFields (doc, has) {
+    if ( has == false ) {
+      return "";
+    }
+    let out = "";
+    out = (out + ", \"description\": ") + this.jsonString(doc.description);
+    if ( (doc.since.length) > 0 ) {
+      out = (out + ", \"since\": ") + this.jsonString(doc.since);
+    }
+    if ( (doc.category.length) > 0 ) {
+      out = (out + ", \"category\": ") + this.jsonString(doc.category);
+    }
+    if ( (doc.platform.length) > 0 ) {
+      out = (out + ", \"platform\": ") + this.jsonString(doc.platform);
+    }
+    if ( doc.is_experimental ) {
+      out = out + ", \"experimental\": true";
+    }
+    if ( (doc.see.length) > 0 ) {
+      out = (out + ", \"see\": ") + this.jsonStringList(doc.see);
+    }
+    if ( (doc.throws.length) > 0 ) {
+      out = (out + ", \"throws\": ") + this.jsonStringList(doc.throws);
+    }
+    if ( (doc.examples.length) > 0 ) {
+      out = (out + ", \"examples\": ") + this.jsonStringList(doc.examples);
+    }
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      out = (out + ", \"deprecated\": {\"since\": ") + this.jsonString(dep.since);
+      out = (out + ", \"use\": ") + this.jsonString(dep.use);
+      out = ((out + ", \"description\": ") + this.jsonString(dep.description)) + "}";
+    }
+    return out;
+  };
+  writeJson (model, ctx, wr) {
+    wr.out("{", true);
+    wr.indent(1);
+    wr.out("\"generator\": \"ranger\",", true);
+    wr.out(("\"module\": " + this.jsonString(model.moduleName)) + ",", true);
+    wr.out(("\"version\": " + this.jsonString(model.version)) + ",", true);
+    wr.out(("\"description\": " + this.jsonString(model.description)) + ",", true);
+    wr.out(("\"target\": " + this.jsonString(ctx.targetLangName)) + ",", true);
+    wr.out("\"classes\": [", true);
+    wr.indent(1);
+    let clIdx = 0;
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( clIdx > 0 ) {
+        wr.out(",", true);
+      }
+      clIdx = clIdx + 1;
+      wr.out("{", true);
+      wr.indent(1);
+      wr.out(("\"name\": " + this.jsonString(c.name)) + ",", true);
+      wr.out(("\"compiledName\": " + this.jsonString(c.compiledName)) + ",", true);
+      wr.out(("\"kind\": " + this.jsonString(c.kind)) + ",", true);
+      if ( (c.extendsName.length) > 0 ) {
+        wr.out(("\"extends\": " + this.jsonString(c.extendsName)) + ",", true);
+      }
+      wr.out(("\"public\": " + this.jsonBool(c.is_public)) + ",", true);
+      wr.out(("\"documented\": " + this.jsonBool(c.has_doc)) + "", false);
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        wr.out(this.docFields(cdoc, true), false);
+      }
+      wr.out(",", true);
+      wr.out("\"fields\": [", false);
+      let fIdx = 0;
+      for ( let fi = 0; fi < c.fields.length; fi++) {
+        var f = c.fields[fi];
+        if ( fIdx > 0 ) {
+          wr.out(", ", false);
+        }
+        fIdx = fIdx + 1;
+        wr.out("{", false);
+        wr.out("\"name\": " + this.jsonString(f.name), false);
+        wr.out(", \"compiledName\": " + this.jsonString(f.compiledName), false);
+        wr.out(", \"type\": " + this.jsonString(f.typeName), false);
+        wr.out(", \"static\": " + this.jsonBool(f.is_static), false);
+        wr.out(", \"public\": " + this.jsonBool(f.is_public), false);
+        wr.out(", \"documented\": " + this.jsonBool(f.has_doc), false);
+        if ( f.has_doc ) {
+          const fdoc = f.doc;
+          wr.out(this.docFields(fdoc, true), false);
+        }
+        wr.out("}", false);
+      };
+      wr.out("],", true);
+      wr.out("\"methods\": [", true);
+      wr.indent(1);
+      let mIdx = 0;
+      for ( let mi = 0; mi < c.methods.length; mi++) {
+        var m = c.methods[mi];
+        if ( mIdx > 0 ) {
+          wr.out(",", true);
+        }
+        mIdx = mIdx + 1;
+        wr.out("{", false);
+        wr.out("\"name\": " + this.jsonString(m.name), false);
+        wr.out(", \"compiledName\": " + this.jsonString(m.compiledName), false);
+        wr.out(", \"static\": " + this.jsonBool(m.is_static), false);
+        wr.out(", \"public\": " + this.jsonBool(m.is_public), false);
+        wr.out(", \"documented\": " + this.jsonBool(m.has_doc), false);
+        wr.out(", \"returns\": {\"type\": " + this.jsonString(m.returnType), false);
+        wr.out((", \"description\": " + this.jsonString(m.returnDoc)) + "}", false);
+        wr.out(", \"params\": [", false);
+        let pIdx = 0;
+        for ( let pi = 0; pi < m.params.length; pi++) {
+          var p = m.params[pi];
+          if ( pIdx > 0 ) {
+            wr.out(", ", false);
+          }
+          pIdx = pIdx + 1;
+          wr.out("{", false);
+          wr.out("\"name\": " + this.jsonString(p.name), false);
+          wr.out(", \"compiledName\": " + this.jsonString(p.compiledName), false);
+          wr.out(", \"type\": " + this.jsonString(p.typeName), false);
+          wr.out(", \"description\": " + this.jsonString(p.description), false);
+          wr.out("}", false);
+        };
+        wr.out("]", false);
+        if ( m.has_doc ) {
+          const mdoc = m.doc;
+          wr.out(this.docFields(mdoc, true), false);
+        }
+        wr.out("}", false);
+      };
+      wr.out("", true);
+      wr.indent(-1);
+      wr.out("]", true);
+      wr.indent(-1);
+      wr.out("}", false);
+    };
+    wr.out("", true);
+    wr.indent(-1);
+    wr.out("]", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeMarkdown (model, ctx, wr) {
+    let title = model.moduleName;
+    if ( (title.length) == 0 ) {
+      title = "API reference";
+    }
+    wr.out("# " + title, true);
+    if ( (model.version.length) > 0 ) {
+      wr.out("", true);
+      wr.out("Version " + model.version, true);
+    }
+    if ( (model.description.length) > 0 ) {
+      wr.out("", true);
+      wr.out(model.description, true);
+    }
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( c.is_public == false ) {
+        continue;
+      }
+      wr.out("", true);
+      wr.out("## " + c.name, true);
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        if ( (cdoc.description.length) > 0 ) {
+          wr.out("", true);
+          wr.out(cdoc.description, true);
+        }
+      }
+      let wroteFields = false;
+      for ( let fi = 0; fi < c.fields.length; fi++) {
+        var f = c.fields[fi];
+        if ( f.is_public == false ) {
+          continue;
+        }
+        if ( wroteFields == false ) {
+          wr.out("", true);
+          wr.out("### Fields", true);
+          wr.out("", true);
+          wr.out("| Name | Type | Description |", true);
+          wr.out("| --- | --- | --- |", true);
+          wroteFields = true;
+        }
+        let fdesc = "";
+        if ( f.has_doc ) {
+          const fdoc = f.doc;
+          fdesc = fdoc.description;
+        }
+        wr.out(((((("| `" + f.name) + "` | `") + f.typeName) + "` | ") + fdesc) + " |", true);
+      };
+      for ( let mi = 0; mi < c.methods.length; mi++) {
+        var m = c.methods[mi];
+        if ( m.is_public == false ) {
+          continue;
+        }
+        wr.out("", true);
+        let sig = ("### `" + m.name) + "(";
+        for ( let pi = 0; pi < m.params.length; pi++) {
+          var p = m.params[pi];
+          if ( pi > 0 ) {
+            sig = sig + " ";
+          }
+          sig = ((sig + p.name) + ":") + p.typeName;
+        };
+        sig = ((sig + ")` → `") + m.returnType) + "`";
+        wr.out(sig, true);
+        if ( m.has_doc ) {
+          const mdoc = m.doc;
+          if ( (mdoc.description.length) > 0 ) {
+            wr.out("", true);
+            wr.out(mdoc.description, true);
+          }
+          if ( mdoc.is_deprecated ) {
+            const dep = mdoc.deprecation;
+            wr.out("", true);
+            wr.out((("**Deprecated** since " + dep.since) + ". ") + dep.description, true);
+          }
+          if ( (m.params.length) > 0 ) {
+            wr.out("", true);
+            for ( let pi_1 = 0; pi_1 < m.params.length; pi_1++) {
+              var p_1 = m.params[pi_1];
+              wr.out((("- `" + p_1.name) + "` — ") + p_1.description, true);
+            };
+          }
+          if ( (mdoc.returns.length) > 0 ) {
+            wr.out("", true);
+            wr.out("Returns: " + mdoc.returns, true);
+          }
+          if ( (mdoc.since.length) > 0 ) {
+            wr.out("", true);
+            wr.out("Since " + mdoc.since, true);
+          }
+        }
+      };
+    };
+  };
+  writeReport (model, wr) {
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( c.is_public == false ) {
+        continue;
+      }
+      wr.out(c.name, true);
+      for ( let fi = 0; fi < c.fields.length; fi++) {
+        var f = c.fields[fi];
+        if ( f.is_public ) {
+          wr.out((((c.name + ".") + f.name) + ": ") + f.typeName, true);
+        }
+      };
+      for ( let mi = 0; mi < c.methods.length; mi++) {
+        var m = c.methods[mi];
+        if ( m.is_public ) {
+          let line = ((c.name + ".") + m.name) + "(";
+          for ( let pi = 0; pi < m.params.length; pi++) {
+            var p = m.params[pi];
+            if ( pi > 0 ) {
+              line = line + ", ";
+            }
+            line = ((line + p.name) + ": ") + p.typeName;
+          };
+          line = (line + "): ") + m.returnType;
+          if ( m.has_doc ) {
+            const mdoc = m.doc;
+            if ( (mdoc.since.length) > 0 ) {
+              line = (line + "   @since ") + mdoc.since;
+            }
+            if ( mdoc.is_deprecated ) {
+              const dep = mdoc.deprecation;
+              line = (line + "   @deprecated ") + dep.since;
+            }
+          }
+          wr.out(line, true);
+        }
+      };
+    };
+  };
+  writeAll (model, ctx, orig_wr) {
+    const dirName = ctx.getCompilerSetting("apidoc");
+    let formats = "json,markdown";
+    if ( ctx.hasCompilerSetting("apiformat") ) {
+      formats = ctx.getCompilerSetting("apiformat");
+    }
+    const parts = formats.split(",");
+    for ( let i = 0; i < parts.length; i++) {
+      var fmt = parts[i];
+      switch (fmt ) { 
+        case "json" : 
+          const jw = orig_wr.getFileWriter(dirName, "api.json");
+          this.writeJson(model, ctx, jw);
+          break;
+        case "markdown" : 
+          const mw = orig_wr.getFileWriter(dirName, "api.md");
+          this.writeMarkdown(model, ctx, mw);
+          break;
+        case "report" : 
+          const rw = orig_wr.getFileWriter(dirName, "api.txt");
+          this.writeReport(model, rw);
+          break;
+        default: 
+          break;
+      };
+    };
+  };
+}
+class RangerApiPackageWriter  {
+  constructor() {
+  }
+  settingOr (ctx, key, fallback) {
+    if ( ctx.hasCompilerSetting(key) ) {
+      return ctx.getCompilerSetting(key);
+    }
+    return fallback;
+  };
+  jsonEscape (value) {
+    const w = new RangerApiArtifactWriter();
+    return w.jsonEscape(value);
+  };
+  writeNpmPackage (model, ctx, orig_wr) {
+    const name = this.settingOr(ctx, "name", model.moduleName);
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const author = this.settingOr(ctx, "author", "");
+    const license = this.settingOr(ctx, "license", "UNLICENSED");
+    const mainFile = this.settingOr(ctx, "o", "output.js");
+    const isTs = ctx.hasCompilerFlag("typescript");
+    const wr = orig_wr.getFileWriter(".", "package.json");
+    wr.out("{", true);
+    wr.indent(1);
+    wr.out(("\"name\": \"" + this.jsonEscape(name)) + "\",", true);
+    wr.out(("\"version\": \"" + this.jsonEscape(version)) + "\",", true);
+    wr.out(("\"description\": \"" + this.jsonEscape(descr)) + "\",", true);
+    if ( (author.length) > 0 ) {
+      wr.out(("\"author\": \"" + this.jsonEscape(author)) + "\",", true);
+    }
+    wr.out(("\"license\": \"" + this.jsonEscape(license)) + "\",", true);
+    wr.out(("\"main\": \"" + this.jsonEscape(mainFile)) + "\",", true);
+    if ( isTs ) {
+      let dts = mainFile;
+      if ( dts.endsWith(".ts") ) {
+        dts = (dts.substring(0, ((dts.length) - 3) )) + ".d.ts";
+      }
+      wr.out(("\"types\": \"" + this.jsonEscape(dts)) + "\",", true);
+    }
+    if ( ctx.hasCompilerFlag("esm") ) {
+      wr.out("\"type\": \"module\",", true);
+    }
+    wr.out("\"files\": [", true);
+    wr.indent(1);
+    wr.out(("\"" + this.jsonEscape(mainFile)) + "\",", true);
+    wr.out("\"README.md\"", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("\"scripts\": {", true);
+    wr.indent(1);
+    wr.out(("\"docs\": \"documentation build " + this.jsonEscape(mainFile)) + " -f html -o docs/api\",", true);
+    wr.out(("\"docs:md\": \"documentation build " + this.jsonEscape(mainFile)) + " -f md -o API.md\",", true);
+    wr.out(("\"docs:json\": \"documentation build " + this.jsonEscape(mainFile)) + " -f json -o docs/api.json\",", true);
+    wr.out(("\"docs:lint\": \"documentation lint " + this.jsonEscape(mainFile)) + "\"", true);
+    wr.indent(-1);
+    wr.out("},", true);
+    wr.out("\"devDependencies\": {", true);
+    wr.indent(1);
+    wr.out("\"documentation\": \"^14.0.3\"", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  xmlEscape (value) {
+    const w = new RangerDocCommentWriter();
+    return w.xmlEscape(value);
+  };
+  writeCsProject (model, ctx, orig_wr) {
+    let name = this.settingOr(ctx, "name", model.moduleName);
+    if ( (name.length) == 0 ) {
+      name = "RangerApi";
+    }
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const author = this.settingOr(ctx, "author", "");
+    const license = this.settingOr(ctx, "license", "");
+    const wr = orig_wr.getFileWriter(".", (name + ".csproj"));
+    wr.out("<Project Sdk=\"Microsoft.NET.Sdk\">", true);
+    wr.indent(1);
+    wr.out("<PropertyGroup>", true);
+    wr.indent(1);
+    wr.out("<TargetFramework>netstandard2.0</TargetFramework>", true);
+    wr.out("<LangVersion>latest</LangVersion>", true);
+    wr.out(("<PackageId>" + this.xmlEscape(name)) + "</PackageId>", true);
+    wr.out(("<AssemblyName>" + this.xmlEscape(name)) + "</AssemblyName>", true);
+    wr.out(("<RootNamespace>" + this.xmlEscape(name)) + "</RootNamespace>", true);
+    wr.out(("<Version>" + this.xmlEscape(version)) + "</Version>", true);
+    if ( (descr.length) > 0 ) {
+      wr.out(("<Description>" + this.xmlEscape(descr)) + "</Description>", true);
+    }
+    if ( (author.length) > 0 ) {
+      wr.out(("<Authors>" + this.xmlEscape(author)) + "</Authors>", true);
+    }
+    if ( (license.length) > 0 ) {
+      wr.out(("<PackageLicenseExpression>" + this.xmlEscape(license)) + "</PackageLicenseExpression>", true);
+    }
+    wr.out("<GenerateDocumentationFile>true</GenerateDocumentationFile>", true);
+    wr.out("<PackageReadmeFile>README.md</PackageReadmeFile>", true);
+    wr.out("<IncludeSymbols>true</IncludeSymbols>", true);
+    wr.out("<SymbolPackageFormat>snupkg</SymbolPackageFormat>", true);
+    wr.out("<NoWarn>$(NoWarn);1591</NoWarn>", true);
+    wr.indent(-1);
+    wr.out("</PropertyGroup>", true);
+    wr.out("<ItemGroup>", true);
+    wr.indent(1);
+    wr.out("<None Include=\"README.md\" Pack=\"true\" PackagePath=\"\\\" />", true);
+    wr.indent(-1);
+    wr.out("</ItemGroup>", true);
+    wr.indent(-1);
+    wr.out("</Project>", true);
+  };
+  writeDocFxConfig (model, ctx, orig_wr) {
+    let name = this.settingOr(ctx, "name", model.moduleName);
+    if ( (name.length) == 0 ) {
+      name = "RangerApi";
+    }
+    const wr = orig_wr.getFileWriter(".", "docfx.json");
+    wr.out("{", true);
+    wr.indent(1);
+    wr.out("\"metadata\": [", true);
+    wr.indent(1);
+    wr.out("{", true);
+    wr.indent(1);
+    const projName = this.jsonEscape(name);
+    wr.out(("\"src\": [ { \"files\": [ \"" + projName) + ".csproj\" ] } ],", true);
+    wr.out("\"dest\": \"api\"", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("\"build\": {", true);
+    wr.indent(1);
+    wr.out("\"content\": [ { \"files\": [ \"api/**.yml\", \"api/index.md\" ] } ],", true);
+    wr.out("\"dest\": \"_site\"", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeReadme (model, ctx, orig_wr) {
+    const wr = orig_wr.getFileWriter(".", "README.md");
+    const aw = new RangerApiArtifactWriter();
+    aw.writeMarkdown(model, ctx, wr);
+  };
+  writeAll (model, ctx, orig_wr) {
+    switch (ctx.targetLangName ) { 
+      case "es6" : 
+        this.writeNpmPackage(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "csharp" : 
+        this.writeCsProject(model, ctx, orig_wr);
+        this.writeDocFxConfig(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      default: 
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+    };
+  };
 }
 class RangerParamEventHandler  {
   constructor() {
@@ -404,28 +1829,28 @@ class RangerParamEventMap  {
 }
 class RangerAppArrayValue  {
   constructor() {
-    this.value_type = 0;     /** note: unused */
-    this.value_type_name = "";     /** note: unused */
-    this.values = [];     /** note: unused */
+    this.value_type = 0;     /* note: unused */
+    this.value_type_name = "";     /* note: unused */
+    this.values = [];     /* note: unused */
   }
 }
 class RangerAppHashValue  {
   constructor() {
-    this.value_type = 0;     /** note: unused */
-    this.key_type_name = "";     /** note: unused */
-    this.value_type_name = "";     /** note: unused */
-    this.s_values = {};     /** note: unused */
-    this.i_values = {};     /** note: unused */
-    this.b_values = {};     /** note: unused */
-    this.d_values = {};     /** note: unused */
+    this.value_type = 0;     /* note: unused */
+    this.key_type_name = "";     /* note: unused */
+    this.value_type_name = "";     /* note: unused */
+    this.s_values = {};     /* note: unused */
+    this.i_values = {};     /* note: unused */
+    this.b_values = {};     /* note: unused */
+    this.d_values = {};     /* note: unused */
   }
 }
 class RangerAppValue  {
   constructor() {
-    this.double_value = 0.0;     /** note: unused */
+    this.double_value = 0.0;     /* note: unused */
     this.string_value = "";
-    this.int_value = 0;     /** note: unused */
-    this.boolean_value = false;     /** note: unused */
+    this.int_value = 0;     /* note: unused */
+    this.boolean_value = false;     /* note: unused */
   }
 }
 class RangerRefForce  {
@@ -445,24 +1870,24 @@ class RangerAppParamDesc  {
     this.init_cnt = 0;
     this.set_cnt = 0;
     this.return_cnt = 0;
-    this.prop_assign_cnt = 0;     /** note: unused */
+    this.prop_assign_cnt = 0;     /* note: unused */
     this.value_type = 0;
     this.has_default = false;
-    this.isThis = false;     /** note: unused */
+    this.isThis = false;     /* note: unused */
     this.is_immutable = false;
     this.is_static = false;
     this.ownerHistory = [];
     this.varType = 0;
     this.refType = 0;
     this.initRefType = 0;
-    this.paramIndex = 0;     /** note: unused */
+    this.paramIndex = 0;     /* note: unused */
     this.is_optional = false;
     this.is_mutating = false;
-    this.is_set = false;     /** note: unused */
+    this.is_set = false;     /* note: unused */
     this.is_class_variable = false;
     this.is_captured = false;
     this.mutation_count = 0;
-    this.read_count = 0;     /** note: unused */
+    this.read_count = 0;     /* note: unused */
     this.is_assigned_from_member = false;
     this.source_member_name = "";
     this.escapes_function = false;
@@ -480,10 +1905,11 @@ class RangerAppParamDesc  {
     this.escape_owners = [];
     this.escape_via_call = false;
     this.escape_return_only = true;
-    this.ownership_read_only = false;     /** note: unused */
-    this.params = [];     /** note: unused */
-    this.description = "";     /** note: unused */
+    this.ownership_read_only = false;     /* note: unused */
+    this.params = [];     /* note: unused */
+    this.description = "";     /* note: unused */
     this.git_doc = "";
+    this.has_doc = false;
     this.has_events = false;
   }
   addEvent (name, e) {
@@ -769,13 +2195,13 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     this.name = "";
     this.ref_cnt = 0;
     this.params = [];
-    this.is_method = false;     /** note: unused */
+    this.is_method = false;     /* note: unused */
     this.is_static = false;
     this.is_lambda = false;
     this.is_unsed = false;
     this.is_called_from_main = false;
     this.refType = 0;
-    this.call_graph_done = false;     /** note: unused */
+    this.call_graph_done = false;     /* note: unused */
     this.isCalling = [];
     this.isCalledBy = [];
     this.isUsingClasses = [];
@@ -783,19 +2209,19 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     this.myLambdas = [];
     this.returns_member_field = false;
     this.returned_member_name = "";
-    this.all_paths_return = false;     /** note: unused */
+    this.all_paths_return = false;     /* note: unused */
     this.mutates_self = false;
     this.static_analysis_done = false;
     this.rust_needs_self_rc = false;
     this.rust_mut_self = true;
     this.rust_uses_self = false;
-    this.rust_passes_self_to_weak = false;     /** note: unused */
+    this.rust_passes_self_to_weak = false;     /* note: unused */
     this.rust_can_be_static = false;
     this.mutation_analysis_done = false;
     this.mutation_analysis_in_progress = false;
     this.directly_mutates_self = false;
     this.transitively_mutates_self = false;
-    this.mutates_param_indices = [];     /** note: unused */
+    this.mutates_param_indices = [];     /* note: unused */
   }
   addCallTo (m) {
     if ( (m.isCalledBy.indexOf(this)) < 0 ) {
@@ -881,29 +2307,29 @@ class ShapeViewDesc  {
     this.className = "";
     this.allowedCases = [];
     this.parentView = "";
-    this.methodNames = [];     /** note: unused */
-    this.requiredMethods = [];     /** note: unused */
+    this.methodNames = [];     /* note: unused */
+    this.requiredMethods = [];     /* note: unused */
   }
 }
 class ShapeGroupMethodSlot  {
   constructor() {
-    this.declaringGroup = "";     /** note: unused */
-    this.methodName = "";     /** note: unused */
-    this.isRequired = false;     /** note: unused */
-    this.hasDefault = false;     /** note: unused */
-    this.implCaseNames = [];     /** note: unused */
-    this.implNodes = [];     /** note: unused */
+    this.declaringGroup = "";     /* note: unused */
+    this.methodName = "";     /* note: unused */
+    this.isRequired = false;     /* note: unused */
+    this.hasDefault = false;     /* note: unused */
+    this.implCaseNames = [];     /* note: unused */
+    this.implNodes = [];     /* note: unused */
   }
 }
 class RangerAppMethodVariants  {
   constructor() {
-    this.name = "";     /** note: unused */
+    this.name = "";     /* note: unused */
     this.variants = [];
   }
 }
 class RangerAppInterfaceImpl  {
   constructor() {
-    this.name = "";     /** note: unused */
+    this.name = "";     /* note: unused */
   }
 }
 class RangerTraitParams  {
@@ -933,7 +2359,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.is_generic_instance = false;
     this.is_union = false;
     this.is_used_by_main = false;
-    this.is_not_used = false;     /** note: unused */
+    this.is_not_used = false;     /* note: unused */
     this.variables = [];
     this.capturedLocals = [];
     this.methods = [];
@@ -944,13 +2370,13 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.method_variants = {};
     this.has_constructor = false;
     this.is_collected = false;
-    this.has_destructor = false;     /** note: unused */
+    this.has_destructor = false;     /* note: unused */
     this.extends_classes = [];
     this.implements_interfaces = [];
     this.consumes_traits = [];
     this.trait_params = {};
     this.is_union_of = [];
-    this.contr_writers = [];     /** note: unused */
+    this.contr_writers = [];     /* note: unused */
     this.is_inherited = false;
     this.is_extended_by_children = false;
     this.child_classes = [];
@@ -1450,22 +2876,22 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
 class RangerTypeClass  {
   constructor() {
     this.name = "";
-    this.compiledName = "";     /** note: unused */
+    this.compiledName = "";     /* note: unused */
     this.value_type = 0;
-    this.implements_traits = [];     /** note: unused */
-    this.implements_interfaces = [];     /** note: unused */
-    this.extends_classes = [];     /** note: unused */
-    this.belongs_to_union = [];     /** note: unused */
+    this.implements_traits = [];     /* note: unused */
+    this.implements_interfaces = [];     /* note: unused */
+    this.extends_classes = [];     /* note: unused */
+    this.belongs_to_union = [];     /* note: unused */
     this.is_empty = false;
     this.is_primitive = false;
-    this.is_mutable = false;     /** note: unused */
-    this.is_optional = false;     /** note: unused */
-    this.is_union = false;     /** note: unused */
-    this.is_trait = false;     /** note: unused */
+    this.is_mutable = false;     /* note: unused */
+    this.is_optional = false;     /* note: unused */
+    this.is_union = false;     /* note: unused */
+    this.is_trait = false;     /* note: unused */
     this.is_class = false;
     this.is_system = false;
-    this.is_interface = false;     /** note: unused */
-    this.is_generic = false;     /** note: unused */
+    this.is_interface = false;     /* note: unused */
+    this.is_generic = false;     /* note: unused */
     this.is_lambda = false;
   }
 }
@@ -1794,7 +3220,7 @@ class CodeNode  {
     this.sp = 0;
     this.ep = 0;
     this.row = 0;
-    this.col = 0;     /** note: unused */
+    this.col = 0;     /* note: unused */
     this.has_operator = false;
     this.disabled_node = false;
     this.op_index = 0;
@@ -1827,7 +3253,7 @@ class CodeNode  {
     this.parsed_type = 0;
     this.value_type = 0;
     this.ref_type = 0;
-    this.ref_need_assign = 0;     /** note: unused */
+    this.ref_need_assign = 0;     /* note: unused */
     this.double_value = 0.0;
     this.string_value = "";
     this.int_value = 0;
@@ -1840,7 +3266,7 @@ class CodeNode  {
     this.appGUID = "";
     this.register_name = "";
     this.register_expressions = [];
-    this.after_expression = [];     /** note: unused */
+    this.after_expression = [];     /* note: unused */
     this.nsp = [];
     this.eval_type = 0;
     this.eval_type_name = "";
@@ -1854,10 +3280,11 @@ class CodeNode  {
     this.hasNewOper = false;
     this.hasFnCall = false;
     this.hasParamDesc = false;
+    this.has_doc_tail = false;
     this.is_part_of_chain = false;
     this.methodChain = [];
     this.register_set = false;
-    this.did_walk = false;     /** note: unused */
+    this.did_walk = false;     /* note: unused */
     this.reg_compiled_name = "";
     this.tag = "";
     this.matched_type = "";
@@ -3494,7 +4921,7 @@ class RangerBackReference  {
 }
 class RangerAppEnum  {
   constructor() {
-    this.name = "";     /** note: unused */
+    this.name = "";     /* note: unused */
     this.cnt = 0;
     this.values = {};
   }
@@ -3506,7 +4933,7 @@ class RangerAppEnum  {
 }
 class OpFindResult  {
   constructor() {
-    this.did_find = false;     /** note: unused */
+    this.did_find = false;     /* note: unused */
   }
 }
 class RangerOperatorList  {
@@ -3524,8 +4951,8 @@ class ContextTransaction  {
     this.name = "";
     this.desc = "";
     this.ended = false;
-    this.failed = false;     /** note: unused */
-    this.mutations = [];     /** note: unused */
+    this.failed = false;     /* note: unused */
+    this.mutations = [];     /* note: unused */
     this.children = [];
   }
 }
@@ -3542,9 +4969,9 @@ class RangerRegisteredPlugin  {
 class RangerAppWriterContext  {
   constructor() {
     this.op_list = {};
-    this.intRootCounter = 1;     /** note: unused */
+    this.intRootCounter = 1;     /* note: unused */
     this.targetLangName = "";
-    this.defined_imports = [];     /** note: unused */
+    this.defined_imports = [];     /* note: unused */
     this.active_macros = {};
     this.macro_expansion_depth = 0;
     this.already_imported = {};
@@ -3552,36 +4979,36 @@ class RangerAppWriterContext  {
     this.class_level_context = false;
     this.function_level_context = false;
     this.in_main = false;
-    this.is_block = false;     /** note: unused */
+    this.is_block = false;     /* note: unused */
     this.is_lambda = false;
     this.is_capturing = false;
     this.is_catch_block = false;
     this.is_try_block = false;
     this.captured_variables = [];
-    this.has_block_exited = false;     /** note: unused */
-    this.in_expression = false;     /** note: unused */
+    this.has_block_exited = false;     /* note: unused */
+    this.in_expression = false;     /* note: unused */
     this.expr_stack = [];
     this.expr_restart = false;
     this.expr_restart_block = false;
     this.in_lhs_of_assignment = false;
     this.in_method = false;
     this.method_stack = [];
-    this.typeNames = [];     /** note: unused */
+    this.typeNames = [];     /* note: unused */
     this.typeClasses = {};
     this.in_class = false;
     this.in_static_method = false;
     this.thisName = "this";
     this.definedEnums = {};
-    this.definedInterfaces = {};     /** note: unused */
-    this.definedInterfaceList = [];     /** note: unused */
+    this.definedInterfaces = {};     /* note: unused */
+    this.definedInterfaceList = [];     /* note: unused */
     this.definedClasses = {};
     this.definedClassList = [];
-    this.definedTasks = {};     /** note: unused */
+    this.definedTasks = {};     /* note: unused */
     this.templateClassNodes = {};
     this.templateClassList = [];
     this.classSignatures = {};
     this.classToSignature = {};
-    this.templateClasses = {};     /** note: unused */
+    this.templateClasses = {};     /* note: unused */
     this.classStaticWriters = {};
     this.localVariables = {};
     this.localVarNames = [];
@@ -3592,9 +5019,9 @@ class RangerAppWriterContext  {
     this.parserErrors = [];
     this.compilerErrors = [];
     this.compilerMessages = [];
-    this.compilerLog = {};     /** note: unused */
+    this.compilerLog = {};     /* note: unused */
     this.todoList = [];
-    this.definedMacro = {};     /** note: unused */
+    this.definedMacro = {};     /* note: unused */
     this.defCounts = {};
     this.refTransform = {};
     this.staticClassBodies = [];
@@ -3603,9 +5030,9 @@ class RangerAppWriterContext  {
     this.appPages = {};
     this.appServices = {};
     this.opNs = [];
-    this.langFilePath = "";     /** note: unused */
+    this.langFilePath = "";     /* note: unused */
     this.libraryPaths = [];
-    this.outputPath = "";     /** note: unused */
+    this.outputPath = "";     /* note: unused */
     this.counters = new TypeCounts();
     this.pluginNodes = {};
     this.typedNodes = {};
@@ -5324,7 +6751,7 @@ class SourceMapBuilder  {
     this.sourcesContent = [];
     this.names = [];
     this.nameToIdx = {};
-    this.outputFile = "";     /** note: unused */
+    this.outputFile = "";     /* note: unused */
   }
   isSyntheticSource (sourceFile) {
     if ( (sourceFile.length) == 0 ) {
@@ -5691,11 +7118,11 @@ class CodeSlice  {
 }
 class CodeWriter  {
   constructor() {
-    this.tagName = "";     /** note: unused */
+    this.tagName = "";     /* note: unused */
     this.suppress_expr_parens = false;
     this.current_op_no_parens = false;
     this.in_format_args = false;
-    this.codeStr = "";     /** note: unused */
+    this.codeStr = "";     /* note: unused */
     this.currentLine = "";
     this.tabStr = "  ";
     this.nlStr = "\n";
@@ -5706,8 +7133,8 @@ class CodeWriter  {
     this.tags = {};
     this.slices = [];
     this.forks = [];
-    this.tagOffset = 0;     /** note: unused */
-    this.had_nl = true;     /** note: unused */
+    this.tagOffset = 0;     /* note: unused */
+    this.had_nl = true;     /* note: unused */
     this.sourceMapsEnabled = false;
     this.mappingNodeStack = [];
     this.mappingNameStack = [];
@@ -6026,11 +7453,11 @@ class RangerLispParser  {
     this.source_text = "";
     this.__len = 0;
     this.i = 0;
-    this.last_line_start = 0;     /** note: unused */
+    this.last_line_start = 0;     /* note: unused */
     this.current_line_index = 0;
     this.parents = [];
     this.paren_cnt = 0;
-    this.get_op_pred = 0;     /** note: unused */
+    this.get_op_pred = 0;     /* note: unused */
     this.had_error = false;
     this.disableOperators = false;
     this.source_text = RangerLispParser.normalizeLineEndings(code_module.code);
@@ -9817,7 +11244,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     constructor() {
       super()
       this.name = "";
-      this.ref_cnt = 0;     /** note: unused */
+      this.ref_cnt = 0;     /* note: unused */
       this.op_params = [];
     }
     isOperator () {
@@ -9864,9 +11291,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
   }
   class RangerFlowParser  {
     constructor() {
-      this.hasRootPath = false;     /** note: unused */
-      this.rootPath = "";     /** note: unused */
-      this._debug = false;     /** note: unused */
+      this.hasRootPath = false;     /* note: unused */
+      this.rootPath = "";     /* note: unused */
+      this._debug = false;     /* note: unused */
       this.treeChildCall = {};
       this.treeTextField = {};
       this.treeTags = {};
@@ -9889,21 +11316,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.shapeGroupFieldKeyType = {};
       this.shapeGroupAllValue = {};
       this.shapeCaseCtorArgs = {};
-      this.collectWalkAtEnd = [];     /** note: unused */
+      this.collectWalkAtEnd = [];     /* note: unused */
       this.walkAlso = [];
       this.serializedClasses = [];
       this.immutableClasses = [];
       this.processClasses = [];
       this.classesWithTraits = [];
       this.collectedIntefaces = [];
-      this.definedInterfaces = {};     /** note: unused */
+      this.definedInterfaces = {};     /* note: unused */
       this.signatureCnt = 0;
-      this.argSignatureCnt = 0;     /** note: unused */
+      this.argSignatureCnt = 0;     /* note: unused */
       this.mainCnt = 0;
       this.isDefinedSignature = {};
       this.isDefinedArgSignature = {};
       this.extendedClasses = {};
-      this.allNewRNodes = [];     /** note: unused */
+      this.allNewRNodes = [];     /* note: unused */
       this.inline_static_depth = 0;
       this.infinite_recursion = false;
       this.match_types = {};
@@ -15919,7 +17346,81 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.WalkCollectTemplates(ch, ctx, wr);
       };
     };
+    isDocumentableHead (name) {
+      if ( name == "fn" ) {
+        return true;
+      }
+      if ( name == "sfn" ) {
+        return true;
+      }
+      if ( name == "static" ) {
+        return true;
+      }
+      if ( name == "class" ) {
+        return true;
+      }
+      if ( name == "record" ) {
+        return true;
+      }
+      if ( name == "shape" ) {
+        return true;
+      }
+      if ( name == "enum" ) {
+        return true;
+      }
+      if ( name == "def" ) {
+        return true;
+      }
+      if ( name == "Constructor" ) {
+        return true;
+      }
+      if ( name == "constructor" ) {
+        return true;
+      }
+      if ( name == "case" ) {
+        return true;
+      }
+      if ( name == "variant" ) {
+        return true;
+      }
+      if ( name == "group" ) {
+        return true;
+      }
+      if ( name == "module" ) {
+        return true;
+      }
+      return false;
+    };
+    DetachDocBlocks (node, ctx) {
+      const cnt = node.chlen();
+      if ( cnt > 2 ) {
+        const tailWord = node.children[(cnt - 2)];
+        const tailBlock = node.children[(cnt - 1)];
+        if ( (tailWord.vref == "doc") && tailBlock.is_block_node ) {
+          const head = node.getVRefAt(0);
+          if ( this.isDocumentableHead(head) ) {
+            node.has_doc_tail = true;
+            node.docNode = tailBlock;
+            node.children.splice(cnt - 1, 1);
+            node.children.splice(cnt - 2, 1);
+          }
+        }
+      }
+      if ( node.isFirstVref("doc") ) {
+        if ( node.chlen() == 2 ) {
+          const second = node.getSecond();
+          if ( second.is_block_node ) {
+            ctx.addError(node, "documentation block is not attached to a declaration. Write it as the tail of the declaration: `} doc { … }`");
+          }
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.DetachDocBlocks(ch, ctx);
+      };
+    };
     async CollectMethods (node, ctx, wr) {
+      this.DetachDocBlocks(node, ctx);
       this.DesugarShapes(node, ctx, wr);
       this.DesugarTrees(node, ctx, wr);
       this.WalkCollectTemplates(node, ctx, wr);
@@ -18582,29 +20083,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
   }
   class NodeEvalState  {
     constructor() {
-      this.is_running = false;     /** note: unused */
-      this.child_index = -1;     /** note: unused */
-      this.cmd_index = -1;     /** note: unused */
-      this.is_ready = false;     /** note: unused */
-      this.is_waiting = false;     /** note: unused */
-      this.exit_after = false;     /** note: unused */
-      this.expand_args = false;     /** note: unused */
-      this.ask_expand = false;     /** note: unused */
-      this.eval_rest = false;     /** note: unused */
-      this.exec_cnt = 0;     /** note: unused */
-      this.b_debugger = false;     /** note: unused */
-      this.b_top_node = false;     /** note: unused */
-      this.ask_eval = false;     /** note: unused */
-      this.param_eval_on = false;     /** note: unused */
-      this.eval_index = -1;     /** note: unused */
-      this.eval_end_index = -1;     /** note: unused */
-      this.ask_eval_start = 0;     /** note: unused */
-      this.ask_eval_end = 0;     /** note: unused */
+      this.is_running = false;     /* note: unused */
+      this.child_index = -1;     /* note: unused */
+      this.cmd_index = -1;     /* note: unused */
+      this.is_ready = false;     /* note: unused */
+      this.is_waiting = false;     /* note: unused */
+      this.exit_after = false;     /* note: unused */
+      this.expand_args = false;     /* note: unused */
+      this.ask_expand = false;     /* note: unused */
+      this.eval_rest = false;     /* note: unused */
+      this.exec_cnt = 0;     /* note: unused */
+      this.b_debugger = false;     /* note: unused */
+      this.b_top_node = false;     /* note: unused */
+      this.ask_eval = false;     /* note: unused */
+      this.param_eval_on = false;     /* note: unused */
+      this.eval_index = -1;     /* note: unused */
+      this.eval_end_index = -1;     /* note: unused */
+      this.ask_eval_start = 0;     /* note: unused */
+      this.ask_eval_end = 0;     /* note: unused */
     }
   }
   class RangerGenericClassWriter  {
     constructor() {
-      this.compFlags = {};     /** note: unused */
+      this.compFlags = {};     /* note: unused */
     }
     unionIsSealable (ucl, ctx) {
       if ( ucl.is_union == false ) {
@@ -19839,7 +21340,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const nn = node.children[1];
             const p = nn.paramDesc;
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-              wr.out("/** unused:  ", false);
+              wr.out("/* unused:  ", false);
             }
             wr.out(p.compiledName, false);
             if ( (node.children.length) > 2 ) {
@@ -19867,7 +21368,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-              wr.out("     /** note: unused */", false);
+              wr.out("     /* note: unused */", false);
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
               wr.out("   **/ ;", true);
@@ -19886,7 +21387,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               p_captured_mutable = false;
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-              wr.out("/** unused:  ", false);
+              wr.out("/* unused:  ", false);
             }
             if ( (p.is_captured && (p.is_class_variable == false)) && ((nn.value_type == 7) || (nn.value_type == 6)) ) {
               wr.out("final ", false);
@@ -19942,7 +21443,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-              wr.out("     /** note: unused */", false);
+              wr.out("     /* note: unused */", false);
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
               wr.out("   **/ ;", true);
@@ -20322,7 +21823,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         constructor() {
           super()
-          this.header_created = false;     /** note: unused */
+          this.header_created = false;     /* note: unused */
           this.swift_unions_written = false;
         }
         writeSwiftUnionEnums (ctx, wr) {
@@ -20685,7 +22186,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-              wr.out("/** unused:  ", false);
+              wr.out("/* unused:  ", false);
             }
             if ( (p.set_cnt > 0) || p.is_class_variable ) {
               wr.out(("var " + p.compiledName) + " : ", false);
@@ -20719,7 +22220,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-              wr.out("     /** note: unused */", false);
+              wr.out("     /* note: unused */", false);
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
               wr.out("   **/ ", true);
@@ -21251,7 +22752,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         constructor() {
           super()
-          this.header_created = false;     /** note: unused */
+          this.header_created = false;     /* note: unused */
           this.swift_unions_written = false;
         }
         adjustType (tn) {
@@ -21714,7 +23215,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   return;
                 }
               }
-              wr.out("/** unused:  ", false);
+              wr.out("/* unused:  ", false);
             }
             if ( p.is_static ) {
               wr.out("static ", false);
@@ -21768,7 +23269,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-              wr.out("     /** note: unused */", false);
+              wr.out("     /* note: unused */", false);
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
               wr.out("   **/ ", true);
@@ -23234,7 +24735,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               const elideUnused = ((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false);
               if ( elideUnused ) {
-                wr.out("/** unused:  ", false);
+                wr.out("/* unused:  ", false);
               }
               if ( (p.set_cnt > 0) || p.is_class_variable ) {
                 wr.out("", false);
@@ -23278,7 +24779,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               } else {
               }
               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                wr.out("     /** note: unused */", false);
+                wr.out("     /* note: unused */", false);
               }
               if ( elideUnused ) {
                 wr.out("   **/ ;", true);
@@ -23623,7 +25124,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const nn = node.children[1];
                 const p = nn.paramDesc;
                 if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-                  wr.out("/** unused:  ", false);
+                  wr.out("/* unused:  ", false);
                 }
                 if ( (p.set_cnt > 0) || p.is_class_variable ) {
                   wr.out("", false);
@@ -23639,7 +25140,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out(" ", false);
                 wr.out(p.compiledName, false);
                 if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                  wr.out("     /** note: unused */", false);
+                  wr.out("     /* note: unused */", false);
                 }
                 if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
                   wr.out("   **/ ;", true);
@@ -24646,7 +26147,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_lhs_is_receiver = false;
               this.rust_writing_return_type = false;
               this.rust_receiverless_method = false;
-              this.rust_receiver_mut_known = false;     /** note: unused */
+              this.rust_receiver_mut_known = false;     /* note: unused */
               this.rust_emit_class_name = "";
               this.rust_receiver_shared_known = false;
               this.rust_prop_base_state = 0;
@@ -34865,7 +36366,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     return;
                                   }
                                 }
-                                wr.out("/** unused:  ", false);
+                                wr.out("/* unused:  ", false);
                               }
                               if ( p.is_class_variable ) {
                                 wr.out("@JvmField ", false);
@@ -34898,7 +36399,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                wr.out("     /** note: unused */", false);
+                                wr.out("     /* note: unused */", false);
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
                                 wr.out("   **/ ;", true);
@@ -36166,6 +37667,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           constructor() {
                             super()
                             this.csharp_unions_written = false;
+                            this.csharp_namespace_written = false;
                             this.csLambdaArgCounter = 0;
                           }
                           adjustType (tn) {
@@ -36173,6 +37675,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return "this";
                             }
                             return tn;
+                          };
+                          csMemberVisibility (cl, member) {
+                            if ( cl.has_doc == false ) {
+                              return "public ";
+                            }
+                            if ( member.has_doc == false ) {
+                              return "internal ";
+                            }
+                            const md = member.docBlock;
+                            if ( typeof(md) === "undefined" ) {
+                              return "internal ";
+                            }
+                            const doc = md;
+                            if ( doc.is_public ) {
+                              return "public ";
+                            }
+                            return "internal ";
                           };
                           writeCSharpUnionInterfaces (ctx, wr) {
                             if ( this.csharp_unions_written ) {
@@ -36512,7 +38031,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( unusedDef && (keepsCall == false) ) {
-                                wr.out("/** unused:  ", false);
+                                wr.out("/* unused:  ", false);
                               }
                               if ( (p.set_cnt > 0) || p.is_class_variable ) {
                                 wr.out("", false);
@@ -36549,7 +38068,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                wr.out("     /** note: unused */", false);
+                                wr.out("     /* note: unused */", false);
                               }
                               if ( unusedDef && (keepsCall == false) ) {
                                 wr.out("   **/ ;", true);
@@ -36678,7 +38197,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.csCollectInherited(cl, ctx, inheritedVars, inheritedMethods);
                             const wr = orig_wr;
                             this.import_lib("System", ctx, wr);
+                            if ( this.csharp_namespace_written == false ) {
+                              this.csharp_namespace_written = true;
+                              let nsName = "";
+                              if ( ctx.hasCompilerSetting("csnamespace") ) {
+                                nsName = ctx.getCompilerSetting("csnamespace");
+                              } else {
+                                if ( ctx.hasCompilerFlag("apipackage") ) {
+                                  if ( ctx.hasCompilerSetting("name") ) {
+                                    nsName = ctx.getCompilerSetting("name");
+                                  }
+                                }
+                              }
+                              if ( (nsName.length) > 0 ) {
+                                const nsHead = wr.getTag("after_imports");
+                                nsHead.out(("namespace " + nsName) + " {", true);
+                                const nsEnd = wr.getTag("file_end");
+                                nsEnd.out("}", true);
+                                wr.indent(1);
+                              }
+                            }
                             this.writeCSharpUnionInterfaces(ctx, wr);
+                            if ( cl.has_doc ) {
+                              const clDocWr = new RangerDocCommentWriter();
+                              clDocWr.writeCsDocForClass(cl, wr);
+                              const clDoc = cl.docBlock;
+                              if ( clDoc.is_public ) {
+                                wr.out("public ", false);
+                              }
+                            }
                             wr.out(("class " + cl.name) + " ", false);
                             const csUnions = this.unionInterfacesOf((cl), ctx);
                             if ( (cl.extends_classes.length) > 0 ) {
@@ -36711,7 +38258,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( ( typeof(inheritedVars[pvar.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(inheritedVars, pvar.name) ) ) {
                                 continue;
                               }
-                              wr.out("public ", false);
+                              if ( pvar.has_doc ) {
+                                const fDocWr = new RangerDocCommentWriter();
+                                fDocWr.writeCsDocForField(pvar, wr);
+                              }
+                              wr.out(this.csMemberVisibility((cl), pvar), false);
                               await this.writeVarDef(pvar.node, ctx, wr);
                             };
                             if ( cl.has_constructor ) {
@@ -36778,7 +38329,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( variant.nameNode.hasFlag("main") ) {
                                 wr.out("static void Main( string [] args ) {", true);
                               } else {
-                                wr.out("public static ", false);
+                                if ( variant.has_doc ) {
+                                  const sDocWr = new RangerDocCommentWriter();
+                                  sDocWr.writeCsDocForMethod(variant, wr);
+                                }
+                                wr.out(this.csMemberVisibility((cl), variant), false);
+                                wr.out("static ", false);
                                 await this.writeTypeDef(variant.nameNode, ctx, wr);
                                 wr.out(" ", false);
                                 wr.out(variant.compiledName + "(", false);
@@ -36799,7 +38355,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
                               for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                                 var variant_1 = mVs.variants[i_5];
-                                wr.out("public ", false);
+                                if ( variant_1.has_doc ) {
+                                  const mDocWr = new RangerDocCommentWriter();
+                                  mDocWr.writeCsDocForMethod(variant_1, wr);
+                                }
+                                wr.out(this.csMemberVisibility((cl), variant_1), false);
                                 const parentArgc = ( Object.prototype.hasOwnProperty.call(inheritedMethods, variant_1.compiledName) ? inheritedMethods[variant_1.compiledName] : undefined );
                                 if ( (typeof(parentArgc) !== "undefined" && parentArgc != null )  ) {
                                   if ( (parentArgc) == (variant_1.params.length) ) {
@@ -37616,9 +39176,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.thisName = "this";
                             this.write_raw_type = false;
                             this.did_write_nullable = false;
-                            this.did_write_sseclient = false;     /** note: unused */
+                            this.did_write_sseclient = false;     /* note: unused */
                             this.go_unions_written = false;
-                            this.httpServerWriter = new RangerGolangHttpServerWriter();     /** note: unused */
+                            this.httpServerWriter = new RangerGolangHttpServerWriter();     /* note: unused */
                           }
                           writeGoUnionStructs (ctx, wr) {
                             if ( this.go_unions_written ) {
@@ -38634,7 +40194,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                                 if ( b_can_skip ) {
-                                  wr.out(("/** unused:  " + p.compiledName) + "*/", true);
+                                  wr.out(("/* unused:  " + p.compiledName) + "*/", true);
                                   b_not_used = true;
                                   return;
                                 }
@@ -38754,7 +40314,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(" _ = " + p.compiledName, false);
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                wr.out("     /** note: unused */", false);
+                                wr.out("     /* note: unused */", false);
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
                               } else {
@@ -39777,7 +41337,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         class RangerGolangHttpServerWriter  {
                           constructor() {
                             this.didWriteSSEClient = false;
-                            this.didWriteHttpTypes = false;     /** note: unused */
+                            this.didWriteHttpTypes = false;     /* note: unused */
                           }
                           isHttpServerClass (cl) {
                             if ( typeof(cl.nameNode) === "undefined" ) {
@@ -40246,7 +41806,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const nn = node.children[1];
                               const p = nn.paramDesc;
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-                                wr.out("/** unused:  ", false);
+                                wr.out("/* unused:  ", false);
                               }
                               wr.out("$this->" + p.compiledName, false);
                               if ( (node.children.length) > 2 ) {
@@ -40269,7 +41829,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               wr.out(";", false);
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                wr.out("     /** note: unused */", false);
+                                wr.out("     /* note: unused */", false);
                               }
                               wr.newline();
                             }
@@ -40279,7 +41839,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const nn = node.children[1];
                               const p = nn.paramDesc;
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-                                wr.out("/** unused:  ", false);
+                                wr.out("/* unused:  ", false);
                               }
                               wr.out("$" + p.compiledName, false);
                               if ( (node.children.length) > 2 ) {
@@ -40300,7 +41860,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                wr.out("     /** note: unused */", false);
+                                wr.out("     /* note: unused */", false);
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
                                 wr.out("   **/ ;", true);
@@ -41511,7 +43071,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
                           constructor() {
                             super()
-                            this.thisName = "this";     /** note: unused */
+                            this.thisName = "this";     /* note: unused */
                             this.wrote_header = false;
                             this.target_flow = false;
                             this.target_typescript = false;
@@ -42097,7 +43657,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( was_set ) {
                                 wr.out(";", false);
                                 if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                  wr.out("     /** note: unused */", false);
+                                  wr.out("     /* note: unused */", false);
                                 }
                                 wr.newline();
                               }
@@ -42161,7 +43721,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                                wr.out("     /** note: unused */", false);
+                                wr.out("     /* note: unused */", false);
                               }
                               wr.out(";", false);
                               wr.newline();
@@ -42430,6 +43990,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 do_export = false;
                               }
                             }
+                            if ( cl.has_doc ) {
+                              const clDocWr = new RangerDocCommentWriter();
+                              clDocWr.writeJsDocForClass(cl, wr);
+                            }
                             if ( do_export ) {
                               wr.out("export ", false);
                               if ( is_rn_default ) {
@@ -42454,6 +44018,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.indent(1);
                             for ( let i_1 = 0; i_1 < cl.variables.length; i_1++) {
                               var pvar = cl.variables[i_1];
+                              if ( this.target_typescript ) {
+                                if ( pvar.has_doc ) {
+                                  const tsFieldDoc = new RangerDocCommentWriter();
+                                  tsFieldDoc.writeJsDocForField(pvar, wr);
+                                }
+                              }
                               await this.writeClassVarDef(pvar, ctx, wr);
                             };
                             if ( this.target_typescript ) {
@@ -42534,6 +44104,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( pvar_1.is_static ) {
                                   continue;
                                 }
+                                if ( this.target_typescript == false ) {
+                                  if ( pvar_1.has_doc ) {
+                                    const jsFieldDoc = new RangerDocCommentWriter();
+                                    jsFieldDoc.writeJsDocForField(pvar_1, wr);
+                                  }
+                                }
                                 await this.writeVarInitDef(pvar_1.node, ctx, wr);
                               };
                               if ( cl.has_constructor ) {
@@ -42555,6 +44131,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
                               for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                                 var variant = mVs.variants[i_5];
+                                if ( variant.has_doc ) {
+                                  const mDocWr = new RangerDocCommentWriter();
+                                  mDocWr.writeJsDocForMethod(variant, wr);
+                                }
                                 if ( variant.nameNode.hasFlag("async") ) {
                                   wr.out("async ", false);
                                 }
@@ -42598,6 +44178,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( variant_1.nameNode.hasFlag("test") ) {
                                   console.log("Found a test function, but not writing it: " + variant_1.nameNode.vref);
                                   continue;
+                                }
+                                if ( variant_1.has_doc ) {
+                                  const sDocWr = new RangerDocCommentWriter();
+                                  sDocWr.writeJsDocForMethod(variant_1, wr);
                                 }
                                 wr.out("static ", false);
                                 if ( variant_1.nameNode.hasFlag("async") ) {
@@ -42745,6 +44329,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   let useDefineProp = false;
                                   if ( (variant_2.compiledName == "name") || (variant_2.compiledName == "length") ) {
                                     useDefineProp = true;
+                                  }
+                                  if ( variant_2.has_doc ) {
+                                    const jsDocWr = new RangerDocCommentWriter();
+                                    jsDocWr.writeJsDocForMethod(variant_2, wr);
                                   }
                                   if ( useDefineProp ) {
                                     wr.out(((((("Object.defineProperty(" + cl.name) + ", \"") + variant_2.compiledName) + "\", { value: ") + asyncKeyword) + "function(", false);
@@ -57209,7 +58797,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                         class LiveCompiler  {
                           constructor() {
-                            this.hasCreatedPolyfill = {};     /** note: unused */
+                            this.hasCreatedPolyfill = {};     /* note: unused */
                             this.repeat_index = 0;
                             this.installedFile = {};
                           }
@@ -62486,8 +64074,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               let the_file = "";
                                                               let plugins_only = false;
-                                                              const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-                                                              const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                                              const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file", "apidoc", "write the API documentation artifacts into this subdirectory", "apiformat", "which API artifacts to write: json, markdown, report (default json,markdown)", "csnamespace", "C# file-scoped namespace for the generated types"];
+                                                              const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "apistrict", "An undocumented public declaration or parameter is an error, not a warning", "apipackage", "Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet", "docstyle-none", "Do not write documentation comments into the generated code", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                                               const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                                               if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                                                 cli.printHeader();
@@ -62889,6 +64477,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 cli.step(2, "Analyzing code");
                                                                 await flowParser.StartWalk(node, appCtx, wr);
                                                                 await flowParser.SolveAsyncFuncs(root, appCtx, wr);
+                                                                const apiBuilder = new RangerApiBuilder();
+                                                                const apiModel = apiBuilder.build(appCtx);
                                                                 if ( (appCtx.compilerErrors.length) > 0 ) {
                                                                   console.log("");
                                                                   VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
@@ -63143,6 +64733,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   const gen_1 = new RangerDocGenerator();
                                                                   await gen_1.createOperatorDoc(root, appCtx, wr);
                                                                 }
+                                                                if ( appCtx.hasCompilerSetting("apidoc") ) {
+                                                                  const apiGen = new RangerApiArtifactWriter();
+                                                                  apiGen.writeAll(apiModel, appCtx, wr);
+                                                                }
+                                                                if ( appCtx.hasCompilerFlag("apipackage") ) {
+                                                                  const pkgGen = new RangerApiPackageWriter();
+                                                                  pkgGen.writeAll(apiModel, appCtx, wr);
+                                                                }
+                                                                for ( let warnIdx = 0; warnIdx < apiModel.warnings.length; warnIdx++) {
+                                                                  var warnMsg = apiModel.warnings[warnIdx];
+                                                                  console.log(cli.warning(("api docs: " + warnMsg)));
+                                                                };
                                                                 cli.step(5, "Writing output");
                                                                 VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
                                                                 if ( (appCtx.compilerErrors.length) > 0 ) {

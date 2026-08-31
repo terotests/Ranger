@@ -613,7 +613,7 @@ class RangerKotlinClassWriter {
             return
           }
         }
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       if p.is_class_variable {
         wr.out("@JvmField " false)
@@ -646,7 +646,7 @@ class RangerKotlinClassWriter {
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ ;" true)

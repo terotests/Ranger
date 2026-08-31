@@ -1,0 +1,1194 @@
+; SPDX-License-Identifier: MIT
+
+; The API model (ApiIR) built from the declarations of a program and their
+; `doc { … }` tails, the validation that keeps it honest, and the writers that
+; turn it into artifacts. See PLAN_API_DOCS.md.
+;
+; The model names a LOGICAL module and no namespace: a namespace, package,
+; assembly and directory are four different things and the targets disagree
+; about how many of them there even are. Physical names belong to the platform
+; emitter, not here.
+
+class RangerApiParam {
+  def name:string ""
+  def compiledName:string ""
+  def typeName:string ""
+  def description:string ""
+}
+
+class RangerApiMethod {
+  def name:string ""
+  def compiledName:string ""
+  def is_static:boolean false
+  def is_constructor:boolean false
+  def is_public:boolean false
+  def returnType:string ""
+  def returnDoc:string ""
+  def params:[RangerApiParam]
+  def doc:RangerDocBlock
+  def has_doc:boolean false
+  def node:CodeNode
+}
+
+class RangerApiField {
+  def name:string ""
+  def compiledName:string ""
+  def typeName:string ""
+  def is_public:boolean false
+  def is_static:boolean false
+  def doc:RangerDocBlock
+  def has_doc:boolean false
+}
+
+class RangerApiClass {
+  def name:string ""
+  def compiledName:string ""
+  def kind:string "class"
+  def is_public:boolean false
+  def extendsName:string ""
+  def fields:[RangerApiField]
+  def methods:[RangerApiMethod]
+  def doc:RangerDocBlock
+  def has_doc:boolean false
+  def node:CodeNode
+
+  fn hasPublicMember:boolean () {
+    for methods m:RangerApiMethod i {
+      if m.is_public {
+        return true
+      }
+    }
+    for fields f:RangerApiField i {
+      if f.is_public {
+        return true
+      }
+    }
+    return false
+  }
+}
+
+class RangerApiModel {
+  def moduleName:string ""
+  def version:string ""
+  def description:string ""
+  def classes:[RangerApiClass]
+  def warnings:[string]
+
+  fn publicClassCount:int () {
+    def n:int 0
+    for classes c:RangerApiClass i {
+      if c.is_public {
+        n = n + 1
+      }
+    }
+    return n
+  }
+}
+
+; Builds the model out of the class registry and validates every doc block
+; against the signature it documents.
+class RangerApiBuilder {
+
+  def strict:boolean false
+
+  fn typeNameOf:string (node:CodeNode) {
+    def base:string ""
+    switch node.value_type {
+      case RangerNodeType.Array {
+        base = "[" + node.array_type + "]"
+      }
+      case RangerNodeType.Hash {
+        base = "[" + node.key_type + ":" + node.array_type + "]"
+      }
+      default {
+        base = node.type_name
+      }
+    }
+    if ((strlen base) == 0) {
+      base = "void"
+    }
+    if (node.hasFlag("optional")) {
+      base = base + "?"
+    }
+    return base
+  }
+
+  ; Reads the doc tail off a declaration node, if it has one.
+  fn readDocOf:RangerDocBlock (node:CodeNode ctx:RangerAppWriterContext) {
+    def reader:RangerDocReader (new RangerDocReader)
+    def blockNode:CodeNode (unwrap node.docNode)
+    return (reader.read(blockNode ctx))
+  }
+
+  fn warn:void (model:RangerApiModel ctx:RangerAppWriterContext node:CodeNode msg:string) {
+    if strict {
+      ctx.addError(node msg)
+    } {
+      push model.warnings msg
+    }
+  }
+
+  ; Every param line must name a real parameter, no parameter may be
+  ; documented twice, and a void function may not document a return value.
+  ; These are the checks a comment-based system can not make.
+  fn validateMethod:void (model:RangerApiModel m:RangerApiMethod ctx:RangerAppWriterContext) {
+    if (m.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock m.doc
+    def seen:[string:boolean]
+    for doc.params dp:RangerDocParam i {
+      def found:boolean false
+      for m.params p:RangerApiParam j {
+        if (p.name == dp.name) {
+          found = true
+        }
+      }
+      if (found == false) {
+        ctx.addError((unwrap dp.node) ("`param " + dp.name + "` does not name a parameter of `" + m.name + "`"))
+      }
+      if (has seen dp.name) {
+        ctx.addError((unwrap dp.node) ("parameter `" + dp.name + "` is documented twice"))
+      }
+      set seen dp.name true
+    }
+    if ((strlen doc.returns) > 0) {
+      if (m.returnType == "void") {
+        ctx.addError((unwrap m.node) ("`returns` on `" + m.name + "`, which returns void"))
+      }
+    }
+    if (m.is_public) {
+      if ((strlen doc.description) == 0) {
+        this.warn(model ctx (unwrap m.node) ("public `" + m.name + "` has no description"))
+      }
+      for m.params p:RangerApiParam j {
+        if ((doc.hasParamDoc(p.name)) == false) {
+          this.warn(model ctx (unwrap m.node) ("public `" + m.name + "` does not document parameter `" + p.name + "`"))
+        }
+      }
+    }
+  }
+
+  fn buildMethod:RangerApiMethod (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext isStatic:boolean) {
+    def m:RangerApiMethod (new RangerApiMethod)
+    m.name = fd.name
+    m.compiledName = fd.compiledName
+    m.is_static = isStatic
+    m.node = fd.node
+    def nn:CodeNode (unwrap fd.nameNode)
+    m.returnType = (this.typeNameOf(nn))
+    for fd.params p:RangerAppParamDesc i {
+      def ap:RangerApiParam (new RangerApiParam)
+      ap.name = p.name
+      ap.compiledName = p.compiledName
+      def pn:CodeNode (unwrap p.nameNode)
+      ap.typeName = (this.typeNameOf(pn))
+      push m.params ap
+    }
+    def dn:CodeNode (unwrap fd.node)
+    if (dn.has_doc_tail) {
+      m.doc = (this.readDocOf(dn ctx))
+      m.has_doc = true
+      m.is_public = m.doc.is_public
+      m.returnDoc = m.doc.returns
+      fd.has_doc = true
+      fd.docBlock = m.doc
+      if ((strlen m.doc.description) > 0) {
+        fd.git_doc = m.doc.description
+      }
+      for m.params ap:RangerApiParam j {
+        ap.description = (m.doc.paramText(ap.name))
+      }
+    }
+    return m
+  }
+
+  fn build:RangerApiModel (ctx:RangerAppWriterContext) {
+    def model:RangerApiModel (new RangerApiModel)
+    strict = (ctx.hasCompilerFlag("apistrict"))
+    if (ctx.hasCompilerSetting("name")) {
+      model.moduleName = (ctx.getCompilerSetting("name"))
+    }
+    if (ctx.hasCompilerSetting("version")) {
+      model.version = (ctx.getCompilerSetting("version"))
+    }
+    if (ctx.hasCompilerSetting("description")) {
+      model.description = (ctx.getCompilerSetting("description"))
+    }
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (get root.definedClasses cname)
+      if (cl.is_system) {
+        continue
+      }
+      if (cl.is_template) {
+        continue
+      }
+      if ((cl.isNormalClass()) == false) {
+        continue
+      }
+      def ac:RangerApiClass (new RangerApiClass)
+      ac.name = cl.name
+      ac.compiledName = cl.compiledName
+      if (cl.is_record) {
+        ac.kind = "record"
+      }
+      for cl.extends_classes en:string ei {
+        ac.extendsName = en
+      }
+      def cnode@(optional):CodeNode cl.classNode
+      if ((null? cnode) == false) {
+        def cn:CodeNode (unwrap cnode)
+        ac.node = cn
+        if (cn.has_doc_tail) {
+          ac.doc = (this.readDocOf(cn ctx))
+          ac.has_doc = true
+          ac.is_public = ac.doc.is_public
+          cl.has_doc = true
+          cl.docBlock = ac.doc
+        }
+      }
+      for cl.variables v:RangerAppParamDesc vi {
+        def af:RangerApiField (new RangerApiField)
+        af.name = v.name
+        af.compiledName = v.compiledName
+        af.is_static = v.is_static
+        def vn:CodeNode (unwrap v.nameNode)
+        af.typeName = (this.typeNameOf(vn))
+        def vnode@(optional):CodeNode v.node
+        if ((null? vnode) == false) {
+          def vd:CodeNode (unwrap vnode)
+          if (vd.has_doc_tail) {
+            af.doc = (this.readDocOf(vd ctx))
+            af.has_doc = true
+            af.is_public = af.doc.is_public
+            v.has_doc = true
+            v.docBlock = af.doc
+          }
+        }
+        push ac.fields af
+      }
+      for cl.methods fd:RangerAppFunctionDesc mi {
+        def m:RangerApiMethod (this.buildMethod(fd ctx false))
+        this.validateMethod(model m ctx)
+        push ac.methods m
+      }
+      for cl.static_methods fd:RangerAppFunctionDesc si {
+        def m:RangerApiMethod (this.buildMethod(fd ctx true))
+        this.validateMethod(model m ctx)
+        push ac.methods m
+      }
+      ; A member may not be public when the class that holds it is not:
+      ; every target would emit an API nobody outside the module can reach.
+      if (ac.is_public == false) {
+        if (ac.hasPublicMember()) {
+          ctx.addError((unwrap ac.node) ("class `" + ac.name + "` has public members but is not itself public. Add `public` to its doc block."))
+        }
+      }
+      push model.classes ac
+    }
+    return model
+  }
+}
+
+; Renders a doc block as the comment form of a target language.
+;
+; Everything that is not target syntax lives here once: the ordering of the
+; entries, the paragraph shape, and the type mapping. A language writer
+; implements only its own comment delimiters.
+class RangerDocCommentWriter {
+
+  ; A Ranger type as JSDoc spells it. documentation.js and every other JSDoc
+  ; consumer expect JavaScript type names, not Ranger ones.
+  fn jsTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "int" {
+        out = "number"
+      }
+      case "double" {
+        out = "number"
+      }
+      case "float" {
+        out = "number"
+      }
+      case "long" {
+        out = "number"
+      }
+      case "char" {
+        out = "number"
+      }
+      case "boolean" {
+        out = "boolean"
+      }
+      case "string" {
+        out = "string"
+      }
+      case "void" {
+        out = "void"
+      }
+      case "" {
+        out = "void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn jsTypeOf:string (node:CodeNode) {
+    def out:string ""
+    switch node.value_type {
+      case RangerNodeType.Array {
+        out = "Array<" + (this.jsTypeName(node.array_type)) + ">"
+      }
+      case RangerNodeType.Hash {
+        out = "Object<" + (this.jsTypeName(node.key_type)) + ", " + (this.jsTypeName(node.array_type)) + ">"
+      }
+      default {
+        out = (this.jsTypeName(node.type_name))
+      }
+    }
+    return out
+  }
+
+  ; C# XML documentation spells a type in its own names, and a generic in
+  ; angle brackets that have to be escaped when they appear in a cref.
+  fn csTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "bool"
+      }
+      case "void" {
+        out = "void"
+      }
+      case "" {
+        out = "void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn xmlEscape:string (value:string) {
+    def out:string ""
+    def i:int 0
+    def n:int (strlen value)
+    while (i < n) {
+      def piece:string (substring value i (i + 1))
+      def ch:int (charcode piece)
+      switch ch {
+        case 38 {
+          out = out + "&amp;"
+        }
+        case 60 {
+          out = out + "&lt;"
+        }
+        case 62 {
+          out = out + "&gt;"
+        }
+        default {
+          out = out + piece
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  ; Splits a description into lines so a multi-paragraph description does not
+  ; become one very long comment line.
+  fn linesOf:[string] (text:string) {
+    return (strsplit text "\n")
+  }
+
+  ; ---------------------------------------------------------------- JSDoc
+
+  fn writeJsDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    this.writeJsDocTyped(doc retType params "" wr)
+  }
+
+  fn writeJsDocTyped:void (doc:RangerDocBlock retType:string params:[RangerApiParam] valueType:string wr:CodeWriter) {
+    wr.out("/**" true)
+    def descLines:[string] (this.linesOf(doc.description))
+    def wroteBody:boolean false
+    for descLines line:string i {
+      wr.out((" * " + line) true)
+      wroteBody = true
+    }
+    if (doc.is_experimental) {
+      if wroteBody {
+        wr.out(" *" true)
+      }
+      wr.out(" * **Experimental.** This API may change without notice." true)
+      wroteBody = true
+    }
+    if (doc.is_deprecated == false) {
+    } {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use {@link " + dep.use + "} instead."
+        }
+      }
+      if ((strlen dep.since) > 0) {
+        msg = "Since " + dep.since + ". " + msg
+      }
+      wr.out((" * @deprecated " + msg) true)
+    }
+    if ((strlen valueType) > 0) {
+      wr.out((" * @type {" + valueType + "}") true)
+    }
+    for params p:RangerApiParam i {
+      def line:string (" * @param {" + p.typeName + "} " + p.compiledName)
+      if ((strlen p.description) > 0) {
+        line = line + " - " + p.description
+      }
+      wr.out(line true)
+    }
+    if (retType == "void") {
+    } {
+      def rline:string (" * @returns {" + retType + "}")
+      if ((strlen doc.returns) > 0) {
+        rline = rline + " " + doc.returns
+      }
+      wr.out(rline true)
+    }
+    for doc.throws t:string i {
+      wr.out((" * @throws {Error} " + t) true)
+    }
+    if ((strlen doc.since) > 0) {
+      wr.out((" * @since " + doc.since) true)
+    }
+    for doc.see s:string i {
+      wr.out((" * @see " + s) true)
+    }
+    for doc.examples e:string i {
+      wr.out(" * @example" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out((" * " + line) true)
+      }
+    }
+    ; documentation.js hides @private by default and shows it under --private,
+    ; which is exactly the "documented but not API" state.
+    if doc.is_public {
+      wr.out(" * @public" true)
+    } {
+      wr.out(" * @private" true)
+    }
+    for doc.attrs a:string i {
+      wr.out((" * " + a) true)
+    }
+    wr.out(" */" true)
+  }
+
+  ; ------------------------------------------- C# XML documentation comments
+
+  fn writeXmlLines:void (tag:string attrs:string text:string wr:CodeWriter) {
+    def lines:[string] (this.linesOf(text))
+    def open:string ("/// <" + tag + attrs + ">")
+    if ((array_length lines) < 2) {
+      wr.out((open + (this.xmlEscape(text)) + "</" + tag + ">") true)
+      return
+    }
+    wr.out(open true)
+    for lines line:string i {
+      wr.out(("/// " + (this.xmlEscape(line))) true)
+    }
+    wr.out(("/// </" + tag + ">") true)
+  }
+
+  fn writeCsDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    if ((strlen doc.description) > 0) {
+      this.writeXmlLines("summary" "" doc.description wr)
+    }
+    if (doc.is_experimental) {
+      this.writeXmlLines("remarks" "" "Experimental. This API may change without notice." wr)
+    }
+    for params p:RangerApiParam i {
+      def attrs:string (" name=\"" + p.compiledName + "\"")
+      this.writeXmlLines("param" attrs p.description wr)
+    }
+    if (retType == "void") {
+    } {
+      this.writeXmlLines("returns" "" doc.returns wr)
+    }
+    for doc.throws t:string i {
+      this.writeXmlLines("exception" " cref=\"System.Exception\"" t wr)
+    }
+    for doc.see s:string i {
+      wr.out(("/// <seealso cref=\"" + (this.xmlEscape(s)) + "\"/>") true)
+    }
+    for doc.examples e:string i {
+      wr.out("/// <example><code>" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("/// " + (this.xmlEscape(line))) true)
+      }
+      wr.out("/// </code></example>" true)
+    }
+  }
+
+  ; [Obsolete] carries the message; the XML <summary> carries the prose. The
+  ; two are different things in .NET and both are needed.
+  fn writeCsAttrs:void (doc:RangerDocBlock wr:CodeWriter) {
+    if (doc.is_deprecated) {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      wr.out(("[System.Obsolete(\"" + msg + "\")]") true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
+  ; ------------------------------------------------ descriptor convenience
+  ;
+  ; A language writer holds a RangerAppFunctionDesc, not an ApiIR method, so
+  ; these do the small translation once instead of in every writer.
+
+  fn paramsOf:[RangerApiParam] (fd:RangerAppFunctionDesc doc:RangerDocBlock forJs:boolean) {
+    def out:[RangerApiParam]
+    for fd.params p:RangerAppParamDesc i {
+      def ap:RangerApiParam (new RangerApiParam)
+      ap.name = p.name
+      ap.compiledName = p.compiledName
+      def pn:CodeNode (unwrap p.nameNode)
+      if forJs {
+        ap.typeName = (this.jsTypeOf(pn))
+      } {
+        ap.typeName = (this.csTypeName(pn.type_name))
+      }
+      ap.description = (doc.paramText(p.name))
+      push out ap
+    }
+    return out
+  }
+
+  fn writeJsDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("es6"))
+    def ps:[RangerApiParam] (this.paramsOf(fd view true))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.jsTypeOf(rn))
+    this.writeJsDoc(view rt ps wr)
+  }
+
+  fn writeCsDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("csharp"))
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.csTypeName(rn.type_name))
+    this.writeCsDoc(view rt ps wr)
+    this.writeCsAttrs(view wr)
+  }
+
+  fn writeJsDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("es6"))
+    def ps:[RangerApiParam]
+    this.writeJsDoc(view "void" ps wr)
+  }
+
+  fn writeCsDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("csharp"))
+    def ps:[RangerApiParam]
+    this.writeCsDoc(view "void" ps wr)
+    this.writeCsAttrs(view wr)
+  }
+
+  fn writeJsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("es6"))
+    def ps:[RangerApiParam]
+    def pn:CodeNode (unwrap p.nameNode)
+    ; the type is the compiler's, never the author's: PLAN_API_DOCS.md §3
+    this.writeJsDocTyped(view "void" ps (this.jsTypeOf(pn)) wr)
+  }
+
+  fn writeCsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("csharp"))
+    def ps:[RangerApiParam]
+    this.writeCsDoc(view "void" ps wr)
+    this.writeCsAttrs(view wr)
+  }
+}
+
+; Writes the standalone artifacts: the ApiIR as JSON, and a portable Markdown
+; reference. Everything else -- the per-target doc comments, the package
+; manifests -- is a different consumer of the same model.
+class RangerApiArtifactWriter {
+
+  fn jsonEscape:string (value:string) {
+    def out:string ""
+    def i:int 0
+    def n:int (strlen value)
+    while (i < n) {
+      def piece:string (substring value i (i + 1))
+      def ch:int (charcode piece)
+      switch ch {
+        case 34 {
+          out = out + "\\\""
+        }
+        case 92 {
+          out = out + "\\\\"
+        }
+        case 10 {
+          out = out + "\\n"
+        }
+        case 13 {
+          out = out + "\\r"
+        }
+        case 9 {
+          out = out + "\\t"
+        }
+        default {
+          out = out + piece
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  fn jsonString:string (value:string) {
+    return ("\"" + (this.jsonEscape(value)) + "\"")
+  }
+
+  fn jsonBool:string (value:boolean) {
+    if value {
+      return "true"
+    }
+    return "false"
+  }
+
+  fn jsonStringList:string (items:[string]) {
+    def out:string "["
+    for items s:string i {
+      if (i > 0) {
+        out = out + ", "
+      }
+      out = out + (this.jsonString(s))
+    }
+    return (out + "]")
+  }
+
+  fn docFields:string (doc:RangerDocBlock has:boolean) {
+    if (has == false) {
+      return ""
+    }
+    def out:string ""
+    out = out + ", \"description\": " + (this.jsonString(doc.description))
+    if ((strlen doc.since) > 0) {
+      out = out + ", \"since\": " + (this.jsonString(doc.since))
+    }
+    if ((strlen doc.category) > 0) {
+      out = out + ", \"category\": " + (this.jsonString(doc.category))
+    }
+    if ((strlen doc.platform) > 0) {
+      out = out + ", \"platform\": " + (this.jsonString(doc.platform))
+    }
+    if doc.is_experimental {
+      out = out + ", \"experimental\": true"
+    }
+    if ((array_length doc.see) > 0) {
+      out = out + ", \"see\": " + (this.jsonStringList(doc.see))
+    }
+    if ((array_length doc.throws) > 0) {
+      out = out + ", \"throws\": " + (this.jsonStringList(doc.throws))
+    }
+    if ((array_length doc.examples) > 0) {
+      out = out + ", \"examples\": " + (this.jsonStringList(doc.examples))
+    }
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      out = out + ", \"deprecated\": {\"since\": " + (this.jsonString(dep.since))
+      out = out + ", \"use\": " + (this.jsonString(dep.use))
+      out = out + ", \"description\": " + (this.jsonString(dep.description)) + "}"
+    }
+    return out
+  }
+
+  fn writeJson:void (model:RangerApiModel ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("{" true)
+    wr.indent(1)
+    wr.out(("\"generator\": \"ranger\"," ) true)
+    wr.out(("\"module\": " + (this.jsonString(model.moduleName)) + ",") true)
+    wr.out(("\"version\": " + (this.jsonString(model.version)) + ",") true)
+    wr.out(("\"description\": " + (this.jsonString(model.description)) + ",") true)
+    wr.out(("\"target\": " + (this.jsonString(ctx.targetLangName)) + ",") true)
+    wr.out("\"classes\": [" true)
+    wr.indent(1)
+    def clIdx:int 0
+    for model.classes c:RangerApiClass ci {
+      if (clIdx > 0) {
+        wr.out("," true)
+      }
+      clIdx = clIdx + 1
+      wr.out("{" true)
+      wr.indent(1)
+      wr.out(("\"name\": " + (this.jsonString(c.name)) + ",") true)
+      wr.out(("\"compiledName\": " + (this.jsonString(c.compiledName)) + ",") true)
+      wr.out(("\"kind\": " + (this.jsonString(c.kind)) + ",") true)
+      if ((strlen c.extendsName) > 0) {
+        wr.out(("\"extends\": " + (this.jsonString(c.extendsName)) + ",") true)
+      }
+      wr.out(("\"public\": " + (this.jsonBool(c.is_public)) + ",") true)
+      wr.out(("\"documented\": " + (this.jsonBool(c.has_doc)) + "") false)
+      if c.has_doc {
+        def cdoc:RangerDocBlock (unwrap c.doc)
+        wr.out((this.docFields(cdoc true)) false)
+      }
+      wr.out("," true)
+      wr.out("\"fields\": [" false)
+      def fIdx:int 0
+      for c.fields f:RangerApiField fi {
+        if (fIdx > 0) {
+          wr.out(", " false)
+        }
+        fIdx = fIdx + 1
+        wr.out("{" false)
+        wr.out(("\"name\": " + (this.jsonString(f.name))) false)
+        wr.out((", \"compiledName\": " + (this.jsonString(f.compiledName))) false)
+        wr.out((", \"type\": " + (this.jsonString(f.typeName))) false)
+        wr.out((", \"static\": " + (this.jsonBool(f.is_static))) false)
+        wr.out((", \"public\": " + (this.jsonBool(f.is_public))) false)
+        wr.out((", \"documented\": " + (this.jsonBool(f.has_doc))) false)
+        if f.has_doc {
+          def fdoc:RangerDocBlock (unwrap f.doc)
+          wr.out((this.docFields(fdoc true)) false)
+        }
+        wr.out("}" false)
+      }
+      wr.out("]," true)
+      wr.out("\"methods\": [" true)
+      wr.indent(1)
+      def mIdx:int 0
+      for c.methods m:RangerApiMethod mi {
+        if (mIdx > 0) {
+          wr.out("," true)
+        }
+        mIdx = mIdx + 1
+        wr.out("{" false)
+        wr.out(("\"name\": " + (this.jsonString(m.name))) false)
+        wr.out((", \"compiledName\": " + (this.jsonString(m.compiledName))) false)
+        wr.out((", \"static\": " + (this.jsonBool(m.is_static))) false)
+        wr.out((", \"public\": " + (this.jsonBool(m.is_public))) false)
+        wr.out((", \"documented\": " + (this.jsonBool(m.has_doc))) false)
+        wr.out((", \"returns\": {\"type\": " + (this.jsonString(m.returnType))) false)
+        wr.out((", \"description\": " + (this.jsonString(m.returnDoc)) + "}") false)
+        wr.out(", \"params\": [" false)
+        def pIdx:int 0
+        for m.params p:RangerApiParam pi {
+          if (pIdx > 0) {
+            wr.out(", " false)
+          }
+          pIdx = pIdx + 1
+          wr.out("{" false)
+          wr.out(("\"name\": " + (this.jsonString(p.name))) false)
+          wr.out((", \"compiledName\": " + (this.jsonString(p.compiledName))) false)
+          wr.out((", \"type\": " + (this.jsonString(p.typeName))) false)
+          wr.out((", \"description\": " + (this.jsonString(p.description))) false)
+          wr.out("}" false)
+        }
+        wr.out("]" false)
+        if m.has_doc {
+          def mdoc:RangerDocBlock (unwrap m.doc)
+          wr.out((this.docFields(mdoc true)) false)
+        }
+        wr.out("}" false)
+      }
+      wr.out("" true)
+      wr.indent(-1)
+      wr.out("]" true)
+      wr.indent(-1)
+      wr.out("}" false)
+    }
+    wr.out("" true)
+    wr.indent(-1)
+    wr.out("]" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  fn writeMarkdown:void (model:RangerApiModel ctx:RangerAppWriterContext wr:CodeWriter) {
+    def title:string model.moduleName
+    if ((strlen title) == 0) {
+      title = "API reference"
+    }
+    wr.out(("# " + title) true)
+    if ((strlen model.version) > 0) {
+      wr.out("" true)
+      wr.out(("Version " + model.version) true)
+    }
+    if ((strlen model.description) > 0) {
+      wr.out("" true)
+      wr.out(model.description true)
+    }
+    for model.classes c:RangerApiClass ci {
+      if (c.is_public == false) {
+        continue
+      }
+      wr.out("" true)
+      wr.out(("## " + c.name) true)
+      if c.has_doc {
+        def cdoc:RangerDocBlock (unwrap c.doc)
+        if ((strlen cdoc.description) > 0) {
+          wr.out("" true)
+          wr.out(cdoc.description true)
+        }
+      }
+      def wroteFields:boolean false
+      for c.fields f:RangerApiField fi {
+        if (f.is_public == false) {
+          continue
+        }
+        if (wroteFields == false) {
+          wr.out("" true)
+          wr.out("### Fields" true)
+          wr.out("" true)
+          wr.out("| Name | Type | Description |" true)
+          wr.out("| --- | --- | --- |" true)
+          wroteFields = true
+        }
+        def fdesc:string ""
+        if f.has_doc {
+          def fdoc:RangerDocBlock (unwrap f.doc)
+          fdesc = fdoc.description
+        }
+        wr.out(("| `" + f.name + "` | `" + f.typeName + "` | " + fdesc + " |") true)
+      }
+      for c.methods m:RangerApiMethod mi {
+        if (m.is_public == false) {
+          continue
+        }
+        wr.out("" true)
+        def sig:string ("### `" + m.name + "(")
+        for m.params p:RangerApiParam pi {
+          if (pi > 0) {
+            sig = sig + " "
+          }
+          sig = sig + p.name + ":" + p.typeName
+        }
+        sig = sig + ")` → `" + m.returnType + "`"
+        wr.out(sig true)
+        if m.has_doc {
+          def mdoc:RangerDocBlock (unwrap m.doc)
+          if ((strlen mdoc.description) > 0) {
+            wr.out("" true)
+            wr.out(mdoc.description true)
+          }
+          if mdoc.is_deprecated {
+            def dep:RangerDocDeprecation (unwrap mdoc.deprecation)
+            wr.out("" true)
+            wr.out(("**Deprecated** since " + dep.since + ". " + dep.description) true)
+          }
+          if ((array_length m.params) > 0) {
+            wr.out("" true)
+            for m.params p:RangerApiParam pi {
+              wr.out(("- `" + p.name + "` — " + p.description) true)
+            }
+          }
+          if ((strlen mdoc.returns) > 0) {
+            wr.out("" true)
+            wr.out(("Returns: " + mdoc.returns) true)
+          }
+          if ((strlen mdoc.since) > 0) {
+            wr.out("" true)
+            wr.out(("Since " + mdoc.since) true)
+          }
+        }
+      }
+    }
+  }
+
+  ; A flat, sorted-by-declaration rendering of the PUBLIC surface only.
+  ; Committed and diffed, it turns an API change into a diff hunk.
+  fn writeReport:void (model:RangerApiModel wr:CodeWriter) {
+    for model.classes c:RangerApiClass ci {
+      if (c.is_public == false) {
+        continue
+      }
+      wr.out(c.name true)
+      for c.fields f:RangerApiField fi {
+        if f.is_public {
+          wr.out((c.name + "." + f.name + ": " + f.typeName) true)
+        }
+      }
+      for c.methods m:RangerApiMethod mi {
+        if m.is_public {
+          def line:string (c.name + "." + m.name + "(")
+          for m.params p:RangerApiParam pi {
+            if (pi > 0) {
+              line = line + ", "
+            }
+            line = line + p.name + ": " + p.typeName
+          }
+          line = line + "): " + m.returnType
+          if m.has_doc {
+            def mdoc:RangerDocBlock (unwrap m.doc)
+            if ((strlen mdoc.since) > 0) {
+              line = line + "   @since " + mdoc.since
+            }
+            if mdoc.is_deprecated {
+              def dep:RangerDocDeprecation (unwrap mdoc.deprecation)
+              line = line + "   @deprecated " + dep.since
+            }
+          }
+          wr.out(line true)
+        }
+      }
+    }
+  }
+
+  fn writeAll:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def dirName:string (ctx.getCompilerSetting("apidoc"))
+    def formats:string "json,markdown"
+    if (ctx.hasCompilerSetting("apiformat")) {
+      formats = (ctx.getCompilerSetting("apiformat"))
+    }
+    def parts:[string] (strsplit formats ",")
+    for parts fmt:string i {
+      switch fmt {
+        case "json" {
+          def jw:CodeWriter (orig_wr.getFileWriter(dirName "api.json"))
+          this.writeJson(model ctx jw)
+        }
+        case "markdown" {
+          def mw:CodeWriter (orig_wr.getFileWriter(dirName "api.md"))
+          this.writeMarkdown(model ctx mw)
+        }
+        case "report" {
+          def rw:CodeWriter (orig_wr.getFileWriter(dirName "api.txt"))
+          this.writeReport(model rw)
+        }
+        default {
+        }
+      }
+    }
+  }
+}
+
+; Writes the packaging a target's own ecosystem expects around the generated
+; API, so the output is a package rather than a loose source file.
+;
+; The layout differs per target because the ecosystems disagree: npm wants one
+; manifest beside an entry point, NuGet wants a project that turns on the XML
+; documentation file the C# compiler produces. Both are driven from the same
+; model.
+class RangerApiPackageWriter {
+
+  fn settingOr:string (ctx:RangerAppWriterContext key:string fallback:string) {
+    if (ctx.hasCompilerSetting(key)) {
+      return (ctx.getCompilerSetting(key))
+    }
+    return fallback
+  }
+
+  fn jsonEscape:string (value:string) {
+    def w:RangerApiArtifactWriter (new RangerApiArtifactWriter)
+    return (w.jsonEscape(value))
+  }
+
+  ; --------------------------------------------------------------- npm
+
+  fn writeNpmPackage:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def name:string (this.settingOr(ctx "name" model.moduleName))
+    def version:string (this.settingOr(ctx "version" "0.1.0"))
+    def descr:string (this.settingOr(ctx "description" model.description))
+    def author:string (this.settingOr(ctx "author" ""))
+    def license:string (this.settingOr(ctx "license" "UNLICENSED"))
+    def mainFile:string (this.settingOr(ctx "o" "output.js"))
+    def isTs:boolean (ctx.hasCompilerFlag("typescript"))
+
+    def wr:CodeWriter (orig_wr.getFileWriter("." "package.json"))
+    wr.out("{" true)
+    wr.indent(1)
+    wr.out(("\"name\": \"" + (this.jsonEscape(name)) + "\",") true)
+    wr.out(("\"version\": \"" + (this.jsonEscape(version)) + "\",") true)
+    wr.out(("\"description\": \"" + (this.jsonEscape(descr)) + "\",") true)
+    if ((strlen author) > 0) {
+      wr.out(("\"author\": \"" + (this.jsonEscape(author)) + "\",") true)
+    }
+    wr.out(("\"license\": \"" + (this.jsonEscape(license)) + "\",") true)
+    wr.out(("\"main\": \"" + (this.jsonEscape(mainFile)) + "\",") true)
+    if isTs {
+      def dts:string mainFile
+      if (endsWith dts ".ts") {
+        dts = (substring dts 0 ((strlen dts) - 3)) + ".d.ts"
+      }
+      wr.out(("\"types\": \"" + (this.jsonEscape(dts)) + "\",") true)
+    }
+    if (ctx.hasCompilerFlag("esm")) {
+      wr.out("\"type\": \"module\"," true)
+    }
+    wr.out("\"files\": [" true)
+    wr.indent(1)
+    wr.out(("\"" + (this.jsonEscape(mainFile)) + "\",") true)
+    wr.out("\"README.md\"" true)
+    wr.indent(-1)
+    wr.out("]," true)
+    ; documentation.js reads the JSDoc the compiler wrote; nothing here is
+    ; Ranger specific, which is the point.
+    wr.out("\"scripts\": {" true)
+    wr.indent(1)
+    wr.out(("\"docs\": \"documentation build " + (this.jsonEscape(mainFile)) + " -f html -o docs/api\",") true)
+    wr.out(("\"docs:md\": \"documentation build " + (this.jsonEscape(mainFile)) + " -f md -o API.md\",") true)
+    wr.out(("\"docs:json\": \"documentation build " + (this.jsonEscape(mainFile)) + " -f json -o docs/api.json\",") true)
+    wr.out(("\"docs:lint\": \"documentation lint " + (this.jsonEscape(mainFile)) + "\"") true)
+    wr.indent(-1)
+    wr.out("}," true)
+    wr.out("\"devDependencies\": {" true)
+    wr.indent(1)
+    wr.out("\"documentation\": \"^14.0.3\"" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  ; ------------------------------------------------------------- NuGet
+
+  fn xmlEscape:string (value:string) {
+    def w:RangerDocCommentWriter (new RangerDocCommentWriter)
+    return (w.xmlEscape(value))
+  }
+
+  fn writeCsProject:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def name:string (this.settingOr(ctx "name" model.moduleName))
+    if ((strlen name) == 0) {
+      name = "RangerApi"
+    }
+    def version:string (this.settingOr(ctx "version" "0.1.0"))
+    def descr:string (this.settingOr(ctx "description" model.description))
+    def author:string (this.settingOr(ctx "author" ""))
+    def license:string (this.settingOr(ctx "license" ""))
+    def wr:CodeWriter (orig_wr.getFileWriter("." (name + ".csproj")))
+    wr.out("<Project Sdk=\"Microsoft.NET.Sdk\">" true)
+    wr.indent(1)
+    wr.out("<PropertyGroup>" true)
+    wr.indent(1)
+    wr.out("<TargetFramework>netstandard2.0</TargetFramework>" true)
+    wr.out("<LangVersion>latest</LangVersion>" true)
+    wr.out(("<PackageId>" + (this.xmlEscape(name)) + "</PackageId>") true)
+    wr.out(("<AssemblyName>" + (this.xmlEscape(name)) + "</AssemblyName>") true)
+    wr.out(("<RootNamespace>" + (this.xmlEscape(name)) + "</RootNamespace>") true)
+    wr.out(("<Version>" + (this.xmlEscape(version)) + "</Version>") true)
+    if ((strlen descr) > 0) {
+      wr.out(("<Description>" + (this.xmlEscape(descr)) + "</Description>") true)
+    }
+    if ((strlen author) > 0) {
+      wr.out(("<Authors>" + (this.xmlEscape(author)) + "</Authors>") true)
+    }
+    if ((strlen license) > 0) {
+      wr.out(("<PackageLicenseExpression>" + (this.xmlEscape(license)) + "</PackageLicenseExpression>") true)
+    }
+    ; This is the line the whole C# documentation path depends on: without it
+    ; the compiler discards the XML comments and DocFX has nothing to read.
+    wr.out("<GenerateDocumentationFile>true</GenerateDocumentationFile>" true)
+    wr.out("<PackageReadmeFile>README.md</PackageReadmeFile>" true)
+    wr.out("<IncludeSymbols>true</IncludeSymbols>" true)
+    wr.out("<SymbolPackageFormat>snupkg</SymbolPackageFormat>" true)
+    ; 1591 is "missing XML comment for a publicly visible type or member".
+    ; -apistrict is where Ranger reports that, on the Ranger declaration, so
+    ; the C# compiler repeating it against generated code is noise.
+    wr.out("<NoWarn>$(NoWarn);1591</NoWarn>" true)
+    wr.indent(-1)
+    wr.out("</PropertyGroup>" true)
+    wr.out("<ItemGroup>" true)
+    wr.indent(1)
+    wr.out("<None Include=\"README.md\" Pack=\"true\" PackagePath=\"\\\" />" true)
+    wr.indent(-1)
+    wr.out("</ItemGroup>" true)
+    wr.indent(-1)
+    wr.out("</Project>" true)
+  }
+
+  ; DocFX reads the assembly and its XML documentation file, so the project
+  ; above is the whole input. This only names it.
+  fn writeDocFxConfig:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def name:string (this.settingOr(ctx "name" model.moduleName))
+    if ((strlen name) == 0) {
+      name = "RangerApi"
+    }
+    def wr:CodeWriter (orig_wr.getFileWriter("." "docfx.json"))
+    wr.out("{" true)
+    wr.indent(1)
+    wr.out("\"metadata\": [" true)
+    wr.indent(1)
+    wr.out("{" true)
+    wr.indent(1)
+    def projName:string (this.jsonEscape(name))
+    wr.out(("\"src\": [ { \"files\": [ \"" + projName + ".csproj\" ] } ],") true)
+    wr.out("\"dest\": \"api\"" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("]," true)
+    wr.out("\"build\": {" true)
+    wr.indent(1)
+    wr.out("\"content\": [ { \"files\": [ \"api/**.yml\", \"api/index.md\" ] } ]," true)
+    wr.out("\"dest\": \"_site\"" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  ; --------------------------------------------------------------- README
+
+  fn writeReadme:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def wr:CodeWriter (orig_wr.getFileWriter("." "README.md"))
+    def aw:RangerApiArtifactWriter (new RangerApiArtifactWriter)
+    aw.writeMarkdown(model ctx wr)
+  }
+
+  fn writeAll:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    switch ctx.targetLangName {
+      case "es6" {
+        this.writeNpmPackage(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      case "csharp" {
+        this.writeCsProject(model ctx orig_wr)
+        this.writeDocFxConfig(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      default {
+        this.writeReadme(model ctx orig_wr)
+      }
+    }
+  }
+}

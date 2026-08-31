@@ -64,6 +64,10 @@ extension CodeNode {
   def fnDesc:RangerAppFunctionDesc    
   def lambdaFnDesc@(weak):RangerAppFunctionDesc
   def hasParamDesc:boolean false    
+  ; The `doc { … }` tail of a declaration, moved off `children` by
+  ; DetachDocBlocks before anything counts children. PLAN_API_DOCS.md §6.1.
+  def has_doc_tail:boolean false
+  def docNode:CodeNode
   def paramDesc@(weak optional):RangerAppParamDesc
   def ownParamDesc@(optional):RangerAppParamDesc
   ; The context a node was ANALYSED in. Code generation reads it back

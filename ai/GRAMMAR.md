@@ -176,7 +176,7 @@ scalars is carried *inside* the tag, so constructing one allocates nothing.
 <property-def>  ::= 'def' <identifier> <type-annotation>? <expression>?
 
 <method-def>    ::= <fn-keyword> <identifier> <return-type>?
-                    '(' <param-list>? ')' <block>
+                    '(' <param-list>? ')' <block> <doc-tail>?
 
 <fn-keyword>    ::= 'fn' | 'sfn'
 
@@ -188,6 +188,51 @@ scalars is carried *inside* the tag, so constructing one allocates nothing.
 ```
 
 Entry point: `sfn main:void ()` (name `main` receives `@(main)` automatically).
+
+## Documentation Tail
+
+API metadata attached to a declaration, as its tail. Valid only there: a `doc`
+block on a line of its own binds to nothing and is a compile error.
+
+```bnf
+<doc-tail>      ::= 'doc' '{' <doc-entry>* '}'
+
+<doc-entry>     ::= 'public' | 'internal' | 'experimental'
+                  | 'description' <string>
+                  | 'param' <identifier> <string>
+                  | 'returns' <string>
+                  | 'throws' <string>
+                  | 'since' <string>
+                  | 'see' <identifier>
+                  | 'example' <string>
+                  | 'category' <string>
+                  | 'platform' <identifier>
+                  | 'attr' <string>
+                  | 'deprecated' '{' <deprecated-entry>* '}'
+                  | 'target' <identifier> '{' <doc-entry>* '}'
+
+<deprecated-entry> ::= 'since' <string> | 'use' <identifier> | 'description' <string>
+```
+
+A `doc` tail is accepted on `fn`, `sfn`, `Constructor`, `class`, `record`,
+`shape`, `case`, `group`, `enum`, `module` and a class-level `def`.
+
+```ranger
+fn find:EVGA11yNode ( id:string ) {
+    ...
+} doc {
+    public
+    description "Finds an accessibility node."
+    param id "The stable accessibility identifier."
+    returns "The matching node."
+    since "1.2"
+}
+```
+
+A doc entry may not carry information the compiler already has: `param x int "…"`
+is a compile error, because the type is in the signature. `public` is what puts
+a declaration in the API surface — there is no `export` keyword. See
+[`PLAN_API_DOCS.md`](../PLAN_API_DOCS.md).
 
 ## Extension Definition
 

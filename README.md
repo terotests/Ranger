@@ -398,7 +398,12 @@ Options: -<option>=<value>
   -o=<value>             output file, default is "output.<language>"
   -classdoc=<value>      write class documentation .md file
   -operatordoc=<value>   write operator documention into .md file
+  -apidoc=<value>        write the API documentation artifacts into this subdirectory
+  -apiformat=<value>     which API artifacts to write: json, markdown, report (default json,markdown)
+  -csnamespace=<value>   C# file namespace for the generated types
 Flags: -<flag>
+  -apipackage    Write the packaging the target ecosystem expects (package.json for npm, .csproj and docfx.json for NuGet)
+  -apistrict     An undocumented public declaration or parameter is an error, not a warning
   -forever       Leave the main program into eternal loop (Go, Swift)
   -allowti       Allow type inference at target lang (creates slightly smaller code)
   -plugins-only  ignore built-in language output and use only plugins
@@ -743,6 +748,85 @@ Hello.SomeStaticFn()   ; calling a static function of a class
 [Program structure](https://terotests.github.io/Ranger/docs/language/structure/)
 covers `class`, `record`, `systemclass`, `Import`, `Extend` and `Enum` in one
 table, and explains how blocks are passed to operators.
+
+## API documentation: the `doc { }` tail
+
+A declaration can carry a `doc { … }` block as its **tail**, after the body. The
+signature stays clean and the documentation is visibly an attachment to the
+declaration rather than a part of the program. It is compiler metadata, not a
+comment: `;` still documents the implementation, `doc` documents the interface.
+
+```
+class EVGA11yTree {
+    def focusId:string "" doc {
+        public
+        description "The identifier of the currently focused node."
+    }
+
+    fn find:EVGA11yNode ( id:string ) {
+        ...
+    } doc {
+        public
+        description "Finds an accessibility node by its stable identifier."
+        param id "The stable accessibility identifier."
+        returns "The matching node."
+        since "1.2"
+        see EVGA11yNode
+    }
+
+    fn rebuildIndex:void () {
+    } doc {
+        description "Rebuilds the lookup index. Not part of the public API."
+    }
+} doc {
+    public
+    description "A platform independent accessibility tree."
+}
+```
+
+**The block never restates what the compiler already knows.** There is no
+`param x int` and no `returns void`: the types come from the signature, and a
+`param` line that carries a type is a compile error. What the doc block carries
+is what no analysis can recover — prose, audience, version history and
+cross-references.
+
+**Documentation is the API declaration.** There is no `export fn` keyword:
+
+```
+no doc block            -> internal, undocumented
+doc { … }               -> documented, internal
+doc { public … }        -> exported public API
+```
+
+An undocumented function has no spelling for `public`. The block is checked
+against the signature it documents, which is the point of it being structured:
+a `param` that names no parameter, a `param` documented twice, a `returns` on a
+void function and a public member of an internal class are all compile errors.
+
+Entries: `public`, `internal`, `description`, `param`, `returns`, `throws`,
+`since`, `deprecated { since use description }`, `see`, `example`, `category`,
+`experimental`, `platform`, and `target <name> { … }` for markup that only one
+language has.
+
+The compiler writes the documentation into the generated code in the target's
+own form and, with `-apidoc=<dir>`, a target-independent `api.json`, a Markdown
+reference and an `api.txt` report of the public surface. `-apipackage` adds the
+packaging the ecosystem expects:
+
+```bash
+# an npm package documentation.js renders with no configuration
+rgrc -es6 a11y.rgr -d=out -o=index.js -nodemodule \
+  -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0 -license=MIT
+
+# a NuGet project whose XML documentation DocFX reads
+rgrc -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
+  -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
+```
+
+JavaScript gets JSDoc (`@param {string} id`, `@public` / `@private`), C# gets
+XML documentation (`<summary>`, `<param>`, `<seealso cref>`, `[System.Obsolete]`),
+a namespace, and `public` / `internal` from the doc blocks. Design and the
+remaining targets: [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
 
 ## Types
 

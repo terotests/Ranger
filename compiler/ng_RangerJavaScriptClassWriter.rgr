@@ -655,7 +655,7 @@ class RangerJavaScriptClassWriter {
       if was_set {
         wr.out(";" false)
         if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-          wr.out("     /** note: unused */" false)
+          wr.out("     /* note: unused */" false)
         }
         wr.newline()
       }
@@ -724,7 +724,7 @@ class RangerJavaScriptClassWriter {
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       wr.out(";" false)
       wr.newline()
@@ -1021,6 +1021,11 @@ class RangerJavaScriptClassWriter {
       }
     }
 
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeJsDocForClass((unwrap cl) wr)
+    }
+
     if do_export {
       wr.out("export " false)
       if(is_rn_default) {
@@ -1047,6 +1052,12 @@ class RangerJavaScriptClassWriter {
     wr.indent(1)
     ; define the class variables
     for cl.variables pvar:RangerAppParamDesc i {
+      if target_typescript {
+        if pvar.has_doc {
+          def tsFieldDoc:RangerDocCommentWriter (new RangerDocCommentWriter)
+          tsFieldDoc.writeJsDocForField(pvar wr)
+        }
+      }
       this.writeClassVarDef( pvar ctx wr)
     }
 
@@ -1139,6 +1150,12 @@ class RangerJavaScriptClassWriter {
         if pvar.is_static {
           continue _
         }
+        if (target_typescript == false) {
+          if pvar.has_doc {
+            def jsFieldDoc:RangerDocCommentWriter (new RangerDocCommentWriter)
+            jsFieldDoc.writeJsDocForField(pvar wr)
+          }
+        }
         this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
       }
       if cl.has_constructor {
@@ -1159,6 +1176,10 @@ class RangerJavaScriptClassWriter {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
 
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeJsDocForMethod(variant wr)
+        }
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('async ' false)
         }
@@ -1208,6 +1229,10 @@ class RangerJavaScriptClassWriter {
           continue _
         } 
 
+        if variant.has_doc {
+          def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          sDocWr.writeJsDocForMethod(variant wr)
+        }
         wr.out("static " false)
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('async ' false)
@@ -1364,6 +1389,10 @@ class RangerJavaScriptClassWriter {
           def useDefineProp:boolean false
           if ((variant.compiledName == "name") || (variant.compiledName == "length")) {
             useDefineProp = true
+          }
+          if variant.has_doc {
+            def jsDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+            jsDocWr.writeJsDocForMethod(variant wr)
           }
           if useDefineProp {
             wr.out((("Object.defineProperty(" + cl.name + ", \"" + variant.compiledName + "\", { value: ") + asyncKeyword + "function(") false)

@@ -3,6 +3,8 @@
 
 Import "stdlib.rgr"
 Import "ng_RangerAppMessages.rgr"
+Import "ng_RangerDocBlock.rgr"
+Import "ng_RangerApiDoc.rgr"
 Import "ng_RangerAppParamDesc.rgr"
 Import "ng_RangerAppFunctionDesc.rgr"
 Import "ng_RangerAppClassDesc.rgr"
@@ -7158,8 +7160,68 @@ class RangerFlowParser {
     }
   }
 
+  ; Declarations that may carry a `doc { … }` tail. PLAN_API_DOCS.md §2.3.
+  fn isDocumentableHead:boolean (name:string) {
+    if (name == "fn") { return true }
+    if (name == "sfn") { return true }
+    if (name == "static") { return true }
+    if (name == "class") { return true }
+    if (name == "record") { return true }
+    if (name == "shape") { return true }
+    if (name == "enum") { return true }
+    if (name == "def") { return true }
+    if (name == "Constructor") { return true }
+    if (name == "constructor") { return true }
+    if (name == "case") { return true }
+    if (name == "variant") { return true }
+    if (name == "group") { return true }
+    if (name == "module") { return true }
+    return false
+  }
+
+  ; Moves a trailing `doc { … }` off the declaration node and onto docNode,
+  ; BEFORE anything counts children. Every existing arity check and index
+  ; lookup then sees exactly the tree it saw before the feature existed --
+  ; which is also what keeps EnterClass from taking the doc block for the
+  ; class body and emitting an unanalysed method (ISSUES.md #75).
+  ;
+  ; A head that is not a declaration is left alone rather than reported: an
+  ; ordinary `if doc { … }` over a variable called `doc` has the same shape.
+  fn DetachDocBlocks:void (node@(lives):CodeNode ctx:RangerAppWriterContext) {
+    def cnt:int (node.chlen())
+    if (cnt > 2) {
+      def tailWord:CodeNode (at node.children (cnt - 2))
+      def tailBlock:CodeNode (at node.children (cnt - 1))
+      if ((tailWord.vref == "doc") && tailBlock.is_block_node) {
+        def head:string (node.getVRefAt(0))
+        if (this.isDocumentableHead(head)) {
+          node.has_doc_tail = true
+          node.docNode = tailBlock
+          remove node.children (cnt - 1)
+          remove node.children (cnt - 2)
+        }
+      }
+    }
+    ; `doc { … }` as a statement of its own binds to nothing. Silently dropping
+    ; it publishes nothing while the author believes it published something.
+    if (node.isFirstVref("doc")) {
+      if ((node.chlen()) == 2) {
+        def second:CodeNode (node.getSecond())
+        if (second.is_block_node) {
+          ctx.addError(node "documentation block is not attached to a declaration. Write it as the tail of the declaration: `} doc { … }`")
+        }
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.DetachDocBlocks(ch ctx)
+    }
+  }
+
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
+    ; the `doc { … }` tails come off first, so nothing below this line sees a
+    ; declaration node with two extra children
+    this.DetachDocBlocks(node ctx)
     ; shapes first: everything below this line sees ordinary records and unions
     this.DesugarShapes(node ctx wr)
     ; then tree literals, for the same reason: everything below this line sees

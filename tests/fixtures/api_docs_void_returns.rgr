@@ -1,0 +1,11 @@
+class VoidReturns {
+  fn foo:void () {
+  } doc {
+    public
+    description "Documents a return value it does not have."
+    returns "something"
+  }
+}
+sfn main:void () {
+  print "ok"
+}

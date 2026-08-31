@@ -162,6 +162,10 @@ class RangerAppParamDesc {
   def return_value:RangerAppParamDesc
   def description:string ""
   def git_doc:string ""
+  ; The parsed `doc { … }` tail. RangerAppClassDesc and RangerAppFunctionDesc
+  ; both extend this class, so one slot serves classes, methods and fields.
+  def has_doc:boolean false
+  def docBlock:RangerDocBlock
   def has_events:boolean false
   def eMap:RangerParamEventMap
 
