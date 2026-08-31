@@ -1317,8 +1317,17 @@ class EvgBitmapTracer {
                     def farScore:double 0.0
                     i = 0
                     while (i < m) {
-                        def dd:double (this.dist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outG (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outB (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB)))))
-                        def bw2:double (this.binWeight((itemAt binW i) (itemAt binR i) (itemAt binG i) (itemAt binB i)))
+                        ; The bin's own color and the swatch nearest it, each
+                        ; read once. Asking nearestIndex three times inside the
+                        ; distance call was three times the work for one answer,
+                        ; and it is a borrow of `this` inside a call on `this`,
+                        ; which the Rust target refuses outright.
+                        def br2:int (itemAt binR i)
+                        def bg2:int (itemAt binG i)
+                        def bb2:int (itemAt binB i)
+                        def near:int (this.nearestIndex(br2 bg2 bb2 outR outG outB))
+                        def dd:double (this.dist2(br2 bg2 bb2 (itemAt outR near) (itemAt outG near) (itemAt outB near)))
+                        def bw2:double (this.binWeight((itemAt binW i) br2 bg2 bb2))
                         def sc:double (dd * bw2)
                         if (sc > farScore) {
                             farScore = sc

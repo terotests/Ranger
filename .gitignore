@@ -137,6 +137,7 @@ gallery/evg/bin/evg_trace_cli.cpp
 gallery/evg/bin/evg_trace_cli.rs
 gallery/evg/bin/evg_trace_cli
 gallery/evg/bin/evg_trace_cli_rust
+gallery/evg/bin/evg_trace_cli.rs
 gallery/evg/bin/evg_trace_cpp_bench.cpp
 gallery/evg/bin/evg_trace_cpp_bench
 

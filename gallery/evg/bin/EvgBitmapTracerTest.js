@@ -8044,8 +8044,12 @@ class EvgBitmapTracer  {
           let farScore = 0.0;
           i = 0;
           while (i < m) {
-            const dd = this.dist2((binR[i]), (binG[i]), (binB[i]), (outR[this.nearestIndex((binR[i]), (binG[i]), (binB[i]), outR, outG, outB)]), (outG[this.nearestIndex((binR[i]), (binG[i]), (binB[i]), outR, outG, outB)]), (outB[this.nearestIndex((binR[i]), (binG[i]), (binB[i]), outR, outG, outB)]));
-            const bw2 = this.binWeight((binW[i]), (binR[i]), (binG[i]), (binB[i]));
+            const br2 = binR[i];
+            const bg2 = binG[i];
+            const bb2 = binB[i];
+            const near = this.nearestIndex(br2, bg2, bb2, outR, outG, outB);
+            const dd = this.dist2(br2, bg2, bb2, (outR[near]), (outG[near]), (outB[near]));
+            const bw2 = this.binWeight((binW[i]), br2, bg2, bb2);
             const sc = dd * bw2;
             if ( sc > farScore ) {
               farScore = sc;

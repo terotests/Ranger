@@ -65,6 +65,18 @@ Because it is Ranger, that file can be any of them:
 
 | | build | run |
 | --- | --- | --- |
+| C++ | `npm run evg:trace:cli:cpp` → one `.cpp`, then `g++` | 1.0× |
+| Rust | `npm run evg:trace:cli:rust` → one `.rs`, then `rustc -O` | 1.9× |
+| Node | `npm run evg:trace:cli:run` (already built) | 2.5× |
+| Python | `npm run evg:trace:cli:py` → one `.py`, stdlib only | 22× |
+
+The Rust build is consistently about twice the C++ one, and it is the backend
+rather than the language: the generated Rust keeps objects in `Rc<RefCell<…>>`
+and clones array and struct arguments defensively to satisfy the borrow
+checker. `penalty3`, the innermost function of the optimal-polygon search and
+so called O(n²) times, arrives with six clones per call — three of them whole
+`EvgTraceSum` structs where a reference would do. That is a Rust backend
+optimisation waiting to happen, not a cost of the target.
 | Node | `npm run evg:trace:cli:run` (already built) | ~0.45 s |
 | Python | `npm run evg:trace:cli:py` → one `.py`, stdlib only | ~4.8 s |
 | C++ | `npm run evg:trace:cli:cpp` → one `.cpp`, then `g++` | ~0.19 s |
@@ -114,8 +126,8 @@ faster on the thumbnail and three times slower on the large one, because its
 cost per pixel rises with the picture and this one's falls. autotrace is the
 closest match at scale (3837 ms) and potrace is in another league (47 ms) while
 tracing one bitmap rather than quantizing first. The Node build costs about
-three times the C++ one and Python about thirty, which is what portability
-costs here; 98% of any of them is the trace itself, not the PNG decode or the
+two and a half times the C++ one, Rust about twice and Python about twenty,
+which is what portability costs here; 98% of any of them is the trace itself, not the PNG decode or the
 SVG writing.
 
 `npm run evg:trace:bench:native` is the third measurement and the narrowest:

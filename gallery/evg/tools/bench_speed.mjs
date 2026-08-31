@@ -88,6 +88,8 @@ if (fs.existsSync(path.join(ROOT, BIN, "evg_trace_cli.js")))
   cases.push(["Ranger Node", "node", s => [process.execPath, [`${BIN}/evg_trace_cli.js`, s, `${OUT}/node.svg`, "--preset", "poster"]]]);
 if (fs.existsSync(path.join(ROOT, BIN, "evg_trace_cli.py")) && floors.python !== null)
   cases.push(["Ranger Python", "python", s => ["python3", [`${BIN}/evg_trace_cli.py`, s, `${OUT}/py.svg`, "--preset", "poster"]]]);
+if (fs.existsSync(path.join(ROOT, BIN, "evg_trace_cli_rust")))
+  cases.push(["Ranger Rust", "native", s => [`./${BIN}/evg_trace_cli_rust`, [s, `${OUT}/rust.svg`, "--preset", "poster"]]]);
 if (VT) cases.push(["vtracer", "native", s => [VT, [s, `${OUT}/vt.svg`]]]);
 if (AT) cases.push(["autotrace", "native", s => [AT,
   ["-input-format", "png", "-output-format", "svg", "-color-count", "8",
