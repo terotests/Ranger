@@ -1725,6 +1725,57 @@ below a target jumped up two pixels the moment the cursor entered one. EVG draws
 borders inside the box, the way `border-box` does, and the correction was to
 remove the correction.
 
+## Checkboxes in the tree, and the change that was not needed
+
+ReUI's permissions tree puts a checkbox in every leaf row. It looks like a
+tree feature and it is not one: its `useTree` is configured with
+`syncDataLoaderFeature` and `hotkeysCoreFeature` — the same two as every
+other ReUI tree — and the ticked set is an ordinary `useState<Set<string>>`
+on the page beside it. The tree does not know the boxes exist.
+
+Copying that here changed **two files, both under `demo/`**. `TreeCtl`,
+`UiCtl` and `UiHost` are untouched, and that is the result rather than a
+convenience: it is what the component split was for.
+
+Three things fell out of it that are worth writing down.
+
+**There is no `stopPropagation`, because there is no propagation.** The
+reference needs `onClick={(e) => e.stopPropagation()}` on the checkbox so
+that ticking a row does not also select it. Here the box simply has its own
+id, and `EVGHitTest.idAt` answers with the DEEPEST element carrying one — so
+a click at the box is a click at the box and a click thirty pixels right of
+it is a click at the row. Measured both, at real coordinates.
+
+**The tick travels with the row.** The ticked set is keyed by tree VALUE, so
+dragging `New Lead` out of `Leads` and dropping it after `Globex` carries its
+tick with it. Keying by visible position would have moved the tick to
+whatever row landed in that slot, and nothing on screen would look wrong.
+
+**The reference's accessibility is copied in picture and not in semantics.**
+ReUI nests a real `role="checkbox"` inside the `treeitem`, which makes a
+reader announce two things where a person sees one. WAI-ARIA's
+tree-with-checkboxes pattern has one widget per row and puts `aria-checked`
+on the `treeitem` itself. So the box here is `a11yHidden` decoration and the
+ROW carries `aria-checked` — leaves only, because a folder shows no box and
+`aria-checked="false"` on something uncheckable announces a checkbox that
+does not exist. The audit confirms it: ten treeitems, zero nested
+checkboxes, folders with no checked state at all.
+
+`toggleIconType="plus-minus"` came along with it, since it is the one thing
+in that pattern that IS a Tree option — five lines, and the glyphs are − and
++ rather than the chevrons.
+
+### What was deliberately NOT built
+
+headless-tree ships a real `checkboxesFeature`, and it is a different
+product from the pattern above: a folder's tick propagates to its whole
+subtree, folders gain a third `indeterminate` state, and
+`canCheckFolders` defaults to false whenever propagation is on. None of it
+is in ReUI's pattern, so none of it is here. If it is ever wanted it belongs
+in `TreeCtl`, captured from the library first — propagation rules and a
+tri-state boundary are exactly the shape of thing this repository keeps
+getting wrong by reading rather than measuring.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

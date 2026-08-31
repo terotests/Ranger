@@ -170,3 +170,44 @@
   border-radius: 1px;
   background-color: #6366f1;
 }
+
+/* --- the box -----------------------------------------------------------------
+ *
+ * ReUI's `size-3.5` checkbox, composed into the row. Nothing in this block is
+ * a tree concern: the tree does not know the box exists, the same way the
+ * reference's `useTree` does not.
+ */
+.tv-check {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid #a1a1aa;
+  background-color: #ffffff;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  /* The row's own `gap` is 4px, which is right between a twisty and a label
+   * and too tight between a box and one. ReUI's `gap-2` is 8px; the extra
+   * four are taken here rather than by widening the row's gap, which would
+   * also push every folder's label away from its twisty. */
+  margin-right: 4px;
+  transition: background-color 120ms ease-out;
+}
+
+.tv-check-on {
+  background-color: #18181b;
+  border: 1px solid #18181b;
+}
+
+/* The tick. It is empty until the box is ticked, so this rule only ever paints
+ * something on `.tv-check-on` — the colour is stated here rather than there
+ * because the glyph's own element does not change class. */
+.tv-check-ink {
+  color: #ffffff;
+  font-size: 10px;
+  width: 12px;
+  height: 12px;
+  text-align: center;
+}

@@ -67,6 +67,14 @@ treefactory Tv {
     tag Item     EVGElement (props (className "tv-item") (role "treeitem"))
     tag Indent   EVGElement (props (className "tv-indent") (a11yHidden true))
     tag Chevron  EVGElement (props (className "tv-chevron") (elementType 1) (a11yHidden true))
+    ; The box. It has an ID — that is the whole mechanism by which a click on
+    ; it is not a click on the row: `EVGHitTest.idAt` answers with the
+    ; DEEPEST element that has one, so there is nothing to stop propagating.
+    ; And it is `a11yHidden`, because to a reader this is not a second widget
+    ; inside the row; the row itself carries `aria-checked`, which is the
+    ; WAI-ARIA tree-with-checkboxes pattern.
+    tag Check    EVGElement (props (className "tv-check") (a11yHidden true))
+    tag CheckInk EVGElement (props (className "tv-check-ink") (elementType 1))
     tag Label    EVGElement (props (className "tv-label") (elementType 1))
     tag Note     EVGElement (props (className "tv-note") (elementType 1))
     ; The drop line. A row of its own in the flat list, `a11yHidden` because it
@@ -99,14 +107,29 @@ class TreeRow extends EVGComponent {
     def isSelected:boolean false
     def isDragged:boolean false
     def isDropInto:boolean false
+    ; A box on this row, and whether it is ticked. Leaf-only, the way the
+    ; reference has it — a folder shows no box at all rather than a mixed one,
+    ; because nothing here propagates.
+    def checkable:boolean false
+    def isChecked:boolean false
+    def checkId:string ""
+    ; 0 = chevrons, 1 = plus/minus. ReUI's `toggleIconType`, and presentation
+    ; either way: `aria-expanded` on the row already says which way it points.
+    def toggleIcon:int 0
     def indent:double 20.0
 
     Constructor () {
     }
 
-    sfn chevronGlyph:string (folder:boolean open:boolean) {
+    sfn chevronGlyph:string (folder:boolean open:boolean icon:int) {
         if (folder == false) {
             return ""
+        }
+        if (icon == 1) {
+            if open {
+                return "−"
+            }
+            return "+"
         }
         if open {
             return "▾"
@@ -170,8 +193,27 @@ class TreeRow extends EVGComponent {
             row.addChild(pad)
         }
 
-        def glyph:string (TreeRow.chevronGlyph(isFolder isOpen))
+        def glyph:string (TreeRow.chevronGlyph(isFolder isOpen toggleIcon))
         row.addChild((tree Tv (Chevron glyph)))
+        if checkable {
+            ; `aria-checked` goes on the ROW, not on the box. WAI-ARIA's
+            ; tree-with-checkboxes pattern has one widget per row and no
+            ; nested control — a `role="checkbox"` inside a `treeitem` makes a
+            ; reader announce two things where a person sees one. The
+            ; reference nests a real checkbox and is wrong about this; the
+            ; PICTURE is copied and the semantics are not.
+            row.a11yChecked = (EVGA11yTri.no())
+            def boxCls:string "tv-check"
+            def mark:string ""
+            if isChecked {
+                row.a11yChecked = (EVGA11yTri.yes())
+                boxCls = "tv-check tv-check-on"
+                mark = "✓"
+            }
+            def box (tree Tv (Check (props (id checkId) (className boxCls))))
+            box.addChild((tree Tv (CheckInk mark)))
+            row.addChild(box)
+        }
         row.addChild((tree Tv (Label label)))
         return row
     }
@@ -211,6 +253,24 @@ class TreeDemo {
     def probeRow:string ""
     def probeTop:double 0.5
     def probeLeft:double 0.0
+    ; --- checkboxes, which are NOT a tree feature -----------------------------
+    ;
+    ; The whole point of the exercise: this is the DEMO's state and the demo's
+    ; picture, and `TreeCtl` does not know it exists. The reference does the
+    ; same — its tree is configured with `syncDataLoaderFeature` and
+    ; `hotkeysCoreFeature` and nothing else, and the ticked set is ordinary
+    ; page state beside it.
+    ;
+    ; headless-tree DOES ship a `checkboxesFeature`, and it is a different
+    ; product: it propagates a folder's tick to its whole subtree, gives
+    ; folders a third `indeterminate` state, and by default forbids ticking a
+    ; folder directly. None of that is here, because none of it is in the
+    ; pattern being copied. If it is ever wanted it belongs in `TreeCtl`,
+    ; measured, and not in this file.
+    def checkable:boolean true
+    def checkedValues:[string]
+    ; 0 = chevrons, 1 = plus/minus, ReUI's `toggleIconType`.
+    def toggleIcon:int 1
     ; The library's `indent` prop, in pixels. Presentation, and therefore the
     ; demo's rather than the controller's.
     def indent:double 20.0
@@ -271,6 +331,12 @@ class TreeDemo {
         model.draggable = true
         model.dndIndent = indent
 
+        ; A few already ticked, so the picture has both states in it from the
+        ; first frame and a screenshot is worth looking at.
+        this.setChecked("new-lead" true)
+        this.setChecked("jane" true)
+        this.setChecked("calls" true)
+
         model.setExpanded("leads" true)
         model.setExpanded("accounts" true)
         model.setExpanded("acme" true)
@@ -319,6 +385,12 @@ class TreeDemo {
             }
         }
         r.isDropInto = (model.dragging && ((model.dropKind == 1) && (model.dropItem == value)))
+        ; Leaf-only, like the reference. A folder gets no box rather than a
+        ; mixed one, because nothing propagates.
+        r.checkable = (checkable && ((itemAt model.rowFolder i) == false))
+        r.isChecked = (this.isChecked(value))
+        r.checkId = (this.checkTid(value))
+        r.toggleIcon = toggleIcon
         r.indent = indent
         r.label = ""
         def ni:int (model.nodeAt(value))
@@ -400,7 +472,7 @@ class TreeDemo {
             (Card (props (id "tv-card"))
                 (Head (HeadText "CRM"))))
         card.addChild((this.treeBlock()))
-        card.addChild((tree Tv (Note "Arrows to move, Enter to toggle. Click to select, drag to move a row.")))
+        card.addChild((tree Tv (Note "Click to select, tick to include, drag to move a row.")))
         p.addChild(card)
         return p
     }
@@ -421,6 +493,57 @@ class TreeDemo {
         } {
             root = next
         }
+    }
+
+    ; --- the ticked set --------------------------------------------------------
+
+    ; The box's own test id. It has to be distinct from the row's, because
+    ; being a separate HIT TARGET is the entire mechanism: `EVGHitTest.idAt`
+    ; answers with the deepest element carrying an id, so a click on the box
+    ; never reaches the row and the reference's `stopPropagation` has no
+    ; counterpart here — there is no propagation to stop.
+    fn checkTid:string (value:string) {
+        return ((model.itemTid(value)) + "-check")
+    }
+
+    fn isChecked:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length checkedValues)) {
+            if ((itemAt checkedValues i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn setChecked:void (value:string on:boolean) {
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length checkedValues)) {
+            def v:string (itemAt checkedValues i)
+            if (v != value) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        if on {
+            push keep value
+        }
+        checkedValues = keep
+    }
+
+    ; Which row's box is this, if any. "" for anything that is not one.
+    fn valueOfCheckTid:string (target:string) {
+        def i:int 0
+        while (i < (array_length model.rowValue)) {
+            def v:string (itemAt model.rowValue i)
+            if ((this.checkTid(v)) == target) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     ; --- the gesture -----------------------------------------------------------
@@ -492,6 +615,13 @@ class TreeDemo {
                 return false
             }
             model.dragPick(pressAt)
+            ; A press that began on a checkbox picks nothing up: the box is not
+            ; a handle, and `dragPick` has already declined an id that is not a
+            ; row. Without this the gesture would go live with nothing in it.
+            if (model.dragging == false) {
+                pressAt = ""
+                return false
+            }
             dragLive = true
         }
         if (this.probeAt(px py)) {
@@ -550,6 +680,15 @@ class TreeDemo {
     }
 
     fn press:boolean (target:string) {
+        ; A box first. It toggles and does nothing else — no focus move, no
+        ; selection change — which is what the reference's `stopPropagation`
+        ; buys it and what falling through to `activate` would undo.
+        def boxed:string (this.valueOfCheckTid(target))
+        if ((strlen boxed) > 0) {
+            this.setChecked(boxed ((this.isChecked(boxed)) == false))
+            this.rebuild()
+            return true
+        }
         def next:string (model.activate(target))
         if ((strlen next) > 0) {
             focused = next
