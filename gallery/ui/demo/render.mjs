@@ -44,6 +44,38 @@ const DEMOS = {
       M.ToolbarDemo.displayListJson(css, true, false, false, "center", "Edited 2 hours ago"),
     errors: (M, css) => M.ToolbarDemo.styleErrors(css),
   },
+  profile: {
+    module: "gallery/ui/bin/ProfileDemo.cjs",
+    css: "profile.css",
+    height: 800,
+    list: (M, css) => {
+      const d = new M.ProfileDemo();
+      d.init(css);
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.ProfileDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
+  form: {
+    module: "gallery/ui/bin/FormDemo.cjs",
+    css: "form.css",
+    height: 640,
+    list: (M, css) => {
+      const d = new M.FormDemo();
+      d.init(css);
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.FormDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
   resize: {
     module: "gallery/ui/bin/ResizeDemo.cjs",
     css: "resize.css",

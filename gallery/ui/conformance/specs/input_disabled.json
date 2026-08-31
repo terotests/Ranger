@@ -1,0 +1,11 @@
+{
+  "name": "input_disabled",
+  "component": "input",
+  "behaviours": ["input-disabled"],
+  "fixture": { "controls": [{ "type": "input", "tid": "in", "name": "Locked", "value": "no", "disabled": true }] },
+  "steps": [
+    { "focus": "in" },
+    { "type": "x" },
+    { "key": "End" }
+  ]
+}

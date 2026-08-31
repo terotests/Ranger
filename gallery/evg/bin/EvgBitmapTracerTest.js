@@ -4387,6 +4387,8 @@ class EVGElement  {
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
+    this.a11yDescription = "";
+    this.a11yHasPopup = "";
     this.a11yHidden = false;
     this.a11ySorted = 0;
     this.a11yOrientation = "";
@@ -5042,6 +5044,8 @@ class EVGElement  {
     this.role = other.role;
     this.a11yLabel = other.a11yLabel;
     this.a11yRoleDescription = other.a11yRoleDescription;
+    this.a11yDescription = other.a11yDescription;
+    this.a11yHasPopup = other.a11yHasPopup;
     this.a11yHidden = other.a11yHidden;
     this.a11ySorted = other.a11ySorted;
     this.a11yOrientation = other.a11yOrientation;
@@ -5192,6 +5196,14 @@ class EVGElement  {
     }
     if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
       this.a11yHidden = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "aria-haspopup") || (name == "a11yHasPopup") ) {
+      this.a11yHasPopup = value;
+      return;
+    }
+    if ( (name == "aria-describedby") || (name == "a11yDescription") ) {
+      this.a11yDescription = value;
       return;
     }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {

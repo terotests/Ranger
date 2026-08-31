@@ -2058,6 +2058,95 @@ Field list → text field → typing step → Field wrappers → more inputs →
 Anything that starts further down that list is building on a trace that cannot
 see what it built.
 
+### ▲ Done: phases 0-3, and what they turned up
+
+`InputCtl` exists, the harness types, and nine specs drive it against a real
+`<input>` — `input_typing`, `input_caret`, `input_word_motion`,
+`input_placeholder`, `input_maxlength`, `input_readonly`, `input_disabled`,
+`input_required`, `input_password`. `value`, `placeholder`, `selstart`,
+`selend` and `description` joined the compared fields; `type` and modified
+`key` joined the steps; `keyDownWith` and `typeChar` joined `UiCtl` beside the
+`activateWith` they were modelled on.
+
+**Three rules were wrong on the first run, and the reference said so.**
+
+- **Ctrl+ArrowRight lands on the END of a word, not the start of the next.**
+  The mirror image of `wordLeft` reads naturally and is not what the platform
+  does: on `"alpha  beta gamma"` from 0 it gave 7 where Chromium gives 5.
+  Backwards lands on a word's start and forwards on its end — both on the
+  word's own edge, and the asymmetry is the finding.
+- **A readonly field has no caret at all.** Not "takes arrows but will not
+  change": Chromium reports `selectionStart` at the value's length through
+  Home and every arrow, which is what a field with no selection hands back.
+  Focus alone does not give a readonly input a caret, so there is nothing for
+  a key to move.
+- **`required` and `readonly` are ATTRIBUTES on a native control**, and the
+  snapshot was reading only the aria form — so `<input readonly>` reported
+  nothing at all. The same trap `checked` fell into on a native checkbox, one
+  component later. And the fixture had been written with `aria-required`
+  beside the native one, which is making the oracle agree with this side
+  rather than measuring it.
+
+**And `description` found three holes that had been there for months.** A
+compared field nobody had is a field nobody can be wrong about, and the moment
+`aria-describedby` was resolved to its text, three long-passing components went
+red: **a tooltip that never described its trigger** (the sentence a tooltip
+exists to say, invisible to a reader), an alert dialog whose body text reached
+nobody, and every dnd-kit item's keyboard instructions — a pattern with no
+visible affordance, where the sentence IS the interface.
+
+**Still open, and each for a stated reason rather than an oversight:**
+
+- **`input_click_caret`.** A click DOES place the caret on both sides, and
+  agreeing about where needs the two boxes to be the same width in the same
+  font. They are not — see the measurer task — so `input_caret` uses `focus`.
+  It passed with a click only because `"one two three"` does not fill the box,
+  so the centre landed past the end of the text and both sides said 13. A
+  check that passes by coincidence is worse than no check.
+- **`aria-pressed` on a demo-built tree.** `EVGElement` has no field for it,
+  so the password's show/hide button carries the state in its NAME instead —
+  "Show password" then "Hide password", which is the other accepted spelling.
+- **`required` and `invalid` on `EVGA11yNode`.** Measured properly through the
+  conformance trace; a demo tree cannot state them, and half-stating them
+  would be a second, weaker answer.
+- **Phase 4's textarea, date field and combobox**, which are the three where
+  the caret goes somewhere new.
+
+### ▲ A second reference: Profile Settings, and what it asks for that the first did not
+
+The invoice form is a COLUMN — label above control, one field per row, two
+halves where they fit. The second reference is a **row**: the label sits to the
+left of the control and every control's left edge lines up down a single
+column, which is a different layout claim and the one that finds different
+bugs. Both are worth having, so it is a second demo rather than a rewrite of
+the first.
+
+What it adds, in the order it is worth building:
+
+1. **The label-left layout itself.** A label column of a stated width and a
+   control column that takes the rest, with the two vertically centred against
+   each other whatever height the control is. The switch row and the tag row
+   are different heights and both have to sit right.
+2. **A switch**, which `SwitchCtl` already is — a toggle whose label is beside
+   it rather than above it, and the only control in the picture whose state is
+   drawn as a position rather than a mark.
+3. **A select**, which `SelectCtl` already is: a closed trigger showing the
+   chosen label and a chevron. Opening it needs the overlay the dropdown demo
+   already has, so the open state is real work and not decoration.
+4. **A tag input** — chips with a `×` each, and an inline placeholder after the
+   last one that types into the same box. This is genuinely new: a listbox of
+   removable tokens sharing a line with a text field, and the interesting part
+   is what Backspace does at position 0 (it takes the token before the caret,
+   which is the whole reason the pattern feels right).
+5. **A date field and a time field.** The plan already declines segmented
+   editing until it is measured, and that has not changed — so these are drawn
+   as text fields with an icon, the calendar on the right and the clock on the
+   left, and the demo says so rather than implying a date picker that is not
+   there.
+6. **A badge and icon buttons**, which are presentation: a pill in the header,
+   an avatar with Change/Remove beside it, and a footer with a hint on the left
+   and two buttons on the right.
+
 ## Resizable, and a reference that publishes an impossible range
 
 ReUI's is react-resizable-panels, and its own prop names give it away:

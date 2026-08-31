@@ -1,0 +1,224 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The invoice form: a card, a heading, a column of fields, one row of two
+ * halves, and a footer. ReUI's shapes — a 1px ring that thickens on focus, a
+ * red one when the field is in error, a hint line under each box.
+ */
+
+.fm-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 24px;
+  background-color: #fafafa;
+  width: 620px;
+  height: 660px;
+}
+
+.fm-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 24px;
+  width: 420px;
+}
+
+.fm-head {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 0 0 18px 0;
+}
+
+.fm-title { color: #09090b; font-size: 17px; font-weight: 600; height: 24px; }
+.fm-sub { color: #71717a; font-size: 12px; height: 18px; }
+
+.fm-form {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+/* The row of halves. `align-items: stretch` so the two fields are the same
+ * height whatever is under them — the one with an error is a line taller than
+ * the one without, and a row that did not stretch would leave the shorter box
+ * floating. */
+.fm-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.fm-field {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 0 0 14px 0;
+}
+
+.fm-label {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+
+.fm-label-text { color: #3f3f46; font-size: 12px; font-weight: 500; height: 18px; }
+.fm-star { color: #dc2626; font-size: 12px; height: 18px; }
+
+/* The box. `position: relative` is what makes the caret's and the band's
+ * `left` mean "from the left of the box" rather than from the page — they are
+ * the only two things here whose position is a measurement rather than a
+ * flow. */
+.fm-box {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: relative;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 0 10px 0 10px;
+  height: 36px;
+}
+
+.fm-box-bad { border-color: #dc2626; }
+.fm-box-off { background-color: #fafafa; border-color: #f4f4f5; }
+
+.fm-prefix { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
+.fm-text { color: #18181b; font-family: Arial; font-size: 13px; height: 18px; }
+.fm-ghost { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
+
+/* Two pixels wide, the height of a line, and positioned by measurement. */
+.fm-caret {
+  position: absolute;
+  top: 9px;
+  width: 2px;
+  height: 18px;
+  background-color: #2563eb;
+}
+
+.fm-band {
+  position: absolute;
+  top: 9px;
+  height: 18px;
+  background-color: #dbeafe;
+}
+
+.fm-eye {
+  color: #71717a;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+  width: 16px;
+}
+
+.fm-hint { color: #71717a; font-size: 11px; height: 16px; }
+.fm-error { color: #dc2626; }
+
+.fm-check-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 14px 0;
+}
+
+.fm-check {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid #2563eb;
+  background-color: #2563eb;
+  width: 16px;
+  height: 16px;
+}
+
+.fm-tick { color: #ffffff; font-family: Arial; font-size: 11px; height: 14px; }
+.fm-check-label { color: #3f3f46; font-size: 12px; height: 18px; }
+
+.fm-radios {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  height: 24px;
+}
+
+.fm-radio {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A donut, which is what a filled radio is: the same 10px circle as the ring,
+ * with a thick blue border and white showing through the middle. Drawn the
+ * same size as the ring so the labels beside them line up. */
+.fm-dot {
+  border-radius: 6px;
+  border: 3px solid #2563eb;
+  background-color: #ffffff;
+  width: 10px;
+  height: 10px;
+}
+
+/* The unselected circle: the same 12px round as the dot's outer edge, drawn
+ * as a border with nothing inside it. */
+.fm-ring {
+  border-radius: 6px;
+  border: 1px solid #d4d4d8;
+  background-color: #ffffff;
+  width: 10px;
+  height: 10px;
+}
+
+.fm-radio-label { color: #3f3f46; font-size: 12px; height: 18px; }
+
+.fm-foot {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 0 0 0;
+}
+
+.fm-cancel {
+  color: #3f3f46;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  padding: 9px 14px 9px 14px;
+}
+
+/* The border is the same 1px the Cancel button has, in the fill colour, so
+ * the two buttons are the same HEIGHT. Without it the filled one is two
+ * pixels shorter and sits crooked beside the outlined one. */
+.fm-submit {
+  border: 1px solid #18181b;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  background-color: #18181b;
+  padding: 9px 14px 9px 14px;
+}
+
+.fm-note { color: #71717a; font-size: 11px; padding: 14px 0 0 0; width: 572px; height: 32px; }

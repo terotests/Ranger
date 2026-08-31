@@ -1540,6 +1540,8 @@ class EVGElement  {
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
+    this.a11yDescription = "";
+    this.a11yHasPopup = "";
     this.a11yHidden = false;
     this.a11ySorted = 0;
     this.a11yOrientation = "";
@@ -2195,6 +2197,8 @@ class EVGElement  {
     this.role = other.role;
     this.a11yLabel = other.a11yLabel;
     this.a11yRoleDescription = other.a11yRoleDescription;
+    this.a11yDescription = other.a11yDescription;
+    this.a11yHasPopup = other.a11yHasPopup;
     this.a11yHidden = other.a11yHidden;
     this.a11ySorted = other.a11ySorted;
     this.a11yOrientation = other.a11yOrientation;
@@ -2345,6 +2349,14 @@ class EVGElement  {
     }
     if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
       this.a11yHidden = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "aria-haspopup") || (name == "a11yHasPopup") ) {
+      this.a11yHasPopup = value;
+      return;
+    }
+    if ( (name == "aria-describedby") || (name == "a11yDescription") ) {
+      this.a11yDescription = value;
       return;
     }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
@@ -6608,7 +6620,7 @@ class EVGLayout  {
               fixedWidth = (fixedWidth + c.box.marginLeftPx) + c.box.marginRightPx;
             } else {
               const avail = (innerWidth - c.box.marginLeftPx) - c.box.marginRightPx;
-              const estW = this.estimateChildWidth(c, avail);
+              const estW = this.estimateChildWidth(c, avail, true);
               fixedWidth = ((fixedWidth + estW) + c.box.marginLeftPx) + c.box.marginRightPx;
             }
           }
@@ -6846,7 +6858,7 @@ class EVGLayout  {
         continue;
       }
       const availableForChild = (innerWidth - child.box.marginLeftPx) - child.box.marginRightPx;
-      let childWidth = this.estimateChildWidth(child, availableForChild);
+      let childWidth = this.estimateChildWidth(child, availableForChild, ((isColumn == false) || this.crossShrinksUnder(parent)));
       if ( child.hasFlexWidth ) {
         childWidth = child.calculatedFlexWidth;
       } else {
@@ -7198,6 +7210,16 @@ class EVGLayout  {
       rowWidth = ((rowWidth + el.calculatedWidth) + el.box.marginLeftPx) + el.box.marginRightPx;
       i = i + 1;
     };
+    let rowGapPx = 0.0;
+    if ( parent.gap.isSet ) {
+      rowGapPx = parent.gap.pixels;
+    }
+    if ( parent.columnGap.isSet ) {
+      rowGapPx = parent.columnGap.pixels;
+    }
+    if ( elementCount > 1 ) {
+      rowWidth = rowWidth + (((elementCount - 1)) * rowGapPx);
+    }
     const isColumn = parent.flexDirection == "column";
     const mainAxisAlign = parent.justifyContent;
     const crossAxisAlign = parent.alignItems;
@@ -7639,6 +7661,7 @@ class EVGLayout  {
       const kid = el.getChild(i);
       if ( kid.position == "absolute" ) {
       } else {
+        kid.resolveUnits(el.calculatedInnerWidth, el.calculatedInnerHeight);
         const w = this.intrinsicWidth(kid, wantMin);
         if ( w > widest ) {
           widest = w;
@@ -8129,7 +8152,7 @@ class EVGLayout  {
     };
     return total;
   };
-  estimateChildWidth (child, maxInnerWidth) {
+  estimateChildWidth (child, maxInnerWidth, alongRow) {
     if ( child.width.isSet ) {
       return child.width.pixels;
     }
@@ -8150,6 +8173,14 @@ class EVGLayout  {
         const measuredW = ((contentW + child.box.paddingLeftPx) + child.box.paddingRightPx) + (child.box.borderWidthPx * 2.0);
         if ( measuredW < maxInnerWidth ) {
           return measuredW;
+        }
+      }
+    }
+    if ( (child.display == "flex") && alongRow ) {
+      const intrinsic = this.intrinsicWidth(child, false);
+      if ( intrinsic > 0.0 ) {
+        if ( intrinsic < maxInnerWidth ) {
+          return intrinsic;
         }
       }
     }

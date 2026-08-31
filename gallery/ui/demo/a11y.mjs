@@ -44,6 +44,7 @@ const { DialogDemo } = require(path.join(ROOT, "gallery/ui/bin/DialogDemo.cjs"))
 const { TreeDemo } = require(path.join(ROOT, "gallery/ui/bin/TreeDemo.cjs"));
 const { TimelineDemo } = require(path.join(ROOT, "gallery/ui/bin/TimelineDemo.cjs"));
 const { ResizeDemo } = require(path.join(ROOT, "gallery/ui/bin/ResizeDemo.cjs"));
+const { FormDemo } = require(path.join(ROOT, "gallery/ui/bin/FormDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
@@ -54,6 +55,7 @@ const DIALOG_CSS = fs.readFileSync(path.join(HERE, "dialog.css"), "utf8");
 const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
 const TIMELINE_CSS = fs.readFileSync(path.join(HERE, "timeline.css"), "utf8");
 const RESIZE_CSS = fs.readFileSync(path.join(HERE, "resize.css"), "utf8");
+const FORM_CSS = fs.readFileSync(path.join(HERE, "form.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -94,6 +96,8 @@ timeline.init(TIMELINE_CSS);
 
 const resize = new ResizeDemo();
 resize.init(RESIZE_CSS);
+const form = new FormDemo();
+form.init(FORM_CSS);
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -255,6 +259,18 @@ const STATES = [
       return resize.a11yProblems();
     },
     tree: () => resize.a11yJson(18, "rz-sep-0"),
+  },
+  {
+    // A form is full of the shapes axe minds and the diff cannot see: a label
+    // that names a control, a message that describes it, a required marker
+    // that is a glyph rather than a claim, and a group of radios. The state
+    // worth auditing is the one with something WRONG in it — a field in error
+    // has to say what is wrong where a reader will hear it, and a red ring is
+    // not a sentence.
+    name: "form — six controls, one of them in error",
+    size: [620, 560],
+    lint: () => form.a11yProblems(),
+    tree: () => form.a11yJson(19, "fm-amount"),
   },
   {
     // The rail is a picture of the value and says nothing a reader needs, so

@@ -125,10 +125,19 @@ class EVGA11yRole {
     ; reader to guess which of them it has landed in.
     sfn navigation:int ()       { return 43 }
 
+    ; A form is a landmark ONLY when it is named, which is the HTML-ARIA
+    ; mapping and not a simplification: an unnamed <form> is not a landmark,
+    ; because a reader offered "form" with nothing to distinguish it from the
+    ; other three on the page has been given a list and no way to choose from
+    ; it. The demo names its own; a controller that does not should not use
+    ; this role.
+    sfn form:int ()             { return 44 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
         if (role == 43) { return "navigation" }
+        if (role == 44) { return "form" }
         if (role == 41) { return "tree" }
         if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
@@ -210,6 +219,9 @@ class EVGA11yNode {
     ; AT-SPI's localized role name — because some controls are a known role
     ; doing an unfamiliar job, and the role name alone then says nothing useful.
     def roleDescription:string ""
+    ; `aria-haspopup`. What a reader is told about a trigger that opens
+    ; something — a select's closed box is a word in a rectangle without it.
+    def hasPopup:string ""
     ; A field's text, a cell's value — separate from the name, which is the
     ; label that does not change when the content does.
     def value:string ""
@@ -461,6 +473,9 @@ class EVGA11yTree {
         }
         if ((strlen n.value) > 0) {
             out = (out + ",\"value\":" + (EVGA11yTree.jsonString(n.value)))
+        }
+        if ((strlen n.hasPopup) > 0) {
+            out = (out + ",\"haspopup\":" + (EVGA11yTree.jsonString(n.hasPopup)))
         }
         if ((strlen n.description) > 0) {
             out = (out + ",\"desc\":" + (EVGA11yTree.jsonString(n.description)))

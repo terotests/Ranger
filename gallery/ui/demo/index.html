@@ -152,6 +152,35 @@
             horizontal arrows are for nesting and nothing else.
           </p>
         </section>
+        <section data-for="form">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Tab between the fields and type.</strong> The caret and the
+            blue selection band are positioned with
+            <code>measureRun(value[0..i])</code> &mdash; the same measurement
+            the painter makes of the same string, so the bar is between the two
+            characters it claims to be between rather than near them.
+          </p>
+          <p class="hint">
+            The Amount field opens focused with its contents selected, which is
+            the one state that shows a caret <em>and</em> a band at once. The
+            controller was measuring at 14px against text drawn at 13, and the
+            band ran four pixels past the number it was selecting &mdash; the
+            breadcrumb&rsquo;s font-family bug, repeated with the size.
+          </p>
+          <p class="hint">
+            The password&rsquo;s <strong>value is never its glyphs</strong>:
+            <code>value</code> is what a reader and the conformance trace get,
+            <code>glyphText()</code> is what is drawn, and nothing joins them.
+            The eye flips the second and leaves the first alone.
+          </p>
+          <p class="hint">
+            A field in error is described by its <em>error</em> and not also by
+            its hint. Reading both leaves a reader to work out which one still
+            applies &mdash; and the hint&rsquo;s line is where the error goes,
+            so the picture says the same thing.
+          </p>
+        </section>
         <section data-for="timeline">
           <h2>what to try</h2>
           <p class="hint">

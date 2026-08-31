@@ -39,6 +39,68 @@ export function snapshotDom(options) {
    * `<th>` is a columnheader only in a header row. In a body row it labels the
    * row, which is a different role and a different thing for a reader to hear.
    */
+  /**
+   * Which tags carry a `value` and a caret. Reading `el.value` on anything
+   * else is either undefined or, worse, meaningful for the wrong reason —
+   * `<button value>` and `<li value>` both exist and neither is a text field.
+   */
+  const EDITABLE = (el, tag) => {
+    if (tag === "textarea") return true;
+    if (tag !== "input") return false;
+    // A checkbox's `value` is what it SUBMITS — "on" by default — and has
+    // nothing to do with what a field holds. Reading it as a text value made
+    // every checkbox in the table report `value: "on"` against a Ranger side
+    // that quite correctly reported nothing.
+    return !NON_TEXT_INPUT.has((el.type || "text").toLowerCase());
+  };
+
+  const NON_TEXT_INPUT = new Set([
+    "checkbox",
+    "radio",
+    "button",
+    "submit",
+    "reset",
+    "file",
+    "image",
+    "hidden",
+    "color",
+    "range",
+  ]);
+
+  /**
+   * `selectionStart`/`selectionEnd`, which THROW on an input whose type does
+   * not support them — email, number and a few others — rather than returning
+   * null. A field that reports no caret is a fact about that field; a
+   * snapshot that dies halfway through is a lost trace.
+   */
+  const selOf = (el, prop) => {
+    try {
+      const v = el[prop];
+      return typeof v === "number" ? v : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * The text of every element `aria-describedby` points at, joined with a
+   * space in the order the attribute lists them — which is the order a reader
+   * announces them in, and the reason this is a join rather than a set.
+   * Missing ids are skipped, the way a browser skips them.
+   */
+  const describedBy = (el) => {
+    const ids = (el.getAttribute("aria-describedby") || "").trim();
+    if (!ids) return null;
+    const parts = [];
+    for (const id of ids.split(/\s+/)) {
+      const target = el.ownerDocument.getElementById(id);
+      if (!target) continue;
+      const t = (target.textContent || "").replace(/\s+/g, " ").trim();
+      if (t) parts.push(t);
+    }
+    return parts.length ? parts.join(" ") : null;
+  };
+
   const IMPLICIT_ROLE = (el, tag) => {
     if (tag === "button") return "button";
     if (tag === "a") return "link";
@@ -149,10 +211,42 @@ export function snapshotDom(options) {
       // items a composite does not want in the tab order.
       tabstop: el.tabIndex >= 0 && !disabled,
       invalid: el.getAttribute("aria-invalid"),
-      required: el.getAttribute("aria-required"),
-      readonly: el.getAttribute("aria-readonly"),
+      // `required` and `readonly` are ATTRIBUTES on a native control and
+      // `aria-required`/`aria-readonly` on everything else, and a browser
+      // derives the same accessibility fact from either. Reading only the aria
+      // form made a `<input readonly>` report nothing at all — the same trap
+      // `checked` fell into above, where a native checkbox carries its state
+      // in a property and no attribute mentions it.
+      //
+      // The aria attribute still wins when it is there: it is the explicit
+      // claim, and a control that sets it to "false" over a native `required`
+      // has said something the native attribute did not.
+      required:
+        el.getAttribute("aria-required") != null
+          ? el.getAttribute("aria-required")
+          : el.required
+            ? "true"
+            : null,
+      readonly:
+        el.getAttribute("aria-readonly") != null
+          ? el.getAttribute("aria-readonly")
+          : EDITABLE(el, tag) && el.readOnly
+            ? "true"
+            : null,
       current: el.getAttribute("aria-current"),
       orientation: el.getAttribute("aria-orientation"),
+      // What a text field HOLDS, and where the caret is in it. Properties, not
+      // attributes: `el.value` moves as the user types while the `value`
+      // attribute keeps whatever the markup said, and reading the attribute
+      // would have made a typed word invisible — the same trap the checkbox's
+      // `checked` set above.
+      //
+      // `null` on anything that is not an editable control, because a box
+      // holding "" and a button are not the same claim.
+      value: EDITABLE(el, tag) ? el.value : null,
+      placeholder: el.getAttribute("placeholder"),
+      selstart: EDITABLE(el, tag) ? selOf(el, "selectionStart") : null,
+      selend: EDITABLE(el, tag) ? selOf(el, "selectionEnd") : null,
       valuenow: num("aria-valuenow"),
       valuemin: num("aria-valuemin"),
       valuemax: num("aria-valuemax"),
@@ -169,6 +263,11 @@ export function snapshotDom(options) {
       // affordance: without it a reader announces a button and nothing about
       // being able to move it.
       roledescription: el.getAttribute("aria-roledescription"),
+      // `aria-describedby` RESOLVED. The ids themselves are not comparable —
+      // the two sides name their nodes differently by design — but the
+      // sentence a reader announces after the role is, and that is the only
+      // part of a Field's hint or error message that is observable at all.
+      description: describedBy(el),
       // `aria-sort`. Absent on anything that is not a column header, and
       // present-and-"none" on a header that can be sorted but is not — the two
       // are different things and the trace keeps them apart.
@@ -245,6 +344,10 @@ export function snapshotDom(options) {
       readonly: null,
       current: null,
       orientation: null,
+      value: null,
+      placeholder: null,
+      selstart: null,
+      selend: null,
       valuenow: null,
       valuemin: null,
       valuemax: null,
@@ -252,6 +355,7 @@ export function snapshotDom(options) {
       focused: false,
       visible: true,
       roledescription: null,
+      description: null,
       sort: null,
       haspopup: null,
       level: null,

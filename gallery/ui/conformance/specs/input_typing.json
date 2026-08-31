@@ -1,0 +1,15 @@
+{
+  "name": "input_typing",
+  "component": "input",
+  "behaviours": ["input-type", "input-caret"],
+  "fixture": { "controls": [{ "type": "input", "tid": "in", "name": "Name", "placeholder": "Your name" }] },
+  "steps": [
+    { "click": "in" },
+    { "type": "hello" },
+    { "key": "Backspace" },
+    { "key": "Home" },
+    { "type": "X" },
+    { "key": "End" },
+    { "key": "Delete" }
+  ]
+}

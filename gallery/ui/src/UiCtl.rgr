@@ -113,6 +113,38 @@ class UiRow {
     def hasRange:boolean false
     def valueMin:int 0
     def valueMax:int 0
+    ; What a text field HOLDS, and where the caret is in it.
+    ;
+    ; The slider's lesson a second time, and worse: every field above is
+    ; identical for an empty text box and one holding "hello" — same role, same
+    ; name, same one tab stop, same focus. A trace without these three watches
+    ; a whole word being typed and reports nothing at all.
+    ;
+    ; `hasText` rather than an empty string meaning absent, because "" is a
+    ; real value for a text field and "this node is not a text field" is not
+    ; the same claim. Same reason `hasValueNow` exists.
+    def hasText:boolean false
+    def text:string ""
+    ; Drawn when the value is empty, and never part of the value. A reader
+    ; announces it, so it is observable and belongs here.
+    def placeholder:string ""
+    ; `selectionStart` and `selectionEnd`. Both, always, because a caret is a
+    ; selection of length zero and reporting only the start cannot tell a
+    ; collapsed caret from a selection that happens to begin there.
+    def hasSelection:boolean false
+    def selStart:int 0
+    def selEnd:int 0
+    ; `aria-describedby`, RESOLVED TO ITS TEXT rather than reported as an id.
+    ;
+    ; An id is not observable: the two sides name their nodes differently on
+    ; purpose, so comparing "field-3-hint" against "hint" would fail on every
+    ; field for a reason that has nothing to do with what a reader hears. What
+    ; is observable is the sentence — "Must be at least 8 characters" — and
+    ; that is what a reader announces after the name and the role.
+    ;
+    ; This is what makes a Field's hint and its error message part of the
+    ; contract instead of decoration beside it.
+    def description:string ""
 
     Constructor () {
     }
@@ -151,6 +183,14 @@ class UiItem {
 class UiCtl {
     def tid:string ""
     def name:string ""
+    ; The sentence a reader hears after the name and the role — a Field's hint,
+    ; or its error message once there is one.
+    ;
+    ; It is set FROM OUTSIDE, by whatever wraps the control, for the same
+    ; reason `name` is: a `<label for>` supplies an input's name and the input
+    ; does not go looking for it. A Field owns the hint, and hands it to the
+    ; control the hint is about.
+    def description:string ""
     def disabled:boolean false
     def rootEl:EVGElement
 
@@ -186,6 +226,25 @@ class UiCtl {
             this.activate(target)
         }
         return ""
+    }
+
+    ; The same key, carrying Shift and Control.
+    ;
+    ; Defaults to the unmodified `keyDown`, so every control that does not read
+    ; modifiers ignores them — which was all of them until the text field,
+    ; where Shift+Arrow extends a selection that Arrow collapses and
+    ; Ctrl+Arrow moves by a word. On the base class rather than reached through
+    ; a cast, for the reason `activateWith` is: the HOST routes keys and has no
+    ; business knowing which controller is underneath.
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        return (this.keyDown(target key))
+    }
+
+    ; A printable character arrived while `target` held focus. Returns whether
+    ; anything took it — false everywhere but an editable control, which is
+    ; also the honest answer for a button that has just been typed at.
+    fn typeChar:boolean (target:string ch:string) {
+        return false
     }
 
     ; Test ids this controller answers for, outermost first.

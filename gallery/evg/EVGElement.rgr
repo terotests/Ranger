@@ -579,6 +579,18 @@ class EVGElement {
     def a11yLabel:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
+    ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
+    ; form field's hint, or its error message once there is one.
+    ;
+    ; The text and not an id, for the reason the conformance trace carries the
+    ; text: an id is a fact about a document and the sentence is what a reader
+    ; hears, and this tree has no document to hold ids in. A control with no
+    ; description says nothing, which is what an absent attribute means.
+    def a11yDescription:string ""
+    ; `aria-haspopup`: "menu", "listbox", "dialog". The one thing a reader
+    ; cannot see about a trigger — that pressing it opens something — and a
+    ; select's closed trigger is a box with a word in it without it.
+    def a11yHasPopup:string ""
     ; `aria-hidden`: this element and everything under it is DECORATION and
     ; contributes nothing to the accessible tree — no node, and no words to an
     ; ancestor's name.
@@ -2036,6 +2048,8 @@ class EVGElement {
         role = other.role
         a11yLabel = other.a11yLabel
         a11yRoleDescription = other.a11yRoleDescription
+        a11yDescription = other.a11yDescription
+        a11yHasPopup = other.a11yHasPopup
         a11yHidden = other.a11yHidden
         a11ySorted = other.a11ySorted
         a11yOrientation = other.a11yOrientation
@@ -2198,6 +2212,14 @@ class EVGElement {
         }
         if ((name == "aria-hidden") || (name == "a11yHidden")) {
             a11yHidden = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "aria-haspopup") || (name == "a11yHasPopup")) {
+            a11yHasPopup = value
+            return
+        }
+        if ((name == "aria-describedby") || (name == "a11yDescription")) {
+            a11yDescription = value
             return
         }
         if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {

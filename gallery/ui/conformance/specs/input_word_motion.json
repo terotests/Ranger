@@ -1,0 +1,67 @@
+{
+  "name": "input_word_motion",
+  "component": "input",
+  "behaviours": [
+    "input-word-motion"
+  ],
+  "fixture": {
+    "controls": [
+      {
+        "type": "input",
+        "tid": "in",
+        "name": "Note",
+        "value": "alpha  beta gamma"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "focus": "in"
+    },
+    {
+      "key": "Home"
+    },
+    {
+      "key": "ArrowRight",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "ArrowRight",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "ArrowRight",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "ArrowRight",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "ArrowLeft",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "ArrowLeft",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "ArrowLeft",
+      "mods": [
+        "Control"
+      ]
+    }
+  ]
+}

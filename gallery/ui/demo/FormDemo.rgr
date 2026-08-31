@@ -1,0 +1,831 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FormDemo — a form of many kinds of input box
+; =============================================================================
+; Six controls of four different kinds in one card, which is the point: a text
+; field on its own proves the caret works, and a FORM proves the caret works
+; while a checkbox, a radio group and three other text fields are on the page
+; with it, each holding its own state and exactly one of them holding focus.
+;
+; --- WHAT A FIELD IS, AND WHY IT IS NOT A CONTROLLER --------------------------
+;
+; `UiField` below is a label, an optional hint and an optional error, and it
+; owns none of them at run time: it HANDS them to the control. That is not a
+; shortcut, it is what the platform does — a `<label for>` supplies an input's
+; name and the input never goes looking for one, and `aria-describedby` points
+; from the input at the hint. So the Field's whole job is to be the place the
+; two strings are written down once, and to put them where a reader will find
+; them.
+;
+; Which is why `description` lives on `UiCtl` and not on `InputCtl`: a hint
+; under a checkbox is the same fact as a hint under a text box, and neither
+; control should have to know that a Field exists.
+;
+; --- THE ERROR IS THE DESCRIPTION, NOT AN EXTRA -------------------------------
+;
+; A field in error does NOT announce its hint and then its error. It announces
+; the error INSTEAD — the hint is advice for filling the field in and the error
+; is what is wrong with what is there, and reading both leaves a reader to work
+; out which one still applies. So `describedText` returns one or the other, and
+; the picture matches: the hint's line is where the error's line goes.
+;
+; --- WHAT IS DRAWN, AND WHAT IS NOT ------------------------------------------
+;
+; The caret and the selection band are drawn from `InputCtl.caretXAt`, which is
+; the same measurement the painter makes of the same string — so the bar is
+; between the characters it claims to be between, rather than near them.
+;
+; Not here, and each is a real thing being declined rather than an oversight:
+; a textarea (the caret goes 2D, which is Phase 4), a date field (segmented
+; editing is its own contract), a combobox, and a blinking caret (a demo that
+; renders one frame has nowhere to blink).
+; =============================================================================
+
+Import "../src/InputCtl.rgr"
+Import "../src/CheckboxCtl.rgr"
+Import "../src/RadioGroupCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+treefactory Fm {
+    child addChild
+    text  textContent
+
+    tag Page    EVGElement (props (className "fm-page"))
+    tag Card    EVGElement (props (className "fm-card"))
+    tag Head    EVGElement (props (className "fm-head"))
+    ; `role="heading"` with no `aria-level` is an incomplete claim, and axe
+    ; says so — a reader offered a heading cannot place it in the outline
+    ; without one. The card's title is the page's only heading, so it is a 1.
+    tag Title   EVGElement (props (className "fm-title") (elementType 1) (role "heading") (a11yLevel 1))
+    tag Sub     EVGElement (props (className "fm-sub") (elementType 1))
+    tag Form    EVGElement (props (className "fm-form") (role "form") (a11yLabel "New invoice"))
+    tag Row     EVGElement (props (className "fm-row"))
+    tag Field   EVGElement (props (className "fm-field"))
+    ; A ROW, not a text node with a child hung off it. The first version put
+    ; the label's words in `textContent` and added the star as a child, and EVG
+    ; laid the star out at the content origin — on top of the first letter,
+    ; because a leaf's text is not an inline box other children flow after.
+    ; Two children of a row is the shape that works.
+    tag Label   EVGElement (props (className "fm-label"))
+    tag LabelTx EVGElement (props (className "fm-label-text") (elementType 1))
+    ; The asterisk is DECORATION. `aria-required` on the control is what says
+    ; the field is required; a star read aloud in the middle of a label is
+    ; noise, and a reader that hears "Full name star" has been told nothing.
+    tag Star    EVGElement (props (className "fm-star") (elementType 1) (a11yHidden true))
+    tag Hint    EVGElement (props (className "fm-hint") (elementType 1) (a11yHidden true))
+    tag Error   EVGElement (props (className "fm-hint fm-error") (elementType 1) (a11yHidden true))
+    ; THE BOX IS THE TEXTBOX. It carries the role, the name and the
+    ; description, because it is the thing a reader lands on — the run of text
+    ; inside it is a glyph run and the caret beside it is a rectangle, and
+    ; neither is a control. The first version gave the box a class and nothing
+    ; else, and the accessibility tree had four fields in it that were not
+    ; fields.
+    tag Box     EVGElement (props (className "fm-box") (role "textbox"))
+    tag BoxBad  EVGElement (props (className "fm-box fm-box-bad") (role "textbox"))
+    tag BoxOff  EVGElement (props (className "fm-box fm-box-off") (role "textbox"))
+    tag Prefix  EVGElement (props (className "fm-prefix") (elementType 1) (a11yHidden true))
+    tag Text    EVGElement (props (className "fm-text") (elementType 1))
+    tag Ghost   EVGElement (props (className "fm-text fm-ghost") (elementType 1))
+    tag Caret   EVGElement (props (className "fm-caret") (a11yHidden true))
+    tag Band    EVGElement (props (className "fm-band") (a11yHidden true))
+    tag Eye     EVGElement (props (className "fm-eye") (elementType 1) (role "button"))
+    tag Check   EVGElement (props (className "fm-check") (role "checkbox"))
+    tag Tick    EVGElement (props (className "fm-tick") (elementType 1) (a11yHidden true))
+    tag CheckLb EVGElement (props (className "fm-check-label") (elementType 1))
+    tag CheckRw EVGElement (props (className "fm-check-row"))
+    tag Radios  EVGElement (props (className "fm-radios") (role "radiogroup"))
+    tag Radio   EVGElement (props (className "fm-radio") (role "radio"))
+    tag Dot     EVGElement (props (className "fm-dot") (a11yHidden true))
+    ; The EMPTY circle. Drawn for every unselected item, because a radio group
+    ; in which only the chosen one has a mark is a group whose other options
+    ; are invisible until you find the words beside them — and because the
+    ; labels would otherwise start at different x, which is what the first
+    ; layout showed: "Post" flush against the group's edge and "Email" indented
+    ; by the width of a dot.
+    tag Ring    EVGElement (props (className "fm-ring") (a11yHidden true))
+    tag RadioLb EVGElement (props (className "fm-radio-label") (elementType 1))
+    tag Foot    EVGElement (props (className "fm-foot"))
+    tag Submit  EVGElement (props (className "fm-submit") (elementType 1) (role "button"))
+    tag Cancel  EVGElement (props (className "fm-cancel") (elementType 1) (role "button"))
+    tag Note    EVGElement (props (className "fm-note") (elementType 1))
+}
+
+; A label, a hint and an error, and the tid of the control they are about.
+; Everything here is written once and handed to the control; see the header.
+class UiField {
+    def tid:string ""
+    def label:string ""
+    def hint:string ""
+    def error:string ""
+    def required:boolean false
+    ; Half a row rather than a whole one, for the two that sit side by side.
+    def half:boolean false
+
+    Constructor () {
+    }
+
+    ; The one sentence a reader hears after the name and the role — the error
+    ; when there is one, the hint otherwise, and nothing when there is neither.
+    ; NOT both: see the header.
+    fn describedText:string () {
+        if ((strlen error) > 0) {
+            return error
+        }
+        return hint
+    }
+
+    fn isBad:boolean () {
+        return ((strlen error) > 0)
+    }
+}
+
+class FormDemo {
+
+    def fields:[UiField]
+    def name:InputCtl (new InputCtl())
+    def email:InputCtl (new InputCtl())
+    def secret:InputCtl (new InputCtl())
+    def amount:InputCtl (new InputCtl())
+    def search:InputCtl (new InputCtl())
+    def invoiceNo:InputCtl (new InputCtl())
+    def terms:CheckboxCtl (new CheckboxCtl())
+    def delivery:RadioGroupCtl (new RadioGroupCtl())
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def transitions:EVGTransition (new EVGTransition())
+    def measurer:EVGLayout (new EVGLayout())
+
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    ; The show/hide toggle beside the password. Not a component: a button with
+    ; `aria-pressed` beside a field whose kind flips, which is expressible with
+    ; what is already here.
+    def secretShown:boolean false
+
+    def pageW:double 620.0
+    def pageH:double 660.0
+    ; The width a text run has inside a box, after the box's padding. The
+    ; controller needs it to decide where to scroll, and it is the demo's
+    ; number because the box is the demo's.
+    def boxTextW:double 268.0
+    def halfTextW:double 122.0
+    ; The font the SHEET draws these boxes in. `InputCtl` defaults to 14px and
+    ; `.fm-text` says 13, and the caret was measured in one and drawn in the
+    ; other — four pixels of overshoot on a seven-character number, with the
+    ; selection band running past the end of what it was selecting. The exact
+    ; mistake the breadcrumb made with the font FAMILY, repeated with the size,
+    ; which is why it is a named constant handed to every field rather than a
+    ; number written out four times.
+    def boxFont:string "Arial"
+    def boxFontSize:double 13.0
+
+    Constructor () {
+    }
+
+    ; --- setup ----------------------------------------------------------------
+
+    fn addField:UiField (tid:string label:string hint:string required:boolean half:boolean) {
+        def f (new UiField())
+        f.tid = tid
+        f.label = label
+        f.hint = hint
+        f.required = required
+        f.half = half
+        push fields f
+        return f
+    }
+
+    fn fieldFor:UiField (tid:string) {
+        def i:int 0
+        while (i < (array_length fields)) {
+            def f:UiField (itemAt fields i)
+            if (f.tid == tid) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new UiField())
+    }
+
+    ; Hand a field's strings to the control they are about, which is the whole
+    ; of what a Field does at run time.
+    fn dress:void (c:InputCtl f:UiField) {
+        c.fontFamily = boxFont
+        c.fontSize = boxFontSize
+        c.name = f.label
+        c.description = (f.describedText())
+        c.required = f.required
+        c.invalid = (f.isBad())
+        c.boxWidth = halfTextW
+        if (f.half == false) {
+            c.boxWidth = boxTextW
+        }
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        def fName:UiField (this.addField("fm-name" "Full name" "" true false))
+        name.tid = "fm-name"
+        name.placeholder = "Ada Lovelace"
+        name.value = "Ada Lovelace"
+        name.caret = 12
+        name.anchor = 12
+        name.boxWidth = boxTextW
+        this.dress(name fName)
+
+        ; The one in error, because a form with nothing wrong with it never
+        ; draws the half of the contract that matters most.
+        def fMail:UiField (this.addField("fm-email" "Email" "We only use this to send the invoice." true false))
+        fMail.error = "That address is missing an @."
+        email.tid = "fm-email"
+        email.kind = "email"
+        email.placeholder = "you@example.com"
+        email.value = "ada.example.com"
+        email.caret = 15
+        email.anchor = 15
+        email.boxWidth = boxTextW
+        this.dress(email fMail)
+
+        def fPw:UiField (this.addField("fm-secret" "Password" "At least 8 characters." true true))
+        secret.tid = "fm-secret"
+        secret.kind = "password"
+        secret.value = "correcthorse"
+        secret.caret = 12
+        secret.anchor = 12
+        secret.boxWidth = halfTextW
+        this.dress(secret fPw)
+
+        def fAmt:UiField (this.addField("fm-amount" "Amount" "" false true))
+        amount.tid = "fm-amount"
+        amount.kind = "number"
+        amount.value = "1250.00"
+        ; A selection, so the band is drawn and not only asserted: the whole
+        ; number is selected the way a click-and-drag would leave it.
+        amount.anchor = 0
+        amount.caret = 7
+        amount.boxWidth = halfTextW
+        this.dress(amount fAmt)
+
+        ; A search box, which is a text field with a glyph in front of it —
+        ; the prefix machinery the "€" already needed, reused rather than
+        ; reinvented. Its placeholder is showing, so this is also the only
+        ; field in the picture that draws one.
+        def fFind:UiField (this.addField("fm-search" "Find a customer" "" false true))
+        search.tid = "fm-search"
+        search.kind = "search"
+        search.placeholder = "Search customers"
+        this.dress(search fFind)
+
+        ; And a READONLY one, which is not a disabled one: it takes focus and
+        ; it takes keys, and the only thing it will not do is change. The
+        ; measured surprise is that it has no caret either — see `InputCtl`,
+        ; and `input_readonly` for where that came from.
+        def fNo:UiField (this.addField("fm-invoice" "Invoice number" "Assigned when you create it." false true))
+        invoiceNo.tid = "fm-invoice"
+        invoiceNo.value = "INV-2026-0148"
+        invoiceNo.readOnly = true
+        this.dress(invoiceNo fNo)
+
+        terms.tid = "fm-terms"
+        terms.name = "I accept the terms"
+        terms.checkState = 1
+        terms.build()
+
+        delivery.tid = "fm-delivery"
+        delivery.name = "Delivery"
+        delivery.addItem("post" "Post" false)
+        delivery.addItem("email" "Email" false)
+        delivery.addItem("none" "No receipt" true)
+        delivery.value = "email"
+        delivery.build()
+
+        ; Focus starts on the AMOUNT, tabbed into and with its contents
+        ; selected — which is what a browser does on Tab into a field, and the
+        ; only state in which one picture shows both the caret and the
+        ; selection band. A form that opened with the caret in the first field
+        ; would be more ordinary and would draw half as much of what this demo
+        ; is here to show.
+        focused = "fm-amount"
+        this.rebuild()
+    }
+
+    ; --- geometry -------------------------------------------------------------
+
+    ; A measurer that owns no tree.
+    ;
+    ; The obvious version asked the LAYOUT for its text engine, and the layout
+    ; needs a tree that has already been built — while the thing doing the
+    ; asking is `boxFor`, which is in the middle of building it. A caret's
+    ; position is a fact about a string and a font and nothing else, so it does
+    ; not need a laid-out page to be measured against; this `EVGLayout` exists
+    ; only to hand out the engine, and never lays anything out.
+    fn engine:EVGTextEngine () {
+        return (measurer.getTextEngine())
+    }
+
+    fn inputs:[InputCtl] () {
+        def a:[InputCtl]
+        push a name
+        push a email
+        push a secret
+        push a amount
+        push a search
+        push a invoiceNo
+        return a
+    }
+
+    fn inputFor:InputCtl (tid:string) {
+        def i:int 0
+        def all:[InputCtl] (this.inputs())
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == tid) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new InputCtl())
+    }
+
+    fn hasInput:boolean (tid:string) {
+        def i:int 0
+        def all:[InputCtl] (this.inputs())
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == tid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    ; The box around a text run, with its caret and, when there is a selection,
+    ; the band under it. Both are positioned from `caretXAt`, which measures
+    ; the same string the painter will draw — so the bar sits BETWEEN two
+    ; characters rather than somewhere near them.
+    fn boxFor:EVGElement (c:InputCtl f:UiField prefix:string) {
+        ; The box is identified by the CONTROL's tid, not by "<tid>-box": it
+        ; IS the control as far as anything outside this file is concerned, and
+        ; a second id for the same thing is a second thing to keep in step.
+        def box (tree Fm (Box (props (id c.tid) (a11yLabel f.label))))
+        if (f.isBad()) {
+            box = (tree Fm (BoxBad (props (id c.tid) (a11yLabel f.label))))
+        }
+        ; The pale box is for a field that cannot be TYPED IN — readonly or
+        ; disabled. It was written before there was one of either, and drew
+        ; nowhere at all until the invoice number arrived.
+        if ((c.disabled) || (c.readOnly)) {
+            box = (tree Fm (BoxOff (props (id c.tid) (a11yLabel f.label))))
+        }
+        ; The Field's two strings, handed over: the label names it and the hint
+        ; — or the error, never both — describes it.
+        box.a11yDescription = (f.describedText())
+        box.a11yFocusable = (c.disabled == false)
+        box.a11yDisabled = c.disabled
+        ; `required` and `invalid` are NOT published here, and that is a limit
+        ; rather than an omission: `EVGA11yNode` has no field for either, so a
+        ; demo-built tree cannot state them. They are measured where the
+        ; instrument exists — `input_required` drives a required and an invalid
+        ; field against a real <input> and compares both — and the picture's
+        ; claim is the red ring and the message under it, which the gate checks
+        ; as a class and a description. Publishing half of it here would be a
+        ; second, weaker answer to a question already answered properly.
+        def eng:EVGTextEngine (this.engine())
+
+        ; How far the text run starts from the box's content edge. A prefix is
+        ; a sibling in the row, so the run begins after it — and the caret and
+        ; the band are positioned from the box, not from the run, so they have
+        ; to be told. Without this the selection sat a "€" to the left of the
+        ; number it was selecting.
+        def lead:double 0.0
+        if ((strlen prefix) > 0) {
+            def pm:EVGTextMetrics (eng.measureRun(prefix boxFont boxFontSize))
+            lead = pm.width
+        }
+        def shown:string (c.glyphText())
+        ; The password's glyphs, unless the eye is open — and the VALUE is
+        ; still the value either way, which is what the trace reports.
+        if (c.tid == "fm-secret") {
+            if secretShown {
+                shown = c.value
+            }
+        }
+
+        ; THE BAND GOES IN FIRST — before the PREFIX too, not merely before the
+        ; text. The display list paints in tree order, so a
+        ; selection added after the text covers the text — which is exactly
+        ; what the first render showed: an Amount field with a blue rectangle
+        ; where "€1250.00" should be. A browser paints the selection behind the
+        ; glyphs and inverts them; this paints it behind and leaves them, which
+        ; is the same reading order and one fewer thing to get wrong.
+        if ((focused == c.tid) && (c.readOnly == false)) {
+            if (c.hasSelection()) {
+                def s:double (c.caretXAt(eng (c.selStart())))
+                def e:double (c.caretXAt(eng (c.selEnd())))
+                def band (tree Fm (Band (props (id (c.tid + "-band")))))
+                band.left = (EVGUnit.px(((lead + s) - c.scrollX)))
+                band.width = (EVGUnit.px((e - s)))
+                box.addChild(band)
+            }
+        }
+
+        if ((strlen prefix) > 0) {
+            box.addChild((tree Fm (Prefix prefix)))
+        }
+
+        def empty:boolean ((strlen c.value) == 0)
+        if empty {
+            box.addChild((tree Fm (Ghost c.placeholder)))
+        } {
+            def t (tree Fm (Text (props (id (c.tid + "-text"))) shown))
+            box.addChild(t)
+        }
+
+        ; Only the focused field draws a caret, for the reason a browser does:
+        ; two carets on a page is two claims about where typing will go.
+        ;
+        ; And not a READONLY one even when it has focus. `InputCtl` refuses to
+        ; move a readonly caret because Chromium has none to move, and drawing
+        ; a bar the arrows cannot shift is a promise the field will not keep.
+        ; The gate caught this the moment there was a readonly field to catch
+        ; it on.
+        if ((focused == c.tid) && (c.readOnly == false)) {
+            def cx:double (c.caretXAt(eng c.caret))
+            def car (tree Fm (Caret (props (id (c.tid + "-caret")))))
+            car.left = (EVGUnit.px(((lead + cx) - c.scrollX)))
+            box.addChild(car)
+        }
+        return box
+    }
+
+    fn fieldFor2:EVGElement (c:InputCtl f:UiField prefix:string) {
+        def fe (tree Fm (Field (props (id (f.tid + "-field")))))
+        def lb (tree Fm (Label (props (id (f.tid + "-label")))))
+        lb.addChild((tree Fm (LabelTx f.label)))
+        if f.required {
+            lb.addChild((tree Fm (Star "*")))
+        }
+        fe.addChild(lb)
+        fe.addChild((this.boxFor(c f prefix)))
+        ; One line under the box, and it is the error's line when there is an
+        ; error. Both are `aria-hidden`: the sentence reaches a reader through
+        ; the control's description, and a second copy in the tree would be
+        ; announced twice.
+        if (f.isBad()) {
+            fe.addChild((tree Fm (Error f.error)))
+        } {
+            if ((strlen f.hint) > 0) {
+                fe.addChild((tree Fm (Hint f.hint)))
+            }
+        }
+        return fe
+    }
+
+    fn checkRow:EVGElement () {
+        def row (tree Fm (CheckRw (props (id "fm-terms-row"))))
+        def box (tree Fm (Check (props (id "fm-terms") (a11yLabel terms.name))))
+        box.a11yFocusable = true
+        if (terms.checkState == 1) {
+            box.a11yChecked = (EVGA11yTri.yes())
+            box.addChild((tree Fm (Tick "✓")))
+        } {
+            box.a11yChecked = (EVGA11yTri.no())
+        }
+        row.addChild(box)
+        row.addChild((tree Fm (CheckLb terms.name)))
+        return row
+    }
+
+    fn radioRow:EVGElement () {
+        def fe (tree Fm (Field (props (id "fm-delivery-field"))))
+        def dlb (tree Fm (Label))
+        dlb.addChild((tree Fm (LabelTx "Send the receipt by")))
+        fe.addChild(dlb)
+        def g (tree Fm (Radios (props (id "fm-delivery") (a11yLabel delivery.name))))
+        def i:int 0
+        while (i < (array_length delivery.items)) {
+            def it:UiItem (itemAt delivery.items i)
+            def r (tree Fm (Radio (props (id ("fm-delivery-" + it.value)) (a11yLabel it.name))))
+            r.a11yDisabled = it.disabled
+            r.a11yFocusable = (it.disabled == false)
+            ; EVERY radio says whether it is chosen, not just the chosen one.
+            ; A `role="radio"` with no `aria-checked` is a required attribute
+            ; missing, which axe reports as critical and the internal lint did
+            ; not mention — the drawn dot is not a claim a reader can hear.
+            if (delivery.value == it.value) {
+                r.a11yChecked = (EVGA11yTri.yes())
+                r.addChild((tree Fm (Dot)))
+            } {
+                r.a11yChecked = (EVGA11yTri.no())
+                r.addChild((tree Fm (Ring)))
+            }
+            r.addChild((tree Fm (RadioLb it.name)))
+            g.addChild(r)
+            i = (i + 1)
+        }
+        fe.addChild(g)
+        return fe
+    }
+
+    fn pageBody:EVGElement () {
+        def page (tree Fm (Page (props (id "page"))))
+        def card (tree Fm (Card (props (id "card"))))
+
+        def head (tree Fm (Head))
+        head.addChild((tree Fm (Title "New invoice")))
+        head.addChild((tree Fm (Sub "Eight controls, five kinds, one of them focused.")))
+        card.addChild(head)
+
+        def form (tree Fm (Form (props (id "fm"))))
+
+        form.addChild((this.fieldFor2(name (this.fieldFor("fm-name")) "")))
+        form.addChild((this.fieldFor2(email (this.fieldFor("fm-email")) "")))
+
+        ; The two halves. A row of two fields is the shape every real form has
+        ; and the one that finds a layout bug: each half is 50% of a row whose
+        ; width nobody stated.
+        def row (tree Fm (Row (props (id "fm-row"))))
+        def pw:EVGElement (this.fieldFor2(secret (this.fieldFor("fm-secret")) ""))
+        pw.width = (EVGUnit.percent(50.0))
+        ; The eye lives INSIDE the password's box, after the text.
+        def pwBox:EVGElement (itemAt pw.children 1)
+        def eyeLabel:string "Show password"
+        if secretShown {
+            eyeLabel = "Hide password"
+        }
+        def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) "👁"))
+        ; The NAME carries the state, not `aria-pressed`. The plan calls for a
+        ; toggle button, and EVGElement has no aria-pressed to set from a
+        ; demo-built tree — so rather than half-claim it, this uses the other
+        ; accepted spelling: a button whose accessible name says what pressing
+        ; it will do. A reader hears "Show password" and then "Hide password",
+        ; which is the same information in one fewer attribute. See the task
+        ; for aria-pressed on a demo tree.
+        pwBox.addChild(eye)
+        row.addChild(pw)
+
+        def amt:EVGElement (this.fieldFor2(amount (this.fieldFor("fm-amount")) "€"))
+        amt.width = (EVGUnit.percent(50.0))
+        row.addChild(amt)
+        form.addChild(row)
+
+        def row2 (tree Fm (Row (props (id "fm-row-2"))))
+        def find:EVGElement (this.fieldFor2(search (this.fieldFor("fm-search")) "⌕ "))
+        find.width = (EVGUnit.percent(50.0))
+        row2.addChild(find)
+        def num:EVGElement (this.fieldFor2(invoiceNo (this.fieldFor("fm-invoice")) ""))
+        num.width = (EVGUnit.percent(50.0))
+        row2.addChild(num)
+        form.addChild(row2)
+
+        form.addChild((this.radioRow()))
+        form.addChild((this.checkRow()))
+        card.addChild(form)
+
+        def foot (tree Fm (Foot))
+        foot.addChild((tree Fm (Cancel (props (id "fm-cancel") (a11yLabel "Cancel")) "Cancel")))
+        foot.addChild((tree Fm (Submit (props (id "fm-submit") (a11yLabel "Create invoice")) "Create invoice")))
+        card.addChild(foot)
+
+        page.addChild(card)
+        page.addChild((tree Fm (Note "Tab between the fields and type. The caret and the selection band are measured with the engine that draws the text.")))
+        return page
+    }
+
+    fn rebuild:void () {
+        root = (this.pageBody())
+    }
+
+    ; --- layout ---------------------------------------------------------------
+
+    fn laidOut:EVGLayout () {
+        if layout {
+            return (unwrap layout)
+        }
+        return (this.laidOutOnce())
+    }
+
+    fn laidOutOnce:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        this.markStates(r)
+        s.applyTree(r "")
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        layout = lay
+        return lay
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hovered) > 0) && (el.id == hovered)
+        el.isFocused = ((strlen focused) > 0) && (el.id == focused)
+        el.isPressed = ((strlen pressed) > 0) && (el.id == pressed)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    ; The tab ring, in the order a reader walks it. Written out rather than
+    ; derived from the tree, because the order is a claim about the FORM and
+    ; not about which element happens to be built first.
+    fn ring:[string] () {
+        def a:[string]
+        push a "fm-name"
+        push a "fm-email"
+        push a "fm-secret"
+        push a "fm-secret-eye"
+        push a "fm-amount"
+        push a "fm-search"
+        ; The readonly field IS a tab stop. A browser gives one focus — it can
+        ; be read and copied from — and taking it out of the ring would be
+        ; skipping past something a keyboard user is entitled to reach.
+        push a "fm-invoice"
+        push a "fm-delivery-post"
+        push a "fm-delivery-email"
+        push a "fm-terms"
+        push a "fm-cancel"
+        push a "fm-submit"
+        return a
+    }
+
+    fn tab:boolean (back:boolean) {
+        def r:[string] (this.ring())
+        def n:int (array_length r)
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt r i) == focused) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        def next:int (at + 1)
+        if back {
+            next = (at - 1)
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        focused = (itemAt r next)
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        return (this.keyWith(k false false))
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        if (k == "Tab") {
+            return (this.tab(shift))
+        }
+        if (this.hasInput(focused)) {
+            def c:InputCtl (this.inputFor(focused))
+            c.keyDownWith(focused k shift ctrl)
+            c.ensureCaretVisible((this.engine()))
+            this.rebuild()
+            return true
+        }
+        if (focused == "fm-terms") {
+            if (k == " ") {
+                terms.checkState = (1 - terms.checkState)
+                this.rebuild()
+                return true
+            }
+        }
+        if (focused == "fm-secret-eye") {
+            if ((k == " ") || (k == "Enter")) {
+                secretShown = (secretShown == false)
+                this.rebuild()
+                return true
+            }
+        }
+        return false
+    }
+
+    fn type:boolean (ch:string) {
+        if ((this.hasInput(focused)) == false) {
+            return false
+        }
+        def c:InputCtl (this.inputFor(focused))
+        def took:boolean (c.typeChar(focused ch))
+        if took {
+            c.ensureCaretVisible((this.engine()))
+            this.rebuild()
+        }
+        return took
+    }
+
+    fn press:boolean (target:string) {
+        if (target == "fm-secret-eye") {
+            focused = target
+            secretShown = (secretShown == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "fm-terms") {
+            focused = target
+            terms.checkState = (1 - terms.checkState)
+            this.rebuild()
+            return true
+        }
+        def i:int 0
+        while (i < (array_length delivery.items)) {
+            def it:UiItem (itemAt delivery.items i)
+            if (target == ("fm-delivery-" + it.value)) {
+                if (it.disabled == false) {
+                    focused = target
+                    delivery.value = it.value
+                    this.rebuild()
+                    return true
+                }
+                return false
+            }
+            i = (i + 1)
+        }
+        if (this.hasInput(target)) {
+            focused = target
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn setHover:void (id:string) { hovered = id }
+    fn setPressed:void (id:string) { pressed = id }
+    fn setFocus:void (id:string) { focused = id }
+
+    ; --- what the page asks for -----------------------------------------------
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Form demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Form demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (array_length s.errors)
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (itemAt s.errors i)
+    }
+
+    fn widthPx:double () { return pageW }
+    fn heightPx:double () { return pageH }
+}

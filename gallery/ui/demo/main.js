@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -311,6 +311,9 @@ timeline.init(TIMELINE_CSS);
 // the panel narrows. The one demo here whose CONTENT depends on its own size.
 const resize = new ResizeDemo();
 resize.init(RESIZE_CSS);
+const form = new FormDemo();
+form.init(FORM_CSS);
+let lastFormHover = "";
 let lastResizeHover = "";
 let lastTreeHover = "";
 let lastTimelineHover = "";
@@ -503,6 +506,40 @@ const DEMOS = {
       root: () => null,
     }),
     animated: true,
+  },
+
+  // The form. A press moves focus and, on a field, puts the caret where the
+  // pointer landed — which is the one interaction here that is a measurement
+  // rather than a state change, and the reason the press carries an x.
+  form: {
+    height: () => form.heightPx(),
+    list: () => form.displayListJson(),
+    hit: (x, y) => form.hitId(x, y),
+    a11y: (gen, focus) => form.a11yJson(gen, focus),
+    press: (id) => form.press(id),
+    hover: (id) => {
+      if (id === lastFormHover) return false;
+      lastFormHover = id;
+      form.setHover(id);
+      return true;
+    },
+    // Shift and Control matter here and nowhere else: Shift+Arrow extends the
+    // selection a plain Arrow collapses, and Ctrl+Arrow moves by a word. A
+    // printable key goes through the same door — `keyWith` treats any
+    // single-character unmodified key as an insertion — so there is no
+    // separate typing hook to keep in step with this one.
+    keyWith: (k, shift, ctrl) => form.keyWith(k, shift, ctrl),
+    key: (k) => form.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastFormHover) return false;
+        lastFormHover = id;
+        form.setHover(id);
+        return true;
+      },
+      setPressed: (id) => form.setPressed(id),
+      root: () => null,
+    }),
   },
 
   timeline: {
@@ -1207,7 +1244,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;
@@ -1364,7 +1401,13 @@ canvas.addEventListener("pointerleave", () => {
 // that has the focus is inside this page.
 window.addEventListener("keydown", (ev) => {
   if (ev.target instanceof HTMLInputElement) return;
-  if (!demo().key(ev.key)) return;
+  const d0 = demo();
+  // A demo that reads modifiers gets them; the rest keep the one-argument
+  // door they have always had.
+  const took = d0.keyWith
+    ? d0.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)
+    : d0.key(ev.key);
+  if (!took) return;
   ev.preventDefault();
   paint();
   // A key that opened a menu asked for a row inside it, and the rows only

@@ -472,6 +472,23 @@
         "breadcrumb-keeps-first-and-last-two": "and which it keeps is a rule: the first, because it is the way out; the last, because it is where you are; the one before it, because it is one step back. Everything else becomes one ellipsis",
         "breadcrumb-ellipsis-named": "the ellipsis is NAMED \"More\", so a reader learns crumbs are missing rather than hearing three dots"
       }
+    },
+    "input": {
+      "radix": "(none — the oracle is the platform's own <input>)",
+      "behaviours": {
+        "textbox-role": "role textbox, named by its label, one tab stop",
+        "input-type": "printable keys insert at the caret",
+        "input-caret": "Arrows move the caret; Home and End go to the ends",
+        "input-selection": "Shift+Arrow extends, a plain Arrow collapses, Ctrl+A selects all",
+        "input-word-motion": "Ctrl+Arrow moves by a word",
+        "input-delete": "Backspace removes behind, Delete removes ahead, either removes a selection",
+        "input-placeholder": "a placeholder is drawn when empty and is never part of the value",
+        "input-maxlength": "the value never grows past maxlength",
+        "input-readonly": "a readonly field takes focus and keys but never changes",
+        "input-disabled": "a disabled field takes neither focus nor keys",
+        "input-password": "the value is the text and the glyphs are bullets",
+        "input-required": "aria-required is published only when it was asked for"
+      }
     }
   }
 }

@@ -143,7 +143,12 @@ export async function run(spec) {
           .catch(() => {});
         await observe("click " + step.click + (mods.length ? " [" + mods.join("+") + "]" : ""));
       } else if ("key" in step) {
-        await page.keyboard.press(step.key === " " ? "Space" : step.key);
+        // `mods` on a key, the same list `click` already takes. Playwright
+        // spells a modified press "Control+ArrowRight", so the list is joined
+        // onto the front rather than passed separately.
+        const kmods = step.mods || [];
+        const base = step.key === " " ? "Space" : step.key;
+        await page.keyboard.press(kmods.length ? kmods.join("+") + "+" + base : base);
         // Some components move focus in an EFFECT rather than in the handler,
         // so state and DOM focus disagree for a frame or two after the key.
         // headless-tree is one: its roving tabIndex moves immediately and the
@@ -152,7 +157,19 @@ export async function run(spec) {
         // did not, in the same run. `settle` waits past it. See SPEC.md.
         if (step.settle) await page.waitForTimeout(step.settle);
         await observe("key " + JSON.stringify(step.key) +
+          (kmods.length ? " [" + kmods.join("+") + "]" : "") +
           (step.settle ? " +" + step.settle + "ms" : ""));
+      } else if ("type" in step) {
+        // ONE CHARACTER PER OBSERVATION. `page.keyboard.type("hello")` would
+        // be one row at the end, and a caret that goes wrong on the second
+        // keystroke looks identical to one that goes wrong on the fifth. The
+        // whole reason to have a typing step rather than five `key` steps is
+        // that the spec reads as a word; the trace still has to read as
+        // keystrokes.
+        for (const ch of step.type) {
+          await page.keyboard.type(ch);
+          await observe("type " + JSON.stringify(ch));
+        }
       } else if ("focus" in step) {
         await page.locator(sel(step.focus)).focus().catch(() => {});
         await observe("focus " + step.focus);

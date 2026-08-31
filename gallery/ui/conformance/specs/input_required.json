@@ -1,0 +1,14 @@
+{
+  "name": "input_required",
+  "component": "input",
+  "behaviours": ["input-required", "textbox-role"],
+  "$comment": "Absent and \"false\" are different claims. This is the finding that put invalid/required/readonly in the trace before there was a form to need them.",
+  "fixture": {
+    "controls": [
+      { "type": "input", "tid": "req", "name": "Name", "required": true },
+      { "type": "input", "tid": "bad", "name": "Age", "value": "x", "invalid": true },
+      { "type": "input", "tid": "plain", "name": "Note" }
+    ]
+  },
+  "steps": [{ "focus": "req" }, { "focus": "bad" }, { "focus": "plain" }]
+}

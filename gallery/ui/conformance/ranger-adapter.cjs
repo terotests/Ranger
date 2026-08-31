@@ -53,6 +53,11 @@ function run(spec, css) {
         readonly: null,
         current: null,
         orientation: null,
+        value: null,
+        placeholder: null,
+        selstart: null,
+        selend: null,
+        description: null,
         valuenow: null,
         valuemin: null,
         valuemax: null,
@@ -78,14 +83,23 @@ function run(spec, css) {
       const mods = step.mods || [];
       host.clickWith(step.click, mods.includes("Shift"), mods.includes("Control"));
       observe("click " + step.click + (mods.length ? " [" + mods.join("+") + "]" : ""));
+    } else if ("type" in step) {
+      // One character per observation, for the reason the DOM side gives:
+      // a caret bug has to be visible at the keystroke that caused it.
+      for (const ch of step.type) {
+        host.type(ch);
+        observe("type " + JSON.stringify(ch));
+      }
     } else if ("key" in step) {
-      host.key(step.key);
+      const kmods = step.mods || [];
+      host.keyWith(step.key, kmods.includes("Shift"), kmods.includes("Control"));
       // `settle` is deliberately NOT ticked here, unlike on a hover step. It
       // exists because the REFERENCE moves focus in an effect and needs a
       // moment to finish; this side has no async at all and is settled the
       // instant `key` returns. Advancing a clock here would move controller
       // timers the reference's wait does not.
       observe("key " + JSON.stringify(step.key) +
+        (kmods.length ? " [" + kmods.join("+") + "]" : "") +
         (step.settle ? " +" + step.settle + "ms" : ""));
     } else if ("focus" in step) {
       host.focus(step.focus);

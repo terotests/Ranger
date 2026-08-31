@@ -1,0 +1,625 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; InputCtl — measured against a real <input type="text">
+; =============================================================================
+; The hardest component in this gallery and the one with the easiest oracle.
+; Everything a text field does is observable from the DOM without a bespoke
+; capture: `value`, `selectionStart` and `selectionEnd` are properties of the
+; element, so a spec that types and arrows around is ordinary conformance.
+;
+; Which is the whole reason `value`, `selstart` and `selend` had to join the
+; observed fields BEFORE this file existed. A trace that carries none of them
+; sees a text field type "hello" and reports the same node it reported when the
+; box was empty: role textbox, named, focused, one tab stop. Every keystroke in
+; this file is invisible without those three, and the slider taught that lesson
+; once already.
+;
+; Caret geometry needs no new metric. `EVGTextEngine.measureRun(text, family,
+; size)` measures a whole string, so the caret's x for index i is
+; `measureRun(value[0..i])` — exact by construction, because it is the same
+; measurement the painter will use. A click maps back the other way by
+; bisecting over prefix widths: O(log n) measurements and no per-glyph advance
+; table to keep in step with the font.
+;
+; INDEXES ARE UTF-16 CODE UNITS, because that is what `selectionStart` counts
+; and parity is the point. On the JS backend `charAt` and `substring` agree
+; with that; on the C++ backend they count BYTES, so a non-ASCII value would
+; index differently there. Stated rather than solved: the conformance harness
+; runs on JS, and a byte-indexed caret is a real divergence for whoever takes
+; the native backend past ASCII.
+;
+; Parity contract (see conformance/SPEC.md):
+;   root      role textbox, named by its label, the tab stop, and where value,
+;             selstart and selend live.
+;   password  the VALUE is the text and the GLYPHS are bullets. Those two are
+;             never the same string: `value` is what the trace reports and
+;             `glyphText` is what gets drawn, and nothing joins them.
+;   keys      printable characters insert; Backspace and Delete remove;
+;             Arrows move; Shift+Arrow extends; Home/End; Ctrl+A selects all;
+;             Ctrl+Arrow moves by word.
+;
+; Explicitly NOT in scope, each a real thing being declined: IME composition,
+; RTL and bidi caret movement, the clipboard, an undo stack, spellcheck,
+; autofill.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+class InputCtl extends UiCtl {
+    ; What the field holds. For a password this is the TEXT, never the bullets.
+    def value:string ""
+    ; Drawn when the value is empty. Drawn text, not a value: it must never
+    ; reach `value` and it must never be what the trace reports.
+    def placeholder:string ""
+    ; "text" | "password" | "email" | "search" | "number". Only "password"
+    ; changes behaviour here; the rest are for the trace and the demo.
+    def kind:string "text"
+    def readOnly:boolean false
+    def required:boolean false
+    def invalid:boolean false
+    ; 0 means no limit, matching `maxlength`'s absence rather than a made-up
+    ; ceiling.
+    def maxLength:int 0
+
+    ; The caret, and the other end of the selection. `selstart`/`selend` are
+    ; DERIVED from these two and never stored, because storing both a caret and
+    ; a start/end pair means two places to be wrong about which end is moving —
+    ; and which end is moving is exactly what Shift+Arrow needs to know.
+    def caret:int 0
+    def anchor:int 0
+
+    ; Painting. The box's inner width and the run's font, which the host sets
+    ; from the resolved style so the measurement and the drawing agree.
+    def boxWidth:double 180.0
+    def fontFamily:string "Arial"
+    def fontSize:double 14.0
+    ; How far the text is scrolled left inside the box, once it is wider than
+    ; the box. Kept here rather than derived, because it is history: where the
+    ; text sits depends on where the caret has BEEN, not only where it is.
+    def scrollX:double 0.0
+
+    def textEl:EVGElement
+    def caretEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        textEl = (EVGElement.createDiv())
+        caretEl = (EVGElement.createDiv())
+    }
+
+    ; --- names ----------------------------------------------------------------
+
+    fn textTid:string () {
+        return (tid + "-text")
+    }
+
+    fn caretTid:string () {
+        return (tid + "-caret")
+    }
+
+    ; --- the selection --------------------------------------------------------
+
+    fn length:int () {
+        return (strlen value)
+    }
+
+    fn selStart:int () {
+        if (anchor < caret) {
+            return anchor
+        }
+        return caret
+    }
+
+    fn selEnd:int () {
+        if (anchor < caret) {
+            return caret
+        }
+        return anchor
+    }
+
+    fn hasSelection:boolean () {
+        return (anchor != caret)
+    }
+
+    fn clamp:int (i:int) {
+        if (i < 0) {
+            return 0
+        }
+        def n:int (strlen value)
+        if (i > n) {
+            return n
+        }
+        return i
+    }
+
+    ; Move the caret, and take the anchor with it unless the move is extending
+    ; a selection. One place decides that, so Shift+Arrow and plain Arrow
+    ; cannot drift apart.
+    fn moveTo:void (i:int extend:boolean) {
+        ; A READONLY field has no caret to move, and that is measured rather
+        ; than assumed. `input_readonly` focuses a readonly <input readonly>
+        ; holding "RO-42" and presses Home, then ArrowRight: Chromium reports
+        ; selectionStart 5 throughout — the same value length an UNFOCUSED
+        ; input reports, which is what a field with no selection hands back.
+        ; Focus alone does not give a readonly field a caret, so there is
+        ; nothing for a key to move.
+        ;
+        ; Scoped to what was measured: the spec focuses rather than clicks, so
+        ; this says nothing about a readonly field a pointer has selected
+        ; inside — and neither side measures that yet, because click-to-caret
+        ; needs the two boxes to be the same width in the same font.
+        if readOnly {
+            return
+        }
+        caret = (this.clamp(i))
+        if (extend == false) {
+            anchor = caret
+        }
+    }
+
+    fn selectAll:void () {
+        if readOnly {
+            return
+        }
+        anchor = 0
+        caret = (strlen value)
+    }
+
+    ; --- editing --------------------------------------------------------------
+
+    fn setValue:void (v:string) {
+        value = v
+        caret = (this.clamp(caret))
+        anchor = (this.clamp(anchor))
+    }
+
+    ; Replace the selection with `t`, or insert it at the caret when there is
+    ; none. Every edit goes through here — Backspace and Delete included, by
+    ; first making a one-character selection — so there is one place where a
+    ; value is spliced and one place where the caret lands afterwards.
+    fn insertText:void (t:string) {
+        if disabled {
+            return
+        }
+        if readOnly {
+            return
+        }
+        def s:int (this.selStart())
+        def e:int (this.selEnd())
+        def head:string (substring value 0 s)
+        def tail:string (substring value e (strlen value))
+        def add:string t
+        ; `maxlength` counts the WHOLE value, not the insertion, so a paste
+        ; into a nearly-full field is truncated to what still fits rather than
+        ; rejected outright — which is what the platform does.
+        if (maxLength > 0) {
+            def room:int ((maxLength - (strlen head)) - (strlen tail))
+            if (room <= 0) {
+                add = ""
+            } {
+                if ((strlen add) > room) {
+                    add = (substring add 0 room)
+                }
+            }
+        }
+        value = ((head + add) + tail)
+        caret = (s + (strlen add))
+        anchor = caret
+    }
+
+    fn deleteRange:void (s:int e:int) {
+        if disabled {
+            return
+        }
+        if readOnly {
+            return
+        }
+        def a:int (this.clamp(s))
+        def b:int (this.clamp(e))
+        if (a >= b) {
+            return
+        }
+        def head:string (substring value 0 a)
+        def tail:string (substring value b (strlen value))
+        value = (head + tail)
+        caret = a
+        anchor = a
+    }
+
+    fn backspace:void () {
+        if (this.hasSelection()) {
+            this.deleteRange((this.selStart()) (this.selEnd()))
+            return
+        }
+        if (caret > 0) {
+            this.deleteRange((caret - 1) caret)
+        }
+    }
+
+    fn deleteForward:void () {
+        if (this.hasSelection()) {
+            this.deleteRange((this.selStart()) (this.selEnd()))
+            return
+        }
+        this.deleteRange(caret (caret + 1))
+    }
+
+    ; --- word motion ----------------------------------------------------------
+    ; A rule that is easy to invent and easy to get wrong, so it is written to
+    ; be MEASURED: `input_word_motion` drives Ctrl+Arrow across a string with
+    ; runs of spaces and punctuation, and the diff reports `selstart` after
+    ; every press. Whatever the browser does is what this has to do.
+
+    fn isSpaceAt:boolean (i:int) {
+        if (i < 0) {
+            return true
+        }
+        if (i >= (strlen value)) {
+            return true
+        }
+        def c:int (charAt value i)
+        ; space, tab, newline, carriage return
+        if (c == 32) { return true }
+        if (c == 9)  { return true }
+        if (c == 10) { return true }
+        if (c == 13) { return true }
+        return false
+    }
+
+    ; Backwards: over any run of spaces, then over the word itself, landing on
+    ; the word's first character.
+    fn wordLeft:int (from:int) {
+        def i:int (this.clamp(from))
+        while (i > 0) {
+            if ((this.isSpaceAt((i - 1))) == false) {
+                break
+            }
+            i = (i - 1)
+        }
+        while (i > 0) {
+            if (this.isSpaceAt((i - 1))) {
+                break
+            }
+            i = (i - 1)
+        }
+        return i
+    }
+
+    ; Forwards: over any run of spaces FIRST, then over the word, landing on
+    ; the character after the word's last.
+    ;
+    ; Not the mirror image of `wordLeft`, and that asymmetry is measured rather
+    ; than chosen. The first version skipped the word and then the spaces —
+    ; landing on the NEXT word's first character, which is the rule that reads
+    ; naturally and is not the one the platform implements. On
+    ; "alpha  beta gamma" from 0 it gave 7 where Chromium gives 5, and from
+    ; there 12 where Chromium gives 11. Both directions land on a word's own
+    ; edge: backwards on its start, forwards on its end.
+    fn wordRight:int (from:int) {
+        def i:int (this.clamp(from))
+        def n:int (strlen value)
+        while (i < n) {
+            if ((this.isSpaceAt(i)) == false) {
+                break
+            }
+            i = (i + 1)
+        }
+        while (i < n) {
+            if (this.isSpaceAt(i)) {
+                break
+            }
+            i = (i + 1)
+        }
+        return i
+    }
+
+    ; --- geometry -------------------------------------------------------------
+
+    ; What gets DRAWN. Never `value` for a password, and the two are separate
+    ; methods so that no caller can reach for the wrong one by accident.
+    fn glyphText:string () {
+        if (kind != "password") {
+            return value
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen value)
+        while (i < n) {
+            out = (out + "•")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Whether the box is showing the placeholder rather than a value. Its own
+    ; method because three callers need the same answer and one of them is the
+    ; colour.
+    fn showsPlaceholder:boolean () {
+        if ((strlen value) > 0) {
+            return false
+        }
+        return ((strlen placeholder) > 0)
+    }
+
+    ; The caret's x, measured from the left of the text run — the same
+    ; measurement the painter will make of the same string, which is why this
+    ; cannot drift from what is drawn.
+    fn caretXAt:double (eng:EVGTextEngine i:int) {
+        def g:string (this.glyphText())
+        def k:int i
+        if (k < 0) { k = 0 }
+        if (k > (strlen g)) { k = (strlen g) }
+        if (k == 0) {
+            return 0.0
+        }
+        def head:string (substring g 0 k)
+        def m:EVGTextMetrics (eng.measureRun(head fontFamily fontSize))
+        return m.width
+    }
+
+    fn textWidth:double (eng:EVGTextEngine) {
+        return (this.caretXAt(eng (strlen (this.glyphText()))))
+    }
+
+    ; The index a click at `x` lands on, x measured from the left of the text
+    ; run. Bisect over prefix widths — the widths are monotonic, so the last
+    ; index whose prefix still fits is found in log n measurements — then take
+    ; whichever of that index and the next one is NEARER, because a click on
+    ; the right half of a character puts the caret after it.
+    fn indexAtX:int (eng:EVGTextEngine x:double) {
+        def n:int (strlen (this.glyphText()))
+        if (n == 0) {
+            return 0
+        }
+        def lo:int 0
+        def hi:int n
+        while (lo < hi) {
+            def mid:int (idiv ((lo + hi) + 1) 2)
+            if ((this.caretXAt(eng mid)) <= x) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        if (lo >= n) {
+            return n
+        }
+        def here:double (this.caretXAt(eng lo))
+        def next:double (this.caretXAt(eng (lo + 1)))
+        if ((x - here) > (next - x)) {
+            return (lo + 1)
+        }
+        return lo
+    }
+
+    ; Keep the caret in view. NOT "centre it": a browser scrolls the minimum
+    ; that brings the caret back inside the box, so text typed to the end stays
+    ; pinned at the right edge and arrowing back left reveals one character at a
+    ; time rather than jumping the run about.
+    fn ensureCaretVisible:void (eng:EVGTextEngine) {
+        def cx:double (this.caretXAt(eng caret))
+        if ((cx - scrollX) < 0.0) {
+            scrollX = cx
+        }
+        if ((cx - scrollX) > boxWidth) {
+            scrollX = (cx - boxWidth)
+        }
+        ; And never past either end: a short value is never scrolled at all,
+        ; whatever the caret did before it was deleted.
+        def total:double (this.textWidth(eng))
+        def maxScroll:double (total - boxWidth)
+        if (maxScroll < 0.0) {
+            maxScroll = 0.0
+        }
+        if (scrollX > maxScroll) {
+            scrollX = maxScroll
+        }
+        if (scrollX < 0.0) {
+            scrollX = 0.0
+        }
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    ; One printable character, or one whole typed string. The harness's `type`
+    ; step feeds characters one at a time so that the trace has a row per
+    ; keystroke, which is the only way a caret bug is visible at the keystroke
+    ; that caused it rather than at the end of the word.
+    fn typeChar:boolean (target:string ch:string) {
+        if (target != tid) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        if readOnly {
+            return false
+        }
+        this.insertText(ch)
+        this.build()
+        return true
+    }
+
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        if disabled {
+            return ""
+        }
+        if (target != tid) {
+            return ""
+        }
+
+        if (key == "ArrowLeft") {
+            if ctrl {
+                this.moveTo((this.wordLeft(caret)) shift)
+            } {
+                ; A plain ArrowLeft with a selection COLLAPSES it to the left
+                ; end rather than moving the caret one further. Different from
+                ; Shift+ArrowLeft, which extends, and the difference is only
+                ; visible once `selstart` and `selend` are both in the trace.
+                if ((shift == false) && (this.hasSelection())) {
+                    this.moveTo((this.selStart()) false)
+                } {
+                    this.moveTo((caret - 1) shift)
+                }
+            }
+            this.build()
+            return ""
+        }
+        if (key == "ArrowRight") {
+            if ctrl {
+                this.moveTo((this.wordRight(caret)) shift)
+            } {
+                if ((shift == false) && (this.hasSelection())) {
+                    this.moveTo((this.selEnd()) false)
+                } {
+                    this.moveTo((caret + 1) shift)
+                }
+            }
+            this.build()
+            return ""
+        }
+        if (key == "Home") {
+            this.moveTo(0 shift)
+            this.build()
+            return ""
+        }
+        if (key == "End") {
+            this.moveTo((strlen value) shift)
+            this.build()
+            return ""
+        }
+        if (key == "Backspace") {
+            this.backspace()
+            this.build()
+            return ""
+        }
+        if (key == "Delete") {
+            this.deleteForward()
+            this.build()
+            return ""
+        }
+        if (key == "a") {
+            if ctrl {
+                this.selectAll()
+                this.build()
+                return ""
+            }
+        }
+        ; Anything else that is exactly one character is a printable key.
+        ; Ctrl-modified keys are not: Ctrl+B is a command this field does not
+        ; have, not the letter b.
+        if (ctrl == false) {
+            if ((strlen key) == 1) {
+                this.insertText(key)
+                this.build()
+                return ""
+            }
+        }
+        return ""
+    }
+
+    ; --- pointer --------------------------------------------------------------
+
+    ; A press inside the box puts the caret where it landed, measured against
+    ; the same run the painter draws and offset by the scroll — which is why
+    ; the caller passes an x relative to the TEXT's left edge and not to the
+    ; field's.
+    fn pressAt:void (eng:EVGTextEngine x:double extend:boolean) {
+        if disabled {
+            return
+        }
+        this.moveTo((this.indexAtX(eng (x + scrollX))) extend)
+        this.ensureCaretVisible(eng)
+        this.build()
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-input"
+        if disabled {
+            UiTree.addClass(root "ui-input-disabled")
+        }
+        if invalid {
+            UiTree.addClass(root "ui-input-invalid")
+        }
+        UiTree.clearChildren(root)
+
+        def txt:EVGElement (unwrap textEl)
+        txt.id = (this.textTid())
+        txt.className = "ui-input-text"
+        if (this.showsPlaceholder()) {
+            UiTree.addClass(txt "ui-input-placeholder")
+            txt.textContent = placeholder
+        } {
+            txt.textContent = (this.glyphText())
+        }
+        UiTree.clearChildren(txt)
+        root.addChild(txt)
+
+        def car:EVGElement (unwrap caretEl)
+        car.id = (this.caretTid())
+        car.className = "ui-input-caret"
+        UiTree.clearChildren(car)
+        root.addChild(car)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.textTid())
+        push a (this.caretTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return (target == tid)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.textField()) name))
+        r.disabled = disabled
+        if (disabled == false) {
+            r.tabStop = true
+            r.focusable = true
+        }
+        ; Absent and "false" are different claims, which is the finding that
+        ; put these three in the trace before this component existed. A native
+        ; <input> publishes NONE of them unless the attribute is there, so
+        ; neither does this.
+        if required {
+            r.required = "true"
+        }
+        if invalid {
+            r.invalid = "true"
+        }
+        if readOnly {
+            r.readOnly = "true"
+        }
+        ; The three fields the whole component is about. `value` is the TEXT
+        ; even for a password — it is what `input.value` reports on the other
+        ; side, and a trace that reported bullets would agree with nothing.
+        r.description = description
+        r.hasText = true
+        r.text = value
+        r.placeholder = placeholder
+        r.hasSelection = true
+        r.selStart = (this.selStart())
+        r.selEnd = (this.selEnd())
+
+        push out r
+        return out
+    }
+}

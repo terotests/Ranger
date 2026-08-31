@@ -16,6 +16,26 @@ export const FIELDS = [
   "valuenow",
   "valuemin",
   "valuemax",
+  // What a text field holds, and where the caret is in it. The slider's
+  // lesson a second time and harder: role, name, state, tabstop and focus are
+  // all IDENTICAL for an empty box and one holding a typed word, so without
+  // these four a spec that types "hello" and arrows back through it produces
+  // a trace in which nothing whatsoever happens.
+  //
+  // `value` is the text even for a password — it is what `input.value`
+  // reports, and a side that reported bullets would agree with nothing.
+  "value",
+  "placeholder",
+  // Both ends, always. A caret is a selection of length zero, and a start on
+  // its own cannot tell a collapsed caret from a selection that begins there
+  // — which is exactly the difference between ArrowLeft and Shift+ArrowLeft.
+  "selstart",
+  "selend",
+  // `aria-describedby`, resolved to the text it points at. A Field's hint and
+  // its error message are exactly this and nothing else — without it, a field
+  // that has just been marked invalid reports `invalid: "true"` and not one
+  // word about WHY, which is the whole of what a reader is given.
+  "description",
   "hidden",
   "tabstop",
   "focused",

@@ -57,10 +57,23 @@ class EVGA11yFromTree {
         if (name == "link")             { return (EVGA11yRole.link()) }
         ; A landmark. Missing until a demo used one, and the LINT is what said
         ; so — an unrecognised role drops the element AND everything under it,
-        ; a silent hole with no symptom on screen. Third time this table has
+        ; a silent hole with no symptom on screen. FOURTH time this table has
         ; been one role short; the `notes` list exists because of the first two.
         ; `list`, `listitem` and `separator` were already here, further down.
+        ;
+        ; So the fourth time it is completed rather than extended: the whole
+        ; select family goes in together, not just the `combobox` the profile
+        ; demo happened to need, because `listbox` and `option` are the two
+        ; roles that will be wanted the moment that select can be opened and
+        ; finding out then would be the fifth time.
         if (name == "navigation")       { return (EVGA11yRole.navigation()) }
+        if (name == "form")             { return (EVGA11yRole.form()) }
+        if (name == "combobox")         { return (EVGA11yRole.comboBox()) }
+        if (name == "listbox")          { return (EVGA11yRole.listBox()) }
+        if (name == "option")           { return (EVGA11yRole.option()) }
+        if (name == "grid")             { return (EVGA11yRole.grid()) }
+        if (name == "group")            { return (EVGA11yRole.group()) }
+        if (name == "tabpanel")         { return (EVGA11yRole.tabPanel()) }
         if (name == "tablist")          { return (EVGA11yRole.tabList()) }
         if (name == "tab")              { return (EVGA11yRole.tab()) }
         if (name == "toolbar")          { return (EVGA11yRole.toolbar()) }
@@ -174,6 +187,8 @@ class EVGA11yFromTree {
             def n:EVGA11yNode (t.node(id parentId code))
             n.name = (this.nameOf(el))
             n.roleDescription = el.a11yRoleDescription
+            n.description = el.a11yDescription
+            n.hasPopup = el.a11yHasPopup
             n.disabled = el.a11yDisabled
             n.checked = el.a11yChecked
             n.expanded = el.a11yExpanded

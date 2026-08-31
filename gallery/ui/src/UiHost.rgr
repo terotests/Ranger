@@ -31,6 +31,7 @@ Import "AlertDialogCtl.rgr"
 Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
+Import "InputCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ResizeCtl.rgr"
 Import "BreadcrumbCtl.rgr"
@@ -295,6 +296,15 @@ class UiHost {
         def c (new ResizeCtl())
         c.tid = tid
         c.orientation = orientation
+        this.add(c)
+        return c
+    }
+
+    fn addInput:InputCtl (tid:string name:string) {
+        def c (new InputCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
         this.add(c)
         return c
     }
@@ -670,16 +680,40 @@ class UiHost {
     ; moves focus itself (arrow keys in a composite) says so by returning the
     ; test id focus should land on.
     fn key:void (name:string) {
+        this.keyWith(name false false)
+    }
+
+    ; The same key, carrying Shift and Control. The text field is the first
+    ; control that reads them: Shift+Arrow extends the selection Arrow
+    ; collapses, and Ctrl+Arrow moves by a word.
+    fn keyWith:void (name:string shift:boolean ctrl:boolean) {
         if ((strlen focusId) == 0) {
             return
         }
         def maybe@(optional):UiCtl (this.ctlFor(focusId))
         if maybe {
             def c:UiCtl (unwrap maybe)
-            def next:string (c.keyDown(focusId name))
+            def next:string (c.keyDownWith(focusId name shift ctrl))
             if ((strlen next) > 0) {
                 focusId = next
             }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    ; One printable character into whatever holds focus. Not routed through
+    ; `key`: a browser fires keydown AND a separate input event, and only the
+    ; second one inserts — so a control that reads Enter as an activation must
+    ; not also read "e" as a letter, and vice versa.
+    fn type:void (ch:string) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.typeChar(focusId ch)
             this.remember(c)
         }
         this.settleFocus()
@@ -898,6 +932,16 @@ class UiHost {
         return "null"
     }
 
+    ; A string that may legitimately be empty. `textOrNull` cannot serve here:
+    ; it treats "" as absent, which is right for an attribute nobody set and
+    ; wrong for a text field that has been cleared.
+    sfn textJson:string (has:boolean v:string) {
+        if has {
+            return (EVGA11yTree.jsonString(v))
+        }
+        return "null"
+    }
+
     sfn boolJson:string (v:boolean) {
         if v {
             return "true"
@@ -983,6 +1027,7 @@ class UiHost {
                     n.name = row.name
                 }
                 n.roleDescription = row.roleDescription
+                n.description = row.description
                 n.hasValueNow = row.hasValueNow
                 n.valueNow = row.valueNow
                 n.hasValueRange = row.hasRange
@@ -1303,12 +1348,22 @@ class UiHost {
             out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
             out = out + ",\"hidden\":" + (UiHost.boolJson(isHidden))
             out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
+            ; What a text field holds, and where the caret is in it. `null`
+            ; rather than "" for a node that is not a text field — a box
+            ; holding the empty string and a button are not the same claim,
+            ; and "" would make them identical in the diff.
+            out = out + ",\"value\":" + (UiHost.textJson(row.hasText row.text))
+            out = out + ",\"placeholder\":" + (UiHost.textOrNull(row.placeholder))
+            out = out + ",\"selstart\":" + (UiHost.numJson(row.hasSelection row.selStart))
+            out = out + ",\"selend\":" + (UiHost.numJson(row.hasSelection row.selEnd))
             out = out + ",\"valuenow\":" + (UiHost.numJson(row.hasValueNow row.valueNow))
             out = out + ",\"valuemin\":" + (UiHost.numJson(row.hasRange row.valueMin))
             out = out + ",\"valuemax\":" + (UiHost.numJson(row.hasRange row.valueMax))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
             out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
+            ; The text `aria-describedby` points AT, not the id it points with.
+            out = out + ",\"description\":" + (UiHost.textOrNull(row.description))
             ; Reported, not compared: the two systems disagree about the parent
             ; of a floating surface on purpose. It is here so `posinset` can be
             ; skipped where they do — see conformance/diff.mjs.

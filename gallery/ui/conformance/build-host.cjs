@@ -115,6 +115,25 @@ function buildHost(M, fixture, css) {
         addMenuItems(ctl, c.items);
         break;
 
+      case "input":
+        ctl = host.addInput(c.tid, c.name);
+        ctl.kind = c.kind || "text";
+        ctl.value = c.value || "";
+        ctl.placeholder = c.placeholder || "";
+        ctl.readOnly = !!c.readonly;
+        ctl.required = !!c.required;
+        ctl.invalid = !!c.invalid;
+        ctl.maxLength = c.maxlength ?? 0;
+        // A field built with a value starts with the caret at the END of it,
+        // which is where a browser puts it when the element is focused for
+        // the first time. Not zero: an input whose caret starts at 0 reports
+        // a different selstart on its very first observation than the
+        // reference does, before any key has been pressed.
+        ctl.caret = String(ctl.value).length;
+        ctl.anchor = ctl.caret;
+        ctl.build();
+        break;
+
       case "slider":
         ctl = host.addSlider(c.tid, c.name);
         ctl.minValue = c.min ?? 0;
@@ -320,6 +339,7 @@ const SUPPORTED_TYPES = [
   "hovercard",
   "dropdownmenu",
   "contextmenu",
+  "input",
   "slider",
   "toast",
   "sortable",

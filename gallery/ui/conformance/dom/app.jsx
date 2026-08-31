@@ -857,6 +857,32 @@ export function Control({ spec }) {
     case "toast":
       return <ToastControl spec={spec} tid={tid} />;
 
+    // A plain <input>. Deliberately NOT a Radix component: Radix has no text
+    // field, because a text field is what the platform already is — and that
+    // makes this the one oracle in the gallery that is the browser itself
+    // rather than a library's reading of it.
+    case "input":
+      return (
+        <input
+          data-tid={tid}
+          type={spec.kind || "text"}
+          aria-label={spec.name}
+          defaultValue={spec.value || ""}
+          placeholder={spec.placeholder || undefined}
+          readOnly={!!spec.readonly}
+          // The NATIVE attribute alone. Adding `aria-required` beside it would
+          // be making the oracle agree with this side rather than measuring
+          // it: a platform text field publishes required through the
+          // attribute, and the snapshot has to read that. `aria-invalid` has
+          // no native counterpart — validity state is not this — so there it
+          // is the real expression and stays.
+          required={!!spec.required}
+          aria-invalid={spec.invalid ? "true" : undefined}
+          maxLength={spec.maxlength || undefined}
+          disabled={!!spec.disabled}
+        />
+      );
+
     case "slider":
       // The ONLY styled control here, and only its geometry. Everything else in
       // this host is deliberately unstyled — the harness compares behaviour,

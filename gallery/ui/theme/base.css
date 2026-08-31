@@ -73,6 +73,31 @@
 
 /* --- checkbox and switch -------------------------------------------------- */
 
+/* A text field. It has a stated HEIGHT and a minimum width, because an empty
+ * one has neither otherwise — and axe called that what it is: a focusable node
+ * with no height is a node a pointer cannot land on and a magnifier cannot
+ * find. Three of the nine input specs start with an empty box, and those were
+ * exactly the three that went red. */
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 0 10px;
+  width: 220px;
+  height: 34px;
+}
+
+.ui-input-disabled { opacity: 0.45; }
+.ui-input-invalid { border-color: #dc2626; }
+.ui-input-text { color: #0f172a; font-size: 13px; height: 18px; }
+.ui-input-placeholder { color: #64748b; }
+.ui-input-caret { width: 2px; height: 18px; background-color: #2563eb; }
+
 .ui-checkbox {
   border: 1px solid #cbd5e1;
   padding: 8px 14px;

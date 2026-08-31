@@ -52,6 +52,7 @@ SUITES=(
   ui:tree:checkbox
   ui:timeline:check
   ui:resize:check
+  ui:form:check
 )
 
 failed=()

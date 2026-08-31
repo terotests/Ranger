@@ -253,6 +253,12 @@ class AlertDialogCtl extends UiCtl {
         def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.alertDialog()) ""))
         contentRow.state = word
         contentRow.modal = true
+        ; The dialog's own body text, which `AlertDialog.Description` wires to
+        ; the content with `aria-describedby`. It was drawn and it was in the
+        ; tree, and a reader opening the dialog was still told nothing but
+        ; "alert dialog" — the sentence explaining WHY it is asking was
+        ; invisible to the trace until `description` was a compared field.
+        contentRow.description = bodyText
         push out contentRow
 
         def titleRow:UiRow (UiRow.of((this.titleTid()) (EVGA11yRole.none()) ""))
