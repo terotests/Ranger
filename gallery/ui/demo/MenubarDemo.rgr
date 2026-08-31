@@ -41,6 +41,15 @@ Import "../../evg/EVGHitTest.rgr"
 ; transition over the tree they produce. Hover is a presentational state and
 ; belongs to the stylesheet; the demo just builds boxes with class names.
 Import "../../evg/EVGTransition.rgr"
+; The demo page keeps this tree across frames rather than rebuilding it, and
+; `keptTree` in main.js reconciles it with `EVGReconcile` taken FROM THIS
+; MODULE — it has to be this module's copy, because two copies of a class are
+; two classes and an element built by one is not an element the other knows.
+;
+; It was never imported here, so `new mod.EVGReconcile()` threw the day that
+; line was written and went on throwing: nothing loaded the page. It does now
+; — see demo/page-check.mjs.
+Import "../../evg/EVGReconcile.rgr"
 
 ; -----------------------------------------------------------------------------
 ; The factory. Every tag is an EVGElement — EVG has one element type and the
