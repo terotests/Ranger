@@ -590,6 +590,8 @@ class EVGElement {
     ; about the two is identical. A toolbar, a slider, a menubar and a
     ; separator all publish it too.
     def a11yOrientation:string ""
+    ; `aria-current`. "page" on the crumb you are on.
+    def a11yCurrent:string ""
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
@@ -2010,6 +2012,7 @@ class EVGElement {
         a11yHidden = other.a11yHidden
         a11ySorted = other.a11ySorted
         a11yOrientation = other.a11yOrientation
+        a11yCurrent = other.a11yCurrent
         a11yChecked = other.a11yChecked
         a11yExpanded = other.a11yExpanded
         a11ySelected = other.a11ySelected
@@ -2145,6 +2148,10 @@ class EVGElement {
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value
+            return
+        }
+        if ((name == "aria-current") || (name == "a11yCurrent")) {
+            a11yCurrent = value
             return
         }
         if ((name == "aria-orientation") || (name == "a11yOrientation")) {

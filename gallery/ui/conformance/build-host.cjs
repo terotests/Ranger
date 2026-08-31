@@ -197,6 +197,18 @@ function buildHost(M, fixture, css) {
         for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
         break;
 
+      // A breadcrumb. Widths are stated by the fixture rather than measured,
+      // because the collapse rule is what is under test and two engines have
+      // no reason to agree about how wide "Components" is.
+      case "breadcrumb":
+        ctl = host.addBreadcrumb(c.tid, c.name || "breadcrumb");
+        for (const it of c.items || []) ctl.addCrumb(it.value, it.name, it.width ?? 0);
+        if (c.available != null) ctl.available = c.available;
+        if (c.separatorWidth != null) ctl.separatorWidth = c.separatorWidth;
+        if (c.ellipsisWidth != null) ctl.ellipsisWidth = c.ellipsisWidth;
+        ctl.build();
+        break;
+
       // A group of resizable panels, and a panel may hold a group of its own.
       // Nesting is the controller's business here the way a submenu is
       // MenuCtl's, so the fixture nests and the host does not have to.

@@ -936,6 +936,75 @@ export function Control({ spec }) {
       return <ResizableGroup node={spec} tid={tid} />;
 
     /**
+     * A breadcrumb. NOT a library: Radix has no breadcrumb and neither does
+     * anything else ReUI uses, so this markup is written to the HTML and ARIA
+     * specs — which means it is a SECOND IMPLEMENTATION and not an independent
+     * oracle. A spec over it catches the two sides disagreeing; it cannot
+     * catch both being wrong. `behaviours.json` says so too.
+     *
+     * The collapse is driven by the fixture's stated widths on both sides,
+     * because two layout engines have no reason to agree about how wide
+     * "Components" is and the rule is what is under test.
+     */
+    case "breadcrumb": {
+      const items = spec.items || [];
+      const n = items.length;
+      const sepW = spec.separatorWidth ?? 20;
+      const dotsW = spec.ellipsisWidth ?? 24;
+      const avail = spec.available ?? 0;
+      const widthAll = items.reduce((a, it) => a + (it.width ?? 0), 0) + sepW * Math.max(0, n - 1);
+      const widthTail = (k) =>
+        (items[0].width ?? 0) + dotsW + sepW * (k + 1) +
+        items.slice(n - k).reduce((a, it) => a + (it.width ?? 0), 0);
+      const tail = n <= 2 || avail <= 0 || widthAll <= avail ? n : widthTail(2) <= avail ? 2 : 1;
+      const firstShown = n - tail;
+      const parts = [];
+      let drawn = 0;
+      items.forEach((it, i) => {
+        if (!(i === 0 || i >= firstShown)) return;
+        if (drawn > 0) {
+          parts.push(
+            <li key={"s" + drawn} data-tid={tid + "-sep-" + (drawn - 1)} role="none" aria-hidden="true">/</li>,
+          );
+        }
+        if (i === firstShown && firstShown > 1) {
+          parts.push(
+            <li key="dots-li" data-tid={tid + "-ellipsis-li"}>
+              <span data-tid={tid + "-ellipsis"} aria-label="More">…</span>
+            </li>,
+          );
+          parts.push(
+            <li key={"s" + drawn + "b"} data-tid={tid + "-sep-" + drawn} role="none" aria-hidden="true">/</li>,
+          );
+          drawn += 1;
+        }
+        const last = i === n - 1;
+        parts.push(
+          <li key={it.value} data-tid={tid + "-item-" + it.value + "-li"}>
+            {last ? (
+              <span
+                data-tid={tid + "-item-" + it.value}
+                role="link"
+                aria-disabled="true"
+                aria-current="page"
+              >
+                {it.name}
+              </span>
+            ) : (
+              <a data-tid={tid + "-item-" + it.value} href="#">{it.name}</a>
+            )}
+          </li>,
+        );
+        drawn += 1;
+      });
+      return (
+        <nav data-tid={tid} aria-label={spec.name || "breadcrumb"}>
+          <ol data-tid={tid + "-list"}>{parts}</ol>
+        </nav>
+      );
+    }
+
+    /**
      * A bar of menus. The parts follow the same rule the rest do — `x-<value>`
      * for a menu, and its trigger and content beneath it — so a spec names a
      * menu by the value it was given and never by position.
@@ -974,7 +1043,11 @@ export function Control({ spec }) {
         <NavigationMenu.Root data-tid={tid} aria-label={spec.name}>
           <NavigationMenu.List data-tid={tid + "-list"}>
             {spec.items.map((it) => (
-              <NavigationMenu.Item key={it.value}>
+              // Tagged, because it is a real `<li>` and the list needs
+              // listitem children to be a valid list. Untagged it was absent
+              // from the trace entirely, so neither side could be wrong about
+              // it — and axe was the only thing that noticed.
+              <NavigationMenu.Item key={it.value} data-tid={tid + "-" + it.value + "-trigger-li"}>
                 <NavigationMenu.Trigger data-tid={tid + "-" + it.value + "-trigger"}>
                   {it.name}
                 </NavigationMenu.Trigger>

@@ -173,6 +173,7 @@ class EVGA11yFromTree {
             n.expanded = el.a11yExpanded
             n.sorted = el.a11ySorted
             n.orientation = el.a11yOrientation
+            n.current = el.a11yCurrent
             if (el.a11ySelected == 2) {
                 n.selected = true
             }

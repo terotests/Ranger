@@ -2055,6 +2055,53 @@ The a11y gate found the second one, along with a separator that had no height
 at all — which is not pedantry: a focusable control with no box is one a
 pointer cannot reach and a focus ring cannot be drawn around.
 
+## Breadcrumb, a component with no oracle, and a role table that was short
+
+Radix has no breadcrumb and neither does anything else ReUI uses: the
+reference is markup. So the DOM side of these two specs is a SECOND
+IMPLEMENTATION of the HTML and ARIA specs, written here — it catches the two
+sides disagreeing and **cannot catch both of them being wrong**. That is a
+weaker guarantee than the tree's or the table's and the catalogue says so.
+
+The half worth having is the collapse. A trail too wide for its box drops
+crumbs, and which it keeps is a rule rather than a preference: **the first,
+because it is the way out; the last, because it is where you are; the one
+before it, because it is one step back.** Everything else becomes one ellipsis,
+named "More" so a reader learns crumbs are missing rather than hearing three
+dots. That is what the reference's screenshot shows — `Home > … > Components >
+Breadcrumb` — and it is the floor, too: below first-plus-last there is nothing
+left to drop, so the trail OVERFLOWS rather than lying about where you are.
+
+The controller measures nothing. It is told the available width and each
+crumb's width and answers which to draw, which keeps the rule testable without
+a font — and it is the only shape that works in EVG at all: **layout happens
+after the tree is built, so a component whose CONTENT depends on its own width
+needs two passes and somebody has to own the decision between them.** Here the
+caller owns it. That is the affordance a `Field` will need too, and it is worth
+knowing before the form work starts.
+
+### Two more fields, and two more silent controllers
+
+`aria-current` went into the observed field list, because a breadcrumb's whole
+claim is which crumb is the page you are on and the trace could not see it.
+
+Then the DOM snapshot's implicit-role table turned out to be **short**. It knew
+`button`, `a`, `table`, `tr`, `td`, `th` and `input` — grown one component at a
+time — and had never needed `nav`, `ol`, `ul` or `li`. Completing it turned two
+long-passing components red:
+
+- **the navigation menu was not a landmark.** Radix renders
+  `NavigationMenu.Root` as a `<nav>` and its List as an `<ol>`; this side
+  reported no role for either, so a reader could not jump to it.
+- **the toast viewport was not a list**, and each toast not a list item, so
+  nothing told a reader how many notifications were waiting.
+
+And then axe found what the diff still could not: a `role="list"` whose
+children are buttons is invalid, because Radix's `<li>` carries no test id and
+was in **neither** trace. Tagging it made both sides able to be wrong about it.
+Three different instruments, three different findings, none of which the other
+two could have made.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

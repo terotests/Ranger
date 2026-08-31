@@ -1542,6 +1542,7 @@ class EVGElement  {
     this.a11yHidden = false;
     this.a11ySorted = 0;
     this.a11yOrientation = "";
+    this.a11yCurrent = "";
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -2188,6 +2189,7 @@ class EVGElement  {
     this.a11yHidden = other.a11yHidden;
     this.a11ySorted = other.a11ySorted;
     this.a11yOrientation = other.a11yOrientation;
+    this.a11yCurrent = other.a11yCurrent;
     this.a11yChecked = other.a11yChecked;
     this.a11yExpanded = other.a11yExpanded;
     this.a11ySelected = other.a11ySelected;
@@ -2305,6 +2307,10 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-current") || (name == "a11yCurrent") ) {
+      this.a11yCurrent = value;
       return;
     }
     if ( (name == "aria-orientation") || (name == "a11yOrientation") ) {
@@ -12098,7 +12104,13 @@ EVGA11yRole.tree = function() {
 EVGA11yRole.treeItem = function() {
   return 42;
 };
+EVGA11yRole.navigation = function() {
+  return 43;
+};
 EVGA11yRole.ariaName = function(role) {
+  if ( role == 43 ) {
+    return "navigation";
+  }
   if ( role == 41 ) {
     return "tree";
   }
@@ -12279,6 +12291,7 @@ class EVGA11yNode  {
     this.expanded = 0;
     this.sorted = 0;
     this.orientation = "";
+    this.current = "";
     this.hasValueNow = false;
     this.valueNow = 0;
     this.hasValueRange = false;
@@ -12462,6 +12475,9 @@ class EVGA11yTree  {
     }
     if ( (n.orientation.length) > 0 ) {
       out = ((out + ",\"orientation\":\"") + n.orientation) + "\"";
+    }
+    if ( (n.current.length) > 0 ) {
+      out = ((out + ",\"current\":\"") + n.current) + "\"";
     }
     if ( n.sorted != 0 ) {
       out = (out + ",\"sorted\":") + ((n.sorted.toString()));
@@ -12793,6 +12809,7 @@ class EVGA11yFromTree  {
       n.expanded = el.a11yExpanded;
       n.sorted = el.a11ySorted;
       n.orientation = el.a11yOrientation;
+      n.current = el.a11yCurrent;
       if ( el.a11ySelected == 2 ) {
         n.selected = true;
       }

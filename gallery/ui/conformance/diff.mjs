@@ -43,6 +43,10 @@ export const FIELDS = [
   // trace is already keyed by test id: the separator's own tid says which one
   // it is, so the reference would only be comparing two id schemes that have
   // no reason to agree.
+  // `aria-current`. A breadcrumb's whole claim is which crumb is the page you
+  // are on, and without this the trail is a list of links the diff cannot tell
+  // apart. It is not breadcrumb-only: any navigation marks its current item.
+  "current",
   "orientation",
   "level",
   "setsize",

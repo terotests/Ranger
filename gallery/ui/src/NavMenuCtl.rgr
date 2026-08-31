@@ -182,7 +182,13 @@ class NavMenuCtl extends UiCtl {
             UiTree.setState(trig "ui-navmenu-trigger" word)
             UiTree.leafText(trig s.name)
             UiTree.anchor(trig)
-            list.addChild(trig)
+            ; Wrapped in a list item, to match both Radix's markup and the
+            ; rows above. A row without an element is not reachable.
+            def li (EVGElement.createDiv())
+            li.id = ((this.triggerTid(s.value)) + "-li")
+            li.className = "ui-navmenu-item"
+            li.addChild(trig)
+            list.addChild(li)
 
             if (s.value == openValue) {
                 def content:EVGElement (unwrap s.contentEl)
@@ -224,6 +230,7 @@ class NavMenuCtl extends UiCtl {
         while (i < (array_length sections)) {
             def s:UiNavSection (itemAt sections i)
             push a (this.triggerTid(s.value))
+            push a ((this.triggerTid(s.value)) + "-li")
             push a (this.contentTid(s.value))
             def j:int 0
             while (j < (array_length s.links)) {
@@ -264,9 +271,13 @@ class NavMenuCtl extends UiCtl {
 
     fn rows:[UiRow] () {
         def out:[UiRow]
-        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) name))
+        ; A NAVIGATION LANDMARK. Radix renders `NavigationMenu.Root` as a
+        ; `<nav>` and this side reported no role at all until the trace learnt
+        ; to read implicit ones — so a reader could not jump to it, and nothing
+        ; said so.
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.navigation()) name))
         push out rootRow
-        def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.none()) ""))
+        def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.list()) ""))
         listRow.parentTid = tid
         push out listRow
 
@@ -274,8 +285,18 @@ class NavMenuCtl extends UiCtl {
         while (i < (array_length sections)) {
             def s:UiNavSection (itemAt sections i)
             def word:string (this.stateWord(s.value))
+            ; A LIST ITEM around each trigger, which is what Radix renders —
+            ; `NavigationMenu.Item` is an `<li>`. Without it the list has
+            ; buttons for children, which is invalid ARIA and which axe said so
+            ; about the moment the list stopped claiming no role at all. The
+            ; conformance diff could not see it: Radix's `<li>` carries no test
+            ; id, so it is not in the trace on either side.
+            def liRow:UiRow (UiRow.of(((this.triggerTid(s.value)) + "-li") (EVGA11yRole.listItem()) ""))
+            liRow.parentTid = (this.listTid())
+            push out liRow
+
             def trigRow:UiRow (UiRow.of((this.triggerTid(s.value)) (EVGA11yRole.button()) s.name))
-            trigRow.parentTid = (this.listTid())
+            trigRow.parentTid = ((this.triggerTid(s.value)) + "-li")
             trigRow.state = word
             trigRow.focusable = true
             ; Every one of them, always. Tab walks the navigation.

@@ -52,6 +52,9 @@ class UiRow {
     ; slider and a menubar publish it too, so it was a hole in every one of
     ; them and nobody had noticed.
     def orientation:string ""
+    ; `aria-current`, as the DOM spells it: "page" on the crumb you are on, ""
+    ; on everything else. A breadcrumb's whole claim, and invisible without it.
+    def current:string ""
     ; `aria-haspopup`, as the DOM spells it: "menu" on a row that opens one,
     ; "" on everything else. The one attribute that separates a submenu's
     ; parent from the item beside it — both are menuitems, both are named, and

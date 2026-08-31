@@ -246,6 +246,7 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     // horizontal one from a vertical one — every other observation about the
     // two is identical.
     setAttr(el, "aria-orientation", node.orientation || null);
+    setAttr(el, "aria-current", node.current || null);
     setAttr(el, "aria-live", node.live === 2 ? "assertive" : node.live === 1 ? "polite" : null);
 
     const b = node.b || [0, 0, 0, 0];

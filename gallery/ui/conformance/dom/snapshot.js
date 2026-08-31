@@ -42,6 +42,12 @@ export function snapshotDom(options) {
   const IMPLICIT_ROLE = (el, tag) => {
     if (tag === "button") return "button";
     if (tag === "a") return "link";
+    // Landmarks and lists. Absent until the breadcrumb needed them, which is
+    // why a `<nav>` and an `<li>` both reported "none" — the table below grew
+    // one component at a time and nothing before this was built out of them.
+    if (tag === "nav") return "navigation";
+    if (tag === "ol" || tag === "ul") return "list";
+    if (tag === "li") return "listitem";
     if (tag === "table") return "table";
     if (tag === "tr") return "row";
     if (tag === "td") return "cell";
@@ -134,6 +140,7 @@ export function snapshotDom(options) {
       // Would Tab land here? Roving focus is exactly this going false on the
       // items a composite does not want in the tab order.
       tabstop: el.tabIndex >= 0 && !disabled,
+      current: el.getAttribute("aria-current"),
       orientation: el.getAttribute("aria-orientation"),
       valuenow: num("aria-valuenow"),
       valuemin: num("aria-valuemin"),
@@ -222,6 +229,7 @@ export function snapshotDom(options) {
       selected: null,
       disabled: false,
       tabstop: false,
+      current: null,
       orientation: null,
       valuenow: null,
       valuemin: null,

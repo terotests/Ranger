@@ -33,6 +33,7 @@ Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ResizeCtl.rgr"
+Import "BreadcrumbCtl.rgr"
 Import "ToastCtl.rgr"
 Import "SortableCtl.rgr"
 Import "TableCtl.rgr"
@@ -278,6 +279,14 @@ class UiHost {
         c.tid = tid
         c.name = name
         c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addBreadcrumb:BreadcrumbCtl (tid:string name:string) {
+        def c (new BreadcrumbCtl())
+        c.tid = tid
+        c.name = name
         this.add(c)
         return c
     }
@@ -1274,6 +1283,7 @@ class UiHost {
             ; strings rather than as one side's numbering.
             out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
             out = out + ",\"orientation\":" + (UiHost.textOrNull(row.orientation))
+            out = out + ",\"current\":" + (UiHost.textOrNull(row.current))
             ; `aria-haspopup`, absent rather than empty when there is none —
             ; the DOM reports null for a node without the attribute, and "" is
             ; a different thing from "not there".

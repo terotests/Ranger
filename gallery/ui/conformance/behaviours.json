@@ -458,6 +458,20 @@
         "separator-enter-restores": "and Enter again puts it back to the size it had, not to its minimum",
         "separator-f6-cycles": "F6 walks to the next separator in the SAME group and wraps; Shift+F6 goes back. In a nested layout each group has one, so F6 lands where it started"
       }
+    },
+    "breadcrumb": {
+      "radix": "none",
+      "$comment": "NO LIBRARY AT ALL, and that has to be said rather than dressed up. Radix has no breadcrumb and neither does anything else ReUI uses — the reference is markup. So the DOM side of these specs is a SECOND IMPLEMENTATION of the HTML and ARIA specs, written here, not an independent oracle: it catches the two sides disagreeing and cannot catch both of them being wrong. That is a weaker guarantee than the tree's or the table's and the score should be read knowing it. The shape copied is shadcn's, whose current crumb is a `role=\"link\"` with `aria-disabled` rather than a bare span — better than dropping the role, because a reader hears \"link, dimmed, current page\" instead of unexplained text. THE COLLAPSE is the half worth having: widths are stated by the fixture on both sides, because the rule is what is under test and two layout engines have no reason to agree about how wide \"Components\" is.",
+      "behaviours": {
+        "breadcrumb-nav-named": "the trail is a navigation landmark WITH A NAME, because a page has several and an unnamed one leaves a reader guessing which it has landed in",
+        "breadcrumb-is-a-list": "and it is a list of list items, not a row of links — a list tells a reader how many crumbs there are before it reads any",
+        "breadcrumb-links": "every crumb but the last is a link and a tab stop",
+        "breadcrumb-current-not-a-link": "the last carries aria-current=page and is disabled, because a link to where you already are goes nowhere",
+        "breadcrumb-separators-hidden": "the separators are role=none and aria-hidden: punctuation read aloud between every crumb is noise, and the list already says these are a sequence",
+        "breadcrumb-collapses": "a trail too wide for its box drops crumbs rather than overflowing",
+        "breadcrumb-keeps-first-and-last-two": "and which it keeps is a rule: the first, because it is the way out; the last, because it is where you are; the one before it, because it is one step back. Everything else becomes one ellipsis",
+        "breadcrumb-ellipsis-named": "the ellipsis is NAMED \"More\", so a reader learns crumbs are missing rather than hearing three dots"
+      }
     }
   }
 }

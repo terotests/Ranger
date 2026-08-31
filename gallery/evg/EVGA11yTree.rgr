@@ -120,9 +120,15 @@ class EVGA11yRole {
     sfn tree:int ()             { return 41 }
     sfn treeItem:int ()         { return 42 }
 
+    ; A landmark. `navigation` is the one a breadcrumb needs, and it needs a
+    ; NAME with it: a page has several navigations and an unnamed one leaves a
+    ; reader to guess which of them it has landed in.
+    sfn navigation:int ()       { return 43 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
+        if (role == 43) { return "navigation" }
         if (role == 41) { return "tree" }
         if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
@@ -237,6 +243,8 @@ class EVGA11yNode {
     ; reader says them; the tri-state codes exist where a THIRD state (mixed,
     ; not-applicable) has to be told apart from false.
     def orientation:string ""
+    ; `aria-current`, verbatim: "page" on a breadcrumb's last crumb.
+    def current:string ""
 
     ; A number the platform announces: where a slider sits, how far a progress
     ; bar has got. `hasValueNow` is not decoration — a progress bar with a range
@@ -489,6 +497,9 @@ class EVGA11yTree {
         }
         if ((strlen n.orientation) > 0) {
             out = (out + ",\"orientation\":\"" + n.orientation + "\"")
+        }
+        if ((strlen n.current) > 0) {
+            out = (out + ",\"current\":\"" + n.current + "\"")
         }
         if (n.sorted != 0) {
             out = (out + ",\"sorted\":" + (to_string n.sorted))
