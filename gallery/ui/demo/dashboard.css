@@ -101,7 +101,7 @@
  * the whole fix, and it is the same hand-rounded height the engine already
  * computes that task #63 is about. */
 .db-brand-mark-text { color: #ffffff; font-size: 12px; font-weight: 600; }
-.db-brand-text { color: #09090b; font-size: 14px; font-weight: 600; height: 20px; }
+.db-brand-text { color: #09090b; font-size: 14px; font-weight: 600; }
 
 /* Header, content, footer — and the CONTENT is what grows, which is both what
  * the reference does and the only shape that lands the account row on the
@@ -182,7 +182,7 @@
 
 .db-quick:hover { background-color: #27272a; }
 .db-quick-icon { width: 16px; height: 16px; fill: #ffffff; }
-.db-quick-text { color: #ffffff; font-size: 13px; font-weight: 500; height: 20px; }
+.db-quick-text { color: #ffffff; font-size: 13px; font-weight: 500; }
 
 .db-iconbtn {
   display: flex;
@@ -227,10 +227,10 @@
  * `stroke="currentColor"` in the imported file resolves to the element's
  * `fill`, so this one declaration is the whole of the icon's theming. */
 .db-nav-icon { width: 16px; height: 16px; fill: #52525b; }
-.db-nav-text { color: #27272a; font-size: 13px; height: 20px; }
-.db-nav-text-on { color: #09090b; font-size: 13px; font-weight: 500; height: 20px; }
+.db-nav-text { color: #27272a; font-size: 13px; }
+.db-nav-text-on { color: #09090b; font-size: 13px; font-weight: 500; }
 /* The last row of the Documents group is a dimmer "More", like the reference. */
-.db-nav-text-dim { color: #71717a; font-size: 13px; height: 20px; }
+.db-nav-text-dim { color: #71717a; font-size: 13px; }
 
 .db-user {
   display: flex;
@@ -265,8 +265,8 @@
   flex-wrap: nowrap;
 }
 
-.db-user-name { color: #09090b; font-size: 13px; font-weight: 500; height: 18px; }
-.db-user-mail { color: #71717a; font-size: 11px; height: 16px; }
+.db-user-name { color: #09090b; font-size: 13px; font-weight: 500; }
+.db-user-mail { color: #71717a; font-size: 11px; }
 
 .db-main {
   display: flex;
@@ -305,7 +305,7 @@
   height: 24px;
 }
 
-.db-card-label { color: #71717a; font-size: 13px; height: 20px; }
+.db-card-label { color: #71717a; font-size: 13px; }
 
 /* Eats the slack so the badge sits at the far end. `justify-content:
  * space-between` would also shove the label away from the leading edge on a
@@ -325,8 +325,8 @@
 }
 
 .db-badge-up { }
-.db-badge-text { color: #18181b; font-size: 11px; font-weight: 500; height: 16px; }
-.db-arrow { color: #52525b; font-family: Arial; font-size: 11px; height: 16px; }
+.db-badge-text { color: #18181b; font-size: 11px; font-weight: 500; }
+.db-arrow { color: #52525b; font-family: Arial; font-size: 11px; }
 
 .db-big {
   color: #09090b;
@@ -351,8 +351,8 @@
   gap: 5px;
 }
 
-.db-trend { color: #18181b; font-size: 13px; font-weight: 500; height: 20px; }
-.db-card-sub { color: #71717a; font-size: 12px; height: 18px; }
+.db-trend { color: #18181b; font-size: 13px; font-weight: 500; }
+.db-card-sub { color: #71717a; font-size: 12px; }
 
 .db-chart-card {
   display: flex;
@@ -378,8 +378,8 @@
   flex-wrap: nowrap;
 }
 
-.db-chart-title { color: #09090b; font-size: 16px; font-weight: 600; height: 24px; }
-.db-chart-sub { color: #71717a; font-size: 13px; height: 20px; }
+.db-chart-title { color: #09090b; font-size: 16px; font-weight: 600; }
+.db-chart-sub { color: #71717a; font-size: 13px; }
 
 /* The segmented control: one bordered strip with the chosen cell filled. */
 .db-segs {
@@ -404,7 +404,7 @@
 }
 
 .db-seg-on { background-color: #f4f4f5; }
-.db-seg-text { color: #3f3f46; font-size: 12px; font-weight: 500; height: 18px; }
+.db-seg-text { color: #3f3f46; font-size: 12px; font-weight: 500; }
 
 /* NO width or height. The demo sets both inline from the two numbers the
  * specification is built with — the box the layout reserves and the picture
@@ -412,7 +412,7 @@
  * true. */
 .db-chart-box { }
 
-.db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; height: 34px; }
+.db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; }
 
 /* --- the data table ----------------------------------------------------------
  *
@@ -444,7 +444,7 @@
 }
 
 .db-tab-on { background-color: #ffffff; }
-.db-tab-text { color: #3f3f46; font-size: 12px; font-weight: 500; height: 18px; }
+.db-tab-text { color: #3f3f46; font-size: 12px; font-weight: 500; }
 
 .db-tab-pill {
   display: flex;
@@ -458,7 +458,7 @@
   height: 16px;
 }
 
-.db-tab-pill-text { color: #52525b; font-size: 10px; font-weight: 500; height: 14px; }
+.db-tab-pill-text { color: #52525b; font-size: 10px; font-weight: 500; }
 
 .db-tools {
   display: flex;
@@ -480,9 +480,9 @@
   padding: 7px 11px;
 }
 
-.db-tool-text { color: #18181b; font-size: 12px; font-weight: 500; height: 18px; }
-.db-tool-icon { color: #52525b; font-family: Arial; font-size: 12px; height: 18px; }
-.db-chevron { color: #71717a; font-family: Arial; font-size: 11px; height: 18px; }
+.db-tool-text { color: #18181b; font-size: 12px; font-weight: 500; }
+.db-tool-icon { color: #52525b; font-family: Arial; font-size: 12px; }
+.db-chevron { color: #71717a; font-family: Arial; font-size: 11px; }
 
 .db-table {
   display: flex;
@@ -541,7 +541,7 @@
 .db-col-limit { width: 80px; }
 .db-col-reviewer { width: 190px; }
 
-.db-cell-text { color: #3f3f46; font-size: 13px; height: 20px; }
+.db-cell-text { color: #3f3f46; font-size: 13px; }
 .db-cell-strong { color: #09090b; font-weight: 500; }
 
 .db-chip {
@@ -554,7 +554,7 @@
   padding: 3px 8px;
 }
 
-.db-chip-text { color: #52525b; font-size: 11px; height: 16px; }
+.db-chip-text { color: #52525b; font-size: 11px; }
 
 .db-status {
   display: flex;
@@ -567,8 +567,8 @@
   padding: 3px 8px;
 }
 
-.db-status-icon { color: #a1a1aa; font-family: Arial; font-size: 11px; height: 16px; }
-.db-status-text { color: #52525b; font-size: 11px; height: 16px; }
+.db-status-icon { color: #a1a1aa; font-family: Arial; font-size: 11px; }
+.db-status-text { color: #52525b; font-size: 11px; }
 /* The done tick is green. Its OWN class rather than a descendant selector:
  * this sheet supports `.theme-<name> .class` and nothing else, and it says so
  * rather than quietly ignoring the rule — which it did, and the tick stayed
@@ -586,7 +586,7 @@
   height: 22px;
 }
 
-.db-grip-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
+.db-grip-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; }
 
 .db-check {
   display: flex;
@@ -601,7 +601,7 @@
   height: 15px;
 }
 
-.db-tick { color: #18181b; font-family: Arial; font-size: 10px; height: 14px; }
+.db-tick { color: #18181b; font-family: Arial; font-size: 10px; }
 
 .db-more {
   display: flex;
@@ -614,7 +614,7 @@
   height: 22px;
 }
 
-.db-more-icon { color: #71717a; font-family: Arial; font-size: 13px; height: 18px; }
+.db-more-icon { color: #71717a; font-family: Arial; font-size: 13px; }
 
 .db-assign {
   display: flex;
@@ -629,12 +629,12 @@
   height: 30px;
 }
 
-.db-assign-text { color: #a1a1aa; font-size: 12px; height: 18px; }
+.db-assign-text { color: #a1a1aa; font-size: 12px; }
 
 /* What dnd-kit says out loud while a row is carried. Off the page rather than
  * hidden: `aria-hidden` would take it out of the tree and a live region a
  * reader cannot reach announces nothing. */
-.db-live { color: #71717a; font-size: 11px; padding: 8px 0 0 0; height: 16px; }
+.db-live { color: #71717a; font-size: 11px; padding: 8px 0 0 0; }
 
 /* The clip box. Its height is set inline from the same number the virtualiser
  * reasons about, because a viewport the layout and the range disagree about is
@@ -672,8 +672,8 @@
   padding: 0 0 4px 0;
 }
 
-.db-head-title { color: #09090b; font-size: 22px; font-weight: 600; height: 30px; }
-.db-head-sub { color: #71717a; font-size: 13px; height: 20px; }
+.db-head-title { color: #09090b; font-size: 22px; font-weight: 600; }
+.db-head-sub { color: #71717a; font-size: 13px; }
 
 .db-panel {
   display: flex;
@@ -692,8 +692,8 @@
   padding: 0 0 10px 0;
 }
 
-.db-panel-title { color: #09090b; font-size: 16px; font-weight: 600; height: 24px; }
-.db-panel-sub { color: #71717a; font-size: 13px; height: 20px; }
+.db-panel-title { color: #09090b; font-size: 16px; font-weight: 600; }
+.db-panel-sub { color: #71717a; font-size: 13px; }
 
 .db-panel-body {
   display: flex;
@@ -730,8 +730,8 @@
   flex-wrap: nowrap;
 }
 
-.db-item-name { color: #18181b; font-size: 13px; font-weight: 500; height: 20px; }
-.db-item-sub { color: #71717a; font-size: 12px; height: 18px; }
+.db-item-name { color: #18181b; font-size: 13px; font-weight: 500; }
+.db-item-sub { color: #71717a; font-size: 12px; }
 
 .db-item-tag {
   display: flex;
@@ -744,7 +744,7 @@
   padding: 3px 8px;
 }
 
-.db-item-tag-text { color: #52525b; font-size: 11px; font-weight: 500; height: 16px; }
+.db-item-tag-text { color: #52525b; font-size: 11px; font-weight: 500; }
 
 .db-grid {
   display: flex;
@@ -764,8 +764,8 @@
   padding: 18px;
 }
 
-.db-tile-title { color: #09090b; font-size: 15px; font-weight: 600; height: 22px; }
-.db-tile-sub { color: #71717a; font-size: 12px; height: 18px; }
+.db-tile-title { color: #09090b; font-size: 15px; font-weight: 600; }
+.db-tile-sub { color: #71717a; font-size: 12px; }
 
 /* The track and the bit of it that is filled. Two elements rather than one
  * with a background, because the fill is a PERCENTAGE and a percentage needs
@@ -786,4 +786,4 @@
   height: 6px;
 }
 
-.db-bar-text { color: #71717a; font-size: 11px; padding: 6px 0 0 0; height: 16px; }
+.db-bar-text { color: #71717a; font-size: 11px; padding: 6px 0 0 0; }

@@ -268,7 +268,12 @@ class EVGElement {
     def rootFontSize:double 14.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
-    def lineHeight:double 1.2
+    ; ZERO means `normal`, which is the FACE's own line box and is asked of
+    ; the text engine. It used to default to 1.2 — a number people type, not
+    ; one a browser computes: measured, the sans fallback's normal is 1.15em
+    ; and monospace's 1.164, so every text box in the gallery was four per
+    ; cent taller than the same declarations give in a browser.
+    def lineHeight:double 0.0
     def textAlign:string "left"
     def color:EVGColor
     ; What to paint glyphs that came from a FALLBACK face — emoji, in

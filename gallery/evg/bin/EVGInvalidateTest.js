@@ -1455,7 +1455,7 @@ class EVGElement  {
     this.rootFontSize = 14.0;
     this.fontFamily = "Noto Sans";
     this.fontWeight = "normal";
-    this.lineHeight = 1.2;
+    this.lineHeight = 0.0;
     this.textAlign = "left";
     this.textContent = "";
     this.display = "block";
@@ -4728,12 +4728,12 @@ class EVGTextMeasurer  {
     const avgCharWidth = fontSize * 0.55;
     const textLen = text.length;
     const width = (textLen) * avgCharWidth;
-    const lineHeight = fontSize * 1.2;
+    const lineHeight = fontSize * EVGTextMeasurer.normalLineHeightEm();
     const metrics = new EVGTextMetrics();
     metrics.width = width;
     metrics.height = lineHeight;
-    metrics.ascent = fontSize * 0.8;
-    metrics.descent = fontSize * 0.2;
+    metrics.ascent = fontSize * EVGTextMeasurer.fallbackAscentEm();
+    metrics.descent = fontSize * EVGTextMeasurer.fallbackDescentEm();
     metrics.lineHeight = lineHeight;
     return metrics;
   };
@@ -4742,7 +4742,7 @@ class EVGTextMeasurer  {
     return metrics.width;
   };
   getLineHeight (fontFamily, fontSize) {
-    return fontSize * 1.2;
+    return fontSize * EVGTextMeasurer.normalLineHeightEm();
   };
   measureChar (ch, fontFamily, fontSize) {
     if ( ch == 32 ) {
@@ -4844,6 +4844,15 @@ class EVGTextMeasurer  {
     return lines;
   };
 }
+EVGTextMeasurer.fallbackAscentEm = function() {
+  return 0.905;
+};
+EVGTextMeasurer.fallbackDescentEm = function() {
+  return 0.212;
+};
+EVGTextMeasurer.normalLineHeightEm = function() {
+  return 1.15;
+};
 class SimpleTextMeasurer  extends EVGTextMeasurer {
   constructor() {
     super()
@@ -4861,12 +4870,12 @@ class SimpleTextMeasurer  extends EVGTextMeasurer {
       width = width + this.measureChar(ch, fontFamily, fontSize);
       i = i + 1;
     };
-    const lineHeight = fontSize * 1.2;
+    const lineHeight = fontSize * EVGTextMeasurer.normalLineHeightEm();
     const metrics = new EVGTextMetrics();
     metrics.width = width;
     metrics.height = lineHeight;
-    metrics.ascent = fontSize * 0.8;
-    metrics.descent = fontSize * 0.2;
+    metrics.ascent = fontSize * EVGTextMeasurer.fallbackAscentEm();
+    metrics.descent = fontSize * EVGTextMeasurer.fallbackDescentEm();
     metrics.lineHeight = lineHeight;
     return metrics;
   };
@@ -6119,19 +6128,17 @@ class EVGLayout  {
         if ( fontSize_1 <= 0.0 ) {
           fontSize_1 = 14.0;
         }
-        let lineHeightFactor = element.lineHeight;
-        if ( lineHeightFactor <= 0.0 ) {
-          lineHeightFactor = 1.2;
+        let lineSpacing = 0.0;
+        if ( element.lineHeight > 0.0 ) {
+          lineSpacing = fontSize_1 * element.lineHeight;
+        } else {
+          lineSpacing = this.textEngine.lineHeightFor(element.effectiveFontFamily(), fontSize_1);
         }
-        const lineSpacing = fontSize_1 * lineHeightFactor;
         const availableWidth = (width - element.box.paddingLeftPx) - element.box.paddingRightPx;
         const lineCount = this.textEngine.lineCount(textContent_1, element.effectiveFontFamily(), fontSize_1, availableWidth);
         contentHeight = lineSpacing * (lineCount);
         const metrics = this.textEngine.measureRun(textContent_1, element.effectiveFontFamily(), fontSize_1);
-        let leading = (lineSpacing - (metrics.ascent + metrics.descent)) / 2.0;
-        if ( leading < 0.0 ) {
-          leading = 0.0;
-        }
+        const leading = (lineSpacing - (metrics.ascent + metrics.descent)) / 2.0;
         element.calculatedBaseline = ((element.box.paddingTopPx + element.box.borderWidthPx) + leading) + metrics.ascent;
         element.calculatedDescent = metrics.descent;
         element.hasBaseline = true;
@@ -11292,6 +11299,9 @@ class EVGDisplayList  {
         fs = 14.0;
       }
       let lh = el.lineHeight;
+      if ( lh <= 0.0 ) {
+        lh = this.textEngine.lineHeightFor(face, fs) / fs;
+      }
       if ( lh <= 0.0 ) {
         lh = 1.2;
       }

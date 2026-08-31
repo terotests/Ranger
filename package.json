@@ -598,6 +598,8 @@
     "ui:table:oracle": "node gallery/ui/conformance/oracle/table_oracle.mjs",
     "ui:virtual:oracle": "node gallery/ui/conformance/oracle/virtual_oracle.mjs",
     "evg:scroll:oracle": "node gallery/ui/conformance/oracle/scroll_oracle.mjs",
+    "evg:textbox:oracle": "node gallery/ui/conformance/oracle/textbox_oracle.mjs",
+    "evg:textbox:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/textbox_check.mjs",
     "evg:scroll:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/scroll_check.mjs",
     "ui:virtual:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/virtual_check.mjs",
     "evg:rotation:check": "node gallery/evg/gl/rotation-check.mjs",

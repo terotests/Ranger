@@ -4302,7 +4302,7 @@ class EVGElement  {
     this.rootFontSize = 14.0;
     this.fontFamily = "Noto Sans";
     this.fontWeight = "normal";
-    this.lineHeight = 1.2;
+    this.lineHeight = 0.0;
     this.textAlign = "left";
     this.textContent = "";
     this.display = "block";

@@ -412,11 +412,17 @@ class EVGLayout {
                 }
                 
                 ; Get line height
-                def lineHeightFactor:double element.lineHeight
-                if (lineHeightFactor <= 0.0) {
-                    lineHeightFactor = 1.2
+                ; `line-height: normal` — zero here means nobody asked for a
+                ; number — is the FACE's own line box, so it is asked of the
+                ; thing that knows about faces. It used to be a flat 1.2, which
+                ; is a number people type and not one a browser computes: the
+                ; sans fallback's normal is 1.15em and monospace's is 1.164.
+                def lineSpacing:double 0.0
+                if (element.lineHeight > 0.0) {
+                    lineSpacing = (fontSize * element.lineHeight)
+                } {
+                    lineSpacing = (textEngine.lineHeightFor((element.effectiveFontFamily()) fontSize))
                 }
-                def lineSpacing:double (fontSize * lineHeightFactor)
                 
                 ; Line count comes from the shared wrap, not a second estimate,
                 ; so the height reserved here matches the lines paint will draw.
@@ -428,11 +434,16 @@ class EVGLayout {
                 ; Baseline of the FIRST line, measured from this element's top
                 ; border edge, for align-items: baseline. The glyphs sit inside
                 ; the line box, so half the leading is above the ascent.
+                ;
+                ; THE HALF-LEADING MAY BE NEGATIVE, and it used to be clamped at
+                ; zero. `line-height: 1` gives a line box smaller than the face
+                ; — 1.0em against 1.117 — and CSS lets the glyphs hang out of it
+                ; equally top and bottom rather than pushing them down to fit.
+                ; Measured: at line-height 1 the browser puts the baseline at
+                ; 0.846em, which is exactly -0.0585 + 0.905. The clamp made that
+                ; 0.905 and moved every tightly-led line down by the difference.
                 def metrics:EVGTextMetrics (textEngine.measureRun(textContent (element.effectiveFontFamily()) fontSize))
                 def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
-                if (leading < 0.0) {
-                    leading = 0.0
-                }
                 element.calculatedBaseline = (element.box.paddingTopPx + element.box.borderWidthPx + leading + metrics.ascent)
                 element.calculatedDescent = metrics.descent
                 element.hasBaseline = true

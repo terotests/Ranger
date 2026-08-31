@@ -48,6 +48,7 @@ SUITES=(
   evg:adopt:check
   evg:scroll:check
   evg:tags:check
+  evg:textbox:check
   ui:sortable:motion
   ui:table:check
   ui:virtual:check

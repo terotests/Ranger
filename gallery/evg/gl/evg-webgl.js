@@ -422,7 +422,10 @@ function buildTextAtlas(cmds, dpr) {
     const asc = m.actualBoundingBoxAscent || c.size * dpr * 0.8;
     const desc = m.actualBoundingBoxDescent || c.size * dpr * 0.25;
     const faceAsc = m.fontBoundingBoxAscent || (c.h ? c.h * dpr * 0.78 : c.size * dpr * 1.05);
-    return { c, w: Math.ceil(m.width) + pad * 2, h: Math.ceil(asc + desc) + pad * 2, asc, faceAsc };
+    // The face's DESCENT, needed for the half-leading — the line box holds the
+    // whole face, not just the part above the baseline.
+    const faceDesc = m.fontBoundingBoxDescent || c.size * dpr * 0.212;
+    return { c, w: Math.ceil(m.width) + pad * 2, h: Math.ceil(asc + desc) + pad * 2, asc, faceAsc, faceDesc };
   });
   const maxW = Math.max(512, ...measured.map((m) => m.w));
   let x = 0, y = 0, rowH = 0, atlasW = Math.min(2048, nextPow2(maxW)), atlasH = 0;
@@ -447,7 +450,7 @@ function buildTextAtlas(cmds, dpr) {
       u0: m.x / canvas.width, v0: m.y / canvas.height,
       u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,
       w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: pad / dpr,
-      faceAsc: m.faceAsc / dpr,
+      faceAsc: m.faceAsc / dpr, faceDesc: m.faceDesc / dpr,
       colored: false,
       _px: m.x, _py: m.y, _pw: m.w, _ph: m.h,
     });
@@ -1023,12 +1026,24 @@ export function renderDisplayList(gl, doc, opts = {}) {
     if (c.k === KIND.TEXT) {
       const s = slots.get(runKey(c, dpr));
       if (!s) continue;
-      // EVG's y is the top of the LINE BOX, so the baseline goes one
-      // face-ascent below it; inside the slot the baseline is pad + ink
-      // ascent down from the top. Line the two up. This is the same rule the
-      // software canvas draws by, which is what makes a page look the same
-      // whichever backend drew it.
-      rects.push(c.x - s.pad, c.y + s.faceAsc - (s.pad + s.asc), s.w, s.h);
+      // EVG's y is the top of the LINE BOX and c.h is its height, so the
+      // baseline is the CSS half-leading below the top plus one face ascent:
+      //
+      //     baseline = y + (lineBox - (faceAsc + faceDesc)) / 2 + faceAsc
+      //
+      // The half-leading term was missing, and it is missing in only one
+      // direction: a line box is normally TALLER than the face it holds, so
+      // every run was drawn that much high — 0.54px for 13px text at
+      // line-height 1.2, and most of a pixel at reading sizes. It is computed
+      // here rather than in the layout on purpose: this is where the real face
+      // metrics are, and the layout only ever has an estimate of them.
+      //
+      // Inside the slot the baseline is pad + ink ascent down from the top.
+      // Line the two up. This is the same rule the software canvas draws by,
+      // which is what makes a page look the same whichever backend drew it.
+      // Everything in the slot is stored in CSS pixels, and so is c.h.
+      const halfLeading = c.h ? (c.h - (s.faceAsc + s.faceDesc)) / 2 : 0;
+      rects.push(c.x - s.pad, c.y + halfLeading + s.faceAsc - (s.pad + s.asc), s.w, s.h);
       uvs.push(s.u0, s.v0, s.u1, s.v1);
       shapes.push(0, 0, s.colored ? MODE.COLORTEXT : MODE.TEXT);
     } else {

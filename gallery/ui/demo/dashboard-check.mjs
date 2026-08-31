@@ -28,6 +28,11 @@ const require = createRequire(import.meta.url);
 
 const M = require(path.join(ROOT, "gallery/ui/bin/DashboardDemo.cjs"));
 const CSS = fs.readFileSync(path.join(HERE, "dashboard.css"), "utf8");
+// `line-height: normal`, from the browser capture rather than from a constant
+// typed here — the same number the measurer was built against.
+const NORMAL_LINE_BOX_EM = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "gallery/ui/conformance/oracle/textbox.json"), "utf8"),
+).faces["sans-serif"].normalLineBoxEm;
 
 let passed = 0;
 let failed = 0;
@@ -774,6 +779,51 @@ console.log("--- an icon and its label sit on one baseline ---");
   const list = JSON.parse(e.displayListJson());
   const iconPaths = list.cmds.slice(0, e.chartFrom).filter((c) => c.pts !== undefined);
   ok("drawn as real paths", iconPaths.length >= 9, "" + iconPaths.length);
+
+  // THE RULE THE REPORT WAS ABOUT, stated as the thing a reader can see.
+  // `align-items: center` centres BOXES, and a text box taller than the line
+  // inside it puts the line at the TOP with the slack underneath — in CSS as
+  // in EVG. So centring the box does not centre the words, and the sidebar's
+  // labels sat 2.5 pixels high with every declaration in the sheet correct.
+  //
+  // The check is therefore about the LINE, not the box: in a centred row, a
+  // text leaf's line box must be centred on the row. It holds when the leaf
+  // has no hand-written height, which is the same thing task #63 has been
+  // asking for — the engine already computes that height, and the number
+  // somebody typed instead of it is a number that can be wrong.
+  const high = [];
+  const f = fresh();
+  for (const page of ["dashboard", "analytics", "lifecycle", "projects", "team", "more"]) {
+    f.press("db-nav-" + page);
+    f.displayListJson();
+    const walk3 = (el) => {
+      if (el.display === "flex" && el.flexDirection === "row" && el.alignItems === "center") {
+        const rowCentre = el.calculatedY + el.box.borderWidthPx + el.box.paddingTopPx +
+          el.calculatedInnerHeight / 2;
+        for (const k of el.children) {
+          if (!(k.textContent || "").length || k.children.length) continue;
+          if (k.position === "absolute") continue;
+          // The line box: it starts at the content top and is as tall as the
+          // LEADING — which is not the same as the content box, and assuming
+          // it was is how the first version of this check passed a mutation
+          // that put `height: 20px` back on the labels. The whole bug is a
+          // box that is taller than the line inside it, so a check that
+          // measures the box measures nothing.
+          const lineTop = k.calculatedY + k.box.borderWidthPx + k.box.paddingTopPx;
+          const size = k.fontSize && k.fontSize.isSet ? k.fontSize.pixels : k.inheritedFontSize;
+          const lineH = size * (k.lineHeight > 0 ? k.lineHeight : NORMAL_LINE_BOX_EM);
+          const off = lineTop + lineH / 2 - rowCentre;
+          if (Math.abs(off) > 0.5) {
+            high.push(`${page}: ${k.className || "?"} off by ${off.toFixed(2)}`);
+          }
+        }
+      }
+      for (const k of el.children) walk3(k);
+    };
+    walk3(f.root);
+  }
+  ok("every line of text in a centred row is centred on it",
+    high.length === 0, [...new Set(high)].join("; "));
 }
 
 console.log("--- what a reader is told about a carried row ---");

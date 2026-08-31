@@ -2433,6 +2433,50 @@ folder icon 260 pixels to its left. The demo reports the chart's index range
 now. A property that identifies a thing today is not the same as one that
 defines it.
 
+## Where a line of text sits in its box
+
+The icons became artwork and the labels still read as not centred. `align-items:
+center` was on the row, and it was right — the property was never the problem.
+
+**`align-items: center` centres BOXES.** The label's box was `height: 20px` and
+the line of text inside it was 15.6, and a box taller than its line puts the
+line at the TOP with the slack underneath. So the box was centred and the words
+were 2.5 pixels above the middle of the row. Chromium does exactly the same
+with the same declarations, which is worth stating plainly: this half was the
+stylesheet's fault, not the engine's, and the fix is to stop writing a height
+the engine already computes (#63). Forty of them came out of dashboard.css.
+
+**But asking the browser turned up three engine bugs underneath it**, all in
+the same six lines, all of them wrong in the same direction — text drawn high:
+
+- **The face's metrics were 0.80 and 0.20 em.** They sum to exactly 1.00em and
+  no real face does; measured at 1000px the sans fallback is 0.905 and 0.212,
+  summing to 1.117. The ascent is what puts the baseline inside the line box,
+  so a tenth of an em short is a tenth of an em high, everywhere.
+- **The half-leading was clamped at zero.** `baseline = (lineBox − (ascent +
+  descent)) / 2 + ascent`, and that first term is NEGATIVE whenever the line
+  box is smaller than the face — at `line-height: 1` the browser puts the
+  baseline at 0.846em, which is exactly −0.0585 + 0.905, and the glyphs hang
+  out of the line box rather than being pushed down to fit.
+- **`line-height: normal` was 1.2.** It is the face's own line box: 1.15em for
+  the sans fallback, 1.164 for monospace. 1.2 is a number people type, not one
+  a browser computes, and every text box in the gallery was four per cent
+  taller than the same declarations give in a browser.
+
+**And the painter had a fourth**, which is the one that could not be found by
+reading the layout: `evg-webgl.js` placed a run's baseline one face-ascent
+below the line box top and never added the half-leading. Two baseline formulas
+in one system, and only the layout's had the leading in it. It is computed in
+the painter on purpose — that is where the real face metrics are, and the
+layout only ever has an estimate.
+
+20 checks against `oracle/textbox.json`, including the two negative-leading
+cases, and a check on the demo that every line of text in a centred row is
+centred on it. That last one had to be written twice: the first version
+measured the CONTENT BOX and passed the mutation that puts `height: 20px`
+back — which is the whole bug, a box that is not its line. Measuring the line
+instead, it reports −2.53 against the browser's −2.5.
+
 **Still to come**: the reference's horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the

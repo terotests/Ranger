@@ -919,7 +919,13 @@ class EVGDisplayList {
             if (fs <= 0.0) {
                 fs = 14.0
             }
+            ; The same rule the layout reserved the space by, so the line the
+            ; painter draws lands where the box was sized for it. Zero means
+            ; `normal`, which is the FACE's line box and not 1.2.
             def lh:double el.lineHeight
+            if (lh <= 0.0) {
+                lh = ((textEngine.lineHeightFor(face fs)) / fs)
+            }
             if (lh <= 0.0) {
                 lh = 1.2
             }
