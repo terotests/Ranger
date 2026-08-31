@@ -4399,6 +4399,7 @@ class EVGElement  {
     this.a11yValueMin = 0;
     this.a11yValueMax = 0;
     this.a11yChecked = 0;
+    this.a11yPressed = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
     this.a11yDisabled = false;
@@ -5056,6 +5057,7 @@ class EVGElement  {
     this.a11yValueMin = other.a11yValueMin;
     this.a11yValueMax = other.a11yValueMax;
     this.a11yChecked = other.a11yChecked;
+    this.a11yPressed = other.a11yPressed;
     this.a11yExpanded = other.a11yExpanded;
     this.a11ySelected = other.a11ySelected;
     this.a11yDisabled = other.a11yDisabled;
@@ -5208,6 +5210,10 @@ class EVGElement  {
     }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
       this.a11yRoleDescription = value;
+      return;
+    }
+    if ( (name == "aria-pressed") || (name == "a11yPressed") ) {
+      this.a11yPressed = EVGElement.triState(value);
       return;
     }
     if ( (name == "aria-checked") || (name == "a11yChecked") ) {

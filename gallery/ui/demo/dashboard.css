@@ -13,7 +13,7 @@
   padding: 24px;
   background-color: #fafafa;
   width: 1080px;
-  height: 760px;
+  height: 1420px;
 }
 
 .db-main {
@@ -161,3 +161,225 @@
 .db-chart-box { }
 
 .db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; height: 34px; }
+
+/* --- the data table ----------------------------------------------------------
+ *
+ * Column widths are stated on `.db-col-*` and apply to BOTH the header cell
+ * and the body cells, because a table whose header and body size themselves
+ * independently is a table whose columns do not line up. One rule per column,
+ * one number per column.
+ */
+
+.db-tabs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 9px;
+  background-color: #f4f4f5;
+  padding: 3px;
+  gap: 2px;
+}
+
+.db-tab {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  padding: 6px 11px;
+}
+
+.db-tab-on { background-color: #ffffff; }
+.db-tab-text { color: #3f3f46; font-size: 12px; font-weight: 500; height: 18px; }
+
+.db-tab-pill {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: #e4e4e7;
+  width: 18px;
+  height: 16px;
+}
+
+.db-tab-pill-text { color: #52525b; font-size: 10px; font-weight: 500; height: 14px; }
+
+.db-tools {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-tool {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 7px 11px;
+}
+
+.db-tool-text { color: #18181b; font-size: 12px; font-weight: 500; height: 18px; }
+.db-tool-icon { color: #52525b; font-family: Arial; font-size: 12px; height: 18px; }
+.db-chevron { color: #71717a; font-family: Arial; font-size: 11px; height: 18px; }
+
+.db-table {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+}
+
+.db-thead {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  background-color: #fafafa;
+}
+
+.db-tbody {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.db-tr {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-bottom: 1px solid #f4f4f5;
+  padding: 0 12px;
+  height: 46px;
+}
+
+.db-tr-on { background-color: #fafafa; }
+
+.db-th {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 34px;
+}
+
+.db-td {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 34px;
+}
+
+/* One number per column, shared by the header cell and the body cell. */
+.db-col-header { width: 330px; }
+.db-col-type { width: 160px; }
+.db-col-status { width: 130px; }
+.db-col-target { width: 80px; }
+.db-col-limit { width: 80px; }
+.db-col-reviewer { width: 190px; }
+
+.db-cell-text { color: #3f3f46; font-size: 13px; height: 20px; }
+.db-cell-strong { color: #09090b; font-weight: 500; }
+
+.db-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  padding: 3px 8px;
+}
+
+.db-chip-text { color: #52525b; font-size: 11px; height: 16px; }
+
+.db-status {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  padding: 3px 8px;
+}
+
+.db-status-icon { color: #a1a1aa; font-family: Arial; font-size: 11px; height: 16px; }
+.db-status-text { color: #52525b; font-size: 11px; height: 16px; }
+/* The done tick is green. Its OWN class rather than a descendant selector:
+ * this sheet supports `.theme-<name> .class` and nothing else, and it says so
+ * rather than quietly ignoring the rule — which it did, and the tick stayed
+ * grey while the sheet looked correct. */
+.db-status-icon-done { color: #16a34a; }
+
+.db-grip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+}
+
+.db-grip-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
+
+.db-check {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid #d4d4d8;
+  background-color: #ffffff;
+  width: 15px;
+  height: 15px;
+}
+
+.db-tick { color: #18181b; font-family: Arial; font-size: 10px; height: 14px; }
+
+.db-more {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+}
+
+.db-more-icon { color: #71717a; font-family: Arial; font-size: 13px; height: 18px; }
+
+.db-assign {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 0 8px;
+  width: 158px;
+  height: 30px;
+}
+
+.db-assign-text { color: #a1a1aa; font-size: 12px; height: 18px; }
+
+/* What dnd-kit says out loud while a row is carried. Off the page rather than
+ * hidden: `aria-hidden` would take it out of the tree and a live region a
+ * reader cannot reach announces nothing. */
+.db-live { color: #71717a; font-size: 11px; padding: 8px 0 0 0; height: 16px; }

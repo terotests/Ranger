@@ -133,11 +133,19 @@ class EVGA11yRole {
     ; this role.
     sfn form:int ()             { return 44 }
 
+    ; `rowgroup` — a thead or a tbody. Missing until a table was built out of
+    ; roles rather than out of `<table>` tags, and an unrecognised role drops
+    ; the element AND EVERYTHING UNDER IT, so the whole body of the dashboard's
+    ; table was absent from the tree while the picture looked perfect. The
+    ; lint is the only reason that was noticed.
+    sfn rowGroup:int ()         { return 45 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
         if (role == 43) { return "navigation" }
         if (role == 44) { return "form" }
+        if (role == 45) { return "rowgroup" }
         if (role == 41) { return "tree" }
         if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
@@ -242,6 +250,12 @@ class EVGA11yNode {
     ; difference between "a dialog is open" and "there are two applications".
     def modal:boolean false
     def checked:int 0
+    ; `aria-pressed`, tri-state like `checked`. A toggle button that is ON —
+    ; a carried sortable row, a show/hide switch beside a password — and NOT
+    ; the same claim as `checked`: a pressed button is a button held down, a
+    ; checked one is a box with a tick in it, and a reader says different
+    ; words for each.
+    def pressed:int 0
     def expanded:int 0
     ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
     ;
@@ -509,6 +523,10 @@ class EVGA11yTree {
         }
         if (n.checked != 0) {
             out = (out + ",\"checked\":" + (to_string n.checked))
+        }
+
+        if (n.pressed != 0) {
+            out = (out + ",\"pressed\":" + (to_string n.pressed))
         }
         if ((strlen n.orientation) > 0) {
             out = (out + ",\"orientation\":\"" + n.orientation + "\"")

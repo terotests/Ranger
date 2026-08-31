@@ -68,6 +68,11 @@ class EVGA11yFromTree {
         ; finding out then would be the fifth time.
         if (name == "navigation")       { return (EVGA11yRole.navigation()) }
         if (name == "form")             { return (EVGA11yRole.form()) }
+        ; FIFTH time, and the table family is now finished too: a thead and a
+        ; tbody are `rowgroup`s, and without them the whole body of a table
+        ; built from roles is missing from the tree while the picture is
+        ; perfect.
+        if (name == "rowgroup")         { return (EVGA11yRole.rowGroup()) }
         if (name == "combobox")         { return (EVGA11yRole.comboBox()) }
         if (name == "listbox")          { return (EVGA11yRole.listBox()) }
         if (name == "option")           { return (EVGA11yRole.option()) }
@@ -191,6 +196,7 @@ class EVGA11yFromTree {
             n.hasPopup = el.a11yHasPopup
             n.disabled = el.a11yDisabled
             n.checked = el.a11yChecked
+            n.pressed = el.a11yPressed
             n.expanded = el.a11yExpanded
             n.sorted = el.a11ySorted
             n.orientation = el.a11yOrientation

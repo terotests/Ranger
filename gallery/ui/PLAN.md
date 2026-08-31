@@ -2185,10 +2185,30 @@ file", and that is what the stub says: `hasFont` stays false and the renderer
 falls back to its estimating measurer, which is the same path the Node gate
 takes because the gate registers no font directory either.
 
-**Still to come**: the DataTable from the second screenshot — `TableCtl` is
-already measured against TanStack for sorting, paging and selection, and the
-screenshot adds drag handles, status badges, a per-row menu and a tab strip —
-and the sidebar, which is a navigation landmark with sections.
+**The DataTable is two controllers, and one of them owns the order.**
+`TableCtl` is measured against TanStack for sorting, paging and selection;
+`SortableCtl` is measured against dnd-kit for what a drag does. Neither knows
+about the other, so `TableCtl.records` owns the order and the sortable is the
+GESTURE — pick up, move, drop or cancel — and a completed drop writes the
+order it arrived at back. The alternative was two lists to keep in step, which
+is how a table ends up showing a row twice, and the write-back refuses to
+write a list that is not the same length as the one it replaces.
+
+A SORT then replaces a hand-made order, and that is not a compromise: sorting
+by Target is a claim about where every row belongs, and honouring a drag
+inside it would mean the column header lied. So a drag clears the sort key.
+
+**`rowgroup` was the FIFTH missing role**, and the worst so far: an
+unrecognised role drops the element AND EVERYTHING UNDER IT, so the entire
+body of the table was absent from the accessibility tree while the picture was
+perfect. Only the lint noticed. `aria-pressed` went in at the same time — a
+carried row is a button held down, not a box with a tick in it, and a reader
+says different words for each.
+
+**Still to come**: the sidebar, which is a navigation landmark with sections.
+The reference's horizontal scroll is not wanted: it scrolls because its
+sidebar takes the width, and this table is sized to its card instead — no
+scroll container, nothing to get wrong.
 
 ## Resizable, and a reference that publishes an impossible range
 

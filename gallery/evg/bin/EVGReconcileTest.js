@@ -1552,6 +1552,7 @@ class EVGElement  {
     this.a11yValueMin = 0;
     this.a11yValueMax = 0;
     this.a11yChecked = 0;
+    this.a11yPressed = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
     this.a11yDisabled = false;
@@ -2209,6 +2210,7 @@ class EVGElement  {
     this.a11yValueMin = other.a11yValueMin;
     this.a11yValueMax = other.a11yValueMax;
     this.a11yChecked = other.a11yChecked;
+    this.a11yPressed = other.a11yPressed;
     this.a11yExpanded = other.a11yExpanded;
     this.a11ySelected = other.a11ySelected;
     this.a11yDisabled = other.a11yDisabled;
@@ -2361,6 +2363,10 @@ class EVGElement  {
     }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
       this.a11yRoleDescription = value;
+      return;
+    }
+    if ( (name == "aria-pressed") || (name == "a11yPressed") ) {
+      this.a11yPressed = EVGElement.triState(value);
       return;
     }
     if ( (name == "aria-checked") || (name == "a11yChecked") ) {
@@ -12262,12 +12268,18 @@ EVGA11yRole.navigation = function() {
 EVGA11yRole.form = function() {
   return 44;
 };
+EVGA11yRole.rowGroup = function() {
+  return 45;
+};
 EVGA11yRole.ariaName = function(role) {
   if ( role == 43 ) {
     return "navigation";
   }
   if ( role == 44 ) {
     return "form";
+  }
+  if ( role == 45 ) {
+    return "rowgroup";
   }
   if ( role == 41 ) {
     return "tree";
@@ -12447,6 +12459,7 @@ class EVGA11yNode  {
     this.readOnly = false;
     this.modal = false;
     this.checked = 0;
+    this.pressed = 0;
     this.expanded = 0;
     this.sorted = 0;
     this.orientation = "";
@@ -12634,6 +12647,9 @@ class EVGA11yTree  {
     }
     if ( n.checked != 0 ) {
       out = (out + ",\"checked\":") + ((n.checked.toString()));
+    }
+    if ( n.pressed != 0 ) {
+      out = (out + ",\"pressed\":") + ((n.pressed.toString()));
     }
     if ( (n.orientation.length) > 0 ) {
       out = ((out + ",\"orientation\":\"") + n.orientation) + "\"";
@@ -12970,6 +12986,7 @@ class EVGA11yFromTree  {
       n.hasPopup = el.a11yHasPopup;
       n.disabled = el.a11yDisabled;
       n.checked = el.a11yChecked;
+      n.pressed = el.a11yPressed;
       n.expanded = el.a11yExpanded;
       n.sorted = el.a11ySorted;
       n.orientation = el.a11yOrientation;
@@ -13047,6 +13064,9 @@ EVGA11yFromTree.roleCode = function(name) {
   }
   if ( name == "form" ) {
     return EVGA11yRole.form();
+  }
+  if ( name == "rowgroup" ) {
+    return EVGA11yRole.rowGroup();
   }
   if ( name == "combobox" ) {
     return EVGA11yRole.comboBox();

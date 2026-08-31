@@ -47,7 +47,7 @@ const DEMOS = {
   dashboard: {
     module: "gallery/ui/bin/DashboardDemo.cjs",
     css: "dashboard.css",
-    height: 760,
+    height: 1420,
     list: (M, css) => {
       const d = new M.DashboardDemo();
       d.init(css);

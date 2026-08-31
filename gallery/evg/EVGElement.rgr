@@ -630,6 +630,11 @@ class EVGElement {
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
     def a11yChecked:int 0
+    ; `aria-pressed`, tri-state. A carried sortable row and a show/hide toggle
+    ; are both buttons that are ON, and neither is CHECKED — a reader says
+    ; "pressed" for one and "checked" for the other, and they are not
+    ; interchangeable.
+    def a11yPressed:int 0
     def a11yExpanded:int 0
     def a11ySelected:int 0
     def a11yDisabled:boolean false
@@ -2060,6 +2065,7 @@ class EVGElement {
         a11yValueMin = other.a11yValueMin
         a11yValueMax = other.a11yValueMax
         a11yChecked = other.a11yChecked
+        a11yPressed = other.a11yPressed
         a11yExpanded = other.a11yExpanded
         a11ySelected = other.a11ySelected
         a11yDisabled = other.a11yDisabled
@@ -2224,6 +2230,10 @@ class EVGElement {
         }
         if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {
             a11yRoleDescription = value
+            return
+        }
+        if ((name == "aria-pressed") || (name == "a11yPressed")) {
+            a11yPressed = (EVGElement.triState(value))
             return
         }
         if ((name == "aria-checked") || (name == "a11yChecked")) {

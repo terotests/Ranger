@@ -180,6 +180,82 @@ console.log("--- four cards, one row ---");
   }
 }
 
+console.log("--- the table sorts, selects and pages ---");
+{
+  const d = fresh();
+  ok("nine sections", d.table.records.length === 9, "got " + d.table.records.length);
+  ok("eight to a page", find(d, "db-tr").length === 9, "8 rows + 1 header, got " + find(d, "db-tr").length);
+
+  // Sorting is TableCtl's, measured against TanStack. This only checks the
+  // demo routed the press to it and redrew.
+  const firstHeader = () => d.table.pageRecords()[0].cells[0];
+  const before = firstHeader();
+  ok("a column header sorts", d.press("db-table-col-target") === true);
+  ok("and the order changed", firstHeader() !== before, before + " -> " + firstHeader());
+
+  // Selection. The checkbox selects, not the row — TanStack has no opinion
+  // about row clicks and ReUI puts a box in the row so a keyboard can reach it.
+  ok("a row's box selects it", d.press("db-table-check-cover") === true);
+  ok("one selected", d.table.selectedCount() === 1, "" + d.table.selectedCount());
+  ok("select-all is then mixed", d.table.selectAllState() === 3, "" + d.table.selectAllState());
+  ok("pressing select-all takes the page", d.press("db-table-selectall") === true);
+  ok("all eight on it", d.table.selectedOnPage() === 8, "" + d.table.selectedOnPage());
+}
+
+console.log("--- and it reorders, with one owner for the order ---");
+{
+  const d = fresh();
+  const headers = () => d.table.records.map((r) => r.cells[0]);
+  const before = headers();
+  ok("the grip picks a row up", d.press("db-order-item-design") === true);
+  ok("and the sortable is carrying it", d.order.activeValue === "design", d.order.activeValue);
+  // Moving and dropping is dnd-kit's contract, driven through the grip's key
+  // handler the way a keyboard user would.
+  d.setFocus("db-order-item-design");
+  d.key("ArrowUp");
+  d.key("ArrowUp");
+  d.key(" ");
+  ok("the drop ends the drag", d.order.activeValue === "", JSON.stringify(d.order.activeValue));
+  const after = headers();
+  ok("the records moved", after.join("|") !== before.join("|"), after.slice(0, 5).join(","));
+  // THE WRITE-BACK'S ONE INVARIANT. A shorter list would mean a row vanished,
+  // which is worse than ignoring the drag — so `applyOrder` refuses to write
+  // one, and this is the check that says so.
+  ok("and nothing was lost", after.length === before.length, after.length + " vs " + before.length);
+  ok("nor duplicated", new Set(after).size === after.length, after.join(","));
+  ok("the same rows, reordered", [...after].sort().join("|") === [...before].sort().join("|"));
+
+  // A hand-made order is not a sorted one, so the header stops claiming it is.
+  const e = fresh();
+  e.press("db-table-col-target");
+  ok("sorting sets a sort key", e.table.sortKey === "target", JSON.stringify(e.table.sortKey));
+  e.press("db-order-item-design");
+  e.setFocus("db-order-item-design");
+  e.key("ArrowUp");
+  e.key(" ");
+  ok("and a drag clears it", e.table.sortKey === "", JSON.stringify(e.table.sortKey));
+}
+
+console.log("--- a cancelled drag puts the row back ---");
+{
+  const d = fresh();
+  const before = d.table.records.map((r) => r.cells[0]);
+  d.press("db-order-item-design");
+  d.setFocus("db-order-item-design");
+  d.key("ArrowUp");
+  d.key("Escape");
+  ok("Escape ends the drag", d.order.activeValue === "", JSON.stringify(d.order.activeValue));
+  ok("and the order is what it was", d.table.records.map((r) => r.cells[0]).join("|") === before.join("|"));
+}
+
+console.log("--- the tab strip ---");
+{
+  const d = fresh();
+  ok("four tabs", find(d, "db-tab").length === 4, "got " + find(d, "db-tab").length);
+  ok("pressing one selects it", d.press("db-tab-people") === true && d.tabs.value === "people", d.tabs.value);
+  ok("pressing it again is not a change", d.press("db-tab-people") === false);
+}
+
 console.log("--- nothing leaks out of its container ---");
 {
   const d = fresh();
@@ -231,7 +307,54 @@ console.log("--- what a reader gets ---");
     JSON.stringify(imgs.map((n) => n.name)));
   ok("the arrows are not announced", !nodes.some((n) => (n.name || "").includes("↗")));
 
+  // The table's roles. `rowgroup` was missing from the builder and an
+  // unrecognised role drops the element AND EVERYTHING UNDER IT — the whole
+  // body of this table was absent from the tree while the picture was
+  // perfect, and the lint is the only thing that noticed.
+  ok("the table is a table", nodes.filter((n) => n.role === "table").length === 1);
+  ok("with two row groups", nodes.filter((n) => n.role === "rowgroup").length === 2,
+    "got " + nodes.filter((n) => n.role === "rowgroup").length);
+  ok("nine rows", nodes.filter((n) => n.role === "row").length === 9,
+    "got " + nodes.filter((n) => n.role === "row").length);
+  ok("and every column header is named",
+    nodes.filter((n) => n.role === "columnheader").every((n) => (n.name || "").length > 0),
+    JSON.stringify(nodes.filter((n) => n.role === "columnheader").map((n) => n.name)));
+
+  const tabList = nodes.filter((n) => n.role === "tablist");
+  ok("a named tab list", tabList.length === 1 && tabList[0].name === "Sections");
+  // The count is part of the tab's NAME. A pill announced separately after
+  // "Past Performance" is a number with nothing attached to it.
+  const past = nodes.find((n) => (n.name || "").startsWith("Past Performance"));
+  ok("with the count in the tab's name", past && past.name === "Past Performance, 3",
+    past ? JSON.stringify(past.name) : "absent");
+  ok("and the pill is not announced on its own", !nodes.some((n) => (n.name || "") === "3"));
+
   ok("no lint", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
+}
+
+console.log("--- what a reader is told about a carried row ---");
+{
+  const d = fresh();
+  ok("nothing is said at rest", d.order.said() === "", JSON.stringify(d.order.said()));
+  d.press("db-order-item-design");
+  ok("picking a row up says so", d.order.said().length > 0, JSON.stringify(d.order.said()));
+  d.displayListJson();
+  const nodes = JSON.parse(d.a11yJson(2, "db-order-item-design")).nodes;
+  const grip = nodes.find((n) => n.id === "db-order-item-design");
+  // PRESSED, not checked. A carried row is a button held down; a checked one
+  // is a box with a tick in it, and a reader says different words for each.
+  ok("the grip reports itself pressed", grip && grip.pressed === 2,
+    grip ? JSON.stringify(grip.pressed) : "absent");
+  ok("and not checked", !grip.checked, JSON.stringify(grip.checked));
+  // dnd-kit's instructions, on every grip: this pattern has no visible
+  // affordance a reader can discover, so the sentence IS the interface.
+  ok("every grip carries the instructions",
+    nodes.filter((n) => (n.id || "").startsWith("db-order-item-"))
+      .every((n) => (n.desc || "").startsWith("To pick up a draggable item")),
+    JSON.stringify((grip.desc || "").slice(0, 40)));
+  const live = nodes.filter((n) => n.role === "status");
+  ok("and there is a live region saying it", live.length === 1 && live[0].name.length > 0,
+    JSON.stringify(live.map((n) => n.name)));
 }
 
 console.log("");
