@@ -583,6 +583,12 @@ const DEMOS = {
   // back has the page's own commands and Vela's in it, which is the whole
   // point of the page.
   dashboard: {
+    // A touch on the surface, in page pixels. The press that works a control
+    // is the same press that starts the ripple — the button never learns that
+    // anything happened, which is the point: the effect is over the finished
+    // picture and knows nothing about the tree that drew it.
+    ripple: (x, y) => dashboard.ripple(x, y),
+    animated: true,
     scroll: (dy) => dashboard.scrollBy(dy),
     width: () => dashboard.widthPx(),
     height: () => dashboard.heightPx(),
@@ -598,6 +604,8 @@ const DEMOS = {
     },
     key: (k) => dashboard.key(k),
     host: () => ({
+      tick: (dt) => dashboard.tick(dt),
+      busy: () => dashboard.busyNow(),
       setHover: (id) => {
         if (id === lastDashHover) return false;
         lastDashHover = id;
@@ -1224,7 +1232,11 @@ function paint() {
           .map((c) => document.fonts.load(`${c.size}px "${c.font}"`)),
       ).then(() => renderDisplayList(gl, doc, { dpr })),
     );
-    renderDisplayList(gl, doc, { dpr });
+    // What the renderer did with this frame, published beside the list for the
+    // same reason: something outside the page needs to be able to ask, and a
+    // check that only reads the display list cannot tell whether the picture
+    // went through a post-pass.
+    window.__lastStats = renderDisplayList(gl, doc, { dpr });
 
     // The same tree, said out loud. `gen` rises every paint so the mirror
     // knows the frame changed; it keeps its elements by id, which is why a
@@ -1434,6 +1446,8 @@ canvas.addEventListener("pointerdown", (ev) => {
   const d = demo();
   const h = d.host && d.host();
   if (h) h.setPressed(hitAt(ev.offsetX, ev.offsetY));
+  // The surface reacts to the touch, wherever it landed and whatever it hit.
+  if (d.ripple) { d.ripple(ev.offsetX, ev.offsetY); animate(); }
   if (d.drag) {
     // A demo with a gesture: the press picks up, the move carries, the release
     // puts down. Nothing happens on a press that never travels.

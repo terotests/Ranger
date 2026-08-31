@@ -189,6 +189,39 @@ console.log("--- the title bar is rounded only at the top ---");
     rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
 }
 
+console.log("--- the surface ripples where it was touched ---");
+{
+  // `evg-surface-effect: ripple` is an EVG EXTENSION, not CSS: there is no
+  // browser property to measure it against, so what is checked is that the
+  // declaration reaches the display list, that a touch becomes its origin,
+  // that the age advances, and that the renderer took the second pass.
+  await page.click('#demos input[value="dashboard"]');
+  await page.waitForTimeout(400);
+  const effect = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return l.effect || null;
+  });
+  const at = await effect();
+  ok("the sheet's effect reaches the list", at && at.kind === "ripple",
+    JSON.stringify(at));
+  ok("and it is at rest until something touches it", at && at.t < 0, String(at && at.t));
+
+  const box = await (await page.$("#stage canvas")).boundingBox();
+  await page.mouse.click(box.x + 700, box.y + 430);
+  await page.waitForTimeout(150);
+  const live = await effect();
+  ok("a click becomes the ripple's origin",
+    live && Math.abs(live.x - 700) < 3 && Math.abs(live.y - 430) < 3,
+    JSON.stringify(live && [live.x, live.y]));
+  ok("and its clock starts", live && live.t >= 0, String(live && live.t));
+
+  // The second pass really ran: `rippled` is the renderer saying it drew the
+  // page into a texture and put it on the screen through the shader.
+  const stats = await page.evaluate(() => window.__lastStats || null);
+  if (stats) ok("the renderer took the post-pass", stats.rippled === 1, JSON.stringify(stats.rippled));
+  else console.log("  (the page does not publish renderer stats; skipped)");
+}
+
 await browser.close();
 server.close();
 console.log("");

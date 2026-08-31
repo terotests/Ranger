@@ -60,6 +60,14 @@ const DEMOS = {
       if (nav) d.press("db-nav-" + nav);
       const py = process.env.DASH_PAGE_SCROLL;
       if (py) d.scrollTo(Number(py));
+      // "x,y,seconds" — a ripple frozen at an age, so the effect can be looked
+      // at rather than caught mid-flight.
+      const rp = process.env.DASH_RIPPLE;
+      if (rp) {
+        const [x, y, t] = rp.split(",").map(Number);
+        d.ripple(x, y);
+        d.tick(t * 1000);
+      }
       return d.displayListJson();
     },
     errors: (M, css) => {

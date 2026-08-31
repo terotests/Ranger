@@ -235,6 +235,41 @@ class EVGElement {
     ; distinguishable from an author writing `default` on purpose.
     def cursor:string ""
 
+    ; --- A SURFACE EFFECT ------------------------------------------------------
+    ;
+    ; `evg-surface-effect: ripple`, and the family of `evg-ripple-*` numbers
+    ; under it. The `evg-` prefix is not decoration: this is an EVG EXTENSION
+    ; and not a CSS property, so nothing in the gallery should ever measure it
+    ; against a browser and find a divergence — there is nothing to diverge
+    ; from. Every other property in this file is CSS and is measured; these are
+    ; ours, and they say so in their names.
+    ;
+    ; The effect belongs to a SURFACE, not to a box. It names a post-process
+    ; over everything that was drawn: the display list carries it beside the
+    ; commands rather than as one of them, and a backend that has never heard
+    ; of it draws the page and ignores the field.
+    def surfaceEffect:string ""
+    ; How fast the ring travels, in pixels a second.
+    def rippleSpeed:double 220.0
+    ; How wide the ring is — the Gaussian envelope's sigma, in pixels.
+    def rippleWidth:double 28.0
+    ; How far the surface is pushed at the crest, in pixels.
+    def rippleStrength:double 7.0
+    ; How fast the whole thing dies away, per second.
+    def rippleDecay:double 1.8
+    ; How much the crest lightens. Small: this is the difference between water
+    ; and a filter somebody put on a video.
+    def rippleHighlight:double 0.08
+
+    ; --- and the state it needs, which is not styling ---------------------------
+    ;
+    ; Where the surface was touched and how long ago. Set by the APPLICATION,
+    ; like `scrollTop`: a stylesheet has no business owning where somebody
+    ; clicked. A negative age means no ripple is in flight.
+    def rippleX:double 0.0
+    def rippleY:double 0.0
+    def rippleAge:double -1.0
+
     ; --- SCROLLING ------------------------------------------------------------
     ;
     ; How far the content inside this element is pushed up and left. Set by the
@@ -1815,6 +1850,36 @@ class EVGElement {
 
     ; A width starts with a digit or a dot; anything else in the shorthand that
     ; is not a style keyword is the colour — `#abc`, `rgb(...)` or a name.
+    ; A bare number, with a `px` or other unit allowed and ignored: these are
+    ; EVG's own properties and they are all in page pixels or in per-second,
+    ; so there is no unit to resolve — `28` and `28px` mean the same thing and
+    ; both are things somebody will write.
+    sfn numberOr:double (value:string fallback:double) {
+        def digits:string ""
+        def i:int 0
+        while (i < (strlen value)) {
+            ; `charAt` gives a CODEPOINT, not a one-character string, so the
+            ; comparison is against numbers: 48..57 are the digits, 46 is the
+            ; point and 45 the minus.
+            def code:int (charAt value i)
+            def keep:boolean ((code >= 48) && (code <= 57))
+            if (code == 46) { keep = true }
+            if (code == 45) { keep = true }
+            if keep {
+                digits = (digits + (substring value i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen digits) == 0) {
+            return fallback
+        }
+        def v@(optional):double (to_double digits)
+        if v {
+            return (unwrap v)
+        }
+        return fallback
+    }
+
     sfn looksLikeColor:boolean (tok:string) {
         if ((strlen tok) == 0) {
             return false
@@ -2016,6 +2081,15 @@ class EVGElement {
         lineBreak = other.lineBreak
         overflow = other.overflow
         cursor = other.cursor
+        surfaceEffect = other.surfaceEffect
+        rippleSpeed = other.rippleSpeed
+        rippleWidth = other.rippleWidth
+        rippleStrength = other.rippleStrength
+        rippleDecay = other.rippleDecay
+        rippleHighlight = other.rippleHighlight
+        rippleX = other.rippleX
+        rippleY = other.rippleY
+        rippleAge = other.rippleAge
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth
@@ -2640,6 +2714,33 @@ class EVGElement {
         }
         if (name == "cursor") {
             cursor = value
+            return
+        }
+        ; The EVG effect family. Prefixed, because these are EXTENSIONS and not
+        ; CSS: a reader who meets `evg-ripple-speed` should not go looking for
+        ; it in a specification.
+        if (name == "evg-surface-effect") {
+            surfaceEffect = value
+            return
+        }
+        if (name == "evg-ripple-speed") {
+            rippleSpeed = (EVGElement.numberOr(value rippleSpeed))
+            return
+        }
+        if (name == "evg-ripple-width") {
+            rippleWidth = (EVGElement.numberOr(value rippleWidth))
+            return
+        }
+        if (name == "evg-ripple-strength") {
+            rippleStrength = (EVGElement.numberOr(value rippleStrength))
+            return
+        }
+        if (name == "evg-ripple-decay") {
+            rippleDecay = (EVGElement.numberOr(value rippleDecay))
+            return
+        }
+        if (name == "evg-ripple-highlight") {
+            rippleHighlight = (EVGElement.numberOr(value rippleHighlight))
             return
         }
         ; The scroll POSITION is settable, because a demo restoring where it

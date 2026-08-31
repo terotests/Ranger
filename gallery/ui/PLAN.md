@@ -2563,7 +2563,50 @@ actually walks. The guard now names the elements that consume text.
 All four are in `demo/page-check.mjs`, which is the gate that exists because a
 bundle that builds is not a page that works.
 
-**Still to come**: the reference's horizontal scroll is not wanted — it scrolls
+## A ripple, and the point it makes
+
+`evg-surface-effect: ripple`, and the `evg-ripple-*` numbers under it. The
+prefix is not decoration: these are EVG EXTENSIONS and not CSS, so nothing in
+the gallery should ever measure them against a browser and find a divergence —
+there is nothing to diverge from. Everything else in the sheet is CSS and is
+measured; these are ours, and they say so in their names.
+
+The page is drawn into a texture, then put on the screen as one fullscreen
+triangle whose fragment shader bends the sample position in a Gaussian ring
+travelling out from wherever the surface was touched. **The shader knows
+nothing about Ranger.** It gets a picture, a centre and an age. Text, card
+edges and the chart's own paths all bend together because by then they are the
+same pixels — which is the most direct demonstration this gallery has that a
+dashboard that looks like the DOM is not DOM pixels but a surface a GPU drew.
+
+The click that works a control is the click that starts it. The button never
+learns that anything happened.
+
+Three things it took to make it cheap rather than merely correct:
+
+- **The age is stamped at paint time, not built into the tree.** Advancing a
+  clock by rebuilding would make the cheapest effect on the page the most
+  expensive thing on it: not one box moves and not one word re-wraps between
+  two frames of a ripple. 300ms a frame became 15.
+- **An effect declared but not in flight costs one comparison.** `t` below zero
+  is the resting state, which is what lets a page carry the declaration all the
+  time.
+- **The offscreen target needs a stencil buffer.** Path fills are
+  stencil-then-cover and the chart is nothing but path fills. Leaving it off did
+  not draw a chart with no bars in it — the renderer has a branch that says so —
+  it silently cost half a second a frame.
+
+**And an honest number.** In this container Chromium runs on SwiftShader, which
+rasterises on the CPU: the post-pass costs about 540ms at 2672x1800 and 166ms at
+a quarter of the pixels. It scales with pixel count exactly as software
+rasterisation does, and on a GPU a four-tap fullscreen pass is well under a
+millisecond. The measurement is recorded rather than optimised away, because
+the thing to fix would be the container and not the shader.
+
+**Still to come**: a height-field version — several drops, interfering, and a
+finger you can drag across the surface — which needs a simulation texture and a
+wave equation per pixel rather than one analytic ring. And the reference's
+horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the
 sidebar collapse to icons; that is a width this page does not have. And the

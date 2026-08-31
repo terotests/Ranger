@@ -812,6 +812,113 @@ export function blurReach(sigma) {
 // fraction of it. The two cancel out along any axis where the picture happens
 // to be uniform — which is why a scene with a horizontal band through it saw
 // nothing wrong, twice.
+// ---------------------------------------------------------------------------
+// evg-surface-effect: ripple
+// ---------------------------------------------------------------------------
+//
+// A post-process over the finished surface: render the page to a texture, then
+// draw that texture across the screen with a fragment shader that bends the
+// sample position in a ring travelling out from where somebody touched it.
+//
+// The whole point is that the shader knows NOTHING about Ranger. It gets a
+// picture, a centre and an age. Everything on the page bends together — text,
+// card edges, the chart's own paths — because by the time this runs they are
+// all the same pixels, which is the most direct demonstration this gallery has
+// that a dashboard that looks like the DOM is not DOM pixels.
+//
+// This is an EVG EXTENSION and says so in its name: `evg-surface-effect` is
+// not a CSS property and nothing here should ever be measured against a
+// browser looking for a divergence, because there is nothing to diverge from.
+const RIPPLE_VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vUV;
+void main() {
+  vUV = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+const RIPPLE_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uRes;        // page pixels
+uniform vec2 uDrop;       // where it was touched, page pixels
+uniform float uAge;       // seconds since
+uniform float uSpeed;     // px per second the ring travels
+uniform float uWidth;     // the envelope's sigma, px
+uniform float uStrength;  // displacement at the crest, px
+uniform float uDecay;     // per second
+uniform float uHi;        // how much the crest lightens
+in vec2 vUV;
+out vec4 outColor;
+
+void main() {
+  vec2 p = vUV * uRes;
+  vec2 delta = p - uDrop;
+  float d = length(delta);
+  vec2 dir = delta / max(d, 0.001);
+
+  float radius = uAge * uSpeed;
+  // A Gaussian ring: the wave only exists near the front, so the rest of the
+  // page is sampled exactly where it was drawn and stays sharp.
+  float env = exp(-pow((d - radius) / uWidth, 2.0));
+  float wave = sin((d - radius) * 0.16) * env * exp(-uAge * uDecay);
+
+  vec2 offset = dir * wave * uStrength / uRes;
+
+  // A whisper of chromatic aberration along the crest. The numbers are 1.08
+  // and 0.92 rather than anything bolder for a reason: past about a tenth the
+  // dashboard stops looking like water and starts looking like a filter.
+  float r = texture(uSrc, vUV + offset * 1.08).r;
+  float g = texture(uSrc, vUV + offset).g;
+  float b = texture(uSrc, vUV + offset * 0.92).b;
+  float a = texture(uSrc, vUV + offset).a;
+
+  vec3 col = vec3(r, g, b) + wave * uHi;
+  outColor = vec4(col, a);
+}`;
+
+// One target, kept and resized only when the canvas is. Same shape as the blur
+// targets above and for the same reason: a frame that allocates a texture is a
+// frame that stutters.
+const RIPPLE_TARGET = new WeakMap();
+
+function rippleTargetFor(gl, w, h) {
+  let t = RIPPLE_TARGET.get(gl);
+  if (!t) { t = { w: 0, h: 0, tex: null, fbo: null, depth: null, complete: false }; RIPPLE_TARGET.set(gl, t); }
+  if (t.w === w && t.h === h && t.tex) return t;
+  if (t.tex) gl.deleteTexture(t.tex);
+  if (t.fbo) gl.deleteFramebuffer(t.fbo);
+  t.tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t.tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  // A displaced sample near the edge must repeat the edge, not read black —
+  // otherwise the ring draws a dark rim as it reaches the sides of the page.
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  t.fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.tex, 0);
+  // A STENCIL BUFFER, and it is not optional. Path fills are stencil-then-
+  // cover, so a target without one cannot fill a path — and the chart on the
+  // page that wanted this effect is nothing but path fills. Leaving it off did
+  // not draw a chart with no bars in it, which is what the missing-stencil
+  // branch is written to do: it made every frame take half a SECOND, because
+  // the driver fell off its fast path and back into software for a stencil
+  // buffer that was not there. 7ms a frame became 540.
+  if (t.depth) gl.deleteRenderbuffer(t.depth);
+  t.depth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, t.depth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, t.depth);
+  t.complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  t.w = w; t.h = h;
+  return t;
+}
+
 const BLUR_TARGETS = new WeakMap();
 
 function blurTargetsFor(gl, w, h) {
@@ -867,6 +974,14 @@ function programsFor(gl) {
   if (!gl.getProgramParameter(blurProg, gl.LINK_STATUS)) {
     throw new Error("link blur: " + gl.getProgramInfoLog(blurProg));
   }
+  const rippleProg = gl.createProgram();
+  gl.attachShader(rippleProg, compile(gl, gl.VERTEX_SHADER, RIPPLE_VERT));
+  gl.attachShader(rippleProg, compile(gl, gl.FRAGMENT_SHADER, RIPPLE_FRAG));
+  gl.linkProgram(rippleProg);
+  if (!gl.getProgramParameter(rippleProg, gl.LINK_STATUS)) {
+    throw new Error("link ripple: " + gl.getProgramInfoLog(rippleProg));
+  }
+
   const backdropProg = gl.createProgram();
   gl.attachShader(backdropProg, compile(gl, gl.VERTEX_SHADER, BACKDROP_VERT));
   gl.attachShader(backdropProg, compile(gl, gl.FRAGMENT_SHADER, BACKDROP_FRAG));
@@ -899,6 +1014,17 @@ function programsFor(gl) {
     blurStep: gl.getUniformLocation(blurProg, "uStep"),
     blurWidth: gl.getUniformLocation(blurProg, "uWidth"),
     blurOffset: gl.getUniformLocation(blurProg, "uOffset"),
+    rippleProg,
+    ripplePosLoc: gl.getAttribLocation(rippleProg, "aPos"),
+    rippleSrc: gl.getUniformLocation(rippleProg, "uSrc"),
+    rippleRes: gl.getUniformLocation(rippleProg, "uRes"),
+    rippleDrop: gl.getUniformLocation(rippleProg, "uDrop"),
+    rippleAge: gl.getUniformLocation(rippleProg, "uAge"),
+    rippleSpeed: gl.getUniformLocation(rippleProg, "uSpeed"),
+    rippleWidth: gl.getUniformLocation(rippleProg, "uWidth"),
+    rippleStrength: gl.getUniformLocation(rippleProg, "uStrength"),
+    rippleDecay: gl.getUniformLocation(rippleProg, "uDecay"),
+    rippleHi: gl.getUniformLocation(rippleProg, "uHi"),
     backdropProg,
     backdropPosLoc: gl.getAttribLocation(backdropProg, "aPos"),
     backdropUVLoc: gl.getAttribLocation(backdropProg, "aUV"),
@@ -1166,6 +1292,22 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, atlas);
 
+  // A LIVE SURFACE EFFECT redirects the whole frame into a texture first. It
+  // is live only while it is still moving: an effect declared in the sheet but
+  // with no touch behind it (`t` below zero) costs a comparison and nothing
+  // else, which is what lets a page carry the declaration all the time.
+  const fx = doc.list.effect;
+  const rippling = !!fx && fx.kind === "ripple" && fx.t >= 0 &&
+    Math.exp(-fx.t * fx.decay) > 0.004;
+  let target = rippling
+    ? rippleTargetFor(gl, gl.canvas.width, gl.canvas.height)
+    : null;
+  // An incomplete target draws the page without the effect rather than
+  // drawing nothing, which is the same choice the missing-stencil branch
+  // makes about path fills: say what could not be done, do the rest.
+  if (target && !target.complete) target = null;
+  if (target) gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
@@ -1379,6 +1521,44 @@ export function renderDisplayList(gl, doc, opts = {}) {
   }
   applyClip(null);
 
+  // The second pass. Everything above drew into a texture; this puts it on the
+  // screen through the ripple. One fullscreen quad, no blending — the texture
+  // already holds the finished surface and compositing it again would darken
+  // its own edges against itself.
+  if (target) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.disable(gl.BLEND);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(built.rippleProg);
+    const quad = gl.createBuffer();
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(built.ripplePosLoc);
+    gl.vertexAttribPointer(built.ripplePosLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, target.tex);
+    gl.uniform1i(built.rippleSrc, 0);
+    // In PAGE pixels, which is the space the drop was recorded in — the
+    // texture is in device pixels and the shader never has to know.
+    gl.uniform2f(built.rippleRes, doc.width, doc.height);
+    gl.uniform2f(built.rippleDrop, fx.x, fx.y);
+    gl.uniform1f(built.rippleAge, fx.t);
+    gl.uniform1f(built.rippleSpeed, fx.speed);
+    gl.uniform1f(built.rippleWidth, fx.width);
+    gl.uniform1f(built.rippleStrength, fx.strength);
+    gl.uniform1f(built.rippleDecay, fx.decay);
+    gl.uniform1f(built.rippleHi, fx.highlight);
+    // One triangle covering the screen, not two: no seam down the diagonal
+    // for `fwidth` to trip over, and three vertices instead of six.
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.deleteBuffer(quad);
+    gl.enable(gl.BLEND);
+  }
+
   return {
     drawn: count, textRuns: slots.size, images: drawnImages, missingImages,
     runs: runs.length, paths,
@@ -1392,5 +1572,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // passes, so this is the number to look at when a frame with a dialog on
     // it costs more than one without.
     backdrops,
+    // Whether this frame went through a surface effect. 0 on every frame of
+    // every page that is not rippling, which is nearly all of them.
+    rippled: target ? 1 : 0,
   };
 }

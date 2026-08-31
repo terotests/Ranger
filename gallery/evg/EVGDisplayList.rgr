@@ -680,6 +680,8 @@ class EVGDisplayList {
     fn build:void (root:EVGElement) {
         clear cmds
         clear deferredOverlays
+        effectKind = ""
+        this.readEffect(root)
         this.walk(root)
         def i:int 0
         while (i < (array_length deferredOverlays)) {
@@ -1318,8 +1320,61 @@ class EVGDisplayList {
         return at
     }
 
+    ; The surface's post-process, written beside the commands and not as one of
+    ; them, because it applies to everything that was drawn rather than to a
+    ; rectangle in paint order. A backend that has never heard of it draws the
+    ; page and ignores the field, which is the whole reason it is here and not
+    ; in the command stream.
+    def effectKind:string ""
+    def effectX:double 0.0
+    def effectY:double 0.0
+    def effectAge:double -1.0
+    def effectSpeed:double 0.0
+    def effectWidth:double 0.0
+    def effectStrength:double 0.0
+    def effectDecay:double 0.0
+    def effectHighlight:double 0.0
+
+    ; Pick the effect up off the tree. The first element that names one wins:
+    ; a surface has one post-process, and two would be a question about order
+    ; that nobody asked.
+    fn readEffect:void (el:EVGElement) {
+        if ((strlen effectKind) > 0) {
+            return
+        }
+        if ((strlen el.surfaceEffect) > 0) {
+            effectKind = el.surfaceEffect
+            effectX = el.rippleX
+            effectY = el.rippleY
+            effectAge = el.rippleAge
+            effectSpeed = el.rippleSpeed
+            effectWidth = el.rippleWidth
+            effectStrength = el.rippleStrength
+            effectDecay = el.rippleDecay
+            effectHighlight = el.rippleHighlight
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.readEffect((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
     fn toJson:string () {
-        def out:string "{\"cmds\":["
+        def out:string "{"
+        if ((strlen effectKind) > 0) {
+            out = (out + "\"effect\":{\"kind\":\"" + effectKind + "\"")
+            out = (out + ",\"x\":" + (EVGDisplayList.num(effectX)))
+            out = (out + ",\"y\":" + (EVGDisplayList.num(effectY)))
+            out = (out + ",\"t\":" + (EVGDisplayList.num(effectAge)))
+            out = (out + ",\"speed\":" + (EVGDisplayList.num(effectSpeed)))
+            out = (out + ",\"width\":" + (EVGDisplayList.num(effectWidth)))
+            out = (out + ",\"strength\":" + (EVGDisplayList.num(effectStrength)))
+            out = (out + ",\"decay\":" + (EVGDisplayList.num(effectDecay)))
+            out = (out + ",\"highlight\":" + (EVGDisplayList.num(effectHighlight)))
+            out = (out + "},")
+        }
+        out = (out + "\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds i)

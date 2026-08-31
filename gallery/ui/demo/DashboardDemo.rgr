@@ -362,6 +362,19 @@ class DashboardDemo {
     ; of the gate guessing, because the demo is the only thing that knows.
     def chartFrom:int 0
     def chartTo:int 0
+
+    ; --- the surface's ripple --------------------------------------------------
+    ;
+    ; Where the page was touched and how long ago. `evg-surface-effect: ripple`
+    ; is in the sheet — the effect and its shape are STYLE — and these three
+    ; are state, like `scrollTop`: a stylesheet has no business owning where
+    ; somebody clicked.
+    ;
+    ; A negative age means nothing is in flight, which is the resting state and
+    ; costs the renderer one comparison.
+    def dropX:double 0.0
+    def dropY:double 0.0
+    def dropAge:double -1.0
     ; The chart's drawn size. ONE owner: the spec is built from these numbers
     ; and the placeholder box is set to them inline, so the box the layout
     ; reserves and the picture Vela computes cannot disagree.
@@ -1470,6 +1483,39 @@ class DashboardDemo {
         return "The sidebar navigates: the link marked current and the content shown come from one field. The main region scrolls — Page Down, Page Up, Home, End, or the wheel."
     }
 
+    ; A touch, in page pixels. The click that presses a button is the same
+    ; click that starts the ripple: the surface reacts to being touched, and
+    ; nothing about the button had to know.
+    fn ripple:void (px:double py:double) {
+        dropX = px
+        dropY = py
+        dropAge = 0.0
+    }
+
+    ; Milliseconds, because that is what a frame loop has.
+    ;
+    ; NO REBUILD. The ripple is a post-process over the finished picture: not
+    ; one box moves, not one word re-wraps, and the only thing that differs
+    ; between two frames of it is a number the shader reads. Rebuilding the
+    ; tree to advance a clock would make the cheapest effect on the page the
+    ; most expensive thing on it — the age is stamped onto the root at paint
+    ; time instead, in `displayListJson`.
+    fn tick:void (dtMs:double) {
+        if (dropAge < 0.0) {
+            return
+        }
+        dropAge = (dropAge + (dtMs / 1000.0))
+    }
+
+    ; Is anything still moving? The ripple dies with its own decay, so this
+    ; asks the same question the shader does rather than guessing a duration.
+    fn busyNow:boolean () {
+        if (dropAge < 0.0) {
+            return false
+        }
+        return (dropAge < 3.0)
+    }
+
     fn pageBody:EVGElement () {
         def page (tree Db (Page (props (id "page"))))
         page.addChild((this.sidebar()))
@@ -1864,6 +1910,13 @@ class DashboardDemo {
     fn displayListJson:string () {
         def lay:EVGLayout (this.laidOutOnce())
         def r:EVGElement (unwrap root)
+        ; The ripple's state, stamped on at paint time. It is not part of the
+        ; tree's shape — nothing about the page depends on it — so it does not
+        ; belong in `pageBody` where it would make every frame of the effect a
+        ; rebuild.
+        r.rippleX = dropX
+        r.rippleY = dropY
+        r.rippleAge = dropAge
         def dl (new EVGDisplayList())
         dl.build(r)
         chartFrom = 0
