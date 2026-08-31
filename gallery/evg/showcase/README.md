@@ -103,6 +103,21 @@ bytes at nearly the same SSIM, which is the difference between a file somebody
 can open and edit and one they cannot. And the `broken` preset is tuned for
 graphic art — on a portrait it turns skin orange.
 
+`npm run evg:trace:bench:speed` is the other half: wall clock across tracers
+and across three sizes, one process per conversion, median of several runs,
+with the process startup floor printed so it can be read out of the numbers
+rather than guessed at. Three sizes rather than one, because a thumbnail
+measures startup and not the algorithm — and the ranking does change with size.
+On the Hokusai sample scaled to 0.07, 0.64 and 2.55 megapixels the C++ build
+runs 237 / 1285 / 4290 ms against vtracer's 201 / 2458 / 13487: vtracer is
+faster on the thumbnail and three times slower on the large one, because its
+cost per pixel rises with the picture and this one's falls. autotrace is the
+closest match at scale (3837 ms) and potrace is in another league (47 ms) while
+tracing one bitmap rather than quantizing first. The Node build costs about
+three times the C++ one and Python about thirty, which is what portability
+costs here; 98% of any of them is the trace itself, not the PNG decode or the
+SVG writing.
+
 `npm run evg:trace:cli:smoke` builds all four and asserts they produce the
 same SVG byte for byte — which is the claim worth testing, since a difference
 in integer division or float printing between targets would otherwise surface
