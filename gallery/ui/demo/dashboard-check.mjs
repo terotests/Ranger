@@ -183,8 +183,11 @@ console.log("--- four cards, one row ---");
 console.log("--- the table sorts, selects and pages ---");
 {
   const d = fresh();
-  ok("nine sections", d.table.records.length === 9, "got " + d.table.records.length);
-  ok("eight to a page", find(d, "db-tr").length === 9, "8 rows + 1 header, got " + find(d, "db-tr").length);
+  ok("five thousand sections", d.table.records.length === 5000, "got " + d.table.records.length);
+  // And a dozen-ish rows built, which is the entire point — see the
+  // virtualisation section below.
+  ok("but not five thousand rows", find(d, "db-tr").length < 20,
+    "got " + find(d, "db-tr").length);
 
   // Sorting is TableCtl's, measured against TanStack. This only checks the
   // demo routed the press to it and redrew.
@@ -199,7 +202,10 @@ console.log("--- the table sorts, selects and pages ---");
   ok("one selected", d.table.selectedCount() === 1, "" + d.table.selectedCount());
   ok("select-all is then mixed", d.table.selectAllState() === 3, "" + d.table.selectAllState());
   ok("pressing select-all takes the page", d.press("db-table-selectall") === true);
-  ok("all eight on it", d.table.selectedOnPage() === 8, "" + d.table.selectedOnPage());
+  // The PAGE is the whole table now — virtualisation replaced the pager, so
+  // "all on this page" means all five thousand. That is TableCtl's own
+  // arithmetic, unchanged; only the page size moved.
+  ok("all of them", d.table.selectedOnPage() === 5000, "" + d.table.selectedOnPage());
 }
 
 console.log("--- and it reorders, with one owner for the order ---");
@@ -207,11 +213,15 @@ console.log("--- and it reorders, with one owner for the order ---");
   const d = fresh();
   const headers = () => d.table.records.map((r) => r.cells[0]);
   const before = headers();
-  ok("the grip picks a row up", d.press("db-order-item-design") === true);
-  ok("and the sortable is carrying it", d.order.activeValue === "design", d.order.activeValue);
+  // A row that is ON SCREEN. Only the visible window is draggable — a row you
+  // cannot see is a row you cannot pick up, which is why the sortable holds
+  // the range rather than the whole table.
+  const onScreen = d.table.sortedRecords()[d.virt.firstVisible() + 1].key;
+  ok("the grip picks a row up", d.press("db-order-item-" + onScreen) === true);
+  ok("and the sortable is carrying it", d.order.activeValue === onScreen, d.order.activeValue);
   // Moving and dropping is dnd-kit's contract, driven through the grip's key
   // handler the way a keyboard user would.
-  d.setFocus("db-order-item-design");
+  d.setFocus("db-order-item-" + onScreen);
   d.key("ArrowUp");
   d.key("ArrowUp");
   d.key(" ");
@@ -229,8 +239,10 @@ console.log("--- and it reorders, with one owner for the order ---");
   const e = fresh();
   e.press("db-table-col-target");
   ok("sorting sets a sort key", e.table.sortKey === "target", JSON.stringify(e.table.sortKey));
-  e.press("db-order-item-design");
-  e.setFocus("db-order-item-design");
+  e.displayListJson();
+  const vis = e.table.sortedRecords()[e.virt.firstVisible() + 1].key;
+  e.press("db-order-item-" + vis);
+  e.setFocus("db-order-item-" + vis);
   e.key("ArrowUp");
   e.key(" ");
   ok("and a drag clears it", e.table.sortKey === "", JSON.stringify(e.table.sortKey));
@@ -240,8 +252,9 @@ console.log("--- a cancelled drag puts the row back ---");
 {
   const d = fresh();
   const before = d.table.records.map((r) => r.cells[0]);
-  d.press("db-order-item-design");
-  d.setFocus("db-order-item-design");
+  const onScreen = d.table.sortedRecords()[d.virt.firstVisible() + 1].key;
+  d.press("db-order-item-" + onScreen);
+  d.setFocus("db-order-item-" + onScreen);
   d.key("ArrowUp");
   d.key("Escape");
   ok("Escape ends the drag", d.order.activeValue === "", JSON.stringify(d.order.activeValue));
@@ -254,6 +267,75 @@ console.log("--- the tab strip ---");
   ok("four tabs", find(d, "db-tab").length === 4, "got " + find(d, "db-tab").length);
   ok("pressing one selects it", d.press("db-tab-people") === true && d.tabs.value === "people", d.tabs.value);
   ok("pressing it again is not a change", d.press("db-tab-people") === false);
+}
+
+console.log("--- it shows five thousand rows without building them ---");
+{
+  const d = fresh();
+  const built = () => find(d, "db-tr").length - 1; // less the header
+  ok("five thousand records", d.virt.count === 5000, "" + d.virt.count);
+  const atTop = built();
+  ok("a dozen or so built", atTop > 5 && atTop < 20, "" + atTop);
+
+  // THE PROPERTY. Not "few rows" — the number built must not depend on how
+  // many there are. A virtualiser that quietly built them all would still
+  // pass a "shows the right rows" check and would take a second to do it.
+  d.virt.scrollTo(100000);
+  d.rebuild();
+  d.displayListJson();
+  ok("the same number after scrolling four thousand rows", Math.abs(built() - atTop) <= 2,
+    atTop + " -> " + built());
+  ok("but different rows", d.virt.firstVisible() > 2000, "" + d.virt.firstVisible());
+
+  // The window is slid by the SUB-ROW remainder and nothing more: at most one
+  // row's height, never the 230,000 pixels a DOM spacer would carry. That is
+  // the whole reason there are no spacers — see the demo's header.
+  const win = one(d, "db-window");
+  ok("there is a window", !!win);
+  const slide = Math.abs(win.el.calculatedY - one(d, "db-tbody").el.calculatedY);
+  // At most the OVERSCAN plus the part of the first in-view row that is
+  // scrolled past — three rows here, not the 99,866 pixels a DOM spacer would
+  // have carried. That bound is the whole claim: the number the layout is
+  // given never grows with the data.
+  const bound = (d.virt.overscan + 1) * d.virt.rowHeight;
+  ok("slid by at most the overscan and a part row", slide <= bound + 0.5,
+    slide + " vs " + bound);
+
+  // And the rows that ARE built land inside the clip box, give or take the
+  // overscan that is deliberately outside it.
+  const body = one(d, "db-tbody").el;
+  ok("the body is the viewport it was given", Math.abs(body.calculatedHeight - 414) < 0.5,
+    "" + body.calculatedHeight);
+}
+
+console.log("--- what a reader is told about five thousand rows ---");
+{
+  const d = fresh();
+  d.virt.scrollTo(100000);
+  d.rebuild();
+  const nodes = JSON.parse(d.a11yJson(1, "")).nodes;
+  const table = nodes.find((n) => n.role === "table");
+  // THE FINDING. Without this a reader is told the table has fourteen rows.
+  ok("the table says how many rows it really has", table && table.rows === 5000,
+    table ? JSON.stringify(table.rows) : "absent");
+  const rows = nodes.filter((n) => n.role === "row");
+  ok("and the tree holds a dozen", rows.length < 20, "" + rows.length);
+
+  const header = rows.find((r) => r.row === 1);
+  ok("the header is row 1", !!header);
+  const body = rows.filter((r) => r.row && r.row > 1).map((r) => r.row).sort((a, b) => a - b);
+  ok("every built row knows where it really is", body.length === rows.length - 1,
+    body.length + " of " + (rows.length - 1));
+  // Not 2..15. Four thousand rows down, and saying "row 2" there is worse
+  // than saying nothing.
+  ok("which is nowhere near the top", body[0] > 2000, "" + body[0]);
+  ok("and they run consecutively", body.every((v, i) => i === 0 || v === body[i - 1] + 1),
+    body.slice(0, 5).join(","));
+  // 1-based and counting the header: the first body row is its index + 2.
+  ok("counting the header", body[0] === d.virt.firstVisible() + 2,
+    body[0] + " vs " + (d.virt.firstVisible() + 2));
+
+  ok("no lint", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
 }
 
 console.log("--- nothing leaks out of its container ---");
@@ -314,7 +396,7 @@ console.log("--- what a reader gets ---");
   ok("the table is a table", nodes.filter((n) => n.role === "table").length === 1);
   ok("with two row groups", nodes.filter((n) => n.role === "rowgroup").length === 2,
     "got " + nodes.filter((n) => n.role === "rowgroup").length);
-  ok("nine rows", nodes.filter((n) => n.role === "row").length === 9,
+  ok("a dozen-ish rows in the tree", nodes.filter((n) => n.role === "row").length < 20,
     "got " + nodes.filter((n) => n.role === "row").length);
   ok("and every column header is named",
     nodes.filter((n) => n.role === "columnheader").every((n) => (n.name || "").length > 0),

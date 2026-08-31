@@ -383,3 +383,22 @@
  * hidden: `aria-hidden` would take it out of the tree and a live region a
  * reader cannot reach announces nothing. */
 .db-live { color: #71717a; font-size: 11px; padding: 8px 0 0 0; height: 16px; }
+
+/* The clip box. Its height is set inline from the same number the virtualiser
+ * reasons about, because a viewport the layout and the range disagree about is
+ * a strip of nothing at one edge. `position: relative` is what makes the
+ * window's `top` mean "from the top of this box". */
+.db-tbody { overflow: hidden; position: relative; }
+
+/* The rows in range, slid up by the part of the first one that is scrolled
+ * past. Absolutely positioned, so its height is its own business and not
+ * something the 414-pixel column has an opinion about — which is the whole
+ * reason the spacers had to go. */
+.db-window {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  position: absolute;
+  left: 0;
+  width: 100%;
+}

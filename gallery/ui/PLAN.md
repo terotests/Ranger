@@ -2205,6 +2205,56 @@ perfect. Only the lint noticed. `aria-pressed` went in at the same time — a
 carried row is a button held down, not a box with a tick in it, and a reader
 says different words for each.
 
+**Virtualisation, and the two things it turned out to be about.**
+
+`@tanstack/virtual-core` is the headless sibling of the TanStack Table
+`TableCtl` is already measured against, and it is pure computation — count,
+estimate, offset, overscan, and out comes a range. So the oracle needs no
+browser and could be driven over sixty offsets in a second, chosen to land on
+a row boundary, one pixel either side of one, at zero, at the bottom and past
+it. The rule that reproduces all sixty:
+
+    first = clamp(floor(offset / rowHeight) - overscan, 0, count - 1)
+    last  = clamp(floor((offset + viewport) / rowHeight) + overscan, 0, count - 1)
+
+Two things in that are not obvious and both are a blank strip at the edge of
+the viewport. A PARTIALLY scrolled row is in the range — `floor`, not `ceil`,
+at both ends. And the CLAMP COMES BEFORE THE OVERSCAN: past the end of the
+content the raw index is 10869 in a table of 10000, and widening first gives
+one row with the overscan swallowed. Nine of two hundred and sixty-nine
+observations disagreed on that alone, all of them at the bottom of the table,
+which is not an exotic place to be.
+
+**EVG has no scrolling viewport, so the DOM technique does not port.** A
+browser virtualiser puts the whole content height in the document as two
+spacers and lets the scroll container move. Here `overflow: hidden` clips and
+nothing scrolls, so a 230,000-pixel spacer inside a 414-pixel flex column is
+not a spacer — it is content that overflows, and the layout shrinks
+overflowing fixed children to fit. Fourteen rows drew on top of each other in
+one 46-pixel line and it looked exactly like a stylesheet bug. So the offset is
+applied instead: the window holds the rows in range and is slid up by at most
+the overscan plus a part row. `totalSize()` is still the honest content height
+and is what a scrollbar would be sized from; it simply never enters the tree.
+
+**And it is an ACCESSIBILITY change before it is a performance one.** Twelve
+rows in the tree and ten thousand in the data means a reader is told the table
+has twelve rows, and that the third one is row 3 when it is row 4,517.
+`aria-rowcount` and `aria-rowindex` are the whole of the fix, and neither was
+in the trace — a field nobody has is a field nobody can be wrong about. They
+are on `UiRow`, on `EVGElement`, in both snapshots and in the diff now.
+
+**Virtualisation is also what exposed `TableCtl`'s sort.** It was an insertion
+sort, and the comment beside it said why: "the lists here are page-sized and
+the point is the stability, not the asymptotics." True when a page was four
+rows. `setAt` rebuilds the whole array, so the sort was O(n³) and one click on
+a five-thousand-row table took longer than a test runner will wait. It is a
+stable bottom-up merge sort now, and TanStack still agrees about the order —
+which is the only thing the oracle measures. Two other things went the same
+way: the demo was calling `TableCtl.build()` to build five thousand EVG rows
+it never drew, and the drag write-back was looking every record up by key,
+twenty-five million comparisons for one drag. The sortable holds the visible
+window now, because a row you cannot see is a row you cannot pick up.
+
 **Still to come**: the sidebar, which is a navigation landmark with sections.
 The reference's horizontal scroll is not wanted: it scrolls because its
 sidebar takes the width, and this table is sized to its card instead — no

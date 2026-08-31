@@ -596,6 +596,8 @@
     "ui:tree:dnd:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/tree_dnd_check.mjs",
     "ui:tree:dnd:oracle": "node gallery/ui/conformance/oracle/tree_dnd_oracle.mjs",
     "ui:table:oracle": "node gallery/ui/conformance/oracle/table_oracle.mjs",
+    "ui:virtual:oracle": "node gallery/ui/conformance/oracle/virtual_oracle.mjs",
+    "ui:virtual:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/virtual_check.mjs",
     "evg:rotation:check": "node gallery/evg/gl/rotation-check.mjs",
     "evg:blur:check": "node gallery/evg/gl/blur-check.mjs",
     "evg:blur:oracle": "node gallery/evg/oracle/css_blur_oracle.mjs",

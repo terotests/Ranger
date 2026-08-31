@@ -591,6 +591,12 @@ class EVGElement {
     ; cannot see about a trigger — that pressing it opens something — and a
     ; select's closed trigger is a box with a word in it without it.
     def a11yHasPopup:string ""
+    ; `aria-rowcount` and `aria-rowindex`. A virtualised table has a dozen rows
+    ; in the tree and ten thousand in the data, and these two are the only
+    ; thing that says so — 0 for a table that publishes neither, which is what
+    ; a non-virtualised one does.
+    def a11yRowCount:int 0
+    def a11yRowIndex:int 0
     ; `aria-hidden`: this element and everything under it is DECORATION and
     ; contributes nothing to the accessible tree — no node, and no words to an
     ; ancestor's name.
@@ -2055,6 +2061,8 @@ class EVGElement {
         a11yRoleDescription = other.a11yRoleDescription
         a11yDescription = other.a11yDescription
         a11yHasPopup = other.a11yHasPopup
+        a11yRowCount = other.a11yRowCount
+        a11yRowIndex = other.a11yRowIndex
         a11yHidden = other.a11yHidden
         a11ySorted = other.a11ySorted
         a11yOrientation = other.a11yOrientation
@@ -2218,6 +2226,26 @@ class EVGElement {
         }
         if ((name == "aria-hidden") || (name == "a11yHidden")) {
             a11yHidden = (EVGElement.truthy(value))
+            return
+        }
+        ; `to_int` on a string is OPTIONAL here — a value that is not a number
+        ; has no integer to be — so it is unwrapped through a default rather
+        ; than assigned straight across. Zero is the right default: it is what
+        ; "this node publishes no row count" already means everywhere else.
+        if ((name == "aria-rowcount") || (name == "a11yRowCount")) {
+            def rc@(optional):int (to_int value)
+            a11yRowCount = 0
+            if rc {
+                a11yRowCount = (unwrap rc)
+            }
+            return
+        }
+        if ((name == "aria-rowindex") || (name == "a11yRowIndex")) {
+            def ri@(optional):int (to_int value)
+            a11yRowIndex = 0
+            if ri {
+                a11yRowIndex = (unwrap ri)
+            }
             return
         }
         if ((name == "aria-haspopup") || (name == "a11yHasPopup")) {

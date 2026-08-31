@@ -48,6 +48,7 @@ SUITES=(
   evg:adopt:check
   ui:sortable:motion
   ui:table:check
+  ui:virtual:check
   ui:tree:dnd:check
   ui:tree:checkbox
   ui:timeline:check

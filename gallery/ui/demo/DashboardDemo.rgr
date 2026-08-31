@@ -63,6 +63,7 @@
 Import "../src/RadioGroupCtl.rgr"
 Import "../src/TableCtl.rgr"
 Import "../src/SortableCtl.rgr"
+Import "../src/VirtualCtl.rgr"
 Import "../src/UiCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
@@ -155,6 +156,9 @@ treefactory Db {
     tag Assign  EVGElement (props (className "db-assign") (role "combobox"))
     tag AssignT EVGElement (props (className "db-assign-text") (elementType 1))
     tag Chevron EVGElement (props (className "db-chevron") (elementType 1) (a11yHidden true))
+    ; The window the rows are drawn in, slid up by the part of the first row
+    ; that is scrolled past. See `tableCard` for why there are no spacers.
+    tag Window  EVGElement (props (className "db-window"))
     tag Live    EVGElement (props (className "db-live") (elementType 1) (role "status"))
 
     tag Note    EVGElement (props (className "db-note") (elementType 1))
@@ -186,6 +190,10 @@ class DashboardDemo {
     def table:TableCtl (new TableCtl())
     def order:SortableCtl (new SortableCtl())
     def tabs:RadioGroupCtl (new RadioGroupCtl())
+    ; What makes the table able to hold a hundred thousand rows: it decides
+    ; WHICH rows are worth building, and the answer is about a dozen whatever
+    ; the count is. Measured against @tanstack/virtual-core.
+    def virt:VirtualCtl (new VirtualCtl())
     ; What a row is about, keyed the way the records are — the badge columns
     ; are not strings the table sorts on, they are pictures of one.
     def sectionOf:[string]
@@ -221,6 +229,10 @@ class DashboardDemo {
     ; are stated once here rather than folded into the spec.
     def gutterX:double 46.0
     def gutterY:double 34.0
+    ; The table's scrollable box. ONE owner, handed to `VirtualCtl` and set on
+    ; the body inline, because the height the virtualiser reasons about and the
+    ; height the layout gives the box have to be the same number.
+    def tableViewport:double 414.0
 
     Constructor () {
     }
@@ -378,16 +390,47 @@ class DashboardDemo {
         push cells limit
         push cells reviewer
         table.addRecord(key cells)
-        order.addItem(key header false)
         push sectionOf section
         push statusOf status
         push reviewerOf reviewer
     }
 
+    ; The sortable holds ONLY THE ROWS ON SCREEN, rebuilt when the range moves.
+    ;
+    ; The first version gave it an item per record. Five thousand items, and a
+    ; drop then looked each one up in the records by key — five thousand times
+    ; a linear search, twenty-five million comparisons for one drag. That is
+    ; the shape of the bug virtualisation exists to prevent, written into the
+    ; thing meant to demonstrate it.
+    ;
+    ; And it is not a compromise: a row that cannot be seen cannot be dragged.
+    ; The gesture is over what is on screen, so that is what the sortable is
+    ; given, and a drop moves ONE record in the full list — a splice, not a
+    ; rebuild.
+    fn syncOrder:void () {
+        def keep:[UiItem]
+        order.items = keep
+        def rows:[UiRecord] (table.sortedRecords())
+        def first:int (virt.firstVisible())
+        def last:int (virt.lastVisible())
+        if (first < 0) {
+            order.build()
+            return
+        }
+        def i:int first
+        while (i <= last) {
+            if (i < (array_length rows)) {
+                def r:UiRecord (itemAt rows i)
+                order.addItem(r.key (itemAt r.cells 0) false)
+            }
+            i = (i + 1)
+        }
+        order.build()
+    }
+
     fn buildTable:void () {
         table.tid = "db-table"
         table.name = "Document sections"
-        table.pageSize = 8
         table.addColumn("header" "Header" false true)
         table.addColumn("type" "Section Type" false true)
         table.addColumn("status" "Status" false true)
@@ -412,7 +455,54 @@ class DashboardDemo {
         ; select is for and the reason that column does not sort.
         this.addSection("innov" "Innovation and Advantages" "Narrative" "Done" "25" "26" "")
         this.addSection("emr" "Overview of EMR's Innovative Solutions" "Technical content" "Done" "7" "23" "")
-        table.build()
+        ; And then a great many more, because a virtualiser that is only ever
+        ; asked for nine rows proves nothing. These are generated rather than
+        ; written out: the point is the COUNT, and the nine above are the ones
+        ; the reference actually shows.
+        def i:int 0
+        while (i < 4991) {
+            def n:int (i + 10)
+            def status:string "In Process"
+            if ((n % 3) == 0) {
+                status = "Done"
+            }
+            def reviewer:string "Eddie Lake"
+            if ((n % 4) == 0) {
+                reviewer = "Jamik Tashpulatov"
+            }
+            if ((n % 7) == 0) {
+                reviewer = ""
+            }
+            this.addSection(("s" + (to_string n)) (("Section " + (to_string n))) "Narrative" status
+                (to_string ((n * 7) % 40)) (to_string ((n * 13) % 40)) reviewer)
+            i = (i + 1)
+        }
+
+        ; NO PAGER. Virtualisation replaces it rather than sitting inside it,
+        ; and the first version had them fighting: the virtualiser indexed into
+        ; all five thousand records while `pageRecords` handed back a thousand,
+        ; so scrolling past row 999 built five rows and then nothing. Two
+        ; mechanisms that both decide which rows exist is one too many.
+        ;
+        ; So the page is the whole table and the scroll box is what a person
+        ; moves through — which is also what the reference does, and why its
+        ; table scrolls rather than paginating.
+        table.pageSize = (array_length table.records)
+        virt.tid = "db-virt"
+        virt.rowHeight = 46.0
+        virt.viewport = tableViewport
+        ; Two rows either side, so a scroll of one row never exposes a strip
+        ; of nothing before the next frame.
+        virt.overscan = 2
+        virt.count = (array_length table.records)
+
+        ; NOT `table.build()`. `TableCtl` can build its own display tree and
+        ; this demo does not use it — it draws the table itself, because the
+        ; reference's cells are badges and selects rather than strings. With
+        ; five thousand records that call builds five thousand EVG rows, every
+        ; press, for nothing: the gate went from a second to a timeout, and the
+        ; virtualiser it was supposed to be testing was the only thing on the
+        ; page NOT doing the wasteful thing.
         order.build()
     }
 
@@ -565,6 +655,9 @@ class DashboardDemo {
 
     fn headRow:EVGElement () {
         def row (tree Db (Row (props (id "db-table-headrow"))))
+        ; The header is row 1. Everything below it starts at 2, which is what
+        ; `rowIndexOf` is adding.
+        row.a11yRowIndex = 1
 
         ; The select-all box and the drag column's header, both of which have
         ; a job and no words. A `columnheader` with no name is a column a
@@ -722,16 +815,68 @@ class DashboardDemo {
         card.addChild(head)
 
         def t (tree Db (Table (props (id "db-table"))))
+        t.a11yRowCount = (virt.rowCount())
         def thead (tree Db (Head))
         thead.addChild((this.headRow()))
         t.addChild(thead)
-        def tbody (tree Db (Body))
-        def rows:[UiRecord] (table.pageRecords())
-        def i:int 0
-        while (i < (array_length rows)) {
-            tbody.addChild((this.bodyRow((itemAt rows i))))
+        ; THE VIRTUALISED BODY, and it is NOT built the way a DOM one is.
+        ;
+        ; A browser virtualiser puts the WHOLE content height in the document —
+        ; a spacer above the range and another below — and lets the scroll
+        ; container do the moving. That is how the scrollbar gets its size, and
+        ; it works because a browser has a scrolling viewport.
+        ;
+        ; EVG has no scrolling viewport. `overflow: hidden` clips; nothing
+        ; scrolls. So a 230,000-pixel spacer inside a 414-pixel flex column is
+        ; not a spacer, it is content that overflows — and the layout does
+        ; exactly what it says it does with overflowing fixed children, which
+        ; is shrink them all to fit. The first version drew fourteen rows on
+        ; top of each other in one 46-pixel line, and it looked for all the
+        ; world like a stylesheet bug.
+        ;
+        ; So the offset is applied instead of the spacers: the window holds
+        ; only the rows in range and is slid up by the part of the FIRST row
+        ; that is scrolled past — at most one row's height, never a number the
+        ; layout has to be talked out of. `virt.totalSize()` is still the
+        ; honest content height and is what a scrollbar would be sized from; it
+        ; simply never enters the tree.
+        def tbody (tree Db (Body (props (id "db-tbody"))))
+        tbody.height = (EVGUnit.px(tableViewport))
+        ; What a reader is owed, and the whole reason this is an accessibility
+        ; change and not only a performance one.
+        tbody.a11yRowCount = (virt.rowCount())
+
+        ; The SORTED list, which is what the virtualiser's indices are into.
+        def rows:[UiRecord] (table.sortedRecords())
+        def first:int (virt.firstVisible())
+        def last:int (virt.lastVisible())
+        if (first < 0) {
+            first = 0
+            last = (0 - 1)
+        }
+
+        ; The sortable is given the rows on screen before they are drawn, so a
+        ; grip's tid and the item it stands for cannot disagree.
+        this.syncOrder()
+
+        def win (tree Db (Window (props (id "db-window"))))
+        ; Zero at the top, negative once scrolled: how much of the first built
+        ; row is above the viewport's edge.
+        win.top = (EVGUnit.px(((virt.paddingTop()) - virt.scrollOffset)))
+        def i:int first
+        while (i <= last) {
+            if (i < (array_length rows)) {
+                def row:EVGElement (this.bodyRow((itemAt rows i)))
+                ; WHERE THIS ROW REALLY IS. 1-based and counting the header,
+                ; which is what an HTML table's own indices are — a built row
+                ; numbered 1..12 would tell a reader they were at the top of
+                ; the table four thousand rows down.
+                row.a11yRowIndex = (virt.rowIndexOf(i))
+                win.addChild(row)
+            }
             i = (i + 1)
         }
+        tbody.addChild(win)
         t.addChild(tbody)
         card.addChild(t)
 
@@ -843,16 +988,54 @@ class DashboardDemo {
     ; is the one that gets drawn. This is the only place the two meet, and it
     ; runs after a drop rather than during a drag, because a half-finished
     ; gesture is not an order anybody asked for.
-    fn applyOrder:void () {
+    ; THE WRITE-BACK, and it moves ONE record. `SortableCtl` has arrived at an
+    ; order for the rows on screen; `table.records` is the list that gets
+    ; drawn. Splicing the dragged record to where the sortable put it is O(n)
+    ; and rebuilding the whole list from the sortable was O(n²) — see
+    ; `syncOrder`.
+    ;
+    ; It runs after a drop rather than during a drag, because a half-finished
+    ; gesture is not an order anybody asked for.
+    fn applyOrder:void (moved:string) {
+        if ((strlen moved) == 0) {
+            return
+        }
+        def from:int (table.recordAt(moved))
+        if (from < 0) {
+            return
+        }
+        ; Where the sortable put it among the rows on screen, and which record
+        ; it now sits before. That record's position in the FULL list is the
+        ; destination.
+        def at:int (order.indexOf(moved))
+        if (at < 0) {
+            return
+        }
+        def beforeKey:string ""
+        if ((at + 1) < (array_length order.items)) {
+            def nextIt:UiItem (itemAt order.items (at + 1))
+            beforeKey = nextIt.value
+        }
+
+        def rec:UiRecord (itemAt table.records from)
         def out:[UiRecord]
         def i:int 0
-        while (i < (array_length order.items)) {
-            def it:UiItem (itemAt order.items i)
-            def at:int (table.recordAt(it.value))
-            if (at >= 0) {
-                push out (itemAt table.records at)
+        def placed:boolean false
+        while (i < (array_length table.records)) {
+            def r:UiRecord (itemAt table.records i)
+            if (r.key != moved) {
+                if (r.key == beforeKey) {
+                    push out rec
+                    placed = true
+                }
+                push out r
             }
             i = (i + 1)
+        }
+        if (placed == false) {
+            ; Dropped at the end of the visible window, so it goes after
+            ; everything that was in front of it.
+            push out rec
         }
         ; Only when nothing was lost. A shorter list would mean a row vanished,
         ; and drawing that is worse than ignoring the drag.
@@ -862,7 +1045,6 @@ class DashboardDemo {
             ; claiming it is. The alternative is a column that says
             ; "ascending" over rows in an order it did not choose.
             table.sortKey = ""
-            table.build()
         }
     }
 
@@ -905,7 +1087,6 @@ class DashboardDemo {
         ; one does; this only says where focus went.
         if (table.press(target)) {
             focused = target
-            table.build()
             this.rebuild()
             return true
         }
@@ -916,7 +1097,7 @@ class DashboardDemo {
             focused = target
             if (order.activeValue == dragValue) {
                 order.drop()
-                this.applyOrder()
+                this.applyOrder(dragValue)
             } {
                 order.pickUp(dragValue)
             }
@@ -939,7 +1120,7 @@ class DashboardDemo {
             ; the row back and the write-back is a no-op.
             if ((strlen before) > 0) {
                 if ((strlen order.activeValue) == 0) {
-                    this.applyOrder()
+                    this.applyOrder(before)
                 }
             }
             if ((strlen moved) > 0) {
@@ -949,7 +1130,6 @@ class DashboardDemo {
             return true
         }
         if (table.key(focused k)) {
-            table.build()
             this.rebuild()
             return true
         }

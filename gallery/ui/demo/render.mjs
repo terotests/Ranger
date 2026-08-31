@@ -53,6 +53,8 @@ const DEMOS = {
       d.init(css);
       const r = process.env.DASH_RANGE;
       if (r) d.selectRange(r);
+      const sc = process.env.DASH_SCROLL;
+      if (sc) { d.virt.scrollTo(Number(sc)); d.rebuild(); }
       return d.displayListJson();
     },
     errors: (M, css) => {

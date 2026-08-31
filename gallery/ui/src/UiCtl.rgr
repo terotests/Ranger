@@ -145,6 +145,20 @@ class UiRow {
     ; This is what makes a Field's hint and its error message part of the
     ; contract instead of decoration beside it.
     def description:string ""
+    ; `aria-rowcount` and `aria-rowindex`, 0 for a row that publishes neither.
+    ;
+    ; These are what a VIRTUALISED table owes a reader, and the reason they are
+    ; separate fields rather than derived from the rows in the trace: the trace
+    ; holds the rows that were BUILT, and for a virtual table that is twelve
+    ; out of ten thousand. Counting them gives twelve, and telling a reader the
+    ; third visible row is row 3 when it is row 4,517 is worse than telling
+    ; them nothing.
+    ;
+    ; A table that is not virtualised publishes neither, exactly as an HTML
+    ; table does — the browser counts its own rows and an attribute that
+    ; repeats the count is a second place to be wrong.
+    def rowCount:int 0
+    def rowIndex:int 0
 
     Constructor () {
     }

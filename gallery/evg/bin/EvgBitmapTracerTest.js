@@ -4389,6 +4389,8 @@ class EVGElement  {
     this.a11yRoleDescription = "";
     this.a11yDescription = "";
     this.a11yHasPopup = "";
+    this.a11yRowCount = 0;
+    this.a11yRowIndex = 0;
     this.a11yHidden = false;
     this.a11ySorted = 0;
     this.a11yOrientation = "";
@@ -5047,6 +5049,8 @@ class EVGElement  {
     this.a11yRoleDescription = other.a11yRoleDescription;
     this.a11yDescription = other.a11yDescription;
     this.a11yHasPopup = other.a11yHasPopup;
+    this.a11yRowCount = other.a11yRowCount;
+    this.a11yRowIndex = other.a11yRowIndex;
     this.a11yHidden = other.a11yHidden;
     this.a11ySorted = other.a11ySorted;
     this.a11yOrientation = other.a11yOrientation;
@@ -5198,6 +5202,22 @@ class EVGElement  {
     }
     if ( (name == "aria-hidden") || (name == "a11yHidden") ) {
       this.a11yHidden = EVGElement.truthy(value);
+      return;
+    }
+    if ( (name == "aria-rowcount") || (name == "a11yRowCount") ) {
+      const rc = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      this.a11yRowCount = 0;
+      if ( typeof(rc) != "undefined" ) {
+        this.a11yRowCount = rc;
+      }
+      return;
+    }
+    if ( (name == "aria-rowindex") || (name == "a11yRowIndex") ) {
+      const ri = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      this.a11yRowIndex = 0;
+      if ( typeof(ri) != "undefined" ) {
+        this.a11yRowIndex = ri;
+      }
       return;
     }
     if ( (name == "aria-haspopup") || (name == "a11yHasPopup") ) {

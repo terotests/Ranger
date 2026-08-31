@@ -272,31 +272,74 @@ class TableCtl extends UiCtl {
             return out
         }
         def col:UiColumn (itemAt columns at)
-        ; Insertion sort. The lists here are page-sized and the point is the
-        ; stability, not the asymptotics.
-        def n:int (array_length out)
-        def k:int 1
-        while (k < n) {
-            def key:UiRecord (itemAt out k)
-            def j:int (k - 1)
-            def placed:boolean false
-            while ((j >= 0) && (placed == false)) {
-                def other:UiRecord (itemAt out j)
-                def cmp:int (this.compareAt(other key at col.numeric))
-                if sortDesc {
-                    cmp = (0 - cmp)
-                }
-                if (cmp > 0) {
-                    out = (this.setAt(out (j + 1) other))
-                    j = (j - 1)
-                } {
-                    placed = true
-                }
-            }
-            out = (this.setAt(out (j + 1) key))
-            k = (k + 1)
+        ; MERGE SORT, and stable — which is the property the oracle actually
+        ; measures. Two records that compare equal come out in the order they
+        ; went in, and TanStack's sort is stable too, so a column of ties has
+        ; one right answer and both sides give it.
+        ;
+        ; It used to be an insertion sort, and the comment here said why: "the
+        ; lists are page-sized and the point is the stability, not the
+        ; asymptotics." That was true when a page was four rows. It stopped
+        ; being true the moment a table was asked to hold five thousand, and it
+        ; was not merely slow — `setAt` rebuilds the whole array, so the sort
+        ; was O(n³) and one click took longer than a test runner will wait.
+        ;
+        ; Virtualisation is what exposed it. Nothing about the ORDER changes.
+        return (this.mergeSortBy(out at col.numeric))
+    }
+
+    ; Bottom-up merge, so there is no recursion depth to worry about on a
+    ; hundred thousand rows.
+    fn mergeSortBy:[UiRecord] (list:[UiRecord] at:int numeric:boolean) {
+        def n:int (array_length list)
+        if (n < 2) {
+            return list
         }
-        return out
+        def src:[UiRecord] list
+        def width:int 1
+        while (width < n) {
+            def dst:[UiRecord]
+            def lo:int 0
+            while (lo < n) {
+                def mid:int (lo + width)
+                def hi:int (mid + width)
+                if (mid > n) { mid = n }
+                if (hi > n) { hi = n }
+                def i:int lo
+                def j:int mid
+                while ((i < mid) || (j < hi)) {
+                    def takeLeft:boolean false
+                    if (i >= mid) {
+                        takeLeft = false
+                    } {
+                        if (j >= hi) {
+                            takeLeft = true
+                        } {
+                            def a:UiRecord (itemAt src i)
+                            def b:UiRecord (itemAt src j)
+                            def cmp:int (this.compareAt(a b at numeric))
+                            if sortDesc {
+                                cmp = (0 - cmp)
+                            }
+                            ; `<= 0` and not `< 0`: on a tie the LEFT run wins,
+                            ; which is what makes this stable.
+                            takeLeft = (cmp <= 0)
+                        }
+                    }
+                    if takeLeft {
+                        push dst (itemAt src i)
+                        i = (i + 1)
+                    } {
+                        push dst (itemAt src j)
+                        j = (j + 1)
+                    }
+                }
+                lo = hi
+            }
+            src = dst
+            width = (width * 2)
+        }
+        return src
     }
 
     ; Ranger's arrays have no element assignment, so a write is a rebuild.

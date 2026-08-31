@@ -36,6 +36,12 @@ export const FIELDS = [
   // that has just been marked invalid reports `invalid: "true"` and not one
   // word about WHY, which is the whole of what a reader is given.
   "description",
+  // `aria-rowcount` and `aria-rowindex`. The fields a VIRTUALISED table lives
+  // or dies by: without them a reader is told the table has as many rows as
+  // happen to be built — twelve, out of ten thousand — and that the third one
+  // is row 3 when it is row 4,517.
+  "rowcount",
+  "rowindex",
   "hidden",
   "tabstop",
   "focused",

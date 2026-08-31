@@ -247,6 +247,11 @@ export function snapshotDom(options) {
       placeholder: el.getAttribute("placeholder"),
       selstart: EDITABLE(el, tag) ? selOf(el, "selectionStart") : null,
       selend: EDITABLE(el, tag) ? selOf(el, "selectionEnd") : null,
+      // `aria-rowcount` / `aria-rowindex`. A virtualised table has twelve
+      // rows in the DOM and ten thousand in the data, and these two are the
+      // only thing that says so.
+      rowcount: num("aria-rowcount"),
+      rowindex: num("aria-rowindex"),
       valuenow: num("aria-valuenow"),
       valuemin: num("aria-valuemin"),
       valuemax: num("aria-valuemax"),
@@ -348,6 +353,8 @@ export function snapshotDom(options) {
       placeholder: null,
       selstart: null,
       selend: null,
+      rowcount: null,
+      rowindex: null,
       valuenow: null,
       valuemin: null,
       valuemax: null,

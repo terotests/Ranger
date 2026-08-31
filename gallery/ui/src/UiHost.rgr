@@ -32,6 +32,7 @@ Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
 Import "InputCtl.rgr"
+Import "VirtualCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ResizeCtl.rgr"
 Import "BreadcrumbCtl.rgr"
@@ -1364,6 +1365,11 @@ class UiHost {
             out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
             ; The text `aria-describedby` points AT, not the id it points with.
             out = out + ",\"description\":" + (UiHost.textOrNull(row.description))
+            ; What a virtualised table owes a reader: how many rows there ARE,
+            ; and where this one really sits. Absent rather than zero, because
+            ; a table that is not virtualised publishes neither.
+            out = out + ",\"rowcount\":" + (UiHost.numOrNull(row.rowCount))
+            out = out + ",\"rowindex\":" + (UiHost.numOrNull(row.rowIndex))
             ; Reported, not compared: the two systems disagree about the parent
             ; of a floating surface on purpose. It is here so `posinset` can be
             ; skipped where they do — see conformance/diff.mjs.

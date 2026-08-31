@@ -58,6 +58,8 @@ function run(spec, css) {
         selstart: null,
         selend: null,
         description: null,
+        rowcount: null,
+        rowindex: null,
         valuenow: null,
         valuemin: null,
         valuemax: null,
