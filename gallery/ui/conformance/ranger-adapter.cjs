@@ -118,6 +118,19 @@ function run(spec, css) {
       // the sortable's gesture starts here and needs no geometry.
       host.pressOn(step.press);
       observe("press " + step.press + " @" + (step.at ?? 0.5));
+    } else if ("dragpick" in step) {
+      host.dragPick(step.dragpick);
+      observe("dragpick " + step.dragpick);
+    } else if ("dragpoint" in step) {
+      host.dragPoint(step.dragpoint, step.aty ?? 0.5, step.x ?? 0);
+      if (step.hold) host.dragHold(step.hold);
+      observe(
+        "dragpoint " + step.dragpoint + " y" + (step.aty ?? 0.5) + " x" + (step.x ?? 0) +
+          (step.hold ? " +" + step.hold + "ms" : ""),
+      );
+    } else if ("dragland" in step) {
+      host.dragLand(step.dragland, step.aty ?? 0.5, step.x ?? 0);
+      observe("dragland " + step.dragland + " y" + (step.aty ?? 0.5) + " x" + (step.x ?? 0));
     } else if ("dragto" in step) {
       host.dragFraction(step.dragto);
       observe("dragto " + step.dragto);

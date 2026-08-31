@@ -118,3 +118,55 @@
   width: 386px;
   height: 18px;
 }
+
+/* --- selection and the drag ------------------------------------------------
+ *
+ * `tv-item-selected` is written by the demo, from the controller's selection,
+ * and it sits AFTER `:hover` so a selected row stays visibly selected under
+ * the pointer. It sits BEFORE `:focus` on purpose: the focused row is the one
+ * the arrows will act on, and that has to be readable inside a selected range.
+ */
+.tv-item-selected { background-color: #e0e7ff; }
+
+/* The rows being carried. Pale rather than hidden: the reference leaves them
+ * in place, and a list that closed a gap where the dragged row was would be
+ * animating a move that has not happened yet. */
+.tv-item-dragged { opacity: 0.45; }
+
+/* The folder about to receive them. An outline and not a fill, because the
+ * fill is already saying hovered and the two would be one picture. */
+/* No height or padding correction with it: EVG draws a border INSIDE the box,
+ * the way `border-box` does, so the row keeps its 32 pixels and nothing below
+ * it moves. Measured — the first version took two pixels back out of the
+ * height and shifted every row under the target up by two. */
+.tv-item-dropinto {
+  background-color: #eef2ff;
+  border: 1px solid #6366f1;
+}
+
+/* The drop line: where the rows would land if you let go now.
+ *
+ * It is a ROW in the flat list rather than a floating bar, because the list is
+ * the only thing that knows where row N is. Which means it takes vertical
+ * room, and it must not — inserting it would push every row below it down and
+ * the whole tree would jump as the line moved. Two pixels tall with a
+ * negative margin either side is a line that occupies nothing. */
+.tv-dropline {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 2px;
+  margin: -1px 0;
+  padding: 0 8px;
+}
+
+.tv-dropline-ink {
+  /* `fill`, not `flex-grow: 1` — EVG's unit vocabulary has a "take what is
+   * left" width and no flex sizing, and a percentage here would resolve
+   * against the whole row and overflow past the indent. */
+  width: fill;
+  height: 2px;
+  border-radius: 1px;
+  background-color: #6366f1;
+}

@@ -93,6 +93,46 @@ for (const run of oracle.runs) {
   }
 }
 
+// --- the pointer runs ----------------------------------------------------------
+//
+// Driven by the two numbers the placement rule actually reads — how far down
+// the row and how far in from its left edge — rather than by a coordinate,
+// because those are what the oracle recorded and because the two
+// implementations have no reason to agree about how wide a row is.
+for (const run of oracle.pointerRuns) {
+  console.log("--- " + run.name + " ---");
+  const host = buildHost(M, oracle.fixture, "");
+  const ctl = host.ctls[0];
+
+  for (let s = 0; s < run.steps.length; s++) {
+    const want = run.steps[s];
+    if (want.step.startsWith("dragstart")) {
+      ctl.dragStartPointer("tr-item-" + run.from);
+    } else if (want.step.startsWith("dragover")) {
+      ctl.dragOverPointer("tr-item-" + want.over, want.topPercent, want.leftPixels);
+      // A hold. The oracle sat still for this long with the cursor where it
+      // was, so this side has to let the same amount of time pass — which for
+      // a controller with no clock means saying so.
+      if (want.wait) ctl.dragElapsed(want.wait);
+    } else if (want.step === "drop") {
+      const last = run.steps[s - 1];
+      ctl.dropPointer("tr-item-" + last.over, last.topPercent, last.leftPixels);
+    }
+    const got = look(host, ctl);
+    const at = run.name + " :: " + want.step;
+    eq(at + " :: dragging", got.dragging, want.dragging);
+    eq(at + " :: dragged", got.dragged.join(","), want.dragged.join(","));
+    eq(at + " :: selected", ctl.selected.slice().sort().join(","), (want.selected || []).slice().sort().join(","));
+    eq(at + " :: kind", got.kind, want.kind);
+    eq(at + " :: item", got.item, want.item);
+    eq(at + " :: childIndex", got.childIndex, want.childIndex);
+    eq(at + " :: insertionIndex", got.insertionIndex, want.insertionIndex);
+    eq(at + " :: lineIndex", got.lineIndex, want.lineIndex);
+    eq(at + " :: lineLevel", got.lineLevel, want.lineLevel);
+    eq(at + " :: order", got.order.join(","), want.order.join(","));
+  }
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) {

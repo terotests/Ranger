@@ -1152,6 +1152,61 @@ class UiHost {
         this.settleFocus()
     }
 
+    ; --- the HTML5 drag, routed by tid -----------------------------------------
+    ; `x` is pixels from the row's left edge and `topPercent` a fraction of its
+    ; height. Pixels for the one and a fraction for the other is not an
+    ; oversight: the horizontal number is only ever compared against the
+    ; INDENT, which both sides are told, while the vertical one is compared
+    ; against bands, which are fractions. Sending a fraction horizontally would
+    ; make the answer depend on how wide a row happened to be laid out, and the
+    ; two sides have no reason to agree about that.
+    fn dragPick:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragPick(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragPoint(target topPercent x)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragHold:void (ms:double) {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            c.dragHold(ms)
+            this.remember(c)
+            i = (i + 1)
+        }
+        this.settleFocus()
+    }
+
+    fn dragLand:void (target:string topPercent:double x:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragLand(target topPercent x))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
     fn releaseDrag:void () {
         pressTidValue = ""
         def i:int 0

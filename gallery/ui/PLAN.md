@@ -1548,10 +1548,10 @@ Ranger side passes the string through to the controller.
 
 ## Tree drag and drop, and a feature the DOM cannot show you
 
-`dragAndDropFeature` + `keyboardDragAndDropFeature`, the KEYBOARD half. The
-pointer half needs HTML5 drag events and a placement decided from where in a row
-the cursor is; neither the harness nor EVG has that, and it is honestly a
-separate piece.
+`dragAndDropFeature` + `keyboardDragAndDropFeature`, both halves. The KEYBOARD
+one walks drop targets an arrow at a time; the POINTER one computes a target
+from where in a row the cursor sits. They share the target and the drop and
+agree about nothing else. The pointer half is written up below.
 
 **The DOM is not the oracle here.** A keyboard drag moves a target between rows
 and BETWEEN rows, and the library publishes none of it as an attribute — press
@@ -1562,7 +1562,8 @@ and checked field by field, exactly as the table's state machine is:
 half — the drop, the cancel, the focus — is two ordinary conformance specs on
 top.
 
-The tree is at 39 of 39 behaviours over 7 specs and 10,605 observations.
+The tree is at 51 of 51 behaviours over 10 specs and 20,521 observations, two
+of them measured by the oracle rather than a trace.
 
 ### Three rules that decide the whole walk
 
@@ -1606,6 +1607,123 @@ for Escape dropping instead of cancelling.
   "the drop does nothing" were measuring a bundle from before the change. The
   adapter rebuilds on every run; anything that talks to the page directly has to
   as well.
+
+## Tree pointer drag and drop, and the branch that could not be reached
+
+The other half. A pointer does not walk — it points, and the target is computed
+from two numbers: how far DOWN the row the cursor is, which picks above / into
+/ below, and how far IN from its left edge, which picks which ancestor's level
+a drop at the end of a group belongs to.
+
+Neither number is a coordinate anywhere in this work. `topPercent` is a
+fraction because the bands are fractions; `leftPixels` is pixels because it is
+only ever compared against the indent, which both sides are told. Sending a
+fraction horizontally would make the answer depend on how wide a row happened
+to be laid out, and the two sides have no reason to agree about that. The first
+capture learnt this the hard way, by recording fractions and getting different
+reparent levels on the two sides.
+
+### Three things in the placement rule that a reading would not give you
+
+- **A row you cannot drop INTO has no middle.** `reorderAreaPercentage` is 0.3
+  normally and 0.5 when `canMakeChild` is false, so on a leaf the two bands
+  meet at the halfway line and there is no third case at all.
+- **An open folder takes children from its whole body**, including the bottom
+  of the row where an ordinary row would reorder below it. The
+  `ExpandedFolder` branch returns before the below-band is ever considered.
+- **The reparent level is a floor, not an answer.** `max(minLevel, floor(x /
+  indent))`, where `minLevel` is the level of the row BELOW — so pointing at
+  the root from the last row of a deep group gets you the next row's level and
+  not the root.
+
+### The drag code, and a move that is not a move
+
+`onDragOver` keys on a CODE — row, placement type, reparent level — and returns
+before computing anything when the code has not changed. That would be a plain
+optimisation except for one detail: **the code's placement is computed with
+`canMakeChild` forced TRUE**, while the target's is computed with the real
+value. So on a row nothing may be dropped into, 0.4 and 0.6 are the same code
+and different targets, and the second move is swallowed. Measured: the target
+stays "above" at 0.6, and the drop — which recomputes from its own coordinates
+— then lands BELOW. The indicator and the outcome legitimately disagree.
+
+And the code is cleared on a successful DROP and nowhere else. Not on a cancel,
+not on a dragstart. So a new drag inherits the last one's code: hold a drag over
+a closed folder, start a second drag, hold it over the same folder at the same
+place, and the folder never opens, because the move that would have armed the
+timer was read as no move at all. That one was found by the DOM harness, not by
+the oracle — every oracle run starts a fresh page with one drag in it, so the
+case could not arise there.
+
+### `openOnDropDelay`, and time in a controller with no clock
+
+800ms over a CLOSED folder opens it under the cursor. Time arrives through
+`dragElapsed(ms)` rather than a wall clock, because a controller that reads the
+clock cannot be tested and because the caller owns the frame loop anyway. The
+harness gained a `"hold": <ms>` on a `dragpoint` step to match: a real wait on
+the DOM side, a clock advance on the Ranger side.
+
+Two of the reference's four arming conditions cannot be observed at all.
+Removing the is-a-folder check or the already-open check passes every test —
+and that is not a hole in the fixture: opening a leaf and re-opening an open
+folder are both `setExpanded(x true)` on something already in that state. They
+are kept because the reference has them, and the code says so.
+
+### A branch that could not be reached, and how that was established
+
+Two guards in the pointer path never fire: the library's second `canDrop` after
+`getDragTarget`, and the climb to the parent when the parent refuses. Both
+survived mutation. The usual reading of a surviving mutation is that the fixture
+does not contain the case — so the case was looked for exhaustively: every row
+dragged onto every other row, at nine heights and ten indents, 7290
+combinations. Zero. The proof is short once you see it: a parent refuses only by
+being a dragged row or a descendant of one, since it is a folder by
+construction, and either makes the row itself a descendant of a dragged row.
+So the row is refused whenever its parent is.
+
+The guards are gone and the argument is in the source. A branch nothing can
+reach is not defensive, it is a claim about behaviour that no test can check.
+
+### Fifteen mutations, all caught
+
+The pointer path is 879 comparisons over 19 runs, and every mutation fails at
+least one: 44 for flipping above and below, 121 for a drag that does not take
+over the selection, 15 for a fixed reorder band, 12 for dropping the reparent
+branch, 6 for dropping the open-folder branch, 6 for the early return on the
+drag code, 6 for computing that code with the real `canMakeChild`, 6 for
+clearing a kept target, 4 each for ignoring the reparent floor and for never
+reading `leftPixels`, 1 each for a drop that reads the stored target and for
+every arming condition on the folder timer.
+
+Four of those runs exist because the mutation survived first. Three of them
+needed the FIXTURE deepened rather than the check sharpened — a second child so
+the reparent floor bites, a chain two levels deep at the end of the tree so
+there is a case where the floor does NOT bite and the cursor's own answer
+survives, and a closed folder, because every other folder in the fixture was
+open and `openOnDropDelay` only fires on a closed one.
+
+### The line in the demo
+
+`TreeDemo` draws it. The drop line is a ROW in the flat list rather than a
+floating bar, because the list is the only thing that knows where row N is —
+and it is two pixels tall with a negative margin either side, so inserting it
+moves nothing. It is indented to the level the drop would land at, which is the
+only feedback the reparent gesture has: dragging left along the last row of a
+group walks the line out one indent at a time, and without the picture there is
+nothing to aim with.
+
+The demo's press does NOT start the drag. It arms one, and the drag begins on
+the first move past four pixels — which is how one gesture can be both "open
+this folder" and "carry it somewhere". Activate on the press and every drag
+would toggle a folder on its way out.
+
+Two things were wrong the first time and both were visible only in the paint:
+the drop line's ink used `flex-grow`, which EVG has no notion of, so the line
+was zero pixels wide and painted nothing (EVG's unit vocabulary has `fill` for
+this); and the drop-into outline shrank the row by its own border, so every row
+below a target jumped up two pixels the moment the cursor entered one. EVG draws
+borders inside the box, the way `border-box` does, and the correction was to
+remove the correction.
 
 ## Next — the playground
 

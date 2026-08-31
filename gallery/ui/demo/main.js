@@ -418,7 +418,13 @@ const DEMOS = {
     list: () => treeview.displayListJson(),
     hit: (x, y) => treeview.hitId(x, y),
     a11y: (gen, focus) => treeview.a11yJson(gen, focus),
-    press: (id) => treeview.press(id),
+    // The gesture protocol, same three as the dialog and the sortable. The
+    // press only ARMS a drag: `TreeDemo` starts one on the first move past a
+    // threshold, so a press that never travels ends as an ordinary click and
+    // still opens the folder under it.
+    press: (id) => treeview.beginPress(id, grabPointer.x, grabPointer.y),
+    drag: (id, ev) => treeview.dragMove(ev.offsetX, ev.offsetY),
+    drop: () => treeview.dragDrop(),
     hover: (id) => {
       if (id === lastTreeHover) return false;
       lastTreeHover = id;
@@ -428,8 +434,18 @@ const DEMOS = {
     // Straight through to TreeCtl, like the dropdown's.
     key: (k) => treeview.key(k),
     host: () => ({
-      tick: (dt) => treeview.tick(dt),
-      busy: () => treeview.busyNow(),
+      // `openOnDropDelay` lives on this clock. A folder held under a drag
+      // opens after 800ms, and the only place that time exists is the frame
+      // loop — so the tick asks, and says whether anything changed.
+      tick: (dt) => {
+        const opened = treeview.dragHold(dt);
+        const busy = treeview.tick(dt);
+        return opened || busy;
+      },
+      // A drag held perfectly still still needs frames: nothing is moving, but
+      // 800ms of nothing is what opens a folder. Without this the loop stops
+      // the moment the pointer does and the delay never runs out.
+      busy: () => treeview.busyNow() || treeview.dragWaiting(),
       setHover: (id) => {
         if (id === lastTreeHover) return false;
         lastTreeHover = id;

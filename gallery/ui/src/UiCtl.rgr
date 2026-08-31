@@ -254,6 +254,29 @@ class UiCtl {
         return ""
     }
 
+    ; --- an HTML5 drag, which is a FOURTH gesture --------------------------------
+    ; Not the pointer drag above. A tree's drop target is decided by where in a
+    ; row the cursor is — how far DOWN picks above / into / below, and how far
+    ; IN picks which ancestor a reorder belongs to — so the two numbers travel
+    ; with the move rather than being recovered from a rectangle. `x` is in
+    ; PIXELS from the row's left edge, because it is only ever compared against
+    ; the indent, and `topPercent` is a fraction, because the bands are.
+    fn dragPick:string (target:string) {
+        return ""
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+    }
+
+    fn dragLand:string (target:string topPercent:double x:double) {
+        return ""
+    }
+
+    ; Time passing while a drag is held still. A folder opens under a cursor
+    ; that waits on it, and this is how the wait arrives.
+    fn dragHold:void (ms:double) {
+    }
+
     ; --- dragging a thing AROUND ------------------------------------------------
     ; The third gesture, and neither of the two above is it. A slider asks for a
     ; fraction of a track; a sortable asks what it is over; a window asks how far

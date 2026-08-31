@@ -104,10 +104,10 @@ class TreeCtl extends UiCtl {
 
     ; --- drag and drop, which is also a MODE ---------------------------------
     ;
-    ; `dragAndDropFeature` + `keyboardDragAndDropFeature`. The POINTER half is
-    ; not here: it needs HTML5 drag events and a placement decided from where in
-    ; a row the cursor is, and neither the harness nor EVG has that yet. The
-    ; KEYBOARD half is the accessible one and is the whole contract below.
+    ; `dragAndDropFeature` + `keyboardDragAndDropFeature`. Both halves are here:
+    ; the KEYBOARD one walks targets an arrow at a time, and the POINTER one
+    ; computes a target from where in a row the cursor sits. They share the
+    ; target and the drop and agree about nothing else.
     ;
     ; A drop target is one of two things, and the distinction is the feature:
     ;
@@ -141,6 +141,43 @@ class TreeCtl extends UiCtl {
     def dropLineIndex:int 0
     ; Depth in the library's terms: -1 is the root, 0 a top-level row.
     def dropLineLevel:int 0
+    ; Pixels per level. The POINTER path needs it: where a cursor sits
+    ; horizontally inside the last row of a group decides which level it is
+    ; being dropped OUT to, and that is measured in indents. The keyboard path
+    ; never reads it.
+    def dndIndent:double 20.0
+    ; The row the pointer is currently over, "" for none.
+    def dragOverValue:string ""
+
+    ; --- the drag code, which is why two different moves can be one move -------
+    ;
+    ; `onDragOver` keys on a CODE — row, placement type, reparent level — and
+    ; returns before it computes anything when the code has not changed. That
+    ; would be a plain optimisation except for one detail: the code's placement
+    ; is computed with `canMakeChild` forced TRUE, while the TARGET's is
+    ; computed with the real value. On a row nothing may be dropped into, the
+    ; code therefore uses the 30% bands and the target uses the 50% ones — so
+    ; 0.4 and 0.6 are the same code and different targets, and the second move
+    ; is swallowed. Measured: the target stays "above" at 0.6.
+    def lastDragCode:string ""
+    ; Whether the last move ended with a target. The auto-open timer reads it.
+    def lastAllowDrop:boolean false
+
+    ; --- openOnDropDelay -------------------------------------------------------
+    ;
+    ; Hold a drag over a CLOSED folder and it opens under the cursor, so a drop
+    ; can reach somewhere that was not visible when the drag began. 800ms by
+    ; default. Time arrives through `dragElapsed` rather than a clock, because a
+    ; controller that reads the wall clock cannot be tested and because the
+    ; caller owns the frame loop anyway.
+    def openOnDropDelay:double 800.0
+    ; The code the pending open was armed with, "" for none. Checked again when
+    ; the delay runs out: the library arms a timeout and lets it fire, and the
+    ; timeout bails if the code has moved on. So leaving the folder does not
+    ; cancel the timer, it makes the timer decline.
+    def autoOpenCode:string ""
+    def autoOpenItem:string ""
+    def autoOpenLeft:double 0.0
 
     ; --- the flattened visible list, rebuilt by build() ------------------------
     ; Parallel arrays, the same shape MenuCtl uses. Everything below is a scan
@@ -582,6 +619,339 @@ class TreeCtl extends UiCtl {
         return false
     }
 
+    ; --- the pointer path ------------------------------------------------------
+    ;
+    ; Everything above is the keyboard's: a walk over targets, one arrow at a
+    ; time. A pointer does not walk — it points, and the target is computed
+    ; from WHERE in a row it points. Two numbers decide it:
+    ;
+    ;   topPercent   how far down the row, which picks above / into / below
+    ;   leftPixels   how far in from its left edge, which picks WHICH LEVEL a
+    ;                drop at the end of a group belongs to
+    ;
+    ; The API takes those two rather than a coordinate, because they are what
+    ; the rule reads and because the two implementations have no reason to
+    ; agree about how wide a row is.
+
+    sfn placeAbove:int ()  { return 0 }
+    sfn placeBelow:int ()  { return 1 }
+    sfn placeChild:int ()  { return 2 }
+    sfn placeReparent:int () { return 3 }
+
+    ; `getTargetPlacement`, verbatim. `canMakeChild` is whether the row itself
+    ; is a legal drop, and it does double duty: when it is false the reorder
+    ; band grows from 30% of the row to 50%, so a row you cannot drop INTO has
+    ; no middle at all.
+    fn placementFor:int (value:string topPercent:double leftPixels:double canMakeChild:boolean) {
+        def idx:int (this.rowIndexOf(value))
+        if (idx < 0) {
+            return (TreeCtl.placeBelow())
+        }
+        def reorderArea:double 0.3
+        if (canMakeChild == false) {
+            reorderArea = 0.5
+        }
+        def makeChildType:int (TreeCtl.placeBelow())
+        if canMakeChild {
+            makeChildType = (TreeCtl.placeChild())
+        }
+        def level:int (this.libLevelAt(idx))
+
+        if (this.isExpanded(value)) {
+            if (topPercent < reorderArea) {
+                return (TreeCtl.placeAbove())
+            }
+            return makeChildType
+        }
+        def lastInGroup:boolean ((this.inParentAt(idx)) == ((itemAt rowSetSize idx) - 1))
+        if lastInGroup {
+            if (leftPixels < ((to_double level) * dndIndent)) {
+                if (topPercent < 0.5) {
+                    return (TreeCtl.placeAbove())
+                }
+                return (TreeCtl.placeReparent())
+            }
+        }
+        if (topPercent < reorderArea) {
+            return (TreeCtl.placeAbove())
+        }
+        if (topPercent > (1.0 - reorderArea)) {
+            return (TreeCtl.placeBelow())
+        }
+        return makeChildType
+    }
+
+    ; The level a reparent lands on, which is the same expression the library
+    ; uses: as far out as the cursor is, but never past the row below.
+    fn reparentLevelFor:int (value:string leftPixels:double) {
+        def idx:int (this.rowIndexOf(value))
+        def minLevel:int 0
+        if ((idx + 1) < (array_length rowValue)) {
+            minLevel = (this.libLevelAt(idx + 1))
+        }
+        def byPixels:int (to_int (leftPixels / dndIndent))
+        if (byPixels < minLevel) {
+            return minLevel
+        }
+        return byPixels
+    }
+
+    ; `getDragTarget`. Writes the target into place and answers whether there
+    ; is one at all.
+    fn pointerTargetFor:boolean (value:string topPercent:double leftPixels:double) {
+        def idx:int (this.rowIndexOf(value))
+        if (idx < 0) {
+            return false
+        }
+        def canMakeChild:boolean (this.canDropOn(value))
+        def placement:int (this.placementFor(value topPercent leftPixels canMakeChild))
+
+        if (placement == (TreeCtl.placeChild())) {
+            this.setItemTarget(value)
+            return true
+        }
+        def parent:string (itemAt rowParent idx)
+        def canBecomeSibling:boolean (this.canDropOn(parent))
+        if (canBecomeSibling == false) {
+            ; No target at all, and the row itself is never a fallback. The
+            ; library climbs to the parent here with reordering switched off;
+            ; that climb can only ever offer the row, and the row is always
+            ; refused when its parent is. A parent refuses only by being one of
+            ; the dragged rows or a descendant of one — it is a folder by
+            ; construction — and either makes the row a descendant of a dragged
+            ; row too. Swept over the whole fixture, every row against every
+            ; other at nine heights and ten indents: 7290 combinations, not one
+            ; where the row was droppable and its parent was not.
+            return false
+        }
+        if (placement == (TreeCtl.placeReparent())) {
+            this.reparentTarget(value (this.reparentLevelFor(value leftPixels)))
+            return true
+        }
+        def add:int 1
+        if (placement == (TreeCtl.placeAbove())) {
+            add = 0
+        }
+        this.setLineTarget(parent ((this.inParentAt(idx)) + add) (idx + add) (this.libLevelAt(idx)))
+        return true
+    }
+
+    ; A pointer picking rows up. Unlike the keyboard's start, which ADDS the
+    ; focused row to the selection, this REPLACES the selection when the row
+    ; grabbed is not already in it — `draggedItemOverwritesSelection`, which
+    ; the library defaults to true.
+    fn dragStartPointer:string (target:string) {
+        if (draggable == false) {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def carry:[string]
+        def overwrite:boolean ((this.isSelected(v)) == false)
+        if selectable {
+            if (overwrite == false) {
+                def i:int 0
+                while (i < (array_length selected)) {
+                    push carry (itemAt selected i)
+                    i = (i + 1)
+                }
+            }
+        }
+        if overwrite {
+            push carry v
+            if selectable {
+                this.selectOnly(v)
+            }
+        }
+        draggedValues = carry
+        dragging = true
+        dropKind = 0
+        dragOverValue = ""
+        ; `lastDragCode` is deliberately NOT cleared. The library clears it on a
+        ; successful DROP and nowhere else — not here, not on a cancel — so a
+        ; new drag inherits the last one's code, and its first move over the
+        ; same row at the same placement is swallowed as a repeat. Measured:
+        ; hold a drag over a closed folder, start a second drag, hold it over
+        ; the SAME folder, and the folder never opens, because the move that
+        ; would have armed the timer was read as no move at all.
+        return target
+    }
+
+    ; The pointer moving over a row. A target that nothing may be dropped on
+    ; leaves the previous one STANDING rather than clearing it — the library
+    ; returns before it writes, which is what stops the drop indicator
+    ; flickering off as the cursor crosses a row it cannot use.
+    fn dragOverPointer:void (target:string topPercent:double leftPixels:double) {
+        if (dragging == false) {
+            return
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            return
+        }
+        ; The code first, and the same move twice is not a move.
+        def code:string (this.dragCodeFor(v topPercent leftPixels))
+        if (code == lastDragCode) {
+            return
+        }
+        lastDragCode = code
+        ; Armed BEFORE the target is computed, exactly where the library arms
+        ; it — which is why a folder still starts opening under a cursor that
+        ; is about to be told it has nowhere to drop.
+        this.armAutoOpen(v topPercent leftPixels code)
+
+        def keepKind:int dropKind
+        def keepItem:string dropItem
+        def keepChild:int dropChildIndex
+        def keepInsert:int dropInsertIndex
+        def keepLine:int dropLineIndex
+        def keepLevel:int dropLineLevel
+        if ((this.pointerTargetFor(v topPercent leftPixels)) == false) {
+            dropKind = keepKind
+            dropItem = keepItem
+            dropChildIndex = keepChild
+            dropInsertIndex = keepInsert
+            dropLineIndex = keepLine
+            dropLineLevel = keepLevel
+            lastAllowDrop = false
+            return
+        }
+        ; The library checks `canDrop` on the computed target a second time
+        ; here. That check is not repeated, because it cannot fail: the only
+        ; target `pointerTargetFor` produces without having checked it is a
+        ; REPARENT, and a reparent's new parent is an ancestor of the row's own
+        ; parent — so if the ancestor is a dragged row the parent is a
+        ; descendant of one, and the sibling branch has already returned false.
+        ; Swept over every row against every other row at nine heights and ten
+        ; indents: 5760 combinations, no case where it would have fired.
+        lastAllowDrop = true
+        dragOverValue = v
+    }
+
+    ; --- the gesture, as the host names it -------------------------------------
+    ; Thin wrappers, so a spec can drive this the same way it drives a click.
+
+    fn dragPick:string (target:string) {
+        ; The focus does NOT move. A real pointer would have pressed the row
+        ; first and the press would have focused it, but a `dragstart` on its
+        ; own does not — measured against the reference, where the tab stop and
+        ; the DOM focus both stay where the last click left them while a drag
+        ; picks up an entirely different row. The SELECTION does move, and
+        ; that is the whole of what a pick changes.
+        this.dragStartPointer(target)
+        return ""
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+        this.dragOverPointer(target topPercent x)
+    }
+
+    fn dragLand:string (target:string topPercent:double x:double) {
+        return (this.dropPointer(target topPercent x))
+    }
+
+    fn dragHold:void (ms:double) {
+        this.dragElapsed(ms)
+    }
+
+    ; `getDragCode`. Placement computed with `canMakeChild` forced true — see
+    ; the field comment, because that forcing is the whole behaviour.
+    fn dragCodeFor:string (value:string topPercent:double leftPixels:double) {
+        def placement:int (this.placementFor(value topPercent leftPixels true))
+        def level:int 0
+        if (placement == (TreeCtl.placeReparent())) {
+            level = (this.reparentLevelFor(value leftPixels))
+        }
+        return ((((value + "__") + (to_string placement)) + "__") + (to_string level))
+    }
+
+    ; `handleAutoOpenFolder`. Four conditions, all of them the library's: the
+    ; delay is set, the row is a folder, it is NOT already open, and the
+    ; placement is make-child.
+    ;
+    ; Only two of the four can be observed. Removing the folder check or the
+    ; already-open check passes every test, and that is not a hole in the
+    ; fixture — opening a leaf and re-opening an open folder are both
+    ; `setExpanded(x true)` on something already in that state, so neither can
+    ; change what a tree looks like. They are kept because the reference has
+    ; them and because they say what the timer is for.
+    fn armAutoOpen:void (value:string topPercent:double leftPixels:double code:string) {
+        if (openOnDropDelay <= 0.0) {
+            return
+        }
+        if ((this.isFolderValue(value)) == false) {
+            return
+        }
+        if (this.isExpanded(value)) {
+            return
+        }
+        if ((this.placementFor(value topPercent leftPixels true)) != (TreeCtl.placeChild())) {
+            return
+        }
+        autoOpenCode = code
+        autoOpenItem = value
+        autoOpenLeft = openOnDropDelay
+    }
+
+    ; Time passing, in milliseconds. The caller owns the frame loop; this is
+    ; the only thing in the controller that a clock would otherwise drive.
+    fn dragElapsed:void (ms:double) {
+        ; A drag that has been cancelled does not open anything. The reference
+        ; arms a real `setTimeout` and never cancels it, so on that side a
+        ; folder armed just before an Escape would still open 800ms later —
+        ; but no run on either side measures it, so this is a choice and not a
+        ; recorded fact, and it is called out rather than dressed up as one.
+        if (dragging == false) {
+            return
+        }
+        if ((strlen autoOpenCode) == 0) {
+            return
+        }
+        autoOpenLeft = (autoOpenLeft - ms)
+        if (autoOpenLeft > 0.0) {
+            return
+        }
+        def code:string autoOpenCode
+        def item:string autoOpenItem
+        autoOpenCode = ""
+        autoOpenItem = ""
+        ; The timeout fires either way and declines on these two, rather than
+        ; being cancelled when the cursor moves. Same answer, and it is the
+        ; shape the reference has.
+        if (code != lastDragCode) {
+            return
+        }
+        if (lastAllowDrop == false) {
+            return
+        }
+        this.setExpanded(item true)
+        this.build()
+    }
+
+    ; The drop. It recomputes the target from ITS OWN position rather than
+    ; using the one the last move stored — which is the library's shape, and
+    ; the reason a drop dispatched without coordinates lands "above" whatever
+    ; the pointer was over.
+    fn dropPointer:string (target:string topPercent:double leftPixels:double) {
+        if (dragging == false) {
+            return ""
+        }
+        def v:string (this.valueOfTid(target))
+        if ((strlen v) == 0) {
+            this.cancelDrag()
+            return ""
+        }
+        if ((this.pointerTargetFor(v topPercent leftPixels)) == false) {
+            this.cancelDrag()
+            return ""
+        }
+        ; No second `canDrop` here either, for the reason given in
+        ; `dragOverPointer`: nothing `pointerTargetFor` returns can fail it.
+        return (this.completeDrag())
+    }
+
     fn startDrag:string (from:string) {
         def idx:int (this.rowIndexOf(from))
         if (idx < 0) {
@@ -640,9 +1010,14 @@ class TreeCtl extends UiCtl {
         return ""
     }
 
+    ; A cancel leaves `lastDragCode` alone too, for the same reason: only a
+    ; drop clears it.
     fn cancelDrag:void () {
         dragging = false
         dropKind = 0
+        dragOverValue = ""
+        autoOpenCode = ""
+        autoOpenItem = ""
         def none:[string]
         draggedValues = none
     }
@@ -657,6 +1032,7 @@ class TreeCtl extends UiCtl {
         if ((this.canDropOn(dropItem)) == false) {
             return ""
         }
+        lastDragCode = ""
         def moved:[string]
         def m:int 0
         while (m < (array_length draggedValues)) {

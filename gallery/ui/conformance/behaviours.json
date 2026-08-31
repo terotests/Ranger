@@ -361,7 +361,7 @@
     },
     "tree": {
       "radix": "@headless-tree/core",
-      "$comment": "Not Radix \u2014 Radix has no tree. ReUI's is @headless-tree/react over @headless-tree/core with syncDataLoaderFeature and hotkeysCoreFeature, so headless-tree is the oracle. It contributes the roles, the level/size/position numbers and the whole key map; the example wires NO selection feature, so every row reports aria-selected=false and stays that way. Measured in specs/tree_*.json against the library itself. DRAG AND DROP is a third mode (\"dnd\": true), and only the KEYBOARD half of it: the pointer half needs HTML5 drag events and a placement decided from where in a row the cursor is, and neither the harness nor EVG has that. The drop TARGETS are not observable in a DOM trace at all — the page looks identical from one arrow press to the next — so they are captured into oracle/tree-dnd.json and checked by `npm run ui:tree:dnd:check`, the way the table's state machine is. SELECTION IS A MODE: everything up to `selected-false` is measured with selectionFeature OFF, which is ReUI's configuration and must stay that way; everything from `selected-state` on is the same library with the feature ON, and is a different contract — a fixture asks for it with \"selection\": true.",
+      "$comment": "Not Radix — Radix has no tree. ReUI's is @headless-tree/react over @headless-tree/core with syncDataLoaderFeature and hotkeysCoreFeature, so headless-tree is the oracle. It contributes the roles, the level/size/position numbers and the whole key map; the example wires NO selection feature, so every row reports aria-selected=false and stays that way. Measured in specs/tree_*.json against the library itself. DRAG AND DROP is a third mode (\"dnd\": true), in two halves. The KEYBOARD half walks drop targets an arrow at a time; the POINTER half computes one from where in a row the cursor sits, driven by synthetic HTML5 DragEvents because Playwright cannot drive native drag through the mouse. Neither half is observable in a DOM trace at all — the page looks identical from one arrow press to the next — so both are captured into oracle/tree-dnd.json and checked by `npm run ui:tree:dnd:check`, the way the table's state machine is. SELECTION IS A MODE: everything up to `selected-false` is measured with selectionFeature OFF, which is ReUI's configuration and must stay that way; everything from `selected-state` on is the same library with the feature ON, and is a different contract — a fixture asks for it with \"selection\": true.",
       "behaviours": {
         "tree-role": "the container is a tree and the root item is not a row in it",
         "treeitem-role": "every visible row is a treeitem, folder or leaf alike",
@@ -371,7 +371,7 @@
         "arrow-steps": "Down and Up step through the VISIBLE rows, crossing in and out of open folders",
         "right-expands": "ArrowRight on a closed folder opens it and stays put",
         "right-enters": "ArrowRight on an already-open folder steps to its first child",
-        "right-leaf-steps": "ArrowRight on a leaf is not a no-op \u2014 it steps DOWN, the same as an open folder",
+        "right-leaf-steps": "ArrowRight on a leaf is not a no-op — it steps DOWN, the same as an open folder",
         "left-collapses": "ArrowLeft on an open folder closes it and stays put",
         "left-to-parent": "ArrowLeft on a leaf or a closed folder steps to the parent",
         "left-top-level-noop": "ArrowLeft at the top level goes nowhere, because the root is not a row",
@@ -379,9 +379,8 @@
         "end": "End focuses the LAST visible row, which is the deepest open descendant and not the last top-level item",
         "no-wrap": "arrows stop at the ends rather than wrapping",
         "enter-toggles": "Enter opens or closes the focused folder",
-        "space-toggles": "Space does the same as Enter \u2014 with no selection feature it selects nothing",
+        "space-toggles": "Space does the same as Enter — with no selection feature it selects nothing",
         "selected-false": "every row exposes aria-selected=false, including the focused one",
-
         "selected-state": "a selected row says aria-selected=true and the rest say false",
         "select-click": "a plain click makes that row the whole selection",
         "select-ctrl-click": "Ctrl-click adds a row, and Ctrl-clicking it again takes it away",
@@ -396,14 +395,31 @@
         "select-all-is-visible-only": "and everything means the VISIBLE rows — a collapsed folder's children are not selected, which shows when it is opened",
         "select-space-still-toggles": "Space still opens and closes a folder, because it is commented out of the library's selection hotkeys",
         "select-enter-collapses": "Enter and Space also set the selection to that row alone, because a row is a button and activating it fires the click path",
-
         "dnd-start": "Control+Shift+D picks up the selected rows, plus the focused one when it is not among them",
         "dnd-arrows-drive-the-drag": "while a drag is up the arrows move the DROP TARGET and not the focus — the ordinary arrow hotkeys switch themselves off",
         "dnd-focus-stays": "the browser's focus does not move during a drag, though the roving tab stop does",
         "dnd-drop-moves": "Enter drops, and the rows move to the target",
         "dnd-drop-focus": "after a drop, focus is on the first row that was carried",
         "dnd-escape-cancels": "Escape ends the drag and moves nothing",
-        "dnd-arrows-return-after-cancel": "and the arrows work again afterwards, from where the drag left the tab stop rather than from where it began"
+        "dnd-arrows-return-after-cancel": "and the arrows work again afterwards, from where the drag left the tab stop rather than from where it began",
+        "dnd-pointer-bands": "where in a row's HEIGHT the cursor sits picks the target: the top band is above, the bottom band below, the middle drops INTO the row",
+        "dnd-pointer-no-middle": "a row nothing may be dropped into has no middle at all — the bands grow from 30% to 50% and meet",
+        "dnd-pointer-open-folder-takes-children": "an OPEN folder takes children from anywhere below its top band, including the bottom of the row where an ordinary row would reorder below",
+        "dnd-pointer-reparent": "far left on the LAST row of a group reparents — how far in the cursor is picks which ancestor's level the row lands at",
+        "dnd-pointer-reparent-floor": "and never further out than the row BELOW, so the level the cursor asks for is a floor and not an answer",
+        "dnd-pointer-overwrites-selection": "grabbing a row that is not selected REPLACES the selection with it, unlike the keyboard's start which adds to it",
+        "dnd-pointer-keeps-last-target": {
+          "note": "moving over a row nothing can be dropped on leaves the previous target standing rather than clearing it",
+          "oracle": "npm run ui:tree:dnd:check"
+        },
+        "dnd-pointer-drag-code": {
+          "note": "a move is ignored when its DRAG CODE has not changed — and the code is computed as if the row could take a child, so on a row that cannot, two heights either side of the middle are one code and the second move is swallowed",
+          "oracle": "npm run ui:tree:dnd:check"
+        },
+        "dnd-pointer-drop-recomputes": "the drop computes its own target from its own coordinates, so it can land where the line was not",
+        "dnd-pointer-auto-open": "holding a drag over a CLOSED folder opens it after 800ms, so a drop can reach somewhere that was not visible when the drag began",
+        "dnd-pointer-auto-open-needs-the-whole-delay": "and it is the whole 800ms from the first arrival: a repeat of the same move does not restart it, and leaving the row makes it decline",
+        "dnd-pointer-auto-open-needs-a-target": "a folder with nowhere to drop does not open, even while the cursor points into it"
       }
     },
     "table": {

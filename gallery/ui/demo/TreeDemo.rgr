@@ -69,6 +69,11 @@ treefactory Tv {
     tag Chevron  EVGElement (props (className "tv-chevron") (elementType 1) (a11yHidden true))
     tag Label    EVGElement (props (className "tv-label") (elementType 1))
     tag Note     EVGElement (props (className "tv-note") (elementType 1))
+    ; The drop line. A row of its own in the flat list, `a11yHidden` because it
+    ; is a picture of where a drop would land — `role="tree"` may hold nothing
+    ; but `treeitem`s, and a reader has the drag announced to it in words.
+    tag Line     EVGElement (props (className "tv-dropline") (a11yHidden true))
+    tag LineInk  EVGElement (props (className "tv-dropline-ink"))
 }
 
 ; One row of the tree, as a component.
@@ -91,6 +96,9 @@ class TreeRow extends EVGComponent {
     def setPos:int 1
     def isFolder:boolean false
     def isOpen:boolean false
+    def isSelected:boolean false
+    def isDragged:boolean false
+    def isDropInto:boolean false
     def indent:double 20.0
 
     Constructor () {
@@ -116,6 +124,18 @@ class TreeRow extends EVGComponent {
         } {
             cls = (cls + " tv-item-leaf")
         }
+        if isSelected {
+            cls = (cls + " tv-item-selected")
+        }
+        ; Being CARRIED and being POINTED AT are different pictures and the
+        ; reference draws both: the rows travelling go pale, and the folder
+        ; about to receive them is outlined.
+        if isDragged {
+            cls = (cls + " tv-item-dragged")
+        }
+        if isDropInto {
+            cls = (cls + " tv-item-dropinto")
+        }
         return cls
     }
 
@@ -132,6 +152,9 @@ class TreeRow extends EVGComponent {
         row.a11yPosInSet = setPos
         row.a11yFocusable = true
         row.a11ySelected = (EVGA11yTri.no())
+        if isSelected {
+            row.a11ySelected = (EVGA11yTri.yes())
+        }
         if isFolder {
             if isOpen {
                 row.a11yExpanded = (EVGA11yTri.yes())
@@ -170,6 +193,24 @@ class TreeDemo {
     def hovered:string ""
     def pressed:string ""
     def focused:string ""
+    ; --- the pointer drag ------------------------------------------------------
+    ; A press is not yet a drag. It becomes one when the pointer TRAVELS, which
+    ; is the only way one gesture can be both "open this folder" and "carry it
+    ; somewhere" — activate on the press and every drag would toggle a folder
+    ; on its way out.
+    def pressAt:string ""
+    def pressX:double 0.0
+    def pressY:double 0.0
+    def dragLive:boolean false
+    ; Where the last move put the cursor, so the release can drop at the same
+    ; point: `pointerup` carries no position through this page's protocol, and
+    ; the drop recomputes its target from where it is told it is.
+    def dropX:double 0.0
+    def dropY:double 0.0
+    ; What `probeAt` last resolved: a row, and where in it.
+    def probeRow:string ""
+    def probeTop:double 0.5
+    def probeLeft:double 0.0
     ; The library's `indent` prop, in pixels. Presentation, and therefore the
     ; demo's rather than the controller's.
     def indent:double 20.0
@@ -223,6 +264,13 @@ class TreeDemo {
         this.kid("activities" "calls")
         this.kid("activities" "emails")
 
+        ; Both modes on. The demo is the one place the whole feature is meant
+        ; to be usable at once, and the conformance fixtures turn them on and
+        ; off separately because they measure different contracts.
+        model.selectable = true
+        model.draggable = true
+        model.dndIndent = indent
+
         model.setExpanded("leads" true)
         model.setExpanded("accounts" true)
         model.setExpanded("acme" true)
@@ -259,6 +307,18 @@ class TreeDemo {
         r.setPos = (itemAt model.rowSetPos i)
         r.isFolder = (itemAt model.rowFolder i)
         r.isOpen = (model.isExpanded(value))
+        r.isSelected = (model.isSelected(value))
+        r.isDragged = false
+        if model.dragging {
+            def d:int 0
+            while (d < (array_length model.draggedValues)) {
+                if ((itemAt model.draggedValues d) == value) {
+                    r.isDragged = true
+                }
+                d = (d + 1)
+            }
+        }
+        r.isDropInto = (model.dragging && ((model.dropKind == 1) && (model.dropItem == value)))
         r.indent = indent
         r.label = ""
         def ni:int (model.nodeAt(value))
@@ -277,6 +337,7 @@ class TreeDemo {
         host.enter("tv")
         def i:int 0
         while (i < (array_length model.rowValue)) {
+            this.maybeLine(t i)
             def value:string (itemAt model.rowValue i)
             def got:EVGComponent (host.use(value (new TreeRow())))
             def r:TreeRow (cast got to:TreeRow)
@@ -284,8 +345,43 @@ class TreeDemo {
             t.addChild((r.render()))
             i = (i + 1)
         }
+        ; A line BELOW the last row has an index one past the end, which no
+        ; iteration of the loop above reaches.
+        this.maybeLine(t (array_length model.rowValue))
         host.leave()
         return t
+    }
+
+    ; The drop line, if it belongs above the row about to be built.
+    ;
+    ; It is a row in the flat list rather than an absolutely positioned bar,
+    ; because the list is the only thing that knows where row N is — and a bar
+    ; measured in pixels would have to be told the row height, which is the
+    ; stylesheet's business. The cost is that inserting it moves everything
+    ; below down by its own height, so it is one pixel tall with negative
+    ; margins: it takes no room.
+    fn maybeLine:void (t:EVGElement at:int) {
+        if (model.dragging == false) {
+            return
+        }
+        if (model.dropKind != 2) {
+            return
+        }
+        if (model.dropLineIndex != at) {
+            return
+        }
+        def line (tree Tv (Line))
+        ; Indented to the LEVEL the drop would land at, which is the whole
+        ; point of the reparent gesture: dragging left along the last row of a
+        ; group walks the line out, one indent at a time, and the picture is
+        ; the only feedback saying which one you are on.
+        if (model.dropLineLevel > 0) {
+            def pad (tree Tv (Indent))
+            pad.width = (EVGUnit.px((indent * (to_double model.dropLineLevel))))
+            line.addChild(pad)
+        }
+        line.addChild((tree Tv (LineInk)))
+        t.addChild(line)
     }
 
     ; One render pass. `beginPass`/`endPass` bracket the WHOLE build and not
@@ -304,7 +400,7 @@ class TreeDemo {
             (Card (props (id "tv-card"))
                 (Head (HeadText "CRM"))))
         card.addChild((this.treeBlock()))
-        card.addChild((tree Tv (Note "Arrows to move, Right to open, Left to close, Enter to toggle.")))
+        card.addChild((tree Tv (Note "Arrows to move, Enter to toggle. Click to select, drag to move a row.")))
         p.addChild(card)
         return p
     }
@@ -325,6 +421,132 @@ class TreeDemo {
         } {
             root = next
         }
+    }
+
+    ; --- the gesture -----------------------------------------------------------
+    ;
+    ; `pressAt` / `dragMove` / `dragDrop`, the page's three-step protocol. The
+    ; drag begins on the first MOVE past a threshold rather than on the press,
+    ; which is what lets one gesture be both "toggle this folder" and "carry
+    ; it": a press that never travels ends as an ordinary click.
+
+    fn beginPress:boolean (target:string px:double py:double) {
+        pressAt = target
+        pressX = px
+        pressY = py
+        dropX = px
+        dropY = py
+        dragLive = false
+        ; True unconditionally: the page routes moves and the release here only
+        ; while a press is held, and the release is where the click happens.
+        return true
+    }
+
+    ; Resolve a page point to a ROW and where in it, in the two numbers the
+    ; placement rule reads. Answers false for a point on no row at all.
+    fn probeAt:boolean (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        def id:string (hit.idAt(r px py))
+        probeRow = ""
+        if ((strlen id) == 0) {
+            return false
+        }
+        this.probeIn(r id px py)
+        return ((strlen probeRow) > 0)
+    }
+
+    fn probeIn:void (el:EVGElement id:string px:double py:double) {
+        if (el.id == id) {
+            if (el.role == "treeitem") {
+                probeRow = id
+                probeTop = 0.5
+                if (el.calculatedHeight > 0.0) {
+                    probeTop = ((py - el.calculatedY) / el.calculatedHeight)
+                }
+                probeLeft = (px - el.calculatedX)
+            }
+            return
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.probeIn((itemAt el.children i) id px py)
+            i = (i + 1)
+        }
+    }
+
+    fn dragMove:boolean (px:double py:double) {
+        if ((strlen pressAt) == 0) {
+            return false
+        }
+        dropX = px
+        dropY = py
+        if (dragLive == false) {
+            ; Four pixels. Below that a press is a click with a shaky hand, and
+            ; a tree whose folders opened only when you held perfectly still
+            ; would be worse than one that could not be dragged at all.
+            def dx:double (px - pressX)
+            def dy:double (py - pressY)
+            if (((dx * dx) + (dy * dy)) < 16.0) {
+                return false
+            }
+            model.dragPick(pressAt)
+            dragLive = true
+        }
+        if (this.probeAt(px py)) {
+            model.dragPoint(probeRow probeTop probeLeft)
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn dragDrop:boolean () {
+        def target:string pressAt
+        pressAt = ""
+        if (dragLive == false) {
+            ; Never travelled: the ordinary click, which is what opens folders
+            ; and moves the selection.
+            if ((strlen target) == 0) {
+                return false
+            }
+            return (this.press(target))
+        }
+        dragLive = false
+        if (this.probeAt(dropX dropY)) {
+            model.dragLand(probeRow probeTop probeLeft)
+        } {
+            model.cancelDrag()
+        }
+        this.rebuild()
+        return true
+    }
+
+    ; Is a folder waiting to open under the cursor? Answered every frame, and
+    ; the rebuild is conditional because opening one is the only thing this can
+    ; change — a drag that is merely being held must not rebuild sixty times a
+    ; second.
+    ; Is there a timer to run down? The page's animation loop stops when
+    ; nothing is busy, and a drag held still is exactly the case where nothing
+    ; is moving and time still has to pass.
+    fn dragWaiting:boolean () {
+        if (model.dragging == false) {
+            return false
+        }
+        return ((strlen model.autoOpenCode) > 0)
+    }
+
+    fn dragHold:boolean (dtMs:double) {
+        if (model.dragging == false) {
+            return false
+        }
+        def before:int (array_length model.rowValue)
+        model.dragHold(dtMs)
+        if ((array_length model.rowValue) == before) {
+            return false
+        }
+        this.rebuild()
+        return true
     }
 
     fn press:boolean (target:string) {

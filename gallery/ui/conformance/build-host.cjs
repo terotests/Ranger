@@ -207,6 +207,7 @@ function buildHost(M, fixture, css) {
         if (c.dnd) {
           ctl.selectable = true;
           ctl.draggable = true;
+          if (c.indent) ctl.dndIndent = c.indent;
         }
         // Two passes: every node first, then the child lists — a fixture may
         // name a child before the line that declares it, and the library's own
