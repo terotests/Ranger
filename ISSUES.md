@@ -21,6 +21,7 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
+- Issue #75: `class X { … } doc { … }` (any trailing block on a class declaration) makes `EnterClass` take the trailing block for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`) (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
@@ -2624,6 +2625,73 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #75: A trailing block on a `class` is taken for the class body, so the real body is never analysed
+
+**Status:** open. Found while designing [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md); it is
+independent of that feature.
+
+### Reproduction
+
+```ranger
+class Sample {
+  fn foo:int ( x:int ) {
+    return (x + 1)
+  }
+} doc { public }
+
+sfn main:void () {
+  def s:Sample (new Sample())
+  print ("" + (s.foo(1)))
+}
+```
+
+The compiler reports `[OK] Compilation successful!` and writes JavaScript that is not
+valid JavaScript:
+
+```javascript
+foo (x) {
+    return+x1
+}
+```
+
+A `record` in the same shape, with a method, fails compilation outright instead.
+
+### Cause
+
+The parser ends an expression at a newline when the parent is a block node
+(`compiler/ng_RangerLispParser.rgr:64`, `skip_space`), so `} doc { … }` on the closing
+line stays inside the `class` expression and adds two more children to it.
+
+`EnterClass` (`compiler/ng_RangerFlowParser.rgr:2891`) then takes the class body as the
+**last** child:
+
+```ranger
+def body_index ( (node.chlen())  - 1)
+```
+
+and accepts a 5-child node, because `class Child extends Base { }` is 5 children. With a
+trailing block the count is also 5, `body_index` lands on the trailing block, and the real
+body — child 2 — is never walked. Nothing else reports it: the methods were already
+collected by `WalkCollectMethods`, so the class and its method exist; only the flow pass
+that repairs infix operators and type-checks the body was skipped. `return (x + 1)` is
+written out with the operator un-repaired.
+
+Any trailing token sequence produces it, not just `doc`. The 5-child branch was written
+for one specific shape and never checked that the extra children are that shape.
+
+### Fix
+
+`body_index` must not be `chlen() - 1`. The class body is the last child **of the
+declaration**, which is child 2 in the 3-child form and child 4 in the `extends` form —
+so the branch that accepts 5 children should assert that children 2 and 3 are `extends`
+and a name, and take child 4 only then. Anything else is a malformed declaration and
+should be the error the 3-child path already gives.
+
+PLAN_API_DOCS.md §5.1 proposes a pass that strips a trailing `doc { … }` from every
+declaration before `CollectMethods`, which removes this shape for the documented case.
+It does not remove the bug: the arity check is still wrong for any other trailing token,
+and it should be fixed on its own.
 
 ## Issue #74: Rust writes `&self` for a method whose only job is to mutate a field object
 
