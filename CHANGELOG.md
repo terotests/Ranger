@@ -9,62 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Cylinder continuity: written, measured, and off.** The idea is that what
-  the cut leaves behind at a limb is a *stripe* of it — a foot below the shadow
-  across the shin, the white of a flagpole below the black band, the next
-  stripe of a zebra's tail — and that what tells such a piece from a rag of
-  background lying against the same shoulder is shape, not colour. A limb joins
-  the answer across a **neck**, runs away from that neck rather than along it,
-  and does not fan out past it. `wandCylinders` measures exactly that, three
-  scale-free ratios per piece: how far it runs over how wide the join is, the
-  widest band past the join over the band at the join, and its area against the
-  body's.
+- **Cylinder continuity: a limb is a cylinder, and now the wand knows it.** The
+  cut leaves a limb in stripes — a foot below the shadow across the shin, the
+  white of a flagpole below the black band, the next stripe of a zebra's tail —
+  and nothing in the tidy-up puts them back, because the tidy-up only ever
+  drops. `wandCylinders` runs last, after the cut, the fence and the hole
+  filling, as a **resolver over a finished answer**: a group of leftover
+  segments that joins the answer across a neck, runs away from that neck rather
+  than along it, and does not fan out past it, is the rest of the limb.
 
-  It is off, because the measurement says the premise is wrong, and the new
-  `tracer/cyl.mjs` prints why. **The coherence pass is not what cuts the foot
-  off**: of everything the cut chose and the tidy-up then dropped, 30 px on the
-  beach picture and 8 px on the portrait are actually the person — against
-  17 063 px of background it drops on the portrait alone. The missing foot was
-  never selected in the first place, so the candidates for such a rule are the
-  pieces the *cut* rejected, and among those the geometry does not separate
-  well enough to pay:
+  Written that way first it was a wash, and the picture of the wash is what
+  fixed it: on the portrait it brought back 3 032 px of hair and, in the same
+  breath, 4 815 px of the flagpole and the drape folds down the right edge,
+  because **a curtain fold is a cylinder too**. Two more tests, both read off
+  that failure:
+
+  - **rosoisuus** — the group's outline against the outline a smooth cylinder
+    of the same area and length would have. A strip scores 1 whatever its
+    aspect ratio; a shape that interlocks with what it lies against scores
+    several, because every notch is paid for twice. The torn band down the
+    right of the portrait is nothing but notches, and this throws it out.
+  - **osuus** — how much of that outline is the seam. The horizon stripe on the
+    beach picture is a *perfectly* smooth cylinder, long and straight and even,
+    and it rests against the man's arm along a hundredth of its own outline.
+    Nothing about its shape says no; the seam does.
+
+  And the unit had to change from a segment to a **group**. One segment is
+  usually not a limb: the shadow across a shin is two or three bands of its own
+  and none of them is a smooth anything alone, while together they are a leg.
+  A group grows from a segment that touches the body, taking at each step the
+  neighbour that leaves it smoothest, and stopping when the best available
+  would make it rougher. That is where the recursion belongs — re-running the
+  whole rule on its own answer was measured and it loses.
 
   | asetus | ranta | muotokuva |
   |---|---|---|
   | pois | 0.649 | 0.812 |
-  | L=0.6 F=2 A=0.15 | 0.639 | 0.800 |
-  | L=1 F=1.5 A=0.05 | **0.661** | 0.807 |
-  | L=1 F=1.2 A=0.02 | 0.649 | 0.808 |
-  | L=1.5 F=1.1 A=0.01 | 0.649 | 0.810 |
+  | yksi pala, ei sileysehtoja | 0.549 | 0.810 |
+  | ryhmiä, ei sileysehtoja | 0.439 | 0.795 |
+  | ryhmiä + rosoisuus | 0.662 | 0.809 |
+  | ryhmiä + rosoisuus + osuus | **0.679** | 0.811 |
 
-  The setting that wins a limb on the beach loses as much drapery on the
-  portrait; tightening it only walks back to doing nothing. The recursion the
-  idea invites — running it again on its own answer, which is what a striped
-  tail asks for — was measured too and it loses: four rounds turn +713/+192 px
-  into +755/+359 and the score falls back. Worth recording that the same sweep
-  run on the *scoring* raster reads +0.03 rather than +0.01: the wand's own
-  raster is 1.5× finer and the same drape comes out admissible there, which is
-  why the rule was put in the page and swept in place before being believed.
+  On the beach picture the back leg comes down to the foot: IoU 0.649 → 0.679
+  with precision all but untouched, 0.980 → 0.975. On the portrait it is
+  neutral, and honestly so — the hair it used to bring back is ragged and now
+  fails `rosoisuus` along with the drapes. Bench, steer and smoke do not move,
+  and the twenty jittered hands on the beach picture go from 90 % of ceiling to
+  94 % across the board. It costs a stroke about 70 ms on the beach picture and
+  200 ms on the portrait.
 
-  `tracer/cylshot.mjs` draws the two answers side by side with what the rule
-  alone changed, and the pictures say it better than the table. It runs where
-  it has to run — last, after the cut, the tidy-up, the fence and the hole
-  filling, as a resolver over a finished answer rather than another opinion
-  inside the energy. On the beach picture it does exactly what it was designed
-  to do: 478 px of green running down the front shin to the foot and along the
-  back leg, against 389 px of red at the arms. On the portrait it brings back
-  **3 032 px of hair** — the strands are cylinders, attached at a neck and
-  running out, which is why erosion needed a closing pass to keep them at all —
-  and in the same breath 4 815 px of the flagpole, the drape folds at the right
-  edge and the desk carvings, because **a curtain fold is a cylinder too**.
-  That is the whole finding in one picture: the shape is right and the shape is
-  not enough.
+  A fourth test was tried and dropped: whether the seam is *one* seam or a
+  hundred separate nips. It never bound at any threshold, because a group with
+  a shredded seam has already failed `rosoisuus`.
 
-  Kept, off, because the geometry is sound and it is the candidate set that
-  fails: give the cut a reason to reach the foot — a boundary term that knows a
-  real edge from an invented one — and this is the rule that decides what to do
-  with it. `npm run evg:trace:web:cyl` and `:cylshot` after `photo.mjs
-  --write`.
+  Two harnesses come with it. `tracer/cyl.mjs` prints every leftover piece that
+  touches the answer with its ratios and the truth beside it — it is what
+  established, before any tuning, that the coherence pass is *not* what cuts
+  the foot off (it drops 30 px of the person on the beach picture and 8 px on
+  the portrait, against 17 063 px of background). `tracer/cylshot.mjs` draws
+  the answer without the rule, with it, and what the rule alone changed, and
+  with `--sweep` prints the table above in place. `npm run evg:trace:web:cyl`
+  and `:cylshot` after `photo.mjs --write`.
 
 - **The wand's brush gives evidence instead of drawing a border.** Drag over
   the thing you want and the regions under the brush become *certain

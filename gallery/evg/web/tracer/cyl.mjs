@@ -28,20 +28,22 @@
  *     background dropped on the portrait alone. So the candidates for any such
  *     rule are pieces the cut *rejected*, not pieces the tidy-up lost.
  *
- *  2. Among those, the two ratios do separate on paper — on the beach picture
- *     the pieces that belong have paisunta 1.17 against 3.67 for the ones that
- *     do not — and a sweep here says the rule is worth IoU 0.649 → 0.681.
+ *  2. Among those, the two ratios separate: on the beach picture the pieces
+ *     that belong have paisunta 1.17 against 3.67 for the ones that do not.
  *
- *  3. **And it is not, once written.** The rule in the page (wandCylinders,
- *     off by default) works on the wand's own raster, which is 1.5× finer than
- *     the picture, and the same pieces measure differently there: the drape
- *     down the right of the portrait comes out long, non-swelling and
- *     admissible. Swept in place it is 0.649 → 0.661 at best on the beach and
- *     0.812 → 0.807 on the portrait at the same setting. A wash.
+ *  3. **And they are not enough.** A rule made of them alone is a wash — it
+ *     brings the hair back on the portrait and the flagpole with it, because a
+ *     curtain fold is a cylinder too. Two more tests, both read off the picture
+ *     of that failure, are what made it work: how ragged the outline is against
+ *     a smooth cylinder of the same area and length, and how much of that
+ *     outline is actually the seam. See the comment over `wandCylinders`.
  *
- * Point 3 is why this file prints the sweep and the page carries the rule
- * anyway: the estimate below is measured on the *scoring* raster and is
- * optimistic by about the size of the effect. Trust the page, not this.
+ * The sweep this file prints is measured on the *scoring* raster and it knows
+ * nothing about groups, so it reads high by about the size of the effect and
+ * it cannot see what grouping is worth at all. It is here for the per-piece
+ * table and for finding 1. The rule itself is swept in place, in the page,
+ * where the wand's own raster is 1.5x finer and the same drape measures
+ * differently.
  */
 import fs from "node:fs";
 import { openPage, waitOk } from "./eval-harness.mjs";

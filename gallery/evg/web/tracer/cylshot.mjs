@@ -22,13 +22,24 @@ import { writePng } from "./png.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = process.argv[2];
-const DEST = process.argv[3] || OUT;
+const DEST = (process.argv[3] && !process.argv[3].startsWith("-")) ? process.argv[3] : OUT;
 if (!OUT) { console.error("käyttö: node cylshot.mjs <hakemisto> [kohde]"); process.exit(1); }
 const CASES = { pose: { W: 640, H: 427 }, portrait: { W: 512, H: 640 } };
 // The best setting the sweep found: it is the one worth looking at, because a
 // picture of a rule tuned to do nothing is a picture of nothing.
-const ON = { long: 1, fan: 1.5, area: 0.05, min: 8 };
-
+const ON = { long: 1, fan: 1.5, area: 0.05, min: 8, parts: 8, slack: 0.15,
+             rag: 1.5, share: 0.12 };
+// --sweep prints what each half of the rule is worth, in place, on the page's
+// own raster. This is the authority: cyl.mjs sweeps on the scoring raster and
+// reads high, and it cannot see groups at all.
+const SWEEP = [
+  { tag: "pois", long: 1e9 },
+  { ...ON, tag: "yksi pala, ei sileysehtoja", parts: 1, rag: 1e9, share: 0 },
+  { ...ON, tag: "ryhmiä, ei sileysehtoja", rag: 1e9, share: 0 },
+  { ...ON, tag: "ryhmiä + rosoisuus", share: 0 },
+  { ...ON, tag: "ryhmiä + rosoisuus + osuus" },
+];
+const SWEEPING = process.argv.includes("--sweep");
 const { page, close } = await openPage();
 for (const name of Object.keys(CASES)) {
   const { W, H } = CASES[name];
@@ -125,6 +136,43 @@ for (const name of Object.keys(CASES)) {
 
   const file = path.join(DEST, `${name}-sylinteri.png`);
   fs.writeFileSync(file, writePng(zlib, shot.w, shot.h, Buffer.from(shot.png)));
+  if (SWEEPING) {
+    console.log(`\n${name}`);
+    for (const S of SWEEP) {
+      const r = await page.evaluate(async ({ pts, W, H, truthB64, S }) => {
+        window.__cylSet = S;
+        const svg = document.querySelector("#outStage svg");
+        const rect = svg.getBoundingClientRect(), stage = document.getElementById("outStage");
+        const at=(fx,fy)=>({x:rect.left+fx*rect.width,y:rect.top+fy*rect.height});
+        const send=(t,p)=>stage.dispatchEvent(new PointerEvent(t,{bubbles:true,clientX:p.x,clientY:p.y}));
+        document.getElementById("toolMerge").click(); document.getElementById("toolWand").click();
+        const m=document.getElementById("wandMode"); m.value="smart"; m.dispatchEvent(new Event("change",{bubbles:true}));
+        const q=[];
+        for(let i=0;i+1<pts.length;i++)for(let k=0;k<10;k++)
+          q.push(at(pts[i][0]+(pts[i+1][0]-pts[i][0])*k/10, pts[i][1]+(pts[i+1][1]-pts[i][1])*k/10));
+        q.push(at(pts.at(-1)[0],pts.at(-1)[1]));
+        send("pointerdown",q[0]); q.slice(1).forEach(p=>send("pointermove",p)); send("pointerup",q.at(-1));
+        const c=document.createElement("canvas"); c.width=W; c.height=H; const g=c.getContext("2d");
+        const clone=svg.cloneNode(true);
+        [...clone.querySelectorAll("path")].forEach((p)=>{ if(p.closest("mask")||p.closest("clipPath"))return;
+          p.setAttribute("fill", p.classList.contains("wand-off") ? "#ffffff" : "#000000");
+          p.setAttribute("fill-rule","evenodd"); });
+        const url="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))));
+        const im=new Image(); im.src=url; await im.decode();
+        g.clearRect(0,0,W,H); g.drawImage(im,0,0,W,H);
+        const sd=g.getImageData(0,0,W,H).data;
+        const t=new Image(); t.src="data:image/png;base64,"+truthB64; await t.decode();
+        g.clearRect(0,0,W,H); g.drawImage(t,0,0,W,H);
+        const td=g.getImageData(0,0,W,H).data;
+        let tp=0,fp=0,fn=0;
+        for(let i=0;i<W*H;i++){ const got=sd[i*4+3]>128&&sd[i*4]<128, want=td[i*4]>128;
+          if(got&&want)tp++; else if(got)fp++; else if(want)fn++; }
+        return { iou: tp/(tp+fp+fn), p: tp/(tp+fp), r: tp/(tp+fn) };
+      }, { pts: stroke, W, H, truthB64, S });
+      console.log(`  ${S.tag.padEnd(30)} IoU ${r.iou.toFixed(3)}`
+        + `  tarkkuus ${r.p.toFixed(3)}  saanti ${r.r.toFixed(3)}`);
+    }
+  }
   console.log(`${name}: ilman ${shot.off.iou.toFixed(3)} → kanssa ${shot.on.iou.toFixed(3)}`
     + ` · lisäsi ${shot.add} px, joista ${shot.addFg} px kohdetta`
     + (shot.gone ? ` · poisti ${shot.gone} px` : "") + ` → ${file}`);
