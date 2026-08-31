@@ -61,31 +61,93 @@ class VlDataRow {
     fn num:VlDataRow (field:string value:double) {
         obj.setMember(field (VlJson.numberValue(value)))
         return this
+    } doc {
+        public
+        category "Data"
+        description "Puts a number in one column of this row."
+        param field "The column name."
+        param value "The value."
+        returns "This row, so columns chain."
     }
-    ; A count is an integer and prints as one: 12, not 12.0.
     fn whole:VlDataRow (field:string value:int) {
         obj.setMember(field (VlJson.intValue(value)))
         return this
+    } doc {
+        public
+        category "Data"
+        description "Puts a whole number in one column of this row.
+
+A count is an integer and prints as one: 12, not 12.0. Use this rather than
+`num` wherever the value counts things, or the axis labels will say so."
+        param field "The column name."
+        param value "The value."
+        returns "This row, so columns chain."
+        see num
     }
     fn str:VlDataRow (field:string value:string) {
         obj.setMember(field (VlJson.stringValue(value)))
         return this
+    } doc {
+        public
+        category "Data"
+        description "Puts text in one column of this row.
+
+A column of text is read as a category unless every value in it parses as an
+ISO date, in which case it is an instant."
+        param field "The column name."
+        param value "The value."
+        returns "This row, so columns chain."
     }
     fn flag:VlDataRow (field:string value:boolean) {
         obj.setMember(field (VlJson.boolValue(value)))
         return this
+    } doc {
+        public
+        category "Data"
+        description "Puts true or false in one column of this row."
+        param field "The column name."
+        param value "The value."
+        returns "This row, so columns chain."
     }
     fn json:VlDataRow (field:string value:VlJson) {
         obj.setMember(field value)
         return this
+    } doc {
+        public
+        category "Data"
+        description "Puts an already-built value in one column of this row.
+
+The escape hatch for a column this API has no typed setter for — a nested
+object a geoshape reads, or a value that came out of the parser."
+        param field "The column name."
+        param value "The value, as the JSON model holds it."
+        returns "This row, so columns chain."
     }
-    ; Back to the dataset, so rows can be chained one after another.
     fn back:VlDataset () {
         if (!null? owner) {
             return (unwrap owner)
         }
         return (VlDataset.create())
+    } doc {
+        public
+        category "Data"
+        description "Returns to the dataset this row belongs to, so rows chain one after another."
+        returns "The owning dataset, or a fresh empty one if this row was built without a dataset."
     }
+} doc {
+    public
+    category "Data"
+    description "One row of a dataset, filled column by column.
+
+A row is handed back already attached to its dataset, so nothing has to be
+pushed anywhere by the caller:
+
+```
+def data (VlDataset.create())
+data.row().str(\"region\" \"North\").num(\"sales\" 120.0)
+data.row().str(\"region\" \"South\").num(\"sales\"  93.0)
+```"
+    see VlDataset
 }
 
 ; ------------------------------------------------------------------------------
@@ -100,6 +162,11 @@ class VlDataset {
     sfn create:VlDataset () {
         def d (new VlDataset())
         return d
+    } doc {
+        public
+        category "Data"
+        description "Builds an empty dataset."
+        returns "A dataset with no rows."
     }
 
     fn row:VlDataRow () {
@@ -107,11 +174,23 @@ class VlDataset {
         r.owner = this
         push rows r.obj
         return r
+    } doc {
+        public
+        category "Data"
+        description "Adds a row and hands it back, ready to be filled."
+        returns "The new row, already attached to this dataset."
+        see VlDataRow
     }
 
     fn addRow:VlDataset (row:VlJson) {
         push rows row
         return this
+    } doc {
+        public
+        category "Data"
+        description "Adds a row that was built elsewhere."
+        param row "A JSON object whose members are the columns."
+        returns "This dataset, so calls chain."
     }
 
     ; Rows as they came out of the JSON parser: a dataset can be a selection
@@ -124,6 +203,16 @@ class VlDataset {
             i = (i + 1)
         }
         return this
+    } doc {
+        public
+        category "Data"
+        description "Takes the rows of a JSON array as they came out of the parser.
+
+A dataset built here and one read off disk are the same thing to everything
+downstream, so a selection from a grid, a file somebody read and a literal all
+arrive the same way."
+        param values "A JSON array of row objects."
+        returns "This dataset, so calls chain."
     }
 
     ; Column-wise filling, for a caller that holds arrays rather than records —
@@ -135,6 +224,18 @@ class VlDataset {
             r.setMember(field (VlJson.numberValue(v)))
         }
         return this
+    } doc {
+        public
+        category "Data"
+        description "Fills one numeric column from an array, one value per row.
+
+Column-wise filling, for a caller that holds arrays rather than records — a
+spreadsheet column, a series of measurements. Row `i` of every column is the
+same row, so two calls with arrays of the same length make a table."
+        param field "The column name."
+        param values "One value per row, in row order."
+        returns "This dataset, so calls chain."
+        see strings
     }
     fn strings:VlDataset (field:string values:[string]) {
         for values v:string i {
@@ -142,6 +243,14 @@ class VlDataset {
             r.setMember(field (VlJson.stringValue(v)))
         }
         return this
+    } doc {
+        public
+        category "Data"
+        description "Fills one text column from an array, one value per row."
+        param field "The column name."
+        param values "One value per row, in row order."
+        returns "This dataset, so calls chain."
+        see numbers
     }
 
     fn rowAt:VlJson (index:int) {
@@ -149,10 +258,21 @@ class VlDataset {
             push rows (VlJson.objectValue())
         }
         return (itemAt rows index)
+    } doc {
+        public
+        category "Data"
+        description "The row at an index, growing the dataset with empty rows if it is not there yet."
+        param index "A zero-based row number."
+        returns "The row object, which can be written into directly."
     }
 
     fn count:int () {
         return (array_length rows)
+    } doc {
+        public
+        category "Data"
+        description "How many rows the dataset holds."
+        returns "The row count."
     }
 
     fn hasField:boolean (field:string) {
@@ -162,6 +282,12 @@ class VlDataset {
             }
         }
         return false
+    } doc {
+        public
+        category "Data"
+        description "Whether any row has this column."
+        param field "The column name."
+        returns "True when at least one row carries the column."
     }
 
     ; What kind of thing a column holds, in Vega-Lite's vocabulary. Numbers are
@@ -204,6 +330,17 @@ class VlDataset {
             return "quantitative"
         }
         return "nominal"
+    } doc {
+        public
+        category "Data"
+        description "What kind of thing a column holds, in Vega-Lite's vocabulary.
+
+Read off the rows rather than declared: numbers are a quantity, ISO dates are
+an instant, anything else is a name. A column the data does not have answers
+the empty string, so a caller can tell \"no such column\" from \"a column of
+names\" — which is the difference between a mistake and a chart."
+        param field "The column name."
+        returns "`quantitative`, `temporal`, `nominal`, or the empty string when no row has the column."
     }
 
     ; "2016-01-01", "2016-01-01T12:00:00Z", "2016-01". Four digits, a dash and
@@ -235,7 +372,6 @@ class VlDataset {
         return true
     }
 
-    ; `{"values": […]}` — the data block of a specification.
     fn toValues:VlJson () {
         def list (VlJson.arrayValue())
         for rows r:VlJson i {
@@ -244,7 +380,31 @@ class VlDataset {
         def obj (VlJson.objectValue())
         obj.setMember("values" list)
         return obj
+    } doc {
+        public
+        category "Output"
+        description "The dataset as the `data` block of a specification: `{\"values\": […]}`."
+        returns "A JSON object holding every row."
     }
+} doc {
+    public
+    category "Data"
+    description "A table of rows, built once and given to as many charts as want it.
+
+Rows are JSON objects — the same values the parser produces for
+`\"data\": {\"values\": […]}` — so a dataset built here and one read off disk are
+the same thing to everything downstream.
+
+The dataset is a value **beside** the chart rather than a thing inside it: a
+spreadsheet's selection becomes one dataset and a dashboard's six panels read
+it.
+
+```
+def data (VlDataset.create())
+data.row().str(\"region\" \"North\").num(\"sales\" 120.0)
+data.row().str(\"region\" \"South\").num(\"sales\"  93.0)
+```"
+    see VlChart
 }
 
 ; ------------------------------------------------------------------------------
@@ -285,65 +445,258 @@ class VlChartMark {
         enc.setMember(name ch)
         cursor = name
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets any channel to a column by name.
+
+The named channel becomes the cursor, so the next `aggregate`, `title` or
+`type` applies to it."
+        param name "The channel name, as Vega-Lite spells it."
+        param field "The column name."
+        returns "This mark, so calls chain."
     }
     fn x:VlChartMark (field:string) {
         return (this.channel("x" field))
+    } doc {
+        public
+        category "Channels"
+        description "Position along the horizontal axis.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn y:VlChartMark (field:string) {
         return (this.channel("y" field))
+    } doc {
+        public
+        category "Channels"
+        description "Position along the vertical axis.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn x2:VlChartMark (field:string) {
         return (this.channel("x2" field))
+    } doc {
+        public
+        category "Channels"
+        description "The far end of a horizontal interval, for a bar, an area or a rule that spans two values.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see x
     }
     fn y2:VlChartMark (field:string) {
         return (this.channel("y2" field))
+    } doc {
+        public
+        category "Channels"
+        description "The far end of a vertical interval, for a bar, an area or a rule that spans two values.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see y
     }
     fn color:VlChartMark (field:string) {
         return (this.channel("color" field))
+    } doc {
+        public
+        category "Channels"
+        description "Colour, and the legend that explains it.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn fill:VlChartMark (field:string) {
         return (this.channel("fill" field))
+    } doc {
+        public
+        category "Channels"
+        description "Fill colour, set apart from the outline.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see stroke
     }
     fn stroke:VlChartMark (field:string) {
         return (this.channel("stroke" field))
+    } doc {
+        public
+        category "Channels"
+        description "Outline colour, set apart from the fill.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see fill
     }
     fn size:VlChartMark (field:string) {
         return (this.channel("size" field))
+    } doc {
+        public
+        category "Channels"
+        description "Mark size: the area of a point, the width of a trail.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see markSize
     }
     fn shape:VlChartMark (field:string) {
         return (this.channel("shape" field))
+    } doc {
+        public
+        category "Channels"
+        description "The symbol a point is drawn as.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn opacity:VlChartMark (field:string) {
         return (this.channel("opacity" field))
+    } doc {
+        public
+        category "Channels"
+        description "How opaque the mark is.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see markOpacity
     }
     fn theta:VlChartMark (field:string) {
         return (this.channel("theta" field))
+    } doc {
+        public
+        category "Channels"
+        description "The angle an arc covers, which is what makes a pie or a donut.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see radius
     }
     fn radius:VlChartMark (field:string) {
         return (this.channel("radius" field))
+    } doc {
+        public
+        category "Channels"
+        description "How far from the centre an arc reaches.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see theta
     }
     fn detail:VlChartMark (field:string) {
         return (this.channel("detail" field))
+    } doc {
+        public
+        category "Channels"
+        description "Groups the rows without drawing anything of its own: one line per group, no legend.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn text:VlChartMark (field:string) {
         return (this.channel("text" field))
+    } doc {
+        public
+        category "Channels"
+        description "The text a label mark shows.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn order:VlChartMark (field:string) {
         return (this.channel("order" field))
+    } doc {
+        public
+        category "Channels"
+        description "The order the rows are drawn in, and the order a line joins its points.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
     }
     fn column:VlChartMark (field:string) {
         return (this.channel("column" field))
+    } doc {
+        public
+        category "Channels"
+        description "Splits the chart into side-by-side panels, one per value.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see row
     }
     fn row:VlChartMark (field:string) {
         return (this.channel("row" field))
+    } doc {
+        public
+        category "Channels"
+        description "Splits the chart into stacked panels, one per value.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see column
     }
     ; What separates the bars of a grouped bar chart, in the direction the
     ; category axis runs.
     fn xOffset:VlChartMark (field:string) {
         return (this.channel("xOffset" field))
+    } doc {
+        public
+        category "Channels"
+        description "What separates the bars of a grouped bar chart, across the horizontal axis.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see yOffset
     }
     fn yOffset:VlChartMark (field:string) {
         return (this.channel("yOffset" field))
+    } doc {
+        public
+        category "Channels"
+        description "What separates the bars of a grouped bar chart, across the vertical axis.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This mark, so channels chain."
+        see xOffset
     }
     ; A count has no column to read: it is one number per group.
     fn count:VlChartMark (channel:string) {
@@ -353,6 +706,12 @@ class VlChartMark {
         enc.setMember(channel ch)
         cursor = channel
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets a channel to a count of rows: one number per group, with no column to read."
+        param channel "The channel to put the count on, usually \"y\" or \"x\"."
+        returns "This mark, so calls chain."
     }
     ; A channel set to a constant rather than to a column.
     fn valueNumber:VlChartMark (channel:string value:double) {
@@ -361,6 +720,14 @@ class VlChartMark {
         enc.setMember(channel ch)
         cursor = channel
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets a channel to a constant number rather than to a column."
+        param channel "The channel name."
+        param value "The constant."
+        returns "This mark, so calls chain."
+        see valueString
     }
     fn valueString:VlChartMark (channel:string value:string) {
         def ch (VlJson.objectValue())
@@ -368,6 +735,18 @@ class VlChartMark {
         enc.setMember(channel ch)
         cursor = channel
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets a channel to a constant string rather than to a column.
+
+This is how a mark is painted a fixed colour: `.valueString(\"color\" \"#c00\")`.
+The channel setters name columns and never constants, because a `.color(…)`
+that guessed between the two would draw a chart nobody asked for."
+        param channel "The channel name."
+        param value "The constant."
+        returns "This mark, so calls chain."
+        see valueNumber
     }
     ; The whole channel, written out, for whatever this API does not cover.
     ; Vega-Lite is larger than any fluent surface over it, and an escape hatch
@@ -377,6 +756,17 @@ class VlChartMark {
         enc.setMember(channel definition)
         cursor = channel
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets a whole channel from an already-built definition.
+
+The escape hatch. Vega-Lite is larger than any fluent surface over it, and a
+definition that lands in the same specification is better than waiting for this
+API to grow a method."
+        param channel "The channel name."
+        param definition "The channel definition."
+        returns "This mark, so calls chain."
     }
 
     ; --- the channel most recently named -------------------------------------
@@ -387,6 +777,16 @@ class VlChartMark {
             this.note(("no channel called '" + channel) + "' has been set on this mark")
         }
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Moves the cursor back to a channel that is already set.
+
+Everything that follows — `aggregate`, `title`, `scaleType` — applies to it.
+A channel that was never set is reported in the chart's `errors` rather than
+silently created."
+        param channel "The channel name."
+        returns "This mark, so calls chain."
     }
     fn cursorChannel:VlJson () {
         if ((strlen cursor) == 0) {
@@ -402,9 +802,21 @@ class VlChartMark {
     }
     fn aggregate:VlChartMark (op:string) {
         return (this.setOnCursor("aggregate" (VlJson.stringValue(op))))
+    } doc {
+        public
+        category "Transforms"
+        description "How the rows in each group are reduced to one value."
+        param op "`sum`, `mean`, `median`, `min`, `max`, `count` and the rest of Vega-Lite's operations."
+        returns "This mark, so calls chain."
     }
     fn bin:VlChartMark () {
         return (this.setOnCursor("bin" (VlJson.boolValue(true))))
+    } doc {
+        public
+        category "Transforms"
+        description "Bins the cursor channel's column into buckets."
+        returns "This mark, so calls chain."
+        see maxBins
     }
     ; How many bins at most. `bin` and `maxbins` are the two forms the
     ; compiler carries; a bin written any other way is refused BY NAME when it
@@ -415,57 +827,147 @@ class VlChartMark {
         def b (VlJson.objectValue())
         b.setMember("maxbins" (VlJson.intValue(count)))
         return (this.setOnCursor("bin" b))
+    } doc {
+        public
+        category "Transforms"
+        description "Bins the cursor channel's column into at most this many buckets."
+        param count "The upper bound on the number of bins."
+        returns "This mark, so calls chain."
+        see bin
     }
     fn timeUnit:VlChartMark (unit:string) {
         return (this.setOnCursor("timeUnit" (VlJson.stringValue(unit))))
+    } doc {
+        public
+        category "Transforms"
+        description "Which part of an instant to read: `year`, `month`, `yearmonth`, `hours` and the rest."
+        param unit "The time unit."
+        returns "This mark, so calls chain."
     }
     ; quantitative | nominal | ordinal | temporal, when the data cannot say —
     ; a column of years is numbers and is usually a category.
     fn type:VlChartMark (kind:string) {
         return (this.setOnCursor("type" (VlJson.stringValue(kind))))
+    } doc {
+        public
+        category "Channels"
+        description "States what the column holds, when the data cannot say.
+
+A column of years is numbers and is usually a category, which is the case this
+exists for."
+        param kind "`quantitative`, `nominal`, `ordinal` or `temporal`."
+        returns "This mark, so calls chain."
     }
     fn title:VlChartMark (label:string) {
         return (this.setOnCursor("title" (VlJson.stringValue(label))))
+    } doc {
+        public
+        category "Scales and axes"
+        description "The axis or legend label for the cursor channel."
+        param label "The label."
+        returns "This mark, so calls chain."
     }
     fn format:VlChartMark (pattern:string) {
         def axis (VlJson.objectValue())
         axis.setMember("format" (VlJson.stringValue(pattern)))
         return (this.setOnCursor("axis" axis))
+    } doc {
+        public
+        category "Scales and axes"
+        description "The number or date format its axis labels are drawn in."
+        param pattern "A d3-format or d3-time-format pattern."
+        returns "This mark, so calls chain."
     }
     ; "zero" | "normalize" | "center", or nothing stacked at all.
     fn stack:VlChartMark (how:string) {
         return (this.setOnCursor("stack" (VlJson.stringValue(how))))
+    } doc {
+        public
+        category "Scales and axes"
+        description "How marks sharing a position are stacked."
+        param how "`zero`, `normalize` or `center`."
+        returns "This mark, so calls chain."
+        see noStack
     }
     fn noStack:VlChartMark () {
         return (this.setOnCursor("stack" (VlJson.nullValue())))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Draws the marks overlapping rather than stacked."
+        returns "This mark, so calls chain."
+        see stack
     }
     ; The order a discrete scale runs in. `sortBy` names a column; `keepOrder`
     ; is the one every spreadsheet wants — the order the rows arrived in,
     ; rather than alphabetical.
     fn sortBy:VlChartMark (field:string) {
         return (this.setOnCursor("sort" (VlJson.stringValue(field))))
+    } doc {
+        public
+        category "Scales and axes"
+        description "The order a discrete scale runs in, taken from another column."
+        param field "The column to sort by."
+        returns "This mark, so calls chain."
+        see keepOrder
     }
     fn keepOrder:VlChartMark () {
         return (this.setOnCursor("sort" (VlJson.nullValue())))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Keeps the order the rows arrived in, rather than sorting alphabetically.
+
+The one every spreadsheet wants."
+        returns "This mark, so calls chain."
+        see sortBy
     }
     fn scaleJson:VlChartMark (scale:VlJson) {
         return (this.setOnCursor("scale" scale))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Sets the cursor channel's whole scale definition."
+        param scale "The scale definition."
+        returns "This mark, so calls chain."
     }
     fn scaleType:VlChartMark (kind:string) {
         def s (VlJson.objectValue())
         s.setMember("type" (VlJson.stringValue(kind)))
         return (this.setOnCursor("scale" s))
+    } doc {
+        public
+        category "Scales and axes"
+        description "The kind of scale the cursor channel uses."
+        param kind "`linear`, `log`, `sqrt`, `time`, `band`, `point` and the rest."
+        returns "This mark, so calls chain."
     }
     fn scheme:VlChartMark (name:string) {
         def s (VlJson.objectValue())
         s.setMember("scheme" (VlJson.stringValue(name)))
         return (this.setOnCursor("scale" s))
+    } doc {
+        public
+        category "Scales and axes"
+        description "The colour scheme a colour channel draws from."
+        param name "A Vega scheme name, such as `category10` or `viridis`."
+        returns "This mark, so calls chain."
     }
     fn noLegend:VlChartMark () {
         return (this.setOnCursor("legend" (VlJson.nullValue())))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Draws the cursor channel without a legend."
+        returns "This mark, so calls chain."
     }
     fn noAxis:VlChartMark () {
         return (this.setOnCursor("axis" (VlJson.nullValue())))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Draws the cursor channel without an axis."
+        returns "This mark, so calls chain."
     }
     ; Which side of the plot this channel's axis stands on — "left", "right",
     ; "top", "bottom". A Pareto chart's cumulative line is measured up the
@@ -474,49 +976,136 @@ class VlChartMark {
         def axis (VlJson.objectValue())
         axis.setMember("orient" (VlJson.stringValue(side)))
         return (this.setOnCursor("axis" axis))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Which side of the plot the cursor channel's axis stands on.
+
+A Pareto chart's cumulative line is measured up the right-hand side, which is
+the whole point of drawing it there."
+        param side "`left`, `right`, `top` or `bottom`."
+        returns "This mark, so calls chain."
     }
     fn axisJson:VlChartMark (axis:VlJson) {
         return (this.setOnCursor("axis" axis))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Sets the cursor channel's whole axis definition."
+        param axis "The axis definition."
+        returns "This mark, so calls chain."
     }
 
     ; --- properties of the mark itself ---------------------------------------
     fn propNumber:VlChartMark (key:string value:double) {
         props.setMember(key (VlJson.numberValue(value)))
         return this
+    } doc {
+        public
+        category "Mark appearance"
+        description "Sets any numeric property of the mark itself."
+        param key "The property name."
+        param value "The value."
+        returns "This mark, so calls chain."
     }
     fn propString:VlChartMark (key:string value:string) {
         props.setMember(key (VlJson.stringValue(value)))
         return this
+    } doc {
+        public
+        category "Mark appearance"
+        description "Sets any string property of the mark itself."
+        param key "The property name."
+        param value "The value."
+        returns "This mark, so calls chain."
     }
     fn propFlag:VlChartMark (key:string value:boolean) {
         props.setMember(key (VlJson.boolValue(value)))
         return this
+    } doc {
+        public
+        category "Mark appearance"
+        description "Sets any boolean property of the mark itself."
+        param key "The property name."
+        param value "The value."
+        returns "This mark, so calls chain."
     }
     fn filled:VlChartMark (value:boolean) {
         return (this.propFlag("filled" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "Whether the mark is filled or drawn as an outline."
+        param value "True to fill."
+        returns "This mark, so calls chain."
     }
     fn markSize:VlChartMark (value:double) {
         return (this.propNumber("size" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "How big every mark is drawn, as one number rather than from a column."
+        param value "The size."
+        returns "This mark, so calls chain."
+        see size
     }
     fn markColor:VlChartMark (value:string) {
         return (this.propString("color" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "Paints every mark one colour, rather than reading a column."
+        param value "A CSS colour."
+        returns "This mark, so calls chain."
+        see color
     }
     fn markOpacity:VlChartMark (value:double) {
         return (this.propNumber("opacity" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "How opaque every mark is drawn, as one number rather than from a column."
+        param value "0 to 1."
+        returns "This mark, so calls chain."
+        see opacity
     }
     ; "monotone", "step-after", "basis" … — how a line joins its points.
     fn interpolate:VlChartMark (kind:string) {
         return (this.propString("interpolate" kind))
+    } doc {
+        public
+        category "Mark appearance"
+        description "How a line joins its points."
+        param kind "`linear`, `monotone`, `step-after`, `basis` and the rest."
+        returns "This mark, so calls chain."
     }
     ; A line that shows the points it was drawn through.
     fn withPoints:VlChartMark (value:boolean) {
         return (this.propFlag("point" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "Draws a line showing the points it was drawn through."
+        param value "True to show them."
+        returns "This mark, so calls chain."
     }
     fn innerRadius:VlChartMark (value:double) {
         return (this.propNumber("innerRadius" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "The hole in the middle of an arc, which is what turns a pie into a donut."
+        param value "The inner radius in pixels."
+        returns "This mark, so calls chain."
     }
     fn cornerRadius:VlChartMark (value:double) {
         return (this.propNumber("cornerRadius" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "How rounded the corners of a bar or a rectangle are."
+        param value "The radius in pixels."
+        returns "This mark, so calls chain."
     }
     ; `tooltip(true)` shows every column the mark encodes. The two below say
     ; which columns instead: one field, or a list of them in the order they
@@ -525,9 +1114,23 @@ class VlChartMark {
     ; stay the same sentence.
     fn tooltip:VlChartMark (value:boolean) {
         return (this.propFlag("tooltip" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "Shows every column the mark encodes when the reader points at it."
+        param value "True to show a tooltip."
+        returns "This mark, so calls chain."
+        see tooltipFields
     }
     fn tooltipField:VlChartMark (field:string) {
         return (this.channel("tooltip" field))
+    } doc {
+        public
+        category "Mark appearance"
+        description "Shows one named column as the tooltip."
+        param field "The column name."
+        returns "This mark, so calls chain."
+        see tooltipFields
     }
     fn tooltipFields:VlChartMark (fields:[string]) {
         def list (VlJson.arrayValue())
@@ -540,24 +1143,61 @@ class VlChartMark {
         ; A list is not a channel, so the cursor does not move onto it: the
         ; next `.title(…)` belongs to whatever was named before.
         return this
+    } doc {
+        public
+        category "Mark appearance"
+        description "Shows several named columns as the tooltip, in the order they should be read.
+
+A list is not a channel, so the cursor does not move onto it: the next `title`
+belongs to whatever was named before."
+        param fields "The column names, in reading order."
+        returns "This mark, so calls chain."
+        see tooltip
     }
     ; How thick a tick is drawn, across its band. A hi-lo-open-close chart's
     ; open and close are ticks, and a two-pixel one is what makes them read as
     ; marks rather than as hairlines.
     fn thickness:VlChartMark (value:double) {
         return (this.propNumber("thickness" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "How thick a tick is drawn across its band.
+
+A hi-lo-open-close chart's open and close are ticks, and a two-pixel one is
+what makes them read as marks rather than as hairlines."
+        param value "The thickness in pixels."
+        returns "This mark, so calls chain."
     }
     fn strokeWidth:VlChartMark (value:double) {
         return (this.propNumber("strokeWidth" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "How thick the mark's outline is drawn."
+        param value "The width in pixels."
+        returns "This mark, so calls chain."
     }
     ; "horizontal" | "vertical" — which way a tick lies, or which way a bar
     ; that has only one position channel runs.
     fn orient:VlChartMark (value:string) {
         return (this.propString("orient" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "Which way a tick lies, or which way a bar with only one position channel runs."
+        param value "`horizontal` or `vertical`."
+        returns "This mark, so calls chain."
     }
     ; What an interval is computed from: "stderr" | "stdev" | "ci" | "iqr".
     fn extent:VlChartMark (value:string) {
         return (this.propString("extent" value))
+    } doc {
+        public
+        category "Mark appearance"
+        description "What an interval mark is computed from."
+        param value "`stderr`, `stdev`, `ci` or `iqr`."
+        returns "This mark, so calls chain."
     }
     ; Back to the chart, when the next thing to say is about the view.
     fn chart:VlChart () {
@@ -566,14 +1206,35 @@ class VlChartMark {
         }
         def empty:VlDataset (VlDataset.create())
         return (VlChart.create(empty))
+    } doc {
+        public
+        category "Marks"
+        description "Returns to the chart, when the next thing to say is about the view."
+        returns "The owning chart, or a fresh empty one if this mark was built without a chart."
     }
+} doc {
+    public
+    category "Marks"
+    description "One mark and the channels it reads.
+
+Every setter answers the mark, so a mark is written as one sentence:
+
+```
+chart.bar().x(\"region\").y(\"sales\").aggregate(\"sum\").title(\"Total sales\")
+```
+
+`aggregate`, `bin`, `title` and the rest apply to the channel most recently
+named — the cursor — which is what makes that sentence read in the order it is
+thought. `on` moves the cursor back to a channel already set.
+
+A channel names a **column**. A constant goes through `valueNumber` or
+`valueString`, and the two are kept apart on purpose: `.color(\"red\")` meaning a
+column called red and `.color(\"#c00\")` meaning paint it red cannot both be
+true, and the version that guesses is the one that draws a chart nobody asked
+for."
+    see VlChart
 }
 
-; ------------------------------------------------------------------------------
-; The view: data, the channels every mark on it shares, how big it is, and the
-; marks themselves. One mark comes out as a plain specification; several come
-; out as a layer, each layer carrying the shared channels in full.
-; ------------------------------------------------------------------------------
 class VlChart {
     def data:VlDataset
     def marks:[VlChartMark]
@@ -596,6 +1257,13 @@ class VlChart {
         def c (new VlChart())
         c.data = data
         return c
+    } doc {
+        public
+        category "Marks"
+        description "Builds a chart over a dataset."
+        param data "The rows the chart draws."
+        returns "A chart with no marks yet."
+        see VlDataset
     }
 
     ; --- marks ---------------------------------------------------------------
@@ -605,62 +1273,186 @@ class VlChart {
         m.owner = this
         push marks m
         return m
+    } doc {
+        public
+        category "Marks"
+        description "Adds a mark of any type the compiler knows."
+        param markType "The Vega-Lite mark name."
+        returns "The new mark, so its channels and properties chain."
     }
     fn bar:VlChartMark () {
         return (this.mark("bar"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a bar mark to the chart.
+
+A rectangle per row: the bar chart, and with `x2`/`y2` a range."
+        returns "The new mark, so its channels and properties chain."
     }
     fn line:VlChartMark () {
         return (this.mark("line"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a line mark to the chart.
+
+A line joining the rows in order."
+        returns "The new mark, so its channels and properties chain."
     }
     fn area:VlChartMark () {
         return (this.mark("area"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds an area mark to the chart.
+
+A filled band between a line and a baseline."
+        returns "The new mark, so its channels and properties chain."
     }
     fn point:VlChartMark () {
         return (this.mark("point"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a point mark to the chart.
+
+One symbol per row: the scatter plot."
+        returns "The new mark, so its channels and properties chain."
     }
     fn circle:VlChartMark () {
         return (this.mark("circle"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a circle mark to the chart.
+
+A filled circle per row — `point` with the shape settled."
+        returns "The new mark, so its channels and properties chain."
     }
     fn square:VlChartMark () {
         return (this.mark("square"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a square mark to the chart.
+
+A filled square per row — `point` with the shape settled."
+        returns "The new mark, so its channels and properties chain."
     }
     fn tick:VlChartMark () {
         return (this.mark("tick"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a tick mark to the chart.
+
+A short stroke per row, across the band it sits in."
+        returns "The new mark, so its channels and properties chain."
     }
     fn rule:VlChartMark () {
         return (this.mark("rule"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a rule mark to the chart.
+
+A line at one value, spanning the plot or between `x2`/`y2`."
+        returns "The new mark, so its channels and properties chain."
     }
     fn rect:VlChartMark () {
         return (this.mark("rect"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a rect mark to the chart.
+
+A rectangle over two ranges: the heatmap."
+        returns "The new mark, so its channels and properties chain."
     }
     fn arc:VlChartMark () {
         return (this.mark("arc"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds an arc mark to the chart.
+
+A wedge, which with `theta` is a pie and with `innerRadius` a donut."
+        returns "The new mark, so its channels and properties chain."
     }
     fn label:VlChartMark () {
         return (this.mark("text"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a text mark, which draws the value of its `text` channel."
+        returns "The new mark, so its channels and properties chain."
     }
     fn boxplot:VlChartMark () {
         return (this.mark("boxplot"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a boxplot mark to the chart.
+
+A box and whiskers, computed from the rows rather than read off them."
+        returns "The new mark, so its channels and properties chain."
     }
     ; The two composite marks: an interval computed from the rows rather than
     ; read off them. `extent` decides what the interval IS — "stderr" (the
     ; default), "stdev", "ci" or "iqr".
     fn errorbar:VlChartMark () {
         return (this.mark("errorbar"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds an error bar: an interval computed from the rows rather than read off them.
+
+`extent` decides what the interval is — `stderr` by default, or `stdev`, `ci`
+or `iqr`."
+        returns "The new mark, so its channels and properties chain."
+        see errorband
     }
     fn errorband:VlChartMark () {
         return (this.mark("errorband"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds an error band: the same interval as an error bar, drawn as a filled region."
+        returns "The new mark, so its channels and properties chain."
+        see errorbar
     }
     ; A line whose width says something: a trail thickens with its `size`.
     fn trail:VlChartMark () {
         return (this.mark("trail"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a trail mark to the chart.
+
+A line whose width says something: a trail thickens with its `size`."
+        returns "The new mark, so its channels and properties chain."
     }
     fn image:VlChartMark () {
         return (this.mark("image"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds an image mark to the chart.
+
+A picture per row, placed by its position channels."
+        returns "The new mark, so its channels and properties chain."
     }
     ; A map: the shapes come from the data and the projection places them.
     fn geoshape:VlChartMark () {
         return (this.mark("geoshape"))
+    } doc {
+        public
+        category "Marks"
+        description "Adds a geoshape mark to the chart.
+
+A map: the shapes come from the data and the projection places them."
+        returns "The new mark, so its channels and properties chain."
     }
     ; The mark added last, for a caller that built one and let go of it. A
     ; chart with no marks answers a mark that belongs to nothing rather than
@@ -674,6 +1466,14 @@ class VlChart {
         def loose (new VlChartMark())
         loose.owner = this
         return loose
+    } doc {
+        public
+        category "Marks"
+        description "The mark added last, for a caller that built one and let go of it.
+
+A chart with no marks answers a mark belonging to nothing and reports it in
+`errors`, rather than quietly adding a `point` nobody asked for."
+        returns "The last mark added."
     }
 
     ; --- channels shared by every mark ---------------------------------------
@@ -683,23 +1483,73 @@ class VlChart {
         enc.setMember(name ch)
         cursor = name
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets a channel that every mark on this view inherits."
+        param name "The channel name."
+        param field "The column name."
+        returns "This chart, so calls chain."
     }
     fn x:VlChart (field:string) {
         return (this.channel("x" field))
+    } doc {
+        public
+        category "Channels"
+        description "Position along the horizontal axis.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This view, so channels chain."
     }
     fn y:VlChart (field:string) {
         return (this.channel("y" field))
+    } doc {
+        public
+        category "Channels"
+        description "Position along the vertical axis.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This view, so channels chain."
     }
     fn color:VlChart (field:string) {
         return (this.channel("color" field))
+    } doc {
+        public
+        category "Channels"
+        description "Colour, and the legend that explains it.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This view, so channels chain."
     }
     fn detail:VlChart (field:string) {
         return (this.channel("detail" field))
+    } doc {
+        public
+        category "Channels"
+        description "Groups the rows without drawing anything of its own: one line per group, no legend.
+
+Names a COLUMN, never a constant. `.color(\"red\")` means a column
+called red; painting a mark red is `markColor`."
+        param field "The column name."
+        returns "This view, so channels chain."
     }
     fn encodeJson:VlChart (channel:string definition:VlJson) {
         enc.setMember(channel definition)
         cursor = channel
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Sets a whole shared channel from an already-built definition."
+        param channel "The channel name."
+        param definition "The channel definition."
+        returns "This chart, so calls chain."
     }
     fn on:VlChart (channel:string) {
         if (enc.has(channel)) {
@@ -708,6 +1558,12 @@ class VlChart {
             this.error(("no channel called '" + channel) + "' has been set on this view")
         }
         return this
+    } doc {
+        public
+        category "Channels"
+        description "Moves the cursor back to a shared channel that is already set."
+        param channel "The channel name."
+        returns "This chart, so calls chain."
     }
     fn setOnCursor:VlChart (key:string value:VlJson) {
         if ((strlen cursor) == 0) {
@@ -720,15 +1576,39 @@ class VlChart {
     }
     fn type:VlChart (kind:string) {
         return (this.setOnCursor("type" (VlJson.stringValue(kind))))
+    } doc {
+        public
+        category "Channels"
+        description "States what a shared channel's column holds, when the data cannot say."
+        param kind "`quantitative`, `nominal`, `ordinal` or `temporal`."
+        returns "This chart, so calls chain."
     }
     fn title:VlChart (label:string) {
         return (this.setOnCursor("title" (VlJson.stringValue(label))))
+    } doc {
+        public
+        category "Scales and axes"
+        description "The axis or legend label for the shared cursor channel."
+        param label "The label."
+        returns "This chart, so calls chain."
+        see heading
     }
     fn timeUnit:VlChart (unit:string) {
         return (this.setOnCursor("timeUnit" (VlJson.stringValue(unit))))
+    } doc {
+        public
+        category "Transforms"
+        description "Which part of an instant a shared channel reads."
+        param unit "The time unit."
+        returns "This chart, so calls chain."
     }
     fn keepOrder:VlChart () {
         return (this.setOnCursor("sort" (VlJson.nullValue())))
+    } doc {
+        public
+        category "Scales and axes"
+        description "Keeps the order the rows arrived in for the shared cursor channel."
+        returns "This chart, so calls chain."
     }
 
     ; --- the view itself -----------------------------------------------------
@@ -736,32 +1616,77 @@ class VlChart {
         props.setMember("width" (VlJson.intValue(width)))
         props.setMember("height" (VlJson.intValue(height)))
         return this
+    } doc {
+        public
+        category "The view"
+        description "How big the plotting area is, in pixels."
+        param width "The width."
+        param height "The height."
+        returns "This chart, so calls chain."
     }
     fn width:VlChart (value:int) {
         props.setMember("width" (VlJson.intValue(value)))
         return this
+    } doc {
+        public
+        category "The view"
+        description "How wide the plotting area is, in pixels."
+        param value "The width."
+        returns "This chart, so calls chain."
     }
     fn height:VlChart (value:int) {
         props.setMember("height" (VlJson.intValue(value)))
         return this
+    } doc {
+        public
+        category "The view"
+        description "How tall the plotting area is, in pixels."
+        param value "The height."
+        returns "This chart, so calls chain."
     }
     fn heading:VlChart (text:string) {
         props.setMember("title" (VlJson.stringValue(text)))
         return this
+    } doc {
+        public
+        category "The view"
+        description "The chart's title, drawn above the plot."
+        param text "The title."
+        returns "This chart, so calls chain."
+        see title
     }
     fn background:VlChart (colour:string) {
         props.setMember("background" (VlJson.stringValue(colour)))
         return this
+    } doc {
+        public
+        category "The view"
+        description "The colour behind the plot."
+        param colour "A CSS colour."
+        returns "This chart, so calls chain."
     }
     fn propJson:VlChart (key:string value:VlJson) {
         props.setMember(key value)
         return this
+    } doc {
+        public
+        category "The view"
+        description "Sets any top-level property of the specification."
+        param key "The property name."
+        param value "The value."
+        returns "This chart, so calls chain."
     }
     fn configJson:VlChart (config:VlJson) {
         for config.keys k:string ki {
             cfg.setMember(k (config.get(k)))
         }
         return this
+    } doc {
+        public
+        category "The view"
+        description "Merges a configuration block into the specification."
+        param config "The configuration object."
+        returns "This chart, so calls chain."
     }
 
     ; --- transforms ----------------------------------------------------------
@@ -773,6 +1698,12 @@ class VlChart {
         t.setMember("filter" (VlJson.stringValue(expression)))
         push transforms.arr t
         return this
+    } doc {
+        public
+        category "Transforms"
+        description "Keeps only the rows an expression accepts."
+        param expression "A Vega expression over the row's columns."
+        returns "This chart, so calls chain."
     }
     fn calculate:VlChart (expression:string as:string) {
         def t (VlJson.objectValue())
@@ -780,10 +1711,23 @@ class VlChart {
         t.setMember("as" (VlJson.stringValue(as)))
         push transforms.arr t
         return this
+    } doc {
+        public
+        category "Transforms"
+        description "Adds a column computed from the others."
+        param expression "A Vega expression over the row's columns."
+        param as "The name of the new column."
+        returns "This chart, so calls chain."
     }
     fn transformJson:VlChart (transform:VlJson) {
         push transforms.arr transform
         return this
+    } doc {
+        public
+        category "Transforms"
+        description "Appends an already-built transform."
+        param transform "The transform definition."
+        returns "This chart, so calls chain."
     }
 
     ; Two marks measuring different things up the same side of the plot must
@@ -799,6 +1743,17 @@ class VlChart {
         }
         scales.setMember(channel (VlJson.stringValue("independent")))
         return this
+    } doc {
+        public
+        category "Scales and axes"
+        description "Stops the layers sharing one scale on a channel.
+
+Two marks measuring different things up the same side of the plot must not
+share a scale. This is what makes a Pareto chart — bars against a count, a
+line against a running percentage — rather than two series averaged into one
+axis neither of them asked for."
+        param channel "The channel to split, usually \"y\"."
+        returns "This chart, so calls chain."
     }
 
     ; Said once. `toSpec` may be called more than once — a caller that writes
@@ -972,6 +1927,19 @@ class VlChart {
             out.setMember("config" cfg)
         }
         return out
+    } doc {
+        public
+        category "Output"
+        description "The chart as a Vega-Lite specification.
+
+One mark comes out as a plain specification; several come out as layers, each
+carrying the shared channels in full — a specification that states everything
+is one the compiler already handles and one a person can read in a diff.
+
+May be called more than once. Check `errors` afterwards: a chart that names a
+column its data does not have is reported here, where Vega-Lite would have
+drawn an empty axis and said nothing."
+        returns "A Vega-Lite specification, ready for `VlCompile`."
     }
 
     fn toText:string () {
@@ -979,4 +1947,42 @@ class VlChart {
         def w (new VlJsonWriter())
         return (w.write(spec))
     }
+} doc {
+    public
+    category "Marks"
+    description "A chart: a dataset, the channels every mark shares, how big it is, and the marks.
+
+```
+def data (VlDataset.create())
+data.row().str(\"region\" \"North\").num(\"sales\" 120.0)
+data.row().str(\"region\" \"South\").num(\"sales\"  93.0)
+
+def chart (VlChart.create(data))
+chart.size(300 200)
+chart.bar().x(\"region\").y(\"sales\").aggregate(\"sum\")
+
+def spec:VlJson (chart.toSpec())
+```
+
+The fluent surface is a **writer of specifications**, not the engine. Every
+call writes into a specification and `toSpec` hands that specification over;
+nothing here computes a scale, a layout or a pixel. There is no path where the
+API computes something the engine would have computed differently, because the
+API computes nothing at all.
+
+A channel said on the chart is inherited by every mark on it, so a line and the
+points on top of it are two marks and one set of axes rather than two charts:
+
+```
+chart.x(\"quarter\").y(\"sales\").color(\"region\")
+chart.area().markOpacity(0.35)
+chart.line()
+```
+
+A channel need not state its type — the data says. A column of numbers is a
+quantity, a column of ISO dates an instant, anything else a name. A field the
+data does not have is an **error** rather than a guess: `errors` is non-empty
+and the caller can say so instead of drawing an empty axis."
+    since "1.0"
+    see VlDataset
 }
