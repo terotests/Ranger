@@ -2477,6 +2477,34 @@ measured the CONTENT BOX and passed the mutation that puts `height: 20px`
 back — which is the whole bug, a box that is not its line. Measuring the line
 instead, it reports −2.53 against the browser's −2.5.
 
+## A bundle that builds is not a page that works
+
+`mod.EVGReconcile is not a constructor`, reported from a browser console.
+`keptTree` builds three of the demos and asks the compiled module for the
+classes it needs — the same module the elements come from, because two copies
+of a class are two classes — and `MenubarDemo.rgr` has never imported
+`EVGReconcile.rgr`. Checked with `git log -S`: never, not once. So that line
+threw the day it was written and kept throwing for as long as the page has
+existed.
+
+**Nothing caught it because nothing RAN the page.** `ui:demo:build` bundles it,
+which proves esbuild can resolve the imports and not one thing more. The checks
+beside it drive the demo classes in Node and never touch `main.js`. The a11y
+audit mirrors trees into a DOM without loading the page that draws them. Every
+instrument pointed at the parts and none at the assembly.
+
+Two things came out of it. `demo/page-check.mjs` serves the repo, opens
+`index.html` at the same URL a person opens, and fails on any uncaught
+exception, console error or failed request — then clicks through all thirteen
+demos, because a page that starts is not a page whose every tab starts. And
+`scripts/run-gallery-browser-tests.sh`, because the browser-side suites had no
+single command and were therefore run by hand, which is the same failure one
+level up.
+
+The first version of the check passed while the bundle 404'd: a canvas is born
+300x150, and "something was drawn" was reading an element's default. It asks
+whether the PAGE sized it now.
+
 **Still to come**: the reference's horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the
