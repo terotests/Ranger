@@ -1858,6 +1858,42 @@ focus and selection alone, the tick travelling with a dragged row, and
 `aria-checked` on the row with no nested widget — and 5 mutations, all caught.
 Both are in `run-gallery-editor-tests.sh`, which is now 39 suites.
 
+## `aria-orientation`, and six controllers that were quietly silent
+
+Added to the observed field list while starting on the resizable splitter,
+where it is load-bearing: two separators in a nested layout have the same role,
+the same name and the same value range, and the ONLY thing that says ArrowLeft
+moves one and does nothing at all to the other is the orientation.
+
+It was not a resizable problem. Adding the field turned **every** spec red, and
+after the two sides were taught to report an absent value the same way, seven
+specs stayed red — all of them components that had been at parity for months:
+
+| node | what the reference says |
+| --- | --- |
+| every menu surface, submenus included | `vertical` |
+| a menubar's open menu | `vertical` |
+| a VERTICAL separator | `vertical` |
+| the slider's THUMB, not its track | `horizontal` |
+| the toolbar root | `horizontal` |
+| the tabs LIST, not the tabs root | `horizontal` |
+
+Two of those are details a reading would get wrong. **A horizontal separator
+says nothing**: `horizontal` is the ARIA default and Radix leaves the attribute
+off rather than writing the default down, which is why only the vertical one
+diverged. And the orientation sits on **the node that carries the role** — the
+slider's thumb rather than its track, the tabs list rather than the tabs root
+— which is not where a reading would put it either.
+
+`aria-controls` was deliberately not added. It is an id reference and the trace
+is already keyed by test id, so comparing it would only be comparing two id
+schemes that have no reason to agree.
+
++2315 observations, all matching. The lesson is the one `aria-level` taught on
+the tree, at a larger scale: **a field the diff does not carry is a field
+nobody is wrong about.** Parity at 100% over a field list that is missing
+something is parity over the wrong question.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

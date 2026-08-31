@@ -42,6 +42,16 @@ class UiRow {
     ; one thing the control does is the one thing the trace cannot see. That is
     ; the slider's lesson, repeated.
     def sorted:int 0
+    ; `aria-orientation`, as the DOM spells it: "horizontal", "vertical", or ""
+    ; for a row that has none.
+    ;
+    ; Its own field for the reason `sorted` has one, and the case that forces
+    ; it is the SPLITTER: two separators in a nested layout are the same role
+    ; with the same name and the same value range, and the only thing that says
+    ; ArrowLeft moves one and does nothing to the other is this. A toolbar, a
+    ; slider and a menubar publish it too, so it was a hole in every one of
+    ; them and nobody had noticed.
+    def orientation:string ""
     ; `aria-haspopup`, as the DOM spells it: "menu" on a row that opens one,
     ; "" on everything else. The one attribute that separates a submenu's
     ; parent from the item beside it — both are menuitems, both are named, and

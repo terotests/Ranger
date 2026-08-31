@@ -1264,6 +1264,7 @@ class UiHost {
             ; `aria-sort` as the DOM spells it, so the two sides compare as
             ; strings rather than as one side's numbering.
             out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
+            out = out + ",\"orientation\":" + (UiHost.textOrNull(row.orientation))
             ; `aria-haspopup`, absent rather than empty when there is none —
             ; the DOM reports null for a node without the attribute, and "" is
             ; a different thing from "not there".

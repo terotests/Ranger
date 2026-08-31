@@ -48,6 +48,7 @@ function run(spec, css) {
         selected: null,
         disabled: false,
         tabstop: false,
+        orientation: null,
         valuenow: null,
         valuemin: null,
         valuemax: null,

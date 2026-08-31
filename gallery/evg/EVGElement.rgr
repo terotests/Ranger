@@ -584,6 +584,12 @@ class EVGElement {
     def a11yHidden:boolean false
     ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
     def a11ySorted:int 0
+    ; `aria-orientation`. Its own field for the reason `aria-sort` is one: on a
+    ; SPLITTER it decides what a key means — ArrowLeft moves a horizontal one
+    ; and does nothing at all to a vertical one — and every other observation
+    ; about the two is identical. A toolbar, a slider, a menubar and a
+    ; separator all publish it too.
+    def a11yOrientation:string ""
     ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
     ; booleans — `aria-checked="false"` on something that is not checkable makes
     ; a reader announce a checkbox that does not exist.
@@ -2003,6 +2009,7 @@ class EVGElement {
         a11yRoleDescription = other.a11yRoleDescription
         a11yHidden = other.a11yHidden
         a11ySorted = other.a11ySorted
+        a11yOrientation = other.a11yOrientation
         a11yChecked = other.a11yChecked
         a11yExpanded = other.a11yExpanded
         a11ySelected = other.a11ySelected
@@ -2138,6 +2145,10 @@ class EVGElement {
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value
+            return
+        }
+        if ((name == "aria-orientation") || (name == "a11yOrientation")) {
+            a11yOrientation = (to_lowercase value)
             return
         }
         if ((name == "aria-sort") || (name == "a11ySorted")) {

@@ -4388,6 +4388,7 @@ class EVGElement  {
     this.a11yRoleDescription = "";
     this.a11yHidden = false;
     this.a11ySorted = 0;
+    this.a11yOrientation = "";
     this.a11yChecked = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
@@ -5033,6 +5034,7 @@ class EVGElement  {
     this.a11yRoleDescription = other.a11yRoleDescription;
     this.a11yHidden = other.a11yHidden;
     this.a11ySorted = other.a11ySorted;
+    this.a11yOrientation = other.a11yOrientation;
     this.a11yChecked = other.a11yChecked;
     this.a11yExpanded = other.a11yExpanded;
     this.a11ySelected = other.a11ySelected;
@@ -5150,6 +5152,10 @@ class EVGElement  {
     }
     if ( (name == "aria-label") || (name == "a11yLabel") ) {
       this.a11yLabel = value;
+      return;
+    }
+    if ( (name == "aria-orientation") || (name == "a11yOrientation") ) {
+      this.a11yOrientation = value.toLowerCase();
       return;
     }
     if ( (name == "aria-sort") || (name == "a11ySorted") ) {

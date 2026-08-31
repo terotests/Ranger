@@ -33,6 +33,17 @@ export const FIELDS = [
   // so without these two the diff cannot see its SHAPE at all. `posinset` is
   // already here and says where a row sits among its siblings; these say how
   // deep it is and how many siblings there are.
+  // `aria-orientation`. On a SPLITTER it is what a key means: ArrowLeft moves
+  // a horizontal one and does nothing at all to a vertical one, and the two
+  // are otherwise identical in every field here. Toolbars, sliders, menubars
+  // and separators publish it too, so adding it widened more than the one
+  // component it was added for — which is the point of a shared field list.
+  //
+  // `aria-controls` is deliberately NOT here. It is an id reference, and the
+  // trace is already keyed by test id: the separator's own tid says which one
+  // it is, so the reference would only be comparing two id schemes that have
+  // no reason to agree.
+  "orientation",
   "level",
   "setsize",
   // `aria-posinset`, the attribute — NOT the `posinset` below, which this

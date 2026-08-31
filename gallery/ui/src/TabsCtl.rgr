@@ -235,6 +235,8 @@ class TabsCtl extends UiCtl {
         push out rootRow
 
         def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.tabList()) name))
+        ; On the LIST, not on the root — the root has no role at all.
+        listRow.orientation = "horizontal"
         listRow.parentTid = tid
         listRow.tabStop = true
         push out listRow

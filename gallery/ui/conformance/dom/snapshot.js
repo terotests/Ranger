@@ -134,6 +134,7 @@ export function snapshotDom(options) {
       // Would Tab land here? Roving focus is exactly this going false on the
       // items a composite does not want in the tab order.
       tabstop: el.tabIndex >= 0 && !disabled,
+      orientation: el.getAttribute("aria-orientation"),
       valuenow: num("aria-valuenow"),
       valuemin: num("aria-valuemin"),
       valuemax: num("aria-valuemax"),
@@ -221,6 +222,7 @@ export function snapshotDom(options) {
       selected: null,
       disabled: false,
       tabstop: false,
+      orientation: null,
       valuenow: null,
       valuemin: null,
       valuemax: null,

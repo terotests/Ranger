@@ -479,6 +479,10 @@ class MenubarCtl extends UiCtl {
             if (m.value == openValue) {
                 def contentRow:UiRow (UiRow.of((this.contentTid(m.value)) (EVGA11yRole.menu()) ""))
                 contentRow.state = word
+                ; The BAR is horizontal and the menu it opens is vertical, and
+                ; a reader needs both: one says Left and Right walk the bar,
+                ; the other says Up and Down walk the menu.
+                contentRow.orientation = "vertical"
                 contentRow.focusable = true
                 push out contentRow
 

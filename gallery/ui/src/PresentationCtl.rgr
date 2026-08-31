@@ -70,6 +70,17 @@ class SeparatorCtl extends UiCtl {
             role = (EVGA11yRole.none())
         }
         def r:UiRow (UiRow.of(tid role ""))
+        ; Only the VERTICAL one says so. `horizontal` is the ARIA default for
+        ; a separator, and Radix leaves the attribute off rather than writing
+        ; the default down — measured, and it is why only `sepv` diverged when
+        ; the field was added. A decorative separator has no role and says
+        ; nothing either.
+        if decorative {
+        } {
+            if vertical {
+                r.orientation = "vertical"
+            }
+        }
         push out r
         return out
     }

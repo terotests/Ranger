@@ -232,6 +232,11 @@ class EVGA11yNode {
     ; header keeps its name, its role and its position — so without this the
     ; one thing the control does is the one thing the trace cannot see.
     def sorted:int 0
+    ; `aria-orientation`, verbatim: "horizontal", "vertical", or "" for none.
+    ; A string rather than a code because there are exactly two values and a
+    ; reader says them; the tri-state codes exist where a THIRD state (mixed,
+    ; not-applicable) has to be told apart from false.
+    def orientation:string ""
 
     ; A number the platform announces: where a slider sits, how far a progress
     ; bar has got. `hasValueNow` is not decoration — a progress bar with a range
@@ -481,6 +486,9 @@ class EVGA11yTree {
         }
         if (n.checked != 0) {
             out = (out + ",\"checked\":" + (to_string n.checked))
+        }
+        if ((strlen n.orientation) > 0) {
+            out = (out + ",\"orientation\":\"" + n.orientation + "\"")
         }
         if (n.sorted != 0) {
             out = (out + ",\"sorted\":" + (to_string n.sorted))

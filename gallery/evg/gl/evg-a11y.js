@@ -242,6 +242,10 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     // A flat tree carries its nesting HERE and nowhere else: without it a
     // reader announces a tree as a list of siblings all at the same depth.
     setAttr(el, "aria-level", node.level || null);
+    // What a key MEANS on a splitter, and the only thing that tells a
+    // horizontal one from a vertical one — every other observation about the
+    // two is identical.
+    setAttr(el, "aria-orientation", node.orientation || null);
     setAttr(el, "aria-live", node.live === 2 ? "assertive" : node.live === 1 ? "polite" : null);
 
     const b = node.b || [0, 0, 0, 0];
