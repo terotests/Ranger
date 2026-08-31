@@ -842,3 +842,33 @@
 .ui-table-next:disabled { color: #64748b; background-color: #f1f5f9; }
 
 .ui-table-col:hover { color: #1e293b; }
+
+/* --- resizable ---------------------------------------------------------------
+ * The separator needs a SIZE. Without one the a11y lint said "focusable with
+ * no height", which is not pedantry: a focusable control with no box is one a
+ * pointer cannot reach and a focus ring cannot be drawn around. */
+.ui-resizable {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 400px;
+  height: 300px;
+}
+
+.ui-resizable-vertical { flex-direction: column; }
+
+.ui-resizable-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 199px;
+  height: 300px;
+}
+
+.ui-resizable-sep {
+  width: 2px;
+  height: 300px;
+  background-color: #e4e4e7;
+}
+
+.ui-resizable-body { width: 199px; height: 40px; }

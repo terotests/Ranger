@@ -2008,6 +2008,53 @@ Field list → text field → typing step → Field wrappers → more inputs →
 Anything that starts further down that list is building on a trace that cannot
 see what it built.
 
+## Resizable, and a reference that publishes an impossible range
+
+ReUI's is react-resizable-panels, and its own prop names give it away:
+`orientation` and percentage strings (`"50%"`) are that library's API and
+nobody else's. A generous oracle and an easy one — one role, four attributes
+and a keyboard, all DOM-observable — so ordinary conformance, no capture.
+
+Six specs, 12 behaviours, 5245 observations. Five things measured that a
+reading would not give you:
+
+- **The orientation inverts.** A separator in a HORIZONTAL group publishes
+  `aria-orientation="vertical"`. That is right: the attribute describes the
+  separator LINE, which stands across the axis it resizes.
+- **And the key handler reads the other one.** ArrowLeft moves the separator
+  whose GROUP is horizontal — the same separator that publishes "vertical".
+  Two orientations, opposite values, both correct.
+- **`aria-valuenow` is the panel BEFORE**, so moving one separator changes the
+  next one's published value.
+- **Enter collapses the panel before, too.** With only the second panel
+  collapsible, Enter does nothing at all and reads as unimplemented — which is
+  exactly how it read here until a fixture put `collapsible` on the first.
+- **F6 stays inside its own group.** In the reference's own nested example each
+  group has one separator, so F6 focuses the one it is already on and looks
+  broken. It took a group of three panels to see it work.
+
+### Two places this deliberately does not copy the reference
+
+**An impossible range.** From three panels up, every separator but the first
+publishes an incoherent one. Measured at 20/30/50, the second says
+`aria-valuemin=50`, `aria-valuenow=30`, `aria-valuemax=0` — min above now above
+max, with valuemin tracking the CUMULATIVE size up to that panel rather than
+any minimum. No assistive technology can use that. So this side publishes a
+coherent range, `separator-constraints` is catalogued **disputed** with the
+numbers, and the harness gained a per-spec **`ignore`** list: fields a spec
+declares disputed go out of the denominator entirely rather than counting as
+matches, with `$ignore` in the spec saying what was measured and why. Two
+panels, where the reference is right, are measured in full.
+
+**An unnamed focusable control.** The library names no separator, leaving one
+announcing "50, separator" and nothing about what it splits. That is an
+omission, not a contract, so both sides name it after the panel it resizes —
+a divergence that ADDS rather than changes, and the only one here.
+
+The a11y gate found the second one, along with a separator that had no height
+at all — which is not pedantry: a focusable control with no box is one a
+pointer cannot reach and a focus ring cannot be drawn around.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

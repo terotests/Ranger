@@ -1,0 +1,14 @@
+{ "name":"resizable_keyboard","component":"resizable",
+  "$comment":"Arrows move by 5, and the pair that does not match the GROUP's axis does nothing at all — which is the second half of the orientation finding: the attribute says one thing and the key handler reads the other, and both are right. Home and End are deltas of a hundred rather than absolute positions, which only shows once constraints clamp them.",
+  "behaviours":["separator-arrows","separator-arrows-wrong-axis","separator-home-end"],
+  "fixture":{"controls":[{"type":"resizable","tid":"rz","orientation":"horizontal",
+    "panels":[{"value":"one","defaultSize":"50%"},{"value":"two","defaultSize":"50%"}]}]},
+  "steps":[
+    {"focus":"rz-sep-0"},
+    {"key":"ArrowRight"},
+    {"key":"ArrowRight"},
+    {"key":"ArrowUp"},
+    {"key":"ArrowDown"},
+    {"key":"ArrowLeft"},
+    {"key":"Home"},
+    {"key":"End"}] }

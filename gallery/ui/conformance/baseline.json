@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 260,
-    "covered": 258,
-    "matchedBehaviours": 258,
-    "observations": 52725,
-    "matchedObservations": 52725
+    "catalogued": 272,
+    "covered": 270,
+    "matchedBehaviours": 270,
+    "observations": 57970,
+    "matchedObservations": 57970
   },
   "components": {
     "toggle": {
@@ -130,6 +130,10 @@
     "table": {
       "covered": 10,
       "matchedBehaviours": 10
+    },
+    "resizable": {
+      "covered": 12,
+      "matchedBehaviours": 12
     }
   }
 }

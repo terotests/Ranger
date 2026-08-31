@@ -88,10 +88,11 @@ function indexByTid(nodes) {
 }
 
 /** Divergences between one pair of observations. */
-export function diffNodes(step, rangerNodes, domNodes) {
+export function diffNodes(step, rangerNodes, domNodes, ignoreFields) {
   const diffs = [];
   let observations = 0;
   let matched = 0;
+  const ignore = new Set(ignoreFields || []);
   const rm = indexByTid(rangerNodes);
   const dm = indexByTid(domNodes);
 
@@ -105,6 +106,13 @@ export function diffNodes(step, rangerNodes, domNodes) {
       continue;
     }
     for (const f of FIELDS) {
+      // A field a spec has declared DISPUTED. Not skipped quietly: it is out of
+      // the denominator entirely, and `behaviours.json` carries the evidence
+      // for why copying the reference here would be worse than diverging from
+      // it. The one case today is a splitter's aria-valuemin/valuemax in a
+      // group of three or more, where the reference publishes min > now > max
+      // — a range no assistive technology can use.
+      if (ignore.has(f)) continue;
       if (!comparable(f, rn, dn)) continue;
       observations += 1;
       if (rn[f] === dn[f]) matched += 1;
@@ -120,7 +128,7 @@ export function diffNodes(step, rangerNodes, domNodes) {
  * An observation is one field of one node at one step, so a spec's denominator
  * grows with both the fixture and the number of steps.
  */
-export function diffTraces(rangerTrace, domTrace) {
+export function diffTraces(rangerTrace, domTrace, ignoreFields) {
   const diffs = [];
   let observations = 0;
   let matched = 0;
@@ -133,7 +141,7 @@ export function diffTraces(rangerTrace, domTrace) {
       diffs.push({ step: (r || d).step, note: "step missing on " + (r ? "dom" : "ranger") });
       continue;
     }
-    const one = diffNodes(r.step, r.nodes, d.nodes);
+    const one = diffNodes(r.step, r.nodes, d.nodes, ignoreFields);
     diffs.push(...one.diffs);
     observations += one.observations;
     matched += one.matched;

@@ -197,6 +197,35 @@ function buildHost(M, fixture, css) {
         for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
         break;
 
+      // A group of resizable panels, and a panel may hold a group of its own.
+      // Nesting is the controller's business here the way a submenu is
+      // MenuCtl's, so the fixture nests and the host does not have to.
+      case "resizable": {
+        const build = (group, ctl) => {
+          for (const p of group.panels || []) {
+            const size = parseFloat(String(p.defaultSize ?? "0").replace("%", ""));
+            const panel = ctl.addPanel(p.value, size);
+            if (p.minSize != null) panel.minSize = parseFloat(String(p.minSize).replace("%", ""));
+            if (p.maxSize != null) panel.maxSize = parseFloat(String(p.maxSize).replace("%", ""));
+            if (p.collapsible) {
+              panel.collapsible = true;
+              panel.collapsedSize = parseFloat(String(p.collapsedSize ?? "0").replace("%", ""));
+            }
+            if (p.group) {
+              const sub = new M.ResizeCtl();
+              sub.tid = ctl.panelTid(p.value) + "-group";
+              sub.orientation = p.group.orientation || "horizontal";
+              build(p.group, sub);
+              panel.sub = sub;
+            }
+          }
+        };
+        ctl = host.addResizable(c.tid, c.orientation || "horizontal");
+        build(c, ctl);
+        ctl.build();
+        break;
+      }
+
       case "tree": {
         ctl = host.addTree(c.tid, c.name || "", c.root);
         // Selection is a MODE, off unless the fixture asks. ReUI's tree does

@@ -91,6 +91,16 @@ global because Radix's toast also renders a live region, and what it says there
 is a concatenation of nodes the trace already carries ("Notification SavedAll
 goodUndo") — comparing that would be comparing one library's copy-writing.
 
+`ignore` is a list of FIELD names this spec does not compare, and it is not a
+convenience. It exists for one situation: the reference publishes something a
+real assistive technology cannot use, so copying it would be worse than
+diverging from it. The fields go out of the denominator entirely rather than
+being counted as matches, the spec carries an `$ignore` saying what was
+measured and why, and the behaviour is marked `disputed` in `behaviours.json`
+so it stays uncovered in the score with the evidence attached. Today there is
+exactly one: a splitter's `aria-valuemin`/`aria-valuemax` in a group of three
+or more, where the reference reports min above now above max.
+
 `behaviours` must name entries from `behaviours.json`; `report.mjs` refuses a
 spec that invents one, so the catalogue cannot rot quietly. Specs are kept
 small — one behaviour group each — because a failure marks exactly the

@@ -32,6 +32,7 @@ Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
 Import "SliderCtl.rgr"
+Import "ResizeCtl.rgr"
 Import "ToastCtl.rgr"
 Import "SortableCtl.rgr"
 Import "TableCtl.rgr"
@@ -277,6 +278,14 @@ class UiHost {
         c.tid = tid
         c.name = name
         c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addResizable:ResizeCtl (tid:string orientation:string) {
+        def c (new ResizeCtl())
+        c.tid = tid
+        c.orientation = orientation
         this.add(c)
         return c
     }

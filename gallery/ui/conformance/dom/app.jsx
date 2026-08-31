@@ -29,6 +29,10 @@ import * as Progress from "@radix-ui/react-progress";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Separator from "@radix-ui/react-separator";
 import * as Slider from "@radix-ui/react-slider";
+// Not Radix — Radix has no resizable. ReUI's is react-resizable-panels, and
+// the giveaway is its own prop names: `orientation` and percentage STRINGS
+// (`"50%"`) are that library's API and nobody else's.
+import { Group as RzGroup, Panel as RzPanel, Separator as RzSeparator } from "react-resizable-panels";
 import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Toast from "@radix-ui/react-toast";
@@ -189,6 +193,71 @@ function ToastControl({ spec, tid }) {
  * The props go on verbatim, spread rather than picked apart, so nothing the
  * library says can be quietly dropped on the way to the trace.
  */
+/**
+ * A group of resizable panels, nestable.
+ *
+ * The fixture names panels by value and lets a panel carry a `group` of its
+ * own, which is the shape the reference's own example has: a horizontal pair
+ * whose right half is a vertical pair.
+ *
+ * Ids are OURS rather than the library's generated ones — `<group>-panel-<v>`
+ * and `<group>-sep-<i>` — so a spec names a separator the same way it names
+ * anything else, and `aria-controls` points at something a reader of the spec
+ * recognises. It is not compared (see diff.mjs) but it should still be true.
+ */
+function ResizableGroup({ node, tid }) {
+  const parts = [];
+  (node.panels || []).forEach((p, i) => {
+    if (i > 0) {
+      parts.push(
+        <RzSeparator
+          key={"sep" + i}
+          id={tid + "-sep-" + (i - 1)}
+          data-tid={tid + "-sep-" + (i - 1)}
+          // The LIBRARY publishes no accessible name for a separator, which
+          // leaves a focusable control announcing "50, separator" and nothing
+          // about what it splits. That is the library's omission and not a
+          // contract to copy, so both sides name it the same way and the
+          // catalogue records that the library itself does not.
+          aria-label={"Resize " + (node.panels[i - 1].name || node.panels[i - 1].value)}
+          className="rz-sep"
+        />,
+      );
+    }
+    const panelTid = tid + "-panel-" + p.value;
+    parts.push(
+      <RzPanel
+        key={p.value}
+        id={panelTid}
+        data-tid={panelTid}
+        defaultSize={p.defaultSize}
+        minSize={p.minSize}
+        maxSize={p.maxSize}
+        collapsible={p.collapsible}
+        collapsedSize={p.collapsedSize}
+        className="rz-panel"
+      >
+        {p.group ? (
+          <ResizableGroup node={p.group} tid={panelTid + "-group"} />
+        ) : (
+          <div data-tid={panelTid + "-body"}>{p.name || p.value}</div>
+        )}
+      </RzPanel>,
+    );
+  });
+  return (
+    <RzGroup
+      id={tid}
+      data-tid={tid}
+      orientation={node.orientation || "horizontal"}
+      className="rz-group"
+      style={{ width: 400, height: 300 }}
+    >
+      {parts}
+    </RzGroup>
+  );
+}
+
 function TreeControl({ spec, tid }) {
   // The fixture's shape is headless-tree's own: a flat record of items, each
   // naming its children, plus a root that is not itself rendered.
@@ -862,6 +931,9 @@ export function Control({ spec }) {
 
     case "tree":
       return <TreeControl spec={spec} tid={tid} />;
+
+    case "resizable":
+      return <ResizableGroup node={spec} tid={tid} />;
 
     /**
      * A bar of menus. The parts follow the same rule the rest do — `x-<value>`

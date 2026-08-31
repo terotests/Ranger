@@ -437,6 +437,27 @@
         "page-next-prev": "paging moves a window over the rows and reports how many pages there are",
         "page-edges": "the paging controls are disabled at the ends rather than running past them"
       }
+    },
+    "resizable": {
+      "radix": "react-resizable-panels",
+      "$comment": "Not Radix — Radix has no resizable. ReUI's is react-resizable-panels, and its own prop names give it away: `orientation` and percentage STRINGS (\"50%\") are that library's API and nobody else's. The whole contract is DOM-observable — role, four ARIA attributes and a keyboard — so this is ordinary conformance with no bespoke capture, unlike the tree's drop targets or the table's state machine. The library gives the separator NO accessible name; the playground supplies one on both sides, because an unnamed focusable control is an omission rather than a contract — see `separator-unnamed`.",
+      "behaviours": {
+        "separator-role": "the draggable divider is a separator, and the panels and the group carry no role at all",
+        "separator-orientation-inverts": "a separator in a HORIZONTAL group says aria-orientation=vertical, because the attribute describes the separator LINE and not the axis it resizes",
+        "separator-value-is-the-panel-before": "aria-valuenow is the percentage size of the panel immediately BEFORE the separator, so moving one separator changes the next one's value too",
+        "separator-tabstop": "every separator is its own tab stop — there is no roving tab stop and no single entry point",
+        "separator-unnamed": "the LIBRARY names no separator, which leaves a focusable control announcing \"50, separator\" and nothing about what it splits. That is an omission and not a contract, so both sides here name it after the panel it resizes — the one place this component diverges from what the reference ships, and it diverges by adding rather than by changing",
+        "separator-arrows": "the arrows along the group's axis move the divider by five percent a press",
+        "separator-arrows-wrong-axis": "and the other pair does nothing at all — the key handler reads the GROUP's orientation, which is the opposite of the one the separator publishes",
+        "separator-home-end": "Home and End are deltas of a hundred rather than absolute ends, which only shows when constraints clamp them short",
+        "separator-constraints": {
+          "note": "aria-valuemin and aria-valuemax are what the LAYOUT allows for that panel, not what the panel asked for",
+          "disputed": "Only in a group of TWO. From three panels up the reference publishes an incoherent range on every separator but the first: measured at 20/30/50, the second separator says aria-valuemin=50, aria-valuenow=30, aria-valuemax=0 — min above now above max, and valuemin tracking the CUMULATIVE size up to that panel rather than any minimum. No assistive technology can use that, so this side publishes a coherent range and diverges on purpose; `resizable_f6` lists the two fields in its `ignore` and says why. The two-panel case, where the reference is right, is measured in full."
+        },
+        "separator-enter-collapses": "Enter collapses the panel BEFORE the separator, and only when that panel is collapsible",
+        "separator-enter-restores": "and Enter again puts it back to the size it had, not to its minimum",
+        "separator-f6-cycles": "F6 walks to the next separator in the SAME group and wraps; Shift+F6 goes back. In a nested layout each group has one, so F6 lands where it started"
+      }
     }
   }
 }
