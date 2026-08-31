@@ -112,6 +112,11 @@
      inline display of their own. */
   .editbar .wand-only { display: none !important; }
   .editbar.wand .wand-only { display: inline-flex !important; }
+  /* Same for the refine brush. These three sat unscoped beside the wand's own
+     controls and read as if they were the wand's — they are not; they change
+     nothing about what the wand selects. */
+  .editbar .refine-only { display: none !important; }
+  .editbar.refine .refine-only { display: inline-flex !important; }
   .tool { padding: 5px 12px; font-size: 12.5px; }
   .tool.active { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
   /* Hit-testing wants the whole shape, not just its painted middle, and a
@@ -123,6 +128,11 @@
   #outStage.editing.refining svg path:hover { stroke: none; }
   #outStage.editing.smoothing svg path { cursor: grab; }
   #outStage.editing.smoothing svg path:hover { stroke: none; }
+  /* Zoomed in, the stage stops centring and starts scrolling, and the SVG is
+     allowed past the pane's width. The pointer mapping needs nothing: it reads
+     the element's own bounding rect, so a bigger element is simply finer. */
+  #outStage.zoomed { align-items: flex-start; justify-content: flex-start; }
+  #outStage.zoomed svg { max-width: none; }
   #outStage.editing.wanding svg path { cursor: crosshair; }
   #outStage.editing.wanding svg path.wand-off { opacity: .12; }
   .split {
@@ -431,15 +441,43 @@
         </label>
         <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Rajaa kuvan reunat valitun kohteen ympärille, jolloin tuloksesta tulee ikonin kokoinen."><input type="checkbox" id="wandCrop" checked> rajaa reunoihin</label>
         <button type="button" class="tool wand-only" id="wandCut">Eristä</button>
-        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa väriä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä.">Lisävärit
+        <span class="sep wand-only"></span>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Maalaa alueita suoraan valintaan tai pois siitä. Toisin kuin sivellinvihje, tämä ei ole ehdotus algoritmille vaan päätös: se rajaa muodot juuri siihen mitä maalasit, ja SVG rakennetaan uudelleen sen mukaan.">Maalaa
+          <button type="button" class="tool" id="wandPlus" style="padding:5px 10px">+</button>
+          <button type="button" class="tool" id="wandMinus" style="padding:5px 10px">−</button>
+          <select id="wandPaintSize" title="Siveltimen halkaisija kuvapisteinä">
+            <option value="4">4 px</option>
+            <option value="10" selected>10 px</option>
+            <option value="20">20 px</option>
+            <option value="50">50 px</option>
+          </select>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Suurenna tulosta tarkempaa maalausta varten. Vieritä lavaa liikkuaksesi kuvassa.">Zoom
+          <select id="wandZoom">
+            <option value="1">100 %</option>
+            <option value="2">200 %</option>
+            <option value="3">300 %</option>
+            <option value="5">500 %</option>
+            <option value="8">800 %</option>
+          </select>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Mitä ruudulla näytetään. Lopputulos on valinta sellaisenaan; muut näyttävät mihin päätös perustuu. Varmuus on se, kuinka paljon energiaa palan kääntäminen toiselle puolelle maksaisi — melkein valkoinen tarkoittaa että pala oli tasapelissä ja pieni lisäevidenssi kääntäisi sen.">Näytä
+          <select id="wandView">
+            <option value="result">lopputulos</option>
+            <option value="conf">varmuus</option>
+            <option value="regions">palat</option>
+            <option value="edges">rasterisärmät</option>
+          </select>
+        </label>
+        <label class="note refine-only" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa sävyä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä. Ei vaikuta taikasauvan valintaan.">Omat sävyt
           <input id="refineExtra" type="range" min="0" max="16" step="1" value="4" style="width:70px">
           <span class="val" id="v-refineExtra">4</span>
         </label>
-        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka voimakkaasti reunan muodot palautetaan ympäröiviin sävyihin">Sulautus
+        <label class="note refine-only" style="display:flex;align-items:center;gap:6px" title="Kuinka voimakkaasti tarkennetun laikun reunamuodot sulautetaan ympäröiviin sävyihin, jottei sauma näy. Ei vaikuta taikasauvan valintaan.">Reunan sulautus
           <input id="edgeBlend" type="range" min="0" max="120" step="4" value="90" style="width:70px">
           <span class="val" id="v-edgeBlend">90</span>
         </label>
-        <label class="note" style="display:flex;align-items:center;gap:6px">Koko
+        <label class="note refine-only" style="display:flex;align-items:center;gap:6px" title="Tarkentimen siveltimen leveys pikseleinä.">Tarkentimen koko
           <input id="refineSize" type="range" min="12" max="120" step="4" value="40" style="width:90px">
           <span class="val" id="v-refineSize">40</span>px
         </label>
@@ -1257,6 +1295,7 @@
     outStage.classList.toggle("smoothing", !picking && editTool === "smooth");
     outStage.classList.toggle("wanding", !picking && editTool === "wand");
     editbar.classList.toggle("wand", editTool === "wand" && !picking);
+    editbar.classList.toggle("refine", editTool === "refine" && !picking);
     $("toolHelp").textContent = picking ? "Napsauta muotoa poimiaksesi sen värin."
       : editTool === "merge" ? "Napsauta muotoja: ne saavat valitun värin ja sulautuvat naapureihinsa."
       : editTool === "refine" ? "Vedä alueen yli: se vektoroidaan uudelleen omalla paletillaan."
@@ -1359,6 +1398,14 @@
   // The stroke that covered more of the region is the one that pointed at it.
   var wandFgTouch = new Map(), wandBgTouch = new Map();
   var wandFg = new Set(), wandBg = new Set();
+  // Region → what flipping it would cost. Filled by the cut; read by the views.
+  var wandCost = new Map();
+  // What the hand painted, over and above what the algorithm decided. Two
+  // rasters the size of the wand's own grid: one of cells forced in, one of
+  // cells forced out. They are not hints — a hint is an argument the min-cut
+  // weighs, and these are the answer itself — so they are applied after it,
+  // every time, and they survive the next stroke.
+  var wandAddMask = null, wandCutMask = null, wandPaintMode = null;
 
   // The invariant, in one place, because it is the rule the whole interaction
   // rests on and it was wrong once:
@@ -1711,7 +1758,52 @@
              seen: seen, labL: labL, labA: labA, labB: labB, n: els.length };
   }
 
-  function wandInvalidate() { wandGraph = null; }
+  function wandInvalidate() { wandGraph = null; wandAddMask = null; wandCutMask = null; }
+
+  // Stamp a disc of the chosen size into one of the two rasters.
+  function wandPaintStroke(g, pts, mode) {
+    var n = g.cw * g.ch;
+    if (!wandAddMask) { wandAddMask = new Uint8Array(n); wandCutMask = new Uint8Array(n); }
+    var into = mode === "add" ? wandAddMask : wandCutMask;
+    var other = mode === "add" ? wandCutMask : wandAddMask;
+    var rPx = (+document.getElementById("wandPaintSize").value) / 2;
+    var r = Math.max(1, rPx * g.sc), r2 = r * r;
+    function disc(cx, cy) {
+      var x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(g.cw - 1, Math.ceil(cx + r));
+      var y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(g.ch - 1, Math.ceil(cy + r));
+      for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) {
+        var dx = x - cx, dy = y - cy;
+        if (dx * dx + dy * dy > r2) continue;
+        var p = y * g.cw + x;
+        into[p] = 1; other[p] = 0;      // the last stroke over a cell wins
+      }
+    }
+    for (var i = 0; i < pts.length; i++) {
+      var cx = (pts[i].x - g.vb[0]) * g.sc, cy = (pts[i].y - g.vb[1]) * g.sc;
+      disc(cx, cy);
+      if (i + 1 < pts.length) {
+        var nx = (pts[i+1].x - g.vb[0]) * g.sc, ny = (pts[i+1].y - g.vb[1]) * g.sc;
+        var d = Math.hypot(nx - cx, ny - cy), steps = Math.ceil(d / Math.max(1, r * 0.5));
+        for (var k = 1; k < steps; k++) disc(cx + (nx - cx) * k / steps, cy + (ny - cy) * k / steps);
+      }
+    }
+  }
+
+  // Make the picture be the answer plus the hand's corrections. Regions are
+  // clipped to it, so the SVG really is rebuilt around what was painted rather
+  // than merely hidden.
+  function wandManualApply(g) {
+    if (!wandSel || (!wandAddMask && !wandCutMask)) return;
+    var n = g.cw * g.ch;
+    var eff = wandCells(g, wandSel);
+    var mask = new Uint8Array(n);
+    for (var p = 0; p < n; p++) {
+      var on = eff[p] || (wandAddMask && wandAddMask[p]);
+      if (wandCutMask && wandCutMask[p]) on = 0;
+      mask[p] = on ? 1 : 0;
+    }
+    wandApplyMask(g, wandSel, mask, true);
+  }
 
   function wandClear() {
     if (wandGraph) {
@@ -1977,6 +2069,7 @@
       // Everything the energy is made of, when someone is asking. Kept behind a
       // flag because it is one array per edge and the graph has thousands.
       var audit = window.__wandAuditOn ? { unary: [], pair: [] } : null;
+      var unary = new Map(), around = new Map();
       var norm = labNorm(g, fgModel, bgModel);
       var N = list.length, S = N, T = N + 1, V = N + 2;
       var head = new Int32Array(V).fill(-1);
@@ -2002,6 +2095,7 @@
         var toFg = area * (dF / sum) * lean;
         edge(S, k, toBg, 0);   // cost of calling it background
         edge(k, T, toFg, 0);   // cost of calling it foreground
+        unary.set(i, [toFg, toBg]);   // [cost of keeping it, cost of dropping it]
         if (audit) audit.unary.push([i, area, +dF.toFixed(2), +dB.toFixed(2),
           depth.has(i) ? depth.get(i) : -1, +toBg.toFixed(1), +toFg.toFixed(1)]);
       }
@@ -2017,6 +2111,9 @@
           * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
           * Math.exp(-rec.edge / WAND_SIGMA_E);
         if (audit) audit.pair.push([a2, b2, +w.toFixed(2), rec.len, +rec.edge.toFixed(2), +dc.toFixed(1)]);
+        if (!around.has(a2)) around.set(a2, []);
+        if (!around.has(b2)) around.set(b2, []);
+        around.get(a2).push([b2, w]); around.get(b2).push([a2, w]);
         if (w > 1e-6) edge(slot.get(a2), slot.get(b2), w, w);
       });
 
@@ -2053,6 +2150,32 @@
       var out = new Set();
       for (var q = 0; q < N; q++) if (level[q] >= 0) out.add(list[q]);
       if (audit) { audit.cut = Array.from(out); window.__wandAudit = audit; }
+
+      // What it would cost to move each region to the other side, with its
+      // neighbours left where the cut put them. Not the true ΔE of a re-solve,
+      // but the local one, and that is the number worth looking at: a region
+      // sitting near zero was a coin toss the evidence barely decided, and a
+      // little more evidence would move it. One that costs thousands is a
+      // decision the model is sure of, and no slider will change it — the model
+      // is simply wrong about that region, which is a different repair.
+      wandCost = new Map();
+      for (var ci = 0; ci < N; ci++) {
+        var cr = list[ci], mine = out.has(cr);
+        if (fg.has(cr) || bg.has(cr)) { wandCost.set(cr, Infinity); continue; }
+        var u = unary.get(cr);
+        if (!u) continue;
+        // unary: paying the other label's cost instead of this one's
+        var d = mine ? (u[1] - u[0]) : (u[0] - u[1]);
+        // pairwise: every neighbour that agrees now would start disagreeing,
+        // and every one that disagrees would stop
+        var ns = around.get(cr);
+        if (ns) for (var ni = 0; ni < ns.length; ni++) {
+          var oj = ns[ni][0], ow = ns[ni][1];
+          if (!slot.has(oj)) continue;
+          d += out.has(oj) === mine ? ow : -ow;
+        }
+        wandCost.set(cr, d);
+      }
       return out;
     }
 
@@ -2240,14 +2363,107 @@
     return hit;
   }
 
+  // The views. "lopputulos" is the tool; the other three are the tool
+  // explaining itself, and they exist because two errors on the same picture
+  // needed opposite repairs and no single slider could tell them apart. The
+  // fill is overridden rather than the shape hidden, so the geometry, the
+  // z-order and the clips stay exactly what they are.
+  function wandViewMode() {
+    var el = document.getElementById("wandView");
+    return el ? el.value : "result";
+  }
+  function wandRestoreFill(el) {
+    var f = el.getAttribute("data-fill");
+    if (f !== null) { el.setAttribute("fill", f); el.removeAttribute("data-fill"); }
+  }
+  function wandOverrideFill(el, colour) {
+    if (el.getAttribute("data-fill") === null) el.setAttribute("data-fill", el.getAttribute("fill") || "");
+    el.setAttribute("fill", colour);
+  }
   function wandPaint() {
     if (!wandGraph) return;
-    wandGraph.els.forEach(function (el, i) {
-      el.classList.toggle("wand-off", !!wandSel && !wandSel.has(i));
-      var clip = wandSel && wandSel.has(i) ? wandClipOf.get(i) : undefined;
-      if (clip === undefined) el.removeAttribute("clip-path");
-      else el.setAttribute("clip-path", "url(#" + clip + ")");
+    var view = wandViewMode(), g = wandGraph;
+    // Confidence is read against the largest cost on the picture, so the scale
+    // says something on a poster and on an icon alike.
+    var top = 0;
+    if (view === "conf") wandCost.forEach(function (v) {
+      if (isFinite(v) && Math.abs(v) > top) top = Math.abs(v);
     });
+    g.els.forEach(function (el, i) {
+      el.classList.toggle("wand-off", view === "result" && !!wandSel && !wandSel.has(i));
+      var clip = wandSel && wandSel.has(i) ? wandClipOf.get(i) : undefined;
+      // The clip stays on wherever the view is about what was *chosen* — a
+      // region kept for a twentieth of itself is not a region kept. It comes
+      // off for "palat", where the whole shape is the thing being shown.
+      var wantClip = clip !== undefined && (view === "result" || view === "conf");
+      if (!wantClip) el.removeAttribute("clip-path");
+      else el.setAttribute("clip-path", "url(#" + clip + ")");
+      if (view === "result") { wandRestoreFill(el); return; }
+      if (view === "regions") {
+        // One hue per region, so a shape scattered over the picture is visible
+        // as one thing — which is how the base surface was found.
+        var h = (Math.imul(i + 1, 2654435761) >>> 0) % 360;
+        wandOverrideFill(el, "hsl(" + h + " 70% " + (wandSel && wandSel.has(i) ? 55 : 22) + "%)");
+        return;
+      }
+      if (view === "edges") {
+        // How strong the bitmap's own edge is around this region: the mean of
+        // the gradient across every boundary it shares.
+        var sum = 0, len = 0;
+        var near = g.nb[i] || [];
+        near.forEach(function (j) {
+          var key = (Math.min(i, j) + 1) * 100000 + (Math.max(i, j) + 1);
+          var rec = g.share.get(key);
+          if (!rec) return;
+          sum += rec.edge * rec.len; len += rec.len;
+        });
+        var e = len ? sum / len : 0;
+        var t = Math.max(0, Math.min(1, e / 60));
+        wandOverrideFill(el, "hsl(" + Math.round(30 + 200 * t) + " 80% " + Math.round(12 + 55 * t) + "%)");
+        return;
+      }
+      // conf
+      var c = wandCost.has(i) ? wandCost.get(i) : null;
+      if (c === null) { wandOverrideFill(el, "#15171c"); return; }
+      if (!isFinite(c)) { wandOverrideFill(el, "#ffd54a"); return; }   // a hint: not up for debate
+      var strength = top > 0 ? Math.min(1, Math.abs(c) / top) : 0;
+      // Sure decisions are saturated, coin tosses are pale. Warm = kept,
+      // cool = left out.
+      var keep = wandSel && wandSel.has(i);
+      var light = Math.round(96 - 52 * Math.sqrt(strength));
+      wandOverrideFill(el, "hsl(" + (keep ? 8 : 210) + " " + Math.round(20 + 70 * Math.sqrt(strength))
+        + "% " + light + "%)");
+    });
+  }
+
+  // Clicking a shape while a debug view is up says why it went where it went.
+  function wandExplain(i) {
+    var g = wandGraph;
+    if (!g) return;
+    var c = wandCost.has(i) ? wandCost.get(i) : null;
+    var near = g.nb[i] || [], wSame = 0, wOther = 0, edgeSum = 0, edgeLen = 0;
+    var keep = !!(wandSel && wandSel.has(i));
+    near.forEach(function (j) {
+      var key = (Math.min(i, j) + 1) * 100000 + (Math.max(i, j) + 1);
+      var rec = g.share.get(key);
+      if (!rec) return;
+      var dc = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      var w = PAIR_WEIGHT * rec.len
+        * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
+        * Math.exp(-rec.edge / WAND_SIGMA_E);
+      if (!!(wandSel && wandSel.has(j)) === keep) wSame += w; else wOther += w;
+      edgeSum += rec.edge * rec.len; edgeLen += rec.len;
+    });
+    var frame = 0, cw = g.cw, ch = g.ch;
+    function touch(p) { if (g.ids[p] === i + 1) frame++; }
+    for (var x = 0; x < cw; x++) { touch(x); touch((ch - 1) * cw + x); }
+    for (var y = 0; y < ch; y++) { touch(y * cw); touch(y * cw + cw - 1); }
+    setEditNote("pala " + i + " · " + g.seen[i] + " solua · "
+      + (wandFg.has(i) ? "VIHJE kohde" : wandBg.has(i) ? "VIHJE tausta" : keep ? "mukana" : "pois")
+      + " · kääntäminen maksaisi " + (c === null ? "—" : !isFinite(c) ? "∞ (vihje)" : Math.round(c))
+      + " · naapurit puolesta " + Math.round(wSame) + " vastaan " + Math.round(wOther)
+      + " · särmä " + (edgeLen ? (edgeSum / edgeLen).toFixed(1) : "—")
+      + " · kehyskosketus " + frame + " solua");
   }
 
   function wandMerge(g, grown, ev, clipped) {
@@ -2267,6 +2483,8 @@
     var g = wandReady(svg);
     var seed = g.index.get(el);
     if (seed === undefined) return;
+    // In a debug view a click is a question, not a command.
+    if (wandViewMode() !== "result") { wandExplain(seed); return; }
     wandMerge(g, wandGrow(g, seed, +wandTol.value), ev, false);
   }
 
@@ -2307,6 +2525,8 @@
     wandCohere(g, sel, wandFg);
     wandEncloseSmart(g, sel);
     wandFillHoles(g, sel);
+    wandSel = sel;
+    wandManualApply(g);
     wandSel = sel;
     wandPaint();
     // A window onto the decision, for the benchmarks. Every failure in this
@@ -2852,7 +3072,7 @@
     editStack.push(entry);
     // Not wandClear: that would take the clips off the shapes that now need
     // them. Only the selection's own marks go.
-    g.els.forEach(function (el) { el.classList.remove("wand-off"); });
+    g.els.forEach(function (el) { el.classList.remove("wand-off"); wandRestoreFill(el); });
     wandSel = null;
     wandClipOf = new Map();
     wandClipEls = new Map();
@@ -2891,6 +3111,39 @@
   toolRefine.addEventListener("click", function () { editTool = "refine"; picking = false; wandClear(); refreshEditUi(); });
   $("toolSmooth").addEventListener("click", function () { editTool = "smooth"; picking = false; wandClear(); refreshEditUi(); });
   toolWand.addEventListener("click", function () { editTool = "wand"; picking = false; refreshEditUi(); });
+  [toolMerge, toolRefine, $("toolSmooth")].forEach(function (b) {
+    b.addEventListener("click", function () {
+      // A debug view is the wand's; putting the wand away puts the colours back.
+      if (wandGraph) wandGraph.els.forEach(wandRestoreFill);
+    });
+  });
+  function wandSetPaint(mode) {
+    wandPaintMode = wandPaintMode === mode ? null : mode;
+    $("wandPlus").classList.toggle("active", wandPaintMode === "add");
+    $("wandMinus").classList.toggle("active", wandPaintMode === "cut");
+    setEditNote(wandPaintMode
+      ? (wandPaintMode === "add" ? "Maalaa mukaan otettavat alueet." : "Maalaa pois jätettävät alueet.")
+        + " Halkaisija " + $("wandPaintSize").value + " px. Napsauta painiketta uudelleen lopettaaksesi."
+      : "Sivellin antaa taas vihjeitä. ⌥ merkitsee mitä ei oteta mukaan.");
+  }
+  $("wandPlus").addEventListener("click", function () { wandSetPaint("add"); });
+  $("wandMinus").addEventListener("click", function () { wandSetPaint("cut"); });
+  $("wandZoom").addEventListener("change", function () {
+    var z = +$("wandZoom").value, svg = outSvg();
+    outStage.classList.toggle("zoomed", z > 1);
+    if (!svg) return;
+    if (z > 1) svg.style.width = (z * 100) + "%";
+    else svg.style.width = "";
+  });
+  $("wandView").addEventListener("change", function () {
+    // Leaving a debug view has to put every fill back, or the picture stays
+    // false-coloured for good.
+    if (wandGraph && wandViewMode() === "result") wandGraph.els.forEach(wandRestoreFill);
+    wandPaint();
+    setEditNote(wandViewMode() === "result"
+      ? "Lopputulos. Vedä siveltimellä kohteen yli, ⌥ merkitsee mitä ei oteta mukaan."
+      : "Näytetään päätöksen perusteet. Napsauta palaa niin se kertoo omat lukunsa.");
+  });
   toolPick.addEventListener("click", function () { picking = !picking; refreshEditUi(); });
   var edgeBlend = $("edgeBlend"), refineExtra = $("refineExtra");
   // Not bindRange: that one re-traces the image, and re-tracing replaces the
@@ -3612,6 +3865,7 @@
       ev.preventDefault();
       lassoAte = 0;
       lassoPts = [toUser(ev, svg)];
+      lassoPts.paint = wandPaintMode;
       lassoEl = document.createElementNS(SVGNS, "path");
       lassoEl.setAttribute("fill", "none");
       lassoEl.setAttribute("stroke", "#ff2ec4");
@@ -3645,7 +3899,26 @@
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach(function (t) {
     outStage.addEventListener(t, function (ev) {
-      if (lassoPts) { lassoAte = lassoEnd(ev) ? performance.now() : 0; return; }
+      if (lassoPts) {
+        if (lassoPts.paint) {
+          var pts = lassoPts, svgP = outSvg();
+          lassoPts = null;
+          if (lassoEl && lassoEl.parentNode) lassoEl.parentNode.removeChild(lassoEl);
+          lassoEl = null;
+          if (svgP && wandSel) {
+            var gp = wandReady(svgP);
+            wandPaintStroke(gp, pts, pts.paint);
+            wandManualApply(gp);
+            wandPaint();
+            setEditNote((pts.paint === "add" ? "Maalattu mukaan" : "Maalattu pois")
+              + " · " + wandSel.size + " muotoa. Sivellin " + $("wandPaintSize").value + " px.");
+          }
+          lassoAte = performance.now();
+          return;
+        }
+        lassoAte = lassoEnd(ev) ? performance.now() : 0;
+        return;
+      }
       if (!brushing) return;
       if (editTool === "refine") { brushing = false; refineFinish(); }
       else endStroke();

@@ -123,6 +123,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The wand explains itself, and takes corrections by hand.** Two errors on
+  the same picture needed opposite repairs — the right side had to shrink and
+  the hair had to grow — and no single slider tells them apart, so the tool now
+  says why it decided what it did, and lets the hand overrule it.
+
+  **Näytä** switches the stage between four things. *Lopputulos* is the tool.
+  *Varmuus* colours every piece by what flipping it would cost, with its
+  neighbours left where the cut put them: warm for kept, cool for left out,
+  pale for a coin toss, yellow for a hint that is not up for debate. It is the
+  number that decides what to do next — a piece near zero is one small piece of
+  evidence from going the other way, and one that costs thousands is a decision
+  the model is sure of and no slider will move. *Palat* gives every region its
+  own hue, which is how a shape scattered over 732 islands became visible as
+  one thing. *Rasterisärmät* shows how strong the picture's own edge is around
+  each region. Clicking a piece in any of them prints its numbers: its size,
+  whether it is a hint, what flipping it costs, the neighbour weight for and
+  against, the mean edge around it and its contact with the frame.
+
+  **+ and −** paint the answer directly, in discs of 4, 10, 20 or 50 px. Not
+  hints — a hint is an argument the min-cut weighs, and these are the answer
+  itself — so they are applied after it, they survive the next stroke, and the
+  regions are *clipped* to what was painted, so the SVG really is rebuilt round
+  it rather than merely hidden. **Zoom** takes the stage to 800% and lets it
+  scroll, which needs nothing from the pointer code: it reads the element's own
+  bounding rect, so a bigger element is simply a finer one.
+
+  Also: `Lisävärit`, `Sulautus` and `Koko` sat unscoped beside the wand's own
+  controls and read as if they belonged to it. They belong to the refine brush
+  and change nothing about what the wand selects. They are scoped to that tool
+  now and named for what they do — *Omat sävyt*, *Reunan sulautus*, *Tarkentimen
+  koko*.
+
 - **Before changing the algorithm, ask whether the algorithm can decide it.**
   `npm run evg:trace:web:audit` attributes every wrong pixel to the region that
   drew it, and prints beside it everything the energy is made of: the region's
