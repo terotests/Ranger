@@ -45,6 +45,47 @@ whole. Build alone with `npm run evg:trace:web` (output lands in
 `/evg/tracer/` on Pages. `npm run evg:trace:web:smoke` opens it in Chromium and
 checks it.
 
+The same tracer runs from a command line, with no page and no browser:
+
+```sh
+npm run evg:trace:cli -- in.png out.svg --preset broken
+npm run evg:trace:cli -- photo.jpg out.svg --colorCount 12 --paletteMute 130
+```
+
+The option names are the fields of `EvgTraceOptions`, so there is nothing extra
+to learn — `--colorCount 12` sets `colorCount`, and an unrecognised name is
+refused rather than ignored. The two paths may come anywhere among the options
+(`in.jpg --colorCount 4 out.svg` works), and an option may be written
+`--name value` or `--name=value`. Presets are `lineart`, `poster`, `photo`, `print`
+and `broken`. PNG and JPEG (baseline and progressive) are decoded by
+[`tools/evg_trace_cli.rgr`](../tools/evg_trace_cli.rgr) itself, so the compiled
+program is one self-contained file with nothing to install.
+
+Because it is Ranger, that file can be any of them:
+
+| | build | run |
+| --- | --- | --- |
+| Node | `npm run evg:trace:cli:run` (already built) | ~0.45 s |
+| Python | `npm run evg:trace:cli:py` → one `.py`, stdlib only | ~4.8 s |
+| C++ | `npm run evg:trace:cli:cpp` → one `.cpp`, then `g++` | ~0.19 s |
+| Rust | `npm run evg:trace:cli:rust` → one `.rs`, then `rustc` | ~0.21 s |
+
+`npm run evg:trace:cli:smoke` builds all four and asserts they produce the
+same SVG byte for byte — which is the claim worth testing, since a difference
+in integer division or float printing between targets would otherwise surface
+as a picture somebody notices months later.
+
+The page does not stop at the trace. *Esikäsittely* edits the bitmap before
+anything is quantized, and *Muokkaa* edits the drawing afterwards: **Tarkennin**
+re-vectorizes what you drag over with a palette taken from that spot alone,
+**Yhdistä** gives a shape the color in the picker, **Pehmennä** takes the
+corners out of an outline, and **Taikasauva** picks an object out — click
+to grow a selection by color, or draw a rough outline by hand and let the
+shapes decide where the edge really is — and then cuts everything else away,
+leaving the object alone on transparency, which is how you get an icon out of a
+photograph. Every one of them is one undo step per gesture, and *Palauta* goes
+back to the trace.
+
 ### Eight pages are generated
 
 `pages/charts.tsx`, `plots.tsx`, `more.tsx`, `views.tsx`, `variants.tsx`,

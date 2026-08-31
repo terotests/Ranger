@@ -29,6 +29,8 @@
 ; ==============================================================================
 
 Import "EvgTraceTypes.rgr"
+Import "EvgTraceColor.rgr"
+Import "EvgTracePath.rgr"
 Import "EvgTraceFit.rgr"
 Import "EvgTraceCurve.rgr"
 Import "PathBuilder.rgr"
@@ -65,6 +67,13 @@ class EvgBitmapTracer {
     ; trace.
     def detailOn:boolean false
     def edgeMaskOn:boolean false
+    ; OKLab scratch (options.colorSpace). `okLin` is the 256-entry sRGB →
+    ; linear table, built on first use because a binary trace never asks.
+    def okOn:boolean false
+    def okLin:[double]
+    def okP:EvgOklab
+    def okQ:EvgOklab
+    def okC:EvgOklab
     ; Continuity region id per pixel, -1 = none (buildContourRegions).
     def regionOf:[int]
     def regionCount:int 0
@@ -99,8 +108,22 @@ class EvgBitmapTracer {
         def em:[int]
         edgeMask = em
         edgeMaskOn = ((options.edgeMinRun) >= 1)
+        def ok:[double]
+        okLin = ok
+        okP = (new EvgOklab())
+        okQ = (new EvgOklab())
+        okC = (new EvgOklab())
         def ly:[EvgTraceLayer]
         layers = ly
+    }
+
+    ; Flags derived from options. The constructor runs before a caller has
+    ; assigned `options` (fromBinary / fromImageBuffer set it afterwards), so
+    ; anything cached off an option has to be refreshed once the real options
+    ; are in place — trace() does that here.
+    fn syncOptions:void () {
+        edgeMaskOn = ((options.edgeMinRun) >= 1)
+        okOn = ((options.colorSpace) == "oklab")
     }
 
     sfn absD:double (v:double) {
@@ -272,6 +295,7 @@ class EvgBitmapTracer {
     ; ----------------------------------------------------------------------
 
     fn trace:void () {
+        this.syncOptions()
         def emptyR:[EvgTraceRing]
         rings = emptyR
         def emptyC:[PathCommand]
@@ -284,7 +308,7 @@ class EvgBitmapTracer {
         } {
             this.decompose()
             this.emitCommands()
-            pathData = (VectorShapes.asPathData(commands))
+            pathData = (this.pathDataOf(commands))
             ; Mono also exposes a single layer so callers can always use layers.
             def layer (new EvgTraceLayer())
             layer.fillHex = options.fillHex
@@ -455,6 +479,52 @@ class EvgBitmapTracer {
             return 1
         }
         return lw
+    }
+
+    ; Every `d` attribute the tracer emits goes through here, so the encoding
+    ; is one option rather than a choice repeated at each emit site.
+    fn pathDataOf:string (cmds:[PathCommand]) {
+        if ((options.pathFormat) == "plain") {
+            return (VectorShapes.asPathData(cmds))
+        }
+        def p:int options.pathPrecision
+        if (p < 0) {
+            p = 0
+        }
+        return (EvgTracePath.encode(cmds p true))
+    }
+
+    ; The one place the posterizer asks how far apart two colors are. Which
+    ; space answers is options.colorSpace; both answers are on the same scale,
+    ; so a caller comparing against a threshold does not care which ran.
+    fn dist2:double (r0:int g0:int b0:int r1:int g1:int b1:int) {
+        if (okOn == false) {
+            def lw:int (this.lumaWeight())
+            return (EvgBitmapTracer.colorDist2(r0 g0 b0 r1 g1 b1 lw))
+        }
+        if ((array_length okLin) == 0) {
+            okLin = (EvgTraceColor.buildLinearTable())
+        }
+        okP.setFrom(okLin r0 g0 b0)
+        okQ.setFrom(okLin r1 g1 b1)
+        def p:EvgOklab (unwrap okP)
+        def q:EvgOklab (unwrap okQ)
+        return (EvgTraceColor.dist2(p q))
+    }
+
+    ; What `dist2` returns for a gray step of `perChannel` in every channel —
+    ; the bridge between a threshold written in channel units (minColorDelta)
+    ; and the metric actually in use. Exact for "rgb"; for "oklab" the scale
+    ; was chosen to make black-to-white agree, and a gray step agrees with it
+    ; to within the transfer curve's own bend.
+    fn dist2Limit:double (perChannel:int) {
+        def d:double (to_double (perChannel * perChannel))
+        if okOn {
+            return (d * 6.0)
+        }
+        def lw:int (this.lumaWeight())
+        def w:double (to_double (3 + lw))
+        return (d * w)
     }
 
     ; True if this opaque pixel may join the palette / masks.
@@ -899,16 +969,194 @@ class EvgBitmapTracer {
     ; The seeding score for one histogram bin. "area" is population × distance²,
     ; which is why a photo's big flat background always takes the first swatches;
     ; the other two trade that away for colors that are merely distinct.
-    fn seedScore:double (weight:int dist2:double) {
+    ; How colorful a color is, 0 = neutral, 1 = as colorful as this picture is
+    ; likely to get. OKLab chroma, normalized by 0.10 rather than by the 0.32
+    ; a pure sRGB primary reaches: normalized against the primaries every
+    ;色 an actual picture contains lands in the bottom fifth of the range and
+    ; the dial does nothing. At 0.10 the ochre of a boat hull reads 0.79 and
+    ; the grey of the sea 0.16, which is the separation the dial is for.
+    fn chromaOf:double (r:int g:int b:int) {
+        if ((array_length okLin) == 0) {
+            okLin = (EvgTraceColor.buildLinearTable())
+        }
+        okC.setFrom(okLin r g b)
+        def c:EvgOklab (unwrap okC)
+        def ca:double c.a
+        def cb:double c.b
+        def mag:double (sqrt ((ca * ca) + (cb * cb)))
+        def norm:double (mag / 0.10)
+        if (norm > 1.0) {
+            return 1.0
+        }
+        return norm
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The palette objective (options.paletteMute / Tint / Warm / Contrast)
+    ; ----------------------------------------------------------------------
+    ;
+    ; Quantization answers "which colors are in this picture". It does not
+    ; answer "which colors should this picture be painted in", and the second
+    ; question has no exact match to snap to. A palette that lands on the
+    ; measured mean of every region is faithful and often dead: the mean of a
+    ; large region is a neutral, the mean of a small vivid one rarely survives
+    ; to be asked, and a picture built out of eight measured means has no color
+    ; in it that a painter would have chosen.
+    ;
+    ; So the palette gets its own objective, dialled rather than measured, in
+    ; OKLab where the dials mean what their names say. It runs AFTER
+    ; assignLabels: every decision about where an edge goes, which swatch a
+    ; pixel joins and which small region survives has already been made against
+    ; the measured colors, and what moves here is only what the picture is
+    ; painted with. Each dial is identity at its default, so an untouched
+    ; trace comes out exactly as before.
+    fn gradePalette:void (palR:[int] palG:[int] palB:[int]) {
+        def mute:int options.paletteMute
+        def tint:int options.paletteTint
+        def warm:int options.paletteWarm
+        def contrast:int options.paletteContrast
+        def on:boolean false
+        if (mute != 100) {
+            on = true
+        }
+        if (tint > 0) {
+            on = true
+        }
+        if (warm != 0) {
+            on = true
+        }
+        if (contrast != 100) {
+            on = true
+        }
+        if (on == false) {
+            return
+        }
+        def k:int (array_length palR)
+        if (k == 0) {
+            return
+        }
+        if ((array_length okLin) == 0) {
+            okLin = (EvgTraceColor.buildLinearTable())
+        }
+
+        ; Read the palette into OKLab. Two things about the palette as a whole
+        ; are needed: the lightness the contrast dial pivots about, and the hue
+        ; a swatch with no hue of its own is tinted in.
+        def ls:[double]
+        def cas:[double]
+        def cbs:[double]
+        def sumL:double 0.0
+        def sumA:double 0.0
+        def sumB:double 0.0
+        def i:int 0
+        while (i < k) {
+            okC.setFrom(okLin (itemAt palR i) (itemAt palG i) (itemAt palB i))
+            def c:EvgOklab (unwrap okC)
+            def cl:double c.l
+            def ca:double c.a
+            def cb:double c.b
+            push ls cl
+            push cas ca
+            push cbs cb
+            sumL = (sumL + cl)
+            sumA = (sumA + ca)
+            sumB = (sumB + cb)
+            i = (i + 1)
+        }
+        def kd:double (to_double k)
+        def meanL:double (sumL / kd)
+        def meanA:double (sumA / kd)
+        def meanB:double (sumB / kd)
+        def meanMag:double (sqrt ((meanA * meanA) + (meanB * meanB)))
+        ; A palette with no color at all still has to tint somewhere; yellow is
+        ; the direction paper and skin already lean, so it is the least
+        ; surprising default.
+        def dirA:double 0.0
+        def dirB:double 1.0
+        if (meanMag > 0.000001) {
+            dirA = (meanA / meanMag)
+            dirB = (meanB / meanMag)
+        }
+
+        def wd:double ((to_double warm) / 1000.0)
+        def floorC:double ((to_double tint) / 1000.0)
+        def ms:double ((to_double mute) / 100.0)
+        def cs:double ((to_double contrast) / 100.0)
+        i = 0
+        while (i < k) {
+            ; Warmth first, as a shift along the yellow–blue axis. That is what
+            ; a temperature change physically is, and unlike a hue rotation it
+            ; leaves a neutral neutral-ish instead of spinning it somewhere.
+            def la:double (itemAt cas i)
+            def lb:double ((itemAt cbs i) + wd)
+            def mag:double (sqrt ((la * la) + (lb * lb)))
+            def na:double dirA
+            def nb:double dirB
+            if (mag > 0.000001) {
+                na = (la / mag)
+                nb = (lb / mag)
+            }
+            ; Chroma: scaled, then never below the tint floor, so the palette
+            ; can be broken toward grey without any swatch reaching dead grey.
+            def chroma:double (mag * ms)
+            if (chroma < floorC) {
+                chroma = floorC
+            }
+            def lightness:double (meanL + (((itemAt ls i) - meanL) * cs))
+            if (lightness < 0.0) {
+                lightness = 0.0
+            }
+            if (lightness > 1.0) {
+                lightness = 1.0
+            }
+            def outA:double (na * chroma)
+            def outB:double (nb * chroma)
+            def rgb:[int] (EvgTraceColor.srgbOf(lightness outA outB))
+            set palR i (itemAt rgb 0)
+            set palG i (itemAt rgb 1)
+            set palB i (itemAt rgb 2)
+            i = (i + 1)
+        }
+    }
+
+    ; What one histogram bin is worth when the palette is decided.
+    ;
+    ; This is the objective, and it is not the same question as "reproduce the
+    ; picture". k-means over pixel counts minimizes total squared error, and a
+    ; color covering one percent of the frame contributes one percent of that
+    ; error — so dropping it is cheap by that measure and free by any measure
+    ; the quantizer can see. To a viewer it is the boats. options.paletteBias
+    ; chooses what a swatch is spent on and options.paletteChroma says how much
+    ; being colorful counts on top of it.
+    ;
+    ; The weight is used for the seeding, for the Lloyd passes, and for moving
+    ; a stranded swatch — every step that decides *where* a swatch sits. It is
+    ; deliberately not used for the noise floor, which stays on true population
+    ; so a single stray saturated pixel cannot buy a swatch, nor for the merge,
+    ; where the question is only which of two indistinguishable colors is the
+    ; representative and population is the right answer.
+    fn binWeight:double (w:int r:int g:int b:int) {
         def bias:string options.paletteBias
-        if (bias == "distinct") {
-            return dist2
-        }
-        def w:double (to_double weight)
+        def base:double (to_double w)
         if (bias == "balanced") {
-            return ((sqrt w) * dist2)
+            base = (sqrt base)
         }
-        return (w * dist2)
+        if (bias == "distinct") {
+            ; Every color present counts once, however much of it there is.
+            base = 1.0
+        }
+        def gain:int options.paletteChroma
+        if (gain <= 0) {
+            return base
+        }
+        def c:double (this.chromaOf(r g b))
+        def g2:double (to_double gain)
+        def mul:double (1.0 + ((g2 / 100.0) * c))
+        return (base * mul)
+    }
+
+    fn seedScore:double (weight:double dist2:double) {
+        return (weight * dist2)
     }
 
     ; `outR/outG/outB` may arrive holding `locked` pinned swatches; those are
@@ -937,7 +1185,6 @@ class EvgBitmapTracer {
         if (m == 0) {
             return
         }
-        def lw:int (this.lumaWeight())
         ; A bin has to clear a noise floor before it can win a swatch. Only the
         ; "distinct" bias would otherwise hand one to a single stray pixel.
         def total:int 0
@@ -970,14 +1217,14 @@ class EvgBitmapTracer {
         def dist:[double]
         i = 0
         while (i < m) {
-            push dist (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR 0) (itemAt outG 0) (itemAt outB 0) lw))
+            push dist (this.dist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR 0) (itemAt outG 0) (itemAt outB 0)))
             i = (i + 1)
         }
         def seeded:int 1
         while (seeded < (array_length outR)) {
             i = 0
             while (i < m) {
-                def d0:double (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR seeded) (itemAt outG seeded) (itemAt outB seeded) lw))
+                def d0:double (this.dist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR seeded) (itemAt outG seeded) (itemAt outB seeded)))
                 if (d0 < (itemAt dist i)) {
                     set dist i d0
                 }
@@ -991,7 +1238,8 @@ class EvgBitmapTracer {
             i = 0
             while (i < m) {
                 if ((itemAt binW i) >= floorW) {
-                    def score:double (this.seedScore((itemAt binW i) (itemAt dist i)))
+                    def bw:double (this.binWeight((itemAt binW i) (itemAt binR i) (itemAt binG i) (itemAt binB i)))
+                    def score:double (this.seedScore(bw (itemAt dist i)))
                     if (score > pickScore) {
                         pickScore = score
                         pickI = i
@@ -1010,7 +1258,7 @@ class EvgBitmapTracer {
                 push outB cb
                 i = 0
                 while (i < m) {
-                    def d:double (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) cr cg cb lw))
+                    def d:double (this.dist2((itemAt binR i) (itemAt binG i) (itemAt binB i) cr cg cb))
                     if (d < (itemAt dist i)) {
                         set dist i d
                     }
@@ -1040,7 +1288,7 @@ class EvgBitmapTracer {
                 def bg:int (itemAt binG i)
                 def bb:int (itemAt binB i)
                 def best:int (this.nearestIndex(br bg bb outR outG outB))
-                def w:double (to_double (itemAt binW i))
+                def w:double (this.binWeight((itemAt binW i) br bg bb))
                 set sumR best ((itemAt sumR best) + ((to_double br) * w))
                 set sumG best ((itemAt sumG best) + ((to_double bg) * w))
                 set sumB best ((itemAt sumB best) + ((to_double bb) * w))
@@ -1069,8 +1317,9 @@ class EvgBitmapTracer {
                     def farScore:double 0.0
                     i = 0
                     while (i < m) {
-                        def dd:double (EvgBitmapTracer.colorDist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outG (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outB (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) lw))
-                        def sc:double (dd * (to_double (itemAt binW i)))
+                        def dd:double (this.dist2((itemAt binR i) (itemAt binG i) (itemAt binB i) (itemAt outR (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outG (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB))) (itemAt outB (this.nearestIndex((itemAt binR i) (itemAt binG i) (itemAt binB i) outR outG outB)))))
+                        def bw2:double (this.binWeight((itemAt binW i) (itemAt binR i) (itemAt binG i) (itemAt binB i)))
+                        def sc:double (dd * bw2)
                         if (sc > farScore) {
                             farScore = sc
                             farI = i
@@ -1131,10 +1380,9 @@ class EvgBitmapTracer {
         if (delta <= 0) {
             return
         }
-        def lw:int (this.lumaWeight())
         ; Same metric the assignment uses, scaled so `delta` still reads as a
-        ; per-channel difference.
-        def limit:double ((to_double (delta * delta)) * (to_double (3 + lw)))
+        ; per-channel difference whichever space is measuring.
+        def limit:double (this.dist2Limit(delta))
         def merged:boolean true
         while merged {
             merged = false
@@ -1161,7 +1409,7 @@ class EvgBitmapTracer {
             while ((a < k) && (dropAt < 0)) {
                 def b:int (a + 1)
                 while ((b < k) && (dropAt < 0)) {
-                    def d:double (EvgBitmapTracer.colorDist2((itemAt outR a) (itemAt outG a) (itemAt outB a) (itemAt outR b) (itemAt outG b) (itemAt outB b) lw))
+                    def d:double (this.dist2((itemAt outR a) (itemAt outG a) (itemAt outB a) (itemAt outR b) (itemAt outG b) (itemAt outB b)))
                     if (d <= limit) {
                         if (b < locked) {
                             ; both pinned — the caller asked for both.
@@ -1195,12 +1443,11 @@ class EvgBitmapTracer {
         if (k == 0) {
             return 0
         }
-        def lw:int (this.lumaWeight())
         def best:int 0
-        def bestD:double (EvgBitmapTracer.colorDist2(r g b (itemAt palR 0) (itemAt palG 0) (itemAt palB 0) lw))
+        def bestD:double (this.dist2(r g b (itemAt palR 0) (itemAt palG 0) (itemAt palB 0)))
         def j:int 1
         while (j < k) {
-            def d:double (EvgBitmapTracer.colorDist2(r g b (itemAt palR j) (itemAt palG j) (itemAt palB j) lw))
+            def d:double (this.dist2(r g b (itemAt palR j) (itemAt palG j) (itemAt palB j)))
             if (d < bestD) {
                 bestD = d
                 best = j
@@ -1230,13 +1477,12 @@ class EvgBitmapTracer {
             push dists 0.0
             i = (i + 1)
         }
-        def lw:int (this.lumaWeight())
         i = 0
         while (i < n) {
             if (this.pixelAllowed(i)) {
                 def lab:int (this.nearestIndex((itemAt planeR i) (itemAt planeG i) (itemAt planeB i) palR palG palB))
                 set base i lab
-                set dists i (EvgBitmapTracer.colorDist2((itemAt planeR i) (itemAt planeG i) (itemAt planeB i) (itemAt palR lab) (itemAt palG lab) (itemAt palB lab) lw))
+                set dists i (this.dist2((itemAt planeR i) (itemAt planeG i) (itemAt planeB i) (itemAt palR lab) (itemAt palG lab) (itemAt palB lab)))
             }
             i = (i + 1)
         }
@@ -1274,7 +1520,7 @@ class EvgBitmapTracer {
                                         if ((itemAt flat nIdx) == 1) {
                                             def lab2:int (itemAt base nIdx)
                                             if (lab2 >= 0) {
-                                                def d:double (EvgBitmapTracer.colorDist2(pr pg pb (itemAt palR lab2) (itemAt palG lab2) (itemAt palB lab2) lw))
+                                                def d:double (this.dist2(pr pg pb (itemAt palR lab2) (itemAt palG lab2) (itemAt palB lab2)))
                                                 if ((nLab < 0) || (d < nD)) {
                                                     nLab = lab2
                                                     nD = d
@@ -1301,7 +1547,7 @@ class EvgBitmapTracer {
         labels = outL
         this.despeckleLabels()
         this.smoothContours(palR palG palB)
-        this.mergeTinyRegions((array_length palR))
+        this.mergeTinyRegions(palR palG palB)
     }
 
     ; ----------------------------------------------------------------------
@@ -2258,6 +2504,8 @@ class EvgBitmapTracer {
                 layerOpts.turnpolicy = options.turnpolicy
                 layerOpts.optcurve = options.optcurve
                 layerOpts.opttolerance = options.opttolerance
+                layerOpts.pathFormat = options.pathFormat
+                layerOpts.pathPrecision = options.pathPrecision
                 def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
                 sub.trace()
                 if ((sub.ringCount()) > 0) {
@@ -2827,6 +3075,8 @@ class EvgBitmapTracer {
                 layerOpts.optcurve = options.optcurve
                 layerOpts.opttolerance = options.opttolerance
                 layerOpts.fillHex = (this.hexFromRgb((itemAt lpR li) (itemAt lpG li) (itemAt lpB li)))
+                layerOpts.pathFormat = options.pathFormat
+                layerOpts.pathPrecision = options.pathPrecision
                 def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
                 sub.trace()
                 if ((sub.ringCount()) > 0) {
@@ -2846,7 +3096,7 @@ class EvgBitmapTracer {
                         ci = (ci + 1)
                     }
                     def layer:EvgTraceLayer (itemAt sub.layers 0)
-                    layer.pathData = (VectorShapes.asPathData(cmds))
+                    layer.pathData = (this.pathDataOf(cmds))
                     push layers layer
                     rings = sub.rings
                 }
@@ -3209,6 +3459,8 @@ class EvgBitmapTracer {
                     layerOpts.optcurve = options.optcurve
                     layerOpts.opttolerance = options.opttolerance
                     layerOpts.fillHex = (this.hexFromRgb(mr mg mb))
+                    layerOpts.pathFormat = options.pathFormat
+                    layerOpts.pathPrecision = options.pathPrecision
                     def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm layerOpts))
                         sub.trace()
                     if ((sub.ringCount()) > 0) {
@@ -3228,7 +3480,7 @@ class EvgBitmapTracer {
                             ci = (ci + 1)
                         }
                         def layer:EvgTraceLayer (itemAt sub.layers 0)
-                        layer.pathData = (VectorShapes.asPathData(cmds))
+                        layer.pathData = (this.pathDataOf(cmds))
                         if options.gradientFill {
                             this.fitAndPaintShape(comp layer paintR paintG paintB)
                         }
@@ -3393,10 +3645,24 @@ class EvgBitmapTracer {
     ; Absorb connected runs below options.minRegion into the region that
     ; surrounds them. turdsize would otherwise drop those rings outright, which
     ; is why the painted area used to shrink every time colorCount went up.
-    fn mergeTinyRegions:void (k:int) {
+    ;
+    ; Size alone is the wrong question, though. A four-pixel run is noise when
+    ; it looks like what is around it and it is the *subject* when it does not:
+    ; the spray off a wave, a boat against the sea, a highlight in an eye are
+    ; all a handful of pixels that no larger shape is going to put back.
+    ; options.absorbContrast is the second half of the test — a run whose
+    ; swatch is that far from the swatch it would join survives on its own.
+    fn mergeTinyRegions:void (palR:[int] palG:[int] palB:[int]) {
+        def k:int (array_length palR)
         def minPx:int options.minRegion
         if (minPx < 2) {
             return
+        }
+        def keepLimit:double 0.0
+        def keepOn:boolean false
+        if ((options.absorbContrast) > 0) {
+            keepOn = true
+            keepLimit = (this.dist2Limit(options.absorbContrast))
         }
         def n:int (width * height)
         def seen:[int]
@@ -3457,10 +3723,19 @@ class EvgBitmapTracer {
                         ki = (ki + 1)
                     }
                     if (bestLab >= 0) {
-                        c = 0
-                        while (c < (array_length comp)) {
-                            set labels (itemAt comp c) bestLab
-                            c = (c + 1)
+                        def absorb:boolean true
+                        if (keepOn && (lab >= 0)) {
+                            def gap:double (this.dist2((itemAt palR lab) (itemAt palG lab) (itemAt palB lab) (itemAt palR bestLab) (itemAt palG bestLab) (itemAt palB bestLab)))
+                            if (gap >= keepLimit) {
+                                absorb = false
+                            }
+                        }
+                        if absorb {
+                            c = 0
+                            while (c < (array_length comp)) {
+                                set labels (itemAt comp c) bestLab
+                                c = (c + 1)
+                            }
                         }
                     }
                 }
@@ -3677,6 +3952,8 @@ class EvgBitmapTracer {
             layerOpts.turnpolicy = options.turnpolicy
             layerOpts.optcurve = options.optcurve
             layerOpts.opttolerance = options.opttolerance
+            layerOpts.pathFormat = options.pathFormat
+            layerOpts.pathPrecision = options.pathPrecision
             layerOpts.fillHex = (this.hexFromRgb((itemAt palR li) (itemAt palG li) (itemAt palB li)))
             def sub:EvgBitmapTracer (EvgBitmapTracer.fromBinary(mask layerOpts))
             sub.trace()
@@ -3730,6 +4007,10 @@ class EvgBitmapTracer {
             return
         }
         this.assignLabels(palR palG palB)
+        ; Every decision above was made against the measured colors; from here
+        ; the palette is only what the picture gets painted with, so this is
+        ; where a dialled palette replaces a measured one.
+        this.gradePalette(palR palG palB)
         ; Overlay shapes carry their own fits, so it takes precedence when both
         ; are asked for — the two compose rather than compete.
         if ((options.contourMode) == "overlay") {

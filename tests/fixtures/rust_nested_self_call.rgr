@@ -1,0 +1,54 @@
+; Test: a self method call NESTED inside an argument, rather than being one.
+;
+; `itemAt pal (this.nearest(…))` borrows self to compute the index while the
+; enclosing `this.dist(…)` is borrowing it too. Rust rejects that as E0499, so
+; the inner call has to be hoisted into a local of its own. The shape comes
+; from the EVG tracer's palette refinement, which is what found it.
+;
+; The loop is the other half of the check: a self call in a loop BODY has to
+; stay in the body — the body becomes a closure, and a hoist out of it would
+; land where `x` does not exist.
+;
+; Expected: -25 10 3
+
+class Test_RustNestedSelfCall {
+
+    def calls:int 0
+
+    fn nearest:int (x:int pal:[int]) {
+        calls = calls + 1
+        return (x % (array_length pal))
+    }
+
+    fn dist:int (a:int b:int) {
+        calls = calls + 1
+        return (a - b)
+    }
+
+    fn total:int (xs:[int]) {
+        def sum:int 0
+        for xs x:int i {
+            sum = sum + (this.nearest(x xs))
+        }
+        return sum
+    }
+
+    fn run:void () {
+        def pal:[int]
+        push pal 10
+        push pal 20
+        push pal 30
+        ; one nested call
+        def a:int (this.dist(5 (itemAt pal (this.nearest(2 pal)))))
+        ; two of them, in the same call
+        def b:int (this.dist((itemAt pal (this.nearest(1 pal))) (itemAt pal (this.nearest(0 pal)))))
+        ; …and one inside a loop body, which must NOT be hoisted
+        def c:int (this.total(pal))
+        print (((to_string a) + " ") + ((to_string b) + " ") + (to_string c))
+    }
+
+    sfn m@(main):void () {
+        def t (new Test_RustNestedSelfCall())
+        t.run()
+    }
+}

@@ -9,6 +9,159 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A "Taikasauva" in the edit mode: pick an object out of the drawing and cut
+  the rest away.** Click a shape and the selection grows outward from it across
+  what touches it and is within *Sieto* of the color you clicked — or, when the
+  picture has no color boundary that agrees with the object, **draw a rough
+  outline by hand and let the shapes decide where the edge really is**. ⇧ adds
+  a second region, ⌥ takes one out; *Eristä* removes everything outside the
+  selection and, with *rajaa reunoihin*, pulls the frame in around what is
+  left. What remains is on transparency, which is how you cut an icon out of a
+  photograph. One undo puts the whole drawing and its old frame back.
+
+  The hand-drawn mode is the one that works on photographs. A suit and the
+  curtain behind it are the same tone, so no tolerance separates them — and a
+  background flood proves it: seeded from outside the line at a tolerance as
+  tight as 30, it eats half the suit. The line you draw says *where*, roughly,
+  and the shapes say *exactly*, on two questions rather than one:
+
+  - **Admitted** — does two fifths of what you can see of a shape fall inside
+    the line? Below that the shape is background, and even the part of it
+    inside the line goes. This is what clears the curtain, the flag and the
+    desk out from behind a person.
+  - **Kept whole** — is it almost entirely inside (85%), in which case the line
+    was a rough guess and the shape's own edge is the better answer. A sloppy
+    circle wobbling ±25 px around a ball returns the ball, exactly.
+  - In between, the line is the answer: the shape is clipped to it.
+
+  Taking every admitted shape whole was the first version and it leaked badly,
+  which is the difference between the two: one large background shape reaching
+  across the line drags its whole visible area in, and the enclosure rule then
+  closes over everything that shape surrounds — 178 shapes selected, 231 after
+  closing, and 72 of those sat outside the line altogether. Measured as painted
+  pixels landing outside the outline that was drawn, that is **30%**; clipping
+  the shapes the line cuts through takes it to **0.2%**.
+
+  Measured against ground truth rather than by eye: two photographs
+  composited through a silhouette this repository knows exactly, then cut with
+  a deliberately sloppy version of that silhouette — every point pushed out or
+  in by up to 18 px. A rough outline scores **IoU 0.98** when the figure and
+  the background are different pictures, **0.89** with a photographic
+  background, and **0.86** when figure and background are cut from the *same*
+  photograph and share every tone — recall 0.98, so what it loses is a rim, not
+  a limb. A colour click on the same figures scores 0.08 to 0.67, which is the
+  honest number for one click on a many-toned object and the reason the line
+  exists. `npm run evg:trace:web:smoke` now builds a composite of its own and
+  fails below 0.8.
+
+  Everything works on what is **visible**, and that is the whole design. A
+  traced picture is stacked: a lower layer's shape is the union of itself and
+  everything painted on top of it. On a test image of a box with a ball
+  overlapping it, the blue layer is 240 px wide and contains the ball — so
+  asking that geometry which shapes touch which says every shape touches the
+  one beneath it, and deleting the shapes on top uncovers a union that was
+  never visible. That is what made cutting the box return a box with the ball's
+  bulge painted blue, and cutting a person out of a portrait return a full
+  rectangle. So the drawing is rasterized once in its own z-order into a buffer
+  of shape indices — a z-buffer — and adjacency, "how much of this shape is
+  inside your line", the enclosure rule and the crop box all read that. Canvas
+  antialiases and a blend of two index colors decodes to a third, unrelated
+  shape, so the raster is drawn twice under two different encodings and a pixel
+  is believed only where both agree.
+
+  The cut carries the z-order into a mask: white where the selection is, black
+  where a removed shape used to cover it, in the order they are drawn, so a
+  kept shape paints exactly where it painted before and nowhere else. What
+  leaves the drawing is *moved* into that mask rather than copied into it, and
+  only a kept shape with something removed above it needs the mask at all — a
+  portrait cut costs 876 KB where cloning everything cost 936 KB. The mask
+  carries an explicit user-space region, because a mask's default region is a
+  percentage measured from user-space zero rather than from the viewBox origin,
+  and on a cropped drawing that cuts the object in half along a straight line —
+  the same trap the refiner's filter region fell into.
+
+  A color flood cannot reach what is *painted on top of* the object — that is
+  what tolerance is for — but the eyes and the tie are the object. So the
+  selection closes over what it surrounds: the holes in its visible area join
+  it. A ball merely crossing a box reaches the outside and is left alone, and
+  the step stops once the selection covers 80% of the frame, because "inside
+  the object" means nothing when the object is the picture.
+
+- **The color count now goes to 64.** It stopped at 16, and the engine was never
+  the reason: measured on a portrait the palette keeps growing well past that —
+  16 asked gives 15 layers, 32 gives 24, 64 gives 38 — and the trace does not
+  get slower for it (704 ms → 788 ms). Past 64 the returns stop being worth the
+  bytes: 128 buys seven more layers for another half megabyte.
+
+### Fixed
+
+- **The Rust backend hoists a self call the argument only *contains*.** One
+  written directly as an argument — `this.dist(this.near(x))` — was already
+  lifted into a local, because both calls borrow `self` and Rust allows only
+  one such borrow at a time (E0499). One reached through anything else was not:
+  the check looked at the argument's own head, so `itemAt outR (this
+  .nearestIndex(…))` hid the call behind an index and the generated code did
+  not compile. Only the nested call moves out now, into a local of its own,
+  which is what rustc's own advice on the error says: an index stays the place
+  it names and nothing is moved out of it.
+
+  Nothing that opens a scope is searched, and the search stops at that branch
+  rather than stepping over it. A loop body is the case that matters — `for xs
+  item { this.markAsyncFrom(item visited) }` becomes a closure taking `item`,
+  so the call in it borrows `self` when the closure runs, not at the call site,
+  and a `let` lifted out of it lands where `item` does not exist. Hoisting into
+  loop bodies took the compiler's own Rust rendering from 6 errors to 119.
+
+- **The compiler's own Rust rendering compiles with no rustc errors.** It had
+  stood at 6, all one defect: a field read whose object is an EXPRESSION rather
+  than a name. `(node.getSecond()).vref` reads a String out of a `Ref` exactly
+  as `head.vref` does, but it is a property node with no dotted path, so every
+  test that decides "this read has to be cloned" turned it away and the String
+  moved out of the borrow (E0507). Three places asked that question and each
+  now recognises the shape: a local's initializer, a call argument, and the
+  temporary an operator hoists its operand into — the last of which was not
+  taking ownership of anything it hoisted. `rustc -O` builds the 81 000-line
+  rendering, and that binary compiles the compiler's own sources to output
+  byte-identical to the JavaScript build's.
+
+- **A union-typed field keeps its variant wrap when the right side goes to a
+  temporary.** `body = (new EvalValue.Map(…))` stores a member into a slot of
+  the family type, and Rust wants the enum variant around it. The wrap was
+  written at the assignment, so a right side pre-evaluated into a local — which
+  is what a receiverless method does, to keep a `borrow_mut()` from spanning
+  the right side — left the assignment with only `= <name>` to write, and the
+  bare member went into the slot: "expected `union_EvalValue`, found
+  `EvalValue_Map`". The wrap travels with the value into the temporary now. It
+  fixed 13 of the 14 Rust shape tests, which were failing on this one cause.
+
+- **A program may name a class `Cell`.** The Rust preamble imported
+  `std::cell::Cell` into every generated program, so a class of that name
+  collided with it — "the name `Cell` is defined multiple times" — and every
+  later mention resolved to the std type instead, with `value` suddenly a
+  private field and a missing generic argument. The std type is spelled in full
+  at its two use sites now, as the pool header already did with `UnsafeCell`,
+  so nothing is brought into scope to be shadowed. It also drops an unused
+  import from every generated program that has no interior cell at all — the
+  `evg-trace` Rust build now compiles with no warnings rather than one.
+
+- **`evg-trace` builds for Rust.** The tracer's palette refinement is where the
+  nested-call shape above came from, so `-l=rust` produced a program rustc
+  rejected. `npm run evg:trace:cli:rust` now builds it, and the smoke test
+  checks four targets rather than three: Node, Python, C++ and Rust all return
+  byte-for-byte the same SVG.
+
+### Changed
+
+- **Tarkennin is the tool the edit mode opens on**, rather than Yhdistä. It is
+  the one that adds something to the picture, where the others take things away.
+
+- **A smooth stroke that dissolves a shape is still one undo step.** The shape it
+  erased was recorded separately, so that one stroke cost two clicks to take
+  back; the erased shape now travels with the stroke that erased it, and goes
+  back where it was drawn rather than on top of everything.
+
+### Added
+
 - **A pre-processing stage on the bitmap, before anything is quantized or
   traced.** It sits beside the picture rather than in the parameter column — it
   is about the bitmap, and you want it where you can watch the bitmap change —

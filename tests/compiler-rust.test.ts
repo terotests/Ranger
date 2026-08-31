@@ -56,6 +56,97 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  describe("Nested self method calls", () => {
+    // `this.dist(… (itemAt pal (this.nearest(…))) …)` borrows self twice in one
+    // expression. The inner call was only ever looked for at the argument's own
+    // head, so an index hid it and the generated Rust was E0499.
+    it("should compile a self call nested inside an index expression", () => {
+      const result = compileRangerToRust(
+        "tests/fixtures/rust_nested_self_call.rgr"
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("should hoist the nested call and keep the same result as the other targets", () => {
+      expectRustOutput("tests/fixtures/rust_nested_self_call.rgr", "-25 10 3");
+    });
+
+    // …but a self call in a loop BODY belongs to the closure the body becomes:
+    // hoisted out, its `let` lands where the loop variable does not exist.
+    it("should leave a self call inside a loop body in place", () => {
+      const result = getGeneratedRustCode(
+        "tests/fixtures/rust_nested_self_call.rgr"
+      );
+      expect(result.success).toBe(true);
+      const hoistedLoopVar = /let mut _tmp_\d+ = self\.nearest\(x\b/;
+      expect(result.code).not.toMatch(hoistedLoopVar);
+    });
+  });
+
+  describe("Names the Rust preamble could shadow", () => {
+    // `use std::cell::Cell` was in the preamble of every generated program, so
+    // a program declaring its own `Cell` collided with it and every later
+    // mention resolved to the std type. The class here is also a subclass
+    // carrying a scalar its root lacks, which is the shape that gets an
+    // interior cell — so the std type still has to be reachable, spelled out.
+    it("should compile a program that declares its own class named Cell", () => {
+      const result = compileRangerToRust(
+        "tests/fixtures/rust_class_named_cell.rgr"
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("should run it and agree with the other targets", () => {
+      expectRustOutput("tests/fixtures/rust_class_named_cell.rgr", [
+        "cell 7",
+        "plain 0",
+        "done",
+      ]);
+    });
+
+    it("should not import Cell, and should spell the std type in full", () => {
+      const result = getGeneratedRustCode(
+        "tests/fixtures/rust_class_named_cell.rgr"
+      );
+      expect(result.success).toBe(true);
+      expect(result.code).not.toContain("use std::cell::Cell;");
+      expect(result.code).toContain("std::cell::Cell<");
+    });
+  });
+
+  describe("A field read through an expression", () => {
+    // `(this.first()).name` is the same read as `b.name`, spelled through a
+    // call. It is a property node with no dotted path, so the tests that
+    // decide "this read has to be cloned" all turned it away and the String
+    // moved out of its `Ref`. This is the shape the compiler's own
+    // tree-literal lowering uses, and the last thing keeping the compiler
+    // from compiling itself to Rust.
+    it("should compile a property read of a call result", () => {
+      const result = compileRangerToRust(
+        "tests/fixtures/rust_prop_read_of_call.rgr"
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("should run it and agree with the other targets", () => {
+      expectRustOutput(
+        "tests/fixtures/rust_prop_read_of_call.rgr",
+        "hello hello hello"
+      );
+    });
+
+    it("should clone the read rather than move out of the borrow", () => {
+      const result = getGeneratedRustCode(
+        "tests/fixtures/rust_prop_read_of_call.rgr"
+      );
+      expect(result.success).toBe(true);
+      // every `(…).borrow().name` in this program is a read into an owned
+      // String, so none of them may stand without a clone
+      const bare = result.code.match(/\)\.borrow\(\)\.name(?!\.clone\(\))/g);
+      expect(bare).toBeNull();
+    });
+  });
+
   describe("Polyfill Deduplication", () => {
     it("should not duplicate polyfills when on_keypress is used multiple times", () => {
       const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");

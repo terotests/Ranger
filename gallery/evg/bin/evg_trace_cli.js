@@ -4841,7 +4841,6 @@ class EVGFlight  {
 class EVGElement  {
   constructor() {
     this.id = "";
-    this.key = "";
     this.tagName = "div";
     this.elementType = 0;
     this.format = "";
@@ -4850,12 +4849,11 @@ class EVGElement  {
     this.pageHeight = 0.0;
     this.children = [];
     this.opacity = 1.0;
-    this.backdropBlur = 0.0;
     this.gradientSet = false;
     this.gradientDir = 0;
-    this.absPosSet = false;
-    this.absX = 0.0;
-    this.absY = 0.0;
+    this.absPosSet = false;     /** note: unused */
+    this.absX = 0.0;     /** note: unused */
+    this.absY = 0.0;     /** note: unused */
     this.glowIntensity = 0.0;
     this.bgImageSet = false;
     this.bgImagePath = "";
@@ -4867,18 +4865,14 @@ class EVGElement  {
     this.isInline = false;
     this.lineBreak = false;
     this.overflow = "visible";
-    this.scrollTop = 0.0;
-    this.scrollLeft = 0.0;
-    this.scrollWidth = 0.0;
-    this.scrollHeight = 0.0;
     this.fontSizeInherited = false;
     this.fontSizeBase = 14.0;
     this.rootFontSize = 14.0;
     this.fontFamily = "Noto Sans";
     this.fontWeight = "normal";
-    this.lineHeight = 0.0;
+    this.lineHeight = 1.2;
     this.textAlign = "left";
-    this.textContent = "";
+    this.textContent = "";     /** note: unused */
     this.display = "block";
     this.flex = 0.0;
     this.flexShrink = 1.0;
@@ -4889,28 +4883,28 @@ class EVGElement  {
     this.flexWrap = "wrap";
     this.gridTemplateColumns = "";
     this.gridTemplateRows = "";
-    this.subgridColumnSizes = [];
-    this.subgridRowSizes = [];
-    this.computedRowSizes = [];
-    this.subgridPending = false;
+    this.subgridColumnSizes = [];     /** note: unused */
+    this.subgridRowSizes = [];     /** note: unused */
+    this.computedRowSizes = [];     /** note: unused */
+    this.subgridPending = false;     /** note: unused */
     this.gridTemplateAreas = "";
     this.gridAutoFlow = "row";
     this.fullBleed = false;
     this.gridArea = "";
     this.gridColumn = "";
     this.gridRow = "";
-    this.position = "relative";
-    this.src = "";
-    this.alt = "";
-    this.imageViewBox = "";
-    this.imageViewBoxX = 0.0;
-    this.imageViewBoxY = 0.0;
-    this.imageViewBoxW = 1.0;
-    this.imageViewBoxH = 1.0;
-    this.imageViewBoxSet = false;
+    this.position = "relative";     /** note: unused */
+    this.src = "";     /** note: unused */
+    this.alt = "";     /** note: unused */
+    this.imageViewBox = "";     /** note: unused */
+    this.imageViewBoxX = 0.0;     /** note: unused */
+    this.imageViewBoxY = 0.0;     /** note: unused */
+    this.imageViewBoxW = 1.0;     /** note: unused */
+    this.imageViewBoxH = 1.0;     /** note: unused */
+    this.imageViewBoxSet = false;     /** note: unused */
     this.objectFit = "cover";
-    this.sourceWidth = 0.0;
-    this.sourceHeight = 0.0;
+    this.sourceWidth = 0.0;     /** note: unused */
+    this.sourceHeight = 0.0;     /** note: unused */
     this.svgPath = "";
     this.svgSource = "";
     this.viewBox = "";
@@ -4938,66 +4932,46 @@ class EVGElement  {
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
-    this.calculatedInnerWidth = 0.0;
-    this.calculatedInnerHeight = 0.0;
-    this.calculatedFlexWidth = 0.0;
-    this.hasFlexWidth = false;
-    this.calculatedFlexHeight = 0.0;
+    this.calculatedInnerWidth = 0.0;     /** note: unused */
+    this.calculatedInnerHeight = 0.0;     /** note: unused */
+    this.calculatedFlexWidth = 0.0;     /** note: unused */
+    this.calculatedFlexHeight = 0.0;     /** note: unused */
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
     this.hasBaseline = false;
     this.hasDefiniteHeight = false;
-    this.calculatedPage = 0;
+    this.calculatedPage = 0;     /** note: unused */
     this.isAbsolute = false;
     this.isOverlay = false;
     this.isOverlayAnchor = false;
     this.overlaySide = "bottom";
     this.overlayAlign = "start";
     this.overlayGap = 4.0;
-    this.overlayX = 0.0;
-    this.overlayY = 0.0;
-    this.overlayPlacedSide = "";
-    this.isHovered = false;
-    this.isFocused = false;
-    this.isPressed = false;
+    this.overlayX = 0.0;     /** note: unused */
+    this.overlayY = 0.0;     /** note: unused */
+    this.overlayPlacedSide = "";     /** note: unused */
+    this.isHovered = false;     /** note: unused */
+    this.isFocused = false;     /** note: unused */
+    this.isPressed = false;     /** note: unused */
     this.transitionSpec = "";
     this.transitions = [];     /** note: unused */
     this.role = "";
     this.a11yLabel = "";
     this.a11yRoleDescription = "";
-    this.a11yDescription = "";
-    this.a11yHasPopup = "";
-    this.a11yRowCount = 0;
-    this.a11yRowIndex = 0;
     this.a11yHidden = false;
     this.a11ySorted = 0;
-    this.a11yOrientation = "";
-    this.a11yCurrent = "";
-    this.a11yHasValue = false;
-    this.a11yValueNow = 0;
-    this.a11yHasRange = false;
-    this.a11yValueMin = 0;
-    this.a11yValueMax = 0;
     this.a11yChecked = 0;
-    this.a11yPressed = 0;
     this.a11yExpanded = 0;
     this.a11ySelected = 0;
     this.a11yDisabled = false;
     this.a11yFocusable = false;
-    this.a11yPosInSet = 0;
-    this.a11ySetSize = 0;
-    this.a11yLevel = 0;
-    this.styleClass = "";
-    this.styleTheme = "";
-    this.styleBits = 0;
-    this.styleGen = 0;
-    this.styleSlot = 0 - 1;
-    this.styleKids = 0 - 1;
-    this.isLayoutComplete = false;
+    this.a11yPosInSet = 0;     /** note: unused */
+    this.a11ySetSize = 0;     /** note: unused */
+    this.isLayoutComplete = false;     /** note: unused */
     this.unitsResolved = false;
-    this.hasReturn = false;
-    this.hasBreak = false;
-    this.hasContinue = false;
+    this.hasReturn = false;     /** note: unused */
+    this.hasBreak = false;     /** note: unused */
+    this.hasContinue = false;     /** note: unused */
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -5041,8 +5015,6 @@ class EVGElement  {
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
-    this.calculatedFlexWidth = 0.0;
-    this.hasFlexWidth = false;
     this.hasDefiniteHeight = false;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
@@ -5056,29 +5028,6 @@ class EVGElement  {
   };
   getChildCount () {
     return this.children.length;
-  };
-  clipsContent () {
-    return this.overflow != "visible";
-  };
-  clientHeight () {
-    return this.calculatedHeight - (this.box.borderWidthPx * 2.0);
-  };
-  clientWidth () {
-    return this.calculatedWidth - (this.box.borderWidthPx * 2.0);
-  };
-  maxScrollTop () {
-    const m = this.scrollHeight - this.clientHeight();
-    if ( m < 0.0 ) {
-      return 0.0;
-    }
-    return m;
-  };
-  maxScrollLeft () {
-    const m = this.scrollWidth - this.clientWidth();
-    if ( m < 0.0 ) {
-      return 0.0;
-    }
-    return m;
   };
   getChild (index) {
     return this.children[index];
@@ -5438,19 +5387,16 @@ class EVGElement  {
     }
   };
   markInline (name) {
-    const prop = EVGElement.toKebab(name);
-    if ( this.hasInline(prop) == false ) {
-      this.inlineProps.push(prop);
+    const key = EVGElement.toKebab(name);
+    if ( this.hasInline(key) == false ) {
+      this.inlineProps.push(key);
     }
   };
   hasInline (name) {
-    if ( (this.inlineProps.length) == 0 ) {
-      return false;
-    }
-    const prop = EVGElement.toKebab(name);
+    const key = EVGElement.toKebab(name);
     let i = 0;
     while (i < (this.inlineProps.length)) {
-      if ( (this.inlineProps[i]) == prop ) {
+      if ( (this.inlineProps[i]) == key ) {
         return true;
       }
       i = i + 1;
@@ -5482,211 +5428,6 @@ class EVGElement  {
       this.flex = 1.0;
     }
   };
-  adoptFrom (other) {
-    this.id = other.id;
-    this.key = other.key;
-    this.tagName = other.tagName;
-    this.elementType = other.elementType;
-    this.format = other.format;
-    this.orientation = other.orientation;
-    this.pageWidth = other.pageWidth;
-    this.pageHeight = other.pageHeight;
-    this.width = other.width;
-    this.height = other.height;
-    this.minWidth = other.minWidth;
-    this.minHeight = other.minHeight;
-    this.maxWidth = other.maxWidth;
-    this.maxHeight = other.maxHeight;
-    this.left = other.left;
-    this.top = other.top;
-    this.right = other.right;
-    this.bottom = other.bottom;
-    this.x = other.x;
-    this.y = other.y;
-    this.box = other.box;
-    this.backgroundColor = other.backgroundColor;
-    this.opacity = other.opacity;
-    this.backdropBlur = other.backdropBlur;
-    this.gradientSet = other.gradientSet;
-    this.gradientFrom = other.gradientFrom;
-    this.gradientTo = other.gradientTo;
-    this.gradientDir = other.gradientDir;
-    this.absPosSet = other.absPosSet;
-    this.absX = other.absX;
-    this.absY = other.absY;
-    this.glowIntensity = other.glowIntensity;
-    this.bgImageSet = other.bgImageSet;
-    this.bgImagePath = other.bgImagePath;
-    this.textDir = other.textDir;
-    this.resolvedRtl = other.resolvedRtl;
-    this.direction = other.direction;
-    this.align = other.align;
-    this.verticalAlign = other.verticalAlign;
-    this.isInline = other.isInline;
-    this.lineBreak = other.lineBreak;
-    this.overflow = other.overflow;
-    this.scrollTop = other.scrollTop;
-    this.scrollLeft = other.scrollLeft;
-    this.scrollWidth = other.scrollWidth;
-    this.scrollHeight = other.scrollHeight;
-    this.fontSize = other.fontSize;
-    this.fontSizeInherited = other.fontSizeInherited;
-    this.fontSizeBase = other.fontSizeBase;
-    this.rootFontSize = other.rootFontSize;
-    this.fontFamily = other.fontFamily;
-    this.fontWeight = other.fontWeight;
-    this.lineHeight = other.lineHeight;
-    this.textAlign = other.textAlign;
-    this.color = other.color;
-    this.emojiColor = other.emojiColor;
-    this.textContent = other.textContent;
-    this.display = other.display;
-    this.flex = other.flex;
-    this.flexShrink = other.flexShrink;
-    this.flexBasis = other.flexBasis;
-    this.flexDirection = other.flexDirection;
-    this.justifyContent = other.justifyContent;
-    this.alignItems = other.alignItems;
-    this.alignContent = other.alignContent;
-    this.flexWrap = other.flexWrap;
-    this.gap = other.gap;
-    this.rowGap = other.rowGap;
-    this.columnGap = other.columnGap;
-    this.gridTemplateColumns = other.gridTemplateColumns;
-    this.gridTemplateRows = other.gridTemplateRows;
-    this.subgridColumnSizes = other.subgridColumnSizes;
-    this.subgridRowSizes = other.subgridRowSizes;
-    this.computedRowSizes = other.computedRowSizes;
-    this.subgridPending = other.subgridPending;
-    this.gridTemplateAreas = other.gridTemplateAreas;
-    this.gridAutoFlow = other.gridAutoFlow;
-    this.fullBleed = other.fullBleed;
-    this.gridArea = other.gridArea;
-    this.gridColumn = other.gridColumn;
-    this.gridRow = other.gridRow;
-    this.position = other.position;
-    this.marginTop = other.marginTop;
-    this.marginRight = other.marginRight;
-    this.marginBottom = other.marginBottom;
-    this.marginLeft = other.marginLeft;
-    this.paddingTop = other.paddingTop;
-    this.paddingRight = other.paddingRight;
-    this.paddingBottom = other.paddingBottom;
-    this.paddingLeft = other.paddingLeft;
-    this.borderWidth = other.borderWidth;
-    this.borderTopWidth = other.borderTopWidth;
-    this.borderRightWidth = other.borderRightWidth;
-    this.borderBottomWidth = other.borderBottomWidth;
-    this.borderLeftWidth = other.borderLeftWidth;
-    this.borderColor = other.borderColor;
-    this.src = other.src;
-    this.alt = other.alt;
-    this.imageViewBox = other.imageViewBox;
-    this.imageViewBoxX = other.imageViewBoxX;
-    this.imageViewBoxY = other.imageViewBoxY;
-    this.imageViewBoxW = other.imageViewBoxW;
-    this.imageViewBoxH = other.imageViewBoxH;
-    this.imageViewBoxSet = other.imageViewBoxSet;
-    this.imageOffsetX = other.imageOffsetX;
-    this.imageOffsetY = other.imageOffsetY;
-    this.objectFit = other.objectFit;
-    this.sourceWidth = other.sourceWidth;
-    this.sourceHeight = other.sourceHeight;
-    this.svgPath = other.svgPath;
-    this.svgSource = other.svgSource;
-    this.viewBox = other.viewBox;
-    this.fillColor = other.fillColor;
-    this.strokeColor = other.strokeColor;
-    this.strokeWidth = other.strokeWidth;
-    this.fillRule = other.fillRule;
-    this.strokeDashArray = other.strokeDashArray;
-    this.strokeDashOffset = other.strokeDashOffset;
-    this.clipPath = other.clipPath;
-    this.className = other.className;
-    this.theme = other.theme;
-    this.inlineProps = other.inlineProps;
-    this.imageQuality = other.imageQuality;
-    this.maxImageSize = other.maxImageSize;
-    this.rotate = other.rotate;
-    this.scale = other.scale;
-    this.translateX = other.translateX;
-    this.translateY = other.translateY;
-    this.transformSpec = other.transformSpec;
-    this.transformOriginX = other.transformOriginX;
-    this.transformOriginY = other.transformOriginY;
-    this.transformOriginSpec = other.transformOriginSpec;
-    this.shadowRadius = other.shadowRadius;
-    this.shadowColor = other.shadowColor;
-    this.shadowOffsetX = other.shadowOffsetX;
-    this.shadowOffsetY = other.shadowOffsetY;
-    this.backgroundGradient = other.backgroundGradient;
-    this.gradient = other.gradient;
-    this.calculatedX = other.calculatedX;
-    this.calculatedY = other.calculatedY;
-    this.calculatedWidth = other.calculatedWidth;
-    this.calculatedHeight = other.calculatedHeight;
-    this.calculatedInnerWidth = other.calculatedInnerWidth;
-    this.calculatedInnerHeight = other.calculatedInnerHeight;
-    this.calculatedFlexWidth = other.calculatedFlexWidth;
-    this.hasFlexWidth = other.hasFlexWidth;
-    this.calculatedFlexHeight = other.calculatedFlexHeight;
-    this.calculatedBaseline = other.calculatedBaseline;
-    this.calculatedDescent = other.calculatedDescent;
-    this.hasBaseline = other.hasBaseline;
-    this.hasDefiniteHeight = other.hasDefiniteHeight;
-    this.calculatedPage = other.calculatedPage;
-    this.isAbsolute = other.isAbsolute;
-    this.isOverlay = other.isOverlay;
-    this.overlayAnchor = other.overlayAnchor;
-    this.isOverlayAnchor = other.isOverlayAnchor;
-    this.overlaySide = other.overlaySide;
-    this.overlayAlign = other.overlayAlign;
-    this.overlayGap = other.overlayGap;
-    this.overlayX = other.overlayX;
-    this.overlayY = other.overlayY;
-    this.overlayPlacedSide = other.overlayPlacedSide;
-    this.isHovered = other.isHovered;
-    this.isFocused = other.isFocused;
-    this.isPressed = other.isPressed;
-    this.transitionSpec = other.transitionSpec;
-    this.role = other.role;
-    this.a11yLabel = other.a11yLabel;
-    this.a11yRoleDescription = other.a11yRoleDescription;
-    this.a11yDescription = other.a11yDescription;
-    this.a11yHasPopup = other.a11yHasPopup;
-    this.a11yRowCount = other.a11yRowCount;
-    this.a11yRowIndex = other.a11yRowIndex;
-    this.a11yHidden = other.a11yHidden;
-    this.a11ySorted = other.a11ySorted;
-    this.a11yOrientation = other.a11yOrientation;
-    this.a11yCurrent = other.a11yCurrent;
-    this.a11yHasValue = other.a11yHasValue;
-    this.a11yValueNow = other.a11yValueNow;
-    this.a11yHasRange = other.a11yHasRange;
-    this.a11yValueMin = other.a11yValueMin;
-    this.a11yValueMax = other.a11yValueMax;
-    this.a11yChecked = other.a11yChecked;
-    this.a11yPressed = other.a11yPressed;
-    this.a11yExpanded = other.a11yExpanded;
-    this.a11ySelected = other.a11ySelected;
-    this.a11yDisabled = other.a11yDisabled;
-    this.a11yFocusable = other.a11yFocusable;
-    this.a11yPosInSet = other.a11yPosInSet;
-    this.a11ySetSize = other.a11ySetSize;
-    this.a11yLevel = other.a11yLevel;
-    this.styleClass = other.styleClass;
-    this.styleTheme = other.styleTheme;
-    this.styleBits = other.styleBits;
-    this.styleGen = other.styleGen;
-    this.styleSlot = other.styleSlot;
-    this.styleKids = other.styleKids;
-    this.isLayoutComplete = other.isLayoutComplete;
-    this.unitsResolved = other.unitsResolved;
-    this.hasReturn = other.hasReturn;
-    this.hasBreak = other.hasBreak;
-    this.hasContinue = other.hasContinue;
-    this.inheritedFontSize = other.inheritedFontSize;
-  };
   setAttribute (name, value) {
     if ( name == "className" ) {
       this.className = value;
@@ -5698,10 +5439,6 @@ class EVGElement  {
     }
     if ( name == "id" ) {
       this.id = value;
-      return;
-    }
-    if ( name == "key" ) {
-      this.key = value;
       return;
     }
     if ( name == "format" ) {
@@ -5785,14 +5522,6 @@ class EVGElement  {
       this.a11yLabel = value;
       return;
     }
-    if ( (name == "aria-current") || (name == "a11yCurrent") ) {
-      this.a11yCurrent = value;
-      return;
-    }
-    if ( (name == "aria-orientation") || (name == "a11yOrientation") ) {
-      this.a11yOrientation = value.toLowerCase();
-      return;
-    }
     if ( (name == "aria-sort") || (name == "a11ySorted") ) {
       if ( value == "none" ) {
         this.a11ySorted = 1;
@@ -5809,36 +5538,8 @@ class EVGElement  {
       this.a11yHidden = EVGElement.truthy(value);
       return;
     }
-    if ( (name == "aria-rowcount") || (name == "a11yRowCount") ) {
-      const rc = isNaN( parseInt(value) ) ? undefined : parseInt(value);
-      this.a11yRowCount = 0;
-      if ( typeof(rc) != "undefined" ) {
-        this.a11yRowCount = rc;
-      }
-      return;
-    }
-    if ( (name == "aria-rowindex") || (name == "a11yRowIndex") ) {
-      const ri = isNaN( parseInt(value) ) ? undefined : parseInt(value);
-      this.a11yRowIndex = 0;
-      if ( typeof(ri) != "undefined" ) {
-        this.a11yRowIndex = ri;
-      }
-      return;
-    }
-    if ( (name == "aria-haspopup") || (name == "a11yHasPopup") ) {
-      this.a11yHasPopup = value;
-      return;
-    }
-    if ( (name == "aria-describedby") || (name == "a11yDescription") ) {
-      this.a11yDescription = value;
-      return;
-    }
     if ( (name == "aria-roledescription") || (name == "a11yRoleDescription") ) {
       this.a11yRoleDescription = value;
-      return;
-    }
-    if ( (name == "aria-pressed") || (name == "a11yPressed") ) {
-      this.a11yPressed = EVGElement.triState(value);
       return;
     }
     if ( (name == "aria-checked") || (name == "a11yChecked") ) {
@@ -6019,10 +5720,6 @@ class EVGElement  {
       this.opacity = val;
       return;
     }
-    if ( (name == "backdrop-filter") || (name == "backdropFilter") ) {
-      this.backdropBlur = EVGElement.blurRadiusOf(value);
-      return;
-    }
     if ( (name == "object-fit") || (name == "objectFit") ) {
       this.objectFit = value;
       return;
@@ -6061,16 +5758,6 @@ class EVGElement  {
     }
     if ( name == "overflow" ) {
       this.overflow = value;
-      return;
-    }
-    if ( (name == "scroll-top") || (name == "scrollTop") ) {
-      const st = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
-      this.scrollTop = st;
-      return;
-    }
-    if ( (name == "scroll-left") || (name == "scrollLeft") ) {
-      const sl = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
-      this.scrollLeft = sl;
       return;
     }
     if ( name == "display" ) {
@@ -6585,64 +6272,6 @@ EVGElement.boxSides = function(value, isMargin) {
   out.push(bottom);
   out.push(left);
   return out;
-};
-EVGElement.blurRadiusOf = function(value) {
-  const v = value.trim();
-  if ( v == "none" ) {
-    return 0.0;
-  }
-  if ( (v.length) == 0 ) {
-    return 0.0;
-  }
-  const words = EVGElement.splitWords(v);
-  if ( (words.length) != 1 ) {
-    return 0.0;
-  }
-  const one = words[0];
-  const inner = EVGElement.callArgs(one, "blur");
-  if ( (inner.length) == 0 ) {
-    return 0.0;
-  }
-  const u = EVGUnit.parse(inner);
-  if ( u.isSet == false ) {
-    return 0.0;
-  }
-  if ( u.value < 0.0 ) {
-    return 0.0;
-  }
-  if ( u.unitType != 0 ) {
-    return 0.0;
-  }
-  return u.pixels;
-};
-EVGElement.blurProblem = function(value) {
-  const v = value.trim();
-  if ( v == "none" ) {
-    return "";
-  }
-  if ( (v.length) == 0 ) {
-    return "";
-  }
-  const words = EVGElement.splitWords(v);
-  if ( (words.length) != 1 ) {
-    return ("backdrop-filter: only a single blur() is supported, got '" + v) + "'";
-  }
-  const one = words[0];
-  const inner = EVGElement.callArgs(one, "blur");
-  if ( (inner.length) == 0 ) {
-    return ("backdrop-filter: only blur() is supported, got '" + v) + "'";
-  }
-  const u = EVGUnit.parse(inner);
-  if ( u.isSet == false ) {
-    return ("backdrop-filter: '" + inner) + "' is not a length";
-  }
-  if ( u.value < 0.0 ) {
-    return "backdrop-filter: a blur radius cannot be negative";
-  }
-  if ( u.unitType != 0 ) {
-    return ("backdrop-filter: blur() needs an absolute length, got '" + inner) + "'";
-  }
-  return "";
 };
 EVGElement.splitWords = function(s) {
   let out = [];
@@ -11027,1799 +10656,4011 @@ EvgBitmapTracer.solveLinear = function(n, sx, sy, sxx, sxy, syy, v0, v1, v2, out
   out[2] = db / det;
   out[3] = dc / det;
 };
-class RgTest  {
+class ZipBuffer  {
   constructor() {
-    this.passed = 0;
-    this.failed = 0;
-    this.suite = "";
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.pos = 0;
+    this.length = 0;
   }
-  ok (name, cond) {
-    if ( cond ) {
-      this.passed = this.passed + 1;
-      console.log("  PASS " + name);
-    } else {
-      this.failed = this.failed + 1;
-      console.log("  FAIL " + name);
+  initWithBuffer (buf) {
+    this.data = buf;
+    this.length = buf.byteLength;
+    this.pos = 0;
+  };
+  initWithSize (size) {
+    this.data = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.length = size;
+    this.pos = 0;
+  };
+  getPosition () {
+    return this.pos;
+  };
+  setPosition (newPos) {
+    this.pos = newPos;
+  };
+  seek (offset) {
+    this.pos = offset;
+  };
+  skip (count) {
+    this.pos = this.pos + count;
+  };
+  remaining () {
+    return this.length - this.pos;
+  };
+  isEOF () {
+    return this.pos >= this.length;
+  };
+  readUint8 () {
+    if ( this.pos >= this.length ) {
+      return 0;
+    }
+    const value = this.data._view.getUint8(this.pos);
+    this.pos = this.pos + 1;
+    return value;
+  };
+  readUint16LE () {
+    const b0 = this.readUint8();
+    const b1 = this.readUint8();
+    return b0 + (b1 * 256);
+  };
+  readUint32LE () {
+    const b0 = this.readUint8();
+    const b1 = this.readUint8();
+    const b2 = this.readUint8();
+    const b3 = this.readUint8();
+    return ((b0 + (b1 * 256)) + (b2 * 65536)) + (b3 * 16777216);
+  };
+  readBytes (count) {
+    let result = (function(){ var b = new ArrayBuffer(count); b._view = new DataView(b); return b; })();
+    let i = 0;
+    while (i < count) {
+      if ( this.pos < this.length ) {
+        const b = this.data._view.getUint8(this.pos);
+        result._view.setUint8(i, b);
+        this.pos = this.pos + 1;
+      }
+      i = i + 1;
+    };
+    return result;
+  };
+  readString (count) {
+    let result = "";
+    let i = 0;
+    while (i < count) {
+      if ( this.pos < this.length ) {
+        const ch = this.data._view.getUint8(this.pos);
+        result = result + (String.fromCharCode(ch));
+        this.pos = this.pos + 1;
+      }
+      i = i + 1;
+    };
+    return result;
+  };
+  peekUint8 () {
+    if ( this.pos >= this.length ) {
+      return 0;
+    }
+    return this.data._view.getUint8(this.pos);
+  };
+  peekUint32LE () {
+    const savedPos = this.pos;
+    const value = this.readUint32LE();
+    this.pos = savedPos;
+    return value;
+  };
+  writeUint8 (value) {
+    if ( this.pos < this.length ) {
+      this.data._view.setUint8(this.pos, value);
+      this.pos = this.pos + 1;
     }
   };
-  no (name, cond) {
-    this.ok(name, cond == false);
+  writeUint16LE (value) {
+    const b0 = value % 256;
+    const b1D = (value) / 256.0;
+    const b1 = (Math.floor( b1D)) % 256;
+    this.writeUint8(b0);
+    this.writeUint8(b1);
   };
-  eqInt (name, got, want) {
-    if ( got == want ) {
-      this.passed = this.passed + 1;
-      console.log("  PASS " + name);
-    } else {
-      this.failed = this.failed + 1;
-      console.log((((("  FAIL " + name) + " got=") + ((got.toString()))) + " want=") + ((want.toString())));
-    }
+  writeUint32LE (value) {
+    const b0 = value % 256;
+    const rem1D = (value) / 256.0;
+    const rem1 = Math.floor( rem1D);
+    const b1 = rem1 % 256;
+    const rem2D = (rem1) / 256.0;
+    const rem2 = Math.floor( rem2D);
+    const b2 = rem2 % 256;
+    const rem3D = (rem2) / 256.0;
+    const b3 = Math.floor( rem3D);
+    this.writeUint8(b0);
+    this.writeUint8(b1);
+    this.writeUint8(b2);
+    this.writeUint8(b3);
   };
-  eqStr (name, got, want) {
-    if ( got == want ) {
-      this.passed = this.passed + 1;
-      console.log("  PASS " + name);
-    } else {
-      this.failed = this.failed + 1;
-      console.log((((("  FAIL " + name) + " got=") + got) + " want=") + want);
-    }
+  writeBytes (src, srcOffset, count) {
+    let i = 0;
+    while (i < count) {
+      const b = src._view.getUint8((srcOffset + i));
+      this.writeUint8(b);
+      i = i + 1;
+    };
   };
-  eqBool (name, got, want) {
-    if ( got == want ) {
-      this.passed = this.passed + 1;
-      console.log("  PASS " + name);
-    } else {
-      this.failed = this.failed + 1;
-      console.log("  FAIL " + name);
-    }
+  writeBuffer (src) {
+    const __len = src.byteLength;
+    this.writeBytes(src, 0, __len);
   };
-  near (name, got, want) {
-    let d = got - want;
-    if ( d < 0.0 ) {
-      d = 0.0 - d;
-    }
-    if ( d < 0.000001 ) {
-      this.passed = this.passed + 1;
-      console.log("  PASS " + name);
-    } else {
-      this.failed = this.failed + 1;
-      console.log((((("  FAIL " + name) + " got=") + ((got.toString()))) + " want=") + ((want.toString())));
-    }
+  writeString (s) {
+    const __len = s.length;
+    let i = 0;
+    while (i < __len) {
+      const ch = s.charCodeAt(i );
+      this.writeUint8(ch);
+      i = i + 1;
+    };
   };
-  summary () {
-    console.log("== summary ==");
-    console.log((("passed=" + ((this.passed.toString()))) + " failed=") + ((this.failed.toString())));
-    if ( this.failed == 0 ) {
-      console.log("ALL PASS");
-    } else {
-      console.log("SOME FAILED");
-    }
+  getBuffer () {
+    return this.data;
+  };
+  getLength () {
+    return this.length;
+  };
+  findSignatureBackward (sig, startPos) {
+    let searchPos = startPos;
+    while (searchPos >= 0) {
+      const savedPos = this.pos;
+      this.pos = searchPos;
+      const value = this.readUint32LE();
+      this.pos = savedPos;
+      if ( value == sig ) {
+        return searchPos;
+      }
+      searchPos = searchPos - 1;
+    };
+    return -1;
   };
 }
-RgTest.forSuite = function(name) {
-  const t = new RgTest();
-  t.suite = name;
-  console.log("### " + name);
-  return t;
-};
-class EvgBitmapTracerTest  {
+class GrowableZipBuffer  {
   constructor() {
+    this.chunks = [];
+    this.chunkSize = 4096;
+    this.currentChunk = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.currentPos = 0;
+    this.totalSize = 0;
+    this.currentPos = 0;
+    this.totalSize = 0;
+    const initSize = 4096;
+    this.currentChunk = (function(){ var b = new ArrayBuffer(initSize); b._view = new DataView(b); return b; })();
   }
-  makeChecker (n, cell) {
-    const bm = EvgBinaryBitmap.create(n, n);
-    let y = 0;
-    while (y < n) {
-      let x = 0;
-      while (x < n) {
-        const cx = ((x / cell) | 0);
-        const cy = ((y / cell) | 0);
-        const cellSum = cx + cy;
-        if ( (cellSum - ((((cellSum / 2) | 0)) * 2)) == 0 ) {
-          bm.setBit(x, y, true);
-        }
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return bm;
+  setChunkSize (size) {
+    this.chunkSize = size;
   };
-  filledRect (w, h, x0, y0, rw, rh) {
-    const bm = EvgBinaryBitmap.create(w, h);
-    let y = y0;
-    while (y < (y0 + rh)) {
-      let x = x0;
-      while (x < (x0 + rw)) {
-        bm.setBit(x, y, true);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return bm;
+  allocateNewChunk () {
+    this.chunks.push(this.currentChunk);
+    const size = this.chunkSize;
+    this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.currentPos = 0;
   };
-  countType (cmds, kind) {
-    let n = 0;
-    let i = 0;
-    while (i < (cmds.length)) {
-      const c = cmds[i];
-      if ( c.type == kind ) {
-        n = n + 1;
-      }
-      i = i + 1;
-    };
-    return n;
-  };
-  testEmpty (t) {
-    const bm = EvgBinaryBitmap.create(8, 8);
-    const opts = EvgTraceOptions.defaults();
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    t.eqInt("empty bitmap yields no rings", tr.ringCount(), 0);
-    t.eqInt("and no commands", tr.commandCount(), 0);
-    t.eqStr("empty path data", tr.getPathData(), "");
-  };
-  testFilledRect (t) {
-    const bm = this.filledRect(32, 32, 4, 4, 16, 12);
-    const opts = EvgTraceOptions.defaults();
-    opts.turdsize = 2;
-    opts.opttolerance = 0.5;
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    t.ok("a solid rect produces at least one ring", tr.ringCount() >= 1);
-    t.ok("and some path commands", tr.commandCount() >= 4);
-    t.ok("path data is non-empty", (tr.getPathData().length) > 0);
-    const cmds = tr.getCommands();
-    t.eqInt("path opens with a moveto", this.countType(cmds, "M"), 1);
-    t.ok("path closes", this.countType(cmds, "Z") >= 1);
-    const svg = tr.toSVG();
-    t.ok("SVG mentions evenodd", (svg.indexOf("evenodd")) >= 0);
-    t.ok("SVG embeds the path", (svg.indexOf("d=\"")) >= 0);
-  };
-  testHole (t) {
-    const bm = this.filledRect(40, 40, 5, 5, 20, 20);
-    let y = 12;
-    while (y < 18) {
-      let x = 12;
-      while (x < 18) {
-        bm.setBit(x, y, false);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    const opts = EvgTraceOptions.defaults();
-    opts.turdsize = 2;
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    t.ok("a ring with a hole yields at least two rings", tr.ringCount() >= 2);
-    const el = tr.toEVGElement();
-    t.eqStr("EVG path uses evenodd for holes", el.fillRule, "evenodd");
-  };
-  testTurdsize (t) {
-    const bm = EvgBinaryBitmap.create(16, 16);
-    bm.setBit(2, 2, true);
-    bm.setBit(10, 10, true);
-    const opts = EvgTraceOptions.defaults();
-    opts.turdsize = 2;
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    t.eqInt("turdsize drops single-pixel speckles", tr.ringCount(), 0);
-    const bm2 = this.filledRect(16, 16, 2, 2, 4, 4);
-    const tr2 = EvgBitmapTracer.fromBinary(bm2, opts);
-    tr2.trace();
-    t.ok("a 4x4 block survives turdsize 2", tr2.ringCount() >= 1);
-  };
-  testPolygonMode (t) {
-    const bm = this.filledRect(24, 24, 3, 3, 10, 10);
-    const opts = EvgTraceOptions.defaults();
-    opts.optcurve = false;
-    opts.opttolerance = 0.01;
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    const cmds = tr.getCommands();
-    t.eqInt("polygon mode emits no cubics", this.countType(cmds, "C"), 0);
-    t.ok("but still has linetos", this.countType(cmds, "L") >= 3);
-  };
-  testImageBuffer (t) {
-    const img = new ImageBuffer();
-    img.init(20, 20);
-    let y = 4;
-    while (y < 16) {
-      let x = 4;
-      while (x < 16) {
-        img.setPixelRGB(x, y, 0, 0, 0);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    const opts = EvgTraceOptions.defaults();
-    opts.threshold = 128;
-    const tr = EvgBitmapTracer.fromImageBuffer(img, opts);
-    tr.trace();
-    t.ok("ImageBuffer threshold traces a black square", tr.ringCount() >= 1);
-    t.eqInt("width preserved", tr.width, 20);
-    t.eqInt("height preserved", tr.height, 20);
-  };
-  testEVGElement (t) {
-    const bm = this.filledRect(16, 16, 2, 2, 8, 8);
-    const opts = EvgTraceOptions.defaults();
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    const el = tr.toEVGElement();
-    t.eqStr("tag is path", el.tagName, "path");
-    t.ok("svgPath filled", (el.svgPath.length) > 0);
-    t.ok("viewBox set", (el.viewBox.length) > 0);
-    const b = tr.toPathBuilder();
-    t.ok("PathBuilder is not empty", b.isEmpty() == false);
-  };
-  testOptimalRectPolygon (t) {
-    const bm = this.filledRect(40, 40, 8, 8, 20, 16);
-    const opts = EvgTraceOptions.defaults();
-    opts.optcurve = false;
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    const cmds = tr.getCommands();
-    t.eqInt("optimal rect: one moveto", this.countType(cmds, "M"), 1);
-    t.eqInt("optimal rect: four corners → three linetos", this.countType(cmds, "L"), 3);
-    t.eqInt("optimal rect: one closepath", this.countType(cmds, "Z"), 1);
-    t.eqInt("optimal rect: command budget", cmds.length, 5);
-    t.ok("path data stays compact", (tr.getPathData().length) < 120);
-  };
-  testCurveModeRectCompact (t) {
-    const bm = this.filledRect(40, 40, 8, 8, 20, 16);
-    const opts = EvgTraceOptions.defaults();
-    opts.optcurve = true;
-    opts.alphamax = 1.0;
-    opts.opttolerance = 0.2;
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    const cmds = tr.getCommands();
-    t.eqInt("curve-mode rect: one moveto", this.countType(cmds, "M"), 1);
-    t.eqInt("curve-mode rect: three linetos", this.countType(cmds, "L"), 3);
-    t.eqInt("curve-mode rect: no cubics on a box", this.countType(cmds, "C"), 0);
-    t.eqInt("curve-mode rect: command budget", cmds.length, 5);
-    t.ok("curve-mode path stays compact", (tr.getPathData().length) < 120);
-  };
-  testCheckerTopology (t) {
-    const opts = EvgTraceOptions.defaults();
-    opts.turdsize = 2;
-    opts.optcurve = true;
-    const coarse = this.makeChecker(128, 32);
-    const tr1 = EvgBitmapTracer.fromBinary(coarse, opts);
-    tr1.trace();
-    t.eqInt("coarse checker (cell 32) → 2 rings", tr1.ringCount(), 2);
-    const fine = this.makeChecker(128, 8);
-    const tr2 = EvgBitmapTracer.fromBinary(fine, opts);
-    tr2.trace();
-    t.eqInt("fine checker (cell 8) → 8 rings", tr2.ringCount(), 8);
-    t.ok("fine checker path stays under fair CLI budget", (tr2.getPathData().length) < 5500);
-  };
-  testMonoFillHex (t) {
-    const bm = this.filledRect(24, 24, 4, 4, 12, 12);
-    const opts = EvgTraceOptions.defaults();
-    opts.fillHex = "#CC3300";
-    const tr = EvgBitmapTracer.fromBinary(bm, opts);
-    tr.trace();
-    const svg = tr.toSVG();
-    t.ok("SVG uses the requested fill hex", (svg.indexOf("#CC3300")) >= 0);
-    t.eqInt("mono still yields one layer", tr.layerCount(), 1);
-    const el = tr.toEVGElement();
-    t.ok("EVG fill picks up fillHex", el.fillColor.toHexString() == "#CC3300");
-  };
-  testPosterizeTwoColors (t) {
-    const img = new ImageBuffer();
-    img.init(40, 24);
-    let y = 0;
-    while (y < 24) {
-      let x = 0;
-      while (x < 40) {
-        img.setPixelRGB(x, y, 255, 255, 255);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 4;
-    while (y < 20) {
-      let x2 = 4;
-      while (x2 < 18) {
-        img.setPixelRGB(x2, y, 200, 30, 30);
-        x2 = x2 + 1;
-      };
-      let x3 = 22;
-      while (x3 < 36) {
-        img.setPixelRGB(x3, y, 30, 60, 200);
-        x3 = x3 + 1;
-      };
-      y = y + 1;
-    };
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 2;
-    opts.turdsize = 2;
-    opts.skipLuma = 250;
-    const tr = EvgBitmapTracer.fromImageBuffer(img, opts);
-    tr.trace();
-    t.eqInt("posterize yields two color layers", tr.layerCount(), 2);
-    const svg = tr.toSVG();
-    t.ok("SVG has two path elements", (svg.indexOf("<path")) >= 0);
-    const els = tr.toEVGElements();
-    t.eqInt("toEVGElements matches layer count", els.length, 2);
-    const layer0 = tr.layers[0];
-    const layer1 = tr.layers[1];
-    const h0 = layer0.fillHex;
-    const h1 = layer1.fillHex;
-    t.ok("layer fills differ", h0 != h1);
-    t.ok("SVG embeds first layer fill", (svg.indexOf(h0)) >= 0);
-    t.ok("SVG embeds second layer fill", (svg.indexOf(h1)) >= 0);
-  };
-  blend (a, b, t) {
-    return ((((a * (100 - t)) + (b * t)) / 100) | 0);
-  };
-  makeInkLine () {
-    const img = new ImageBuffer();
-    img.init(60, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 60) {
-        img.setPixelRGB(x, y, 220, 150, 60);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 0;
-    while (y < 40) {
-      img.setPixelRGB(28, y, this.blend(220, 20, 60), this.blend(150, 20, 60), this.blend(60, 20, 60));
-      img.setPixelRGB(29, y, 20, 20, 20);
-      img.setPixelRGB(30, y, 20, 20, 20);
-      img.setPixelRGB(31, y, this.blend(220, 20, 60), this.blend(150, 20, 60), this.blend(60, 20, 60));
-      y = y + 1;
-    };
-    return img;
-  };
-  countInkPixels (tr) {
-    let n = 0;
-    let i = 0;
-    while (i < (tr.labels.length)) {
-      const lab = tr.labels[i];
-      if ( lab == 0 ) {
-        n = n + 1;
-      }
-      i = i + 1;
-    };
-    return n;
-  };
-  testThinInkSurvivesManyColors (t) {
-    let counts = [];
-    counts.push(2);
-    counts.push(6);
-    counts.push(12);
-    let ci = 0;
-    while (ci < (counts.length)) {
-      const want = counts[ci];
-      const opts = EvgTraceOptions.defaults();
-      opts.colorCount = want;
-      const tr = EvgBitmapTracer.fromImageBuffer(this.makeInkLine(), opts);
-      tr.trace();
-      const darkest = tr.layers[0];
-      t.ok(("ink layer survives at " + ((want.toString()))) + " colors", darkest.ringCount > 0);
-      const ink = this.countInkPixels(tr);
-      t.ok(("ink keeps its width at " + ((want.toString()))) + " colors", ink >= 80);
-      ci = ci + 1;
-    };
-  };
-  testExtraColorsDoNotSplitOneRegion (t) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 12;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeInkLine(), opts);
-    tr.trace();
-    t.ok("palette collapses to what the image holds", tr.layerCount() <= 4);
-    t.ok("palette is not empty", tr.layerCount() >= 2);
-  };
-  testAutoBackgroundKeepsInteriorWhite (t) {
-    const img = new ImageBuffer();
-    img.init(40, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 40) {
-        img.setPixelRGB(x, y, 255, 255, 255);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 6;
-    while (y < 34) {
-      let x2 = 6;
-      while (x2 < 34) {
-        img.setPixelRGB(x2, y, 40, 90, 200);
-        x2 = x2 + 1;
-      };
-      y = y + 1;
-    };
-    y = 14;
-    while (y < 26) {
-      let x3 = 14;
-      while (x3 < 26) {
-        img.setPixelRGB(x3, y, 255, 255, 255);
-        x3 = x3 + 1;
-      };
-      y = y + 1;
-    };
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 2;
-    const tr = EvgBitmapTracer.fromImageBuffer(img, opts);
-    tr.trace();
-    t.eqInt("auto background yields both swatches", tr.layerCount(), 2);
-    let white = 0;
-    let blue = 0;
-    let i = 0;
-    while (i < (tr.labels.length)) {
-      const lab = tr.labels[i];
-      if ( lab == 0 ) {
-        blue = blue + 1;
-      }
-      if ( lab == 1 ) {
-        white = white + 1;
-      }
-      i = i + 1;
-    };
-    t.eqInt("interior white patch is painted", white, 144);
-    t.eqInt("only the shape around it is painted", blue, 640);
-  };
-  makeGradientWithSpot () {
-    const img = new ImageBuffer();
-    img.init(60, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 60) {
-        const g = 90 + (((x / 2) | 0));
-        img.setPixelRGB(x, y, g, g, g - 2);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 6;
-    while (y < 12) {
-      let x2 = 6;
-      while (x2 < 12) {
-        img.setPixelRGB(x2, y, 225, 25, 35);
-        x2 = x2 + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  spreadOf (hex) {
-    const c = EVGColor.parse(hex);
-    const r = Math.floor( c.r);
-    const g = Math.floor( c.g);
-    const b = Math.floor( c.b);
-    let hi = r;
-    let lo = r;
-    if ( g > hi ) {
-      hi = g;
+  writeUint8 (value) {
+    if ( this.currentPos >= this.chunkSize ) {
+      this.allocateNewChunk();
     }
-    if ( b > hi ) {
-      hi = b;
-    }
-    if ( g < lo ) {
-      lo = g;
-    }
-    if ( b < lo ) {
-      lo = b;
-    }
-    return hi - lo;
+    this.currentChunk._view.setUint8(this.currentPos, value);
+    this.currentPos = this.currentPos + 1;
+    this.totalSize = this.totalSize + 1;
   };
-  vividCount (tr) {
-    let n = 0;
+  writeUint16LE (value) {
+    const b0 = value % 256;
+    const b1D = (value) / 256.0;
+    const b1 = (Math.floor( b1D)) % 256;
+    this.writeUint8(b0);
+    this.writeUint8(b1);
+  };
+  writeUint32LE (value) {
+    const b0 = value % 256;
+    const rem1D = (value) / 256.0;
+    const rem1 = Math.floor( rem1D);
+    const b1 = rem1 % 256;
+    const rem2D = (rem1) / 256.0;
+    const rem2 = Math.floor( rem2D);
+    const b2 = rem2 % 256;
+    const rem3D = (rem2) / 256.0;
+    const b3 = Math.floor( rem3D);
+    this.writeUint8(b0);
+    this.writeUint8(b1);
+    this.writeUint8(b2);
+    this.writeUint8(b3);
+  };
+  writeBytes (src, srcOffset, count) {
     let i = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      if ( this.spreadOf(layer.fillHex) > 60 ) {
-        n = n + 1;
-      }
+    while (i < count) {
+      const b = src._view.getUint8((srcOffset + i));
+      this.writeUint8(b);
       i = i + 1;
     };
-    return n;
   };
-  testFixedPalette (t) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 9;
-    opts.paletteMode = "fixed";
-    opts.bgMode = "none";
-    opts.paletteHex.push("#000000");
-    opts.paletteHex.push("#ffffff");
-    opts.paletteHex.push("#ffd400");
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), opts);
-    tr.trace();
-    t.ok("fixed palette ignores colorCount", tr.layerCount() <= 3);
-    t.ok("fixed palette still paints something", tr.layerCount() >= 1);
+  writeBuffer (src) {
+    const __len = src.byteLength;
+    this.writeBytes(src, 0, __len);
+  };
+  writeString (s) {
+    const __len = s.length;
     let i = 0;
-    let foreign = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      const h = layer.fillHex;
-      if ( ((h != "#000000") && (h != "#FFFFFF")) && (h != "#FFD400") ) {
-        foreign = foreign + 1;
-      }
+    while (i < __len) {
+      const ch = s.charCodeAt(i );
+      this.writeUint8(ch);
       i = i + 1;
     };
-    t.eqInt("no swatch outside the fixed palette", foreign, 0);
   };
-  testSeededPaletteKeepsThePin (t) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 3;
-    opts.paletteMode = "seeded";
-    opts.bgMode = "none";
-    opts.paletteHex.push("#6A6A68");
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), opts);
-    tr.trace();
-    let pinned = 0;
+  getSize () {
+    return this.totalSize;
+  };
+  toBuffer () {
+    const size = this.totalSize;
+    let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    let destPos = 0;
+    const numChunks = this.chunks.length;
+    const chSize = this.chunkSize;
     let i = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      if ( layer.fillHex == "#6A6A68" ) {
-        pinned = pinned + 1;
-      }
-      i = i + 1;
-    };
-    t.eqInt("the pinned swatch survives", pinned, 1);
-    t.ok("the rest of the palette is still filled in", tr.layerCount() >= 2);
-  };
-  testPaletteBiasDefaultIsUnchanged (t) {
-    const a = EvgTraceOptions.defaults();
-    t.ok("palette mode defaults to auto", a.paletteMode == "auto");
-    t.ok("palette bias defaults to area", a.paletteBias == "area");
-    t.eqInt("no palette colors by default", a.paletteHex.length, 0);
-    const optA = EvgTraceOptions.defaults();
-    optA.colorCount = 2;
-    optA.bgMode = "none";
-    const trA = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), optA);
-    trA.trace();
-    t.eqInt("area spends both swatches on the big region", this.vividCount(trA), 0);
-    const optB = EvgTraceOptions.defaults();
-    optB.colorCount = 2;
-    optB.bgMode = "none";
-    optB.paletteBias = "balanced";
-    const trB = EvgBitmapTracer.fromImageBuffer(this.makeGradientWithSpot(), optB);
-    trB.trace();
-    t.ok("balanced keeps the small vivid patch", this.vividCount(trB) >= 1);
-  };
-  makeSpeckled () {
-    const img = new ImageBuffer();
-    img.init(60, 40);
-    let seed = 12345;
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 60) {
-        let left = x < 30;
-        seed = ((seed * 75) + 74) % 65537;
-        if ( (seed % 100) < 15 ) {
-          left = left == false;
-        }
-        if ( left ) {
-          img.setPixelRGB(x, y, 60, 90, 160);
-        } else {
-          img.setPixelRGB(x, y, 200, 180, 120);
-        }
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  totalRings (tr) {
-    let n = 0;
-    let i = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      n = n + layer.ringCount;
-      i = i + 1;
-    };
-    return n;
-  };
-  testSmoothRemovesSpeckle (t) {
-    const a = EvgTraceOptions.defaults();
-    t.eqInt("smoothing is off by default", a.smooth, 0);
-    const rawOpts = EvgTraceOptions.defaults();
-    rawOpts.colorCount = 2;
-    rawOpts.bgMode = "none";
-    rawOpts.minRegion = 0;
-    const raw = EvgBitmapTracer.fromImageBuffer(this.makeSpeckled(), rawOpts);
-    raw.trace();
-    const rawRings = this.totalRings(raw);
-    const smOpts = EvgTraceOptions.defaults();
-    smOpts.colorCount = 2;
-    smOpts.bgMode = "none";
-    smOpts.minRegion = 0;
-    smOpts.smooth = 2;
-    const sm = EvgBitmapTracer.fromImageBuffer(this.makeSpeckled(), smOpts);
-    sm.trace();
-    const smRings = this.totalRings(sm);
-    t.ok("the speckle really is there without smoothing", rawRings > 15);
-    t.ok("smoothing collapses it", smRings < (((rawRings / 4) | 0)));
-    t.eqInt("both regions survive the median", sm.layerCount(), 2);
-  };
-  makeInsetSquare () {
-    const img = new ImageBuffer();
-    img.init(40, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 40) {
-        img.setPixelRGB(x, y, 30, 40, 60);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 12;
-    while (y < 28) {
-      let x2 = 12;
-      while (x2 < 28) {
-        img.setPixelRGB(x2, y, 230, 220, 200);
-        x2 = x2 + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  traceInset (mode) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 2;
-    opts.bgMode = "none";
-    opts.layerMode = mode;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeInsetSquare(), opts);
-    tr.trace();
-    return tr;
-  };
-  testStackedLayersLeaveNoSeam (t) {
-    const d = EvgTraceOptions.defaults();
-    t.ok("layers are stacked by default", d.layerMode == "stacked");
-    const flat = this.traceInset("flat");
-    const stacked = this.traceInset("stacked");
-    t.eqInt("flat still yields both swatches", flat.layerCount(), 2);
-    t.eqInt("stacked still yields both swatches", stacked.layerCount(), 2);
-    const flatDark = flat.layers[0];
-    const stackedDark = stacked.layers[0];
-    t.eqInt("the disjoint dark layer is cut open for the square", flatDark.ringCount, 2);
-    t.eqInt("the stacked dark layer runs under it whole", stackedDark.ringCount, 1);
-    const flatLight = flat.layers[1];
-    const stackedLight = stacked.layers[1];
-    t.eqInt("the square itself is unchanged", stackedLight.ringCount, flatLight.ringCount);
-  };
-  makeBustedBorder () {
-    const img = new ImageBuffer();
-    img.init(40, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 40) {
-        img.setPixelRGB(x, y, 255, 255, 255);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 0;
-    while (y < 4) {
-      let xb = 0;
-      while (xb < 40) {
-        img.setPixelRGB(xb, y, 40, 70, 110);
-        xb = xb + 1;
-      };
-      y = y + 1;
-    };
-    y = 8;
-    while (y < 34) {
-      let x2 = 6;
-      while (x2 < 34) {
-        img.setPixelRGB(x2, y, 40, 90, 200);
-        x2 = x2 + 1;
-      };
-      y = y + 1;
-    };
-    y = 16;
-    while (y < 26) {
-      let x3 = 14;
-      while (x3 < 26) {
-        img.setPixelRGB(x3, y, 255, 255, 255);
-        x3 = x3 + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  countLabel (tr, lab) {
-    let n = 0;
-    let i = 0;
-    while (i < (tr.labels.length)) {
-      if ( (tr.labels[i]) == lab ) {
-        n = n + 1;
-      }
-      i = i + 1;
-    };
-    return n;
-  };
-  testNamedBackgroundColor (t) {
-    const d = EvgTraceOptions.defaults();
-    t.ok("background color defaults to white", d.bgColor == "#ffffff");
-    const autoOpts = EvgTraceOptions.defaults();
-    autoOpts.colorCount = 3;
-    const au = EvgBitmapTracer.fromImageBuffer(this.makeBustedBorder(), autoOpts);
-    au.trace();
-    t.ok("auto still removes a page whose border is not one flat color", au.backgroundRemoved());
-    let autoWhite = 0;
-    let ai = 0;
-    while (ai < au.layerCount()) {
-      const al = au.layers[ai];
-      const ac = EVGColor.parse(al.fillHex);
-      if ( EvgBitmapTracer.lumaOf((Math.floor( ac.r)), (Math.floor( ac.g)), (Math.floor( ac.b))) > 200 ) {
-        autoWhite = autoWhite + this.countLabel(au, ai);
-      }
-      ai = ai + 1;
-    };
-    t.eqInt("and keeps the white inside the shape, which is not the page", autoWhite, 120);
-    const namedOpts = EvgTraceOptions.defaults();
-    namedOpts.colorCount = 3;
-    namedOpts.bgMode = "color";
-    namedOpts.bgColor = "#ffffff";
-    const nm = EvgBitmapTracer.fromImageBuffer(this.makeBustedBorder(), namedOpts);
-    nm.trace();
-    t.ok("naming the color removes it anyway", nm.backgroundRemoved());
-    t.eqInt("the page is gone", this.countLabel(nm, (0 - 1)), 712);
-    let keptWhite = 0;
-    let li = 0;
-    while (li < nm.layerCount()) {
-      const layer = nm.layers[li];
-      const c = EVGColor.parse(layer.fillHex);
-      const lum = EvgBitmapTracer.lumaOf((Math.floor( c.r)), (Math.floor( c.g)), (Math.floor( c.b)));
-      if ( lum > 200 ) {
-        keptWhite = keptWhite + this.countLabel(nm, li);
-      }
-      li = li + 1;
-    };
-    t.eqInt("the white inside the shape is kept, and only that", keptWhite, 120);
-  };
-  makeRampWithBlock () {
-    const img = new ImageBuffer();
-    img.init(60, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 60) {
-        const g = 80 + ((((x * 110) / 60) | 0));
-        img.setPixelRGB(x, y, g, g, g);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 20;
-    while (y < 30) {
-      let x2 = 20;
-      while (x2 < 30) {
-        img.setPixelRGB(x2, y, 30, 60, 200);
-        x2 = x2 + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  labelChangesInRow (tr, row) {
-    let n = 0;
-    let x = 1;
-    while (x < 60) {
-      const a = tr.labels[(((row * 60) + x) - 1)];
-      const b = tr.labels[((row * 60) + x)];
-      if ( a != b ) {
-        n = n + 1;
-      }
-      x = x + 1;
-    };
-    return n;
-  };
-  traceRamp (mode, spread) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 4;
-    opts.bgMode = "none";
-    opts.minRegion = 0;
-    opts.contourMode = mode;
-    opts.contourSpread = spread;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampWithBlock(), opts);
-    tr.trace();
-    return tr;
-  };
-  testContourSmoothing (t) {
-    const d = EvgTraceOptions.defaults();
-    t.ok("contour smoothing is off by default", d.contourMode == "off");
-    const off = this.traceRamp("off", 48);
-    const on = this.traceRamp("smooth", 48);
-    const loose = this.traceRamp("smooth", 200);
-    const bandsOff = this.labelChangesInRow(off, 5);
-    const bandsOn = this.labelChangesInRow(on, 5);
-    const bandsLoose = this.labelChangesInRow(loose, 5);
-    t.ok("the ramp really is banded without it", bandsOff >= 2);
-    t.ok("smoothing cuts the banding", bandsOn < bandsOff);
-    t.eqInt("and removes it outright once the leash is long enough", bandsLoose, 0);
-    const inside = loose.labels[((25 * 60) + 25)];
-    const outside = loose.labels[((25 * 60) + 5)];
-    t.ok("the hard edge is still an edge", inside != outside);
-    let body = 0;
-    let y = 20;
-    while (y < 30) {
-      let x = 20;
-      while (x < 30) {
-        if ( (loose.labels[((y * 60) + x)]) == inside ) {
-          body = body + 1;
-        }
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    t.eqInt("the block is whole", body, 100);
-  };
-  makeThreeFields () {
-    const img = new ImageBuffer();
-    img.init(150, 50);
-    let y = 0;
-    while (y < 50) {
-      let x = 0;
-      while (x < 150) {
-        let v = 0;
-        if ( x < 50 ) {
-          v = 60;
-        } else {
-          if ( x < 100 ) {
-            v = 30 + ((x - 50) * 2);
-          } else {
-            const dx = x - 125;
-            const dy = y - 25;
-            const r2 = (dx * dx) + (dy * dy);
-            const r = Math.floor( (Math.sqrt((r2))));
-            v = 240 - (r * 2);
-            if ( v < 20 ) {
-              v = 20;
-            }
-          }
-        }
-        img.setPixelRGB(x, y, v, v, v);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  countKind (tr, kind) {
-    let n = 0;
-    let i = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      if ( layer.fillKind == kind ) {
-        n = n + 1;
-      }
-      i = i + 1;
-    };
-    return n;
-  };
-  testGradientFills (t) {
-    const d = EvgTraceOptions.defaults();
-    t.ok("gradient fills are off by default", d.gradientFill == false);
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 6;
-    opts.bgMode = "none";
-    opts.minRegion = 40;
-    opts.gradientFill = true;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeThreeFields(), opts);
-    tr.trace();
-    t.ok("the straight ramp gets a linear fill", this.countKind(tr, "linear") >= 1);
-    t.ok("the even field stays flat", this.countKind(tr, "flat") >= 1);
-    t.eqInt("no radial fill is ever emitted", this.countKind(tr, "radial"), 0);
-    let i = 0;
-    let checked = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      if ( layer.fillKind == "linear" ) {
-        const dx = layer.gx1 - layer.gx0;
-        const dy = layer.gy1 - layer.gy0;
-        t.ok("the linear axis is not a point", ((dx * dx) + (dy * dy)) > 1.0);
-        t.ok("its two stops differ", layer.stopA != layer.stopB);
-        checked = checked + 1;
-      }
-      i = i + 1;
-    };
-    t.ok("at least one linear fill was checked", checked >= 1);
-    const svg = tr.toSVG();
-    t.ok("the SVG declares its gradients", (svg.indexOf("<defs>")) >= 0);
-    t.ok("and a linear one among them", (svg.indexOf("<linearGradient")) >= 0);
-    t.eqInt("and no radial one", svg.indexOf("<radialGradient"), 0 - 1);
-    t.ok("paths reference them by url()", (svg.indexOf("fill=\"url(#g")) >= 0);
-    const plain = EvgTraceOptions.defaults();
-    plain.colorCount = 6;
-    plain.bgMode = "none";
-    plain.minRegion = 40;
-    const flatTr = EvgBitmapTracer.fromImageBuffer(this.makeThreeFields(), plain);
-    flatTr.trace();
-    t.eqInt("nothing but flat fills when it is off", this.countKind(flatTr, "flat"), flatTr.layerCount());
-    t.ok("and no defs block", (flatTr.toSVG().indexOf("<defs>")) < 0);
-  };
-  makeVanishingBoundary () {
-    const img = new ImageBuffer();
-    img.init(120, 80);
-    let y = 0;
-    while (y < 80) {
-      let x = 0;
-      while (x < 120) {
-        let v = 150 + ((((x * 60) / 120) | 0));
-        if ( (((y >= 24) && (y < 56)) && (x >= 32)) && (x < 88) ) {
-          v = v + (((((x - 60) * 9) / 10) | 0));
-        }
-        img.setPixelRGB(x, y, v, v, v);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  traceVanishing (mode, grad, gain) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 6;
-    opts.bgMode = "none";
-    opts.minRegion = 20;
-    opts.contourMode = mode;
-    opts.gradientFill = grad;
-    opts.gradientGain = gain;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeVanishingBoundary(), opts);
-    tr.trace();
-    return tr;
-  };
-  testOverlayRecoversASwallowedShape (t) {
-    const d = EvgTraceOptions.defaults();
-    t.ok("overlay is not the default", d.contourMode != "overlay");
-    t.eqInt("the similarity stop has a default", d.overlaySimilar, 8);
-    const smooth = this.traceVanishing("smooth", false, 15);
-    const overlay = this.traceVanishing("overlay", true, 15);
-    t.ok("the block is lost when the shapes partition", smooth.layerCount() <= 2);
-    t.ok("and comes back when they stack", overlay.layerCount() > smooth.layerCount());
-    const base = overlay.layers[0];
-    let differs = 0;
-    let li = 1;
-    while (li < overlay.layerCount()) {
-      const l = overlay.layers[li];
-      if ( l.fillHex != base.fillHex ) {
-        differs = differs + 1;
-      }
-      li = li + 1;
-    };
-    t.ok("a stacked shape says something the base does not", differs >= 1);
-    const strict = this.traceVanishing("overlay", true, 100);
-    let i = 0;
-    let shaped = 0;
-    while (i < strict.layerCount()) {
-      const layer = strict.layers[i];
-      if ( layer.fillKind != "flat" ) {
-        shaped = shaped + 1;
-      }
-      i = i + 1;
-    };
-    t.eqInt("a gain of 100 leaves every fill flat", shaped, 0);
-    let rad = 0;
-    let j = 0;
-    while (j < strict.layerCount()) {
-      const l2 = strict.layers[j];
-      if ( l2.fillKind == "radial" ) {
-        rad = rad + 1;
-      }
-      j = j + 1;
-    };
-    t.eqInt("no radial fill among the overlay shapes", rad, 0);
-  };
-  makeLineAndSpecks () {
-    const img = new ImageBuffer();
-    img.init(60, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 60) {
-        let v = 110;
-        if ( x >= 30 ) {
-          v = 190;
-        }
-        img.setPixelRGB(x, y, v, v, v);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    img.setPixelRGB(8, 8, 160, 160, 160);
-    img.setPixelRGB(14, 20, 160, 160, 160);
-    img.setPixelRGB(20, 32, 160, 160, 160);
-    img.setPixelRGB(44, 10, 160, 160, 160);
-    img.setPixelRGB(50, 26, 160, 160, 160);
-    return img;
-  };
-  traceLineAndSpecks (minRun) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 2;
-    opts.bgMode = "none";
-    opts.minRegion = 0;
-    opts.contourMode = "smooth";
-    opts.edgeMinRun = minRun;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeLineAndSpecks(), opts);
-    tr.trace();
-    return tr;
-  };
-  makeNoisyRamp () {
-    const img = new ImageBuffer();
-    img.init(60, 40);
-    let seed = 987;
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 60) {
-        seed = ((seed * 75) + 74) % 65537;
-        const jitter = (seed % 25) - 12;
-        let v = ((((x * 200) / 60) | 0)) + jitter;
-        if ( v < 0 ) {
-          v = 0;
-        }
-        if ( v > 255 ) {
-          v = 255;
-        }
-        img.setPixelRGB(x, y, v, (((v * 3) / 4) | 0), ((v / 2) | 0));
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  traceNoisyOverlay (colors, minRegion) {
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = colors;
-    opts.bgMode = "none";
-    opts.minRegion = minRegion;
-    opts.contourMode = "overlay";
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeNoisyRamp(), opts);
-    tr.trace();
-    return tr;
-  };
-  distinctFills (tr) {
-    let seen = [];
-    let i = 0;
-    while (i < tr.layerCount()) {
-      const layer = tr.layers[i];
-      const hex = layer.fillHex;
-      let found = false;
+    while (i < numChunks) {
+      const chunk = this.chunks[i];
       let j = 0;
-      while (j < (seen.length)) {
-        if ( (seen[j]) == hex ) {
-          found = true;
-        }
+      while (j < chSize) {
+        const b = chunk._view.getUint8(j);
+        result._view.setUint8(destPos, b);
+        destPos = destPos + 1;
         j = j + 1;
       };
-      if ( found == false ) {
-        seen.push(hex);
+      i = i + 1;
+    };
+    const curPos = this.currentPos;
+    const curChunk = this.currentChunk;
+    let j_1 = 0;
+    while (j_1 < curPos) {
+      const b_1 = curChunk._view.getUint8(j_1);
+      result._view.setUint8(destPos, b_1);
+      destPos = destPos + 1;
+      j_1 = j_1 + 1;
+    };
+    return result;
+  };
+}
+class InflateHuffmanTable  {
+  constructor() {
+    this.counts = [];
+    this.symbols = [];
+    this.maxBits = 0;
+    let i = 0;
+    while (i < 16) {
+      this.counts.push(0);
+      i = i + 1;
+    };
+  }
+  build (lengths, numSymbols) {
+    let i = 0;
+    while (i < 16) {
+      this.counts[i] = 0;
+      i = i + 1;
+    };
+    i = 0;
+    while (i < numSymbols) {
+      const __len = lengths[i];
+      if ( __len > 0 ) {
+        const cnt = this.counts[__len];
+        this.counts[__len] = cnt + 1;
+        if ( __len > this.maxBits ) {
+          this.maxBits = __len;
+        }
       }
       i = i + 1;
     };
-    return seen.length;
-  };
-  gradientTrace (minRegion) {
-    const o = EvgTraceOptions.defaults();
-    o.colorCount = 4;
-    o.bgMode = "none";
-    o.gradientFill = true;
-    o.minRegion = minRegion;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampWithBlock(), o);
-    tr.trace();
-    return tr;
-  };
-  testGradientFillObeysItsControls (t) {
-    const fine = this.gradientTrace(6);
-    t.ok("a gradient trace stays inside the color count", this.distinctFills(fine) <= 4);
-    const coarse = this.gradientTrace(400);
-    t.ok("and the smallest area actually makes it draw fewer regions", coarse.layerCount() < fine.layerCount());
-    t.ok("without inventing colors either", this.distinctFills(coarse) <= 4);
-  };
-  testOverlayStaysWithinItsPalette (t) {
-    const four = this.traceNoisyOverlay(4, 6);
-    t.ok("overlay never invents a color the palette does not have", this.distinctFills(four) <= 4);
-    const twelve = this.traceNoisyOverlay(12, 6);
-    t.ok("and the ceiling follows the count that was asked for", this.distinctFills(twelve) <= 12);
-    t.ok("a noisy image does not become a shape per pixel", four.layerCount() < 300);
-    const plain = EvgTraceOptions.defaults();
-    plain.colorCount = 4;
-    plain.bgMode = "none";
-    plain.minRegion = 6;
-    const flat = EvgBitmapTracer.fromImageBuffer(this.makeNoisyRamp(), plain);
-    flat.trace();
-    t.ok("overlay draws at least the whole plain picture", four.layerCount() >= flat.layerCount());
-    let sameStart = true;
-    let li = 0;
-    while (li < flat.layerCount()) {
-      const a = flat.layers[li];
-      const b = four.layers[li];
-      if ( a.fillHex != b.fillHex ) {
-        sameStart = false;
-      }
-      li = li + 1;
+    let offsets = [];
+    let offset = 0;
+    i = 0;
+    while (i < 16) {
+      offsets.push(offset);
+      const cnt_1 = this.counts[i];
+      offset = offset + cnt_1;
+      i = i + 1;
     };
-    t.ok("and the plain picture is what it starts from, swatch for swatch", sameStart);
-    t.eqInt("noise alone earns no overlay at all", four.layerCount(), flat.layerCount());
-  };
-  rampLayers (colors, mode, sim) {
-    const o = EvgTraceOptions.defaults();
-    o.colorCount = colors;
-    o.bgMode = "none";
-    o.minRegion = 6;
-    o.contourMode = mode;
-    o.overlaySimilar = sim;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeNoisyRamp(), o);
-    tr.trace();
-    return tr.layerCount();
-  };
-  makeRampAndEye () {
-    const img = new ImageBuffer();
-    img.init(80, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 80) {
-        if ( x < 40 ) {
-          const v = (((x * 250) / 40) | 0);
-          img.setPixelRGB(x, y, v, v, v);
-        } else {
-          img.setPixelRGB(x, y, 130, 130, 130);
-        }
-        x = x + 1;
-      };
-      y = y + 1;
+    i = 0;
+    while (i < numSymbols) {
+      this.symbols.push(0);
+      i = i + 1;
     };
-    let ey = 16;
-    while (ey < 24) {
-      let ex = 55;
-      while (ex < 65) {
-        img.setPixelRGB(ex, ey, 255, 255, 255);
-        ex = ex + 1;
-      };
-      ey = ey + 1;
-    };
-    ey = 18;
-    while (ey < 22) {
-      let ex2 = 58;
-      while (ex2 < 62) {
-        img.setPixelRGB(ex2, ey, 0, 0, 0);
-        ex2 = ex2 + 1;
-      };
-      ey = ey + 1;
-    };
-    let ex3 = 55;
-    while (ex3 < 65) {
-      img.setPixelRGB(ex3, 15, 60, 40, 40);
-      ex3 = ex3 + 1;
-    };
-    return img;
-  };
-  testDetailNeighbourhoodGetsItsOwnPalette (t) {
-    const d = EvgTraceOptions.defaults();
-    t.eqInt("a detail neighbourhood quantizes itself in four", d.detailColors, 4);
-    t.eqInt("and neighbourhoods share one palette by default", d.detailColorMerge, 16);
-    t.eqInt("with a ceiling on how much it may grow", d.detailColorMax, 12);
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 6;
-    opts.bgMode = "none";
-    opts.contourMode = "overlay";
-    opts.detailMinShare = 0;
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), opts);
-    tr.trace();
-    const off = EvgTraceOptions.defaults();
-    off.colorCount = 6;
-    off.bgMode = "none";
-    off.contourMode = "overlay";
-    off.detailColors = 0;
-    const bare = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), off);
-    bare.trace();
-    t.ok("the eye earns shapes the global palette did not pay for", tr.layerCount() > bare.layerCount());
-    let darkest = 256;
-    let lightest = 0 - 1;
-    let li = 0;
-    while (li < tr.layerCount()) {
-      const l = tr.layers[li];
-      const col = EVGColor.parse(l.fillHex);
-      const lv = EvgBitmapTracer.lumaOf((Math.floor( col.r)), (Math.floor( col.g)), (Math.floor( col.b)));
-      if ( lv < darkest ) {
-        darkest = lv;
-      }
-      if ( lv > lightest ) {
-        lightest = lv;
-      }
-      li = li + 1;
-    };
-    t.ok("with a darker shape than the global palette held", darkest < 40);
-    t.ok("and a lighter one", lightest > 200);
-    const wide = EvgTraceOptions.defaults();
-    wide.colorCount = 6;
-    wide.bgMode = "none";
-    wide.contourMode = "overlay";
-    wide.detailMinShare = 0;
-    wide.detailColorMerge = 0;
-    const unmerged = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), wide);
-    unmerged.trace();
-    t.ok("merging never adds colors", this.distinctFills(tr) <= this.distinctFills(unmerged));
-    const capped = EvgTraceOptions.defaults();
-    capped.colorCount = 6;
-    capped.bgMode = "none";
-    capped.contourMode = "overlay";
-    capped.detailMinShare = 0;
-    capped.detailColorMax = 2;
-    const few = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), capped);
-    few.trace();
-    t.ok("the ceiling holds the color count to what was asked plus it", this.distinctFills(few) <= 8);
-    t.ok("and never costs shapes, only the colors they are painted", few.layerCount() >= tr.layerCount());
-  };
-  testDetailMaskFindsTheEyeNotTheRamp (t) {
-    const d = EvgTraceOptions.defaults();
-    t.eqInt("the detail window wants several swatches", d.detailSwatches, 4);
-    t.ok("and true color inside it is opt-in", d.detailTrueColor == false);
-    const opts = EvgTraceOptions.defaults();
-    opts.colorCount = 6;
-    opts.bgMode = "none";
-    opts.contourMode = "overlay";
-    const tr = EvgBitmapTracer.fromImageBuffer(this.makeRampAndEye(), opts);
-    tr.trace();
-    let onEye = 0;
-    let y = 12;
-    while (y < 28) {
-      let x = 50;
-      while (x < 70) {
-        if ( (tr.detailMask[((y * 80) + x)]) == 1 ) {
-          onEye = onEye + 1;
-        }
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    t.ok("the eye is marked as needing fine work", onEye >= 8);
-    let total = 0;
-    let i = 0;
-    while (i < (tr.detailMask.length)) {
-      if ( (tr.detailMask[i]) == 1 ) {
-        total = total + 1;
+    i = 0;
+    while (i < numSymbols) {
+      const len_1 = lengths[i];
+      if ( len_1 > 0 ) {
+        const off = offsets[len_1];
+        this.symbols[off] = i;
+        offsets[len_1] = off + 1;
       }
       i = i + 1;
     };
-    t.eqInt("and nowhere else in the picture is, the ramp included", total, onEye);
   };
-  testOverlaySimilarityDecidesHowManyStack (t) {
-    const plain = this.rampLayers(6, "off", 8);
-    const deflt = this.rampLayers(6, "overlay", 8);
-    const loose = this.rampLayers(6, "overlay", 40);
-    t.ok("an overlay is drawn where the plain picture falls short", deflt > plain);
-    t.ok("and a loose similarity limit drops it again", loose < deflt);
-    t.eqInt("leaving exactly the plain picture", loose, plain);
-  };
-  testEdgeFilterSeparatesNoiseFromBoundary (t) {
-    const d = EvgTraceOptions.defaults();
-    t.eqInt("the edge filter is on by default", d.edgeMinRun, 3);
-    const tr = this.traceLineAndSpecks(3);
-    let onLine = 0;
-    let y = 2;
-    while (y < 38) {
-      if ( ((tr.edgeMask[((y * 60) + 29)]) == 1) || ((tr.edgeMask[((y * 60) + 30)]) == 1) ) {
-        onLine = onLine + 1;
+  decode (reader) {
+    let code = 0;
+    let first = 0;
+    let index = 0;
+    let __len = 1;
+    while (__len <= this.maxBits) {
+      const bit = reader.readBit();
+      code = (code * 2) + bit;
+      const count = this.counts[__len];
+      if ( (code - first) < count ) {
+        return this.symbols[((index + code) - first)];
       }
-      y = y + 1;
+      index = index + count;
+      first = (first + count) * 2;
+      __len = __len + 1;
     };
-    t.eqInt("the straight boundary is marked all the way down", onLine, 36);
-    let onSpeck = 0;
-    if ( (tr.edgeMask[((8 * 60) + 8)]) == 1 ) {
-      onSpeck = onSpeck + 1;
-    }
-    if ( (tr.edgeMask[((20 * 60) + 14)]) == 1 ) {
-      onSpeck = onSpeck + 1;
-    }
-    if ( (tr.edgeMask[((32 * 60) + 20)]) == 1 ) {
-      onSpeck = onSpeck + 1;
-    }
-    if ( (tr.edgeMask[((10 * 60) + 44)]) == 1 ) {
-      onSpeck = onSpeck + 1;
-    }
-    if ( (tr.edgeMask[((26 * 60) + 50)]) == 1 ) {
-      onSpeck = onSpeck + 1;
-    }
-    t.eqInt("and not one isolated speck is", onSpeck, 0);
-    const off = this.traceLineAndSpecks(0);
-    let marked = 0;
-    let i = 0;
-    while (i < (off.edgeMask.length)) {
-      if ( (off.edgeMask[i]) == 1 ) {
-        marked = marked + 1;
+    return -1;
+  };
+}
+class InflateBitReader  {
+  constructor() {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.bytePos = 0;
+    this.bitPos = 0;
+    this.currentByte = 0;
+    this.dataLength = 0;
+  }
+  init (buf, offset, length) {
+    this.data = buf;
+    this.bytePos = offset;
+    this.dataLength = offset + length;
+    this.bitPos = 0;
+    this.currentByte = 0;
+  };
+  readBit () {
+    if ( this.bitPos == 0 ) {
+      if ( this.bytePos >= this.dataLength ) {
+        return 0;
       }
+      this.currentByte = this.data._view.getUint8(this.bytePos);
+      this.bytePos = this.bytePos + 1;
+      this.bitPos = 8;
+    }
+    const bit = (this.currentByte & 1);
+    this.currentByte = (this.currentByte >> 1);
+    this.bitPos = this.bitPos - 1;
+    return bit;
+  };
+  readBits (count) {
+    let result = 0;
+    let multiplier = 1;
+    let i = 0;
+    while (i < count) {
+      const bit = this.readBit();
+      result = result + (bit * multiplier);
+      multiplier = multiplier * 2;
       i = i + 1;
     };
-    t.eqInt("nothing is filtered when it is switched off", marked, 0);
-    const plain = EvgTraceOptions.defaults();
-    t.ok("contour smoothing is still off by default", plain.contourMode == "off");
+    return result;
   };
-  testCompactNumberFormatting (t) {
-    t.eqStr("a whole number keeps no point", EvgTracePath.num(12.0, 2), "12");
-    t.eqStr("trailing zeros go", EvgTracePath.num(3.5, 2), "3.5");
-    t.eqStr("interior zeros stay", EvgTracePath.num(3.05, 2), "3.05");
-    t.eqStr("a pure fraction loses its leading zero", EvgTracePath.num(0.5, 2), ".5");
-    t.eqStr("and so does a negative one", EvgTracePath.num((0.0 - 0.5), 2), "-.5");
-    t.eqStr("rounding is to the asked-for place", EvgTracePath.num(1.2345, 2), "1.23");
-    t.eqStr("and one place is one place", EvgTracePath.num(1.2345, 1), "1.2");
-    t.eqStr("a value that rounds away is plain zero", EvgTracePath.num((0.0 - 0.001), 2), "0");
-    t.eqStr("the last number is the last number", EvgTracePath.lastNum("s.2-1"), "-1");
-    t.eqStr("a dot is interior to it", EvgTracePath.lastNum("c1.5"), "1.5");
-    t.eqStr("nothing follows a command letter", EvgTracePath.lastNum("M"), "");
-    t.eqStr("a number may run onto one that spent its dot", EvgTracePath.joinNum("c1.5", "1.5", ".25"), "c1.5.25");
-    t.eqStr("but not onto one that did not", EvgTracePath.joinNum("c-1", "-1", ".44"), "c-1 .44");
-    t.eqStr("a minus never needs a separator", EvgTracePath.joinNum("c5", "5", "-1"), "c5-1");
+  alignToByte () {
+    this.bitPos = 0;
   };
-  miscountedCommands (d) {
-    let bad = 0;
-    const n = d.length;
+  readByte () {
+    this.alignToByte();
+    if ( this.bytePos >= this.dataLength ) {
+      return 0;
+    }
+    const b = this.data._view.getUint8(this.bytePos);
+    this.bytePos = this.bytePos + 1;
+    return b;
+  };
+  readUint16LE () {
+    const b0 = this.readByte();
+    const b1 = this.readByte();
+    return b0 + (b1 * 256);
+  };
+  getBytePosition () {
+    return this.bytePos;
+  };
+  isEOF () {
+    return (this.bytePos >= this.dataLength) && (this.bitPos == 0);
+  };
+}
+class Inflate  {
+  constructor() {
+    this.input = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.reader = new InflateBitReader();
+    this.outBuf = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.outLen = 0;
+    this.outCap = 0;
+    this.fixedLitLen = new InflateHuffmanTable();
+    this.fixedDist = new InflateHuffmanTable();
+    this.fixedTablesBuilt = false;
+    this.lengthBase = [];
+    this.lengthExtra = [];
+    this.distBase = [];
+    this.distExtra = [];
+    this.buildLengthDistTables();
+  }
+  resetOutput (hint) {
+    let cap = hint;
+    if ( cap < 4096 ) {
+      cap = 4096;
+    }
+    this.outBuf = (function(){ var b = new ArrayBuffer(cap); b._view = new DataView(b); return b; })();
+    this.outCap = cap;
+    this.outLen = 0;
+  };
+  ensureCapacity (extra) {
+    const need = this.outLen + extra;
+    if ( need <= this.outCap ) {
+      return;
+    }
+    let newCap = this.outCap * 2;
+    if ( newCap < need ) {
+      newCap = need;
+    }
+    let grown = (function(){ var b = new ArrayBuffer(newCap); b._view = new DataView(b); return b; })();
+    (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(grown,0,this.outBuf,0,this.outLen);
+    this.outBuf = grown;
+    this.outCap = newCap;
+  };
+  pushByte (b) {
+    this.ensureCapacity(1);
+    this.outBuf._view.setUint8(this.outLen, b);
+    this.outLen = this.outLen + 1;
+  };
+  finalOutput () {
+    const size = this.outLen;
+    let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,0,this.outBuf,0,size);
+    return result;
+  };
+  buildLengthDistTables () {
+    let bases = [];
+    bases.push(3);
+    bases.push(4);
+    bases.push(5);
+    bases.push(6);
+    bases.push(7);
+    bases.push(8);
+    bases.push(9);
+    bases.push(10);
+    bases.push(11);
+    bases.push(13);
+    bases.push(15);
+    bases.push(17);
+    bases.push(19);
+    bases.push(23);
+    bases.push(27);
+    bases.push(31);
+    bases.push(35);
+    bases.push(43);
+    bases.push(51);
+    bases.push(59);
+    bases.push(67);
+    bases.push(83);
+    bases.push(99);
+    bases.push(115);
+    bases.push(131);
+    bases.push(163);
+    bases.push(195);
+    bases.push(227);
+    bases.push(258);
+    this.lengthBase = bases;
+    let extras = [];
+    extras.push(0);
+    extras.push(0);
+    extras.push(0);
+    extras.push(0);
+    extras.push(0);
+    extras.push(0);
+    extras.push(0);
+    extras.push(0);
+    extras.push(1);
+    extras.push(1);
+    extras.push(1);
+    extras.push(1);
+    extras.push(2);
+    extras.push(2);
+    extras.push(2);
+    extras.push(2);
+    extras.push(3);
+    extras.push(3);
+    extras.push(3);
+    extras.push(3);
+    extras.push(4);
+    extras.push(4);
+    extras.push(4);
+    extras.push(4);
+    extras.push(5);
+    extras.push(5);
+    extras.push(5);
+    extras.push(5);
+    extras.push(0);
+    this.lengthExtra = extras;
+    let dBases = [];
+    dBases.push(1);
+    dBases.push(2);
+    dBases.push(3);
+    dBases.push(4);
+    dBases.push(5);
+    dBases.push(7);
+    dBases.push(9);
+    dBases.push(13);
+    dBases.push(17);
+    dBases.push(25);
+    dBases.push(33);
+    dBases.push(49);
+    dBases.push(65);
+    dBases.push(97);
+    dBases.push(129);
+    dBases.push(193);
+    dBases.push(257);
+    dBases.push(385);
+    dBases.push(513);
+    dBases.push(769);
+    dBases.push(1025);
+    dBases.push(1537);
+    dBases.push(2049);
+    dBases.push(3073);
+    dBases.push(4097);
+    dBases.push(6145);
+    dBases.push(8193);
+    dBases.push(12289);
+    dBases.push(16385);
+    dBases.push(24577);
+    this.distBase = dBases;
+    let dExtras = [];
+    dExtras.push(0);
+    dExtras.push(0);
+    dExtras.push(0);
+    dExtras.push(0);
+    dExtras.push(1);
+    dExtras.push(1);
+    dExtras.push(2);
+    dExtras.push(2);
+    dExtras.push(3);
+    dExtras.push(3);
+    dExtras.push(4);
+    dExtras.push(4);
+    dExtras.push(5);
+    dExtras.push(5);
+    dExtras.push(6);
+    dExtras.push(6);
+    dExtras.push(7);
+    dExtras.push(7);
+    dExtras.push(8);
+    dExtras.push(8);
+    dExtras.push(9);
+    dExtras.push(9);
+    dExtras.push(10);
+    dExtras.push(10);
+    dExtras.push(11);
+    dExtras.push(11);
+    dExtras.push(12);
+    dExtras.push(12);
+    dExtras.push(13);
+    dExtras.push(13);
+    this.distExtra = dExtras;
+  };
+  buildFixedTables () {
+    if ( this.fixedTablesBuilt ) {
+      return;
+    }
+    let lengths = [];
     let i = 0;
-    let want = 0;
-    let have = 0;
-    let inNum = false;
-    let hadDot = false;
-    while (i < n) {
-      const ch = d.substring(i, (i + 1) );
-      const isDigit = ("0123456789".indexOf(ch)) >= 0;
-      if ( isDigit ) {
-        if ( inNum == false ) {
-          inNum = true;
-          hadDot = false;
-          have = have + 1;
+    while (i < 144) {
+      lengths.push(8);
+      i = i + 1;
+    };
+    while (i < 256) {
+      lengths.push(9);
+      i = i + 1;
+    };
+    while (i < 280) {
+      lengths.push(7);
+      i = i + 1;
+    };
+    while (i < 288) {
+      lengths.push(8);
+      i = i + 1;
+    };
+    this.fixedLitLen.build(lengths, 288);
+    let distLengths = [];
+    i = 0;
+    while (i < 32) {
+      distLengths.push(5);
+      i = i + 1;
+    };
+    this.fixedDist.build(distLengths, 32);
+    this.fixedTablesBuilt = true;
+  };
+  decompress (data) {
+    this.input = data;
+    const dataLen = data.byteLength;
+    this.resetOutput(dataLen * 4);
+    this.reader.init(data, 0, dataLen);
+    this.buildFixedTables();
+    let finalBlock = false;
+    while (false == finalBlock) {
+      const bfinal = this.reader.readBit();
+      const btype = this.reader.readBits(2);
+      finalBlock = bfinal == 1;
+      if ( btype == 0 ) {
+        this.decompressStored();
+      }
+      if ( btype == 1 ) {
+        this.decompressHuffman(this.fixedLitLen, this.fixedDist);
+      }
+      if ( btype == 2 ) {
+        this.decompressDynamic();
+      }
+    };
+    return this.finalOutput();
+  };
+  decompressStored () {
+    this.reader.alignToByte();
+    const __len = this.reader.readUint16LE();
+    const nlen = this.reader.readUint16LE();
+    if ( (__len + nlen) != 65535 ) {
+    }
+    this.ensureCapacity(__len);
+    let i = 0;
+    while (i < __len) {
+      const b = this.reader.readByte();
+      this.pushByte(b);
+      i = i + 1;
+    };
+  };
+  decompressHuffman (litLenTable, distTable) {
+    let done = false;
+    while (false == done) {
+      const sym = litLenTable.decode(this.reader);
+      if ( sym < 256 ) {
+        this.pushByte(sym);
+      }
+      if ( sym == 256 ) {
+        done = true;
+      }
+      if ( sym > 256 ) {
+        const lengthCode = sym - 257;
+        let length = this.lengthBase[lengthCode];
+        const extraBits = this.lengthExtra[lengthCode];
+        if ( extraBits > 0 ) {
+          length = length + this.reader.readBits(extraBits);
         }
+        const distCode = distTable.decode(this.reader);
+        let dist = this.distBase[distCode];
+        const distExtraBits = this.distExtra[distCode];
+        if ( distExtraBits > 0 ) {
+          dist = dist + this.reader.readBits(distExtraBits);
+        }
+        this.copyFromOutput(dist, length);
+      }
+    };
+  };
+  decompressDynamic () {
+    const hlit = this.reader.readBits(5) + 257;
+    const hdist = this.reader.readBits(5) + 1;
+    const hclen = this.reader.readBits(4) + 4;
+    let clOrder = [];
+    clOrder.push(16);
+    clOrder.push(17);
+    clOrder.push(18);
+    clOrder.push(0);
+    clOrder.push(8);
+    clOrder.push(7);
+    clOrder.push(9);
+    clOrder.push(6);
+    clOrder.push(10);
+    clOrder.push(5);
+    clOrder.push(11);
+    clOrder.push(4);
+    clOrder.push(12);
+    clOrder.push(3);
+    clOrder.push(13);
+    clOrder.push(2);
+    clOrder.push(14);
+    clOrder.push(1);
+    clOrder.push(15);
+    let clLengths = [];
+    let i = 0;
+    while (i < 19) {
+      clLengths.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < hclen) {
+      const idx = clOrder[i];
+      const __len = this.reader.readBits(3);
+      clLengths[idx] = __len;
+      i = i + 1;
+    };
+    const clTable = new InflateHuffmanTable();
+    clTable.build(clLengths, 19);
+    let allLengths = [];
+    const totalCodes = hlit + hdist;
+    i = 0;
+    while (i < totalCodes) {
+      const sym = clTable.decode(this.reader);
+      if ( sym < 16 ) {
+        allLengths.push(sym);
+        i = i + 1;
+      }
+      if ( sym == 16 ) {
+        const repeat = this.reader.readBits(2) + 3;
+        let prevLen = 0;
+        const arrLen = allLengths.length;
+        if ( arrLen > 0 ) {
+          prevLen = allLengths[(arrLen - 1)];
+        }
+        let j = 0;
+        while (j < repeat) {
+          allLengths.push(prevLen);
+          j = j + 1;
+        };
+        i = i + repeat;
+      }
+      if ( sym == 17 ) {
+        const repeat_1 = this.reader.readBits(3) + 3;
+        let j_1 = 0;
+        while (j_1 < repeat_1) {
+          allLengths.push(0);
+          j_1 = j_1 + 1;
+        };
+        i = i + repeat_1;
+      }
+      if ( sym == 18 ) {
+        const repeat_2 = this.reader.readBits(7) + 11;
+        let j_2 = 0;
+        while (j_2 < repeat_2) {
+          allLengths.push(0);
+          j_2 = j_2 + 1;
+        };
+        i = i + repeat_2;
+      }
+    };
+    let litLenLengths = [];
+    let distLengths = [];
+    i = 0;
+    while (i < hlit) {
+      litLenLengths.push(allLengths[i]);
+      i = i + 1;
+    };
+    while (i < totalCodes) {
+      distLengths.push(allLengths[i]);
+      i = i + 1;
+    };
+    const dynLitLen = new InflateHuffmanTable();
+    dynLitLen.build(litLenLengths, hlit);
+    const dynDist = new InflateHuffmanTable();
+    dynDist.build(distLengths, hdist);
+    this.decompressHuffman(dynLitLen, dynDist);
+  };
+  copyFromOutput (distance, length) {
+    const srcPos = this.outLen - distance;
+    this.ensureCapacity(length);
+    let i = 0;
+    while (i < length) {
+      let b = 0;
+      const readPos = srcPos + i;
+      if ( readPos >= 0 ) {
+        if ( readPos < this.outLen ) {
+          b = this.outBuf._view.getUint8(readPos);
+        }
+      }
+      this.outBuf._view.setUint8(this.outLen, b);
+      this.outLen = this.outLen + 1;
+      i = i + 1;
+    };
+  };
+}
+class PNGDecoder  {
+  constructor() {
+    this.pos = 0;
+    this.fileData = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.fileLen = 0;
+    this.width = 0;
+    this.height = 0;
+    this.colorType = 0;
+    this.bitDepth = 0;
+    this.paletteR = [];
+    this.paletteG = [];
+    this.paletteB = [];
+    this.paletteA = [];
+    this.paletteCount = 0;
+    this.idatData = new GrowableBuffer();
+  }
+  clearPalette () {
+    let emptyR = [];
+    let emptyG = [];
+    let emptyB = [];
+    let emptyA = [];
+    this.paletteR = emptyR;
+    this.paletteG = emptyG;
+    this.paletteB = emptyB;
+    this.paletteA = emptyA;
+    this.paletteCount = 0;
+  };
+  readU8 () {
+    if ( this.pos >= this.fileLen ) {
+      return 0;
+    }
+    const v = this.fileData._view.getUint8(this.pos);
+    this.pos = this.pos + 1;
+    return v;
+  };
+  readU32BE () {
+    const b0 = this.readU8();
+    const b1 = this.readU8();
+    const b2 = this.readU8();
+    const b3 = this.readU8();
+    return (((((b0 * 256) + b1) * 256) + b2) * 256) + b3;
+  };
+  parseIHDR (chunkLen) {
+    this.width = this.readU32BE();
+    this.height = this.readU32BE();
+    this.bitDepth = this.readU8();
+    this.colorType = this.readU8();
+    this.readU8();
+    this.readU8();
+    this.readU8();
+    const remain = chunkLen - 13;
+    let skip = 0;
+    while (skip < remain) {
+      this.readU8();
+      skip = skip + 1;
+    };
+  };
+  parsePLTE (chunkLen) {
+    this.clearPalette();
+    const count = Math.floor( ((chunkLen) / 3.0));
+    this.paletteCount = count;
+    let i = 0;
+    while (i < count) {
+      this.paletteR.push(this.readU8());
+      this.paletteG.push(this.readU8());
+      this.paletteB.push(this.readU8());
+      this.paletteA.push(255);
+      i = i + 1;
+    };
+  };
+  parseTRNS (chunkLen) {
+    let i = 0;
+    while (i < chunkLen) {
+      if ( i < this.paletteCount ) {
+        this.paletteA[i] = this.readU8();
       } else {
-        if ( ch == "." ) {
-          if ( (inNum == false) || hadDot ) {
-            inNum = true;
-            have = have + 1;
+        this.readU8();
+      }
+      i = i + 1;
+    };
+  };
+  appendIDAT (chunkLen) {
+    let i = 0;
+    while (i < chunkLen) {
+      this.idatData.writeByte(this.readU8());
+      i = i + 1;
+    };
+  };
+  skipBytes (n) {
+    let i = 0;
+    while (i < n) {
+      this.readU8();
+      i = i + 1;
+    };
+  };
+  sliceBuffer (src, start, count) {
+    if ( count <= 0 ) {
+      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    }
+    let out = (function(){ var b = new ArrayBuffer(count); b._view = new DataView(b); return b; })();
+    let i = 0;
+    while (i < count) {
+      out._view.setUint8(i, src._view.getUint8((start + i)));
+      i = i + 1;
+    };
+    return out;
+  };
+  abs (n) {
+    if ( n < 0 ) {
+      return 0 - n;
+    }
+    return n;
+  };
+  paeth (a, b, c) {
+    let p = a + b;
+    p = p - c;
+    const pa = this.abs((p - a));
+    const pb = this.abs((p - b));
+    const pc = this.abs((p - c));
+    if ( (pa <= pb) && (pa <= pc) ) {
+      return a;
+    }
+    if ( pb <= pc ) {
+      return b;
+    }
+    return c;
+  };
+  filterByte (n) {
+    return (n & 255);
+  };
+  filterBpp (ctype) {
+    if ( ctype == 6 ) {
+      return 4;
+    }
+    if ( ctype == 2 ) {
+      return 3;
+    }
+    return 1;
+  };
+  unfilter (raw, rowBytes, imgHeight, bpp) {
+    let out = (function(){ var b = new ArrayBuffer((rowBytes * imgHeight)); b._view = new DataView(b); return b; })();
+    const rawLen = raw.byteLength;
+    let rawPos = 0;
+    let prevRow = [];
+    let y = 0;
+    while (y < imgHeight) {
+      if ( rawPos >= rawLen ) {
+        return out;
+      }
+      const filterType = raw._view.getUint8(rawPos);
+      rawPos = rawPos + 1;
+      let curRow = [];
+      let x = 0;
+      while (x < rowBytes) {
+        curRow.push(0);
+        x = x + 1;
+      };
+      x = 0;
+      while (x < rowBytes) {
+        if ( rawPos >= rawLen ) {
+          return out;
+        }
+        const fv = raw._view.getUint8(rawPos);
+        rawPos = rawPos + 1;
+        let recon = fv;
+        if ( filterType == 1 ) {
+          let left = 0;
+          if ( x >= bpp ) {
+            left = curRow[(x - bpp)];
           }
-          hadDot = true;
-        } else {
-          if ( ch == "-" ) {
-            inNum = true;
-            hadDot = false;
-            have = have + 1;
-          } else {
-            inNum = false;
-            hadDot = false;
-            const a = EvgBitmapTracerTest.arityOf(ch);
-            if ( a >= 0 ) {
-              if ( have != want ) {
-                bad = bad + 1;
+          recon = fv + left;
+        }
+        if ( filterType == 2 ) {
+          let up = 0;
+          if ( y > 0 ) {
+            up = prevRow[x];
+          }
+          recon = fv + up;
+        }
+        if ( filterType == 3 ) {
+          let left_1 = 0;
+          let up_1 = 0;
+          if ( x >= bpp ) {
+            left_1 = curRow[(x - bpp)];
+          }
+          if ( y > 0 ) {
+            up_1 = prevRow[x];
+          }
+          recon = fv + (((left_1 + up_1) >> 1));
+        }
+        if ( filterType == 4 ) {
+          let left_2 = 0;
+          let up_2 = 0;
+          let upLeft = 0;
+          if ( x >= bpp ) {
+            left_2 = curRow[(x - bpp)];
+          }
+          if ( y > 0 ) {
+            up_2 = prevRow[x];
+          }
+          if ( (x >= bpp) && (y > 0) ) {
+            upLeft = prevRow[(x - bpp)];
+          }
+          recon = fv + this.paeth(left_2, up_2, upLeft);
+        }
+        recon = this.filterByte(recon);
+        curRow[x] = recon;
+        x = x + 1;
+      };
+      x = 0;
+      while (x < rowBytes) {
+        const o = (y * rowBytes) + x;
+        out._view.setUint8(o, curRow[x]);
+        x = x + 1;
+      };
+      prevRow = curRow;
+      y = y + 1;
+    };
+    return out;
+  };
+  rowByteCount (w, depth, ctype) {
+    if ( ctype == 6 ) {
+      return w * 4;
+    }
+    if ( ctype == 2 ) {
+      return w * 3;
+    }
+    const bits = w * depth;
+    return Math.floor( (((bits + 7)) / 8.0));
+  };
+  decodeIndexedPixels (img, indices, rowBytes, depth) {
+    const imgW = img.width;
+    let y = 0;
+    while (y < this.height) {
+      if ( depth == 8 ) {
+        let x = 0;
+        while (x < this.width) {
+          const idx = indices._view.getUint8(((y * rowBytes) + x));
+          if ( idx < this.paletteCount ) {
+            const a = this.paletteA[idx];
+            if ( a > 0 ) {
+              const off = ((y * imgW) + x) * 4;
+              img.pixels._view.setUint8(off, this.paletteR[idx]);
+              img.pixels._view.setUint8(off + 1, this.paletteG[idx]);
+              img.pixels._view.setUint8(off + 2, this.paletteB[idx]);
+              img.pixels._view.setUint8(off + 3, a);
+            }
+          }
+          x = x + 1;
+        };
+      }
+      if ( depth == 4 ) {
+        let x_1 = 0;
+        let byteIdx = 0;
+        while (x_1 < this.width) {
+          const packed = indices._view.getUint8(((y * rowBytes) + byteIdx));
+          const hi = (packed >> 4);
+          const lo = (packed & 15);
+          if ( hi < this.paletteCount ) {
+            const aHi = this.paletteA[hi];
+            if ( aHi > 0 ) {
+              const offHi = ((y * imgW) + x_1) * 4;
+              img.pixels._view.setUint8(offHi, this.paletteR[hi]);
+              img.pixels._view.setUint8(offHi + 1, this.paletteG[hi]);
+              img.pixels._view.setUint8(offHi + 2, this.paletteB[hi]);
+              img.pixels._view.setUint8(offHi + 3, aHi);
+            }
+          }
+          const x2 = x_1 + 1;
+          if ( x2 < this.width ) {
+            if ( lo < this.paletteCount ) {
+              const aLo = this.paletteA[lo];
+              if ( aLo > 0 ) {
+                const offLo = ((y * imgW) + x2) * 4;
+                img.pixels._view.setUint8(offLo, this.paletteR[lo]);
+                img.pixels._view.setUint8(offLo + 1, this.paletteG[lo]);
+                img.pixels._view.setUint8(offLo + 2, this.paletteB[lo]);
+                img.pixels._view.setUint8(offLo + 3, aLo);
               }
-              want = a;
-              have = 0;
+            }
+          }
+          x_1 = x_1 + 2;
+          byteIdx = byteIdx + 1;
+        };
+      }
+      y = y + 1;
+    };
+  };
+  decodeRgbaPixels (img, indices, rowBytes) {
+    const imgW = img.width;
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const off = (y * rowBytes) + (x * 4);
+        const a = indices._view.getUint8((off + 3));
+        if ( a > 0 ) {
+          const dstOff = ((y * imgW) + x) * 4;
+          img.pixels._view.setUint8(dstOff, indices._view.getUint8(off));
+          img.pixels._view.setUint8(dstOff + 1, indices._view.getUint8((off + 1)));
+          img.pixels._view.setUint8(dstOff + 2, indices._view.getUint8((off + 2)));
+          img.pixels._view.setUint8(dstOff + 3, a);
+        }
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
+  decodeRgbPixels (img, indices, rowBytes) {
+    const imgW = img.width;
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const off = (y * rowBytes) + (x * 3);
+        const dstOff = ((y * imgW) + x) * 4;
+        img.pixels._view.setUint8(dstOff, indices._view.getUint8(off));
+        img.pixels._view.setUint8(dstOff + 1, indices._view.getUint8((off + 1)));
+        img.pixels._view.setUint8(dstOff + 2, indices._view.getUint8((off + 2)));
+        img.pixels._view.setUint8(dstOff + 3, 255);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
+  inflateZlib (zlibData) {
+    const zlen = zlibData.byteLength;
+    if ( zlen < 6 ) {
+      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    }
+    const deflateLen = zlen - 6;
+    const deflateBuf = this.sliceBuffer(zlibData, 2, deflateLen);
+    const inflater = new Inflate();
+    return inflater.decompress(deflateBuf);
+  };
+  parseChunks () {
+    this.idatData = new GrowableBuffer();
+    this.clearPalette();
+    this.pos = 8;
+    while (this.pos < this.fileLen) {
+      const chunkLen = this.readU32BE();
+      const type0 = this.readU8();
+      const type1 = this.readU8();
+      const type2 = this.readU8();
+      const type3 = this.readU8();
+      if ( type0 == 73 ) {
+        if ( type1 == 72 ) {
+          if ( type2 == 68 ) {
+            if ( type3 == 82 ) {
+              this.parseIHDR(chunkLen);
+              this.skipBytes(4);
+              continue;
             }
           }
         }
       }
-      i = i + 1;
-    };
-    if ( have != want ) {
-      bad = bad + 1;
-    }
-    return bad;
-  };
-  testCompactEncodingDrawsTheSamePath (t) {
-    let shapes = [];
-    shapes.push(this.makeChecker(64, 8));
-    shapes.push(this.makeRing(64));
-    let si = 0;
-    while (si < (shapes.length)) {
-      const bm = shapes[si];
-      const cOpts = EvgTraceOptions.defaults();
-      const compact = EvgBitmapTracer.fromBinary(bm, cOpts);
-      compact.trace();
-      const pOpts = EvgTraceOptions.defaults();
-      pOpts.pathFormat = "plain";
-      const plain = EvgBitmapTracer.fromBinary(bm, pOpts);
-      plain.trace();
-      t.eqInt("the same rings either way", compact.ringCount(), plain.ringCount());
-      t.eqInt("and the same commands", compact.commandCount(), plain.commandCount());
-      const cd = compact.getPathData();
-      const pd = plain.getPathData();
-      const miscount = this.miscountedCommands(cd);
-      t.eqInt("every compact command is given the numbers it takes", miscount, 0);
-      const clen = cd.length;
-      const plen = pd.length;
-      t.ok("and it is the shorter of the two", clen < plen);
-      si = si + 1;
-    };
-  };
-  makeRing (n) {
-    const bm = EvgBinaryBitmap.create(n, n);
-    const c = ((n / 2) | 0);
-    const r2 = (((n / 3) | 0)) * (((n / 3) | 0));
-    let y = 0;
-    while (y < n) {
-      let x = 0;
-      while (x < n) {
-        const dx = x - c;
-        const dy = y - c;
-        if ( ((dx * dx) + (dy * dy)) <= r2 ) {
-          bm.setBit(x, y, true);
+      if ( type0 == 80 ) {
+        if ( type1 == 76 ) {
+          if ( type2 == 84 ) {
+            if ( type3 == 69 ) {
+              this.parsePLTE(chunkLen);
+              this.skipBytes(4);
+              continue;
+            }
+          }
         }
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    return bm;
-  };
-  testOklabIsOnTheSameScale (t) {
-    const lin = EvgTraceColor.buildLinearTable();
-    t.eqInt("the transfer table has one entry per channel value", lin.length, 256);
-    const black = lin[0];
-    const white = lin[255];
-    t.ok("black is 0 in linear light", black < 0.000001);
-    const whiteOk = (white > 0.9999) && (white < 1.0001);
-    t.ok("and white is 1", whiteOk);
-    const p = new EvgOklab();
-    const q = new EvgOklab();
-    p.setFrom(lin, 0, 0, 0);
-    q.setFrom(lin, 255, 255, 255);
-    const bw = EvgTraceColor.dist2(p, q);
-    const scaled = (bw > 390149.0) && (bw < 390151.0);
-    t.ok("black against white reads the same as it does in RGB", scaled);
-    q.setFrom(lin, 0, 0, 0);
-    t.ok("a color is no distance from itself", EvgTraceColor.dist2(p, q) < 0.000001);
-    const a = new EvgOklab();
-    const b = new EvgOklab();
-    a.setFrom(lin, 20, 20, 90);
-    b.setFrom(lin, 20, 90, 20);
-    const okDark = EvgTraceColor.dist2(a, b);
-    a.setFrom(lin, 130, 130, 130);
-    b.setFrom(lin, 200, 200, 200);
-    const okGrey = EvgTraceColor.dist2(a, b);
-    const rgbDark = EvgBitmapTracer.colorDist2(20, 20, 90, 20, 90, 20, 3);
-    const rgbGrey = EvgBitmapTracer.colorDist2(130, 130, 130, 200, 200, 200, 3);
-    t.ok("RGB calls the grey step the larger one", rgbGrey > rgbDark);
-    t.ok("OKLab calls the hue step the larger one", okDark > okGrey);
-  };
-  makeSpeckField (speckR, speckG, speckB) {
-    const img = new ImageBuffer();
-    img.init(40, 40);
-    let y = 0;
-    while (y < 40) {
-      let x = 0;
-      while (x < 40) {
-        img.setPixelRGB(x, y, 30, 40, 120);
-        x = x + 1;
-      };
-      y = y + 1;
-    };
-    y = 18;
-    while (y < 23) {
-      let x2 = 18;
-      while (x2 < 23) {
-        img.setPixelRGB(x2, y, speckR, speckG, speckB);
-        x2 = x2 + 1;
-      };
-      y = y + 1;
-    };
-    return img;
-  };
-  speckSurvives (o, speckR, speckG, speckB) {
-    const img = this.makeSpeckField(speckR, speckG, speckB);
-    const tr = EvgBitmapTracer.fromImageBuffer(img, o);
-    tr.trace();
-    let i = 0;
-    while (i < (tr.labels.length)) {
-      if ( (tr.labels[i]) != (tr.labels[0]) ) {
-        return true;
       }
-      i = i + 1;
+      if ( type0 == 116 ) {
+        if ( type1 == 82 ) {
+          if ( type2 == 78 ) {
+            if ( type3 == 83 ) {
+              this.parseTRNS(chunkLen);
+              this.skipBytes(4);
+              continue;
+            }
+          }
+        }
+      }
+      if ( type0 == 73 ) {
+        if ( type1 == 68 ) {
+          if ( type2 == 65 ) {
+            if ( type3 == 84 ) {
+              this.appendIDAT(chunkLen);
+              this.skipBytes(4);
+              continue;
+            }
+          }
+        }
+      }
+      if ( type0 == 73 ) {
+        if ( type1 == 69 ) {
+          if ( type2 == 78 ) {
+            if ( type3 == 68 ) {
+              return true;
+            }
+          }
+        }
+      }
+      this.skipBytes(chunkLen + 4);
     };
     return false;
   };
-  testAbsorbContrastKeepsAStandoutSpeck (t) {
-    const keep = EvgTraceOptions.defaults();
-    keep.colorCount = 4;
-    keep.bgMode = "none";
-    keep.minRegion = 40;
-    t.ok("a bright mark on a dark field survives minRegion", this.speckSurvives(keep, 240, 240, 230));
-    const off = EvgTraceOptions.defaults();
-    off.colorCount = 4;
-    off.bgMode = "none";
-    off.minRegion = 40;
-    off.absorbContrast = 0;
-    t.ok("and is absorbed once the contrast test is switched off", this.speckSurvives(off, 240, 240, 230) == false);
-    t.ok("a mark that matches its field is absorbed either way", this.speckSurvives(keep, 32, 42, 122) == false);
+  decode (dir, fileName) {
+    const fail = new ImageBuffer();
+    fail.init(1, 1);
+    const bytes = (function(){ var b = require('fs').readFileSync(dir + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    if ( (bytes.byteLength) < 24 ) {
+      console.log(("[png_decoder] file too small: " + dir) + fileName);
+      return fail;
+    }
+    return this.decodeBytes(bytes);
   };
-  testPresetsAreStartingPoints (t) {
-    const line = EvgTraceOptions.preset("lineart");
-    t.eqInt("line art is one color", line.colorCount, 1);
-    t.ok("and lets Otsu pick the threshold", line.threshold < 0);
-    t.eqInt("and never medians a thin stroke away", line.smooth, 0);
-    const photo = EvgTraceOptions.preset("photo");
-    t.ok("a photograph is medianed first", photo.smooth > 0);
-    const print = EvgTraceOptions.preset("print");
-    t.ok("and absorbs more speckle than a print does", photo.absorbContrast > print.absorbContrast);
-    const unknown = EvgTraceOptions.preset("no-such-preset");
-    const plain = EvgTraceOptions.defaults();
-    t.eqInt("an unknown name is just the defaults", unknown.colorCount, plain.colorCount);
-    t.eqStr("compact path data is the default", plain.pathFormat, "compact");
-    t.eqStr("and RGB is still the default space", plain.colorSpace, "rgb");
-  };
-  testOklabRoundTripsThroughSrgb (t) {
-    const lin = EvgTraceColor.buildLinearTable();
-    const o = new EvgOklab();
-    let worst = 0;
-    let k = 0;
-    while (k < 400) {
-      const r = k - ((((k / 256) | 0)) * 256);
-      const g = (k * 7) - (((((k * 7) / 256) | 0)) * 256);
-      const b = (k * 13) - (((((k * 13) / 256) | 0)) * 256);
-      o.setFrom(lin, r, g, b);
-      const ol = o.l;
-      const oa = o.a;
-      const ob = o.b;
-      const back = EvgTraceColor.srgbOf(ol, oa, ob);
-      const dr = (back[0]) - r;
-      const dg = (back[1]) - g;
-      const db = (back[2]) - b;
-      let e = EvgBitmapTracer.absI(dr);
-      const e2 = EvgBitmapTracer.absI(dg);
-      const e3 = EvgBitmapTracer.absI(db);
-      if ( e2 > e ) {
-        e = e2;
+  decodeBytes (bytes) {
+    const fail = new ImageBuffer();
+    fail.init(1, 1);
+    this.pos = 0;
+    this.idatData = new GrowableBuffer();
+    this.clearPalette();
+    this.fileData = bytes;
+    this.fileLen = this.fileData.byteLength;
+    if ( this.fileLen < 24 ) {
+      console.log("[png_decoder] buffer too small");
+      return fail;
+    }
+    if ( this.parseChunks() == false ) {
+      console.log("[png_decoder] chunk parse failed");
+      return fail;
+    }
+    if ( this.colorType == 3 ) {
+      if ( (this.bitDepth != 8) && (this.bitDepth != 4) ) {
+        console.log("[png_decoder] indexed depth unsupported: " + ((this.bitDepth.toString())));
+        return fail;
       }
-      if ( e3 > e ) {
-        e = e3;
+      if ( this.paletteCount <= 0 ) {
+        console.log("[png_decoder] missing PLTE");
+        return fail;
       }
-      if ( e > worst ) {
-        worst = e;
+    }
+    if ( this.colorType == 6 ) {
+      if ( this.bitDepth != 8 ) {
+        console.log("[png_decoder] RGBA requires 8-bit channels");
+        return fail;
       }
-      k = k + 1;
-    };
-    t.eqInt("a color survives the trip into OKLab and back", worst, 0);
-  };
-  makeMarkOnField () {
+    }
+    if ( this.colorType == 2 ) {
+      if ( this.bitDepth != 8 ) {
+        console.log("[png_decoder] RGB requires 8-bit channels");
+        return fail;
+      }
+    }
+    if ( ((this.colorType != 3) && (this.colorType != 6)) && (this.colorType != 2) ) {
+      console.log("[png_decoder] unsupported color type " + ((this.colorType.toString())));
+      return fail;
+    }
+    const zlibBuf = this.idatData.toBuffer();
+    const inflated = this.inflateZlib(zlibBuf);
+    if ( (inflated.byteLength) <= 0 ) {
+      console.log("[png_decoder] inflate failed");
+      return fail;
+    }
+    const rowBytes = this.rowByteCount(this.width, this.bitDepth, this.colorType);
+    const bpp = this.filterBpp(this.colorType);
+    const indices = this.unfilter(inflated, rowBytes, this.height, bpp);
+    const need = rowBytes * this.height;
+    if ( (indices.byteLength) < need ) {
+      console.log("[png_decoder] unfilter short");
+      return fail;
+    }
     const img = new ImageBuffer();
-    img.init(80, 80);
+    img.initClear(this.width, this.height);
+    img.fillTransparent();
+    if ( this.colorType == 3 ) {
+      this.decodeIndexedPixels(img, indices, rowBytes, this.bitDepth);
+    }
+    if ( this.colorType == 6 ) {
+      this.decodeRgbaPixels(img, indices, rowBytes);
+    }
+    if ( this.colorType == 2 ) {
+      this.decodeRgbPixels(img, indices, rowBytes);
+    }
+    return img;
+  };
+  decodeRelative (spritesheetsRoot, relativePath) {
+    const slash = relativePath.lastIndexOf("/");
+    let dir = spritesheetsRoot;
+    let file = relativePath;
+    if ( slash >= 0 ) {
+      dir = spritesheetsRoot + (relativePath.substring(0, (slash + 1) ));
+      file = relativePath.substring((slash + 1), (relativePath.length) );
+    }
+    return this.decode(dir, file);
+  };
+}
+class BitReader  {
+  constructor() {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.dataStart = 0;
+    this.dataEnd = 0;
+    this.bytePos = 0;
+    this.bitPos = 0;
+    this.currentByte = 0;
+    this.eof = false;
+  }
+  init (buf, startPos, length) {
+    this.data = buf;
+    this.dataStart = startPos;
+    this.dataEnd = startPos + length;
+    this.bytePos = startPos;
+    this.bitPos = 0;
+    this.currentByte = 0;
+    this.eof = false;
+  };
+  loadNextByte () {
+    if ( this.bytePos >= this.dataEnd ) {
+      this.eof = true;
+      this.currentByte = 0;
+      this.bitPos = 8;
+      return;
+    }
+    this.currentByte = this.data._view.getUint8(this.bytePos);
+    this.bytePos = this.bytePos + 1;
+    if ( this.currentByte == 255 ) {
+      if ( this.bytePos < this.dataEnd ) {
+        const nextByte = this.data._view.getUint8(this.bytePos);
+        if ( nextByte == 0 ) {
+          this.bytePos = this.bytePos + 1;
+        } else {
+          if ( (nextByte >= 208) && (nextByte <= 215) ) {
+            this.bytePos = this.bytePos + 1;
+            this.loadNextByte();
+            return;
+          }
+          if ( nextByte == 255 ) {
+            this.bytePos = this.bytePos + 1;
+            this.loadNextByte();
+            return;
+          }
+        }
+      }
+    }
+    this.bitPos = 8;
+  };
+  readBit () {
+    if ( this.bitPos == 0 ) {
+      this.loadNextByte();
+    }
+    if ( this.eof ) {
+      return 0;
+    }
+    this.bitPos = this.bitPos - 1;
+    const bit = (((this.currentByte >> this.bitPos)) & 1);
+    return bit;
+  };
+  readBits (count) {
+    let result = 0;
+    let i = 0;
+    while (i < count) {
+      result = (((result << 1)) | this.readBit());
+      i = i + 1;
+    };
+    return result;
+  };
+  peekBits (count) {
+    const savedBytePos = this.bytePos;
+    const savedBitPos = this.bitPos;
+    const savedCurrentByte = this.currentByte;
+    const savedEof = this.eof;
+    const result = this.readBits(count);
+    this.bytePos = savedBytePos;
+    this.bitPos = savedBitPos;
+    this.currentByte = savedCurrentByte;
+    this.eof = savedEof;
+    return result;
+  };
+  alignToByte () {
+    this.bitPos = 0;
+  };
+  skipRestartMarker () {
+    if ( (this.bytePos + 1) >= this.dataEnd ) {
+      return false;
+    }
+    const byte1 = this.data._view.getUint8(this.bytePos);
+    const byte2 = this.data._view.getUint8((this.bytePos + 1));
+    if ( ((byte1 == 255) && (byte2 >= 208)) && (byte2 <= 215) ) {
+      this.bytePos = this.bytePos + 2;
+      return true;
+    }
+    return false;
+  };
+  getBytePosition () {
+    return this.bytePos;
+  };
+  isEOF () {
+    return this.eof;
+  };
+  receiveExtend (length) {
+    if ( length == 0 ) {
+      return 0;
+    }
+    let value = this.readBits(length);
+    const threshold = (1 << (length - 1));
+    if ( value < threshold ) {
+      value = value - (((threshold << 1)) - 1);
+    }
+    return value;
+  };
+}
+class HuffmanTable  {
+  constructor() {
+    this.bits = new Int32Array(16);
+    this.values = [];
+    this.maxCode = new Int32Array(16);
+    this.minCode = new Int32Array(16);
+    this.valPtr = new Int32Array(16);
+    this.tableClass = 0;
+    this.tableId = 0;
+    let i_1 = 0;
+    while (i_1 < 16) {
+      this.bits[i_1] = 0;
+      this.maxCode[i_1] = -1;
+      this.minCode[i_1] = 0;
+      this.valPtr[i_1] = 0;
+      i_1 = i_1 + 1;
+    };
+  }
+  build () {
+    let code = 0;
+    let valueIdx = 0;
+    let i = 0;
+    while (i < 16) {
+      const count = this.bits[i];
+      if ( count > 0 ) {
+        this.minCode[i] = code;
+        this.valPtr[i] = valueIdx;
+        valueIdx = valueIdx + count;
+        code = code + count;
+        this.maxCode[i] = code - 1;
+      } else {
+        this.maxCode[i] = -1;
+        this.minCode[i] = 0;
+        this.valPtr[i] = valueIdx;
+      }
+      code = (code << 1);
+      i = i + 1;
+    };
+  };
+  decode (reader) {
+    let code = 0;
+    let length = 0;
+    while (length < 16) {
+      const bit = reader.readBit();
+      code = (((code << 1)) | bit);
+      const maxC = this.maxCode[length];
+      if ( maxC >= 0 ) {
+        if ( code <= maxC ) {
+          const minC = this.minCode[length];
+          const ptr = this.valPtr[length];
+          const idx = ptr + (code - minC);
+          return this.values[idx];
+        }
+      }
+      length = length + 1;
+    };
+    console.log("Huffman decode error: code not found");
+    return 0;
+  };
+  resetArrays () {
+    let i = 0;
+    while (i < 16) {
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
+      i = i + 1;
+    };
+    this.values.length = 0;
+  };
+}
+class HuffmanDecoder  {
+  constructor() {
+    this.quiet = false;
+    this.dcTable0 = new HuffmanTable();
+    this.dcTable1 = new HuffmanTable();
+    this.acTable0 = new HuffmanTable();
+    this.acTable1 = new HuffmanTable();
+  }
+  getDCTable (id) {
+    if ( id == 0 ) {
+      return this.dcTable0;
+    }
+    return this.dcTable1;
+  };
+  getACTable (id) {
+    if ( id == 0 ) {
+      return this.acTable0;
+    }
+    return this.acTable1;
+  };
+  parseDHT (data, pos, length) {
+    const endPos = pos + length;
+    while (pos < endPos) {
+      const tableInfo = data._view.getUint8(pos);
+      pos = pos + 1;
+      const tableClass = (tableInfo >> 4);
+      const tableId = (tableInfo & 15);
+      let table = this.getDCTable(tableId);
+      if ( tableClass == 1 ) {
+        table = this.getACTable(tableId);
+      }
+      table.tableClass = tableClass;
+      table.tableId = tableId;
+      table.resetArrays();
+      let totalSymbols = 0;
+      let i = 0;
+      while (i < 16) {
+        const count = data._view.getUint8(pos);
+        table.bits[i] = count;
+        totalSymbols = totalSymbols + count;
+        pos = pos + 1;
+        i = i + 1;
+      };
+      i = 0;
+      while (i < totalSymbols) {
+        table.values.push(data._view.getUint8(pos));
+        pos = pos + 1;
+        i = i + 1;
+      };
+      table.build();
+      let classStr = "DC";
+      if ( tableClass == 1 ) {
+        classStr = "AC";
+      }
+      if ( this.quiet == false ) {
+        console.log((((("  Huffman table " + classStr) + ((tableId.toString()))) + ": ") + ((totalSymbols.toString()))) + " symbols");
+      }
+    };
+  };
+}
+class IDCT  {
+  constructor() {
+    this.cosTable = new Int32Array(64);
+    this.zigzagMap = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagMap[0] = 0;
+    this.zigzagMap[1] = 1;
+    this.zigzagMap[2] = 8;
+    this.zigzagMap[3] = 16;
+    this.zigzagMap[4] = 9;
+    this.zigzagMap[5] = 2;
+    this.zigzagMap[6] = 3;
+    this.zigzagMap[7] = 10;
+    this.zigzagMap[8] = 17;
+    this.zigzagMap[9] = 24;
+    this.zigzagMap[10] = 32;
+    this.zigzagMap[11] = 25;
+    this.zigzagMap[12] = 18;
+    this.zigzagMap[13] = 11;
+    this.zigzagMap[14] = 4;
+    this.zigzagMap[15] = 5;
+    this.zigzagMap[16] = 12;
+    this.zigzagMap[17] = 19;
+    this.zigzagMap[18] = 26;
+    this.zigzagMap[19] = 33;
+    this.zigzagMap[20] = 40;
+    this.zigzagMap[21] = 48;
+    this.zigzagMap[22] = 41;
+    this.zigzagMap[23] = 34;
+    this.zigzagMap[24] = 27;
+    this.zigzagMap[25] = 20;
+    this.zigzagMap[26] = 13;
+    this.zigzagMap[27] = 6;
+    this.zigzagMap[28] = 7;
+    this.zigzagMap[29] = 14;
+    this.zigzagMap[30] = 21;
+    this.zigzagMap[31] = 28;
+    this.zigzagMap[32] = 35;
+    this.zigzagMap[33] = 42;
+    this.zigzagMap[34] = 49;
+    this.zigzagMap[35] = 56;
+    this.zigzagMap[36] = 57;
+    this.zigzagMap[37] = 50;
+    this.zigzagMap[38] = 43;
+    this.zigzagMap[39] = 36;
+    this.zigzagMap[40] = 29;
+    this.zigzagMap[41] = 22;
+    this.zigzagMap[42] = 15;
+    this.zigzagMap[43] = 23;
+    this.zigzagMap[44] = 30;
+    this.zigzagMap[45] = 37;
+    this.zigzagMap[46] = 44;
+    this.zigzagMap[47] = 51;
+    this.zigzagMap[48] = 58;
+    this.zigzagMap[49] = 59;
+    this.zigzagMap[50] = 52;
+    this.zigzagMap[51] = 45;
+    this.zigzagMap[52] = 38;
+    this.zigzagMap[53] = 31;
+    this.zigzagMap[54] = 39;
+    this.zigzagMap[55] = 46;
+    this.zigzagMap[56] = 53;
+    this.zigzagMap[57] = 60;
+    this.zigzagMap[58] = 61;
+    this.zigzagMap[59] = 54;
+    this.zigzagMap[60] = 47;
+    this.zigzagMap[61] = 55;
+    this.zigzagMap[62] = 62;
+    this.zigzagMap[63] = 63;
+  }
+  dezigzag (zigzag) {
+    let block = new Int32Array(64);
+    let i = 0;
+    while (i < 64) {
+      const pos = this.zigzagMap[i];
+      const val = zigzag[i];
+      block[pos] = val;
+      i = i + 1;
+    };
+    return block;
+  };
+  idct1d (input, startIdx, stride, output, outIdx, outStride) {
+    let hasAC = false;
+    let uc = 1;
+    while (uc < 8) {
+      if ( (input[(startIdx + (uc * stride))]) != 0 ) {
+        hasAC = true;
+        uc = 8;
+      }
+      uc = uc + 1;
+    };
+    if ( hasAC == false ) {
+      let dcSum = 0;
+      const dcCoeff = input[startIdx];
+      if ( dcCoeff != 0 ) {
+        let dcContrib = dcCoeff * 1024;
+        dcContrib = ((dcContrib * 724) >> 10);
+        dcSum = dcSum + dcContrib;
+      }
+      const flat = (dcSum >> 11);
+      let fx = 0;
+      while (fx < 8) {
+        output[outIdx + (fx * outStride)] = flat;
+        fx = fx + 1;
+      };
+      return;
+    }
+    let x = 0;
+    while (x < 8) {
+      let sum = 0;
+      let u = 0;
+      while (u < 8) {
+        const coeff = input[(startIdx + (u * stride))];
+        if ( coeff != 0 ) {
+          const cosVal = this.cosTable[((x * 8) + u)];
+          let contrib = coeff * cosVal;
+          if ( u == 0 ) {
+            contrib = ((contrib * 724) >> 10);
+          }
+          sum = sum + contrib;
+        }
+        u = u + 1;
+      };
+      output[outIdx + (x * outStride)] = (sum >> 11);
+      x = x + 1;
+    };
+  };
+  transform (block, output) {
+    const temp = new Int32Array(64);
+    let row = 0;
+    while (row < 8) {
+      const rowStart = row * 8;
+      this.idct1d(block, rowStart, 1, temp, rowStart, 1);
+      row = row + 1;
+    };
+    let col = 0;
+    while (col < 8) {
+      this.idct1d(temp, col, 8, output, col, 8);
+      col = col + 1;
+    };
+    let i = 0;
+    while (i < 64) {
+      let val = (output[i]) + 128;
+      if ( val < 0 ) {
+        val = 0;
+      }
+      if ( val > 255 ) {
+        val = 255;
+      }
+      output[i] = val;
+      i = i + 1;
+    };
+  };
+  transformFast (coeffs, output) {
+    this.transform(coeffs, output);
+  };
+}
+class PPMImage  {
+  constructor() {
+  }
+  parseNumber (data, startPos, endPos) {
+    const __len = data.byteLength;
+    let pos = startPos;
+    let skipping = true;
+    while (skipping && (pos < __len)) {
+      const ch = data._view.getUint8(pos);
+      if ( (((ch == 32) || (ch == 10)) || (ch == 13)) || (ch == 9) ) {
+        pos = pos + 1;
+      } else {
+        skipping = false;
+      }
+    };
+    let value = 0;
+    let parsing = true;
+    while (parsing && (pos < __len)) {
+      const ch_1 = data._view.getUint8(pos);
+      if ( (ch_1 >= 48) && (ch_1 <= 57) ) {
+        value = (value * 10) + (ch_1 - 48);
+        pos = pos + 1;
+      } else {
+        parsing = false;
+      }
+    };
+    endPos[0] = pos;
+    return value;
+  };
+  skipToNextLine (data, pos) {
+    const __len = data.byteLength;
+    while (pos < __len) {
+      const ch = data._view.getUint8(pos);
+      pos = pos + 1;
+      if ( ch == 10 ) {
+        return pos;
+      }
+    };
+    return pos;
+  };
+  load (dirPath, fileName) {
+    const data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    const __len = data.byteLength;
+    if ( __len < 10 ) {
+      console.log("Error: File too small: " + fileName);
+      const errImg = new ImageBuffer();
+      errImg.init(1, 1);
+      return errImg;
+    }
+    const m1 = data._view.getUint8(0);
+    const m2 = data._view.getUint8(1);
+    if ( (m1 != 80) || ((m2 != 54) && (m2 != 51)) ) {
+      console.log("Error: Not a PPM file (P3 or P6): " + fileName);
+      const errImg_1 = new ImageBuffer();
+      errImg_1.init(1, 1);
+      return errImg_1;
+    }
+    const isBinary = m2 == 54;
+    let pos = 2;
+    let endPos = [];
+    endPos.push(0);
+    let skippingComments = true;
+    while (skippingComments && (pos < __len)) {
+      const ch = data._view.getUint8(pos);
+      if ( (((ch == 32) || (ch == 10)) || (ch == 13)) || (ch == 9) ) {
+        pos = pos + 1;
+      } else {
+        if ( ch == 35 ) {
+          pos = this.skipToNextLine(data, pos);
+        } else {
+          skippingComments = false;
+        }
+      }
+    };
+    const width = this.parseNumber(data, pos, endPos);
+    pos = endPos[0];
+    const height = this.parseNumber(data, pos, endPos);
+    pos = endPos[0];
+    const maxVal = this.parseNumber(data, pos, endPos);
+    pos = endPos[0];
+    if ( pos < __len ) {
+      pos = pos + 1;
+    }
+    console.log((((("Loading PPM: " + ((width.toString()))) + "x") + ((height.toString()))) + ", maxval=") + ((maxVal.toString())));
+    const img = new ImageBuffer();
+    img.init(width, height);
+    if ( isBinary ) {
+      let y = 0;
+      while (y < height) {
+        let x = 0;
+        while (x < width) {
+          if ( (pos + 2) < __len ) {
+            const r = data._view.getUint8(pos);
+            const g = data._view.getUint8((pos + 1));
+            const b = data._view.getUint8((pos + 2));
+            img.setPixelRGB(x, y, r, g, b);
+            pos = pos + 3;
+          }
+          x = x + 1;
+        };
+        y = y + 1;
+      };
+    } else {
+      let y_1 = 0;
+      while (y_1 < height) {
+        let x_1 = 0;
+        while (x_1 < width) {
+          const r_1 = this.parseNumber(data, pos, endPos);
+          pos = endPos[0];
+          const g_1 = this.parseNumber(data, pos, endPos);
+          pos = endPos[0];
+          const b_1 = this.parseNumber(data, pos, endPos);
+          pos = endPos[0];
+          img.setPixelRGB(x_1, y_1, r_1, g_1, b_1);
+          x_1 = x_1 + 1;
+        };
+        y_1 = y_1 + 1;
+      };
+    }
+    return img;
+  };
+  save (img, dirPath, fileName) {
+    const buf = new GrowableBuffer();
+    buf.writeString("P6\n");
+    buf.writeString(((((img.width.toString())) + " ") + ((img.height.toString()))) + "\n");
+    buf.writeString("255\n");
     let y = 0;
-    while (y < 80) {
-      const band = ((y / 20) | 0);
-      let v = 60;
-      if ( band == 1 ) {
-        v = 110;
-      }
-      if ( band == 2 ) {
-        v = 160;
-      }
-      if ( band == 3 ) {
-        v = 215;
-      }
+    while (y < img.height) {
       let x = 0;
-      while (x < 80) {
-        img.setPixelRGB(x, y, v, v - 2, v - 6);
+      while (x < img.width) {
+        const c = img.getPixel(x, y);
+        buf.writeByte(c.r);
+        buf.writeByte(c.g);
+        buf.writeByte(c.b);
         x = x + 1;
       };
       y = y + 1;
     };
-    y = 34;
-    while (y < 45) {
-      let x2 = 34;
-      while (x2 < 45) {
-        img.setPixelRGB(x2, y, 178, 158, 101);
-        x2 = x2 + 1;
+    const data = buf.toBuffer();
+    require('fs').writeFileSync(dirPath + '/' + fileName, Buffer.from(data));
+    console.log((("Saved PPM: " + dirPath) + "/") + fileName);
+  };
+  saveP3 (img, dirPath, fileName) {
+    const buf = new GrowableBuffer();
+    buf.writeString("P3\n");
+    buf.writeString("# Created by Ranger ImageEditor\n");
+    buf.writeString(((((img.width.toString())) + " ") + ((img.height.toString()))) + "\n");
+    buf.writeString("255\n");
+    let y = 0;
+    while (y < img.height) {
+      let x = 0;
+      while (x < img.width) {
+        const c = img.getPixel(x, y);
+        buf.writeString((((((c.r.toString())) + " ") + ((c.g.toString()))) + " ") + ((c.b.toString())));
+        if ( x < (img.width - 1) ) {
+          buf.writeString("  ");
+        }
+        x = x + 1;
       };
+      buf.writeString("\n");
       y = y + 1;
+    };
+    const data = buf.toBuffer();
+    require('fs').writeFileSync(dirPath + '/' + fileName, Buffer.from(data));
+    console.log((("Saved PPM (ASCII): " + dirPath) + "/") + fileName);
+  };
+}
+class JPEGComponent  {
+  constructor() {
+    this.id = 0;
+    this.hSamp = 1;
+    this.vSamp = 1;
+    this.quantTableId = 0;
+    this.dcTableId = 0;
+    this.acTableId = 0;
+    this.prevDC = 0;
+  }
+}
+class QuantizationTable  {
+  constructor() {
+    this.values = [];
+    this.id = 0;
+    let i_2 = 0;
+    while (i_2 < 64) {
+      this.values.push(1);
+      i_2 = i_2 + 1;
+    };
+  }
+}
+class JPEGDecoder  {
+  constructor() {
+    this.quiet = false;
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.dataLen = 0;
+    this.width = 0;
+    this.height = 0;
+    this.numComponents = 0;
+    this.precision = 8;
+    this.components = [];
+    this.quantTables = [];
+    this.scanDataStart = 0;
+    this.scanDataLen = 0;
+    this.mcuWidth = 8;
+    this.mcuHeight = 8;
+    this.mcusPerRow = 0;
+    this.mcusPerCol = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    this.restartInterval = 0;
+    this.huffman = new HuffmanDecoder();
+    this.idct = new IDCT();
+    let i_3 = 0;
+    while (i_3 < 4) {
+      this.quantTables.push(new QuantizationTable());
+      i_3 = i_3 + 1;
+    };
+  }
+  say (msg) {
+    if ( this.quiet ) {
+      return;
+    }
+    console.log(msg);
+  };
+  reset () {
+    this.width = 0;
+    this.height = 0;
+    this.numComponents = 0;
+    this.precision = 8;
+    this.scanDataStart = 0;
+    this.scanDataLen = 0;
+    this.mcuWidth = 8;
+    this.mcuHeight = 8;
+    this.mcusPerRow = 0;
+    this.mcusPerCol = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    this.restartInterval = 0;
+    this.components.length = 0;
+    this.huffman.dcTable0.resetArrays();
+    this.huffman.dcTable1.resetArrays();
+    this.huffman.acTable0.resetArrays();
+    this.huffman.acTable1.resetArrays();
+    let i = 0;
+    while (i < 4) {
+      const qt = this.quantTables[i];
+      qt.values.length = 0;
+      let j = 0;
+      while (j < 64) {
+        qt.values.push(1);
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+  };
+  readUint16BE (pos) {
+    const high = this.data._view.getUint8(pos);
+    const low = this.data._view.getUint8((pos + 1));
+    return (high * 256) + low;
+  };
+  parseSOF (pos, length) {
+    this.precision = this.data._view.getUint8(pos);
+    this.height = this.readUint16BE((pos + 1));
+    this.width = this.readUint16BE((pos + 3));
+    this.numComponents = this.data._view.getUint8((pos + 5));
+    this.say(((((("  Image: " + ((this.width.toString()))) + "x") + ((this.height.toString()))) + ", ") + ((this.numComponents.toString()))) + " components");
+    this.components.length = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    let i = 0;
+    let offset = pos + 6;
+    while (i < this.numComponents) {
+      const comp = new JPEGComponent();
+      comp.id = this.data._view.getUint8(offset);
+      const sampling = this.data._view.getUint8((offset + 1));
+      comp.hSamp = (sampling >> 4);
+      comp.vSamp = (sampling & 15);
+      comp.quantTableId = this.data._view.getUint8((offset + 2));
+      if ( comp.hSamp > this.maxHSamp ) {
+        this.maxHSamp = comp.hSamp;
+      }
+      if ( comp.vSamp > this.maxVSamp ) {
+        this.maxVSamp = comp.vSamp;
+      }
+      this.components.push(comp);
+      this.say((((((("    Component " + ((comp.id.toString()))) + ": ") + ((comp.hSamp.toString()))) + "x") + ((comp.vSamp.toString()))) + " sampling, quant table ") + ((comp.quantTableId.toString())));
+      offset = offset + 3;
+      i = i + 1;
+    };
+    this.mcuWidth = this.maxHSamp * 8;
+    this.mcuHeight = this.maxVSamp * 8;
+    this.mcusPerRow = Math.floor( (((this.width + this.mcuWidth) - 1) / this.mcuWidth));
+    this.mcusPerCol = Math.floor( (((this.height + this.mcuHeight) - 1) / this.mcuHeight));
+    this.say((((((("  MCU size: " + ((this.mcuWidth.toString()))) + "x") + ((this.mcuHeight.toString()))) + ", grid: ") + ((this.mcusPerRow.toString()))) + "x") + ((this.mcusPerCol.toString())));
+  };
+  parseDQT (pos, length) {
+    const endPos = pos + length;
+    while (pos < endPos) {
+      const info = this.data._view.getUint8(pos);
+      pos = pos + 1;
+      const precision_1 = (info >> 4);
+      const tableId = (info & 15);
+      const table = this.quantTables[tableId];
+      table.id = tableId;
+      table.values.length = 0;
+      let i = 0;
+      while (i < 64) {
+        if ( precision_1 == 0 ) {
+          table.values.push(this.data._view.getUint8(pos));
+          pos = pos + 1;
+        } else {
+          table.values.push(this.readUint16BE(pos));
+          pos = pos + 2;
+        }
+        i = i + 1;
+      };
+      this.say(((("  Quantization table " + ((tableId.toString()))) + " (") + (((precision_1 + 1).toString()))) + "-byte values)");
+    };
+  };
+  parseSOS (pos, length) {
+    const numScanComponents = this.data._view.getUint8(pos);
+    pos = pos + 1;
+    let i = 0;
+    while (i < numScanComponents) {
+      const compId = this.data._view.getUint8(pos);
+      const tableSelect = this.data._view.getUint8((pos + 1));
+      pos = pos + 2;
+      let j = 0;
+      while (j < this.numComponents) {
+        const comp = this.components[j];
+        if ( comp.id == compId ) {
+          comp.dcTableId = (tableSelect >> 4);
+          comp.acTableId = (tableSelect & 15);
+          this.say((((("    Component " + ((compId.toString()))) + ": DC table ") + ((comp.dcTableId.toString()))) + ", AC table ") + ((comp.acTableId.toString())));
+        }
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    pos = pos + 3;
+    this.scanDataStart = pos;
+    let searchPos = pos;
+    while (searchPos < (this.dataLen - 1)) {
+      const b = this.data._view.getUint8(searchPos);
+      if ( b == 255 ) {
+        const nextB = this.data._view.getUint8((searchPos + 1));
+        if ( (nextB != 0) && (nextB != 255) ) {
+          if ( (nextB >= 208) && (nextB <= 215) ) {
+            searchPos = searchPos + 2;
+            continue;
+          }
+          this.scanDataLen = searchPos - this.scanDataStart;
+          return;
+        }
+      }
+      searchPos = searchPos + 1;
+    };
+    this.scanDataLen = this.dataLen - this.scanDataStart;
+  };
+  parseMarkers () {
+    let pos = 0;
+    if ( this.dataLen < 2 ) {
+      this.say("Error: File too small");
+      return false;
+    }
+    const m1 = this.data._view.getUint8(0);
+    const m2 = this.data._view.getUint8(1);
+    if ( (m1 != 255) || (m2 != 216) ) {
+      this.say("Error: Not a JPEG file (missing SOI)");
+      return false;
+    }
+    pos = 2;
+    this.say("Parsing JPEG markers...");
+    while (pos < (this.dataLen - 1)) {
+      const marker1 = this.data._view.getUint8(pos);
+      if ( marker1 != 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      const marker2 = this.data._view.getUint8((pos + 1));
+      if ( marker2 == 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      if ( marker2 == 0 ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( marker2 == 216 ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( marker2 == 217 ) {
+        this.say("  End of Image");
+        return true;
+      }
+      if ( (marker2 >= 208) && (marker2 <= 215) ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( (pos + 4) > this.dataLen ) {
+        return true;
+      }
+      const markerLen = this.readUint16BE((pos + 2));
+      const dataStart = pos + 4;
+      const markerDataLen = markerLen - 2;
+      if ( marker2 == 192 ) {
+        this.say("  SOF0 (Baseline DCT)");
+        this.parseSOF(dataStart, markerDataLen);
+      }
+      if ( marker2 == 193 ) {
+        this.say("  SOF1 (Extended Sequential DCT)");
+        this.parseSOF(dataStart, markerDataLen);
+      }
+      if ( marker2 == 194 ) {
+        this.say("  SOF2 (Progressive DCT) - NOT SUPPORTED");
+        return false;
+      }
+      if ( marker2 == 196 ) {
+        this.say("  DHT (Huffman Tables)");
+        this.huffman.parseDHT(this.data, dataStart, markerDataLen);
+      }
+      if ( marker2 == 219 ) {
+        this.say("  DQT (Quantization Tables)");
+        this.parseDQT(dataStart, markerDataLen);
+      }
+      if ( marker2 == 221 ) {
+        this.restartInterval = this.readUint16BE(dataStart);
+        this.say(("  DRI (Restart Interval: " + ((this.restartInterval.toString()))) + ")");
+      }
+      if ( marker2 == 218 ) {
+        this.say("  SOS (Start of Scan)");
+        this.parseSOS(dataStart, markerDataLen);
+        pos = this.scanDataStart + this.scanDataLen;
+        continue;
+      }
+      if ( marker2 == 224 ) {
+        this.say("  APP0 (JFIF)");
+      }
+      if ( marker2 == 225 ) {
+        this.say("  APP1 (EXIF)");
+      }
+      if ( marker2 == 254 ) {
+        this.say("  COM (Comment)");
+      }
+      pos = (pos + 2) + markerLen;
+    };
+    return true;
+  };
+  decodeBlock (reader, comp, quantTable) {
+    let coeffs = new Int32Array(64);
+    coeffs.fill(0, 0, 64);
+    const dcTable = this.huffman.getDCTable(comp.dcTableId);
+    const dcCategory = dcTable.decode(reader);
+    const dcDiff = reader.receiveExtend(dcCategory);
+    const dcValue = comp.prevDC + dcDiff;
+    comp.prevDC = dcValue;
+    const dcQuant = quantTable.values[0];
+    coeffs[0] = dcValue * dcQuant;
+    const acTable = this.huffman.getACTable(comp.acTableId);
+    let k = 1;
+    while (k < 64) {
+      const acSymbol = acTable.decode(reader);
+      if ( acSymbol == 0 ) {
+        k = 64;
+      } else {
+        const runLength = (acSymbol >> 4);
+        const acCategory = (acSymbol & 15);
+        if ( acSymbol == 240 ) {
+          k = k + 16;
+        } else {
+          k = k + runLength;
+          if ( k < 64 ) {
+            const acValue = reader.receiveExtend(acCategory);
+            const acQuant = quantTable.values[k];
+            coeffs[k] = acValue * acQuant;
+            k = k + 1;
+          }
+        }
+      }
+    };
+    return coeffs;
+  };
+  decode (dirPath, fileName) {
+    const bytes = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    return this.decodeBytes(bytes);
+  };
+  decodeBytes (bytes) {
+    this.reset();
+    this.huffman.quiet = this.quiet;
+    this.data = bytes;
+    this.dataLen = this.data.byteLength;
+    this.say(("Decoding JPEG in-memory (" + ((this.dataLen.toString()))) + " bytes)");
+    const ok = this.parseMarkers();
+    if ( ok == false ) {
+      this.say("Error parsing JPEG markers");
+      const errImg = new ImageBuffer();
+      errImg.init(1, 1);
+      return errImg;
+    }
+    if ( (this.width == 0) || (this.height == 0) ) {
+      this.say("Error: Invalid image dimensions");
+      const errImg_1 = new ImageBuffer();
+      errImg_1.init(1, 1);
+      return errImg_1;
+    }
+    this.say(("Decoding " + ((this.scanDataLen.toString()))) + " bytes of scan data...");
+    const img = new ImageBuffer();
+    img.init(this.width, this.height);
+    const reader = new BitReader();
+    reader.init(this.data, this.scanDataStart, this.scanDataLen);
+    let c = 0;
+    while (c < this.numComponents) {
+      const comp = this.components[c];
+      comp.prevDC = 0;
+      c = c + 1;
+    };
+    let yBlocksData = [];
+    let yBlockCount = 0;
+    let cbBlock = [];
+    let crBlock = [];
+    let mcuCount = 0;
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        if ( ((this.restartInterval > 0) && (mcuCount > 0)) && ((mcuCount % this.restartInterval) == 0) ) {
+          c = 0;
+          while (c < this.numComponents) {
+            const compRst = this.components[c];
+            compRst.prevDC = 0;
+            c = c + 1;
+          };
+          reader.alignToByte();
+          reader.skipRestartMarker();
+        }
+        yBlocksData.length = 0;
+        yBlockCount = 0;
+        let compIdx = 0;
+        while (compIdx < this.numComponents) {
+          const comp_1 = this.components[compIdx];
+          const quantTable = this.quantTables[comp_1.quantTableId];
+          let blockV = 0;
+          while (blockV < comp_1.vSamp) {
+            let blockH = 0;
+            while (blockH < comp_1.hSamp) {
+              const coeffs = this.decodeBlock(reader, comp_1, quantTable);
+              let blockPixels = new Int32Array(64);
+              blockPixels.fill(0, 0, 64);
+              const tempBlock = this.idct.dezigzag(coeffs);
+              this.idct.transform(tempBlock, blockPixels);
+              if ( compIdx == 0 ) {
+                let bi = 0;
+                while (bi < 64) {
+                  yBlocksData.push(blockPixels[bi]);
+                  bi = bi + 1;
+                };
+                yBlockCount = yBlockCount + 1;
+              }
+              if ( compIdx == 1 ) {
+                cbBlock.length = 0;
+                let bi_1 = 0;
+                while (bi_1 < 64) {
+                  cbBlock.push(blockPixels[bi_1]);
+                  bi_1 = bi_1 + 1;
+                };
+              }
+              if ( compIdx == 2 ) {
+                crBlock.length = 0;
+                let bi_2 = 0;
+                while (bi_2 < 64) {
+                  crBlock.push(blockPixels[bi_2]);
+                  bi_2 = bi_2 + 1;
+                };
+              }
+              blockH = blockH + 1;
+            };
+            blockV = blockV + 1;
+          };
+          compIdx = compIdx + 1;
+        };
+        this.writeMCU(img, mcuX, mcuY, yBlocksData, yBlockCount, cbBlock, crBlock);
+        mcuX = mcuX + 1;
+        mcuCount = mcuCount + 1;
+      };
+      mcuY = mcuY + 1;
+      if ( (mcuY % 10) == 0 ) {
+        this.say((("  Row " + ((mcuY.toString()))) + "/") + ((this.mcusPerCol.toString())));
+      }
+    };
+    this.say("Decode complete!");
+    return img;
+  };
+  writeMCU (img, mcuX, mcuY, yBlocksData, yBlockCount, cbBlock, crBlock) {
+    const baseX = mcuX * this.mcuWidth;
+    const baseY = mcuY * this.mcuHeight;
+    const comp0 = this.components[0];
+    if ( (this.maxHSamp == 1) && (this.maxVSamp == 1) ) {
+      let py = 0;
+      while (py < 8) {
+        let px = 0;
+        while (px < 8) {
+          const imgX = baseX + px;
+          const imgY = baseY + py;
+          if ( (imgX < this.width) && (imgY < this.height) ) {
+            const idx = (py * 8) + px;
+            const y = yBlocksData[idx];
+            let cb = 128;
+            let cr = 128;
+            if ( this.numComponents >= 3 ) {
+              cb = cbBlock[idx];
+              cr = crBlock[idx];
+            }
+            let r = y + (((359 * (cr - 128)) >> 8));
+            let g = (y - (((88 * (cb - 128)) >> 8))) - (((183 * (cr - 128)) >> 8));
+            let b = y + (((454 * (cb - 128)) >> 8));
+            if ( r < 0 ) {
+              r = 0;
+            }
+            if ( r > 255 ) {
+              r = 255;
+            }
+            if ( g < 0 ) {
+              g = 0;
+            }
+            if ( g > 255 ) {
+              g = 255;
+            }
+            if ( b < 0 ) {
+              b = 0;
+            }
+            if ( b > 255 ) {
+              b = 255;
+            }
+            img.setPixelRGB(imgX, imgY, r, g, b);
+          }
+          px = px + 1;
+        };
+        py = py + 1;
+      };
+      return;
+    }
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 2) ) {
+      let blockIdx = 0;
+      let blockY = 0;
+      while (blockY < 2) {
+        let blockX = 0;
+        while (blockX < 2) {
+          const yBlockOffset = blockIdx * 64;
+          let py_1 = 0;
+          while (py_1 < 8) {
+            let px_1 = 0;
+            while (px_1 < 8) {
+              const imgX_1 = (baseX + (blockX * 8)) + px_1;
+              const imgY_1 = (baseY + (blockY * 8)) + py_1;
+              if ( (imgX_1 < this.width) && (imgY_1 < this.height) ) {
+                const yIdx = (yBlockOffset + (py_1 * 8)) + px_1;
+                const y_1 = yBlocksData[yIdx];
+                const chromaX = (blockX * 4) + ((px_1 >> 1));
+                const chromaY = (blockY * 4) + ((py_1 >> 1));
+                const chromaIdx = (chromaY * 8) + chromaX;
+                let cb_1 = 128;
+                let cr_1 = 128;
+                if ( this.numComponents >= 3 ) {
+                  cb_1 = cbBlock[chromaIdx];
+                  cr_1 = crBlock[chromaIdx];
+                }
+                let r_1 = y_1 + (((359 * (cr_1 - 128)) >> 8));
+                let g_1 = (y_1 - (((88 * (cb_1 - 128)) >> 8))) - (((183 * (cr_1 - 128)) >> 8));
+                let b_1 = y_1 + (((454 * (cb_1 - 128)) >> 8));
+                if ( r_1 < 0 ) {
+                  r_1 = 0;
+                }
+                if ( r_1 > 255 ) {
+                  r_1 = 255;
+                }
+                if ( g_1 < 0 ) {
+                  g_1 = 0;
+                }
+                if ( g_1 > 255 ) {
+                  g_1 = 255;
+                }
+                if ( b_1 < 0 ) {
+                  b_1 = 0;
+                }
+                if ( b_1 > 255 ) {
+                  b_1 = 255;
+                }
+                img.setPixelRGB(imgX_1, imgY_1, r_1, g_1, b_1);
+              }
+              px_1 = px_1 + 1;
+            };
+            py_1 = py_1 + 1;
+          };
+          blockIdx = blockIdx + 1;
+          blockX = blockX + 1;
+        };
+        blockY = blockY + 1;
+      };
+      return;
+    }
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 1) ) {
+      let blockX_1 = 0;
+      while (blockX_1 < 2) {
+        const yBlockOffset_1 = blockX_1 * 64;
+        let py_2 = 0;
+        while (py_2 < 8) {
+          let px_2 = 0;
+          while (px_2 < 8) {
+            const imgX_2 = (baseX + (blockX_1 * 8)) + px_2;
+            const imgY_2 = baseY + py_2;
+            if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
+              const yIdx_1 = (yBlockOffset_1 + (py_2 * 8)) + px_2;
+              const y_2 = yBlocksData[yIdx_1];
+              const chromaX_1 = (blockX_1 * 4) + ((px_2 >> 1));
+              const chromaY_1 = py_2;
+              const chromaIdx_1 = (chromaY_1 * 8) + chromaX_1;
+              let cb_2 = 128;
+              let cr_2 = 128;
+              if ( this.numComponents >= 3 ) {
+                cb_2 = cbBlock[chromaIdx_1];
+                cr_2 = crBlock[chromaIdx_1];
+              }
+              let r_2 = y_2 + (((359 * (cr_2 - 128)) >> 8));
+              let g_2 = (y_2 - (((88 * (cb_2 - 128)) >> 8))) - (((183 * (cr_2 - 128)) >> 8));
+              let b_2 = y_2 + (((454 * (cb_2 - 128)) >> 8));
+              if ( r_2 < 0 ) {
+                r_2 = 0;
+              }
+              if ( r_2 > 255 ) {
+                r_2 = 255;
+              }
+              if ( g_2 < 0 ) {
+                g_2 = 0;
+              }
+              if ( g_2 > 255 ) {
+                g_2 = 255;
+              }
+              if ( b_2 < 0 ) {
+                b_2 = 0;
+              }
+              if ( b_2 > 255 ) {
+                b_2 = 255;
+              }
+              img.setPixelRGB(imgX_2, imgY_2, r_2, g_2, b_2);
+            }
+            px_2 = px_2 + 1;
+          };
+          py_2 = py_2 + 1;
+        };
+        blockX_1 = blockX_1 + 1;
+      };
+      return;
+    }
+    if ( yBlockCount > 0 ) {
+      let py_3 = 0;
+      while (py_3 < 8) {
+        let px_3 = 0;
+        while (px_3 < 8) {
+          const imgX_3 = baseX + px_3;
+          const imgY_3 = baseY + py_3;
+          if ( (imgX_3 < this.width) && (imgY_3 < this.height) ) {
+            const y_3 = yBlocksData[((py_3 * 8) + px_3)];
+            img.setPixelRGB(imgX_3, imgY_3, y_3, y_3, y_3);
+          }
+          px_3 = px_3 + 1;
+        };
+        py_3 = py_3 + 1;
+      };
+    }
+  };
+}
+class CoeffBuffer  {
+  constructor() {
+    this.coeffs = [];
+    this.numBlocks = 0;
+  }
+  init (blocks) {
+    this.numBlocks = blocks;
+    this.coeffs.length = 0;
+    const numCoeffs = blocks * 64;
+    let i = 0;
+    while (i < numCoeffs) {
+      this.coeffs.push(0);
+      i = i + 1;
+    };
+  };
+  get (blockIdx, k) {
+    const offset = (blockIdx * 64) + k;
+    return this.coeffs[offset];
+  };
+  setVal (blockIdx, k, value) {
+    const offset = (blockIdx * 64) + k;
+    this.coeffs[offset] = value;
+  };
+}
+class ProgressiveJPEGDecoder  {
+  constructor() {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.dataLen = 0;
+    this.width = 0;
+    this.height = 0;
+    this.numComponents = 0;
+    this.precision = 8;
+    this.isProgressive = false;
+    this.components = [];
+    this.quantTables = [];
+    this.huffman = new HuffmanDecoder();
+    this.idct = new IDCT();
+    this.mcuWidth = 8;
+    this.mcuHeight = 8;
+    this.mcusPerRow = 0;
+    this.mcusPerCol = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    this.coeffBuffers = [];
+    this.scanSs = 0;
+    this.scanSe = 63;
+    this.scanAh = 0;
+    this.scanAl = 0;
+    this.eobrun = 0;
+    this.huffman = new HuffmanDecoder();
+    this.idct = new IDCT();
+    let i_6 = 0;
+    while (i_6 < 4) {
+      this.quantTables.push(new QuantizationTable());
+      i_6 = i_6 + 1;
+    };
+  }
+  readUint16BE (pos) {
+    const high = this.data._view.getUint8(pos);
+    const low = this.data._view.getUint8((pos + 1));
+    return (high * 256) + low;
+  };
+  parseSOF (pos, length, sofType) {
+    this.precision = this.data._view.getUint8(pos);
+    this.height = this.readUint16BE((pos + 1));
+    this.width = this.readUint16BE((pos + 3));
+    this.numComponents = this.data._view.getUint8((pos + 5));
+    if ( sofType == 2 ) {
+      this.isProgressive = true;
+      console.log(((((("  Progressive JPEG: " + ((this.width.toString()))) + "x") + ((this.height.toString()))) + ", ") + ((this.numComponents.toString()))) + " components");
+    } else {
+      this.isProgressive = false;
+      console.log(((((("  Baseline JPEG: " + ((this.width.toString()))) + "x") + ((this.height.toString()))) + ", ") + ((this.numComponents.toString()))) + " components");
+    }
+    this.components.length = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    let i = 0;
+    let offset = pos + 6;
+    while (i < this.numComponents) {
+      const comp = new JPEGComponent();
+      comp.id = this.data._view.getUint8(offset);
+      const sampling = this.data._view.getUint8((offset + 1));
+      comp.hSamp = (sampling >> 4);
+      comp.vSamp = (sampling & 15);
+      comp.quantTableId = this.data._view.getUint8((offset + 2));
+      if ( comp.hSamp > this.maxHSamp ) {
+        this.maxHSamp = comp.hSamp;
+      }
+      if ( comp.vSamp > this.maxVSamp ) {
+        this.maxVSamp = comp.vSamp;
+      }
+      this.components.push(comp);
+      console.log(((((("    Component " + ((comp.id.toString()))) + ": ") + ((comp.hSamp.toString()))) + "x") + ((comp.vSamp.toString()))) + " sampling");
+      offset = offset + 3;
+      i = i + 1;
+    };
+    this.mcuWidth = this.maxHSamp * 8;
+    this.mcuHeight = this.maxVSamp * 8;
+    this.mcusPerRow = Math.floor( (((this.width + this.mcuWidth) - 1) / this.mcuWidth));
+    this.mcusPerCol = Math.floor( (((this.height + this.mcuHeight) - 1) / this.mcuHeight));
+    console.log((("  MCU grid: " + ((this.mcusPerRow.toString()))) + "x") + ((this.mcusPerCol.toString())));
+    this.allocateCoeffBuffers();
+  };
+  allocateCoeffBuffers () {
+    this.coeffBuffers.length = 0;
+    const totalMCUs = this.mcusPerRow * this.mcusPerCol;
+    let c = 0;
+    while (c < this.numComponents) {
+      const comp = this.components[c];
+      const blocksInComp = (totalMCUs * comp.hSamp) * comp.vSamp;
+      const buf = new CoeffBuffer();
+      buf.init(blocksInComp);
+      this.coeffBuffers.push(buf);
+      c = c + 1;
+    };
+  };
+  parseDQT (pos, length) {
+    const endPos = pos + length;
+    while (pos < endPos) {
+      const info = this.data._view.getUint8(pos);
+      pos = pos + 1;
+      const prec = (info >> 4);
+      const tableId = (info & 15);
+      const table = this.quantTables[tableId];
+      table.id = tableId;
+      table.values.length = 0;
+      let i = 0;
+      while (i < 64) {
+        if ( prec == 0 ) {
+          table.values.push(this.data._view.getUint8(pos));
+          pos = pos + 1;
+        } else {
+          table.values.push(this.readUint16BE(pos));
+          pos = pos + 2;
+        }
+        i = i + 1;
+      };
+      console.log("  Quantization table " + ((tableId.toString())));
+    };
+  };
+  parseSOS (pos, length) {
+    const numScanComponents = this.data._view.getUint8(pos);
+    pos = pos + 1;
+    let scanComponents = [];
+    let i = 0;
+    while (i < numScanComponents) {
+      const compId = this.data._view.getUint8(pos);
+      const tableSelect = this.data._view.getUint8((pos + 1));
+      pos = pos + 2;
+      let j = 0;
+      while (j < this.numComponents) {
+        const comp = this.components[j];
+        if ( comp.id == compId ) {
+          comp.dcTableId = (tableSelect >> 4);
+          comp.acTableId = (tableSelect & 15);
+          scanComponents.push(j);
+        }
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    this.scanSs = this.data._view.getUint8(pos);
+    this.scanSe = this.data._view.getUint8((pos + 1));
+    const approx = this.data._view.getUint8((pos + 2));
+    this.scanAh = (approx >> 4);
+    this.scanAl = (approx & 15);
+    pos = pos + 3;
+    let scanType = "data";
+    if ( (this.scanSs == 0) && (this.scanSe == 0) ) {
+      if ( this.scanAh == 0 ) {
+        scanType = "DC first";
+      } else {
+        scanType = "DC refine";
+      }
+    } else {
+      if ( this.scanAh == 0 ) {
+        scanType = "AC first";
+      } else {
+        scanType = "AC refine";
+      }
+    }
+    let compList = "";
+    let si = 0;
+    while (si < (scanComponents.length)) {
+      if ( si > 0 ) {
+        compList = compList + ",";
+      }
+      compList = compList + (((scanComponents[si]).toString()));
+      si = si + 1;
+    };
+    console.log(((((((((((("    Scan: comps=[" + compList) + "] Ss=") + ((this.scanSs.toString()))) + " Se=") + ((this.scanSe.toString()))) + " Ah=") + ((this.scanAh.toString()))) + " Al=") + ((this.scanAl.toString()))) + " (") + scanType) + ")");
+    const scanStart = pos;
+    let searchPos = pos;
+    while (searchPos < (this.dataLen - 1)) {
+      const b = this.data._view.getUint8(searchPos);
+      if ( b == 255 ) {
+        const nextB = this.data._view.getUint8((searchPos + 1));
+        if ( (nextB != 0) && (nextB != 255) ) {
+          if ( (nextB >= 208) && (nextB <= 215) ) {
+            searchPos = searchPos + 2;
+            continue;
+          }
+          break;
+        }
+      }
+      searchPos = searchPos + 1;
+    };
+    const scanLen = searchPos - scanStart;
+    const reader = new BitReader();
+    reader.init(this.data, scanStart, scanLen);
+    this.eobrun = 0;
+    if ( (this.scanSs == 0) && (this.scanAh == 0) ) {
+      let c = 0;
+      while (c < this.numComponents) {
+        const comp_1 = this.components[c];
+        comp_1.prevDC = 0;
+        c = c + 1;
+      };
+    }
+    if ( this.isProgressive ) {
+      this.decodeProgressiveScan(reader, scanComponents);
+    } else {
+      this.decodeBaselineScan(reader, scanComponents);
+    }
+    return searchPos;
+  };
+  decodeProgressiveScan (reader, scanComps) {
+    const numScanComps = scanComps.length;
+    const isDCFirst = ((this.scanSs == 0) && (this.scanSe == 0)) && (this.scanAh == 0);
+    const isDCRefine = ((this.scanSs == 0) && (this.scanSe == 0)) && (this.scanAh > 0);
+    const isACFirst = (this.scanSs > 0) && (this.scanAh == 0);
+    const isACRefine = (this.scanSs > 0) && (this.scanAh > 0);
+    if ( numScanComps > 1 ) {
+      this.decodeInterleavedDC(reader, scanComps, isDCFirst, isDCRefine);
+    } else {
+      const compIdx = scanComps[0];
+      if ( isDCFirst ) {
+        this.decodeDCFirst(reader, compIdx);
+      }
+      if ( isDCRefine ) {
+        this.decodeDCRefine(reader, compIdx);
+      }
+      if ( isACFirst ) {
+        this.decodeACFirst(reader, compIdx);
+      }
+      if ( isACRefine ) {
+        this.decodeACRefine(reader, compIdx);
+      }
+    }
+  };
+  decodeInterleavedDC (reader, scanComps, isDCFirst, isDCRefine) {
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        let sc = 0;
+        const numScanComps = scanComps.length;
+        while (sc < numScanComps) {
+          const compIdx = scanComps[sc];
+          const comp = this.components[compIdx];
+          const buf = this.coeffBuffers[compIdx];
+          let bv = 0;
+          while (bv < comp.vSamp) {
+            let bh = 0;
+            while (bh < comp.hSamp) {
+              const blockIdx = (((mcuIdx * comp.hSamp) * comp.vSamp) + (bv * comp.hSamp)) + bh;
+              if ( isDCFirst ) {
+                const dcTable = this.huffman.getDCTable(comp.dcTableId);
+                const dcCategory = dcTable.decode(reader);
+                const dcDiff = reader.receiveExtend(dcCategory);
+                const dcValue = comp.prevDC + dcDiff;
+                comp.prevDC = dcValue;
+                buf.setVal(blockIdx, 0, (dcValue << this.scanAl));
+              }
+              if ( isDCRefine ) {
+                const bit = reader.readBit();
+                const oldVal = (buf).get(blockIdx, 0);
+                buf.setVal(blockIdx, 0, (oldVal | ((bit << this.scanAl))));
+              }
+              bh = bh + 1;
+            };
+            bv = bv + 1;
+          };
+          sc = sc + 1;
+        };
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+  };
+  decodeDCFirst (reader, compIdx) {
+    const comp = this.components[compIdx];
+    const buf = this.coeffBuffers[compIdx];
+    const dcTable = this.huffman.getDCTable(comp.dcTableId);
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        let bv = 0;
+        while (bv < comp.vSamp) {
+          let bh = 0;
+          while (bh < comp.hSamp) {
+            const blockIdx = (((mcuIdx * comp.hSamp) * comp.vSamp) + (bv * comp.hSamp)) + bh;
+            const dcCategory = dcTable.decode(reader);
+            const dcDiff = reader.receiveExtend(dcCategory);
+            const dcValue = comp.prevDC + dcDiff;
+            comp.prevDC = dcValue;
+            buf.setVal(blockIdx, 0, (dcValue << this.scanAl));
+            bh = bh + 1;
+          };
+          bv = bv + 1;
+        };
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+  };
+  decodeDCRefine (reader, compIdx) {
+    const comp = this.components[compIdx];
+    const buf = this.coeffBuffers[compIdx];
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        let bv = 0;
+        while (bv < comp.vSamp) {
+          let bh = 0;
+          while (bh < comp.hSamp) {
+            const blockIdx = (((mcuIdx * comp.hSamp) * comp.vSamp) + (bv * comp.hSamp)) + bh;
+            const bit = reader.readBit();
+            const oldVal = (buf).get(blockIdx, 0);
+            buf.setVal(blockIdx, 0, (oldVal | ((bit << this.scanAl))));
+            bh = bh + 1;
+          };
+          bv = bv + 1;
+        };
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+  };
+  decodeACFirst (reader, compIdx) {
+    const comp = this.components[compIdx];
+    const buf = this.coeffBuffers[compIdx];
+    const acTable = this.huffman.getACTable(comp.acTableId);
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        let bv = 0;
+        while (bv < comp.vSamp) {
+          let bh = 0;
+          while (bh < comp.hSamp) {
+            const blockIdx = (((mcuIdx * comp.hSamp) * comp.vSamp) + (bv * comp.hSamp)) + bh;
+            if ( this.eobrun > 0 ) {
+              this.eobrun = this.eobrun - 1;
+            } else {
+              let k = this.scanSs;
+              while (k <= this.scanSe) {
+                const symbol = acTable.decode(reader);
+                const run = (symbol >> 4);
+                const size = (symbol & 15);
+                if ( size == 0 ) {
+                  if ( run == 15 ) {
+                    k = k + 16;
+                  } else {
+                    if ( run > 0 ) {
+                      this.eobrun = (1 << run);
+                      this.eobrun = this.eobrun + reader.readBits(run);
+                    } else {
+                      this.eobrun = 1;
+                    }
+                    this.eobrun = this.eobrun - 1;
+                    k = 64;
+                  }
+                } else {
+                  k = k + run;
+                  if ( k <= this.scanSe ) {
+                    const acValue = reader.receiveExtend(size);
+                    buf.setVal(blockIdx, k, (acValue << this.scanAl));
+                    k = k + 1;
+                  }
+                }
+              };
+            }
+            bh = bh + 1;
+          };
+          bv = bv + 1;
+        };
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+  };
+  decodeACRefine (reader, compIdx) {
+    const comp = this.components[compIdx];
+    const buf = this.coeffBuffers[compIdx];
+    const acTable = this.huffman.getACTable(comp.acTableId);
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        let bv = 0;
+        while (bv < comp.vSamp) {
+          let bh = 0;
+          while (bh < comp.hSamp) {
+            const blockIdx = (((mcuIdx * comp.hSamp) * comp.vSamp) + (bv * comp.hSamp)) + bh;
+            this.decodeACRefineBlock(reader, buf, blockIdx, acTable);
+            bh = bh + 1;
+          };
+          bv = bv + 1;
+        };
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+  };
+  decodeACRefineBlock (reader, buf, blockIdx, acTable) {
+    let k = this.scanSs;
+    if ( this.eobrun > 0 ) {
+      while (k <= this.scanSe) {
+        const oldVal = (buf).get(blockIdx, k);
+        if ( oldVal != 0 ) {
+          const bit = reader.readBit();
+          if ( bit != 0 ) {
+            if ( oldVal > 0 ) {
+              buf.setVal(blockIdx, k, (oldVal | ((1 << this.scanAl))));
+            } else {
+              buf.setVal(blockIdx, k, oldVal - ((1 << this.scanAl)));
+            }
+          }
+        }
+        k = k + 1;
+      };
+      this.eobrun = this.eobrun - 1;
+      return;
+    }
+    while (k <= this.scanSe) {
+      const symbol = acTable.decode(reader);
+      const run = (symbol >> 4);
+      const size = (symbol & 15);
+      if ( size == 0 ) {
+        if ( run == 15 ) {
+          let zerosToSkip = 16;
+          while ((zerosToSkip > 0) && (k <= this.scanSe)) {
+            const oldVal_1 = (buf).get(blockIdx, k);
+            if ( oldVal_1 != 0 ) {
+              const bit_1 = reader.readBit();
+              if ( bit_1 != 0 ) {
+                if ( oldVal_1 > 0 ) {
+                  buf.setVal(blockIdx, k, (oldVal_1 | ((1 << this.scanAl))));
+                } else {
+                  buf.setVal(blockIdx, k, oldVal_1 - ((1 << this.scanAl)));
+                }
+              }
+            } else {
+              zerosToSkip = zerosToSkip - 1;
+            }
+            k = k + 1;
+          };
+        } else {
+          if ( run > 0 ) {
+            this.eobrun = (1 << run);
+            this.eobrun = this.eobrun + reader.readBits(run);
+          } else {
+            this.eobrun = 1;
+          }
+          while (k <= this.scanSe) {
+            const oldVal_2 = (buf).get(blockIdx, k);
+            if ( oldVal_2 != 0 ) {
+              const bit_2 = reader.readBit();
+              if ( bit_2 != 0 ) {
+                if ( oldVal_2 > 0 ) {
+                  buf.setVal(blockIdx, k, (oldVal_2 | ((1 << this.scanAl))));
+                } else {
+                  buf.setVal(blockIdx, k, oldVal_2 - ((1 << this.scanAl)));
+                }
+              }
+            }
+            k = k + 1;
+          };
+          this.eobrun = this.eobrun - 1;
+        }
+      } else {
+        const signBit = reader.readBit();
+        let newCoeff = (1 << this.scanAl);
+        if ( signBit == 0 ) {
+          newCoeff = 0 - newCoeff;
+        }
+        let zerosToSkip_1 = run;
+        while (k <= this.scanSe) {
+          const oldVal_3 = (buf).get(blockIdx, k);
+          if ( oldVal_3 != 0 ) {
+            const bit_3 = reader.readBit();
+            if ( bit_3 != 0 ) {
+              if ( oldVal_3 > 0 ) {
+                buf.setVal(blockIdx, k, (oldVal_3 | ((1 << this.scanAl))));
+              } else {
+                buf.setVal(blockIdx, k, oldVal_3 - ((1 << this.scanAl)));
+              }
+            }
+          } else {
+            if ( zerosToSkip_1 > 0 ) {
+              zerosToSkip_1 = zerosToSkip_1 - 1;
+            } else {
+              buf.setVal(blockIdx, k, newCoeff);
+              k = k + 1;
+              break;
+            }
+          }
+          k = k + 1;
+        };
+      }
+    };
+  };
+  decodeBaselineScan (reader, scanComps) {
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        let sc = 0;
+        const numScanComps = scanComps.length;
+        while (sc < numScanComps) {
+          const compIdx = scanComps[sc];
+          const comp = this.components[compIdx];
+          const quantTable = this.quantTables[comp.quantTableId];
+          const buf = this.coeffBuffers[compIdx];
+          let bv = 0;
+          while (bv < comp.vSamp) {
+            let bh = 0;
+            while (bh < comp.hSamp) {
+              const blockIdx = (((mcuIdx * comp.hSamp) * comp.vSamp) + (bv * comp.hSamp)) + bh;
+              const dcTable = this.huffman.getDCTable(comp.dcTableId);
+              const dcCategory = dcTable.decode(reader);
+              const dcDiff = reader.receiveExtend(dcCategory);
+              const dcValue = comp.prevDC + dcDiff;
+              comp.prevDC = dcValue;
+              const dcQuant = quantTable.values[0];
+              buf.setVal(blockIdx, 0, dcValue * dcQuant);
+              const acTable = this.huffman.getACTable(comp.acTableId);
+              let k = 1;
+              while (k < 64) {
+                const acSymbol = acTable.decode(reader);
+                if ( acSymbol == 0 ) {
+                  k = 64;
+                } else {
+                  const run = (acSymbol >> 4);
+                  const size = (acSymbol & 15);
+                  if ( acSymbol == 240 ) {
+                    k = k + 16;
+                  } else {
+                    k = k + run;
+                    if ( k < 64 ) {
+                      const acValue = reader.receiveExtend(size);
+                      const acQuant = quantTable.values[k];
+                      buf.setVal(blockIdx, k, acValue * acQuant);
+                      k = k + 1;
+                    }
+                  }
+                }
+              };
+              bh = bh + 1;
+            };
+            bv = bv + 1;
+          };
+          sc = sc + 1;
+        };
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+  };
+  parseMarkers () {
+    let pos = 0;
+    if ( this.dataLen < 2 ) {
+      console.log("Error: File too small");
+      return false;
+    }
+    const m1 = this.data._view.getUint8(0);
+    const m2 = this.data._view.getUint8(1);
+    if ( (m1 != 255) || (m2 != 216) ) {
+      console.log("Error: Not a JPEG file");
+      return false;
+    }
+    pos = 2;
+    console.log("Parsing JPEG markers...");
+    while (pos < (this.dataLen - 1)) {
+      const marker1 = this.data._view.getUint8(pos);
+      if ( marker1 != 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      const marker2 = this.data._view.getUint8((pos + 1));
+      if ( marker2 == 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      if ( marker2 == 0 ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( marker2 == 216 ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( marker2 == 217 ) {
+        console.log("  End of Image");
+        return true;
+      }
+      if ( (marker2 >= 208) && (marker2 <= 215) ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( (pos + 4) > this.dataLen ) {
+        return true;
+      }
+      const markerLen = this.readUint16BE((pos + 2));
+      const dataStart = pos + 4;
+      const markerDataLen = markerLen - 2;
+      if ( marker2 == 192 ) {
+        console.log("  SOF0 (Baseline DCT)");
+        this.parseSOF(dataStart, markerDataLen, 0);
+      }
+      if ( marker2 == 193 ) {
+        console.log("  SOF1 (Extended Sequential)");
+        this.parseSOF(dataStart, markerDataLen, 1);
+      }
+      if ( marker2 == 194 ) {
+        console.log("  SOF2 (Progressive DCT)");
+        this.parseSOF(dataStart, markerDataLen, 2);
+      }
+      if ( marker2 == 196 ) {
+        console.log("  DHT (Huffman Tables)");
+        this.huffman.parseDHT(this.data, dataStart, markerDataLen);
+      }
+      if ( marker2 == 219 ) {
+        console.log("  DQT (Quantization Tables)");
+        this.parseDQT(dataStart, markerDataLen);
+      }
+      if ( marker2 == 218 ) {
+        console.log("  SOS (Start of Scan)");
+        const nextPos = this.parseSOS(dataStart, markerDataLen);
+        pos = nextPos;
+        continue;
+      }
+      if ( marker2 == 224 ) {
+        console.log("  APP0 (JFIF)");
+      }
+      if ( marker2 == 225 ) {
+        console.log("  APP1 (EXIF)");
+      }
+      pos = (pos + 2) + markerLen;
+    };
+    return true;
+  };
+  dequantizeCoefficients () {
+    let c = 0;
+    while (c < this.numComponents) {
+      const comp = this.components[c];
+      const quantTable = this.quantTables[comp.quantTableId];
+      const buf = this.coeffBuffers[c];
+      let blockIdx = 0;
+      while (blockIdx < buf.numBlocks) {
+        let k = 0;
+        while (k < 64) {
+          const oldVal = (buf).get(blockIdx, k);
+          const quantVal = quantTable.values[k];
+          buf.setVal(blockIdx, k, oldVal * quantVal);
+          k = k + 1;
+        };
+        blockIdx = blockIdx + 1;
+      };
+      c = c + 1;
+    };
+  };
+  buildImage () {
+    if ( this.isProgressive ) {
+      console.log("Dequantizing coefficients...");
+      this.dequantizeCoefficients();
+    }
+    const img = new ImageBuffer();
+    img.init(this.width, this.height);
+    console.log("Building image...");
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        const mcuIdx = (mcuY * this.mcusPerRow) + mcuX;
+        const baseX = mcuX * this.mcuWidth;
+        const baseY = mcuY * this.mcuHeight;
+        const comp0 = this.components[0];
+        const yBuf = this.coeffBuffers[0];
+        let yBlocksData = [];
+        let bv = 0;
+        while (bv < comp0.vSamp) {
+          let bh = 0;
+          while (bh < comp0.hSamp) {
+            const blockIdx = (((mcuIdx * comp0.hSamp) * comp0.vSamp) + (bv * comp0.hSamp)) + bh;
+            let blockCoeffs = new Int32Array(64);
+            let k = 0;
+            while (k < 64) {
+              blockCoeffs[k] = (yBuf).get(blockIdx, k);
+              k = k + 1;
+            };
+            const tempBlock = this.idct.dezigzag(blockCoeffs);
+            let blockPixels = new Int32Array(64);
+            blockPixels.fill(0, 0, 64);
+            this.idct.transform(tempBlock, blockPixels);
+            k = 0;
+            while (k < 64) {
+              yBlocksData.push(blockPixels[k]);
+              k = k + 1;
+            };
+            bh = bh + 1;
+          };
+          bv = bv + 1;
+        };
+        let cbBlock = [];
+        let crBlock = [];
+        if ( this.numComponents >= 3 ) {
+          const cbBuf = this.coeffBuffers[1];
+          const cbBlockIdx = mcuIdx;
+          let blockCoeffs_1 = new Int32Array(64);
+          let k_1 = 0;
+          while (k_1 < 64) {
+            blockCoeffs_1[k_1] = (cbBuf).get(cbBlockIdx, k_1);
+            k_1 = k_1 + 1;
+          };
+          const tempBlock_1 = this.idct.dezigzag(blockCoeffs_1);
+          let cbPixels = new Int32Array(64);
+          cbPixels.fill(0, 0, 64);
+          this.idct.transform(tempBlock_1, cbPixels);
+          k_1 = 0;
+          while (k_1 < 64) {
+            cbBlock.push(cbPixels[k_1]);
+            k_1 = k_1 + 1;
+          };
+          const crBuf = this.coeffBuffers[2];
+          const crBlockIdx = mcuIdx;
+          let crCoeffs = new Int32Array(64);
+          k_1 = 0;
+          while (k_1 < 64) {
+            crCoeffs[k_1] = (crBuf).get(crBlockIdx, k_1);
+            k_1 = k_1 + 1;
+          };
+          const crTempBlock = this.idct.dezigzag(crCoeffs);
+          let crPixels = new Int32Array(64);
+          crPixels.fill(0, 0, 64);
+          this.idct.transform(crTempBlock, crPixels);
+          k_1 = 0;
+          while (k_1 < 64) {
+            crBlock.push(crPixels[k_1]);
+            k_1 = k_1 + 1;
+          };
+        }
+        this.writeMCU(img, baseX, baseY, yBlocksData, cbBlock, crBlock);
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
     };
     return img;
   };
-  fillRgb (tr, i) {
-    const layers = tr.getLayers();
-    const layer = layers[i];
-    const hex = layer.fillHex;
-    const c = EVGColor.parseHex(hex);
-    let out = [];
-    out.push(Math.floor( (c.r + 0.5)));
-    out.push(Math.floor( (c.g + 0.5)));
-    out.push(Math.floor( (c.b + 0.5)));
-    return out;
+  writeMCU (img, baseX, baseY, yBlocksData, cbBlock, crBlock) {
+    const comp0 = this.components[0];
+    if ( (this.maxHSamp == 1) && (this.maxVSamp == 1) ) {
+      let py = 0;
+      while (py < 8) {
+        let px = 0;
+        while (px < 8) {
+          const imgX = baseX + px;
+          const imgY = baseY + py;
+          if ( (imgX < this.width) && (imgY < this.height) ) {
+            const idx = (py * 8) + px;
+            const y = yBlocksData[idx];
+            let cb = 128;
+            let cr = 128;
+            if ( this.numComponents >= 3 ) {
+              cb = cbBlock[idx];
+              cr = crBlock[idx];
+            }
+            let r = y + (((359 * (cr - 128)) >> 8));
+            let g = (y - (((88 * (cb - 128)) >> 8))) - (((183 * (cr - 128)) >> 8));
+            let b = y + (((454 * (cb - 128)) >> 8));
+            if ( r < 0 ) {
+              r = 0;
+            }
+            if ( r > 255 ) {
+              r = 255;
+            }
+            if ( g < 0 ) {
+              g = 0;
+            }
+            if ( g > 255 ) {
+              g = 255;
+            }
+            if ( b < 0 ) {
+              b = 0;
+            }
+            if ( b > 255 ) {
+              b = 255;
+            }
+            img.setPixelRGB(imgX, imgY, r, g, b);
+          }
+          px = px + 1;
+        };
+        py = py + 1;
+      };
+      return;
+    }
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 2) ) {
+      let blockIdx = 0;
+      let blockY = 0;
+      while (blockY < 2) {
+        let blockX = 0;
+        while (blockX < 2) {
+          const yBlockOffset = blockIdx * 64;
+          let py_1 = 0;
+          while (py_1 < 8) {
+            let px_1 = 0;
+            while (px_1 < 8) {
+              const imgX_1 = (baseX + (blockX * 8)) + px_1;
+              const imgY_1 = (baseY + (blockY * 8)) + py_1;
+              if ( (imgX_1 < this.width) && (imgY_1 < this.height) ) {
+                const yIdx = (yBlockOffset + (py_1 * 8)) + px_1;
+                const y_1 = yBlocksData[yIdx];
+                const chromaX = (blockX * 4) + ((px_1 >> 1));
+                const chromaY = (blockY * 4) + ((py_1 >> 1));
+                const chromaIdx = (chromaY * 8) + chromaX;
+                let cb_1 = 128;
+                let cr_1 = 128;
+                if ( this.numComponents >= 3 ) {
+                  cb_1 = cbBlock[chromaIdx];
+                  cr_1 = crBlock[chromaIdx];
+                }
+                let r_1 = y_1 + (((359 * (cr_1 - 128)) >> 8));
+                let g_1 = (y_1 - (((88 * (cb_1 - 128)) >> 8))) - (((183 * (cr_1 - 128)) >> 8));
+                let b_1 = y_1 + (((454 * (cb_1 - 128)) >> 8));
+                if ( r_1 < 0 ) {
+                  r_1 = 0;
+                }
+                if ( r_1 > 255 ) {
+                  r_1 = 255;
+                }
+                if ( g_1 < 0 ) {
+                  g_1 = 0;
+                }
+                if ( g_1 > 255 ) {
+                  g_1 = 255;
+                }
+                if ( b_1 < 0 ) {
+                  b_1 = 0;
+                }
+                if ( b_1 > 255 ) {
+                  b_1 = 255;
+                }
+                img.setPixelRGB(imgX_1, imgY_1, r_1, g_1, b_1);
+              }
+              px_1 = px_1 + 1;
+            };
+            py_1 = py_1 + 1;
+          };
+          blockIdx = blockIdx + 1;
+          blockX = blockX + 1;
+        };
+        blockY = blockY + 1;
+      };
+      return;
+    }
+    const yLen = yBlocksData.length;
+    if ( yLen > 0 ) {
+      let py_2 = 0;
+      while (py_2 < 8) {
+        let px_2 = 0;
+        while (px_2 < 8) {
+          const imgX_2 = baseX + px_2;
+          const imgY_2 = baseY + py_2;
+          if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
+            const y_2 = yBlocksData[((py_2 * 8) + px_2)];
+            img.setPixelRGB(imgX_2, imgY_2, y_2, y_2, y_2);
+          }
+          px_2 = px_2 + 1;
+        };
+        py_2 = py_2 + 1;
+      };
+    }
   };
-  nearestFillDistance (tr, r, g, b) {
-    let best = 999;
-    let i = 0;
-    const layers = tr.getLayers();
-    while (i < (layers.length)) {
-      const rgb = this.fillRgb(tr, i);
-      const cr = rgb[0];
-      const cg = rgb[1];
-      const cb = rgb[2];
-      const d1 = EvgBitmapTracer.absI((cr - r));
-      const d2 = EvgBitmapTracer.absI((cg - g));
-      const d3 = EvgBitmapTracer.absI((cb - b));
-      let d = d1;
-      if ( d2 > d ) {
-        d = d2;
-      }
-      if ( d3 > d ) {
-        d = d3;
-      }
-      if ( d < best ) {
-        best = d;
-      }
-      i = i + 1;
-    };
-    return best;
-  };
-  traceMark (bias, chroma) {
-    const o = EvgTraceOptions.defaults();
-    o.colorCount = 4;
-    o.bgMode = "none";
-    o.paletteBias = bias;
-    o.paletteChroma = chroma;
-    const img = this.makeMarkOnField();
-    const tr = EvgBitmapTracer.fromImageBuffer(img, o);
-    tr.trace();
-    return tr;
-  };
-  testDistinctBiasSurvivesTheLloydPasses (t) {
-    const area = this.traceMark("area", 0);
-    const distinct = this.traceMark("distinct", 0);
-    const dArea = this.nearestFillDistance(area, 178, 158, 101);
-    const dDist = this.nearestFillDistance(distinct, 178, 158, 101);
-    t.ok("area spends every swatch on the four big bands", dArea > 40);
-    t.ok("distinct keeps one for the mark", dDist < 32);
-    t.ok("and it is the closer of the two", dDist < dArea);
-    const plain = this.traceMark("area", 0);
-    const chroma = this.traceMark("area", 300);
-    const dPlain = this.nearestFillDistance(plain, 178, 158, 101);
-    const dChroma = this.nearestFillDistance(chroma, 178, 158, 101);
-    t.ok("weighting colorfulness moves the palette toward the mark", dChroma <= dPlain);
-  };
-  fillChroma (tr, i) {
-    const lin = EvgTraceColor.buildLinearTable();
-    const rgb = this.fillRgb(tr, i);
-    const cr = rgb[0];
-    const cg = rgb[1];
-    const cb = rgb[2];
-    const o = new EvgOklab();
-    o.setFrom(lin, cr, cg, cb);
-    const oa = o.a;
-    const ob = o.b;
-    const mag = Math.sqrt(((oa * oa) + (ob * ob)));
-    return Math.floor( ((mag * 1000.0) + 0.5));
-  };
-  traceGraded (mute, tint, warm, contrast) {
-    const o = EvgTraceOptions.defaults();
-    o.colorCount = 4;
-    o.bgMode = "none";
-    o.paletteMute = mute;
-    o.paletteTint = tint;
-    o.paletteWarm = warm;
-    o.paletteContrast = contrast;
-    const img = this.makeMarkOnField();
-    const tr = EvgBitmapTracer.fromImageBuffer(img, o);
-    tr.trace();
-    return tr;
-  };
-  lowestChroma (tr) {
-    let best = 9999;
-    let i = 0;
-    const layers = tr.getLayers();
-    while (i < (layers.length)) {
-      const c = this.fillChroma(tr, i);
-      if ( c < best ) {
-        best = c;
-      }
-      i = i + 1;
-    };
-    return best;
-  };
-  highestChroma (tr) {
-    let best = 0;
-    let i = 0;
-    const layers = tr.getLayers();
-    while (i < (layers.length)) {
-      const c = this.fillChroma(tr, i);
-      if ( c > best ) {
-        best = c;
-      }
-      i = i + 1;
-    };
-    return best;
-  };
-  testPaletteDialsMoveWhereTheySay (t) {
-    const plain = this.traceGraded(100, 0, 0, 100);
-    const muted = this.traceGraded(50, 0, 0, 100);
-    const rich = this.traceGraded(180, 0, 0, 100);
-    const hi1 = this.highestChroma(plain);
-    const hi2 = this.highestChroma(muted);
-    const hi3 = this.highestChroma(rich);
-    t.ok("mute below 100 breaks the palette toward grey", hi2 < hi1);
-    t.ok("and above 100 enriches it", hi3 > hi1);
-    const dead = this.lowestChroma(plain);
-    const tinted = this.traceGraded(50, 40, 0, 100);
-    const lifted = this.lowestChroma(tinted);
-    t.ok("the picture holds a near-neutral", dead < 40);
-    t.ok("and the tint floor lifts it off grey", lifted >= 38);
-    const a = this.traceGraded(100, 0, 0, 100);
-    const o = EvgTraceOptions.defaults();
-    o.colorCount = 4;
-    o.bgMode = "none";
-    const img = this.makeMarkOnField();
-    const b = EvgBitmapTracer.fromImageBuffer(img, o);
-    b.trace();
-    t.eqStr("the dials are identity where they are left alone", a.getPathData(), b.getPathData());
-    const la = a.getLayers();
-    const lb = b.getLayers();
-    let sameFills = true;
-    let i = 0;
-    while (i < (la.length)) {
-      const x = la[i];
-      const y = lb[i];
-      if ( x.fillHex != y.fillHex ) {
-        sameFills = false;
-      }
-      i = i + 1;
-    };
-    t.ok("including every color in the palette", sameFills);
+  decode (dirPath, fileName) {
+    this.data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    this.dataLen = this.data.byteLength;
+    console.log(((("Decoding JPEG: " + fileName) + " (") + ((this.dataLen.toString()))) + " bytes)");
+    const ok = this.parseMarkers();
+    if ( ok == false ) {
+      console.log("Error parsing JPEG markers");
+      const errImg = new ImageBuffer();
+      errImg.init(1, 1);
+      return errImg;
+    }
+    if ( (this.width == 0) || (this.height == 0) ) {
+      console.log("Error: Invalid image dimensions");
+      const errImg_1 = new ImageBuffer();
+      errImg_1.init(1, 1);
+      return errImg_1;
+    }
+    const img = this.buildImage();
+    console.log("Decode complete!");
+    return img;
   };
 }
-EvgBitmapTracerTest.arityOf = function(letter) {
-  if ( ("MmLl".indexOf(letter)) >= 0 ) {
-    return 2;
+class EvgTraceCli  {
+  constructor() {
   }
-  if ( ("HhVv".indexOf(letter)) >= 0 ) {
-    return 1;
+  applyOption (o, name, value) {
+    if ( name == "turdsize" ) {
+      o.turdsize = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "alphamax" ) {
+      o.alphamax = EvgTraceCli.parseDouble(value);
+      return true;
+    }
+    if ( name == "turnpolicy" ) {
+      o.turnpolicy = value;
+      return true;
+    }
+    if ( name == "optcurve" ) {
+      o.optcurve = EvgTraceCli.parseBool(value);
+      return true;
+    }
+    if ( name == "opttolerance" ) {
+      o.opttolerance = EvgTraceCli.parseDouble(value);
+      return true;
+    }
+    if ( name == "threshold" ) {
+      o.threshold = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "blackOnWhite" ) {
+      o.blackOnWhite = EvgTraceCli.parseBool(value);
+      return true;
+    }
+    if ( name == "fillHex" ) {
+      o.fillHex = value;
+      return true;
+    }
+    if ( name == "colorCount" ) {
+      o.colorCount = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "skipLuma" ) {
+      o.skipLuma = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "flatTolerance" ) {
+      o.flatTolerance = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "edgeSnap" ) {
+      o.edgeSnap = EvgTraceCli.parseBool(value);
+      return true;
+    }
+    if ( name == "snapRatio" ) {
+      o.snapRatio = EvgTraceCli.parseDouble(value);
+      return true;
+    }
+    if ( name == "lumaWeight" ) {
+      o.lumaWeight = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "colorSpace" ) {
+      o.colorSpace = value;
+      return true;
+    }
+    if ( name == "paletteMode" ) {
+      o.paletteMode = value;
+      return true;
+    }
+    if ( name == "paletteHex" ) {
+      o.paletteHex = EvgTraceCli.splitList(value);
+      return true;
+    }
+    if ( name == "paletteBias" ) {
+      o.paletteBias = value;
+      return true;
+    }
+    if ( name == "paletteChroma" ) {
+      o.paletteChroma = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "paletteMute" ) {
+      o.paletteMute = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "paletteTint" ) {
+      o.paletteTint = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "paletteWarm" ) {
+      o.paletteWarm = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "paletteContrast" ) {
+      o.paletteContrast = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "minColorDelta" ) {
+      o.minColorDelta = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "contourMode" ) {
+      o.contourMode = value;
+      return true;
+    }
+    if ( name == "overlaySimilar" ) {
+      o.overlaySimilar = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "overlayFollowBase" ) {
+      o.overlayFollowBase = EvgTraceCli.parseBool(value);
+      return true;
+    }
+    if ( name == "detailSwatches" ) {
+      o.detailSwatches = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailSpread" ) {
+      o.detailSpread = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailRadius" ) {
+      o.detailRadius = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailBoost" ) {
+      o.detailBoost = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailTrueColor" ) {
+      o.detailTrueColor = EvgTraceCli.parseBool(value);
+      return true;
+    }
+    if ( name == "detailColors" ) {
+      o.detailColors = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailMinShare" ) {
+      o.detailMinShare = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailColorMerge" ) {
+      o.detailColorMerge = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "detailColorMax" ) {
+      o.detailColorMax = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "edgeMinRun" ) {
+      o.edgeMinRun = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "contourEdge" ) {
+      o.contourEdge = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "contourSpread" ) {
+      o.contourSpread = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "gradientFill" ) {
+      o.gradientFill = EvgTraceCli.parseBool(value);
+      return true;
+    }
+    if ( name == "gradientGain" ) {
+      o.gradientGain = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "layerMode" ) {
+      o.layerMode = value;
+      return true;
+    }
+    if ( name == "pathFormat" ) {
+      o.pathFormat = value;
+      return true;
+    }
+    if ( name == "pathPrecision" ) {
+      o.pathPrecision = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "smooth" ) {
+      o.smooth = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "minRegion" ) {
+      o.minRegion = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "absorbContrast" ) {
+      o.absorbContrast = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    if ( name == "bgMode" ) {
+      o.bgMode = value;
+      return true;
+    }
+    if ( name == "bgColor" ) {
+      o.bgColor = value;
+      return true;
+    }
+    if ( name == "bgTolerance" ) {
+      o.bgTolerance = EvgTraceCli.parseInt(value);
+      return true;
+    }
+    return false;
+  };
+  printUsage () {
+    console.log("evg-trace — bitmap to SVG (Ranger EvgBitmapTracer)");
+    console.log("");
+    console.log("  evg-trace <input.png|.jpg> <output.svg> [options]");
+    console.log("");
+    console.log("  The two paths may come anywhere among the options, and an");
+    console.log("  option may be written --name value or --name=value.");
+    console.log("");
+    console.log("  --preset <name>   lineart | poster | photo | print | broken");
+    console.log("  --<option> <value>");
+    console.log("");
+    console.log("Options are the fields of EvgTraceOptions, e.g. --colorCount 12");
+    console.log("--paletteMute 130 --pathPrecision 1. See EvgTraceTypes.rgr for");
+    console.log("what each one does and what it defaults to.");
+    console.log("");
+    console.log("Known options:");
+    console.log("  turdsize alphamax turnpolicy optcurve opttolerance threshold");
+    console.log("  blackOnWhite fillHex colorCount skipLuma flatTolerance edgeSnap");
+    console.log("  snapRatio lumaWeight colorSpace paletteMode paletteHex");
+    console.log("  paletteBias paletteChroma paletteMute paletteTint paletteWarm");
+    console.log("  paletteContrast minColorDelta contourMode overlaySimilar");
+    console.log("  overlayFollowBase detailSwatches detailSpread detailRadius");
+    console.log("  detailBoost detailTrueColor detailColors detailMinShare");
+    console.log("  detailColorMerge detailColorMax edgeMinRun contourEdge");
+    console.log("  contourSpread gradientFill gradientGain layerMode pathFormat");
+    console.log("  pathPrecision smooth minRegion absorbContrast bgMode bgColor");
+    console.log("  bgTolerance");
+  };
+  decodeImage (bytes, dir, file) {
+    const n = bytes.byteLength;
+    const fail = new ImageBuffer();
+    fail.init(1, 1);
+    if ( n < 4 ) {
+      return fail;
+    }
+    const b0 = bytes._view.getUint8(0);
+    const b1 = bytes._view.getUint8(1);
+    if ( (b0 == 137) && (b1 == 80) ) {
+      const png = new PNGDecoder();
+      return png.decodeBytes(bytes);
+    }
+    if ( (b0 == 255) && (b1 == 216) ) {
+      if ( EvgTraceCli.isProgressiveJpeg(bytes) ) {
+        const prog = new ProgressiveJPEGDecoder();
+        return prog.decode(dir, file);
+      }
+      const jpg = new JPEGDecoder();
+      jpg.quiet = true;
+      return jpg.decodeBytes(bytes);
+    }
+    return fail;
+  };
+  run () {
+    const argCount = (process.argv.length - 2);
+    if ( argCount < 1 ) {
+      this.printUsage();
+      return;
+    }
+    let opts = EvgTraceOptions.defaults();
+    let positional = [];
+    let i = 0;
+    let bad = false;
+    let wantHelp = false;
+    while (i < argCount) {
+      const arg = process.argv[ 2 + i];
+      if ( (arg == "-h") || (arg == "--help") ) {
+        wantHelp = true;
+      } else {
+        if ( (arg.indexOf("--")) == 0 ) {
+          const body = arg.substring(2, (arg.length) );
+          let name = body;
+          let value = "";
+          let haveValue = false;
+          const eq = body.indexOf("=");
+          if ( eq >= 0 ) {
+            name = body.substring(0, eq );
+            value = body.substring((eq + 1), (body.length) );
+            haveValue = true;
+          }
+          const isFlag = EvgTraceCli.isSwitch(name);
+          if ( haveValue == false ) {
+            if ( (i + 1) < argCount ) {
+              const peek = process.argv[ 2 + (i + 1)];
+              const peekIsOption = (peek.indexOf("--")) == 0;
+              let take = false;
+              if ( peekIsOption == false ) {
+                take = true;
+                if ( isFlag ) {
+                  take = EvgTraceCli.looksBoolean(peek);
+                }
+              }
+              if ( take ) {
+                value = peek;
+                haveValue = true;
+                i = i + 1;
+              }
+            }
+          }
+          if ( (haveValue == false) && isFlag ) {
+            value = "true";
+            haveValue = true;
+          }
+          if ( haveValue == false ) {
+            console.log(("--" + name) + " needs a value");
+            bad = true;
+          } else {
+            if ( name == "preset" ) {
+              opts = EvgTraceOptions.preset(value);
+            } else {
+              const ok = this.applyOption(opts, name, value);
+              if ( ok == false ) {
+                console.log("unknown option --" + name);
+                bad = true;
+              }
+            }
+          }
+        } else {
+          positional.push(arg);
+        }
+      }
+      i = i + 1;
+    };
+    if ( wantHelp ) {
+      this.printUsage();
+      return;
+    }
+    const pn = positional.length;
+    if ( pn > 2 ) {
+      console.log(("expected an input and an output path, got " + ((pn.toString()))) + ":");
+      let pi = 0;
+      while (pi < pn) {
+        console.log("  " + (positional[pi]));
+        pi = pi + 1;
+      };
+      bad = true;
+    }
+    if ( pn < 2 ) {
+      if ( bad == false ) {
+        console.log("an input path and an output path are both needed");
+      }
+      bad = true;
+    }
+    if ( bad ) {
+      console.log("");
+      this.printUsage();
+      return;
+    }
+    const inputPath = positional[0];
+    const outputPath = positional[1];
+    const inDir = EvgTraceCli.dirOf(inputPath);
+    const inFile = EvgTraceCli.fileOf(inputPath);
+    if ( (require("fs").existsSync(inDir + "/" + inFile )) == false ) {
+      console.log("no such file: " + inputPath);
+      return;
+    }
+    const bytes = (function(){ var b = require('fs').readFileSync(inDir + '/' + inFile); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    if ( (bytes.byteLength) == 0 ) {
+      console.log("cannot read " + inputPath);
+      return;
+    }
+    const img = this.decodeImage(bytes, inDir, inFile);
+    if ( (img.width < 2) && (img.height < 2) ) {
+      console.log("not a PNG or JPEG this build can decode: " + inputPath);
+      return;
+    }
+    const tr = EvgBitmapTracer.fromImageBuffer(img, opts);
+    tr.trace();
+    const svg = tr.toSVG();
+    const outDir = EvgTraceCli.dirOf(outputPath);
+    const outFile = EvgTraceCli.fileOf(outputPath);
+    require("fs").writeFileSync( outDir + "/"  + outFile, svg);
+    const w = (img.width.toString());
+    const h = (img.height.toString());
+    const layers = (tr.layerCount().toString());
+    const rings = (tr.ringCount().toString());
+    const bytesOut = ((svg.length).toString());
+    console.log((((((((outputPath + "  ") + w) + "x") + h) + "  layers=") + layers) + "  rings=") + rings);
+    console.log(("  " + bytesOut) + " bytes");
+  };
+}
+EvgTraceCli.digitOf = function(ch) {
+  return "0123456789".indexOf(ch);
+};
+EvgTraceCli.parseInt = function(s) {
+  const n = s.length;
+  let i = 0;
+  let neg = false;
+  if ( n > 0 ) {
+    const first = s.substring(0, 1 );
+    if ( first == "-" ) {
+      neg = true;
+      i = 1;
+    }
+    if ( first == "+" ) {
+      i = 1;
+    }
   }
-  if ( ("Cc".indexOf(letter)) >= 0 ) {
-    return 6;
+  let v = 0;
+  while (i < n) {
+    const d = EvgTraceCli.digitOf((s.substring(i, (i + 1) )));
+    if ( d < 0 ) {
+      i = n;
+    } else {
+      v = (v * 10) + d;
+      i = i + 1;
+    }
+  };
+  if ( neg ) {
+    return 0 - v;
   }
-  if ( ("SsQq".indexOf(letter)) >= 0 ) {
-    return 4;
+  return v;
+};
+EvgTraceCli.parseDouble = function(s) {
+  const n = s.length;
+  let i = 0;
+  let neg = false;
+  if ( n > 0 ) {
+    const first = s.substring(0, 1 );
+    if ( first == "-" ) {
+      neg = true;
+      i = 1;
+    }
+    if ( first == "+" ) {
+      i = 1;
+    }
   }
-  if ( ("Zz".indexOf(letter)) >= 0 ) {
-    return 0;
+  let whole = 0.0;
+  let stop = false;
+  while ((i < n) && (stop == false)) {
+    const ch = s.substring(i, (i + 1) );
+    const d = EvgTraceCli.digitOf(ch);
+    if ( d < 0 ) {
+      stop = true;
+    } else {
+      whole = (whole * 10.0) + (d);
+      i = i + 1;
+    }
+  };
+  if ( i < n ) {
+    const dot = s.substring(i, (i + 1) );
+    if ( dot == "." ) {
+      i = i + 1;
+      let scale = 1.0;
+      let more = true;
+      while ((i < n) && more) {
+        const ch2 = s.substring(i, (i + 1) );
+        const d2 = EvgTraceCli.digitOf(ch2);
+        if ( d2 < 0 ) {
+          more = false;
+        } else {
+          scale = scale / 10.0;
+          whole = whole + ((d2) * scale);
+          i = i + 1;
+        }
+      };
+    }
   }
-  return 0 - 1;
+  if ( neg ) {
+    return 0.0 - whole;
+  }
+  return whole;
+};
+EvgTraceCli.parseBool = function(s) {
+  if ( s == "0" ) {
+    return false;
+  }
+  if ( s == "false" ) {
+    return false;
+  }
+  if ( s == "no" ) {
+    return false;
+  }
+  if ( s == "off" ) {
+    return false;
+  }
+  return true;
+};
+EvgTraceCli.splitList = function(s) {
+  let out = [];
+  const parts = s.split(",");
+  let i = 0;
+  while (i < (parts.length)) {
+    const p = (parts[i]).trim();
+    if ( (p.length) > 0 ) {
+      out.push(p);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+EvgTraceCli.lastSepOf = function(path) {
+  const a = path.lastIndexOf("/");
+  const b = path.lastIndexOf("\\");
+  if ( b > a ) {
+    return b;
+  }
+  return a;
+};
+EvgTraceCli.dirOf = function(path) {
+  const sep = EvgTraceCli.lastSepOf(path);
+  if ( sep < 0 ) {
+    return ".";
+  }
+  return path.substring(0, sep );
+};
+EvgTraceCli.fileOf = function(path) {
+  const sep = EvgTraceCli.lastSepOf(path);
+  if ( sep < 0 ) {
+    return path;
+  }
+  return path.substring((sep + 1), (path.length) );
+};
+EvgTraceCli.isSwitch = function(name) {
+  if ( name == "optcurve" ) {
+    return true;
+  }
+  if ( name == "blackOnWhite" ) {
+    return true;
+  }
+  if ( name == "edgeSnap" ) {
+    return true;
+  }
+  if ( name == "overlayFollowBase" ) {
+    return true;
+  }
+  if ( name == "detailTrueColor" ) {
+    return true;
+  }
+  if ( name == "gradientFill" ) {
+    return true;
+  }
+  return false;
+};
+EvgTraceCli.looksBoolean = function(s) {
+  return ("|0|1|true|false|yes|no|on|off|".indexOf((("|" + s) + "|"))) >= 0;
+};
+EvgTraceCli.isProgressiveJpeg = function(bytes) {
+  const n = bytes.byteLength;
+  let i = 0;
+  while (i < (n - 1)) {
+    const b = bytes._view.getUint8(i);
+    if ( b == 255 ) {
+      const marker = bytes._view.getUint8((i + 1));
+      if ( marker == 194 ) {
+        return true;
+      }
+      if ( marker == 192 ) {
+        return false;
+      }
+      if ( marker == 193 ) {
+        return false;
+      }
+    }
+    i = i + 1;
+  };
+  return false;
 };
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
-  const test = new EvgBitmapTracerTest();
-  const t = RgTest.forSuite("evg/bitmap_tracer");
-  test.testEmpty(t);
-  test.testFilledRect(t);
-  test.testHole(t);
-  test.testTurdsize(t);
-  test.testPolygonMode(t);
-  test.testImageBuffer(t);
-  test.testEVGElement(t);
-  test.testOptimalRectPolygon(t);
-  test.testCurveModeRectCompact(t);
-  test.testCheckerTopology(t);
-  test.testMonoFillHex(t);
-  test.testPosterizeTwoColors(t);
-  test.testThinInkSurvivesManyColors(t);
-  test.testExtraColorsDoNotSplitOneRegion(t);
-  test.testAutoBackgroundKeepsInteriorWhite(t);
-  test.testFixedPalette(t);
-  test.testSeededPaletteKeepsThePin(t);
-  test.testPaletteBiasDefaultIsUnchanged(t);
-  test.testSmoothRemovesSpeckle(t);
-  test.testStackedLayersLeaveNoSeam(t);
-  test.testNamedBackgroundColor(t);
-  test.testContourSmoothing(t);
-  test.testGradientFills(t);
-  test.testOverlayRecoversASwallowedShape(t);
-  test.testEdgeFilterSeparatesNoiseFromBoundary(t);
-  test.testGradientFillObeysItsControls(t);
-  test.testOverlayStaysWithinItsPalette(t);
-  test.testOverlaySimilarityDecidesHowManyStack(t);
-  test.testDetailMaskFindsTheEyeNotTheRamp(t);
-  test.testDetailNeighbourhoodGetsItsOwnPalette(t);
-  test.testCompactNumberFormatting(t);
-  test.testCompactEncodingDrawsTheSamePath(t);
-  test.testOklabIsOnTheSameScale(t);
-  test.testAbsorbContrastKeepsAStandoutSpeck(t);
-  test.testPresetsAreStartingPoints(t);
-  test.testOklabRoundTripsThroughSrgb(t);
-  test.testDistinctBiasSurvivesTheLloydPasses(t);
-  test.testPaletteDialsMoveWhereTheySay(t);
-  t.summary();
+  const cli = new EvgTraceCli();
+  cli.run();
 }
 __js_main();
