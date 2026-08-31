@@ -133,8 +133,53 @@ class EvgTraceOptions {
     ;   "area"     — the biggest regions win (the default, and what a photo's
     ;                large flat background will always take)
     ;   "balanced" — sqrt of area, so a small vivid object can still claim one
-    ;   "distinct" — color distance alone, above a noise floor
+    ;   "distinct" — every color present counts once, however much of it there
+    ;                is; the palette covers the picture's gamut rather than its
+    ;                mass, above a noise floor
+    ; This governs the seeding AND the Lloyd passes that follow it. Steering
+    ; only the seeds is the same as not steering at all — the passes are the
+    ; step that decides where a swatch settles, and run on population they walk
+    ; every seed back onto the mass it was chosen to get away from.
     def paletteBias:string "area"
+    ; How much being colorful counts on top of paletteBias, in percent: at 100
+    ; a fully colored swatch is worth twice its area, at 300 four times.
+    ;
+    ; A picture's subject is very often a small saturated thing on a large
+    ; unsaturated ground — the ochre hulls of two boats against grey sea and
+    ; beige paper. Weighted by area those pixels never earn a swatch, and the
+    ; result is not that the color comes out approximate: it comes out *gone*,
+    ; because nothing else in the palette is anywhere near it. Measured on the
+    ; Hokusai wave at eight colors, the nearest palette entry to the hulls sits
+    ; 48 units away and is a grey; the color a viewer would name in the picture
+    ; is not in the output at all.
+    ;
+    ; 0 = area and colorfulness are unrelated, which is the old behaviour.
+    def paletteChroma:int 0
+    ; --- The palette objective ---------------------------------------------
+    ;
+    ; Applied to the finished palette after the picture's regions have been
+    ; decided, so these move what it is painted with and not where its edges
+    ; are. All four are identity at their defaults. Measured in OKLab.
+    ;
+    ; Chroma scale, percent. Below 100 breaks every color toward grey, which is
+    ; what a painter means by a broken tone; above 100 enriches. 100 = the
+    ; colors the picture actually holds.
+    def paletteMute:int 100
+    ; Chroma floor, in thousandths of an OKLab unit. No swatch comes out below
+    ; it, so the palette can be broken toward grey without any of it arriving
+    ; as dead grey — a neutral is tinted in the palette's own average hue
+    ; instead. 20 is a tint you notice without being able to name; 60 is an
+    ; openly colored neutral. 0 = no floor.
+    def paletteTint:int 0
+    ; Warmth, in thousandths of an OKLab unit along the yellow–blue axis.
+    ; Positive is warmer. A shift rather than a hue rotation, because that is
+    ; what a temperature change is: it moves a neutral toward yellow instead of
+    ; spinning it to some unrelated hue.
+    def paletteWarm:int 0
+    ; Lightness spread about the palette's own mean, percent. Below 100 closes
+    ; the palette up toward a mid tone, above 100 opens it out. Does not touch
+    ; the picture's own contrast, only how far apart the swatches sit.
+    def paletteContrast:int 100
     ; Swatches closer than this (largest per-channel difference) are merged
     ; after quantization. Asking for more colors than the image actually holds
     ; otherwise splits one region between two near-identical swatches, and each
@@ -342,6 +387,10 @@ class EvgTraceOptions {
     ;   "poster"   — flat-color art: few colors, hard edges, keep every one.
     ;   "photo"    — a photograph: median away the sensor grain, absorb the
     ;                speckle it leaves, and spend the palette on area.
+    ;   "broken"   — the palette chosen for its colors rather than for its
+    ;                fidelity: swatches spent on covering the gamut, then
+    ;                enriched and tinted. What to reach for when the measured
+    ;                palette comes back grey.
     ;   "print"    — a detailed picture with hard edges and fine marks, the
     ;                Hokusai wave being the case it was tuned on: absorb small
     ;                runs, but not the ones that stand out from what surrounds
@@ -371,6 +420,26 @@ class EvgTraceOptions {
             o.minRegion = 8
             o.absorbContrast = 56
             o.paletteBias = "area"
+            return o
+        }
+        ; The palette dialled rather than measured. Measured means come out
+        ; grey because the mean of a large region is grey; a picture painted in
+        ; eight of them has no color a painter would have chosen. This spends
+        ; the swatches on covering the picture's gamut instead of its mass, and
+        ; then enriches and tints what comes back. On the Hokusai wave it is
+        ; what puts the ochre of the boat hulls into the output at all: the
+        ; nearest palette entry to the hulls goes from 48 units away and grey
+        ; to 27 away and ochre, and the error measured over the hulls alone
+        ; falls from 30.4 to 22.4 — below what vtracer manages there.
+        if (name == "broken") {
+            o.colorCount = 8
+            o.smooth = 0
+            o.minRegion = 4
+            o.absorbContrast = 24
+            o.paletteBias = "distinct"
+            o.paletteChroma = 300
+            o.paletteMute = 130
+            o.paletteTint = 30
             return o
         }
         if (name == "print") {

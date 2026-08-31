@@ -159,4 +159,78 @@ class EvgTraceColor {
         def s:double (EvgTraceColor.okScale())
         return (raw * s)
     }
+    ; --- OKLab → sRGB -------------------------------------------------------
+    ;
+    ; The way back, so a palette can be moved in OKLab and written out as a
+    ; color again. Only the palette goes through here — a swatch or two per
+    ; layer, not a pixel per pixel — so the Newton iteration below is free.
+
+    ; y such that y^2.4 = x, i.e. the sRGB transfer curve's exponent inverted.
+    ; Newton on pow24, whose derivative is 2.4·y^1.4 = 2.4·pow24(y)/y, seeded
+    ; with sqrt(x) — 1/2.4 is 0.417, so the square root is already close.
+    sfn pow24inv:double (x:double) {
+        if (x <= 0.0) {
+            return 0.0
+        }
+        def y:double (sqrt x)
+        def i:int 0
+        while (i < 12) {
+            def f:double (EvgTraceColor.pow24(y))
+            if (f <= 0.0) {
+                return y
+            }
+            def num:double ((f - x) * y)
+            def den:double (2.4 * f)
+            y = (y - (num / den))
+            if (y <= 0.0) {
+                return 0.0
+            }
+            i = (i + 1)
+        }
+        return y
+    }
+
+    ; Linear light 0..1 → an sRGB channel 0..255, clamped.
+    sfn linearToSrgb:int (v:double) {
+        def c:double v
+        if (c <= 0.0) {
+            return 0
+        }
+        if (c >= 1.0) {
+            return 255
+        }
+        def enc:double 0.0
+        if (c <= 0.0031308) {
+            enc = (12.92 * c)
+        } {
+            def e:double (EvgTraceColor.pow24inv(c))
+            enc = ((1.055 * e) - 0.055)
+        }
+        def n:int (to_int ((enc * 255.0) + 0.5))
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    ; One OKLab triple back to an sRGB [r g b].
+    sfn srgbOf:[int] (l:double a:double b:double) {
+        def l_:double (((l + (0.3963377774 * a)) + (0.2158037573 * b)))
+        def m_:double (((l - (0.1055613458 * a)) - (0.0638541728 * b)))
+        def s_:double (((l - (0.0894841775 * a)) - (1.2914855480 * b)))
+        def L:double ((l_ * l_) * l_)
+        def M:double ((m_ * m_) * m_)
+        def S:double ((s_ * s_) * s_)
+        def lr:double ((((4.0767416621 * L) - (3.3077115913 * M)) + (0.2309699292 * S)))
+        def lg:double (((((0.0 - 1.2684380046) * L) + (2.6097574011 * M)) - (0.3413193965 * S)))
+        def lb:double (((((0.0 - 0.0041960863) * L) - (0.7034186147 * M)) + (1.7076147010 * S)))
+        def out:[int]
+        push out (EvgTraceColor.linearToSrgb(lr))
+        push out (EvgTraceColor.linearToSrgb(lg))
+        push out (EvgTraceColor.linearToSrgb(lb))
+        return out
+    }
 }

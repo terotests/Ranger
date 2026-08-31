@@ -68,6 +68,11 @@ class EvgTraceOptions  {
     this.paletteMode = "auto";
     this.paletteHex = [];
     this.paletteBias = "area";
+    this.paletteChroma = 0;
+    this.paletteMute = 100;
+    this.paletteTint = 0;
+    this.paletteWarm = 0;
+    this.paletteContrast = 100;
     this.minColorDelta = 10;
     this.contourMode = "off";
     this.overlaySimilar = 8;
@@ -125,6 +130,17 @@ EvgTraceOptions.preset = function(name) {
     o.minRegion = 8;
     o.absorbContrast = 56;
     o.paletteBias = "area";
+    return o;
+  }
+  if ( name == "broken" ) {
+    o.colorCount = 8;
+    o.smooth = 0;
+    o.minRegion = 4;
+    o.absorbContrast = 24;
+    o.paletteBias = "distinct";
+    o.paletteChroma = 300;
+    o.paletteMute = 130;
+    o.paletteTint = 30;
     return o;
   }
   if ( name == "print" ) {
@@ -327,6 +343,67 @@ EvgTraceColor.dist2 = function(p, q) {
   const raw = ((dl * dl) + (da * da)) + (db * db);
   const s = EvgTraceColor.okScale();
   return raw * s;
+};
+EvgTraceColor.pow24inv = function(x) {
+  if ( x <= 0.0 ) {
+    return 0.0;
+  }
+  let y = Math.sqrt(x);
+  let i = 0;
+  while (i < 12) {
+    const f = EvgTraceColor.pow24(y);
+    if ( f <= 0.0 ) {
+      return y;
+    }
+    const num = (f - x) * y;
+    const den = 2.4 * f;
+    y = y - (num / den);
+    if ( y <= 0.0 ) {
+      return 0.0;
+    }
+    i = i + 1;
+  };
+  return y;
+};
+EvgTraceColor.linearToSrgb = function(v) {
+  const c = v;
+  if ( c <= 0.0 ) {
+    return 0;
+  }
+  if ( c >= 1.0 ) {
+    return 255;
+  }
+  let enc = 0.0;
+  if ( c <= 0.0031308 ) {
+    enc = 12.92 * c;
+  } else {
+    const e = EvgTraceColor.pow24inv(c);
+    enc = (1.055 * e) - 0.055;
+  }
+  const n = Math.floor( ((enc * 255.0) + 0.5));
+  if ( n < 0 ) {
+    return 0;
+  }
+  if ( n > 255 ) {
+    return 255;
+  }
+  return n;
+};
+EvgTraceColor.srgbOf = function(l, a, b) {
+  const l_ = (l + (0.3963377774 * a)) + (0.2158037573 * b);
+  const m_ = (l - (0.1055613458 * a)) - (0.0638541728 * b);
+  const s_ = (l - (0.0894841775 * a)) - (1.291485548 * b);
+  const L = (l_ * l_) * l_;
+  const M = (m_ * m_) * m_;
+  const S = (s_ * s_) * s_;
+  const lr = ((4.0767416621 * L) - (3.3077115913 * M)) + (0.2309699292 * S);
+  const lg = (((0.0 - 1.2684380046) * L) + (2.6097574011 * M)) - (0.3413193965 * S);
+  const lb = (((0.0 - 0.0041960863) * L) - (0.7034186147 * M)) + (1.707614701 * S);
+  let out = [];
+  out.push(EvgTraceColor.linearToSrgb(lr));
+  out.push(EvgTraceColor.linearToSrgb(lg));
+  out.push(EvgTraceColor.linearToSrgb(lb));
+  return out;
 };
 class PathCommand  {
   constructor() {
@@ -7096,6 +7173,7 @@ class EvgBitmapTracer  {
     this.okLin = ok;
     this.okP = new EvgOklab();
     this.okQ = new EvgOklab();
+    this.okC = new EvgOklab();
     let ly = [];
     this.layers = ly;
   }
@@ -7635,16 +7713,136 @@ class EvgBitmapTracer  {
     };
     return outR.length;
   };
-  seedScore (weight, dist2) {
+  chromaOf (r, g, b) {
+    if ( (this.okLin.length) == 0 ) {
+      this.okLin = EvgTraceColor.buildLinearTable();
+    }
+    this.okC.setFrom(this.okLin, r, g, b);
+    const c = this.okC;
+    const ca = c.a;
+    const cb = c.b;
+    const mag = Math.sqrt(((ca * ca) + (cb * cb)));
+    const norm = mag / 0.1;
+    if ( norm > 1.0 ) {
+      return 1.0;
+    }
+    return norm;
+  };
+  gradePalette (palR, palG, palB) {
+    const mute = this.options.paletteMute;
+    const tint = this.options.paletteTint;
+    const warm = this.options.paletteWarm;
+    const contrast = this.options.paletteContrast;
+    let on = false;
+    if ( mute != 100 ) {
+      on = true;
+    }
+    if ( tint > 0 ) {
+      on = true;
+    }
+    if ( warm != 0 ) {
+      on = true;
+    }
+    if ( contrast != 100 ) {
+      on = true;
+    }
+    if ( on == false ) {
+      return;
+    }
+    const k = palR.length;
+    if ( k == 0 ) {
+      return;
+    }
+    if ( (this.okLin.length) == 0 ) {
+      this.okLin = EvgTraceColor.buildLinearTable();
+    }
+    let ls = [];
+    let cas = [];
+    let cbs = [];
+    let sumL = 0.0;
+    let sumA = 0.0;
+    let sumB = 0.0;
+    let i = 0;
+    while (i < k) {
+      this.okC.setFrom(this.okLin, palR[i], palG[i], palB[i]);
+      const c = this.okC;
+      const cl = c.l;
+      const ca = c.a;
+      const cb = c.b;
+      ls.push(cl);
+      cas.push(ca);
+      cbs.push(cb);
+      sumL = sumL + cl;
+      sumA = sumA + ca;
+      sumB = sumB + cb;
+      i = i + 1;
+    };
+    const kd = k;
+    const meanL = sumL / kd;
+    const meanA = sumA / kd;
+    const meanB = sumB / kd;
+    const meanMag = Math.sqrt(((meanA * meanA) + (meanB * meanB)));
+    let dirA = 0.0;
+    let dirB = 1.0;
+    if ( meanMag > 0.000001 ) {
+      dirA = meanA / meanMag;
+      dirB = meanB / meanMag;
+    }
+    const wd = (warm) / 1000.0;
+    const floorC = (tint) / 1000.0;
+    const ms = (mute) / 100.0;
+    const cs = (contrast) / 100.0;
+    i = 0;
+    while (i < k) {
+      const la = cas[i];
+      const lb = (cbs[i]) + wd;
+      const mag = Math.sqrt(((la * la) + (lb * lb)));
+      let na = dirA;
+      let nb = dirB;
+      if ( mag > 0.000001 ) {
+        na = la / mag;
+        nb = lb / mag;
+      }
+      let chroma = mag * ms;
+      if ( chroma < floorC ) {
+        chroma = floorC;
+      }
+      let lightness = meanL + (((ls[i]) - meanL) * cs);
+      if ( lightness < 0.0 ) {
+        lightness = 0.0;
+      }
+      if ( lightness > 1.0 ) {
+        lightness = 1.0;
+      }
+      const outA = na * chroma;
+      const outB = nb * chroma;
+      const rgb = EvgTraceColor.srgbOf(lightness, outA, outB);
+      palR[i] = rgb[0];
+      palG[i] = rgb[1];
+      palB[i] = rgb[2];
+      i = i + 1;
+    };
+  };
+  binWeight (w, r, g, b) {
     const bias = this.options.paletteBias;
-    if ( bias == "distinct" ) {
-      return dist2;
-    }
-    const w = weight;
+    let base = w;
     if ( bias == "balanced" ) {
-      return (Math.sqrt(w)) * dist2;
+      base = Math.sqrt(base);
     }
-    return w * dist2;
+    if ( bias == "distinct" ) {
+      base = 1.0;
+    }
+    const gain = this.options.paletteChroma;
+    if ( gain <= 0 ) {
+      return base;
+    }
+    const c = this.chromaOf(r, g, b);
+    const g2 = gain;
+    const mul = 1.0 + ((g2 / 100.0) * c);
+    return base * mul;
+  };
+  seedScore (weight, dist2) {
+    return weight * dist2;
   };
   buildPalette (want, locked, outR, outG, outB) {
     let binR = [];
@@ -7716,7 +7914,8 @@ class EvgBitmapTracer  {
       i = 0;
       while (i < m) {
         if ( (binW[i]) >= floorW ) {
-          const score = this.seedScore((binW[i]), (dist[i]));
+          const bw = this.binWeight((binW[i]), (binR[i]), (binG[i]), (binB[i]));
+          const score = this.seedScore(bw, (dist[i]));
           if ( score > pickScore ) {
             pickScore = score;
             pickI = i;
@@ -7764,7 +7963,7 @@ class EvgBitmapTracer  {
         const bg = binG[i];
         const bb = binB[i];
         const best = this.nearestIndex(br, bg, bb, outR, outG, outB);
-        const w = (binW[i]);
+        const w = this.binWeight((binW[i]), br, bg, bb);
         sumR[best] = (sumR[best]) + ((br) * w);
         sumG[best] = (sumG[best]) + ((bg) * w);
         sumB[best] = (sumB[best]) + ((bb) * w);
@@ -7792,7 +7991,8 @@ class EvgBitmapTracer  {
           i = 0;
           while (i < m) {
             const dd = this.dist2((binR[i]), (binG[i]), (binB[i]), (outR[this.nearestIndex((binR[i]), (binG[i]), (binB[i]), outR, outG, outB)]), (outG[this.nearestIndex((binR[i]), (binG[i]), (binB[i]), outR, outG, outB)]), (outB[this.nearestIndex((binR[i]), (binG[i]), (binB[i]), outR, outG, outB)]));
-            const sc = dd * ((binW[i]));
+            const bw2 = this.binWeight((binW[i]), (binR[i]), (binG[i]), (binB[i]));
+            const sc = dd * bw2;
             if ( sc > farScore ) {
               farScore = sc;
               farI = i;
@@ -10012,6 +10212,7 @@ class EvgBitmapTracer  {
       return;
     }
     this.assignLabels(palR, palG, palB);
+    this.gradePalette(palR, palG, palB);
     if ( this.options.contourMode == "overlay" ) {
       this.traceOverlayShapes(palR, palG, palB);
       return;
@@ -11970,6 +12171,223 @@ class EvgBitmapTracerTest  {
     t.eqStr("compact path data is the default", plain.pathFormat, "compact");
     t.eqStr("and RGB is still the default space", plain.colorSpace, "rgb");
   };
+  testOklabRoundTripsThroughSrgb (t) {
+    const lin = EvgTraceColor.buildLinearTable();
+    const o = new EvgOklab();
+    let worst = 0;
+    let k = 0;
+    while (k < 400) {
+      const r = k - ((((k / 256) | 0)) * 256);
+      const g = (k * 7) - (((((k * 7) / 256) | 0)) * 256);
+      const b = (k * 13) - (((((k * 13) / 256) | 0)) * 256);
+      o.setFrom(lin, r, g, b);
+      const ol = o.l;
+      const oa = o.a;
+      const ob = o.b;
+      const back = EvgTraceColor.srgbOf(ol, oa, ob);
+      const dr = (back[0]) - r;
+      const dg = (back[1]) - g;
+      const db = (back[2]) - b;
+      let e = EvgBitmapTracer.absI(dr);
+      const e2 = EvgBitmapTracer.absI(dg);
+      const e3 = EvgBitmapTracer.absI(db);
+      if ( e2 > e ) {
+        e = e2;
+      }
+      if ( e3 > e ) {
+        e = e3;
+      }
+      if ( e > worst ) {
+        worst = e;
+      }
+      k = k + 1;
+    };
+    t.eqInt("a color survives the trip into OKLab and back", worst, 0);
+  };
+  makeMarkOnField () {
+    const img = new ImageBuffer();
+    img.init(80, 80);
+    let y = 0;
+    while (y < 80) {
+      const band = ((y / 20) | 0);
+      let v = 60;
+      if ( band == 1 ) {
+        v = 110;
+      }
+      if ( band == 2 ) {
+        v = 160;
+      }
+      if ( band == 3 ) {
+        v = 215;
+      }
+      let x = 0;
+      while (x < 80) {
+        img.setPixelRGB(x, y, v, v - 2, v - 6);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    y = 34;
+    while (y < 45) {
+      let x2 = 34;
+      while (x2 < 45) {
+        img.setPixelRGB(x2, y, 178, 158, 101);
+        x2 = x2 + 1;
+      };
+      y = y + 1;
+    };
+    return img;
+  };
+  fillRgb (tr, i) {
+    const layers = tr.getLayers();
+    const layer = layers[i];
+    const hex = layer.fillHex;
+    const c = EVGColor.parseHex(hex);
+    let out = [];
+    out.push(Math.floor( (c.r + 0.5)));
+    out.push(Math.floor( (c.g + 0.5)));
+    out.push(Math.floor( (c.b + 0.5)));
+    return out;
+  };
+  nearestFillDistance (tr, r, g, b) {
+    let best = 999;
+    let i = 0;
+    const layers = tr.getLayers();
+    while (i < (layers.length)) {
+      const rgb = this.fillRgb(tr, i);
+      const cr = rgb[0];
+      const cg = rgb[1];
+      const cb = rgb[2];
+      const d1 = EvgBitmapTracer.absI((cr - r));
+      const d2 = EvgBitmapTracer.absI((cg - g));
+      const d3 = EvgBitmapTracer.absI((cb - b));
+      let d = d1;
+      if ( d2 > d ) {
+        d = d2;
+      }
+      if ( d3 > d ) {
+        d = d3;
+      }
+      if ( d < best ) {
+        best = d;
+      }
+      i = i + 1;
+    };
+    return best;
+  };
+  traceMark (bias, chroma) {
+    const o = EvgTraceOptions.defaults();
+    o.colorCount = 4;
+    o.bgMode = "none";
+    o.paletteBias = bias;
+    o.paletteChroma = chroma;
+    const img = this.makeMarkOnField();
+    const tr = EvgBitmapTracer.fromImageBuffer(img, o);
+    tr.trace();
+    return tr;
+  };
+  testDistinctBiasSurvivesTheLloydPasses (t) {
+    const area = this.traceMark("area", 0);
+    const distinct = this.traceMark("distinct", 0);
+    const dArea = this.nearestFillDistance(area, 178, 158, 101);
+    const dDist = this.nearestFillDistance(distinct, 178, 158, 101);
+    t.ok("area spends every swatch on the four big bands", dArea > 40);
+    t.ok("distinct keeps one for the mark", dDist < 32);
+    t.ok("and it is the closer of the two", dDist < dArea);
+    const plain = this.traceMark("area", 0);
+    const chroma = this.traceMark("area", 300);
+    const dPlain = this.nearestFillDistance(plain, 178, 158, 101);
+    const dChroma = this.nearestFillDistance(chroma, 178, 158, 101);
+    t.ok("weighting colorfulness moves the palette toward the mark", dChroma <= dPlain);
+  };
+  fillChroma (tr, i) {
+    const lin = EvgTraceColor.buildLinearTable();
+    const rgb = this.fillRgb(tr, i);
+    const cr = rgb[0];
+    const cg = rgb[1];
+    const cb = rgb[2];
+    const o = new EvgOklab();
+    o.setFrom(lin, cr, cg, cb);
+    const oa = o.a;
+    const ob = o.b;
+    const mag = Math.sqrt(((oa * oa) + (ob * ob)));
+    return Math.floor( ((mag * 1000.0) + 0.5));
+  };
+  traceGraded (mute, tint, warm, contrast) {
+    const o = EvgTraceOptions.defaults();
+    o.colorCount = 4;
+    o.bgMode = "none";
+    o.paletteMute = mute;
+    o.paletteTint = tint;
+    o.paletteWarm = warm;
+    o.paletteContrast = contrast;
+    const img = this.makeMarkOnField();
+    const tr = EvgBitmapTracer.fromImageBuffer(img, o);
+    tr.trace();
+    return tr;
+  };
+  lowestChroma (tr) {
+    let best = 9999;
+    let i = 0;
+    const layers = tr.getLayers();
+    while (i < (layers.length)) {
+      const c = this.fillChroma(tr, i);
+      if ( c < best ) {
+        best = c;
+      }
+      i = i + 1;
+    };
+    return best;
+  };
+  highestChroma (tr) {
+    let best = 0;
+    let i = 0;
+    const layers = tr.getLayers();
+    while (i < (layers.length)) {
+      const c = this.fillChroma(tr, i);
+      if ( c > best ) {
+        best = c;
+      }
+      i = i + 1;
+    };
+    return best;
+  };
+  testPaletteDialsMoveWhereTheySay (t) {
+    const plain = this.traceGraded(100, 0, 0, 100);
+    const muted = this.traceGraded(50, 0, 0, 100);
+    const rich = this.traceGraded(180, 0, 0, 100);
+    const hi1 = this.highestChroma(plain);
+    const hi2 = this.highestChroma(muted);
+    const hi3 = this.highestChroma(rich);
+    t.ok("mute below 100 breaks the palette toward grey", hi2 < hi1);
+    t.ok("and above 100 enriches it", hi3 > hi1);
+    const dead = this.lowestChroma(plain);
+    const tinted = this.traceGraded(50, 40, 0, 100);
+    const lifted = this.lowestChroma(tinted);
+    t.ok("the picture holds a near-neutral", dead < 40);
+    t.ok("and the tint floor lifts it off grey", lifted >= 38);
+    const a = this.traceGraded(100, 0, 0, 100);
+    const o = EvgTraceOptions.defaults();
+    o.colorCount = 4;
+    o.bgMode = "none";
+    const img = this.makeMarkOnField();
+    const b = EvgBitmapTracer.fromImageBuffer(img, o);
+    b.trace();
+    t.eqStr("the dials are identity where they are left alone", a.getPathData(), b.getPathData());
+    const la = a.getLayers();
+    const lb = b.getLayers();
+    let sameFills = true;
+    let i = 0;
+    while (i < (la.length)) {
+      const x = la[i];
+      const y = lb[i];
+      if ( x.fillHex != y.fillHex ) {
+        sameFills = false;
+      }
+      i = i + 1;
+    };
+    t.ok("including every color in the palette", sameFills);
+  };
 }
 EvgBitmapTracerTest.arityOf = function(letter) {
   if ( ("MmLl".indexOf(letter)) >= 0 ) {
@@ -12028,6 +12446,9 @@ function __js_main() {
   test.testOklabIsOnTheSameScale(t);
   test.testAbsorbContrastKeepsAStandoutSpeck(t);
   test.testPresetsAreStartingPoints(t);
+  test.testOklabRoundTripsThroughSrgb(t);
+  test.testDistinctBiasSurvivesTheLloydPasses(t);
+  test.testPaletteDialsMoveWhereTheySay(t);
   t.summary();
 }
 __js_main();

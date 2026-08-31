@@ -326,6 +326,26 @@
           <input id="minRegion" type="range" min="0" max="400" step="2" value="6">
           <span class="hint">Tätä pienemmät läiskät sulautuvat ympäristöönsä. Valokuvalle 40–150. <b>Päällekkäiset muodot</b> -algoritmissa tämä on se säädin, joka pitää tuloksen kohtuullisen kokoisena: valokuvassa 6 → 24 pudotti muotojen määrän noin neljäsosaan.</span>
         </label>
+        <label class="row color-only hidden">Värikylläisyyden paino <span class="val" id="v-paletteChroma">0</span>
+          <input id="paletteChroma" type="range" min="0" max="400" step="25" value="0">
+          <span class="hint">Kuinka paljon värikkyys painaa pinta-alan rinnalla kun paletti valitaan. Pieni kylläinen kohde suurella harmaalla pohjalla ei muuten saa omaa sävyä lainkaan — se ei tule likimääräisenä vaan katoaa. Toimii yhdessä <b>Paletin painotus</b> = <i>erottuvuus</i> kanssa.</span>
+        </label>
+        <label class="row color-only hidden">Sävyn murto <span class="val" id="v-paletteMute">100</span>
+          <input id="paletteMute" type="range" min="30" max="200" step="5" value="100">
+          <span class="hint">Paletin kylläisyys prosentteina. Alle 100 murtaa värit harmaata kohti, yli 100 rikastaa. 100 = kuvan omat värit.</span>
+        </label>
+        <label class="row color-only hidden">Sävypohja <span class="val" id="v-paletteTint">0</span>
+          <input id="paletteTint" type="range" min="0" max="80" step="5" value="0">
+          <span class="hint">Alaraja kylläisyydelle: mikään sävy ei tule tätä harmaampana, vaan neutraali saa paletin oman keskisävyn vivahteen. Näin paletin voi murtaa harmaata kohti ilman että siitä tulee kuollutta harmaata.</span>
+        </label>
+        <label class="row color-only hidden">Lämpö <span class="val" id="v-paletteWarm">0</span>
+          <input id="paletteWarm" type="range" min="-60" max="60" step="5" value="0">
+          <span class="hint">Siirto keltainen–sininen -akselilla. Positiivinen on lämpimämpi. Siirto eikä sävykierto, koska lämpötilan muutos on juuri sitä.</span>
+        </label>
+        <label class="row color-only hidden">Paletin kontrasti <span class="val" id="v-paletteContrast">100</span>
+          <input id="paletteContrast" type="range" min="50" max="160" step="5" value="100">
+          <span class="hint">Kuinka kaukana paletin sävyt ovat toisistaan vaaleudeltaan. Ei kosketa kuvan omaa kontrastia, vain sitä miten paletti levittäytyy.</span>
+        </label>
         <label class="row color-only hidden">Erottuvuusraja <span class="val" id="v-absorbContrast">40</span>
           <input id="absorbContrast" type="range" min="0" max="120" step="4" value="40">
           <span class="hint">Pienin alue nielaisee myös sen, mikä <i>erottuu</i> ympäristöstään, ellei tämä estä sitä: tätä kauempana olevan sävyn saanut läiskä säilyy koostaan riippumatta. Aallon vaahto ja veneet ovat tällaisia. 0 = vanha ehdoton nielaisu.</span>
@@ -496,6 +516,8 @@
   var colorCount = $("colorCount"), threshold = $("threshold"), skipLuma = $("skipLuma");
   var bgMode = $("bgMode"), minColorDelta = $("minColorDelta"), minRegion = $("minRegion");
   var absorbContrast = $("absorbContrast");
+  var paletteChroma = $("paletteChroma"), paletteMute = $("paletteMute"), paletteTint = $("paletteTint");
+  var paletteWarm = $("paletteWarm"), paletteContrast = $("paletteContrast");
   var paletteMode = $("paletteMode"), paletteBias = $("paletteBias"), smooth = $("smooth"), layerMode = $("layerMode");
   var bgColor = $("bgColor"), bgTolerance = $("bgTolerance"), checker = $("checker");
   var contourMode = $("contourMode"), contourEdge = $("contourEdge"), contourSpread = $("contourSpread");
@@ -706,6 +728,11 @@
   bindRange(minColorDelta, $("v-minColorDelta"));
   bindRange(minRegion, $("v-minRegion"));
   bindRange(absorbContrast, $("v-absorbContrast"));
+  bindRange(paletteChroma, $("v-paletteChroma"));
+  bindRange(paletteMute, $("v-paletteMute"));
+  bindRange(paletteTint, $("v-paletteTint"));
+  bindRange(paletteWarm, $("v-paletteWarm"));
+  bindRange(paletteContrast, $("v-paletteContrast"));
   bindRange(smooth, $("v-smooth"));
   bindRange(bgTolerance, $("v-bgTolerance"));
   bindRange(contourEdge, $("v-contourEdge"));
@@ -2626,6 +2653,11 @@
         opts.minColorDelta = +minColorDelta.value;
         opts.minRegion = +minRegion.value;
         opts.absorbContrast = +absorbContrast.value;
+        opts.paletteChroma = +paletteChroma.value;
+        opts.paletteMute = +paletteMute.value;
+        opts.paletteTint = +paletteTint.value;
+        opts.paletteWarm = +paletteWarm.value;
+        opts.paletteContrast = +paletteContrast.value;
         opts.smooth = +smooth.value;
         opts.layerMode = layerMode.value;
         opts.bgColor = bgColor.value;
