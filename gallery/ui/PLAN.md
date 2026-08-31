@@ -1894,6 +1894,120 @@ the tree, at a larger scale: **a field the diff does not carry is a field
 nobody is wrong about.** Parity at 100% over a field list that is missing
 something is parity over the wrong question.
 
+## Plan — Form, and the text field underneath it
+
+The four ReUI patterns asked for (`Field` + `Input`, an error list, a password
+with a show/hide toggle, a two-column form with `Select` and buttons) plus the
+invoice screenshot are ONE component with a lot of dressing. The dressing is a
+weekend. The component is `Input`, and this repo has never had a text field.
+
+### Phase 0 — the field list, first, and it will hurt
+
+**Do not start with the components.** `aria-orientation` just taught the lesson
+at scale: a field the diff does not carry is a field nobody can be wrong about.
+Today the trace observes 23 fields and **not one of them can see the text in a
+box**. Build `Input` first and it would reach 100% parity on a trace blind to
+its entire purpose.
+
+What has to go in, and how each is compared:
+
+| field | source | note |
+| --- | --- | --- |
+| `value` | `el.value` | the text itself. Not `aria-valuenow` — that is a number on a slider |
+| `selstart`, `selend` | `el.selectionStart/End` | where the caret is, and what is selected. The only way a keyboard test can fail |
+| `invalid` | `aria-invalid` | the error pattern's whole state |
+| `required` | `aria-required` | Radix already emits it and we have never compared it |
+| `readonly` | `aria-readonly` | mirrored by `evg-a11y.js` already, never compared |
+| `placeholder` | attribute | what a reader announces on an empty box |
+| `describedby` | **resolved to TEXT** | see below |
+
+`describedby` is the interesting one. The error list reaches a reader ONLY
+through `aria-describedby`, and comparing the raw attribute would be comparing
+two id schemes with no reason to agree — the same argument that kept
+`aria-controls` out. So resolve it: follow the ids, concatenate the text, and
+compare THAT. The same resolution is needed for `name`, because an input's
+accessible name comes from a `<label for>` OUTSIDE it and our tree computes
+names from content. **Name-from-elsewhere is a genuine engine gap and Phase 0
+is where it gets closed.**
+
+Expect this phase to turn specs red. That is the return on it.
+
+### Phase 1 — the text field primitive
+
+The one real piece of engineering here, and the reason `Input` is not a
+weekend.
+
+**Caret geometry needs no new metric.** `EVGTextEngine.measureRun(text, family,
+size)` measures a whole string, and the caret's x for index `i` is
+`measureRun(text[0..i])`. Exact by construction, because it is the same
+measurement the painter uses — the same reason `breakLines` measures whole
+candidate lines rather than summing words. A click maps back the other way by
+bisecting over prefix widths. O(log n) measurements per click, and no
+per-glyph advance table to keep in step with the font.
+
+What `InputCtl` owns:
+
+- caret index and selection anchor; `selstart`/`selend` derived, never stored
+- insert, Backspace, Delete; Arrows; Shift+Arrows; Home/End; Ctrl+A
+- word motion (Ctrl+Arrow) and double-click-selects-word, which need a word
+  boundary rule — measure the browser's, do not invent one
+- a horizontal scroll offset once the text is wider than the box, and the rule
+  that keeps the caret in view (which is NOT "centre it")
+- `type="password"`: the VALUE is the text and the GLYPHS are bullets, and
+  those must not be the same string anywhere
+- placeholder when empty, which is drawn text and not a value
+
+**The oracle is a real `<input>`.** Everything above is observable — `value`,
+`selectionStart`, `selectionEnd` — so this is ordinary conformance, no
+bespoke capture. That is worth saying out loud: the hardest component here has
+the easiest oracle.
+
+Explicitly NOT in scope, and each is a real thing being declined: IME
+composition, RTL and bidi caret movement, the clipboard, an undo stack,
+spellcheck, autofill.
+
+### Phase 2 — the harness has to be able to type
+
+`{"key": "a"}` already presses one key. Typing needs a step:
+`{"type": "hello"}` → `page.keyboard.type` on the DOM side, characters fed to
+the controller on ours. Small, and nothing in Phase 1 can be tested without it.
+
+### Phase 3 — Field, FieldLabel, FieldError, FieldGroup
+
+Mostly composition once Phase 0 exists: the label names the input, the error
+list describes it, `aria-invalid` marks it. `FieldGroup` is a `role="group"`.
+The one thing to measure rather than assume is whether the reference makes the
+error list a live region — if it does, the announcement is part of the
+contract; if it does not, a screen reader user learns about the error only on
+focus, and that is worth writing down either way.
+
+### Phase 4 — the rest of the inputs, in this order
+
+1. **Textarea.** The caret goes 2D; `breakLines` already exists, so this is
+   caret-index ↔ (line, column) and vertical arrows that remember a desired
+   column.
+2. **Number**, which is `Input` plus a step and a range.
+3. **Date field** (the invoice's `Apr 24, 2026` with a calendar button) —
+   segmented editing is its own contract, measure before writing.
+4. **Combobox** (the invoice's `Customer` with a clear ×) — `Select` and
+   `Input` already exist; this is the two wired together, and it is the one
+   with the richest ARIA.
+5. Password show/hide is NOT a component: it is a `button` with `aria-pressed`
+   beside an input whose type flips. Already expressible today.
+
+### Phase 5 — the demo, which is the invoice
+
+Sections with a heading, a description and a badge; two- and three-column
+grids; icons inside inputs; a `+ Add item` button. It is a layout showcase, and
+that is the point: it is where the grid and the intrinsic-width bugs will turn
+up, the way the timeline's rail found `fill` and `stretch`.
+
+### Ordering, in one line
+
+Field list → text field → typing step → Field wrappers → more inputs → invoice.
+Anything that starts further down that list is building on a trace that cannot
+see what it built.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none
