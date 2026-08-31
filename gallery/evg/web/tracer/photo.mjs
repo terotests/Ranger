@@ -119,6 +119,10 @@ const CASES = {
     },
     // Across the drapes above his shoulder: background for its whole length.
     negRow: () => 8,
+    // The two errors this picture is actually made of, kept apart on purpose:
+    // one change can look like a gain in IoU while only trading 6 000 px of
+    // missing hair for 6 000 px of extra background.
+    split: { fp: "oikea laita", fpTest: "x > 400", fn: "pää", fnTest: "y < 140" },
   },
 };
 
@@ -383,16 +387,19 @@ for (const name of names) {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(im, 0, 0, W, H);
     const d = g.getImageData(0, 0, W, H).data;
-    let tp=0, fp=0, fn=0;
+    let tp=0, fp=0, fn=0, fpA=0, fnA=0;
     const got8 = new Uint8Array(W*H);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y*W+x;
       const on = d[i*4+3] > 128 && d[i*4] < 128, want = window.__inFig(x, y);
       got8[i] = on ? 1 : 0;
-      if (on && want) tp++; else if (on) fp++; else if (want) fn++;
+      if (on && want) tp++;
+      else if (on) { fp++; if (mode.fpX !== undefined && x > mode.fpX) fpA++; }
+      else if (want) { fn++; if (mode.fnY !== undefined && y < mode.fnY) fnA++; }
     }
     return { iou: +(tp/(tp+fp+fn)).toFixed(3), precision: +(tp/(tp+fp)).toFixed(3),
-             recall: +(tp/(tp+fn)).toFixed(3), got: mode.dump ? Array.from(got8) : null };
+             recall: +(tp/(tp+fn)).toFixed(3), fp, fn, fpA, fnA,
+             got: mode.dump ? Array.from(got8) : null };
   }, { W, H, mode });
 
   function lcg(seed) { let s = seed >>> 0; return () => ((s = (s*1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -413,7 +420,8 @@ for (const name of names) {
     ["napsautus", await score({ kind: "click", at: [clickAt[0]/W, clickAt[1]/H], brush: BRUSH })],
     ["lasso", await score({ kind: "lasso", pts: lasso, brush: BRUSH })],
     ["äly, koko keskiviiva", await score({ kind: "smart", pts: stroke, brush: BRUSH, dump: !!writeTo })],
-    ["äly, veto kohteessa", await score({ kind: "smart", pts: strokeClean, brush: BRUSH })],
+    ["äly, veto kohteessa", await score({ kind: "smart", pts: strokeClean, brush: BRUSH,
+      fpX: C.split ? 400 : undefined, fnY: C.split ? 140 : undefined })],
     ["äly kohteessa + ⌥", await score({ kind: "smart", pts: strokeClean, neg, brush: BRUSH })],
   ];
   const hands = [];
@@ -447,6 +455,13 @@ for (const r of out) {
     console.log("  " + pad(label, 22) + (v.miss ? "—"
       : pad(v.iou.toFixed(3) + " (" + share(v.iou) + ")", 16)
         + "tarkkuus " + v.precision.toFixed(3) + "  saanti " + v.recall.toFixed(3)));
+  }
+  if (r.C.split) {
+    const v = r.rows[3][1];
+    console.log("  " + pad("  · liikaa", 22) + String(v.fp).padStart(6) + " px, siitä "
+      + r.C.split.fp + " (" + r.C.split.fpTest + ") " + v.fpA + " px");
+    console.log("  " + pad("  · puuttuu", 22) + String(v.fn).padStart(6) + " px, siitä "
+      + r.C.split.fn + " (" + r.C.split.fnTest + ") " + v.fnA + " px");
   }
   console.log("  " + pad("20 kättä", 22) + "huonoin " + share(r.hands[0])
     + " · p10 " + share(r.hands[2]) + " · mediaani " + share(r.hands[10]) + " · p90 " + share(r.hands[18]));

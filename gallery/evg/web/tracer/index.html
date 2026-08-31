@@ -1974,6 +1974,9 @@
     // does not change between passes — the candidate set, the neighbourhood
     // depths, the pairwise weights — is computed once, above.
     function cut(fgModel, bgModel, weightOf, hint) {
+      // Everything the energy is made of, when someone is asking. Kept behind a
+      // flag because it is one array per edge and the graph has thousands.
+      var audit = window.__wandAuditOn ? { unary: [], pair: [] } : null;
       var norm = labNorm(g, fgModel, bgModel);
       var N = list.length, S = N, T = N + 1, V = N + 2;
       var head = new Int32Array(V).fill(-1);
@@ -1995,8 +1998,16 @@
         // alone cannot tell it from his hand. Distance in the region graph can.
         var far = (depth.has(i) ? depth.get(i) : WAND_HOPS) / WAND_HOPS;
         var sum = dF + dB + 1e-6;
-        edge(S, k, area * (dB / sum) * (1 - WAND_FAR * far), 0); // cost of calling it background
-        edge(k, T, area * (dF / sum) * lean, 0);                 // cost of calling it foreground
+        var toBg = area * (dB / sum) * (1 - WAND_FAR * far);
+        var toFg = area * (dF / sum) * lean;
+        edge(S, k, toBg, 0);   // cost of calling it background
+        edge(k, T, toFg, 0);   // cost of calling it foreground
+        if (audit) audit.unary.push([i, area, +dF.toFixed(2), +dB.toFixed(2),
+          depth.has(i) ? depth.get(i) : -1, +toBg.toFixed(1), +toFg.toFixed(1)]);
+      }
+      if (audit) {
+        fg.forEach(function (i) { audit.unary.push([i, g.seen[i], 0, 99, 0, 1e9, 0]); });
+        bg.forEach(function (i) { audit.unary.push([i, g.seen[i], 99, 0, -1, 0, 1e9]); });
       }
       g.share.forEach(function (rec, key) {
         var a2 = ((key / 100000) | 0) - 1, b2 = (key % 100000) - 1;
@@ -2005,6 +2016,7 @@
         var w = PAIR_WEIGHT * rec.len
           * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
           * Math.exp(-rec.edge / WAND_SIGMA_E);
+        if (audit) audit.pair.push([a2, b2, +w.toFixed(2), rec.len, +rec.edge.toFixed(2), +dc.toFixed(1)]);
         if (w > 1e-6) edge(slot.get(a2), slot.get(b2), w, w);
       });
 
@@ -2040,6 +2052,7 @@
       bfs();
       var out = new Set();
       for (var q = 0; q < N; q++) if (level[q] >= 0) out.add(list[q]);
+      if (audit) { audit.cut = Array.from(out); window.__wandAudit = audit; }
       return out;
     }
 
@@ -2306,6 +2319,13 @@
       fgTouch: Array.from(wandFgTouch), bgTouch: Array.from(wandBgTouch),
       raw: Array.from(raw), sel: Array.from(sel),
       frame: Array.from(wandBorderExamples(g)),
+      frameLen: (function () {
+        var cw = g.cw, ch = g.ch, out = {};
+        function touch(p) { var id = g.ids[p]; if (id) out[id-1] = (out[id-1] || 0) + 1; }
+        for (var x = 0; x < cw; x++) { touch(x); touch((ch-1)*cw + x); }
+        for (var y = 0; y < ch; y++) { touch(y*cw); touch(y*cw + cw - 1); }
+        return out;
+      })(),
     };
     setEditNote(sel.size + " / " + g.n + " muotoa · " + wandFg.size + " vihjettä"
       + (wandBg.size ? " ja " + wandBg.size + " vastavihjettä" : "")

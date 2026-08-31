@@ -123,6 +123,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **Before changing the algorithm, ask whether the algorithm can decide it.**
+  `npm run evg:trace:web:audit` attributes every wrong pixel to the region that
+  drew it, and prints beside it everything the energy is made of: the region's
+  own truth split, whether the cut took it, its contact with the frame, its
+  distance to each colour model, its depth from a hint, and the pairwise weight
+  it carries to selected and to unselected neighbours. Run against the
+  portrait's two errors it settles the question in one table, and the answer is
+  **no** for both.
+
+  **The right-hand leak, 13 385 px.** Two regions carry 85% of it, and both are
+  hard hints — the user's own stroke covered them:
+
+  | id | seen | of it figure | of it background | its share of the leak |
+  |---|---|---|---|---|
+  | 0 | 96 933 | 50 852 px | **14 713 px** | 8 957 px |
+  | 1 | 97 185 | 55 807 px | 5 211 px | 921 px |
+
+  Region 0 is the tracer's base surface: 78% the man, 22% the desk behind him,
+  one node in the graph. It must be taken or left whole, and it is a constraint
+  besides. No unary, no pairwise, no prior can separate those two things — that
+  is the tracer's job, or the clip's. The nine other regions between them carry
+  1 757 px, and only there is the min-cut actually choosing: region 158 is 94%
+  background and its own colour model says foreground (`dF` 14.8 against `dB`
+  19.1), which is a model error worth 282 px.
+
+  **The hair, 6 213 px.** The regions responsible are mixed the same way —
+  429 is 6 240 px of hair and 5 567 px of the window behind it, 295 is 733
+  against 6 388 — and their colour models say background by a wide margin
+  (`dF` 22.3 against `dB` 14.9). Four regions are genuinely usable, pure hair
+  and nothing else: 1276, 1168, 1178 and 1343, **381 px between them**. Those
+  the selector really does lose, and the audit says why — their two distances
+  are a tie (19.43 against 19.36) and the neighbour term decides it, 626 to 1.6
+  against.
+
+  So of 19 598 px of error on this picture, about **2 100 px is the selector's
+  to win**; the rest is regions that are half one thing and half the other.
+  Tuning the energy would have moved a tenth of the error and been reported as
+  progress. The portrait's numbers are now kept apart for the same reason —
+  precision, recall, and the two errors separately — so that a change cannot
+  trade 6 000 px of missing hair for 6 000 px of extra background and read as
+  an improvement in IoU.
+
 - **The harness could not see a clip, and read a collapse that was not there.**
   Every scorer drew the answer path by path, filling each shape's `d` with
   `Path2D` — which ignores `clip-path`. That was harmless until the wand began
