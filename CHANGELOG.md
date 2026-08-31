@@ -123,9 +123,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
-- **A photograph, and it found two things the drawings could not.**
-  `npm run evg:trace:web:photo` runs the wand against a beach photograph that
-  is committed with the repository — a man in a yoga pose, thin limbs, a gap
+- **Two photographs, and they found what the drawings could not.**
+  `npm run evg:trace:web:photo` runs the wand against two photographs that are
+  committed with the repository. The first is a beach photograph — a man in a yoga pose, thin limbs, a gap
   between the legs, a sky that is six blues, sand that blows out, and a dark
   mat lying against his feet in his own colour. The truth is built from the
   picture without the tracer (the background is blue, or bright and
@@ -176,6 +176,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   small dab, 84% to 81%; the corrected answer is 95%. Twice now a change has
   measured as nothing on eleven drawings and as everything on one photograph,
   which is the argument for keeping the photograph in the suite.
+
+  **The second picture is the official portrait**, and it is the opposite
+  problem: a navy suit against a dark room, red drapes, a blown-out window, and
+  a navy flag beside him **in the suit's own colour**. He is 48% of the frame
+  and touches three edges of it. Its truth is a silhouette read off the picture
+  by eye — the polygon fixes the topology and each row's edge is then measured,
+  searched 20 px inward and 8 outward, so where the colour test fails the error
+  is bounded rather than running away. It takes in about a thousand pixels of a
+  warm window pane beside the hair, 0.6% of the mask, and that is stated rather
+  than tuned away.
+
+  | | |
+  |---|---|
+  | ceiling (1373 shapes) | 0.687 |
+  | a click | 0.098 (14%) |
+  | a drawn outline | 0.741 (100%) |
+  | **a brush stroke down the suit** | **0.701 (100%), recall 0.915** |
+  | twenty hands, worst | 98% |
+
+  The selector takes everything the tracing allows and the **ceiling is the
+  whole story**: `halki` is 54 968 px and the largest straddling shape is
+  **65 565 px**, a fifth of the frame. It is the suit and the flag as one
+  shape. They are the same navy and they touch, so this is not the palette
+  merge the weak-edge case was — more colours barely move it, 0.687 at 20 and
+  0.721 at 48 — but a connected region of one colour that happens to be two
+  things. Splitting that needs the tracer to cut a region at a faint internal
+  edge, which is the same idea as the contact test one level down, and is not
+  written yet. Until it is, the wand on this picture selects the man and both
+  flags, which is exactly what its ceiling says it must.
 
   **And one finding that is not a bug.** The last row of the table is the same
   tool with the same settings and a stroke that carries on past the hips into
