@@ -73,9 +73,13 @@ Because it is Ranger, that file can be any of them:
 The Rust build is consistently about twice the C++ one, and it is the backend
 rather than the language: the generated Rust keeps objects in `Rc<RefCell<…>>`
 and clones array and struct arguments defensively to satisfy the borrow
-checker. `penalty3`, the innermost function of the optimal-polygon search and
-so called O(n²) times, arrives with six clones per call — three of them whole
-`EvgTraceSum` structs where a reference would do. That is a Rust backend
+checker — 927 `.clone()` calls in this program. `penalty3`, the innermost
+function of the optimal-polygon search and so called O(n²) times, arrives with
+six clones per call, three of them whole `EvgTraceSum` structs where a
+reference would do. The ratio holds at 2.0× on a mono trace, 1.86× in colour
+and 1.71× in OKLab, which is what a uniform overhead looks like rather than one
+hot spot, and it did not move when the Rust backend learned to hoist nested
+self-calls: that fix made this program compile, not run faster. A Rust backend
 optimisation waiting to happen, not a cost of the target.
 | Node | `npm run evg:trace:cli:run` (already built) | ~0.45 s |
 | Python | `npm run evg:trace:cli:py` → one `.py`, stdlib only | ~4.8 s |

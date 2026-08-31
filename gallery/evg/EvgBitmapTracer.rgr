@@ -1319,9 +1319,11 @@ class EvgBitmapTracer {
                     while (i < m) {
                         ; The bin's own color and the swatch nearest it, each
                         ; read once. Asking nearestIndex three times inside the
-                        ; distance call was three times the work for one answer,
-                        ; and it is a borrow of `this` inside a call on `this`,
-                        ; which the Rust target refuses outright.
+                        ; distance call was three times the work for one answer.
+                        ; It was also a borrow of `this` inside a call on `this`,
+                        ; which the Rust target could not compile until the
+                        ; compiler learned to hoist it; this is kept for the
+                        ; work it saves, not for that.
                         def br2:int (itemAt binR i)
                         def bg2:int (itemAt binG i)
                         def bb2:int (itemAt binB i)
