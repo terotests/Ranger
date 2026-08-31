@@ -3064,65 +3064,68 @@
   // a flagpole below the black band, the next stripe of a zebra's tail — and
   // nothing above puts those back.
   //
-  // What tells such a piece from a rag of background lying against the same
-  // shoulder is not colour, it is shape, and the shape is a cylinder. It joins
-  // the answer across a *neck*, it runs away from that neck rather than along
-  // it, and it does not fan out past it: a leg is the same leg below the
-  // shadow as above it.
+  // A cylinder here means a *direction*: a piece that has an edge running on
+  // in the direction the answer's edge was going, and that stays attached
+  // while it does. Three things have to hold, and each of them was learnt from
+  // a picture of the rule getting it wrong.
   //
-  // Written that way first, and it was a wash — and the *picture* of the wash
-  // is what fixed it. On the portrait it brought back 3 032 px of hair and, in
-  // the same breath, 4 815 px of the flagpole and the drape folds down the
-  // right edge, because **a curtain fold is a cylinder too**. Two things had
-  // to be added, and both are read straight off that failure:
-  //
-  //   rosoisuus     the group's outline against the outline a smooth cylinder
-  //                 of the same area and length would have. A strip scores 1
-  //                 whatever its aspect ratio; a shape that interlocks with
-  //                 what it lies against scores several, because every notch
-  //                 is paid for twice. The torn band down the right of the
-  //                 portrait is nothing but notches, and this is what throws
-  //                 it out.
+  //   paisunta      it keeps its cross-section — the seam is about as wide as
+  //                 the widest part of it. "Suppeneva."
+  //   rosoisuus     its outline against the outline a smooth cylinder of the
+  //                 same area and length would have. A strip scores 1 whatever
+  //                 its aspect ratio; a shape that interlocks with what it
+  //                 lies against scores several, because every notch is paid
+  //                 for twice. Without it the rule took the torn band down the
+  //                 right of the portrait, which is nothing but notches.
   //   osuus         how much of that outline is the seam. The horizon stripe
   //                 on the beach picture is a *perfectly* smooth cylinder —
-  //                 long, straight, even — and it rests against the man's arm
-  //                 along a hundredth of its own outline. Nothing about its
-  //                 shape says no; the seam does.
+  //                 long, straight, even — resting against the man's arm along
+  //                 a hundredth of its own outline. Nothing about its shape
+  //                 says no; the seam does.
   //
-  // And the unit had to change. One segment is usually not a limb: the shadow
-  // across a shin is two or three bands of its own and none of them is a
-  // smooth anything alone, while together they are a leg. So a group grows
-  // from a segment that touches the body, taking at each step the neighbour
-  // that leaves it *smoothest*, and stopping when the best one available would
-  // make it rougher than it already is. That is the recursion the idea asks
-  // for, and it belongs in the growth rather than in a second pass: re-running
-  // the whole rule on its own answer was measured and it loses.
+  // Two things about the unit matter as much as the tests.
   //
-  // What it is worth, one brush stroke, measured against the truth masks:
+  // **A piece, not a path.** One traced path is visible in dozens of places at
+  // once — on the beach picture a single path shows up on both arms, the
+  // shorts and the face — so the path is meaningless here. A candidate is one
+  // *connected piece* of one path's leftover area, and what is added is that
+  // piece, clipped, not the path it belongs to.
+  //
+  // **A group, not a piece.** One band across a shin is not a smooth anything:
+  // it is three cells deep, it meanders, its outline is four times a
+  // cylinder's. The leg only appears once several of them are stacked. So the
+  // group grows from a piece that touches the answer, taking at each step the
+  // neighbour that leaves it smoothest, and — this is the part that took two
+  // tries — it is allowed to walk *through* rough states on the way, keeping
+  // the best passing group it saw. Pruning on the union's roughness at every
+  // step forbids exactly the case the whole idea is about.
+  //
+  // What it is worth, one brush stroke against the truth masks:
   //
   //     asetus                              ranta          muotokuva
-  //     pois                                0.649          0.812
-  //     yksi pala, ei sileysehtoja          0.549          0.810
+  //     pois                                0.649          0.811
+  //     yksi pala kerrallaan                0.549          0.810
   //     ryhmiä, ei sileysehtoja             0.439          0.795
-  //     ryhmiä + rosoisuus 1.5              0.662          0.809
-  //     ryhmiä + rosoisuus + osuus 0.12     0.679          0.811   ← tämä
+  //     ryhmiä + rosoisuus 1.5 + osuus      0.671          0.805
+  //     ryhmiä + rosoisuus 3 + osuus 0.15   0.718          0.797   ← tämä
   //
-  // On the beach it is IoU 0.649 → 0.679 with precision all but untouched
-  // (0.980 → 0.975): the back leg comes down to the foot. On the portrait it
-  // is neutral — and honestly so, because the hair it used to bring back is
-  // ragged and now fails `rosoisuus` along with the drapes. Bench, steer and
-  // smoke do not move.
+  // On the beach picture the leg comes down to the foot: recall 0.658 → 0.783,
+  // and the answer reaches **99 % of what the trace can express**, from 90 %.
+  // Twenty jittered hands all land at 99 % — it was 90 % flat. The synthetic
+  // bench goes 91 → 92 % of ceiling on one stroke and 94 → 95 % with a
+  // counter-stroke, and steering goes 56 → 89 → 84 % to 58 → 92 → 87 %.
   //
-  // A fourth test was tried and dropped: whether the seam is *one* seam or a
-  // hundred separate nips, as the longest continuous run over the whole of it.
-  // It never bound — 0.5 and 0.8 changed nothing on either photograph —
-  // because a group with a shredded seam has already failed `rosoisuus`.
+  // The portrait pays 0.014 of IoU, and pays it in an interesting way: it
+  // *finds* 6 500 px more of the man, the hair among it, and brings 11 400 px
+  // of drapery with it. That trade is the honest state of the rule, not a bug
+  // to be tuned away: a drape fold is a cylinder.
+  //
+  // It costs a stroke real time — 0.71 s to 1.24 s on the portrait, 0.26 s to
+  // 0.34 s on the beach picture — because every candidate group is measured
+  // whole at every step of its growth.
   //
   // It runs last, after the cut, the tidy-up, the fence and the hole filling:
   // a resolver over a finished answer, not another opinion inside the energy.
-  // It costs a stroke about 70 ms on the beach picture and 200 ms on the
-  // portrait — 450 ms to 650 ms all told, which is still one gesture, one
-  // answer.
   var WAND_CYL = { long: 0, fan: 1.5, area: 0.2, min: 8,
                    rag: 3, share: 0.15, parts: 8, slack: 0.15, patience: 2 };
 

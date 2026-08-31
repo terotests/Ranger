@@ -27,18 +27,19 @@ if (!OUT) { console.error("käyttö: node cylshot.mjs <hakemisto> [kohde]"); pro
 const CASES = { pose: { W: 640, H: 427 }, portrait: { W: 512, H: 640 } };
 // The best setting the sweep found: it is the one worth looking at, because a
 // picture of a rule tuned to do nothing is a picture of nothing.
-const ON = { long: 1, fan: 1.5, area: 0.05, min: 8, parts: 8, slack: 0.15,
-             rag: 1.5, share: 0.12 };
-// --sweep prints what each half of the rule is worth, in place, on the page's
+const ON = { long: 0, fan: 1.5, area: 0.2, min: 8, parts: 8, slack: 0.15,
+             rag: 3, share: 0.15, patience: 2 };
+// --sweep prints what each part of the rule is worth, in place, on the page's
 // own raster. This is the authority: cyl.mjs sweeps on the scoring raster and
 // reads high, and it cannot see groups at all.
 const SWEEP = [
   { tag: "pois", long: 1e9 },
-  { ...ON, tag: "yksi pala, ei sileysehtoja", parts: 1, rag: 1e9, share: 0 },
+  { ...ON, tag: "yksi pala kerrallaan", parts: 1, rag: 1e9, share: 0 },
   { ...ON, tag: "ryhmiä, ei sileysehtoja", rag: 1e9, share: 0 },
-  { ...ON, tag: "ryhmiä + rosoisuus", share: 0 },
-  { ...ON, tag: "ryhmiä + rosoisuus + osuus" },
+  { ...ON, tag: "ryhmiä + rosoisuus 1.5 + osuus", rag: 1.5 },
+  { ...ON, tag: "ryhmiä + rosoisuus 3 + osuus" },
 ];
+
 const SWEEPING = process.argv.includes("--sweep");
 const { page, close } = await openPage();
 for (const name of Object.keys(CASES)) {

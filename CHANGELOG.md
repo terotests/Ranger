@@ -9,64 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Cylinder continuity: a limb is a cylinder, and now the wand knows it.** The
-  cut leaves a limb in stripes — a foot below the shadow across the shin, the
-  white of a flagpole below the black band, the next stripe of a zebra's tail —
-  and nothing in the tidy-up puts them back, because the tidy-up only ever
-  drops. `wandCylinders` runs last, after the cut, the fence and the hole
-  filling, as a **resolver over a finished answer**: a group of leftover
-  segments that joins the answer across a neck, runs away from that neck rather
-  than along it, and does not fan out past it, is the rest of the limb.
+- **Cylinder continuity: a limb is a cylinder, and now the wand can follow one.**
+  The cut leaves a limb in stripes — a foot below the shadow across the shin,
+  the white of a flagpole below the black band, the next stripe of a zebra's
+  tail — and nothing in the tidy-up puts them back, because the tidy-up only
+  ever drops. `wandCylinders` runs last, after the cut, the fence and the hole
+  filling, as a **resolver over a finished answer**. A cylinder here means a
+  *direction*: a piece whose edge runs on where the answer's edge was going,
+  and that stays attached while it does.
 
-  Written that way first it was a wash, and the picture of the wash is what
-  fixed it: on the portrait it brought back 3 032 px of hair and, in the same
-  breath, 4 815 px of the flagpole and the drape folds down the right edge,
-  because **a curtain fold is a cylinder too**. Two more tests, both read off
-  that failure:
+  Three tests, each learnt from a picture of the rule getting it wrong:
 
-  - **rosoisuus** — the group's outline against the outline a smooth cylinder
-    of the same area and length would have. A strip scores 1 whatever its
-    aspect ratio; a shape that interlocks with what it lies against scores
-    several, because every notch is paid for twice. The torn band down the
-    right of the portrait is nothing but notches, and this throws it out.
+  - **paisunta** — it keeps its cross-section; the seam is about as wide as the
+    widest part of it. "Suppeneva."
+  - **rosoisuus** — its outline against the outline a smooth cylinder of the
+    same area and length would have. A strip scores 1 whatever its aspect
+    ratio; a shape that interlocks with what it lies against scores several,
+    because every notch is paid for twice. Without it the rule took the torn
+    band down the right of the portrait, which is nothing but notches.
   - **osuus** — how much of that outline is the seam. The horizon stripe on the
     beach picture is a *perfectly* smooth cylinder, long and straight and even,
-    and it rests against the man's arm along a hundredth of its own outline.
-    Nothing about its shape says no; the seam does.
+    resting against the man's arm along a hundredth of its own outline. Nothing
+    about its shape says no; the seam does.
 
-  And the unit had to change from a segment to a **group**. One segment is
-  usually not a limb: the shadow across a shin is two or three bands of its own
-  and none of them is a smooth anything alone, while together they are a leg.
-  A group grows from a segment that touches the body, taking at each step the
-  neighbour that leaves it smoothest, and stopping when the best available
-  would make it rougher. That is where the recursion belongs — re-running the
-  whole rule on its own answer was measured and it loses.
+  And two things about the unit matter as much as the tests. **A piece, not a
+  path**: one traced path shows up in dozens of places at once — on the beach
+  picture a single path covers both arms, the shorts and the face — so a
+  candidate is one connected piece of a path's leftover area, and what is added
+  is that piece, clipped. **A group, not a piece**: one band across a shin is
+  three cells deep, it meanders, its outline is four times a cylinder's; the
+  leg appears only once several are stacked. The group grows from a piece that
+  touches the answer, taking the neighbour that leaves it smoothest, and it is
+  allowed to walk *through* rough states, keeping the best passing group it
+  saw. Pruning on roughness at every step forbade the whole case.
 
   | asetus | ranta | muotokuva |
   |---|---|---|
-  | pois | 0.649 | 0.812 |
-  | yksi pala, ei sileysehtoja | 0.549 | 0.810 |
-  | ryhmiä, ei sileysehtoja | 0.439 | 0.795 |
-  | ryhmiä + rosoisuus | 0.662 | 0.809 |
-  | ryhmiä + rosoisuus + osuus | **0.679** | 0.811 |
+  | pois | 0.649 | 0.811 |
+  | yksi pala kerrallaan | 0.583 | 0.802 |
+  | ryhmiä, ei sileysehtoja | 0.588 | 0.788 |
+  | ryhmiä + rosoisuus 1.5 + osuus | 0.671 | 0.805 |
+  | ryhmiä + rosoisuus 3 + osuus | **0.718** | 0.797 |
 
-  On the beach picture the back leg comes down to the foot: IoU 0.649 → 0.679
-  with precision all but untouched, 0.980 → 0.975. On the portrait it is
-  neutral, and honestly so — the hair it used to bring back is ragged and now
-  fails `rosoisuus` along with the drapes. Bench, steer and smoke do not move,
-  and the twenty jittered hands on the beach picture go from 90 % of ceiling to
-  94 % across the board. It costs a stroke about 70 ms on the beach picture and
-  200 ms on the portrait.
+  On the beach picture the leg comes down to the foot: recall 0.658 → 0.783 and
+  the answer reaches **99 % of what the trace can express**, up from 90 %, with
+  all twenty jittered hands at 99 % where they used to sit flat at 90 %. The
+  synthetic bench goes 91 → 92 % of ceiling on one stroke and 94 → 95 % with a
+  counter-stroke; steering goes 56 → 89 → 84 % to 58 → 92 → 87 %. The portrait
+  pays 0.014, and pays it interestingly: it finds 6 671 px more of the man, the
+  hair among it, and brings drapery with it, because a drape fold is a
+  cylinder. A stroke costs 0.71 s → 1.24 s on the portrait.
 
-  A fourth test was tried and dropped: whether the seam is *one* seam or a
-  hundred separate nips. It never bound at any threshold, because a group with
-  a shredded seam has already failed `rosoisuus`.
+  A fourth test was tried and dropped: whether the seam is one seam or a hundred
+  nips. It never bound, because a group with a shredded seam has already failed
+  `rosoisuus`. So was a lower bound on how far a group runs from its seam: a
+  band across a shin is wider than it is deep, and the bound threw out exactly
+  the case the idea is about.
 
-  Two harnesses come with it. `tracer/cyl.mjs` prints every leftover piece that
-  touches the answer with its ratios and the truth beside it — it is what
-  established, before any tuning, that the coherence pass is *not* what cuts
-  the foot off (it drops 30 px of the person on the beach picture and 8 px on
-  the portrait, against 17 063 px of background). `tracer/cylshot.mjs` draws
+- **A clip could let something in.** The SVG holds more than the z-buffer does:
+  under every visible shape lies whatever it covers, and some of that is chosen
+  too. Cut a hole in the shape on top — which is what every clip does — and the
+  thing beneath walks into the answer with nothing to stop it. On the beach
+  picture that was 10 177 px of sea from a single path and 25 249 px in all,
+  none of which the wand's own raster model knew about. `wandClipToSelection`
+  now remembers the box each clip empties and clips every selected element
+  painted under it; the leak falls to the area the caller actually meant to
+  add. This was latent long before the cylinder rule — it only needed something
+  that clips a covering path.
+
+  Two harnesses come with all this. `tracer/cyl.mjs` prints every leftover
+  piece that touches the answer with its ratios and the truth beside it — it is
+  what established, before any tuning, that the coherence pass is *not* what
+  cuts the foot off (it drops 30 px of the person on the beach picture and 8 px
+  on the portrait, against 17 063 px of background). `tracer/cylshot.mjs` draws
   the answer without the rule, with it, and what the rule alone changed, and
   with `--sweep` prints the table above in place. `npm run evg:trace:web:cyl`
   and `:cylshot` after `photo.mjs --write`.
