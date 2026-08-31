@@ -473,6 +473,12 @@ class EVGElement {
     def calculatedInnerWidth:double 0.0
     def calculatedInnerHeight:double 0.0
     def calculatedFlexWidth:double 0.0
+    ; Whether the flex pass DECIDED that width, as opposed to it merely being
+    ; zero. Its own flag because the pass used to record the decision by
+    ; clearing `width.isSet` — which destroyed the author's declaration, so the
+    ; second frame laid out from a tree the stylesheet no longer described.
+    ; Layout output is layout state; it does not get to edit the style.
+    def hasFlexWidth:boolean false
     ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
     ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
     def calculatedFlexHeight:double 0.0
@@ -754,6 +760,10 @@ class EVGElement {
         calculatedY = 0.0
         calculatedWidth = 0.0
         calculatedHeight = 0.0
+        ; Cleared with the rest of the layout state, so a pass that no longer
+        ; shrinks a child stops claiming it did.
+        calculatedFlexWidth = 0.0
+        hasFlexWidth = false
         hasDefiniteHeight = false
         calculatedBaseline = 0.0
         calculatedDescent = 0.0
@@ -2002,6 +2012,7 @@ class EVGElement {
         calculatedInnerWidth = other.calculatedInnerWidth
         calculatedInnerHeight = other.calculatedInnerHeight
         calculatedFlexWidth = other.calculatedFlexWidth
+        hasFlexWidth = other.hasFlexWidth
         calculatedFlexHeight = other.calculatedFlexHeight
         calculatedBaseline = other.calculatedBaseline
         calculatedDescent = other.calculatedDescent

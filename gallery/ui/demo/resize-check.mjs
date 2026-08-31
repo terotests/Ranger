@@ -133,6 +133,102 @@ console.log("--- the panels still answer their keyboard ---");
   ok("and the trail has given way", d.shownCrumbs() === 1, "shown " + d.shownCrumbs());
 }
 
+console.log("--- the picture, which is where all three of these were found ---");
+{
+  // Every check below failed before the fix beside it, and none of the
+  // twenty-six above so much as flinched: they measure the RULE, and all
+  // three bugs were in what the rule's numbers turned into on screen.
+  const d = fresh();
+  at(d, 60);
+  const byClass = (re) => {
+    const out = [];
+    const walk = (el) => { if (re.test(el.className || "")) out.push(el); for (const k of el.children) walk(k); };
+    walk(d.root);
+    return out;
+  };
+  const mid = (el) => ({ x: el.calculatedX + el.calculatedWidth / 2, y: el.calculatedY + el.calculatedHeight / 2 });
+
+  // 1. `align-items: center` down a divider whose height came from the
+  //    group's `align-items: stretch` rather than from a declaration. The
+  //    engine asked `height.isSet`, which is where the height came FROM, not
+  //    whether there is one — so the grip sat at the top of a 298px divider.
+  const seps = byClass(/(^|\s)rz-sep(\s|$)/);
+  ok("two dividers", seps.length === 2, "got " + seps.length);
+  for (const sep of seps) {
+    const grip = sep.children[0];
+    const s = mid(sep), g = mid(grip);
+    ok(
+      "the grip is in the middle of its divider (" + (sep.className.includes("rz-sep-h") ? "horizontal" : "vertical") + ")",
+      Math.abs(s.x - g.x) < 1 && Math.abs(s.y - g.y) < 1,
+      "sep " + s.x.toFixed(0) + "," + s.y.toFixed(0) + " grip " + g.x.toFixed(0) + "," + g.y.toFixed(0),
+    );
+  }
+  // And the divider spans the group it divides, on the axis it lies across.
+  const group = byClass(/(^|\s)rz-group(\s|$)/).find((e) => !/rz-group-v/.test(e.className));
+  const vsep = seps.find((e) => !/rz-sep-h/.test(e.className));
+  ok(
+    "the vertical divider spans the group",
+    Math.abs(vsep.calculatedHeight - group.calculatedHeight) < 1,
+    vsep.calculatedHeight + " vs " + group.calculatedHeight,
+  );
+
+  // 2. The trail shrink-wraps and centres. `.rz-panel` says
+  //    `align-items: center`, under which `width: auto` is fit-content, not
+  //    stretch — the nav used to fill the panel and the trail hung off its
+  //    left edge while the label below it sat in the middle.
+  const nav = byClass(/rz-crumbs/)[0];
+  const panel = byClass(/(^|\s)rz-panel(\s|$)/)[0];
+  const list = byClass(/rz-crumb-list/)[0];
+  ok("the trail is no wider than its contents", Math.abs(nav.calculatedWidth - list.calculatedWidth) < 1,
+    nav.calculatedWidth + " vs " + list.calculatedWidth);
+  ok("and is centred in its panel", Math.abs(mid(nav).x - mid(panel).x) < 1,
+    mid(nav).x.toFixed(0) + " vs " + mid(panel).x.toFixed(0));
+
+  // 3. The separator is drawn with the spaces it was written with. Splitting
+  //    " / " on " " gives ["", "/", ""], and the wrapper counted CHARACTERS to
+  //    decide whether the line was empty — so the leading empty token looked
+  //    like nothing at all and the space in front of the slash was dropped.
+  //    The slash then sat hard against the crumb before it with a double gap
+  //    after. The no-wrap path kept its spaces, so the same string drew two
+  //    different ways depending on whether it had a width.
+  const cmds = JSON.parse(d.displayListJson()).cmds.filter((c) => c.text);
+  const slashes = cmds.filter((c) => c.text.includes("/"));
+  ok("four separators drawn", slashes.length === 4, "got " + slashes.length);
+  ok("each with the space it was written with", slashes.every((c) => c.text === " / "),
+    JSON.stringify(slashes.map((c) => c.text)));
+}
+
+console.log("--- and it drags ---");
+{
+  // The note under the card says "Drag a divider". Nothing above this point
+  // has ever pressed one.
+  const d = fresh();
+  at(d, 60);
+  const before = d.leftPercent();
+  ok("a divider takes a press", d.beginPress("rz-sep-0", 458, 180) === true);
+  ok("moving right widens the left panel", d.dragMove(494, 180) === true && d.leftPercent() > before,
+    before + " -> " + d.leftPercent());
+  const wide = d.leftPercent();
+  ok("and moving back narrows it", d.dragMove(458, 180) === true && d.leftPercent() === before,
+    wide + " -> " + d.leftPercent());
+  ok("the drop ends the drag", d.dragDrop() === true);
+  ok("and a move after the drop does nothing", d.dragMove(600, 180) === false);
+
+  // The inner divider lies across the other axis: it must read the pointer's
+  // Y and leave the outer group alone.
+  const outerBefore = d.leftPercent();
+  const topBefore = d.inner.panels[0].size;
+  ok("the inner divider takes a press", d.beginPress("rz-panel-two-group-sep-0", 600, 110) === true);
+  ok("dragging it down grows the top panel", d.dragMove(600, 170) === true && d.inner.panels[0].size > topBefore,
+    topBefore + " -> " + d.inner.panels[0].size);
+  ok("and leaves the outer group where it was", d.leftPercent() === outerBefore,
+    outerBefore + " -> " + d.leftPercent());
+  d.dragDrop();
+  ok("a drag never leaves the panels adding up to something else",
+    Math.abs(d.outer.panels[0].size + d.outer.panels[1].size - 100) < 0.001,
+    d.outer.panels[0].size + " + " + d.outer.panels[1].size);
+}
+
 console.log("--- what a reader gets ---");
 {
   const d = fresh();

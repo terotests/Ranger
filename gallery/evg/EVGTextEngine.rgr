@@ -152,22 +152,36 @@ class EVGTextEngine {
                 this.pushLine(out para fontFamily fontSize)
             } {
                 def words:[string] (strsplit para " ")
+                ; How many TOKENS are on the line, not how many characters.
+                ; `strsplit " / " " "` is ["", "/", ""], and an empty token is a
+                ; token: it is the space that was there. Asking `strlen
+                ; currentLine == 0` cannot tell "nothing on this line yet" from
+                ; "one empty token on this line", so it took the `testLine =
+                ; word` branch a second time and dropped the space in front —
+                ; the breadcrumb separator went in as " / " and came out "/ ",
+                ; drawn hard against the crumb before it with the gap on the
+                ; wrong side. The no-wrap path (maxWidth <= 0) pushed the
+                ; paragraph verbatim and kept its spaces, so the same string
+                ; drew two different ways depending on whether it had a width.
                 def currentLine:string ""
+                def tokensOnLine:int 0
                 def w:int 0
                 while (w < (array_length words)) {
                     def word:string (itemAt words w)
                     def testLine:string ""
-                    if ((strlen currentLine) == 0) {
+                    if (tokensOnLine == 0) {
                         testLine = word
                     } {
                         testLine = currentLine + " " + word
                     }
                     def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
-                    if ((testWidth > maxWidth) && ((strlen currentLine) > 0)) {
+                    if ((testWidth > maxWidth) && (tokensOnLine > 0)) {
                         this.pushLine(out currentLine fontFamily fontSize)
                         currentLine = word
+                        tokensOnLine = 1
                     } {
                         currentLine = testLine
+                        tokensOnLine = (tokensOnLine + 1)
                     }
                     w = (w + 1)
                 }

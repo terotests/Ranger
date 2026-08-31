@@ -44,6 +44,32 @@ const DEMOS = {
       M.ToolbarDemo.displayListJson(css, true, false, false, "center", "Edited 2 hours ago"),
     errors: (M, css) => M.ToolbarDemo.styleErrors(css),
   },
+  resize: {
+    module: "gallery/ui/bin/ResizeDemo.cjs",
+    css: "resize.css",
+    height: 520,
+    // This one is a live controller rather than a pure function: the trail's
+    // width decides how many crumbs there are, so the demo has to settle
+    // before it has a display list worth painting.
+    list: (M, css) => {
+      const d = new M.ResizeDemo();
+      d.init(css);
+      const pct = Number(process.env.RESIZE_PCT || "60");
+      const p = d.outer.panels[0];
+      const q = d.outer.panels[1];
+      q.size += p.size - pct;
+      p.size = pct;
+      d.rebuild();
+      d.displayListJson();
+      d.settle();
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.ResizeDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
 };
 const demo = DEMOS[WHICH];
 if (!demo) throw new Error(`unknown demo ${WHICH} — one of ${Object.keys(DEMOS).join(", ")}`);

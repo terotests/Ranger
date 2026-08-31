@@ -1516,6 +1516,7 @@ class EVGElement  {
     this.calculatedInnerWidth = 0.0;
     this.calculatedInnerHeight = 0.0;
     this.calculatedFlexWidth = 0.0;
+    this.hasFlexWidth = false;
     this.calculatedFlexHeight = 0.0;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
@@ -1610,6 +1611,8 @@ class EVGElement  {
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
+    this.calculatedFlexWidth = 0.0;
+    this.hasFlexWidth = false;
     this.hasDefiniteHeight = false;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
@@ -2168,6 +2171,7 @@ class EVGElement  {
     this.calculatedInnerWidth = other.calculatedInnerWidth;
     this.calculatedInnerHeight = other.calculatedInnerHeight;
     this.calculatedFlexWidth = other.calculatedFlexWidth;
+    this.hasFlexWidth = other.hasFlexWidth;
     this.calculatedFlexHeight = other.calculatedFlexHeight;
     this.calculatedBaseline = other.calculatedBaseline;
     this.calculatedDescent = other.calculatedDescent;
@@ -5718,21 +5722,24 @@ class EVGTextEngine  {
       } else {
         const words = para.split(" ");
         let currentLine = "";
+        let tokensOnLine = 0;
         let w = 0;
         while (w < (words.length)) {
           const word = words[w];
           let testLine = "";
-          if ( (currentLine.length) == 0 ) {
+          if ( tokensOnLine == 0 ) {
             testLine = word;
           } else {
             testLine = (currentLine + " ") + word;
           }
           const testWidth = this.measurer.measureTextWidth(testLine, fontFamily, fontSize);
-          if ( (testWidth > maxWidth) && ((currentLine.length) > 0) ) {
+          if ( (testWidth > maxWidth) && (tokensOnLine > 0) ) {
             this.pushLine(out, currentLine, fontFamily, fontSize);
             currentLine = word;
+            tokensOnLine = 1;
           } else {
             currentLine = testLine;
+            tokensOnLine = tokensOnLine + 1;
           }
           w = w + 1;
         };
@@ -5805,6 +5812,8 @@ class EVGLayout  {
     this.debug = false;
     this.overlayErrors = [];
     this.warnings = [];
+    this.layingOutAlongRow = true;
+    this.columnCrossShrinks = false;
     const m_1 = new SimpleTextMeasurer();
     this.measurer = m_1;
     this.textEngine.setMeasurer(m_1);
@@ -5879,7 +5888,10 @@ class EVGLayout  {
     if ( element.width.isSet ) {
       width = element.width.pixels;
     }
-    if ( element.width.isSet == false ) {
+    if ( element.hasFlexWidth ) {
+      width = element.calculatedFlexWidth;
+    }
+    if ( (element.width.isSet == false) && (element.hasFlexWidth == false) ) {
       const textContent = element.textContent;
       if ( (textContent.length) > 0 ) {
         if ( element.getChildCount() == 0 ) {
@@ -5898,10 +5910,12 @@ class EVGLayout  {
         }
       } else {
         if ( element.display == "flex" ) {
-          const intrinsic = this.intrinsicWidth(element, false);
-          if ( intrinsic > 0.0 ) {
-            if ( intrinsic < parentWidth ) {
-              width = intrinsic;
+          if ( this.crossAxisFits(element) ) {
+            const intrinsic = this.intrinsicWidth(element, false);
+            if ( intrinsic > 0.0 ) {
+              if ( intrinsic < parentWidth ) {
+                width = intrinsic;
+              }
             }
           }
         }
@@ -6195,7 +6209,7 @@ class EVGLayout  {
                 settled = false;
               }
               c_1.calculatedFlexWidth = clampedW;
-              c_1.width.isSet = false;
+              c_1.hasFlexWidth = true;
             }
             j = j + 1;
           };
@@ -6326,7 +6340,7 @@ class EVGLayout  {
                   finalW = 0.0;
                 }
                 c_8.calculatedFlexWidth = finalW;
-                c_8.width.isSet = false;
+                c_8.hasFlexWidth = true;
               }
               jw = jw + 1;
             };
@@ -6353,7 +6367,13 @@ class EVGLayout  {
           child.calculatedX = child.calculatedX + parent.calculatedX;
           child.calculatedY = child.calculatedY + parent.calculatedY;
         } else {
+          const wasRow0 = this.layingOutAlongRow;
+          const wasShrink0 = this.columnCrossShrinks;
+          this.layingOutAlongRow = isColumn == false;
+          this.columnCrossShrinks = this.crossShrinksUnder(parent);
           this.layoutElement(child, 0.0, 0.0, innerWidth, innerHeight);
+          this.layingOutAlongRow = wasRow0;
+          this.columnCrossShrinks = wasShrink0;
           this.translateSubtree(child, startX, startY);
         }
         i = i + 1;
@@ -6361,15 +6381,15 @@ class EVGLayout  {
       }
       const availableForChild = (innerWidth - child.box.marginLeftPx) - child.box.marginRightPx;
       let childWidth = this.estimateChildWidth(child, availableForChild);
-      if ( child.width.isSet ) {
-        if ( child.width.pixels >= innerWidth ) {
-          childWidth = availableForChild;
-        } else {
-          childWidth = child.width.pixels;
-        }
+      if ( child.hasFlexWidth ) {
+        childWidth = child.calculatedFlexWidth;
       } else {
-        if ( child.calculatedFlexWidth > 0.0 ) {
-          childWidth = child.calculatedFlexWidth;
+        if ( child.width.isSet ) {
+          if ( child.width.pixels >= innerWidth ) {
+            childWidth = availableForChild;
+          } else {
+            childWidth = child.width.pixels;
+          }
         }
       }
       if ( isColumn == false ) {
@@ -6406,7 +6426,13 @@ class EVGLayout  {
       }
       child.calculatedX = currentX + child.box.marginLeftPx;
       child.calculatedY = currentY + child.box.marginTopPx;
+      const wasRow = this.layingOutAlongRow;
+      const wasShrink = this.columnCrossShrinks;
+      this.layingOutAlongRow = isColumn == false;
+      this.columnCrossShrinks = this.crossShrinksUnder(parent);
       this.layoutElement(child, child.calculatedX, child.calculatedY, childWidth, innerHeight);
+      this.layingOutAlongRow = wasRow;
+      this.columnCrossShrinks = wasShrink;
       const childHeight = child.calculatedHeight;
       const childTotalHeight = (childHeight + child.box.marginTopPx) + child.box.marginBottomPx;
       const placedWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
@@ -6755,11 +6781,18 @@ class EVGLayout  {
       }
     }
     let effectiveRowHeight = rowHeight;
-    if ( parent.height.isSet ) {
-      const parentInnerHeight = parent.calculatedInnerHeight;
-      if ( parentInnerHeight > rowHeight ) {
-        effectiveRowHeight = parentInnerHeight;
+    let crossBox = 0.0;
+    if ( parent.flexWrap == "nowrap" ) {
+      if ( parent.hasDefiniteHeight ) {
+        crossBox = parent.calculatedInnerHeight;
       }
+    } else {
+      if ( parent.height.isSet ) {
+        crossBox = parent.calculatedInnerHeight;
+      }
+    }
+    if ( crossBox > rowHeight ) {
+      effectiveRowHeight = crossBox;
     }
     const useBaseline = verticalAlignVal == "baseline";
     let maxBaseline = 0.0;
@@ -7093,6 +7126,31 @@ class EVGLayout  {
       return 0.0;
     }
     return (outer + el.box.marginLeftPx) + el.box.marginRightPx;
+  };
+  parentIsRow (el) {
+    return this.layingOutAlongRow;
+  };
+  crossShrinksUnder (parent) {
+    if ( parent.flexDirection != "column" ) {
+      return false;
+    }
+    const a = parent.alignItems;
+    if ( a == "center" ) {
+      return true;
+    }
+    if ( a == "flex-end" ) {
+      return true;
+    }
+    if ( a == "end" ) {
+      return true;
+    }
+    return false;
+  };
+  crossAxisFits (el) {
+    if ( this.parentIsRow(el) ) {
+      return true;
+    }
+    return this.columnCrossShrinks;
   };
   intrinsicOfChildren (el, wantMin) {
     const n = el.getChildCount();
@@ -7609,7 +7667,7 @@ class EVGLayout  {
     if ( child.width.isSet ) {
       return child.width.pixels;
     }
-    if ( child.calculatedFlexWidth > 0.0 ) {
+    if ( child.hasFlexWidth ) {
       return child.calculatedFlexWidth;
     }
     const textContent = child.textContent;

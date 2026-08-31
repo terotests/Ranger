@@ -63,7 +63,9 @@ treefactory Rz {
     ; The handle. `role="separator"` with the value range on it — the whole
     ; contract `ResizeCtl` publishes, drawn.
     tag Sep    EVGElement (props (className "rz-sep") (role "separator"))
+    tag SepH   EVGElement (props (className "rz-sep rz-sep-h") (role "separator"))
     tag Grip   EVGElement (props (className "rz-grip") (a11yHidden true))
+    tag GripH  EVGElement (props (className "rz-grip rz-grip-h") (a11yHidden true))
     tag Label  EVGElement (props (className "rz-label") (elementType 1))
     tag Crumbs EVGElement (props (className "rz-crumbs") (role "navigation") (a11yLabel "Breadcrumb"))
     tag List   EVGElement (props (className "rz-crumb-list") (role "list"))
@@ -246,7 +248,13 @@ class ResizeDemo {
 
     fn sepFor:EVGElement (ctl:ResizeCtl i:int) {
         def before:UiPanel (itemAt ctl.panels i)
+        ; A divider in a horizontal group is a VERTICAL line and one in a
+        ; vertical group is horizontal — the same inversion the separator's
+        ; `aria-orientation` publishes, and the reason there are two classes.
         def s (tree Rz (Sep (props (id (ctl.sepTid(i))) (a11yLabel ("Resize " + before.value)))))
+        if (ctl.orientation == "vertical") {
+            s = (tree Rz (SepH (props (id (ctl.sepTid(i))) (a11yLabel ("Resize " + before.value)))))
+        }
         s.a11yOrientation = (ctl.sepOrientation())
         s.a11yFocusable = true
         ; A focusable separator MUST carry a value range — ARIA says so and axe
@@ -259,7 +267,11 @@ class ResizeDemo {
         s.a11yHasRange = true
         s.a11yValueMin = (ctl.valueMinAt(i))
         s.a11yValueMax = (ctl.valueMaxAt(i))
-        s.addChild((tree Rz (Grip)))
+        if (ctl.orientation == "vertical") {
+            s.addChild((tree Rz (GripH)))
+        } {
+            s.addChild((tree Rz (Grip)))
+        }
         return s
     }
 

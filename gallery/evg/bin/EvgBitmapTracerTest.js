@@ -4363,6 +4363,7 @@ class EVGElement  {
     this.calculatedInnerWidth = 0.0;
     this.calculatedInnerHeight = 0.0;
     this.calculatedFlexWidth = 0.0;
+    this.hasFlexWidth = false;
     this.calculatedFlexHeight = 0.0;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
@@ -4457,6 +4458,8 @@ class EVGElement  {
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
+    this.calculatedFlexWidth = 0.0;
+    this.hasFlexWidth = false;
     this.hasDefiniteHeight = false;
     this.calculatedBaseline = 0.0;
     this.calculatedDescent = 0.0;
@@ -5015,6 +5018,7 @@ class EVGElement  {
     this.calculatedInnerWidth = other.calculatedInnerWidth;
     this.calculatedInnerHeight = other.calculatedInnerHeight;
     this.calculatedFlexWidth = other.calculatedFlexWidth;
+    this.hasFlexWidth = other.hasFlexWidth;
     this.calculatedFlexHeight = other.calculatedFlexHeight;
     this.calculatedBaseline = other.calculatedBaseline;
     this.calculatedDescent = other.calculatedDescent;

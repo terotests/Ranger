@@ -150,18 +150,49 @@ class EVGLayout {
         this.log("EVGLayout: Layout complete")
     }
     
+    ; Whether the element about to be laid out sits along a ROW.
+    ;
+    ; A field rather than a parameter, and rather than reading `child.parent`,
+    ; because EVGElement deliberately has no parent back-reference: it was
+    ; write-only and, in the C++ backend, assigning `this` to a shared_ptr
+    ; field forces `enable_shared_from_this` and breaks the native build. Its
+    ; own comment says so, which is the only reason this is a field.
+    ;
+    ; The flex pass sets it before each child and puts it back afterwards. The
+    ; default is true, which is the block behaviour the root and any non-flex
+    ; parent want.
+    def layingOutAlongRow:boolean true
+
+    ; And, for a COLUMN parent, whether the cross axis shrink-wraps.
+    ;
+    ; `width: auto` on a flex item is stretch only while `align-items` is
+    ; stretch; under `center` or `flex-end` it is fit-content, which is the
+    ; difference between a breadcrumb trail centred under the label it belongs
+    ; to and one pinned to the left edge of a box it has filled.
+    ;
+    ; This engine's `alignItems` default is "flex-start" where CSS's is
+    ; "stretch", and everything built so far leans on the stretch. So only an
+    ; EXPLICIT centre or end shrinks: a container that never mentioned
+    ; `align-items` keeps exactly the behaviour it has today.
+    def columnCrossShrinks:boolean false
+
     fn layoutElement:void (element:EVGElement parentX:double parentY:double parentWidth:double parentHeight:double) {
         ; Resolve units for this element (will be skipped if already resolved in layoutChildren)
         element.resolveUnits(parentWidth parentHeight)
         
-        ; Calculate element dimensions
+        ; Calculate element dimensions. Same order as `layoutChildren`: a width
+        ; the flex pass decided wins over the declared one, because it IS the
+        ; declared one after shrinking.
         def width:double parentWidth
         if element.width.isSet {
             width = element.width.pixels
         }
+        if element.hasFlexWidth {
+            width = element.calculatedFlexWidth
+        }
         
         ; Text leaf nodes without explicit width shrink-wrap to measured content
-        if (element.width.isSet == false) {
+        if ((element.width.isSet == false) && (element.hasFlexWidth == false)) {
             def textContent:string element.textContent
             if ((strlen textContent) > 0) {
                 if ((element.getChildCount()) == 0) {
@@ -179,18 +210,24 @@ class EVGLayout {
                     }
                 }
             } {
-                ; A width-less flex CONTAINER shrink-wraps too, which is what
-                ; `flex: 0 1 auto` does in CSS and what this engine used to get
-                ; wrong: a row with no width took its parent's whole width, so
-                ; every component that put a label in a wrapper had to state a
-                ; width the children already knew. The intrinsic pass answers
-                ; it, and only shrinks — a container wider than its parent
-                ; still fills and lets the flex rules squeeze it.
+                ; A width-less flex CONTAINER shrink-wraps too — but only in a
+                ; ROW. This is `width: auto` in CSS and it resolves two
+                ; different ways: fit-content for an item laid out along a row,
+                ; and STRETCH for one in a column, where the cross axis fills
+                ; because `align-items` defaults to stretch.
+                ;
+                ; The first version of this shrank in both, and the damage was
+                ; exactly what the rule predicts: in a vertical panel group,
+                ; every panel collapsed to the width of the label inside it and
+                ; the divider collapsed to the width of its grip. Correct on
+                ; the axis it was written for and wrong on the other one.
                 if (element.display == "flex") {
-                    def intrinsic:double (this.intrinsicWidth(element false))
-                    if (intrinsic > 0.0) {
-                        if (intrinsic < parentWidth) {
-                            width = intrinsic
+                    if (this.crossAxisFits(element)) {
+                        def intrinsic:double (this.intrinsicWidth(element false))
+                        if (intrinsic > 0.0) {
+                            if (intrinsic < parentWidth) {
+                                width = intrinsic
+                            }
                         }
                     }
                 }
@@ -607,7 +644,7 @@ class EVGLayout {
                                 settled = false
                             }
                             c.calculatedFlexWidth = clampedW
-                            c.width.isSet = false
+                            c.hasFlexWidth = true
                         }
                         j = j + 1
                     }
@@ -757,7 +794,7 @@ class EVGLayout {
                                     finalW = 0.0
                                 }
                                 c.calculatedFlexWidth = finalW
-                                c.width.isSet = false
+                                c.hasFlexWidth = true
                             }
                             jw = (jw + 1)
                         }
@@ -811,7 +848,13 @@ class EVGLayout {
                     ; move the finished subtree into place afterwards: the
                     ; positions inside it are relative to the element, so one
                     ; translation carries all of them.
+                    def wasRow0:boolean layingOutAlongRow
+                    def wasShrink0:boolean columnCrossShrinks
+                    layingOutAlongRow = (isColumn == false)
+                    columnCrossShrinks = (this.crossShrinksUnder(parent))
                     this.layoutElement(child 0.0 0.0 innerWidth innerHeight)
+                    layingOutAlongRow = wasRow0
+                    columnCrossShrinks = wasShrink0
                     this.translateSubtree(child startX startY)
                 }
                 i = i + 1
@@ -822,20 +865,24 @@ class EVGLayout {
             def availableForChild:double (innerWidth - child.box.marginLeftPx - child.box.marginRightPx)
             def childWidth:double (this.estimateChildWidth(child availableForChild))
             
-            if child.width.isSet {
-                ; If width is explicitly set and it's 100% (resolved to innerWidth), 
-                ; we should still subtract margins for proper fit
-                if (child.width.pixels >= innerWidth) {
-                    ; Width was 100% - use available space after margins
-                    childWidth = availableForChild
-                } {
-                    ; Width was set to a specific value - use it
-                    childWidth = child.width.pixels
-                }
+            ; The flex pass gets the FIRST say, because when it has run it has
+            ; already taken the declared width into account and squeezed it.
+            ; It used to say so by clearing `width.isSet`, which destroyed the
+            ; declaration for every frame after; now it says so with a flag and
+            ; the declaration survives.
+            if child.hasFlexWidth {
+                childWidth = child.calculatedFlexWidth
             } {
-                ; No width set - check if this child has a calculated flex width
-                if (child.calculatedFlexWidth > 0.0) {
-                    childWidth = child.calculatedFlexWidth
+                if child.width.isSet {
+                    ; If width is explicitly set and it's 100% (resolved to innerWidth),
+                    ; we should still subtract margins for proper fit
+                    if (child.width.pixels >= innerWidth) {
+                        ; Width was 100% - use available space after margins
+                        childWidth = availableForChild
+                    } {
+                        ; Width was set to a specific value - use it
+                        childWidth = child.width.pixels
+                    }
                 }
             }
             ; row alignItems:stretch — a child with no explicit height fills the
@@ -887,7 +934,17 @@ class EVGLayout {
             
             ; Layout child element (recursive)
             ; Units were already resolved in layoutChildren, pass childWidth so layoutElement knows the actual size
+            ; Tell the child which axis it is being laid along, so a width-less
+            ; flex container knows whether `width: auto` means fit-content (a
+            ; row) or stretch (a column). Restored afterwards because this pass
+            ; recurses.
+            def wasRow:boolean layingOutAlongRow
+            def wasShrink:boolean columnCrossShrinks
+            layingOutAlongRow = (isColumn == false)
+            columnCrossShrinks = (this.crossShrinksUnder(parent))
             this.layoutElement(child child.calculatedX child.calculatedY childWidth innerHeight)
+            layingOutAlongRow = wasRow
+            columnCrossShrinks = wasShrink
             
             ; Get actual child height after layout
             def childHeight:double child.calculatedHeight
@@ -1332,14 +1389,35 @@ class EVGLayout {
             }
         }
         
-        ; For vertical alignment, use parent's inner height if it has a fixed height
-        ; This allows verticalAlign to work when parent has explicit height
+        ; The box a child is centred in. `alignItems` places a child inside its
+        ; LINE; when the parent cannot wrap there is only one line and the line
+        ; IS the content box, so the child may use all of it.
+        ;
+        ; The old test was `parent.height.isSet`, which asks where the height
+        ; came from rather than whether there is one. A divider whose height
+        ; came from the group's `align-items: stretch` has a perfectly definite
+        ; 298 pixels and no declaration, so it failed the test and its grip
+        ; stayed pinned to the top of a divider it was supposed to sit in the
+        ; middle of. `hasDefiniteHeight` is the question that was meant:
+        ; declared or resolved, the height is known before the children are
+        ; placed either way.
+        ;
+        ; A parent that CAN wrap keeps the old test. There the lines are placed
+        ; by `applyAlignContent` and a line is not the box — letting each line
+        ; claim the whole box would stack them all on top of one another.
         def effectiveRowHeight:double rowHeight
-        if parent.height.isSet {
-            def parentInnerHeight:double parent.calculatedInnerHeight
-            if (parentInnerHeight > rowHeight) {
-                effectiveRowHeight = parentInnerHeight
+        def crossBox:double 0.0
+        if (parent.flexWrap == "nowrap") {
+            if parent.hasDefiniteHeight {
+                crossBox = parent.calculatedInnerHeight
             }
+        } {
+            if parent.height.isSet {
+                crossBox = parent.calculatedInnerHeight
+            }
+        }
+        if (crossBox > rowHeight) {
+            effectiveRowHeight = crossBox
         }
         
         ; align-items: baseline — line the row up on the text baselines rather
@@ -1843,6 +1921,44 @@ class EVGLayout {
             return 0.0
         }
         return ((outer + el.box.marginLeftPx) + el.box.marginRightPx)
+    }
+
+    ; Is this element laid out along a row? An element with no parent, or one
+    ; whose parent is not a flex container, is treated as a row item — which is
+    ; the block default: `width: auto` on a block fills, and the caller has
+    ; already set `width = parentWidth` before asking.
+    fn parentIsRow:boolean (el:EVGElement) {
+        return layingOutAlongRow
+    }
+
+    ; Whether `width: auto` on this element means fit-content rather than
+    ; stretch: along a row it always does, and down a column it does when the
+    ; parent aligns its items anywhere but the stretch.
+    ; Does a width-less child of this container shrink to its content?
+    ; Only when the container is a column that has explicitly asked for
+    ; something other than the stretch.
+    fn crossShrinksUnder:boolean (parent:EVGElement) {
+        if (parent.flexDirection != "column") {
+            return false
+        }
+        def a:string parent.alignItems
+        if (a == "center") {
+            return true
+        }
+        if (a == "flex-end") {
+            return true
+        }
+        if (a == "end") {
+            return true
+        }
+        return false
+    }
+
+    fn crossAxisFits:boolean (el:EVGElement) {
+        if (this.parentIsRow(el)) {
+            return true
+        }
+        return columnCrossShrinks
     }
 
     ; The recursive half. A row adds its children up; a column takes the widest.
@@ -2497,7 +2613,7 @@ class EVGLayout {
         if child.width.isSet {
             return child.width.pixels
         }
-        if (child.calculatedFlexWidth > 0.0) {
+        if (child.hasFlexWidth) {
             return child.calculatedFlexWidth
         }
         def textContent:string child.textContent
