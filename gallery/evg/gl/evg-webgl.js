@@ -77,7 +77,8 @@ in vec2 aCorner;          // unit quad, 0..1
 in vec4 aRect;            // x, y, w, h in page pixels
 in vec4 aColor;           // rgba, 0..1
 in vec4 aColor2;          // far gradient stop, rgba 0..1
-in vec3 aShape;           // radius, thickness (0 = fill), mode
+in vec3 aShape;           // radius (top-left), thickness (0 = fill), mode
+in vec4 aRadii;           // the four corners: TL, TR, BR, BL
 in float aGrad;           // 0 = flat, 1 = down the box, 2 = across it
 in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
 in float aRot;            // radians
@@ -89,7 +90,7 @@ out float vGrad;
 out vec2 vT;              // 0..1 along the box, for the gradient
 out vec2 vLocal;          // position within the rect, in pixels
 out vec2 vHalf;
-out float vRadius;
+out vec4 vRadii;
 out float vThickness;
 out float vMode;
 out vec2 vUV;
@@ -122,7 +123,7 @@ void main() {
   vT = aCorner;
   vHalf = aRect.zw * 0.5;
   vLocal = (aCorner - 0.5) * aRect.zw;
-  vRadius = aShape.x;
+  vRadii = aRadii;
   vThickness = aShape.y;
   vMode = aShape.z;
   vUV = mix(aUV.xy, aUV.zw, aCorner);
@@ -136,7 +137,7 @@ in float vGrad;
 in vec2 vT;
 in vec2 vLocal;
 in vec2 vHalf;
-in float vRadius;
+in vec4 vRadii;
 in float vThickness;
 in float vMode;
 in vec2 vUV;
@@ -144,9 +145,15 @@ uniform sampler2D uAtlas;
 uniform sampler2D uImage;
 out vec4 outColor;
 
-float sdRoundedBox(vec2 p, vec2 b, float r) {
-  vec2 q = abs(p) - b + r;
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+// Four corners, picked by the quadrant the fragment is in. The radii arrive
+// as (TL, TR, BR, BL) -- the order border-radius writes them in -- and one
+// choice per axis narrows them to the corner that matters here. No backticks
+// in this comment: the whole shader is a JS template literal.
+float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
+  vec2 tb = (p.x > 0.0) ? vec2(r.y, r.z) : vec2(r.x, r.w); // right : left
+  float rr = (p.y > 0.0) ? tb.y : tb.x;                     // bottom : top
+  vec2 q = abs(p) - b + rr;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rr;
 }
 
 // The rounded-box coverage of this fragment, 0..1.
@@ -156,7 +163,11 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
 // across the page background. Clamping keeps the edge one pixel soft no matter
 // how big the quad is.
 float boxCoverage(out float d) {
-  float r = min(vRadius, min(vHalf.x, vHalf.y));
+  // The clamp stays per corner: the display list already applies the CSS
+  // scale-down, so this only catches a caller that hands over a radius no box
+  // could hold.
+  float lim = min(vHalf.x, vHalf.y);
+  vec4 r = min(vRadii, vec4(lim));
   d = sdRoundedBox(vLocal, vHalf, r);
   float aa = clamp(fwidth(d), 0.35, 1.5);
   return smoothstep(aa, -aa, d);
@@ -925,7 +936,14 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
   // ends the run before it and forms one of its own.
-  const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [];
+  const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [], radii = [];
+  // `rc` is on a command only when its four corners differ; a box with one
+  // radius still carries a single `r`, so nothing that reads this list had to
+  // change to keep working.
+  const pushRadii = (c) => {
+    if (c.rc) radii.push(c.rc[0], c.rc[1], c.rc[2], c.rc[3]);
+    else { const r = c.r || 0; radii.push(r, r, r, r); }
+  };
   // Three floats per command, not two: a pivot at (0, 0) is a legal place to
   // turn about, so "is there one" cannot be read off the coordinates.
   const origins = [];
@@ -1013,6 +1031,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(u0, v0, u1, v1);
       shapes.push(c.r || 0, 0, MODE.IMAGE);
+      pushRadii(c);
       rots.push(((c.rot || 0) * Math.PI) / 180);
       origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
       colors.push(1, 1, 1, 1);
@@ -1046,10 +1065,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
       rects.push(c.x - s.pad, c.y + halfLeading + s.faceAsc - (s.pad + s.asc), s.w, s.h);
       uvs.push(s.u0, s.v0, s.u1, s.v1);
       shapes.push(0, 0, s.colored ? MODE.COLORTEXT : MODE.TEXT);
+      radii.push(0, 0, 0, 0);
     } else {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(0, 0, 0, 0);
       shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);
+      pushRadii(c);
     }
     rots.push(((c.rot || 0) * Math.PI) / 180);
     origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
@@ -1117,6 +1138,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
     { name: "aColor2", data: colors2, size: 4 },
     { name: "aGrad", data: grads, size: 1 },
     { name: "aShape", data: shapes, size: 3 },
+    { name: "aRadii", data: radii, size: 4 },
     { name: "aUV", data: uvs, size: 4 },
     { name: "aRot", data: rots, size: 1 },
     { name: "aOrigin", data: origins, size: 3 },

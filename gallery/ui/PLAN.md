@@ -2505,6 +2505,64 @@ The first version of the check passed while the bundle 404'd: a canvas is born
 300x150, and "something was drawn" was reading an element's default. It asks
 whether the PAGE sized it now.
 
+## Three things wrong with a window you can drag
+
+**It only jumped at the end.** `DialogDemo.dragBy` moved the controller and was
+the only one of `beginDrag`/`dragBy`/`endDrag` that did not rebuild the tree —
+the window's x and y live on the controller and the tree is built from them, so
+the picture kept the position it was built with until the release rebuilt it. A
+drag that ends in a jump rather than one you can steer, and one line.
+
+**The title bar was rounded on all four corners**, because a box in EVG had ONE
+radius. `border-radius: 11px 11px 0 0` — the declaration that makes a strip sit
+flush against what is under it — could not be written at all. Four numbers is
+the easy part; the two rules needed measuring, and `oracle/radius.json` records
+them:
+
+- the shorthand's fill-in order, where two values are a DIAGONAL pair (TL+BR,
+  TR+BL) and not the vertical/horizontal pair every other box shorthand uses;
+- the scale-down: when two radii on one side overrun it, ALL FOUR shrink by the
+  same factor — the smallest ratio over the four sides. Clamping per corner is
+  the classic wrong answer and comes out lopsided. 80px corners on a 100x40 box
+  are drawn at 40, and 60/20 on a 50x200 box at 37.5 and 12.5.
+
+Asking the browser turned up two more, both in the code the change did not
+touch. **A percentage resolved against the PARENT**: `border-radius: 50%` on a
+200x100 box inside an 800x600 page came out 300, and only the WebGL shader's
+own clamp made it look right — PDF and the rasteriser drew what they were told.
+And **the single number every backend reads was the AUTHORED one**, not the
+scaled one, for the same reason. Both are re-resolved where the box's own width
+is finally a number.
+
+The command carries `rc` only when the corners differ, so a box with one radius
+still emits one `r` and nothing that reads the list had to change. The painter
+takes a `vec4` and picks the corner by quadrant.
+
+**And the bar did not say it could be dragged.** `cursor` is a real inherited
+property in EVG now — a title bar declares `cursor: move` once and the words on
+it answer the same, which is what makes "what is the cursor here" a question
+about one element rather than a walk up a tree that has no parent links.
+`EVGHitTest.cursorAt` is the only new call, and unlike `idAt` it does not skip
+unnamed elements: the label inside the bar is exactly what the pointer is over.
+
+## The page swallowed every key once you picked a demo
+
+Reported separately: the Profile page's inputs did not respond to the keyboard.
+They worked in Node — press, then `keyWith`, and the text changes. The page
+dropped every key, because the keydown handler bailed on any
+`HTMLInputElement`, and the only inputs on the page are the sidebar's own
+radios and checkboxes. Choosing a demo left focus on the radio that chose it,
+and a demo that never sees a key is indistinguishable from one that ignores the
+keyboard.
+
+Fixed at the root rather than by widening the guard: the canvas takes focus on
+pointerdown — the thing you click should have it — with `tabIndex = -1`, so the
+tab order still belongs to the accessibility mirror, which is what a reader
+actually walks. The guard now names the elements that consume text.
+
+All four are in `demo/page-check.mjs`, which is the gate that exists because a
+bundle that builds is not a page that works.
+
 **Still to come**: the reference's horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the

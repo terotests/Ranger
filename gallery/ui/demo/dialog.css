@@ -155,7 +155,11 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  border-radius: 11px;
+  /* TOP CORNERS ONLY. It was 11px on all four, so the strip curved away from
+   * the body underneath it and left two little notches in the middle of the
+   * window — a bar that is flush at the bottom cannot be written with one
+   * radius, which is why EVG has four now. */
+  border-radius: 11px 11px 0 0;
   background-color: #fafafa;
   padding: 0 8px 0 0;
   height: 40px;
@@ -170,7 +174,11 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  border-radius: 11px;
+  border-radius: 11px 0 0 0;
+  /* The affordance the comment above the bar has been claiming all along.
+   * `cursor` is a real inherited property in EVG now, so the title on the bar
+   * does not have to repeat it. */
+  cursor: move;
   padding: 0 0 0 14px;
   width: 264px;
   height: 40px;

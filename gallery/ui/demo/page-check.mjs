@@ -107,6 +107,88 @@ for (const n of names) {
     [...new Set(problems)].join("; ") || "canvas width " + drew);
 }
 
+console.log("--- the keyboard reaches the demo ---");
+{
+  // Reported: the Profile page's inputs did not respond to the keyboard. They
+  // worked in Node — press then keyWith inserts — and the page dropped every
+  // key, because the keydown handler bailed on any `HTMLInputElement` and the
+  // only inputs here are the sidebar's own radios. Choosing a demo left focus
+  // on the radio that chose it. So the check is end to end: click the field
+  // the way a person does, type, and look at what the page drew.
+  await page.click('#demos input[value="profile"]');
+  await page.waitForTimeout(250);
+  const rect = await page.evaluate(() => {
+    const el = document.querySelector('[data-a11y-id="pf-name"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  ok("the Full Name field is on the page", !!rect);
+  const drawn = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return (l.cmds || []).filter((c) => c.text).map((c) => c.text).find((t) => t.startsWith("Noa"));
+  });
+  const before = await drawn();
+  await page.mouse.click(rect.x, rect.y);
+  await page.waitForTimeout(120);
+  const focusedTag = await page.evaluate(() => document.activeElement.tagName);
+  ok("clicking the picture puts the focus on it", focusedTag === "CANVAS", focusedTag);
+  await page.keyboard.type("XY");
+  await page.waitForTimeout(200);
+  const after = await drawn();
+  ok("and typing reaches the field", after === before + "XY", before + " -> " + after);
+}
+
+console.log("--- the window follows the pointer ---");
+{
+  // Reported: the window only jumped at the end of a drag. `dragBy` moved the
+  // controller and was the only one of the three gesture methods that did not
+  // rebuild the tree, so the painted position stayed where it was built until
+  // the release rebuilt it.
+  await page.click('#demos input[value="dialog"]');
+  await page.waitForTimeout(300);
+  const box = await (await page.$("#stage canvas")).boundingBox();
+  const at = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const c = (l.cmds || []).find((x) => Math.abs(x.w - 300) < 2 && Math.abs(x.h - 194) < 2);
+    return c ? [c.x, c.y] : null;
+  });
+  await page.mouse.move(box.x + 700, box.y + 45);
+  await page.waitForTimeout(120);
+  const cursor = await page.evaluate(() => document.querySelector("#stage canvas").style.cursor);
+  ok("the title bar says it can be moved", cursor === "move", cursor);
+
+  const start = await at();
+  await page.mouse.down();
+  const seen = [];
+  for (const d of [20, 40, 60]) {
+    await page.mouse.move(box.x + 700 + d, box.y + 45);
+    await page.waitForTimeout(60);
+    seen.push((await at())[0]);
+  }
+  await page.mouse.up();
+  // EVERY step moves it, not just the last: three distinct positions, each
+  // one further along than the one before.
+  ok("it moves at every step of the drag",
+    seen.length === 3 && seen[0] > start[0] && seen[1] > seen[0] && seen[2] > seen[1],
+    `${start[0]} -> ${seen.join(" -> ")}`);
+}
+
+console.log("--- the title bar is rounded only at the top ---");
+{
+  // `border-radius: 11px 11px 0 0` — the declaration that makes a strip sit
+  // flush against what is under it, and which could not be written at all
+  // while a box had one radius.
+  const rc = await page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const c = (l.cmds || []).find((x) => Math.abs(x.w - 298) < 2 && Math.abs(x.h - 40) < 2);
+    return c ? c.rc : null;
+  });
+  ok("the bar carries four corners", Array.isArray(rc), JSON.stringify(rc));
+  ok("rounded at the top, square at the bottom",
+    rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
+}
+
 await browser.close();
 server.close();
 console.log("");

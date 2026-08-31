@@ -638,6 +638,7 @@ const DEMOS = {
   },
 
   dialog: {
+    cursorAt: (x, y) => dialog.cursorAt(x, y),
     height: () => dialog.heightPx(),
     list: () => dialog.displayListJson(),
     hit: (x, y) => dialog.hitId(x, y),
@@ -1389,13 +1390,46 @@ document.getElementById("atbottom").addEventListener("change", (e) => {
  * picture rather than an interface. `activate` is the accessible tree's own
  * word for "this can be pressed", so there is no second list of what counts.
  */
-function setCursor(id) {
+// What the pointer looks like here.
+//
+// A demo that says so in its stylesheet wins: `cursor` is a real inherited
+// property in EVG, so a title bar declares `cursor: move` once and every word
+// on it answers the same. Anything else falls back to the old rule — a node
+// you can activate gets a pointer — which is all most of the page needs.
+//
+// And while something is held, the cursor belongs to the GESTURE and not to
+// whatever happens to be under the pointer, which may be nothing at all once
+// the drag has left the bar behind.
+function setCursor(id, x, y) {
+  const d = demo();
+  // A gesture keeps the cursor it started with. `grabbing` is the fallback for
+  // a drag whose handle declared nothing; a bar that says `move` should go on
+  // saying `move` while it is being moved, not change its mind halfway.
+  if (held) {
+    canvas.style.cursor = grabCursor || "grabbing";
+    return;
+  }
+  if (d.cursorAt && x !== undefined) {
+    const c = d.cursorAt(x, y);
+    if (c) { canvas.style.cursor = c; return; }
+  }
   const node = id && lastTree && lastTree.byId && lastTree.byId.get(id);
   canvas.style.cursor = node && node.activate ? "pointer" : "default";
 }
 
 let held = false;
+let grabCursor = "";
+// Focusable by script, NOT by Tab: clicking the picture should take the focus
+// off whatever sidebar control put it there, and the tab order belongs to the
+// accessibility mirror, which is the thing a reader actually walks.
+canvas.tabIndex = -1;
+canvas.style.outline = "none";
+
 canvas.addEventListener("pointerdown", (ev) => {
+  // The thing you clicked gets the focus. Without this the sidebar radio that
+  // chose the demo keeps it, and on a page whose keys go to `window` that is
+  // indistinguishable from a demo that ignores the keyboard.
+  canvas.focus({ preventScroll: true });
   ev.preventDefault();
   const d = demo();
   const h = d.host && d.host();
@@ -1404,6 +1438,7 @@ canvas.addEventListener("pointerdown", (ev) => {
     // A demo with a gesture: the press picks up, the move carries, the release
     // puts down. Nothing happens on a press that never travels.
     grabPointer = { x: ev.offsetX, y: ev.offsetY };
+    grabCursor = d.cursorAt ? d.cursorAt(ev.offsetX, ev.offsetY) : "";
     held = d.press(hitAt(ev.offsetX, ev.offsetY));
     if (held) {
       canvas.setPointerCapture(ev.pointerId);
@@ -1416,7 +1451,7 @@ canvas.addEventListener("pointerdown", (ev) => {
 canvas.addEventListener("pointermove", (ev) => {
   const d = demo();
   const id = hitAt(ev.offsetX, ev.offsetY);
-  setCursor(id);
+  setCursor(id, ev.offsetX, ev.offsetY);
   if (held && d.drag) {
     if (d.drag(id, ev)) {
       paint();
@@ -1478,10 +1513,27 @@ canvas.addEventListener("wheel", (ev) => {
   paint();
 }, { passive: false });
 
-// Keys are the window's: the canvas is not focusable, and the mirror element
-// that has the focus is inside this page.
+// Keys are the window's: the mirror element that has the focus is inside this
+// page, and the canvas is only focusable by script.
+//
+// WHAT THIS GUARD IS FOR, and what it was doing instead. A key belongs to the
+// demo unless the reader is typing into a real control on the page. It used to
+// bail for ANY `HTMLInputElement`, and the page's only inputs are the
+// sidebar's radios and checkboxes — so picking a demo left focus on the radio
+// that picked it, and every keystroke after that was dropped. Click a field on
+// the Profile page, type, and nothing happens; the demo never saw a key. A
+// checkbox does not consume text, so it must not swallow one.
+const TYPES_TEXT = new Set([
+  "text", "search", "email", "url", "tel", "password", "number", "date",
+  "datetime-local", "month", "week", "time",
+]);
+const consumesText = (el) =>
+  el instanceof HTMLTextAreaElement ||
+  (el instanceof HTMLInputElement && TYPES_TEXT.has(el.type)) ||
+  (el instanceof HTMLElement && el.isContentEditable);
+
 window.addEventListener("keydown", (ev) => {
-  if (ev.target instanceof HTMLInputElement) return;
+  if (consumesText(ev.target)) return;
   const d0 = demo();
   // A demo that reads modifiers gets them; the rest keep the one-argument
   // door they have always had.

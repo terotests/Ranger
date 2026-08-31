@@ -229,6 +229,12 @@ class EVGElement {
     def lineBreak:boolean false
     def overflow:string "visible"
 
+    ; `cursor`, and it INHERITS, like the CSS property it is: a title bar says
+    ; `cursor: move` once and the words on it do not have to say it again.
+    ; Empty means nobody has said anything, which is what makes inheriting
+    ; distinguishable from an author writing `default` on purpose.
+    def cursor:string ""
+
     ; --- SCROLLING ------------------------------------------------------------
     ;
     ; How far the content inside this element is pushed up and left. Set by the
@@ -1145,6 +1151,12 @@ class EVGElement {
         if (emojiColor.isSet == false) {
             emojiColor = parentEl.emojiColor
         }
+        ; And so does `cursor`. This is what makes "what is the cursor here" a
+        ; question about ONE element rather than a walk up a tree that has no
+        ; parent links.
+        if ((strlen cursor) == 0) {
+            cursor = parentEl.cursor
+        }
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
         this.applyOwnFontSize()
@@ -2003,6 +2015,7 @@ class EVGElement {
         isInline = other.isInline
         lineBreak = other.lineBreak
         overflow = other.overflow
+        cursor = other.cursor
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth
@@ -2468,8 +2481,40 @@ class EVGElement {
             box.borderColor = (EVGColor.parse(value))
             return
         }
+        ; ONE TO FOUR VALUES, clockwise from the top left. The fill-in rules
+        ; are the shorthand's own and are not the ones `padding` uses: two
+        ; values are (TL+BR, TR+BL) — a DIAGONAL pair — where two paddings are
+        ; vertical and horizontal. Three are (TL, TR+BL, BR). Measured against
+        ; a browser in `oracle/radius.json` rather than recalled.
         if ((name == "border-radius") || (name == "borderRadius")) {
-            box.borderRadius = (EVGUnit.parse(value))
+            def parts:[string] (EVGElement.splitWords(value))
+            def n:int (array_length parts)
+            if (n < 2) {
+                box.borderRadius = (EVGUnit.parse(value))
+                box.borderRadiusTL = (EVGUnit.unset())
+                box.borderRadiusTR = (EVGUnit.unset())
+                box.borderRadiusBR = (EVGUnit.unset())
+                box.borderRadiusBL = (EVGUnit.unset())
+                return
+            }
+            def tl:string (itemAt parts 0)
+            def tr:string (itemAt parts 1)
+            def br:string tl
+            def bl:string tr
+            if (n > 2) {
+                br = (itemAt parts 2)
+            }
+            if (n > 3) {
+                bl = (itemAt parts 3)
+            }
+            box.borderRadiusTL = (EVGUnit.parse(tl))
+            box.borderRadiusTR = (EVGUnit.parse(tr))
+            box.borderRadiusBR = (EVGUnit.parse(br))
+            box.borderRadiusBL = (EVGUnit.parse(bl))
+            ; The uniform value stays the FIRST corner, because every backend
+            ; but the WebGL painter still reads one number and the top left is
+            ; the one the shorthand names first.
+            box.borderRadius = (EVGUnit.parse(tl))
             return
         }
 
@@ -2591,6 +2636,10 @@ class EVGElement {
         }
         if (name == "overflow") {
             overflow = value
+            return
+        }
+        if (name == "cursor") {
+            cursor = value
             return
         }
         ; The scroll POSITION is settable, because a demo restoring where it
