@@ -14306,6 +14306,9 @@ class EvgTraceCli  {
     console.log("");
     console.log("  evg-trace <input.png|.jpg> <output.svg> [options]");
     console.log("");
+    console.log("  The two paths may come anywhere among the options, and an");
+    console.log("  option may be written --name value or --name=value.");
+    console.log("");
     console.log("  --preset <name>   lineart | poster | photo | print | broken");
     console.log("  --<option> <value>");
     console.log("");
@@ -14352,49 +14355,107 @@ class EvgTraceCli  {
   };
   run () {
     const argCount = (process.argv.length - 2);
-    if ( argCount < 2 ) {
+    if ( argCount < 1 ) {
       this.printUsage();
       return;
     }
-    const inputPath = process.argv[ 2 + 0];
-    const outputPath = process.argv[ 2 + 1];
     let opts = EvgTraceOptions.defaults();
-    let i = 2;
+    let positional = [];
+    let i = 0;
     let bad = false;
+    let wantHelp = false;
     while (i < argCount) {
       const arg = process.argv[ 2 + i];
-      if ( (arg.indexOf("--")) == 0 ) {
-        const name = arg.substring(2, (arg.length) );
-        let value = "true";
-        if ( (i + 1) < argCount ) {
-          const peek = process.argv[ 2 + (i + 1)];
-          if ( (peek.indexOf("--")) != 0 ) {
-            value = peek;
-            i = i + 1;
-          }
-        }
-        if ( name == "preset" ) {
-          opts = EvgTraceOptions.preset(value);
-        } else {
-          const ok = this.applyOption(opts, name, value);
-          if ( ok == false ) {
-            console.log("unknown option --" + name);
-            bad = true;
-          }
-        }
+      if ( (arg == "-h") || (arg == "--help") ) {
+        wantHelp = true;
       } else {
-        console.log("unexpected argument " + arg);
-        bad = true;
+        if ( (arg.indexOf("--")) == 0 ) {
+          const body = arg.substring(2, (arg.length) );
+          let name = body;
+          let value = "";
+          let haveValue = false;
+          const eq = body.indexOf("=");
+          if ( eq >= 0 ) {
+            name = body.substring(0, eq );
+            value = body.substring((eq + 1), (body.length) );
+            haveValue = true;
+          }
+          const isFlag = EvgTraceCli.isSwitch(name);
+          if ( haveValue == false ) {
+            if ( (i + 1) < argCount ) {
+              const peek = process.argv[ 2 + (i + 1)];
+              const peekIsOption = (peek.indexOf("--")) == 0;
+              let take = false;
+              if ( peekIsOption == false ) {
+                take = true;
+                if ( isFlag ) {
+                  take = EvgTraceCli.looksBoolean(peek);
+                }
+              }
+              if ( take ) {
+                value = peek;
+                haveValue = true;
+                i = i + 1;
+              }
+            }
+          }
+          if ( (haveValue == false) && isFlag ) {
+            value = "true";
+            haveValue = true;
+          }
+          if ( haveValue == false ) {
+            console.log(("--" + name) + " needs a value");
+            bad = true;
+          } else {
+            if ( name == "preset" ) {
+              opts = EvgTraceOptions.preset(value);
+            } else {
+              const ok = this.applyOption(opts, name, value);
+              if ( ok == false ) {
+                console.log("unknown option --" + name);
+                bad = true;
+              }
+            }
+          }
+        } else {
+          positional.push(arg);
+        }
       }
       i = i + 1;
     };
+    if ( wantHelp ) {
+      this.printUsage();
+      return;
+    }
+    const pn = positional.length;
+    if ( pn > 2 ) {
+      console.log(("expected an input and an output path, got " + ((pn.toString()))) + ":");
+      let pi = 0;
+      while (pi < pn) {
+        console.log("  " + (positional[pi]));
+        pi = pi + 1;
+      };
+      bad = true;
+    }
+    if ( pn < 2 ) {
+      if ( bad == false ) {
+        console.log("an input path and an output path are both needed");
+      }
+      bad = true;
+    }
     if ( bad ) {
       console.log("");
       this.printUsage();
       return;
     }
+    const inputPath = positional[0];
+    const outputPath = positional[1];
     const inDir = EvgTraceCli.dirOf(inputPath);
     const inFile = EvgTraceCli.fileOf(inputPath);
+    if ( (require("fs").existsSync(inDir + "/" + inFile )) == false ) {
+      console.log("no such file: " + inputPath);
+      return;
+    }
     const bytes = (function(){ var b = require('fs').readFileSync(inDir + '/' + inFile); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     if ( (bytes.byteLength) == 0 ) {
       console.log("cannot read " + inputPath);
@@ -14551,6 +14612,30 @@ EvgTraceCli.fileOf = function(path) {
     return path;
   }
   return path.substring((sep + 1), (path.length) );
+};
+EvgTraceCli.isSwitch = function(name) {
+  if ( name == "optcurve" ) {
+    return true;
+  }
+  if ( name == "blackOnWhite" ) {
+    return true;
+  }
+  if ( name == "edgeSnap" ) {
+    return true;
+  }
+  if ( name == "overlayFollowBase" ) {
+    return true;
+  }
+  if ( name == "detailTrueColor" ) {
+    return true;
+  }
+  if ( name == "gradientFill" ) {
+    return true;
+  }
+  return false;
+};
+EvgTraceCli.looksBoolean = function(s) {
+  return ("|0|1|true|false|yes|no|on|off|".indexOf((("|" + s) + "|"))) >= 0;
 };
 EvgTraceCli.isProgressiveJpeg = function(bytes) {
   const n = bytes.byteLength;
