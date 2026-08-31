@@ -123,6 +123,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The unit was wrong, and how much that is worth.** The audit said the two
+  errors were not the min-cut's to decide, so the question became what unit
+  would let it decide them. Measured: if the thing chosen is a **connected
+  piece of a path** rather than the path, the portrait's ceiling goes from
+  **0.741 to 0.921**, and to 0.838 at a 16 px floor for 2 178 nodes against the
+  1 373 there were. The tracer's base surface is one path visible in 732
+  islands, and splitting it is the difference between having to take the man's
+  chest with the flag's holes and being able to choose.
+
+  It is implemented, and it is off. `WAND_PIECE` is the smallest island that
+  gets to be its own node; at 1e9 there are none and the wand chooses paths as
+  before. Turned on at 64 px, against ceilings computed in the same unit:
+
+  | | paths | pieces |
+  |---|---|---|
+  | the drawn line, mean of ceiling | 95% | **97%** |
+  | `8-neighbour`, drawn line | 0.844 | **0.937** |
+  | `4-gradient`, drawn line | 0.858 | **0.926** |
+  | the page's smoke test | 0.859 | **0.892** |
+  | the beach photograph | 0.649 | **0.735** |
+  | the portrait | 0.812 of 0.741 | **0.820** of 0.832 |
+  | **steerability** | 74% → 95% → 96% | **42% → 57% → 56%** |
+  | **the portrait, twenty hands** | 100% throughout | **median 24%**, p90 99% |
+
+  The last two rows are why it is off. A finer graph is a graph that needs more
+  evidence per stroke, and the evidence it needs — a boundary term that tells a
+  real edge from an invented one, and a soft prior for a region with a cheap
+  path to the frame — is not written. Turning it on now would trade one error
+  for another, which is the one thing this bench exists to prevent.
+
+  Two things did ship from the work. The ceiling is now measured in the unit
+  the tool actually chooses, which raises it honestly — `5-shared` from 0.313
+  to 0.653, `4-gradient` from 0.853 to 0.911 — and makes several old "100% of
+  ceiling" readings the 96–99% they always were. And the clipping is one path
+  now instead of three: whatever set the selection, the document is clipped to
+  exactly it. On the measurements that ends level — the colour click identical,
+  the drawn line from a mean IoU of 0.884 to 0.894, the brush 0.847 to 0.848 —
+  with the smoke test, both photographs and every steer number unchanged.
+
+  Along the way, one thing that did **not** work, recorded so it is not tried
+  twice: making the boundary term robust by taking a quantile of the gradient
+  along a shared edge instead of its mean. The median is identical on every
+  metric and the upper quartile is worse; the right-hand leak does not move by
+  a pixel at any setting, because it is a hint and not a decision. The audit
+  had said so.
+
 - **The wand explains itself, and takes corrections by hand.** Two errors on
   the same picture needed opposite repairs — the right side had to shrink and
   the hair had to grow — and no single slider tells them apart, so the tool now

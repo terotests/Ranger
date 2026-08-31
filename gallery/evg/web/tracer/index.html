@@ -1507,6 +1507,9 @@
       if (Math.abs(f - b) / (f + b) < WAND_CONFIDENT) return;   // contested
       if (f > b) wandFg.add(i); else wandBg.add(i);
     });
+    window.__settle = { touched: seen.size, fg: wandFg.size, bg: wandBg.size,
+      sample: Array.from(seen).slice(0, 6).map(function (i) {
+        return [i, wandFgTouch.get(i) || 0, wandBgTouch.get(i) || 0]; }) };
   }
 
   // Which regions a stroke passed over. The brush is a path, not a polygon —
@@ -1677,12 +1680,73 @@
         if (got) ids[q] = got;
       }
     }
-    // What each shape owns on screen, as a count and as the cells themselves.
+    // ------------------------------------------------- a piece, not a path
+    //
+    // Up to here `ids` names the path that drew each cell, and the wand treated
+    // one path as one thing to take or leave. On a photograph that is the wrong
+    // unit. The tracer draws a base surface under the whole stack and it shows
+    // through wherever nothing else was painted: on the official portrait that
+    // single path is visible in 732 separate islands — a fifth of the frame —
+    // and among them are the man's chest and the gaps inside the flag beside
+    // him. One node in the graph, so taking it takes the flag and dropping it
+    // takes his chest, and no evidence can tell them apart because they share
+    // one colour, one area and one set of neighbours.
+    //
+    // So the node is a *connected piece* of a path, not the path. Measured on
+    // that portrait, the ceiling — what any method choosing whole units could
+    // score — goes from 0.741 to 0.921. All 58 136 pieces is more graph than
+    // the picture is worth, and it is not needed: pieces under WAND_PIECE cells
+    // fall back into their path's largest piece, which at sixteen keeps 0.838
+    // for 2 178 nodes against the 1 373 there were.
+    var nodeOf, nUnits;
+    if (WAND_PIECE >= 1e9) {
+      // Off: a node is a path, exactly as before, invisible paths included, so
+      // nothing downstream can shift under it.
+      nodeOf = new Int32Array(els.length);
+      for (var ni = 0; ni < els.length; ni++) nodeOf[ni] = ni;
+      nUnits = els.length;
+    } else {
+    var piece = new Int32Array(n), pieceOf = [], pieceSize = [], pstack = [];
+    for (var ps = 0; ps < n; ps++) {
+      if (!ids[ps] || piece[ps]) continue;
+      var me = ids[ps], node = pieceOf.length, cnt = 0;
+      pieceOf.push(me - 1); pieceSize.push(0);
+      piece[ps] = node + 1; pstack.push(ps);
+      while (pstack.length) {
+        var pq = pstack.pop(); cnt++;
+        var px2 = pq % cw, py2 = (pq / cw) | 0;
+        if (px2 > 0 && ids[pq-1] === me && !piece[pq-1]) { piece[pq-1] = node + 1; pstack.push(pq-1); }
+        if (px2 < cw-1 && ids[pq+1] === me && !piece[pq+1]) { piece[pq+1] = node + 1; pstack.push(pq+1); }
+        if (py2 > 0 && ids[pq-cw] === me && !piece[pq-cw]) { piece[pq-cw] = node + 1; pstack.push(pq-cw); }
+        if (py2 < ch-1 && ids[pq+cw] === me && !piece[pq+cw]) { piece[pq+cw] = node + 1; pstack.push(pq+cw); }
+      }
+      pieceSize[node] = cnt;
+    }
+    var floor = WAND_PIECE * sc * sc;   // the floor is in image pixels
+    var biggest = new Int32Array(els.length).fill(-1);
+    for (var pn = 0; pn < pieceOf.length; pn++) {
+      var owner = pieceOf[pn];
+      if (biggest[owner] < 0 || pieceSize[pn] > pieceSize[biggest[owner]]) biggest[owner] = pn;
+    }
+    var remap = new Int32Array(pieceOf.length), keptN = 0;
+    for (var pn2 = 0; pn2 < pieceOf.length; pn2++) {
+      remap[pn2] = (pieceSize[pn2] >= floor || biggest[pieceOf[pn2]] === pn2) ? keptN++ : -1;
+    }
+    for (var pn3 = 0; pn3 < pieceOf.length; pn3++) {
+      if (remap[pn3] < 0) remap[pn3] = remap[biggest[pieceOf[pn3]]];
+    }
+    nodeOf = new Int32Array(keptN);
+    for (var pn4 = 0; pn4 < pieceOf.length; pn4++) nodeOf[remap[pn4]] = pieceOf[pn4];
+    for (var pc = 0; pc < n; pc++) ids[pc] = piece[pc] ? remap[piece[pc] - 1] + 1 : 0;
+    nUnits = keptN;
+    }
+
+    // What each piece owns on screen, as a count and as the cells themselves.
     // The cells are what lets a piece be weighed without walking the frame.
-    var seen = new Int32Array(els.length);
+    var seen = new Int32Array(nUnits);
     for (var p2 = 0; p2 < n; p2++) if (ids[p2]) seen[ids[p2] - 1]++;
-    var cells = new Array(els.length), fillAt = new Int32Array(els.length);
-    for (var e = 0; e < els.length; e++) cells[e] = new Int32Array(seen[e]);
+    var cells = new Array(nUnits), fillAt = new Int32Array(nUnits);
+    for (var e = 0; e < nUnits; e++) cells[e] = new Int32Array(seen[e]);
     for (var p3 = 0; p3 < n; p3++) {
       var id3 = ids[p3];
       if (id3) cells[id3 - 1][fillAt[id3 - 1]++] = p3;
@@ -1697,8 +1761,8 @@
     var srcH = sourceBitmap ? sourceBitmap.h : 0;
     var src = srcW ? workingPixels() : null;
     var lum = new Float32Array(n);
-    var labL = new Float32Array(els.length), labA = new Float32Array(els.length),
-        labB = new Float32Array(els.length), labN = new Int32Array(els.length);
+    var labL = new Float32Array(nUnits), labA = new Float32Array(nUnits),
+        labB = new Float32Array(nUnits), labN = new Int32Array(nUnits);
     if (src) {
       for (var cy = 0; cy < ch; cy++) {
         for (var cx2 = 0; cx2 < cw; cx2++) {
@@ -1718,8 +1782,8 @@
           labN[idc - 1]++;
         }
       }
-      for (var e2 = 0; e2 < els.length; e2++) {
-        if (!labN[e2]) { var f = wandRgb(els[e2].getAttribute("fill"));
+      for (var e2 = 0; e2 < nUnits; e2++) {
+        if (!labN[e2]) { var f = wandRgb(els[nodeOf[e2]].getAttribute("fill"));
           var lf = rgbLab(f[0], f[1], f[2]);
           labL[e2] = lf[0]; labA[e2] = lf[1]; labB[e2] = lf[2]; continue; }
         labL[e2] /= labN[e2]; labA[e2] /= labN[e2]; labB[e2] /= labN[e2];
@@ -1728,7 +1792,7 @@
     // Who touches whom, as seen rather than as drawn: two shapes are
     // neighbours when they meet in the z-buffer, so a boundary buried under a
     // third shape does not count as contact.
-    var nb = new Array(els.length), share = new Map();
+    var nb = new Array(nUnits), share = new Map();
     function link(x, y, ca, cb) {
       if (x === y || !x || !y) return;
       var s = nb[x - 1] || (nb[x - 1] = new Set());
@@ -1740,9 +1804,11 @@
       // draws is a cheap place to cut; one invented by the quantizer is not.
       var key = x < y ? x * 100000 + y : y * 100000 + x;
       var rec = share.get(key);
-      if (!rec) { rec = { len: 0, edge: 0 }; share.set(key, rec); }
+      if (!rec) { rec = { len: 0, edge: 0, hist: new Uint16Array(32) }; share.set(key, rec); }
       rec.len++;
-      rec.edge += Math.abs(lum[ca] - lum[cb]);
+      var d = Math.abs(lum[ca] - lum[cb]);
+      rec.edge += d;
+      rec.hist[Math.min(31, d / 8) | 0]++;
     }
     for (var yy = 0; yy < ch; yy++) {
       var row = yy * cw;
@@ -1752,10 +1818,25 @@
         if (yy + 1 < ch) link(id, ids[row + cw + xx], row + xx, row + cw + xx);
       }
     }
-    share.forEach(function (rec) { rec.edge /= rec.len; });
+    // How hard the photograph pushes back along a shared boundary. The mean of
+    // it was the first answer and it is the wrong statistic: a boundary the
+    // quantizer invented through a patch of texture collects a few large jumps
+    // and reads as a real edge, while a real edge crossed by a highlight reads
+    // as less of one. A quantile ignores both. WAND_EDGE_Q picks which — 0.5 is
+    // the median, 0.75 the upper quartile, 1 the maximum, and 0 falls back to
+    // the mean so the two can be compared.
+    share.forEach(function (rec) {
+      rec.edge /= rec.len;
+      if (WAND_EDGE_Q <= 0) { rec.hist = null; return; }
+      var want = Math.max(1, Math.round(rec.len * WAND_EDGE_Q)), acc = 0, b = 0;
+      for (; b < 32; b++) { acc += rec.hist[b]; if (acc >= want) break; }
+      rec.edge = Math.min(31, b) * 8 + 4;
+      rec.hist = null;
+    });
     return { svg: svg, els: els, index: index, rgb: rgb, mats: mats, ids: ids,
              cells: cells, cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, share: share,
-             seen: seen, labL: labL, labA: labA, labB: labB, n: els.length };
+             seen: seen, labL: labL, labA: labA, labB: labB, n: nUnits,
+             elOf: nodeOf, nEls: els.length };
   }
 
   function wandInvalidate() { wandGraph = null; wandAddMask = null; wandCutMask = null; }
@@ -1830,7 +1911,7 @@
     for (var p = 0; p < n; p++) {
       var id = g.ids[p];
       if (!id || !sel.has(id - 1)) continue;
-      var clip = wandClipOf.get(id - 1);
+      var clip = wandClipOf.get(g.elOf[id - 1]);
       if (clip !== undefined) {
         var r = wandClipRaster.get(clip);
         if (r && !r[p]) continue;
@@ -1841,8 +1922,12 @@
   }
 
   function wandReady(svg) {
+    // Against the path count, not the node count: a node is a piece of a path
+    // now, and comparing the wrong one rebuilt the graph on every call — which
+    // cleared the hints between strokes, so a ⌥ stroke arrived to find the
+    // positive one gone and the selection emptied.
     if (wandGraph && wandGraph.svg === svg &&
-        wandGraph.n === wandPaths(svg).length) return wandGraph;
+        wandGraph.nEls === wandPaths(svg).length) return wandGraph;
     wandClear();
     wandGraph = wandBuild(svg);
     return wandGraph;
@@ -1891,20 +1976,39 @@
   // from: chaining tolerance from neighbour to neighbour walks a portrait's
   // cheek into the wall behind it one imperceptible step at a time.
   function wandGrow(g, seed, tol) {
-    var want = g.rgb[seed], lim = tol * tol;
+    var want = g.rgb[g.elOf[seed]], lim = tol * tol;
     // A colour flood answers for whole shapes, so a shape it reaches stops
     // being clipped by whatever line was drawn before.
-    var hit = new Set([seed]), queue = [seed];
+    // Pieces of one path carry one colour, so the flood crosses between them
+    // even where they do not touch: picking a shade is a statement about
+    // colour and not about where the colour happens to sit. Without this the
+    // flood stopped at the first island of a scattered path — a colour click
+    // fell from 65% of ceiling to 44%.
+    var byEl = new Array(g.nEls);
+    for (var u = 0; u < g.n; u++) {
+      var e = g.elOf[u];
+      (byEl[e] || (byEl[e] = [])).push(u);
+    }
+    var hit = new Set(), queue = [];
+    function take(i) {
+      if (hit.has(i)) return;
+      hit.add(i); queue.push(i);
+      var mates = byEl[g.elOf[i]];
+      for (var m = 0; m < mates.length; m++) {
+        if (hit.has(mates[m])) continue;
+        hit.add(mates[m]); queue.push(mates[m]);
+      }
+    }
+    take(seed);
     while (queue.length) {
       var near = g.nb[queue.pop()];
       if (!near) continue;
       near.forEach(function (j) {
         if (hit.has(j)) return;
-        var a = g.rgb[j];
+        var a = g.rgb[g.elOf[j]];
         var dr = a[0] - want[0], dg = a[1] - want[1], db = a[2] - want[2];
         if (dr * dr + dg * dg + db * db > lim) return;
-        hit.add(j);
-        queue.push(j);
+        take(j);
       });
     }
     wandEnclose(g, hit);
@@ -2356,10 +2460,27 @@
       svg.appendChild(cp);
       wandClipEls.set(cid, cp);
       wandClipRaster.set(cid, mark);
-      part.forEach(function (k) { wandClipOf.set(k, cid); });
+      part.forEach(function (k) { wandClipOf.set(g.elOf[k], cid); });
     }
     wandTrim(g, hit, +wandTidyEl.value);
     wandEnclose(g, hit);
+    // A path with pieces inside the line and pieces outside it, and none
+    // straddling it, gets no clip from the rule above and used to be drawn
+    // whole. Those, and only those, are clipped to the line and to the pieces
+    // that were kept.
+    var eTot = new Int32Array(g.nEls), eKeep = new Int32Array(g.nEls);
+    for (var cp2 = 0; cp2 < g.cw * g.ch; cp2++) {
+      var idc = g.ids[cp2];
+      if (!idc) continue;
+      var ec = g.elOf[idc - 1];
+      eTot[ec]++;
+      if (hit.has(idc - 1)) eKeep[ec]++;
+    }
+    for (var em = 0; em < g.nEls; em++) {
+      if (!eTot[em] || eKeep[em] === 0 || eKeep[em] === eTot[em]) continue;
+      if (wandClipOf.has(em)) continue;      // the line already cut this one
+      wandClipElement(g, em, mark, hit);
+    }
     return hit;
   }
 
@@ -2389,26 +2510,35 @@
     if (view === "conf") wandCost.forEach(function (v) {
       if (isFinite(v) && Math.abs(v) > top) top = Math.abs(v);
     });
-    g.els.forEach(function (el, i) {
-      el.classList.toggle("wand-off", view === "result" && !!wandSel && !wandSel.has(i));
-      var clip = wandSel && wandSel.has(i) ? wandClipOf.get(i) : undefined;
+    // A path can now hold several pieces, and they need not agree. An element
+    // is off when none of its pieces is chosen, clipped when some are.
+    var any = new Uint8Array(g.nEls);
+    if (wandSel) wandSel.forEach(function (i) { any[g.elOf[i]] = 1; });
+    // For the debug views, the piece under each element's largest area decides
+    // its colour — the views are about pieces, and this is the honest summary
+    // a single fill can give.
+    var pick = new Int32Array(g.nEls).fill(-1), best = new Int32Array(g.nEls);
+    for (var u = 0; u < g.n; u++) {
+      var e0 = g.elOf[u];
+      if (g.seen[u] > best[e0]) { best[e0] = g.seen[u]; pick[e0] = u; }
+    }
+    g.els.forEach(function (el, e) {
+      var i = pick[e];
+      el.classList.toggle("wand-off", view === "result" && !!wandSel && !any[e]);
+      var clip = wandSel && any[e] ? wandClipOf.get(e) : undefined;
       // The clip stays on wherever the view is about what was *chosen* — a
-      // region kept for a twentieth of itself is not a region kept. It comes
+      // path kept for one of its twenty pieces is not a path kept. It comes
       // off for "palat", where the whole shape is the thing being shown.
       var wantClip = clip !== undefined && (view === "result" || view === "conf");
       if (!wantClip) el.removeAttribute("clip-path");
       else el.setAttribute("clip-path", "url(#" + clip + ")");
-      if (view === "result") { wandRestoreFill(el); return; }
+      if (view === "result" || i < 0) { if (view === "result") wandRestoreFill(el); return; }
       if (view === "regions") {
-        // One hue per region, so a shape scattered over the picture is visible
-        // as one thing — which is how the base surface was found.
         var h = (Math.imul(i + 1, 2654435761) >>> 0) % 360;
         wandOverrideFill(el, "hsl(" + h + " 70% " + (wandSel && wandSel.has(i) ? 55 : 22) + "%)");
         return;
       }
       if (view === "edges") {
-        // How strong the bitmap's own edge is around this region: the mean of
-        // the gradient across every boundary it shares.
         var sum = 0, len = 0;
         var near = g.nb[i] || [];
         near.forEach(function (j) {
@@ -2417,18 +2547,15 @@
           if (!rec) return;
           sum += rec.edge * rec.len; len += rec.len;
         });
-        var e = len ? sum / len : 0;
-        var t = Math.max(0, Math.min(1, e / 60));
+        var eStr = len ? sum / len : 0;
+        var t = Math.max(0, Math.min(1, eStr / 60));
         wandOverrideFill(el, "hsl(" + Math.round(30 + 200 * t) + " 80% " + Math.round(12 + 55 * t) + "%)");
         return;
       }
-      // conf
       var c = wandCost.has(i) ? wandCost.get(i) : null;
       if (c === null) { wandOverrideFill(el, "#15171c"); return; }
-      if (!isFinite(c)) { wandOverrideFill(el, "#ffd54a"); return; }   // a hint: not up for debate
+      if (!isFinite(c)) { wandOverrideFill(el, "#ffd54a"); return; }
       var strength = top > 0 ? Math.min(1, Math.abs(c) / top) : 0;
-      // Sure decisions are saturated, coin tosses are pale. Warm = kept,
-      // cool = left out.
       var keep = wandSel && wandSel.has(i);
       var light = Math.round(96 - 52 * Math.sqrt(strength));
       wandOverrideFill(el, "hsl(" + (keep ? 8 : 210) + " " + Math.round(20 + 70 * Math.sqrt(strength))
@@ -2469,20 +2596,46 @@
   function wandMerge(g, grown, ev, clipped) {
     if (!wandSel || (!ev.shiftKey && !ev.altKey)) wandSel = new Set();
     grown.forEach(function (i) {
-      if (ev.altKey) { wandSel.delete(i); wandClipOf.delete(i); return; }
+      if (ev.altKey) { wandSel.delete(i); return; }
       wandSel.add(i);
-      if (!clipped) wandClipOf.delete(i);
     });
+    if (!clipped) {
+      // A colour flood answers for whole shapes, so a shape it reaches stops
+      // being clipped by whatever line was drawn before — the lasso's clip
+      // included, which is not an auto clip and would otherwise survive.
+      grown.forEach(function (i) { wandClipOf.delete(g.elOf[i]); });
+      wandClipToSelection(g, wandSel);
+    }
     wandPaint();
-    setEditNote(wandSel.size + " / " + g.n + " muotoa valittu. ⇧ lisää, ⌥ poistaa, Eristä leikkaa muun pois.");
+    setEditNote(wandSel.size + " / " + g.n + " palaa valittu. ⇧ lisää, ⌥ poistaa, Eristä leikkaa muun pois.");
   }
 
   function wandClick(el, ev) {
     var svg = outSvg();
     if (!svg) return;
     var g = wandReady(svg);
-    var seed = g.index.get(el);
-    if (seed === undefined) return;
+    // Which *piece* was clicked. The element is not enough any more: one path
+    // can be scattered over the picture and the piece under the pointer is the
+    // thing meant.
+    var e = g.index.get(el);
+    if (e === undefined) return;
+    var u = toUser(ev, svg);
+    var cx = Math.round((u.x - g.vb[0]) * g.sc), cy = Math.round((u.y - g.vb[1]) * g.sc);
+    var seed = -1;
+    // The piece under the pointer, but only if it belongs to the path that was
+    // clicked: a click can arrive without coordinates, and a pointer can be a
+    // pixel off the shape it hit. Otherwise the path's largest piece stands for
+    // it.
+    if (cx >= 0 && cy >= 0 && cx < g.cw && cy < g.ch) {
+      var hit = g.ids[cy * g.cw + cx];
+      if (hit && g.elOf[hit - 1] === e) seed = hit - 1;
+    }
+    if (seed < 0) {
+      var big = -1;
+      for (var q = 0; q < g.n; q++) if (g.elOf[q] === e && (big < 0 || g.seen[q] > g.seen[big])) big = q;
+      seed = big;
+    }
+    if (seed < 0) return;
     // In a debug view a click is a question, not a command.
     if (wandViewMode() !== "result") { wandExplain(seed); return; }
     wandMerge(g, wandGrow(g, seed, +wandTol.value), ev, false);
@@ -2580,6 +2733,31 @@
   // Closing holes comes after all three: doing it first welds a stray to the
   // body and then every test believes it.
   var WAND_SNAP = 4, WAND_CLOSE = 5;
+  // The smallest island, in image pixels, that gets to be its own node — and
+  // 1e9 means none of them, which is the default and is why the wand still
+  // chooses whole paths.
+  //
+  // Splitting is measured and it is not a small thing. The unit is wrong: the
+  // tracer's base surface is one path visible in 732 islands on the official
+  // portrait, and the ceiling — what any method choosing whole units could
+  // score — goes from 0.741 to 0.921 with every island its own node, or 0.838
+  // at a 16 px floor for 2 178 nodes against 1 373. Turned on at 64 px the
+  // drawn line goes from 99% of the old ceiling to 97% of a much higher one
+  // (8-neighbour 0.844 to 0.937, 4-gradient 0.858 to 0.926), the page's smoke
+  // test from 0.859 to 0.892, the beach photograph from 0.649 to 0.735, and
+  // the portrait from 0.812 to 0.820 against a ceiling of 0.832 rather than
+  // 0.741.
+  //
+  // What it costs is steadiness, and that is why it is off. Steerability falls
+  // from 74% → 95% → 96% to 42% → 57% → 56%, and the portrait's twenty hands
+  // split in two: a p90 of 99% and a median of 24%. A finer graph is a graph
+  // that needs more evidence per stroke, and the evidence it needs — a
+  // boundary term that knows a real edge from an invented one, and a soft
+  // prior for a region with a cheap path to the frame — is not written yet.
+  // Turning this on before that would trade one error for another, which is
+  // the one thing this bench exists to prevent.
+  var WAND_PIECE = 1e9;
+  var WAND_EDGE_Q = 0;
 
   function wandDilate(mask, cw, ch, r) {
     var cur = mask;
@@ -2664,59 +2842,92 @@
       tot[id-1]++;
       if (mask[p]) inm[id-1]++;
     }
-    function dropAuto(i) {
-      var cid = wandClipOf.get(i);
-      if (cid === undefined || !wandAutoClips.has(cid)) return;
-      var el = wandClipEls.get(cid);
-      if (el && el.parentNode) el.parentNode.removeChild(el);
-      wandClipEls.delete(cid); wandClipRaster.delete(cid);
-      wandAutoClips.delete(cid); wandClipOf.delete(i);
-    }
-    var part = [];
     for (var i = 0; i < g.n; i++) {
       var had = sel.has(i);
       if (!tot[i]) continue;
-      if (!inm[i]) { if (had) { sel.delete(i); dropAuto(i); } continue; }
+      if (!inm[i]) { if (had) sel.delete(i); continue; }
       if (!had && !grow) continue;
-      if (!had) { sel.add(i);
-        if (window.__addLog) window.__addLog.push([i, tot[i], inm[i]]); }
-      if (inm[i] === tot[i]) { dropAuto(i); continue; }
-      part.push(i);
+      if (!had) {
+        sel.add(i);
+        if (window.__addLog) window.__addLog.push([i, tot[i], inm[i]]);
+      }
     }
-    part.forEach(function (i) {
-      dropAuto(i);
-      var id1 = i + 1, d = [];
-      for (var y = 0; y < ch; y++) {
-        var row = y * cw, run = -1;
-        for (var x = 0; x <= cw; x++) {
-          var on = x < cw && mask[row + x] && g.ids[row + x] === id1;
-          if (on && run < 0) run = x;
-          if (!on && run >= 0) {
-            var ux = g.vb[0] + run / g.sc, uy = g.vb[1] + y / g.sc;
-            d.push("M" + ux.toFixed(2) + " " + uy.toFixed(2)
-              + "h" + ((x - run) / g.sc).toFixed(2)
-              + "v" + (1 / g.sc).toFixed(2)
-              + "h" + (-(x - run) / g.sc).toFixed(2) + "z");
-            run = -1;
-          }
+    // The clip is per element, because that is what the document has: several
+    // pieces of one path can be kept and others dropped, and the difference
+    // has to be expressed as a shape the SVG can carry.
+    wandClipToSelection(g, sel, mask);
+  }
+
+  // Whatever set the selection, the document has to show exactly it. A path
+  // holding several pieces is clipped to the ones chosen — without this the
+  // colour click and the drawn line painted a whole path for one piece of it,
+  // and the lasso fell from 99% of ceiling to 86%.
+  function wandClipToSelection(g, sel, mask) {
+    if (!sel) return;
+    var n = g.cw * g.ch;
+    if (!mask) { mask = new Uint8Array(n); mask.fill(1); }
+    var eTot = new Int32Array(g.nEls), eKeep = new Int32Array(g.nEls);
+    for (var p = 0; p < n; p++) {
+      var id = g.ids[p];
+      if (!id) continue;
+      var e = g.elOf[id - 1];
+      eTot[e]++;
+      if (mask[p] && sel.has(id - 1)) eKeep[e]++;
+    }
+    for (var e2 = 0; e2 < g.nEls; e2++) {
+      if (!eTot[e2]) continue;
+      if (eKeep[e2] === 0 || eKeep[e2] === eTot[e2]) { wandDropAutoClip(e2); continue; }
+      wandClipElement(g, e2, mask, sel);
+    }
+  }
+
+  function wandDropAutoClip(e) {
+    var cid = wandClipOf.get(e);
+    if (cid === undefined || !wandAutoClips.has(cid)) return;
+    var el = wandClipEls.get(cid);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    wandClipEls.delete(cid); wandClipRaster.delete(cid);
+    wandAutoClips.delete(cid); wandClipOf.delete(e);
+  }
+
+  // The kept cells of one element, as rows of rectangles in user space.
+  function wandClipElement(g, e, mask, sel) {
+    wandDropAutoClip(e);
+    var cw = g.cw, ch = g.ch, n = cw * ch, d = [];
+    var keepCell = new Uint8Array(n);
+    for (var p = 0; p < n; p++) {
+      var id = g.ids[p];
+      if (!id || g.elOf[id - 1] !== e) continue;
+      if (mask[p] && sel.has(id - 1)) keepCell[p] = 1;
+    }
+    for (var y = 0; y < ch; y++) {
+      var row = y * cw, run = -1;
+      for (var x = 0; x <= cw; x++) {
+        var on = x < cw && keepCell[row + x];
+        if (on && run < 0) run = x;
+        if (!on && run >= 0) {
+          var ux = g.vb[0] + run / g.sc, uy = g.vb[1] + y / g.sc;
+          d.push("M" + ux.toFixed(2) + " " + uy.toFixed(2)
+            + "h" + ((x - run) / g.sc).toFixed(2)
+            + "v" + (1 / g.sc).toFixed(2)
+            + "h" + (-(x - run) / g.sc).toFixed(2) + "z");
+          run = -1;
         }
       }
-      if (!d.length) { sel.delete(i); return; }
-      var cid = "wandclip" + (++wandSeq);
-      var cp = document.createElementNS(SVGNS, "clipPath");
-      cp.setAttribute("id", cid);
-      cp.setAttribute("clipPathUnits", "userSpaceOnUse");
-      var pe = document.createElementNS(SVGNS, "path");
-      pe.setAttribute("d", d.join(""));
-      cp.appendChild(pe);
-      g.svg.appendChild(cp);
-      wandClipEls.set(cid, cp);
-      wandAutoClips.add(cid);
-      var mark = new Uint8Array(n);
-      for (var p2 = 0; p2 < n; p2++) if (mask[p2] && g.ids[p2] === id1) mark[p2] = 1;
-      wandClipRaster.set(cid, mark);
-      wandClipOf.set(i, cid);
-    });
+    }
+    if (!d.length) return;
+    var cid = "wandclip" + (++wandSeq);
+    var cp = document.createElementNS(SVGNS, "clipPath");
+    cp.setAttribute("id", cid);
+    cp.setAttribute("clipPathUnits", "userSpaceOnUse");
+    var pe = document.createElementNS(SVGNS, "path");
+    pe.setAttribute("d", d.join(""));
+    cp.appendChild(pe);
+    g.svg.appendChild(cp);
+    wandClipEls.set(cid, cp);
+    wandAutoClips.add(cid);
+    wandClipRaster.set(cid, keepCell);
+    wandClipOf.set(e, cid);
   }
 
   // A hole the answer closes over is part of it. The face comes out of a
@@ -2934,9 +3145,12 @@
       setEditNote("Valitse ensin kohde taikasauvalla."); return;
     }
     var g = wandGraph, keep = [], drop = [], lowest = -1;
-    for (var i = 0; i < g.n; i++) {
+    // A path is kept when any of its pieces is; the clip already says which.
+    var anyEl = new Uint8Array(g.nEls);
+    wandSel.forEach(function (i) { anyEl[g.elOf[i]] = 1; });
+    for (var i = 0; i < g.nEls; i++) {
       var el = g.els[i];
-      if (wandSel.has(i)) { keep.push({ el: el, i: i }); if (lowest < 0) lowest = i; }
+      if (anyEl[i]) { keep.push({ el: el, i: i }); if (lowest < 0) lowest = i; }
       else if (el.parentNode) drop.push({ el: el, i: i, parent: el.parentNode, next: el.nextSibling });
     }
     if (!drop.length) { setEditNote("Koko kuva on valittu — ei mitään leikattavaa."); return; }
@@ -2946,7 +3160,7 @@
     // result now, so they stop belonging to the live selection and start
     // belonging to the undo step.
     wandGraph.els.forEach(function (el, i) {
-      if (wandClipOf.has(i) && wandSel.has(i)) entry.clipped.push(el);
+      if (wandClipOf.has(i) && anyEl[i]) entry.clipped.push(el);
     });
     wandClipEls.forEach(function (el) { entry.clipEls.push(el); });
 

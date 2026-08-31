@@ -308,28 +308,63 @@ for (const name of names) {
       g.fillStyle = `rgb(${v&255},${(v>>8)&255},${(v>>16)&255})`;
       g.fill(new Path2D(p.getAttribute("d")), "evenodd"); });
     const d = g.getImageData(0, 0, W, H).data;
-    const tot = new Int32Array(els.length+1), inT = new Int32Array(els.length+1);
+    const base = new Int32Array(W*H).fill(-1);
+    for (let i = 0; i < W*H; i++) {
+      const id = d[i*4] | (d[i*4+1]<<8) | (d[i*4+2]<<16);
+      if (id > 0 && id <= els.length) base[i] = id - 1;
+    }
+    // The unit the wand actually chooses is a connected piece of a path, not the
+    // path — pieces under 16 px fall back into their path's largest, exactly as
+    // wandBuild does — so the ceiling is majority vote over those.
+    const label = new Int32Array(W*H).fill(-1);
+    const owner = [], size = [];
+    for (let s = 0; s < W*H; s++) {
+      const me = base[s];
+      if (me < 0 || label[s] >= 0) continue;
+      const id = owner.length; owner.push(me); size.push(0);
+      const st = [s]; label[s] = id; let cnt = 0;
+      while (st.length) {
+        const q = st.pop(); cnt++;
+        const x = q % W, y = (q / W) | 0;
+        for (const t of [x>0?q-1:-1, x<W-1?q+1:-1, y>0?q-W:-1, y<H-1?q+W:-1])
+          if (t >= 0 && base[t] === me && label[t] < 0) { label[t] = id; st.push(t); }
+      }
+      size[id] = cnt;
+    }
+    const big = new Map();
+    for (let i = 0; i < owner.length; i++) {
+      const o = owner[i];
+      if (!big.has(o) || size[i] > size[big.get(o)]) big.set(o, i);
+    }
+    const remap = new Int32Array(owner.length);
+    let kept = 0;
+    for (let i = 0; i < owner.length; i++) remap[i] = (size[i] >= 16 || big.get(owner[i]) === i) ? kept++ : -1;
+    for (let i = 0; i < owner.length; i++) if (remap[i] < 0) remap[i] = remap[big.get(owner[i])];
+    const unit = new Int32Array(W*H).fill(-1);
+    for (let i = 0; i < W*H; i++) if (label[i] >= 0) unit[i] = remap[label[i]];
+    const nUnit = kept;
+    const tot = new Int32Array(nUnit), inT = new Int32Array(nUnit);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const i = y*W+x, id = d[i*4] | (d[i*4+1]<<8) | (d[i*4+2]<<16);
-      if (id <= 0 || id > els.length) continue;
-      tot[id]++; if (window.__inFig(x, y)) inT[id]++;
+      const i = y*W+x, u = unit[i];
+      if (u < 0) continue;
+      tot[u]++; if (window.__inFig(x, y)) inT[u]++;
     }
     let tp=0, fp=0, fn=0;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const i = y*W+x, id = d[i*4] | (d[i*4+1]<<8) | (d[i*4+2]<<16);
-      const got = id>0 && id<=els.length && tot[id] && inT[id] >= tot[id]*0.5;
+      const i = y*W+x, u = unit[i];
+      const got = u >= 0 && tot[u] && inT[u] >= tot[u]*0.5;
       const want = window.__inFig(x, y);
       if (got && want) tp++; else if (got) fp++; else if (want) fn++;
     }
     let straddle = 0, worst = 0;
-    for (let k = 1; k <= els.length; k++) {
+    for (let k = 0; k < nUnit; k++) {
       if (!tot[k]) continue;
       const f = inT[k]/tot[k];
       if (f <= 0.12 || f >= 0.88) continue;
       straddle += Math.min(inT[k], tot[k]-inT[k]);
       if (tot[k] > worst) worst = tot[k];
     }
-    return { shapes: els.length, iou: +(tp/(tp+fp+fn)).toFixed(3), straddle, worst };
+    return { shapes: nUnit, iou: +(tp/(tp+fp+fn)).toFixed(3), straddle, worst };
   }, { W, H });
 
   const score = (mode) => page.evaluate(async ({ W, H, mode }) => {
