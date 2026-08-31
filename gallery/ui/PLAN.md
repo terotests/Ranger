@@ -2630,6 +2630,25 @@ than by the code. The page check asserts only that a drag makes drops; the
 shape of the wake — eight of them, evenly spaced, oldest retired — is asserted
 where the clock belongs to the test.
 
+### One touch, a train of rings
+
+A drop on water does not make a circle. It makes an expanding TARGET: several
+wavefronts leaving the same point a moment apart, each fainter than the one in
+front. `evg-ripple-rings: 3`, `evg-ripple-stagger` and
+`evg-ripple-ring-falloff` say so, and the shader draws them.
+
+**They cost no state at all.** The rings of one touch differ only in when they
+started, so the k-th is that touch aged by k staggers — worked out from the one
+age the shader already has. A ring whose start is still in the future has a
+negative age and has not been born yet, which is also what makes the first
+moments of a touch look right: one ring out, the second just appearing behind
+it.
+
+So the two multiplications are separate and compose. A touch is a train of
+rings; several touches are several trains; and all of it is summed, so a
+wavefront from one touch interferes with a wavefront from another exactly as it
+does with the one in front of it.
+
 **Still to come**: a height-field version, which would let the waves reflect off
 the cards rather than pass through them, and needs a simulation texture with a
 wave equation per pixel rather than analytic rings. And the reference's

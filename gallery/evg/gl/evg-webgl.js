@@ -852,6 +852,11 @@ uniform float uWidth;     // the envelope's sigma, px
 uniform float uStrength;  // displacement at the crest, px
 uniform float uDecay;     // per second
 uniform float uHi;        // how much the crest lightens
+// One touch sends a TRAIN of rings from the same point, a stagger apart.
+#define MAX_RINGS 5
+uniform int uRings;
+uniform float uStagger;   // seconds between one wavefront and the next
+uniform float uFalloff;   // what each ring behind the front is worth
 in vec2 vUV;
 out vec4 outColor;
 
@@ -873,13 +878,27 @@ void main() {
     vec2 delta = p - drop.xy;
     float d = length(delta);
     vec2 dir = delta / max(d, 0.001);
-    float radius = drop.z * uSpeed;
-    // A Gaussian ring: the wave only exists near the front, so the rest of
-    // the page is sampled exactly where it was drawn and stays sharp.
-    float env = exp(-pow((d - radius) / uWidth, 2.0));
-    float wave = sin((d - radius) * 0.16) * env * exp(-drop.z * uDecay);
-    push += dir * wave;
-    crest += wave;
+
+    // The TRAIN. A drop on water does not make one ring, it makes several
+    // from the same point a moment apart, each fainter than the one in front:
+    // an expanding target rather than a circle. They cost no state — the
+    // rings of one touch differ only in when they started, so the k-th is
+    // simply this touch aged by k staggers, and one that has not started yet
+    // has a negative age and is skipped.
+    float amp = 1.0;
+    for (int k = 0; k < MAX_RINGS; k++) {
+      if (k >= uRings) break;
+      float t = drop.z - float(k) * uStagger;
+      if (t <= 0.0) break;
+      float radius = t * uSpeed;
+      // A Gaussian ring: the wave only exists near the front, so the rest of
+      // the page is sampled exactly where it was drawn and stays sharp.
+      float env = exp(-pow((d - radius) / uWidth, 2.0));
+      float wave = sin((d - radius) * 0.16) * env * exp(-t * uDecay) * amp;
+      push += dir * wave;
+      crest += wave;
+      amp *= uFalloff;
+    }
   }
 
   float wave = crest;
@@ -1045,6 +1064,9 @@ function programsFor(gl) {
     rippleStrength: gl.getUniformLocation(rippleProg, "uStrength"),
     rippleDecay: gl.getUniformLocation(rippleProg, "uDecay"),
     rippleHi: gl.getUniformLocation(rippleProg, "uHi"),
+    rippleRings: gl.getUniformLocation(rippleProg, "uRings"),
+    rippleStagger: gl.getUniformLocation(rippleProg, "uStagger"),
+    rippleFalloff: gl.getUniformLocation(rippleProg, "uFalloff"),
     backdropProg,
     backdropPosLoc: gl.getAttribLocation(backdropProg, "aPos"),
     backdropUVLoc: gl.getAttribLocation(backdropProg, "aUV"),
@@ -1584,6 +1606,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.uniform1f(built.rippleStrength, fx.strength);
     gl.uniform1f(built.rippleDecay, fx.decay);
     gl.uniform1f(built.rippleHi, fx.highlight);
+    gl.uniform1i(built.rippleRings, Math.max(1, Math.min(5, Math.round(fx.rings || 1))));
+    gl.uniform1f(built.rippleStagger, fx.stagger || 0);
+    gl.uniform1f(built.rippleFalloff, fx.falloff || 0);
     // One triangle covering the screen, not two: no seam down the diagonal
     // for `fwidth` to trip over, and three vertices instead of six.
     gl.drawArrays(gl.TRIANGLES, 0, 3);

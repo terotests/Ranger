@@ -837,6 +837,21 @@ console.log("--- the surface's drops, and the wake a drag leaves ---");
   const drops = () => JSON.parse(d.displayListJson()).effect.drops;
   ok("nothing is in flight at rest", drops().length === 0, JSON.stringify(drops()));
 
+  // ONE TOUCH, A TRAIN OF RINGS. A drop on water does not make a circle, it
+  // makes an expanding target: several wavefronts leaving the same point a
+  // moment apart. They are the sheet's business and they cost no state — the
+  // k-th ring of a touch is that touch aged by k staggers, which the shader
+  // works out from the one age it is given.
+  const fx0 = JSON.parse(d.displayListJson()).effect;
+  ok("a touch sends more than one ring", fx0.rings >= 2, String(fx0.rings));
+  ok("a stagger between them", fx0.stagger > 0, String(fx0.stagger));
+  // Below about a half the train reads as one ring with a smudge behind it;
+  // at 1 the rings behind are as loud as the front and it reads as noise.
+  ok("and each is quieter than the one in front",
+    fx0.falloff > 0.4 && fx0.falloff < 1, String(fx0.falloff));
+  // The shader holds five; asking for more would silently draw fewer.
+  ok("no more rings than the shader holds", fx0.rings <= 5, String(fx0.rings));
+
   d.ripple(300, 300);
   d.tick(80);
   d.ripple(700, 400);

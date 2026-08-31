@@ -261,6 +261,24 @@ class EVGElement {
     ; and a filter somebody put on a video.
     def rippleHighlight:double 0.08
 
+    ; --- how many rings ONE touch sends -----------------------------------------
+    ;
+    ; A drop on water does not make one ring. It makes a TRAIN of them, born at
+    ; the same point a moment apart and travelling out together, each fainter
+    ; than the one in front: the shape is a single expanding target rather than
+    ; a single circle.
+    ;
+    ; This costs no state at all. The rings of one touch differ only in when
+    ; they started, and that is the touch's age minus a multiple of the stagger
+    ; — so the shader works them out from the one age it already has, and a
+    ; ring whose start is still in the future simply has not been born yet.
+    def rippleRings:double 3.0
+    ; Seconds between one wavefront and the next.
+    def rippleStagger:double 0.09
+    ; What each ring behind the front is worth. Below about a half the train
+    ; reads as one ring with a smudge behind it.
+    def rippleFalloff:double 0.62
+
     ; --- and the state it needs, which is not styling ---------------------------
     ;
     ; Where the surface was touched and how long ago — for EVERY touch still in
@@ -2096,6 +2114,9 @@ class EVGElement {
         rippleStrength = other.rippleStrength
         rippleDecay = other.rippleDecay
         rippleHighlight = other.rippleHighlight
+        rippleRings = other.rippleRings
+        rippleStagger = other.rippleStagger
+        rippleFalloff = other.rippleFalloff
         rippleXs = other.rippleXs
         rippleYs = other.rippleYs
         rippleAges = other.rippleAges
@@ -2750,6 +2771,18 @@ class EVGElement {
         }
         if (name == "evg-ripple-highlight") {
             rippleHighlight = (EVGElement.numberOr(value rippleHighlight))
+            return
+        }
+        if (name == "evg-ripple-rings") {
+            rippleRings = (EVGElement.numberOr(value rippleRings))
+            return
+        }
+        if (name == "evg-ripple-stagger") {
+            rippleStagger = (EVGElement.numberOr(value rippleStagger))
+            return
+        }
+        if (name == "evg-ripple-ring-falloff") {
+            rippleFalloff = (EVGElement.numberOr(value rippleFalloff))
             return
         }
         ; The scroll POSITION is settable, because a demo restoring where it

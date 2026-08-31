@@ -35,6 +35,13 @@
   evg-ripple-strength: 11px;
   evg-ripple-decay: 1.6;
   evg-ripple-highlight: 0.16;
+  /* ONE TOUCH, THREE RINGS. A drop on water does not make a circle, it makes
+   * an expanding target: several wavefronts leaving the same point a moment
+   * apart, each fainter than the one in front. They cost nothing to add —
+   * the rings of one touch differ only in when they started. */
+  evg-ripple-rings: 3;
+  evg-ripple-stagger: 0.10;
+  evg-ripple-ring-falloff: 0.62;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
