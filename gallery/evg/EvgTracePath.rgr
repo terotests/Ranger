@@ -222,20 +222,83 @@ class EvgTracePath {
 
     ; Append `tok` to `d`, with a separator only where the SVG number grammar
     ; needs one. `prev` is the number written just before it.
-    sfn joinNum:string (d:string prev:string tok:string) {
+    ; 1 when a separator is needed between the number `prev` and whatever
+    ; starts with the first character of `tok`, 0 when they may run together.
+    sfn sepCost:int (prev:string tok:string) {
         if ((strlen prev) == 0) {
-            return (d + tok)
+            return 0
+        }
+        if ((strlen tok) == 0) {
+            return 0
         }
         def first:string (substring tok 0 1)
         if (first == "-") {
-            return (d + tok)
+            return 0
         }
         if (first == ".") {
             if ((indexOf prev ".") >= 0) {
-                return (d + tok)
+                return 0
             }
         }
+        return 1
+    }
+
+    sfn joinNum:string (d:string prev:string tok:string) {
+        if ((EvgTracePath.sepCost(prev tok)) == 0) {
+            return (d + tok)
+        }
         return ((d + " ") + tok)
+    }
+
+    ; --- implicit command repetition ---------------------------------------
+    ;
+    ; A command letter may be left out when it repeats: "c … c … c …" is
+    ; "c … … …", and a parser keeps applying the last command it saw. Potrace
+    ; has always done this and it is where the last of the difference between
+    ; its files and these went — same picture, same segment count, a letter per
+    ; segment fewer.
+    ;
+    ; Two rules keep it honest. A moveto is never elided, because a repeated
+    ; moveto is not another moveto: after "M x y" the implicit command is
+    ; LINETO, which is exactly why `nextImplicit` answers "L" for it and a
+    ; following lineto can then drop its own letter too. And a close resets the
+    ; run, since nothing carries across it.
+    sfn nextImplicit:string (letter:string) {
+        if (letter == "M") {
+            return "L"
+        }
+        if (letter == "m") {
+            return "l"
+        }
+        if (letter == "Z") {
+            return ""
+        }
+        if (letter == "z") {
+            return ""
+        }
+        return letter
+    }
+
+    ; What `tok` costs to append, given the command in force and the last
+    ; number written. Used to choose between the absolute and relative form,
+    ; which is not the same choice once one of them can drop its letter.
+    sfn tokenCost:int (prevCmd:string prevNum:string tok:string) {
+        def letter:string (substring tok 0 1)
+        if (letter == prevCmd) {
+            def rest:string (substring tok 1 (strlen tok))
+            def sep:int (EvgTracePath.sepCost(prevNum rest))
+            return ((strlen rest) + sep)
+        }
+        return (strlen tok)
+    }
+
+    sfn appendTok:string (d:string prevCmd:string prevNum:string tok:string) {
+        def letter:string (substring tok 0 1)
+        if (letter == prevCmd) {
+            def rest:string (substring tok 1 (strlen tok))
+            return (EvgTracePath.joinNum(d prevNum rest))
+        }
+        return (d + tok)
     }
 
     ; Two numbers as one coordinate pair, appended to `d`.
@@ -324,21 +387,26 @@ class EvgTracePath {
         def hx:double 0.0
         def hy:double 0.0
         def smooth:boolean false
+        ; The command a parser would still be applying, so a repeat of it can
+        ; be written without its letter.
+        def prevCmd:string ""
         def i:int 0
         while (i < n) {
             def c:PathCommand (itemAt cmds i)
+            def prevNum:string (EvgTracePath.lastNum(d))
             if (c.type == "M") {
                 def absTok:string (EvgTracePath.pair("M" "" (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
                 def relTok:string (EvgTracePath.pair("m" "" (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
-                if (i == 0) {
-                    d = (d + absTok)
-                } {
-                    if ((strlen relTok) < (strlen absTok)) {
-                        d = (d + relTok)
-                    } {
-                        d = (d + absTok)
+                def pick:string absTok
+                if (i > 0) {
+                    def ca:int (EvgTracePath.tokenCost(prevCmd prevNum absTok))
+                    def cb:int (EvgTracePath.tokenCost(prevCmd prevNum relTok))
+                    if (cb < ca) {
+                        pick = relTok
                     }
                 }
+                d = (EvgTracePath.appendTok(d prevCmd prevNum pick))
+                prevCmd = (EvgTracePath.nextImplicit((substring pick 0 1)))
                 cx = c.x
                 cy = c.y
                 sx = c.x
@@ -360,11 +428,14 @@ class EvgTracePath {
                         relTok2 = (EvgTracePath.pair("l" "" (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
                     }
                 }
-                if ((strlen relTok2) < (strlen absTok2)) {
-                    d = (d + relTok2)
-                } {
-                    d = (d + absTok2)
+                def pick2:string absTok2
+                def ca2:int (EvgTracePath.tokenCost(prevCmd prevNum absTok2))
+                def cb2:int (EvgTracePath.tokenCost(prevCmd prevNum relTok2))
+                if (cb2 < ca2) {
+                    pick2 = relTok2
                 }
+                d = (EvgTracePath.appendTok(d prevCmd prevNum pick2))
+                prevCmd = (EvgTracePath.nextImplicit((substring pick2 0 1)))
                 cx = c.x
                 cy = c.y
                 smooth = false
@@ -397,11 +468,14 @@ class EvgTracePath {
                     relTok3 = (EvgTracePath.pair(relTok3 (EvgTracePath.lastNum(relTok3)) (EvgTracePath.num((c.x2 - cx) precision)) (EvgTracePath.num((c.y2 - cy) precision))))
                     relTok3 = (EvgTracePath.pair(relTok3 (EvgTracePath.lastNum(relTok3)) (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
                 }
-                if ((strlen relTok3) < (strlen absTok3)) {
-                    d = (d + relTok3)
-                } {
-                    d = (d + absTok3)
+                def pick3:string absTok3
+                def ca3:int (EvgTracePath.tokenCost(prevCmd prevNum absTok3))
+                def cb3:int (EvgTracePath.tokenCost(prevCmd prevNum relTok3))
+                if (cb3 < ca3) {
+                    pick3 = relTok3
                 }
+                d = (EvgTracePath.appendTok(d prevCmd prevNum pick3))
+                prevCmd = (EvgTracePath.nextImplicit((substring pick3 0 1)))
                 hx = c.x2
                 hy = c.y2
                 cx = c.x
@@ -413,17 +487,21 @@ class EvgTracePath {
                 absTok4 = (EvgTracePath.pair(absTok4 (EvgTracePath.lastNum(absTok4)) (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
                 def relTok4:string (EvgTracePath.pair("q" "" (EvgTracePath.num((c.x1 - cx) precision)) (EvgTracePath.num((c.y1 - cy) precision))))
                 relTok4 = (EvgTracePath.pair(relTok4 (EvgTracePath.lastNum(relTok4)) (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
-                if ((strlen relTok4) < (strlen absTok4)) {
-                    d = (d + relTok4)
-                } {
-                    d = (d + absTok4)
+                def pick4:string absTok4
+                def ca4:int (EvgTracePath.tokenCost(prevCmd prevNum absTok4))
+                def cb4:int (EvgTracePath.tokenCost(prevCmd prevNum relTok4))
+                if (cb4 < ca4) {
+                    pick4 = relTok4
                 }
+                d = (EvgTracePath.appendTok(d prevCmd prevNum pick4))
+                prevCmd = (EvgTracePath.nextImplicit((substring pick4 0 1)))
                 cx = c.x
                 cy = c.y
                 smooth = false
             }
             if (c.type == "Z") {
                 d = (d + "Z")
+                prevCmd = ""
                 cx = sx
                 cy = sy
                 smooth = false

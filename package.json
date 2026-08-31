@@ -617,6 +617,8 @@
     "evg:trace:cli:rust": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=rust ./gallery/evg/tools/evg_trace_cli.rgr -d=./gallery/evg/bin -o=evg_trace_cli.rs -nodecli && rustc --edition 2021 -O -o gallery/evg/bin/evg_trace_cli_rust gallery/evg/bin/evg_trace_cli.rs",
     "evg:trace:cli:rust:run": "./gallery/evg/bin/evg_trace_cli_rust",
     "evg:trace:cli:smoke": "bash gallery/evg/tools/run_trace_cli_smoke.sh",
+    "evg:trace:bench:others": "npm run evg:trace:cli:build --silent && node gallery/evg/tools/bench_vs_others.mjs",
+    "evg:trace:cli:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/tools/evg_trace_cli.rgr -d=./gallery/evg/bin -o=evg_trace_cli.js -nodecli",
     "evg:trace:web": "node gallery/evg/web/tracer/build.mjs",
     "evg:trace:web:smoke": "node gallery/evg/web/tracer/smoke.mjs",
     "evg:trace:web:serve": "node gallery/evg/web/tracer/build.mjs && python3 -m http.server -d gallery/evg/web/tracer/dist 8006",

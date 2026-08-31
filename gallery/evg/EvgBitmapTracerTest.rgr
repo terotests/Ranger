@@ -47,6 +47,7 @@ class EvgBitmapTracerTest {
         test.testDetailNeighbourhoodGetsItsOwnPalette(t)
         test.testCompactNumberFormatting(t)
         test.testCompactEncodingDrawsTheSamePath(t)
+        test.testRepeatedCommandLettersAreLeftOut(t)
         test.testOklabIsOnTheSameScale(t)
         test.testAbsorbContrastKeepsAStandoutSpeck(t)
         test.testPresetsAreStartingPoints(t)
@@ -1624,8 +1625,11 @@ class EvgBitmapTracerTest {
     }
 
     ; Count the numbers a real SVG parser would read out of `d`, and check each
-    ; command got exactly as many as it takes. A run-on that swallows a number
-    ; shows up here as an arity that is one short.
+    ; command got a whole number of turns' worth. A run-on that swallows a
+    ; number shows up here as a count that is not a multiple of the arity.
+    ;
+    ; A multiple rather than exactly one turn, because a command letter may be
+    ; left out when it repeats: "c … … …" is three cubics under one letter.
     fn miscountedCommands:int (d:string) {
         def bad:int 0
         def n:int (strlen d)
@@ -1661,7 +1665,7 @@ class EvgBitmapTracerTest {
                         hadDot = false
                         def a:int (EvgBitmapTracerTest.arityOf(ch))
                         if (a >= 0) {
-                            if (have != want) {
+                            if ((EvgBitmapTracerTest.wholeTurns(have want)) == false) {
                                 bad = (bad + 1)
                             }
                             want = a
@@ -1672,10 +1676,39 @@ class EvgBitmapTracerTest {
             }
             i = (i + 1)
         }
-        if (have != want) {
+        if ((EvgBitmapTracerTest.wholeTurns(have want)) == false) {
             bad = (bad + 1)
         }
         return bad
+    }
+
+    ; `have` numbers for a command that takes `want` each time: a whole number
+    ; of turns, and at least one unless the command takes none.
+    sfn wholeTurns:boolean (have:int want:int) {
+        if (want == 0) {
+            return (have == 0)
+        }
+        if (have < want) {
+            return false
+        }
+        def rem:int (have - ((idiv have want) * want))
+        return (rem == 0)
+    }
+
+    ; How many command letters `d` spends, as opposed to how many commands it
+    ; describes.
+    fn commandLetters:int (d:string) {
+        def n:int (strlen d)
+        def count:int 0
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring d i (i + 1))
+            if ((EvgBitmapTracerTest.arityOf(ch)) >= 0) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
     }
 
     fn testCompactEncodingDrawsTheSamePath:void (t:RgTest) {
@@ -1709,6 +1742,22 @@ class EvgBitmapTracerTest {
             t.ok("and it is the shorter of the two" (clen < plen))
             si = (si + 1)
         }
+    }
+
+    ; A repeated command letter is left out. Asserted on the disc rather than
+    ; on the checkerboard, because a staircase alternates H and V forever and
+    ; so has nothing to repeat — there the two counts are equal and correct.
+    fn testRepeatedCommandLettersAreLeftOut:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.makeRing(64))
+        def o:EvgTraceOptions (EvgTraceOptions.defaults())
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm o))
+        tr.trace()
+        def d:string (tr.getPathData())
+        def letters:int (this.commandLetters(d))
+        def cmds:int (tr.commandCount())
+        t.ok("a curve run spends fewer letters than it has commands" (letters < cmds))
+        def miscount:int (this.miscountedCommands(d))
+        t.eqInt("and every run is still a whole number of turns" miscount 0)
     }
 
     ; A filled disc, for curves that actually curve.

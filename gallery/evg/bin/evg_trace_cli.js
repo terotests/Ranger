@@ -1471,20 +1471,61 @@ EvgTracePath.cleanup = function(cmds) {
   };
   return out;
 };
-EvgTracePath.joinNum = function(d, prev, tok) {
+EvgTracePath.sepCost = function(prev, tok) {
   if ( (prev.length) == 0 ) {
-    return d + tok;
+    return 0;
+  }
+  if ( (tok.length) == 0 ) {
+    return 0;
   }
   const first = tok.substring(0, 1 );
   if ( first == "-" ) {
-    return d + tok;
+    return 0;
   }
   if ( first == "." ) {
     if ( (prev.indexOf(".")) >= 0 ) {
-      return d + tok;
+      return 0;
     }
   }
+  return 1;
+};
+EvgTracePath.joinNum = function(d, prev, tok) {
+  if ( EvgTracePath.sepCost(prev, tok) == 0 ) {
+    return d + tok;
+  }
   return (d + " ") + tok;
+};
+EvgTracePath.nextImplicit = function(letter) {
+  if ( letter == "M" ) {
+    return "L";
+  }
+  if ( letter == "m" ) {
+    return "l";
+  }
+  if ( letter == "Z" ) {
+    return "";
+  }
+  if ( letter == "z" ) {
+    return "";
+  }
+  return letter;
+};
+EvgTracePath.tokenCost = function(prevCmd, prevNum, tok) {
+  const letter = tok.substring(0, 1 );
+  if ( letter == prevCmd ) {
+    const rest = tok.substring(1, (tok.length) );
+    const sep = EvgTracePath.sepCost(prevNum, rest);
+    return (rest.length) + sep;
+  }
+  return tok.length;
+};
+EvgTracePath.appendTok = function(d, prevCmd, prevNum, tok) {
+  const letter = tok.substring(0, 1 );
+  if ( letter == prevCmd ) {
+    const rest = tok.substring(1, (tok.length) );
+    return EvgTracePath.joinNum(d, prevNum, rest);
+  }
+  return d + tok;
 };
 EvgTracePath.pair = function(d, prev, a, b) {
   const s1 = EvgTracePath.joinNum(d, prev, a);
@@ -1554,21 +1595,24 @@ EvgTracePath.encodeCompact = function(cmds, precision) {
   let hx = 0.0;
   let hy = 0.0;
   let smooth = false;
+  let prevCmd = "";
   let i = 0;
   while (i < n) {
     const c = cmds[i];
+    const prevNum = EvgTracePath.lastNum(d);
     if ( c.type == "M" ) {
       const absTok = EvgTracePath.pair("M", "", EvgTracePath.num(c.x, precision), EvgTracePath.num(c.y, precision));
       const relTok = EvgTracePath.pair("m", "", EvgTracePath.num((c.x - cx), precision), EvgTracePath.num((c.y - cy), precision));
-      if ( i == 0 ) {
-        d = d + absTok;
-      } else {
-        if ( (relTok.length) < (absTok.length) ) {
-          d = d + relTok;
-        } else {
-          d = d + absTok;
+      let pick = absTok;
+      if ( i > 0 ) {
+        const ca = EvgTracePath.tokenCost(prevCmd, prevNum, absTok);
+        const cb = EvgTracePath.tokenCost(prevCmd, prevNum, relTok);
+        if ( cb < ca ) {
+          pick = relTok;
         }
       }
+      d = EvgTracePath.appendTok(d, prevCmd, prevNum, pick);
+      prevCmd = EvgTracePath.nextImplicit((pick.substring(0, 1 )));
       cx = c.x;
       cy = c.y;
       sx = c.x;
@@ -1590,11 +1634,14 @@ EvgTracePath.encodeCompact = function(cmds, precision) {
           relTok2 = EvgTracePath.pair("l", "", EvgTracePath.num((c.x - cx), precision), EvgTracePath.num((c.y - cy), precision));
         }
       }
-      if ( (relTok2.length) < (absTok2.length) ) {
-        d = d + relTok2;
-      } else {
-        d = d + absTok2;
+      let pick2 = absTok2;
+      const ca2 = EvgTracePath.tokenCost(prevCmd, prevNum, absTok2);
+      const cb2 = EvgTracePath.tokenCost(prevCmd, prevNum, relTok2);
+      if ( cb2 < ca2 ) {
+        pick2 = relTok2;
       }
+      d = EvgTracePath.appendTok(d, prevCmd, prevNum, pick2);
+      prevCmd = EvgTracePath.nextImplicit((pick2.substring(0, 1 )));
       cx = c.x;
       cy = c.y;
       smooth = false;
@@ -1625,11 +1672,14 @@ EvgTracePath.encodeCompact = function(cmds, precision) {
         relTok3 = EvgTracePath.pair(relTok3, EvgTracePath.lastNum(relTok3), EvgTracePath.num((c.x2 - cx), precision), EvgTracePath.num((c.y2 - cy), precision));
         relTok3 = EvgTracePath.pair(relTok3, EvgTracePath.lastNum(relTok3), EvgTracePath.num((c.x - cx), precision), EvgTracePath.num((c.y - cy), precision));
       }
-      if ( (relTok3.length) < (absTok3.length) ) {
-        d = d + relTok3;
-      } else {
-        d = d + absTok3;
+      let pick3 = absTok3;
+      const ca3 = EvgTracePath.tokenCost(prevCmd, prevNum, absTok3);
+      const cb3 = EvgTracePath.tokenCost(prevCmd, prevNum, relTok3);
+      if ( cb3 < ca3 ) {
+        pick3 = relTok3;
       }
+      d = EvgTracePath.appendTok(d, prevCmd, prevNum, pick3);
+      prevCmd = EvgTracePath.nextImplicit((pick3.substring(0, 1 )));
       hx = c.x2;
       hy = c.y2;
       cx = c.x;
@@ -1641,17 +1691,21 @@ EvgTracePath.encodeCompact = function(cmds, precision) {
       absTok4 = EvgTracePath.pair(absTok4, EvgTracePath.lastNum(absTok4), EvgTracePath.num(c.x, precision), EvgTracePath.num(c.y, precision));
       let relTok4 = EvgTracePath.pair("q", "", EvgTracePath.num((c.x1 - cx), precision), EvgTracePath.num((c.y1 - cy), precision));
       relTok4 = EvgTracePath.pair(relTok4, EvgTracePath.lastNum(relTok4), EvgTracePath.num((c.x - cx), precision), EvgTracePath.num((c.y - cy), precision));
-      if ( (relTok4.length) < (absTok4.length) ) {
-        d = d + relTok4;
-      } else {
-        d = d + absTok4;
+      let pick4 = absTok4;
+      const ca4 = EvgTracePath.tokenCost(prevCmd, prevNum, absTok4);
+      const cb4 = EvgTracePath.tokenCost(prevCmd, prevNum, relTok4);
+      if ( cb4 < ca4 ) {
+        pick4 = relTok4;
       }
+      d = EvgTracePath.appendTok(d, prevCmd, prevNum, pick4);
+      prevCmd = EvgTracePath.nextImplicit((pick4.substring(0, 1 )));
       cx = c.x;
       cy = c.y;
       smooth = false;
     }
     if ( c.type == "Z" ) {
       d = d + "Z";
+      prevCmd = "";
       cx = sx;
       cy = sy;
       smooth = false;

@@ -70,6 +70,19 @@ Because it is Ranger, that file can be any of them:
 | C++ | `npm run evg:trace:cli:cpp` → one `.cpp`, then `g++` | ~0.19 s |
 | Rust | `npm run evg:trace:cli:rust` → one `.rs`, then `rustc` | ~0.21 s |
 
+`npm run evg:trace:bench:others` scores the tracer against the other
+open-source ones — [potrace](https://potrace.sourceforge.net/) (also Inkscape's
+engine), [vtracer](https://github.com/visioncortex/vtracer) and
+[ImageTracerJS](https://github.com/jankovicsandras/imagetracerjs) — on the same
+image and by the same measure. Wall-clock alone says nothing about a tracer and
+neither does file size, since one that drops half the picture is fast and small,
+so each SVG is rasterized back with Chromium and compared to the source it came
+from. Every competitor is optional and skipped when absent. The mono half of it
+is the one that matters most: potrace is the reference implementation of the
+algorithm `EvgTraceFit` implements, so handing both the same thresholded bitmap
+isolates the fit from everything else. They currently land within half a percent
+of each other on both error and segment count.
+
 `npm run evg:trace:cli:smoke` builds all four and asserts they produce the
 same SVG byte for byte — which is the claim worth testing, since a difference
 in integer division or float printing between targets would otherwise surface
