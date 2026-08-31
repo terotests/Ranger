@@ -711,6 +711,12 @@ class RangerPythonClassWriter {
     wr.out(":" true)
     wr.indent(1)
 
+    ; A docstring is the first STATEMENT of the block, not a comment above it
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writePyDocForClass((unwrap cl) wr)
+    }
+
     ; The lazily filled slot the singleton accessor below reads. A class
     ; attribute, so it is one per class rather than one per instance.
     if (cl.isSingletonClass()) {
@@ -852,6 +858,10 @@ class RangerPythonClassWriter {
         wr.out("):" true)
       }
       wr.indent(1)
+      if variant.has_doc {
+        def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        sDocWr.writePyDocForMethod(variant wr)
+      }
       def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
       subCtx.is_function = true
       subCtx.in_static_method = true
@@ -876,6 +886,10 @@ class RangerPythonClassWriter {
         }
         wr.out("):" true)
         wr.indent(1)
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writePyDocForMethod(variant wr)
+        }
         def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
         subCtx.is_function = true
         subCtx.in_static_method = false

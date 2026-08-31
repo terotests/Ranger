@@ -5,13 +5,13 @@ Scope: a `doc { … }` metadata block that attaches to a Ranger declaration, a c
 outputs generated from that IR — doc comments and annotations inside the emitted code,
 the package and layout each platform expects, and standalone API artifacts.
 
-> **Status: phases A, B (JavaScript, C#, Kotlin, Swift) and D are implemented.**
-> The `doc { … }` tail, the detach pass, the model, the validation including
-> the public-API type-leak check, `api.json` / `api.md` / `api.txt`, doc-comment
-> emission and doc-driven visibility for four targets, and the npm, NuGet,
-> Gradle/Dokka and SwiftPM/DocC packaging are in the tree. §17 records what
-> shipped and what each part is verified against. The rest of this document is
-> the design, unchanged.
+> **Status: phases A, B (JavaScript, C#, Kotlin, Swift, Python, Dart) and D are
+> implemented.** The `doc { … }` tail, the detach pass, the model, the validation
+> including the public-API type-leak check, `api.json` / `api.md` / `api.txt`,
+> doc-comment emission for six targets, doc-driven visibility or export surface
+> for five of them, and the npm, NuGet, Gradle/Dokka, SwiftPM/DocC, pip and pub
+> packaging are in the tree. §17 records what shipped and what each part is
+> verified against. The rest of this document is the design, unchanged.
 
 This is **not** [`PLAN_DOCS.md`](PLAN_DOCS.md). That document is about the *language's own*
 reference site, generated from the operator definitions in `compiler/Lang.rgr` and `lib/`.
@@ -1319,6 +1319,8 @@ against golden files alone.
 | XML documentation, namespace, visibility | `compiler/ng_RangerCSharpClassWriter.rgr` |
 | KDoc, package statement, visibility | `compiler/ng_RangerKotlinClassWriter.rgr` |
 | DocC markup, visibility | `compiler/ng_RangerSwift6ClassWriter.rgr` |
+| Google docstrings | `compiler/ng_RangerPythonClassWriter.rgr` |
+| dartdoc comments | `compiler/ng_RangerDartClassWriter.rgr` |
 | Pipeline and options | `compiler/VirtualCompiler.rgr` |
 | Tests and fixtures | `tests/api-docs.test.ts`, `tests/fixtures/api_docs_*.rgr` |
 
@@ -1469,7 +1471,96 @@ the Swift path is relied on.
 named in `sources:` — because Ranger still emits one file per target. The
 `Sources/<Target>/` tree is the multi-file layout, which is Phase F.
 
-### 17.7 Visibility: the rule and the bug it hid
+### 17.7 Python
+
+```bash
+node bin/output.js -l=python a11y.rgr -d=out -o=evg_a11y.py \
+  -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0
+```
+
+Python is the one target where the documentation is not a comment: a docstring
+is the **first statement inside** the `def` or `class`, so the writer emits it
+after the block is opened and indented rather than before the declaration.
+
+Google style, because `sphinx.ext.napoleon`, pdoc and mkdocstrings all read it
+and it is the one that stays readable in the source. The module declares
+`__docformat__ = "google"` (PEP 258) — without it pdoc renders `Args:` as a line
+of text instead of a section, and declaring it in the module is what keeps the
+tooling free of project-specific configuration. `since` becomes
+`.. versionadded::` and `deprecated` becomes `.. deprecated::`.
+
+Deprecation is docstring-only. Emitting `warnings.warn(…, DeprecationWarning)`
+would change what the program *does*, and a documentation flag must not.
+
+`-apipackage` writes `pyproject.toml` and appends `__all__` built from the model.
+
+**Verified:** `python3 -m py_compile` accepts the output, it runs, and
+`python3 -m pdoc` renders the docstrings with `Args:` as a real section and
+`.. versionadded:: 1.2` as "New in version 1.2".
+
+### 17.8 Dart
+
+```bash
+node bin/output.js -l=dart a11y.rgr -d=pkg/lib/src -o=evg_a11y_impl.dart \
+  -apidoc=docs -apipackage -name=evg_a11y -version=1.2.0
+```
+
+writes `pkg/pubspec.yaml`, `pkg/lib/evg_a11y.dart` and
+`pkg/lib/src/evg_a11y_impl.dart`. The layout is not cosmetic: `dart doc`
+documents the libraries under `lib/` **and nothing else** — a flat directory
+gives "dartdoc could not find any libraries to document" — and it skips
+`lib/src/` once the package resolves.
+
+**This is where `public` writes a file.** Dart's only private form is a leading
+underscore, which renames every call site, so the idiomatic package expresses
+its API surface as an export list instead. Ranger generates it from the model:
+
+```dart
+library evg_a11y;
+
+export 'src/evg_a11y_impl.dart'
+    show EVGA11yNode, EVGA11yTree;
+```
+
+A barrel file is exactly the kind of list that rots when a person maintains it,
+and it is derivable, so it is derived — the same argument as Python's `__all__`.
+
+dartdoc has no `@param` tag; a parameter is documented in prose with the name in
+brackets, which dartdoc resolves. `see` becomes `[Symbol]`, and `deprecated`
+becomes `@Deprecated('…')`.
+
+**Verified:** `dart analyze` reports no errors, and `dart pub get && dart doc`
+reports *"Documented 1 public library"* — the package library, with `lib/src`
+excluded — and puts `find` canonically under `evg_a11y/EVGA11yTree/find.html`
+with its description, parameter, `Returns`, `Since 1.2` and a resolved
+`See also` link.
+
+`dart pub get` matters and is not incidental: without package resolution dartdoc
+sees `file://` URIs, cannot tell `lib/src` from `lib`, names the implementation
+library after its absolute path, and makes it canonical instead of the package
+library. The first version of this work reached that state and looked wrong for
+a reason that had nothing to do with the generated code.
+
+### 17.9 What visibility does and does not reach
+
+| Target | Type-level API surface | Member-level privacy |
+| --- | --- | --- |
+| C# | `public` / `internal` on the type | `public` / `internal` on the member |
+| Swift | `public` / internal on the type | `public` / internal on the member |
+| Kotlin | `internal` on the type | `internal` on the member |
+| JavaScript | TSDoc `@public` / `@private` | TSDoc `@public` / `@private` |
+| Dart | generated `export … show` list | **not implemented** |
+| Python | generated `__all__` | **not implemented** |
+
+Dart and Python express type-level API surface exactly as their ecosystems do,
+and both are verified. Neither hides a **member** of a public type: Dart's
+`_name` and Python's `_name` are the only mechanisms, and both rename the
+symbol, so applying them means renaming every call site. That is a compiled-name
+change with its own regression surface and it is not in this work. So
+`rebuildIndex` still appears in the Dart and Python documentation of a public
+class, and does not appear in the C#, Swift, Kotlin or JavaScript output.
+
+### 17.10 Visibility: the rule and the bug it hid
 
 One helper decides the modifier for every target
 (`RangerDocCommentWriter.memberVisibility` / `classVisibility`), and it takes
@@ -1488,7 +1579,7 @@ turned **every undocumented class in every existing program** into `public`. The
 byte-for-byte parity check against the previous compiler caught it; the test
 suite did not. The three-value form is what the table above requires.
 
-### 17.8 The bug this uncovered
+### 17.11 The bug this uncovered
 
 [ISSUES.md #75](ISSUES.md) — `class X { … } doc { … }`, and any other trailing
 `token { block }` on a class, made `EnterClass` take the trailing block for the
@@ -1499,12 +1590,17 @@ regression test that compiles **and runs** the result. The underlying arity
 check in `EnterClass` is still wrong for any other trailing token and is filed
 separately.
 
-### 17.9 Not built
+### 17.12 Not built
 
-Phases C (the remaining eight targets), E (`docs { }`) and F (language × platform,
-multi-file layout) are unchanged from the plan above. JavaScript, C#, Kotlin and
-Swift carry doc comments and doc-driven visibility; Go, Rust, Python, Java, Dart,
-C++, PHP and Scala still emit exactly what they emitted before.
+Phases C (the remaining six targets), E (`docs { }`) and F (language × platform)
+are unchanged from the plan above. JavaScript, C#, Kotlin, Swift, Python and Dart
+carry doc comments; Go, Rust, Java, C++, PHP and Scala still emit exactly what
+they emitted before.
+
+Dart is the first target with a **real multi-file layout** (`pubspec.yaml`,
+`lib/`, `lib/src/`), because `dart doc` does not work without one. It is written
+by the package writer around output the compiler still emits as one file, not by
+the multi-file emission of Phase F.
 
 The type-leak check of §5.2 **is** implemented and runs for every target, because
 it is the check that keeps a `public` Swift or Rust declaration from failing in

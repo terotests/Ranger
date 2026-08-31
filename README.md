@@ -822,9 +822,14 @@ rgrc -es6 a11y.rgr -d=out -o=index.js -nodemodule \
 # a NuGet project whose XML documentation DocFX reads
 rgrc -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
   -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
+
+# a pub package `dart doc` renders. The layout matters: dart doc reads lib/
+# and skips lib/src/, so `public` decides what the documentation shows.
+rgrc -l=dart a11y.rgr -d=pkg/lib/src -o=evg_a11y_impl.dart \
+  -apidoc=docs -apipackage -name=evg_a11y -version=1.2.0
 ```
 
-Four targets carry the documentation into the generated code today:
+Six targets carry the documentation into the generated code today:
 
 | Target | Comment form | Packaging | Doc tool |
 | --- | --- | --- | --- |
@@ -832,10 +837,14 @@ Four targets carry the documentation into the generated code today:
 | C# | XML docs (`<summary>`, `<param>`, `<seealso cref>`, `[System.Obsolete]`) | `.csproj`, `docfx.json` | DocFX, Sandcastle |
 | Kotlin | KDoc (`@param`, `@return`, `@see`, `@Deprecated(… ReplaceWith)`) | `build.gradle.kts` | Dokka |
 | Swift | DocC (`- Parameter`, `- Returns`, `> Since:`, `@available`) | `Package.swift`, `.docc` catalog | DocC |
+| Python | Google docstrings (`Args:`, `Returns:`, `.. versionadded::`) | `pyproject.toml`, `__all__` | pdoc, Sphinx |
+| Dart | dartdoc (`/// [id] …`, `[Symbol]`, `@Deprecated`) | `pubspec.yaml`, generated `export … show` | `dart doc` |
 
-Each also gets a namespace or package and `public` / `internal` from the doc
-blocks. A class with no doc block is not opted into the API model and compiles
-exactly as it did before. Design and the remaining targets:
+Each also gets a namespace, package or export surface from the doc blocks. On
+Dart and Python `public` writes the export list itself — a barrel file and
+`__all__` are exactly the kind of list that rots when a person maintains it. A
+class with no doc block is not opted into the API model and compiles exactly as
+it did before. Design and the remaining targets:
 [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
 
 ## Types

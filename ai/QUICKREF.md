@@ -145,7 +145,8 @@ doc { public … }    -> exported public API
 
 `-apidoc=<dir>` writes `api.json` / `api.md`; `-apipackage` writes the packaging.
 JavaScript gets JSDoc (documentation.js), C# XML docs (DocFX), Kotlin KDoc
-(Dokka), Swift DocC markup.
+(Dokka), Swift DocC, Python Google docstrings (pdoc), Dart dartdoc. On Dart and
+Python `public` also generates the export list (`export … show`, `__all__`).
 
 ## Generic classes
 

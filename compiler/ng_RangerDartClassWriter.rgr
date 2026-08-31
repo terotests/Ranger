@@ -715,6 +715,10 @@ class RangerDartClassWriter {
 
     this.writeDartUnionInterfaces(ctx wr)
     wr.out("" true)
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeDartDocForClass((unwrap cl) wr)
+    }
     wr.out(("class " + cl.name) false)
     def dartUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ((array_length cl.extends_classes) > 0) {
@@ -750,6 +754,10 @@ class RangerDartClassWriter {
     for cl.variables pvar:RangerAppParamDesc i {
       if pvar.is_static {
         continue _
+      }
+      if pvar.has_doc {
+        def fDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        fDocWr.writeDartDocForField(pvar wr)
       }
       this.writeVarDef((unwrap pvar.node) ctx wr)
     }
@@ -855,6 +863,10 @@ class RangerDartClassWriter {
         continue _
       }
       wr.out("" true)
+      if variant.has_doc {
+        def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        sDocWr.writeDartDocForMethod(variant wr)
+      }
       wr.out("static " false)
       this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
       wr.out(" " false)
@@ -886,6 +898,10 @@ class RangerDartClassWriter {
         }
         if (has declaredFunction variant.name) {
           shouldOverride = true
+        }
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeDartDocForMethod(variant wr)
         }
         if shouldOverride {
           wr.out("@override" true)

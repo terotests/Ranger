@@ -43,7 +43,7 @@ rgrc program.rgr -l=go -d=./bin -o=program.go
 | `-classdoc=<file>` | Write the class documentation into a Markdown file. |
 | `-apidoc=<dir>` | Write the API artifacts (`api.json`, `api.md`) built from the `doc { … }` blocks into that subdirectory. |
 | `-apiformat=<list>` | Which API artifacts to write: `json`, `markdown`, `report`. Default `json,markdown`. |
-| `-apipackage` | Also write the packaging the target ecosystem expects: `package.json` for npm, `.csproj` and `docfx.json` for NuGet, `build.gradle.kts` for Gradle and Dokka, `Package.swift` and a `.docc` catalog for SwiftPM. |
+| `-apipackage` | Also write the packaging the target ecosystem expects: `package.json` for npm, `.csproj` and `docfx.json` for NuGet, `build.gradle.kts` for Gradle and Dokka, `Package.swift` and a `.docc` catalog for SwiftPM, `pyproject.toml` and `__all__` for pip, `pubspec.yaml` and a generated `export … show` library for pub. |
 | `-csnamespace=<name>` | The C# namespace for the generated types. |
 | `-ktpackage=<name>` | The Kotlin package for the generated types. |
 | `-apistrict` | An undocumented public declaration or parameter is an error, not a warning. |

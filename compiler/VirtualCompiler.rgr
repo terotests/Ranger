@@ -1413,7 +1413,7 @@ class tester {
         }
         if( appCtx.hasCompilerFlag('apipackage') ) {
           def pkgGen (new RangerApiPackageWriter)
-          pkgGen.writeAll( apiModel appCtx (unwrap wr) )
+          pkgGen.writeAll( apiModel appCtx (unwrap wr) node )
         }
         for apiModel.warnings warnMsg:string warnIdx {
           print (cli.warning(("api docs: " + warnMsg)))

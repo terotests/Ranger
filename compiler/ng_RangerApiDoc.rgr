@@ -901,6 +901,270 @@ class RangerDocCommentWriter {
     }
   }
 
+  ; ---------------------------------------------- Python / Google docstrings
+  ;
+  ; A docstring is not a comment: it goes INSIDE the def or class, as the first
+  ; statement, so the caller has to have opened the block and indented already.
+  ; Google style is used because sphinx.ext.napoleon, pdoc and mkdocstrings all
+  ; read it and it is the one that stays readable in the source.
+
+  fn pyTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "bool"
+      }
+      case "string" {
+        out = "str"
+      }
+      case "int" {
+        out = "int"
+      }
+      case "double" {
+        out = "float"
+      }
+      case "float" {
+        out = "float"
+      }
+      case "void" {
+        out = "None"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn pyTypeOf:string (node:CodeNode) {
+    def out:string ""
+    switch node.value_type {
+      case RangerNodeType.Array {
+        out = "list[" + (this.pyTypeName(node.array_type)) + "]"
+      }
+      case RangerNodeType.Hash {
+        out = "dict[" + (this.pyTypeName(node.key_type)) + ", " + (this.pyTypeName(node.array_type)) + "]"
+      }
+      default {
+        out = (this.pyTypeName(node.type_name))
+      }
+    }
+    return out
+  }
+
+  fn writePyDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    def descLines:[string] (this.linesOf(doc.description))
+    def first:string ""
+    if ((array_length descLines) > 0) {
+      first = (itemAt descLines 0)
+    }
+    ; PEP 257: the summary line sits on the same line as the opening quotes
+    wr.out(("\"\"\"" + first) true)
+    def li:int 1
+    def n:int (array_length descLines)
+    while (li < n) {
+      wr.out((itemAt descLines li) true)
+      li = li + 1
+    }
+    if doc.is_experimental {
+      wr.out("" true)
+      wr.out("Experimental. This API may change without notice." true)
+    }
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      wr.out("" true)
+      if ((strlen dep.since) > 0) {
+        wr.out((".. deprecated:: " + dep.since) true)
+      } {
+        wr.out(".. deprecated::" true)
+      }
+      if ((strlen msg) > 0) {
+        wr.out(("    " + msg) true)
+      }
+    }
+    def documented:[RangerApiParam]
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        push documented p
+      }
+    }
+    if ((array_length documented) > 0) {
+      wr.out("" true)
+      wr.out("Args:" true)
+      for documented p:RangerApiParam i {
+        wr.out(("    " + p.compiledName + " (" + p.typeName + "): " + p.description) true)
+      }
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "None") {
+      } {
+        wr.out("" true)
+        wr.out("Returns:" true)
+        wr.out(("    " + retType + ": " + doc.returns) true)
+      }
+    }
+    if ((array_length doc.throws) > 0) {
+      wr.out("" true)
+      wr.out("Raises:" true)
+      for doc.throws t:string i {
+        wr.out(("    Exception: " + t) true)
+      }
+    }
+    if ((strlen doc.since) > 0) {
+      wr.out("" true)
+      wr.out((".. versionadded:: " + doc.since) true)
+    }
+    if ((array_length doc.see) > 0) {
+      wr.out("" true)
+      wr.out("See Also:" true)
+      for doc.see sname:string i {
+        wr.out(("    " + sname) true)
+      }
+    }
+    for doc.examples e:string i {
+      wr.out("" true)
+      wr.out("Example:" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("    " + line) true)
+      }
+    }
+    wr.out("\"\"\"" true)
+  }
+
+  ; ------------------------------------------------- Dart / dartdoc comments
+  ;
+  ; `///` with Markdown, and `[Symbol]` for a cross reference -- dartdoc
+  ; resolves those against the library, so they are real links.
+
+  fn dartTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "bool"
+      }
+      case "string" {
+        out = "String"
+      }
+      case "int" {
+        out = "int"
+      }
+      case "double" {
+        out = "double"
+      }
+      case "float" {
+        out = "double"
+      }
+      case "void" {
+        out = "void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn writeDartDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    def descLines:[string] (this.linesOf(doc.description))
+    def wroteBody:boolean false
+    for descLines line:string i {
+      if ((strlen line) == 0) {
+        wr.out("///" true)
+      } {
+        wr.out(("/// " + line) true)
+      }
+      wroteBody = true
+    }
+    if doc.is_experimental {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out("/// **Experimental.** This API may change without notice." true)
+      wroteBody = true
+    }
+    ; dartdoc has no @param tag: a parameter is documented in prose, with the
+    ; name in brackets so it resolves to the parameter
+    def documented:[RangerApiParam]
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        push documented p
+      }
+    }
+    if ((array_length documented) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      for documented p:RangerApiParam i {
+        wr.out(("/// [" + p.compiledName + "] " + p.description) true)
+      }
+      wroteBody = true
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "void") {
+      } {
+        if wroteBody {
+          wr.out("///" true)
+        }
+        wr.out(("/// Returns " + doc.returns) true)
+        wroteBody = true
+      }
+    }
+    for doc.throws t:string i {
+      wr.out(("/// Throws " + t) true)
+      wroteBody = true
+    }
+    if ((strlen doc.since) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out(("/// Since " + doc.since) true)
+      wroteBody = true
+    }
+    if ((array_length doc.see) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      for doc.see sname:string i {
+        wr.out(("/// See also [" + sname + "]." ) true)
+      }
+    }
+    for doc.examples e:string i {
+      wr.out("///" true)
+      wr.out("/// ```dart" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("/// " + line) true)
+      }
+      wr.out("/// ```" true)
+    }
+  }
+
+  fn writeDartAttrs:void (doc:RangerDocBlock wr:CodeWriter) {
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      if ((strlen dep.since) > 0) {
+        msg = "Since " + dep.since + ". " + msg
+      }
+      wr.out(("@Deprecated('" + msg + "')") true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
   ; ------------------------------------------------ descriptor convenience
   ;
   ; A language writer holds a RangerAppFunctionDesc, not an ApiIR method, so
@@ -1064,6 +1328,67 @@ class RangerDocCommentWriter {
     def ps:[RangerApiParam]
     this.writeKotlinDoc(view "Unit" ps wr)
     this.writeKotlinAttrs(view "" wr)
+  }
+
+  fn writePyDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("python"))
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    ; the Ranger type names have to become Python ones for the Args: block
+    for ps p:RangerApiParam i {
+      p.typeName = (this.pyTypeName(p.typeName))
+    }
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.pyTypeOf(rn))
+    this.writePyDoc(view rt ps wr)
+  }
+
+  fn writePyDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("python"))
+    def ps:[RangerApiParam]
+    this.writePyDoc(view "None" ps wr)
+  }
+
+  fn writeDartDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("dart"))
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.dartTypeName(rn.type_name))
+    this.writeDartDoc(view rt ps wr)
+    this.writeDartAttrs(view wr)
+  }
+
+  fn writeDartDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("dart"))
+    def ps:[RangerApiParam]
+    this.writeDartDoc(view "void" ps wr)
+    this.writeDartAttrs(view wr)
+  }
+
+  fn writeDartDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("dart"))
+    def ps:[RangerApiParam]
+    this.writeDartDoc(view "void" ps wr)
+    this.writeDartAttrs(view wr)
   }
 
   ; The visibility modifier for a declaration, from its doc block.
@@ -1846,6 +2171,147 @@ class RangerApiPackageWriter {
     }
   }
 
+  ; ------------------------------------------------------- Dart / pub
+
+  ; Dart's only private form is a leading underscore, which renames every call
+  ; site. The idiomatic package therefore expresses its API surface as an
+  ; EXPORT list: the implementation is a library nobody imports directly, and
+  ; the package library re-exports the public names with `show`.
+  ;
+  ; That list is exactly what ApiIR holds, and it is exactly the kind of list
+  ; that rots when a person maintains it. So Ranger writes it.
+  fn writeDartBarrel:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter node:CodeNode) {
+    def pkgName:string (this.settingOr(ctx "name" model.moduleName))
+    if ((strlen pkgName) == 0) {
+      pkgName = "ranger_api"
+    }
+    def srcFile:string (this.settingOr(ctx "o" "output.dart"))
+    def barrelFile:string (pkgName + ".dart")
+    ; the barrel sits one level ABOVE the implementation: dartdoc documents
+    ; `lib/` and deliberately skips `lib/src/`, so the split is what makes
+    ; `doc { public }` decide what appears in the generated documentation
+    def wr:CodeWriter (orig_wr.getFileWriter(".." barrelFile))
+    wr.out(("/// " + pkgName) true)
+    if ((strlen model.description) > 0) {
+      wr.out("///" true)
+      wr.out(("/// " + model.description) true)
+    }
+    wr.out(("library " + pkgName + ";") true)
+    wr.out("" true)
+    def names:[string]
+    for model.classes c:RangerApiClass ci {
+      if c.is_public {
+        push names c.name
+      }
+    }
+    if ((array_length names) == 0) {
+      wr.out(("// no public API: nothing in " + srcFile + " carries `doc { public }`") true)
+      return
+    }
+    wr.out(("export 'src/" + srcFile + "'") false)
+    wr.out("" true)
+    wr.out("    show" false)
+    for names n:string i {
+      if (i > 0) {
+        wr.out("," false)
+      }
+      wr.out((" " + n) false)
+    }
+    wr.out(";" true)
+  }
+
+  ; ------------------------------------------------------ Python / pypi
+
+  fn pyModuleName:string (raw:string) {
+    def out:string ""
+    def i:int 0
+    def n:int (strlen raw)
+    while (i < n) {
+      def ch:string (substring raw i (i + 1))
+      if (ch == "-") {
+        out = out + "_"
+      } {
+        if (ch == ".") {
+          out = out + "_"
+        } {
+          out = out + ch
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  fn writePyProject:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def name:string (this.settingOr(ctx "name" model.moduleName))
+    if ((strlen name) == 0) {
+      name = "ranger_api"
+    }
+    def version:string (this.settingOr(ctx "version" "0.1.0"))
+    def descr:string (this.settingOr(ctx "description" model.description))
+    def author:string (this.settingOr(ctx "author" ""))
+    def license:string (this.settingOr(ctx "license" ""))
+    def srcFile:string (this.settingOr(ctx "o" "output.py"))
+    def modName:string srcFile
+    if (endsWith modName ".py") {
+      modName = (substring modName 0 ((strlen modName) - 3))
+    }
+    def wr:CodeWriter (orig_wr.getFileWriter("." "pyproject.toml"))
+    wr.out("[build-system]" true)
+    wr.out("requires = [\"setuptools>=61\"]" true)
+    wr.out("build-backend = \"setuptools.build_meta\"" true)
+    wr.out("" true)
+    wr.out("[project]" true)
+    wr.out(("name = \"" + name + "\"") true)
+    wr.out(("version = \"" + version + "\"") true)
+    if ((strlen descr) > 0) {
+      wr.out(("description = \"" + descr + "\"") true)
+    }
+    if ((strlen license) > 0) {
+      wr.out(("license = \"" + license + "\"") true)
+    }
+    if ((strlen author) > 0) {
+      wr.out(("authors = [{ name = \"" + author + "\" }]") true)
+    }
+    wr.out("requires-python = \">=3.9\"" true)
+    wr.out("" true)
+    wr.out("[tool.setuptools]" true)
+    wr.out(("py-modules = [\"" + modName + "\"]") true)
+  }
+
+  ; `__all__` is Python's export surface, and the same argument as the Dart
+  ; barrel applies: it is derivable, so it should be derived.
+  fn writePyAll:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def srcFile:string (this.settingOr(ctx "o" "output.py"))
+    def wr:CodeWriter (orig_wr.getFileWriter("." srcFile))
+    def names:[string]
+    for model.classes c:RangerApiClass ci {
+      if c.is_public {
+        push names c.name
+      }
+    }
+    wr.out("" true)
+    ; PEP 258. Without it a Google-style `Args:` block is rendered as plain
+    ; text: pdoc and mkdocstrings read this attribute to know how to parse the
+    ; docstrings, and declaring it in the module is what keeps the tooling
+    ; free of project-specific configuration.
+    wr.out("__docformat__ = \"google\"" true)
+    wr.out("" true)
+    if ((array_length names) == 0) {
+      return
+    }
+    wr.out("" true)
+    wr.out("# The public API surface, from the `doc { public }` declarations." true)
+    wr.out("__all__ = [" false)
+    for names n:string i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      wr.out(("\"" + n + "\"") false)
+    }
+    wr.out("]" true)
+  }
+
   ; --------------------------------------------------------------- README
 
   fn writeReadme:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
@@ -1854,7 +2320,31 @@ class RangerApiPackageWriter {
     aw.writeMarkdown(model ctx wr)
   }
 
-  fn writeAll:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+  ; `dart doc` documents the libraries under `lib/` and nothing else -- a flat
+  ; directory gives "dartdoc could not find any libraries to document" -- and it
+  ; skips `lib/src/`, which is where an idiomatic package keeps what it does not
+  ; publish. So the Dart package expects the compiler output in `<pkg>/lib/src`,
+  ; the generated package library one level above it, and the manifest two.
+  fn writeDartPubspec:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def pkgName:string (this.settingOr(ctx "name" model.moduleName))
+    if ((strlen pkgName) == 0) {
+      pkgName = "ranger_api"
+    }
+    def version:string (this.settingOr(ctx "version" "0.1.0"))
+    def descr:string (this.settingOr(ctx "description" model.description))
+    def wr:CodeWriter (orig_wr.getFileWriter("../.." "pubspec.yaml"))
+    wr.out(("name: " + pkgName) true)
+    if ((strlen descr) > 0) {
+      wr.out(("description: " + descr) true)
+    }
+    wr.out(("version: " + version) true)
+    wr.out("publish_to: none" true)
+    wr.out("" true)
+    wr.out("environment:" true)
+    wr.out("  sdk: '>=3.0.0 <4.0.0'" true)
+  }
+
+  fn writeAll:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter node:CodeNode) {
     switch ctx.targetLangName {
       case "es6" {
         this.writeNpmPackage(model ctx orig_wr)
@@ -1878,6 +2368,16 @@ class RangerApiPackageWriter {
       case "kotlin" {
         this.writeKotlinGradle(model ctx orig_wr)
         this.writeDokkaModuleDoc(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      case "dart" {
+        this.writeDartBarrel(model ctx orig_wr node)
+        this.writeDartPubspec(model ctx orig_wr)
+        this.writeReadme(model ctx orig_wr)
+      }
+      case "python" {
+        this.writePyProject(model ctx orig_wr)
+        this.writePyAll(model ctx orig_wr)
         this.writeReadme(model ctx orig_wr)
       }
       default {

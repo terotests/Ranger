@@ -509,3 +509,179 @@ describe("a public API may not expose an internal type", () => {
     expect(r.stdout).toContain("returns the internal type `InternalCache`");
   });
 });
+
+describe("Python target: Google docstrings that pdoc reads", () => {
+  let py = "";
+  let dir = "";
+  beforeAll(() => {
+    const r = compile(
+      "tests/fixtures/api_docs_a11y.rgr",
+      [
+        "-l=python",
+        "-o=evg_a11y.py",
+        "-apidoc=docs",
+        "-apipackage",
+        "-name=evg-a11y",
+        "-version=1.2.0",
+        "-description=Accessibility tree",
+      ],
+      "python"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    dir = r.dir;
+    py = read(dir, "evg_a11y.py");
+  });
+
+  it("writes the docstring INSIDE the def, as the first statement", () => {
+    expect(py).toMatch(
+      /def find\(self, _id\):\s*\n\s*"""Finds an accessibility node by its stable identifier\./
+    );
+  });
+
+  it("writes Google-style sections with the compiler's types", () => {
+    // the compiled parameter name, not the Ranger one: `id` is a builtin and
+    // the writer renamed it
+    expect(py).toContain("_id (str): The stable accessibility identifier.");
+    expect(py).toContain("EVGA11yNode: The matching node");
+    expect(py).toContain("Args:");
+    expect(py).toContain("Returns:");
+    expect(py).toContain(".. versionadded:: 1.2");
+  });
+
+  it("declares the docstring format and the export surface", () => {
+    // PEP 258: without it a Google-style Args: block renders as plain text
+    expect(py).toContain('__docformat__ = "google"');
+    expect(py).toContain('__all__ = ["EVGA11yNode", "EVGA11yTree"]');
+    const proj = read(dir, "pyproject.toml");
+    expect(proj).toContain('name = "evg-a11y"');
+    expect(proj).toContain('py-modules = ["evg_a11y"]');
+  });
+
+  it("compiles and runs", () => {
+    execFileSync("python3", ["-m", "py_compile", "evg_a11y.py"], { cwd: dir });
+    const out = execFileSync("python3", ["evg_a11y.py"], { cwd: dir, encoding: "utf8" });
+    expect(out.trim()).toBe("Root");
+  });
+
+  const havePdoc = (() => {
+    try {
+      execFileSync("python3", ["-c", "import pdoc"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.runIf(havePdoc)("pdoc renders the sections as structure, not prose", () => {
+    execFileSync("python3", ["-m", "pdoc", "--output-dir", "pdocs", "evg_a11y.py"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const html = read(dir, "pdocs", "evg_a11y.html");
+    const docstrings = [...html.matchAll(/<div class="docstring">([\s\S]*?)<\/div>/g)].map(
+      (m) => m[1]
+    );
+    const findDoc = docstrings.find((d) =>
+      d.includes("Finds an accessibility node by its stable identifier")
+    );
+    expect(findDoc, "no rendered docstring for find").toBeTruthy();
+    // "Args:" became a real section heading rather than a line of text
+    expect(findDoc).toMatch(/Arguments|Parameters/);
+    // `.. versionadded::` rendered as a directive
+    expect(findDoc).toContain("New in version 1.2");
+  }, 600000);
+});
+
+describe("Dart target: dartdoc and a generated export surface", () => {
+  let dart = "";
+  let dir = "";
+  beforeAll(() => {
+    const r = compile(
+      "tests/fixtures/api_docs_a11y.rgr",
+      [
+        "-l=dart",
+        "-o=evg_a11y_impl.dart",
+        "-apidoc=docs",
+        "-apipackage",
+        "-name=evg_a11y",
+        "-version=1.2.0",
+        "-description=Accessibility tree",
+      ],
+      "dart/lib/src"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    dir = r.dir;
+    dart = read(dir, "evg_a11y_impl.dart");
+  });
+
+  it("writes dartdoc comments with bracket references", () => {
+    expect(dart).toContain("/// Finds an accessibility node by its stable identifier.");
+    // dartdoc has no @param tag: the name goes in brackets so it resolves
+    expect(dart).toContain("/// [id] The stable accessibility identifier.");
+    expect(dart).toContain("/// Returns The matching node");
+    expect(dart).toContain("/// See also [EVGA11yNode].");
+    expect(dart).toContain("@Deprecated('Since 2.0. Use find instead.')");
+  });
+
+  it("generates the package library from the model", () => {
+    // Dart's only private form is a leading underscore, which renames every
+    // call site. The idiomatic surface is the export list instead -- and it is
+    // exactly the kind of list that rots when a person maintains it.
+    const barrel = fs.readFileSync(path.join(dir, "..", "evg_a11y.dart"), "utf8");
+    expect(barrel).toContain("library evg_a11y;");
+    expect(barrel).toContain("export 'src/evg_a11y_impl.dart'");
+    expect(barrel).toContain("show EVGA11yNode, EVGA11yTree");
+  });
+
+  it("writes the package layout dart doc needs", () => {
+    // `dart doc` documents lib/ and nothing else -- a flat directory gives
+    // "dartdoc could not find any libraries to document" -- and it skips
+    // lib/src/ once the package resolves.
+    const pubspec = fs.readFileSync(path.join(dir, "..", "..", "pubspec.yaml"), "utf8");
+    expect(pubspec).toContain("name: evg_a11y");
+    expect(pubspec).toContain("version: 1.2.0");
+  });
+
+  const dartBin = "/tmp/dart-sdk/bin/dart";
+  const haveDart = fs.existsSync(dartBin);
+  const pkgDir = path.join(ROOT, "tests", ".output-apidocs", "dart");
+
+  it.runIf(haveDart)("analyzes clean, and dart doc documents only the public library", () => {
+    const env = { ...process.env, PUB_CACHE: "/tmp/pubcache" };
+    const run = (args: string[]) =>
+      execFileSync(dartBin, args, {
+        cwd: pkgDir,
+        encoding: "utf8",
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+    const analysis = run(["analyze", "--no-fatal-warnings"]);
+    expect(analysis).not.toMatch(/error -/);
+
+    // without package resolution dartdoc sees file:// URIs, cannot tell
+    // lib/src from lib, and both names and canonicalisation go wrong
+    run(["pub", "get"]);
+    const out = run(["doc", "--output", "docs_api", "."]);
+    expect(out).toContain("Documented 1 public library");
+
+    const lib = fs.readFileSync(
+      path.join(pkgDir, "docs_api", "evg_a11y", "evg_a11y-library.html"),
+      "utf8"
+    );
+    // the package library page lists exactly the public surface
+    expect(lib).toContain("EVGA11yTree");
+    expect(lib).toContain("EVGA11yNode");
+
+    // canonically under the package library, not under lib/src
+    const find = fs.readFileSync(
+      path.join(pkgDir, "docs_api", "evg_a11y", "EVGA11yTree", "find.html"),
+      "utf8"
+    );
+    const text = find.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("Finds an accessibility node by its stable identifier.");
+    expect(text).toContain("The stable accessibility identifier.");
+    expect(text).toContain("Since 1.2");
+  }, 1800000);
+});

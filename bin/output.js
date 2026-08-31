@@ -1525,6 +1525,263 @@ class RangerDocCommentWriter  {
       wr.out(a, true);
     };
   };
+  pyTypeName (t) {
+    let out = t;
+    switch (t ) { 
+      case "boolean" : 
+        out = "bool";
+        break;
+      case "string" : 
+        out = "str";
+        break;
+      case "int" : 
+        out = "int";
+        break;
+      case "double" : 
+        out = "float";
+        break;
+      case "float" : 
+        out = "float";
+        break;
+      case "void" : 
+        out = "None";
+        break;
+      default: 
+        out = t;
+        break;
+    };
+    return out;
+  };
+  pyTypeOf (node) {
+    let out = "";
+    switch (node.value_type ) { 
+      case 6 : 
+        out = ("list[" + this.pyTypeName(node.array_type)) + "]";
+        break;
+      case 7 : 
+        out = ((("dict[" + this.pyTypeName(node.key_type)) + ", ") + this.pyTypeName(node.array_type)) + "]";
+        break;
+      default: 
+        out = this.pyTypeName(node.type_name);
+        break;
+    };
+    return out;
+  };
+  writePyDoc (doc, retType, params, wr) {
+    const descLines = this.linesOf(doc.description);
+    let first = "";
+    if ( (descLines.length) > 0 ) {
+      first = descLines[0];
+    }
+    wr.out("\"\"\"" + first, true);
+    let li = 1;
+    const n = descLines.length;
+    while (li < n) {
+      wr.out(descLines[li], true);
+      li = li + 1;
+    };
+    if ( doc.is_experimental ) {
+      wr.out("", true);
+      wr.out("Experimental. This API may change without notice.", true);
+    }
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      let msg = dep.description;
+      if ( (msg.length) == 0 ) {
+        if ( (dep.use.length) > 0 ) {
+          msg = ("Use " + dep.use) + " instead.";
+        }
+      }
+      wr.out("", true);
+      if ( (dep.since.length) > 0 ) {
+        wr.out(".. deprecated:: " + dep.since, true);
+      } else {
+        wr.out(".. deprecated::", true);
+      }
+      if ( (msg.length) > 0 ) {
+        wr.out("    " + msg, true);
+      }
+    }
+    let documented = [];
+    for ( let i = 0; i < params.length; i++) {
+      var p = params[i];
+      if ( (p.description.length) > 0 ) {
+        documented.push(p);
+      }
+    };
+    if ( (documented.length) > 0 ) {
+      wr.out("", true);
+      wr.out("Args:", true);
+      for ( let i_1 = 0; i_1 < documented.length; i_1++) {
+        var p_1 = documented[i_1];
+        wr.out((((("    " + p_1.compiledName) + " (") + p_1.typeName) + "): ") + p_1.description, true);
+      };
+    }
+    if ( (doc.returns.length) > 0 ) {
+      if ( retType == "None" ) {
+      } else {
+        wr.out("", true);
+        wr.out("Returns:", true);
+        wr.out((("    " + retType) + ": ") + doc.returns, true);
+      }
+    }
+    if ( (doc.throws.length) > 0 ) {
+      wr.out("", true);
+      wr.out("Raises:", true);
+      for ( let i_2 = 0; i_2 < doc.throws.length; i_2++) {
+        var t = doc.throws[i_2];
+        wr.out("    Exception: " + t, true);
+      };
+    }
+    if ( (doc.since.length) > 0 ) {
+      wr.out("", true);
+      wr.out(".. versionadded:: " + doc.since, true);
+    }
+    if ( (doc.see.length) > 0 ) {
+      wr.out("", true);
+      wr.out("See Also:", true);
+      for ( let i_3 = 0; i_3 < doc.see.length; i_3++) {
+        var sname = doc.see[i_3];
+        wr.out("    " + sname, true);
+      };
+    }
+    for ( let i_4 = 0; i_4 < doc.examples.length; i_4++) {
+      var e = doc.examples[i_4];
+      wr.out("", true);
+      wr.out("Example:", true);
+      const exLines = this.linesOf(e);
+      for ( let j = 0; j < exLines.length; j++) {
+        var line = exLines[j];
+        wr.out("    " + line, true);
+      };
+    };
+    wr.out("\"\"\"", true);
+  };
+  dartTypeName (t) {
+    let out = t;
+    switch (t ) { 
+      case "boolean" : 
+        out = "bool";
+        break;
+      case "string" : 
+        out = "String";
+        break;
+      case "int" : 
+        out = "int";
+        break;
+      case "double" : 
+        out = "double";
+        break;
+      case "float" : 
+        out = "double";
+        break;
+      case "void" : 
+        out = "void";
+        break;
+      default: 
+        out = t;
+        break;
+    };
+    return out;
+  };
+  writeDartDoc (doc, retType, params, wr) {
+    const descLines = this.linesOf(doc.description);
+    let wroteBody = false;
+    for ( let i = 0; i < descLines.length; i++) {
+      var line = descLines[i];
+      if ( (line.length) == 0 ) {
+        wr.out("///", true);
+      } else {
+        wr.out("/// " + line, true);
+      }
+      wroteBody = true;
+    };
+    if ( doc.is_experimental ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      wr.out("/// **Experimental.** This API may change without notice.", true);
+      wroteBody = true;
+    }
+    let documented = [];
+    for ( let i_1 = 0; i_1 < params.length; i_1++) {
+      var p = params[i_1];
+      if ( (p.description.length) > 0 ) {
+        documented.push(p);
+      }
+    };
+    if ( (documented.length) > 0 ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      for ( let i_2 = 0; i_2 < documented.length; i_2++) {
+        var p_1 = documented[i_2];
+        wr.out((("/// [" + p_1.compiledName) + "] ") + p_1.description, true);
+      };
+      wroteBody = true;
+    }
+    if ( (doc.returns.length) > 0 ) {
+      if ( retType == "void" ) {
+      } else {
+        if ( wroteBody ) {
+          wr.out("///", true);
+        }
+        wr.out("/// Returns " + doc.returns, true);
+        wroteBody = true;
+      }
+    }
+    for ( let i_3 = 0; i_3 < doc.throws.length; i_3++) {
+      var t = doc.throws[i_3];
+      wr.out("/// Throws " + t, true);
+      wroteBody = true;
+    };
+    if ( (doc.since.length) > 0 ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      wr.out("/// Since " + doc.since, true);
+      wroteBody = true;
+    }
+    if ( (doc.see.length) > 0 ) {
+      if ( wroteBody ) {
+        wr.out("///", true);
+      }
+      for ( let i_4 = 0; i_4 < doc.see.length; i_4++) {
+        var sname = doc.see[i_4];
+        wr.out(("/// See also [" + sname) + "].", true);
+      };
+    }
+    for ( let i_5 = 0; i_5 < doc.examples.length; i_5++) {
+      var e = doc.examples[i_5];
+      wr.out("///", true);
+      wr.out("/// ```dart", true);
+      const exLines = this.linesOf(e);
+      for ( let j = 0; j < exLines.length; j++) {
+        var line_1 = exLines[j];
+        wr.out("/// " + line_1, true);
+      };
+      wr.out("/// ```", true);
+    };
+  };
+  writeDartAttrs (doc, wr) {
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      let msg = dep.description;
+      if ( (msg.length) == 0 ) {
+        if ( (dep.use.length) > 0 ) {
+          msg = ("Use " + dep.use) + " instead.";
+        }
+      }
+      if ( (dep.since.length) > 0 ) {
+        msg = (("Since " + dep.since) + ". ") + msg;
+      }
+      wr.out(("@Deprecated('" + msg) + "')", true);
+    }
+    for ( let i = 0; i < doc.attrs.length; i++) {
+      var a = doc.attrs[i];
+      wr.out(a, true);
+    };
+  };
   paramsOf (fd, doc, forJs) {
     let out = [];
     for ( let i = 0; i < fd.params.length; i++) {
@@ -1671,6 +1928,62 @@ class RangerDocCommentWriter  {
     let ps = [];
     this.writeKotlinDoc(view, "Unit", ps, wr);
     this.writeKotlinAttrs(view, "", wr);
+  };
+  writePyDocForMethod (fd, wr) {
+    if ( fd.has_doc == false ) {
+      return;
+    }
+    const doc = fd.docBlock;
+    const view = doc.viewFor("python");
+    const ps = this.paramsOf(fd, view, false);
+    for ( let i = 0; i < ps.length; i++) {
+      var p = ps[i];
+      p.typeName = this.pyTypeName(p.typeName);
+    };
+    const rn = fd.nameNode;
+    const rt = this.pyTypeOf(rn);
+    this.writePyDoc(view, rt, ps, wr);
+  };
+  writePyDocForClass (cl, wr) {
+    if ( cl.has_doc == false ) {
+      return;
+    }
+    const doc = cl.docBlock;
+    const view = doc.viewFor("python");
+    let ps = [];
+    this.writePyDoc(view, "None", ps, wr);
+  };
+  writeDartDocForMethod (fd, wr) {
+    if ( fd.has_doc == false ) {
+      return;
+    }
+    const doc = fd.docBlock;
+    const view = doc.viewFor("dart");
+    const ps = this.paramsOf(fd, view, false);
+    const rn = fd.nameNode;
+    const rt = this.dartTypeName(rn.type_name);
+    this.writeDartDoc(view, rt, ps, wr);
+    this.writeDartAttrs(view, wr);
+  };
+  writeDartDocForClass (cl, wr) {
+    if ( cl.has_doc == false ) {
+      return;
+    }
+    const doc = cl.docBlock;
+    const view = doc.viewFor("dart");
+    let ps = [];
+    this.writeDartDoc(view, "void", ps, wr);
+    this.writeDartAttrs(view, wr);
+  };
+  writeDartDocForField (p, wr) {
+    if ( p.has_doc == false ) {
+      return;
+    }
+    const doc = p.docBlock;
+    const view = doc.viewFor("dart");
+    let ps = [];
+    this.writeDartDoc(view, "void", ps, wr);
+    this.writeDartAttrs(view, wr);
   };
   memberVisibility (cl, member, whenLegacy, whenPublic, whenInternal) {
     if ( cl.has_doc == false ) {
@@ -2388,12 +2701,151 @@ class RangerApiPackageWriter  {
       wr.out(model.description, true);
     }
   };
+  writeDartBarrel (model, ctx, orig_wr, node) {
+    let pkgName = this.settingOr(ctx, "name", model.moduleName);
+    if ( (pkgName.length) == 0 ) {
+      pkgName = "ranger_api";
+    }
+    const srcFile = this.settingOr(ctx, "o", "output.dart");
+    const barrelFile = pkgName + ".dart";
+    const wr = orig_wr.getFileWriter("..", barrelFile);
+    wr.out("/// " + pkgName, true);
+    if ( (model.description.length) > 0 ) {
+      wr.out("///", true);
+      wr.out("/// " + model.description, true);
+    }
+    wr.out(("library " + pkgName) + ";", true);
+    wr.out("", true);
+    let names = [];
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( c.is_public ) {
+        names.push(c.name);
+      }
+    };
+    if ( (names.length) == 0 ) {
+      wr.out(("// no public API: nothing in " + srcFile) + " carries `doc { public }`", true);
+      return;
+    }
+    wr.out(("export 'src/" + srcFile) + "'", false);
+    wr.out("", true);
+    wr.out("    show", false);
+    for ( let i = 0; i < names.length; i++) {
+      var n = names[i];
+      if ( i > 0 ) {
+        wr.out(",", false);
+      }
+      wr.out(" " + n, false);
+    };
+    wr.out(";", true);
+  };
+  pyModuleName (raw) {
+    let out = "";
+    let i = 0;
+    const n = raw.length;
+    while (i < n) {
+      const ch = raw.substring(i, (i + 1) );
+      if ( ch == "-" ) {
+        out = out + "_";
+      } else {
+        if ( ch == "." ) {
+          out = out + "_";
+        } else {
+          out = out + ch;
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  writePyProject (model, ctx, orig_wr) {
+    let name = this.settingOr(ctx, "name", model.moduleName);
+    if ( (name.length) == 0 ) {
+      name = "ranger_api";
+    }
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const author = this.settingOr(ctx, "author", "");
+    const license = this.settingOr(ctx, "license", "");
+    const srcFile = this.settingOr(ctx, "o", "output.py");
+    let modName = srcFile;
+    if ( modName.endsWith(".py") ) {
+      modName = modName.substring(0, ((modName.length) - 3) );
+    }
+    const wr = orig_wr.getFileWriter(".", "pyproject.toml");
+    wr.out("[build-system]", true);
+    wr.out("requires = [\"setuptools>=61\"]", true);
+    wr.out("build-backend = \"setuptools.build_meta\"", true);
+    wr.out("", true);
+    wr.out("[project]", true);
+    wr.out(("name = \"" + name) + "\"", true);
+    wr.out(("version = \"" + version) + "\"", true);
+    if ( (descr.length) > 0 ) {
+      wr.out(("description = \"" + descr) + "\"", true);
+    }
+    if ( (license.length) > 0 ) {
+      wr.out(("license = \"" + license) + "\"", true);
+    }
+    if ( (author.length) > 0 ) {
+      wr.out(("authors = [{ name = \"" + author) + "\" }]", true);
+    }
+    wr.out("requires-python = \">=3.9\"", true);
+    wr.out("", true);
+    wr.out("[tool.setuptools]", true);
+    wr.out(("py-modules = [\"" + modName) + "\"]", true);
+  };
+  writePyAll (model, ctx, orig_wr) {
+    const srcFile = this.settingOr(ctx, "o", "output.py");
+    const wr = orig_wr.getFileWriter(".", srcFile);
+    let names = [];
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( c.is_public ) {
+        names.push(c.name);
+      }
+    };
+    wr.out("", true);
+    wr.out("__docformat__ = \"google\"", true);
+    wr.out("", true);
+    if ( (names.length) == 0 ) {
+      return;
+    }
+    wr.out("", true);
+    wr.out("# The public API surface, from the `doc { public }` declarations.", true);
+    wr.out("__all__ = [", false);
+    for ( let i = 0; i < names.length; i++) {
+      var n = names[i];
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      wr.out(("\"" + n) + "\"", false);
+    };
+    wr.out("]", true);
+  };
   writeReadme (model, ctx, orig_wr) {
     const wr = orig_wr.getFileWriter(".", "README.md");
     const aw = new RangerApiArtifactWriter();
     aw.writeMarkdown(model, ctx, wr);
   };
-  writeAll (model, ctx, orig_wr) {
+  writeDartPubspec (model, ctx, orig_wr) {
+    let pkgName = this.settingOr(ctx, "name", model.moduleName);
+    if ( (pkgName.length) == 0 ) {
+      pkgName = "ranger_api";
+    }
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const wr = orig_wr.getFileWriter("../..", "pubspec.yaml");
+    wr.out("name: " + pkgName, true);
+    if ( (descr.length) > 0 ) {
+      wr.out("description: " + descr, true);
+    }
+    wr.out("version: " + version, true);
+    wr.out("publish_to: none", true);
+    wr.out("", true);
+    wr.out("environment:", true);
+    wr.out("  sdk: '>=3.0.0 <4.0.0'", true);
+  };
+  writeAll (model, ctx, orig_wr, node) {
     switch (ctx.targetLangName ) { 
       case "es6" : 
         this.writeNpmPackage(model, ctx, orig_wr);
@@ -2417,6 +2869,16 @@ class RangerApiPackageWriter  {
       case "kotlin" : 
         this.writeKotlinGradle(model, ctx, orig_wr);
         this.writeDokkaModuleDoc(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "dart" : 
+        this.writeDartBarrel(model, ctx, orig_wr, node);
+        this.writeDartPubspec(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "python" : 
+        this.writePyProject(model, ctx, orig_wr);
+        this.writePyAll(model, ctx, orig_wr);
         this.writeReadme(model, ctx, orig_wr);
         break;
       default: 
@@ -38158,6 +38620,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             this.writeDartUnionInterfaces(ctx, wr);
                             wr.out("", true);
+                            if ( cl.has_doc ) {
+                              const clDocWr = new RangerDocCommentWriter();
+                              clDocWr.writeDartDocForClass(cl, wr);
+                            }
                             wr.out("class " + cl.name, false);
                             const dartUnions = this.unionInterfacesOf((cl), ctx);
                             if ( (cl.extends_classes.length) > 0 ) {
@@ -38195,6 +38661,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               var pvar = cl.variables[i_1];
                               if ( pvar.is_static ) {
                                 continue;
+                              }
+                              if ( pvar.has_doc ) {
+                                const fDocWr = new RangerDocCommentWriter();
+                                fDocWr.writeDartDocForField(pvar, wr);
                               }
                               await this.writeVarDef(pvar.node, ctx, wr);
                             };
@@ -38295,6 +38765,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 continue;
                               }
                               wr.out("", true);
+                              if ( variant_1.has_doc ) {
+                                const sDocWr = new RangerDocCommentWriter();
+                                sDocWr.writeDartDocForMethod(variant_1, wr);
+                              }
                               wr.out("static ", false);
                               await this.writeTypeDef(variant_1.nameNode, ctx, wr);
                               wr.out(" ", false);
@@ -38326,6 +38800,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                                 if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_2.name) ) ) {
                                   shouldOverride = true;
+                                }
+                                if ( variant_2.has_doc ) {
+                                  const mDocWr = new RangerDocCommentWriter();
+                                  mDocWr.writeDartDocForMethod(variant_2, wr);
                                 }
                                 if ( shouldOverride ) {
                                   wr.out("@override", true);
@@ -43569,6 +44047,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             wr.out(":", true);
                             wr.indent(1);
+                            if ( cl.has_doc ) {
+                              const clDocWr = new RangerDocCommentWriter();
+                              clDocWr.writePyDocForClass(cl, wr);
+                            }
                             if ( cl.isSingletonClass() ) {
                               wr.out("_rg_singleton_instance = None", true);
                             }
@@ -43684,6 +44166,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out("):", true);
                               }
                               wr.indent(1);
+                              if ( variant.has_doc ) {
+                                const sDocWr = new RangerDocCommentWriter();
+                                sDocWr.writePyDocForMethod(variant, wr);
+                              }
                               const subCtx_1 = variant.fnCtx;
                               subCtx_1.is_function = true;
                               subCtx_1.in_static_method = true;
@@ -43708,6 +44194,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                                 wr.out("):", true);
                                 wr.indent(1);
+                                if ( variant_1.has_doc ) {
+                                  const mDocWr = new RangerDocCommentWriter();
+                                  mDocWr.writePyDocForMethod(variant_1, wr);
+                                }
                                 const subCtx_2 = variant_1.fnCtx;
                                 subCtx_2.is_function = true;
                                 subCtx_2.in_static_method = false;
@@ -65436,7 +65926,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 }
                                                                 if ( appCtx.hasCompilerFlag("apipackage") ) {
                                                                   const pkgGen = new RangerApiPackageWriter();
-                                                                  pkgGen.writeAll(apiModel, appCtx, wr);
+                                                                  pkgGen.writeAll(apiModel, appCtx, wr, node);
                                                                 }
                                                                 for ( let warnIdx = 0; warnIdx < apiModel.warnings.length; warnIdx++) {
                                                                   var warnMsg = apiModel.warnings[warnIdx];
