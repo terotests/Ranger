@@ -68,8 +68,9 @@ Because it is Ranger, that file can be any of them:
 | Node | `npm run evg:trace:cli:run` (already built) | ~0.45 s |
 | Python | `npm run evg:trace:cli:py` → one `.py`, stdlib only | ~4.8 s |
 | C++ | `npm run evg:trace:cli:cpp` → one `.cpp`, then `g++` | ~0.19 s |
+| Rust | `npm run evg:trace:cli:rust` → one `.rs`, then `rustc` | ~0.21 s |
 
-`npm run evg:trace:cli:smoke` builds all three and asserts they produce the
+`npm run evg:trace:cli:smoke` builds all four and asserts they produce the
 same SVG byte for byte — which is the claim worth testing, since a difference
 in integer division or float printing between targets would otherwise surface
 as a picture somebody notices months later.

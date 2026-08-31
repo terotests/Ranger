@@ -56,6 +56,33 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  describe("Nested self method calls", () => {
+    // `this.dist(… (itemAt pal (this.nearest(…))) …)` borrows self twice in one
+    // expression. The inner call was only ever looked for at the argument's own
+    // head, so an index hid it and the generated Rust was E0499.
+    it("should compile a self call nested inside an index expression", () => {
+      const result = compileRangerToRust(
+        "tests/fixtures/rust_nested_self_call.rgr"
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("should hoist the nested call and keep the same result as the other targets", () => {
+      expectRustOutput("tests/fixtures/rust_nested_self_call.rgr", "-25 10 3");
+    });
+
+    // …but a self call in a loop BODY belongs to the closure the body becomes:
+    // hoisted out, its `let` lands where the loop variable does not exist.
+    it("should leave a self call inside a loop body in place", () => {
+      const result = getGeneratedRustCode(
+        "tests/fixtures/rust_nested_self_call.rgr"
+      );
+      expect(result.success).toBe(true);
+      const hoistedLoopVar = /let mut _tmp_\d+ = self\.nearest\(x\b/;
+      expect(result.code).not.toMatch(hoistedLoopVar);
+    });
+  });
+
   describe("Polyfill Deduplication", () => {
     it("should not duplicate polyfills when on_keypress is used multiple times", () => {
       const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");

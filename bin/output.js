@@ -29359,6 +29359,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   return false;
                 };
+                rustCollectNestedSelfCalls (node, into) {
+                  for ( let i = 0; i < node.children.length; i++) {
+                    var ch = node.children[i];
+                    let chScoped = false;
+                    if ( this.rustNodeIsLambda(ch) ) {
+                      chScoped = true;
+                    }
+                    if ( ch.is_block_node ) {
+                      chScoped = true;
+                    }
+                    if ( ch.has_lambda ) {
+                      chScoped = true;
+                    }
+                    if ( ch.has_lambda_call ) {
+                      chScoped = true;
+                    }
+                    if ( chScoped == false ) {
+                      const chReal = this.rustUnwrapParens(ch);
+                      if ( this.isSelfMethodCall(chReal) ) {
+                        into.push(ch);
+                      } else {
+                        this.rustCollectNestedSelfCalls(chReal, into);
+                      }
+                    }
+                  };
+                };
                 findSelfCallInArgs (node) {
                   if ( node.hasFnCall ) {
                     const givenArgs = node.getSecond();
@@ -32148,6 +32174,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                   wr.out(";", true);
                                   cA.rust_use_tmpvar = cTmp;
+                                }
+                                let cArgScoped = false;
+                                if ( this.rustNodeIsLambda(cA) ) {
+                                  cArgScoped = true;
+                                }
+                                if ( cA.is_block_node ) {
+                                  cArgScoped = true;
+                                }
+                                if ( cA.has_lambda ) {
+                                  cArgScoped = true;
+                                }
+                                if ( cA.has_lambda_call ) {
+                                  cArgScoped = true;
+                                }
+                                if ( cNeedsTmp || cArgScoped ) {
+                                } else {
+                                  let cNested = [];
+                                  this.rustCollectNestedSelfCalls(cReal, cNested);
+                                  for ( let nI = 0; nI < cNested.length; nI++) {
+                                    var nA = cNested[nI];
+                                    if ( (nA.rust_use_tmpvar.length) == 0 ) {
+                                      await this.rustExtractSelfCallConflicts(nA, ctx, wr);
+                                      const nTmp = ctx.rustGetTempVar();
+                                      wr.out(("let mut " + nTmp) + " = ", false);
+                                      ctx.setInExpr();
+                                      await this.WalkNode(nA, ctx, wr);
+                                      ctx.unsetInExpr();
+                                      wr.out(";", true);
+                                      nA.rust_use_tmpvar = nTmp;
+                                    }
+                                  };
                                 }
                               };
                               if ( this.isSelfMethodCall(real) ) {

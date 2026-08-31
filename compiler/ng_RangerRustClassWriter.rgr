@@ -5921,6 +5921,49 @@ class RangerRustClassWriter {
     return false
   }
 
+  ; The self calls an argument only CONTAINS, rather than IS. isSelfMethodCall
+  ; tests the argument's own head, so a call reached through anything else —
+  ; most often an index — was never seen: `itemAt outR (this.nearestIndex(…))`
+  ; borrows self to compute the index while the enclosing call is borrowing it
+  ; too, which is E0499. rustc's own advice is a local per call, so they are
+  ; collected here for the caller to hoist.
+  ; Each is collected AS IT SITS in the tree, parens and all: the operand and
+  ; index writers look for rust_use_tmpvar on the child they hold, before any
+  ; unwrapping of their own.
+  ; Nothing that opens a SCOPE is searched, and the search stops at the branch
+  ; rather than stepping over it. A loop body is the case that matters: `for
+  ; xs item { this.markAsyncFrom(item visited) }` becomes a closure taking
+  ; `item`, so the call in it borrows self when the closure runs, not here, and
+  ; a `let` lifted out of it lands where `item` does not exist. That is a block
+  ; node, not a lambda_ctx, so both are tested — along with a subtree that
+  ; merely CONTAINS a closure, which is skipped whole: an argument this pass
+  ; leaves alone still compiles, one hoisted out of its scope does not.
+  fn rustCollectNestedSelfCalls:void (node:CodeNode into:[CodeNode]) {
+    for node.children ch:CodeNode i {
+      def chScoped:boolean false
+      if (this.rustNodeIsLambda(ch)) {
+        chScoped = true
+      }
+      if ch.is_block_node {
+        chScoped = true
+      }
+      if ch.has_lambda {
+        chScoped = true
+      }
+      if ch.has_lambda_call {
+        chScoped = true
+      }
+      if (chScoped == false) {
+        def chReal:CodeNode (this.rustUnwrapParens(ch))
+        if (this.isSelfMethodCall(chReal)) {
+          push into ch
+        } {
+          this.rustCollectNestedSelfCalls(chReal into)
+        }
+      }
+    }
+  }
+
   ; Check if any argument contains a self method call - returns the argument index, -1 if none
   fn findSelfCallInArgs:int (node:CodeNode) {
     if node.hasFnCall {
@@ -9289,6 +9332,40 @@ class RangerRustClassWriter {
           }
           wr.out(";" true)
           cA.rust_use_tmpvar = cTmp
+        }
+        ; …and an argument that is not a self call but CARRIES one further
+        ; down keeps the same conflict: only the nested call moves out, so an
+        ; index stays the place it names and nothing is moved out of it.
+        def cArgScoped:boolean false
+        if (this.rustNodeIsLambda(cA)) {
+          cArgScoped = true
+        }
+        if cA.is_block_node {
+          cArgScoped = true
+        }
+        if cA.has_lambda {
+          cArgScoped = true
+        }
+        if cA.has_lambda_call {
+          cArgScoped = true
+        }
+        if (cNeedsTmp || cArgScoped) {
+        } {
+          def cNested:[CodeNode]
+          this.rustCollectNestedSelfCalls(cReal cNested)
+          for cNested nA:CodeNode nI {
+            if ((strlen nA.rust_use_tmpvar) == 0) {
+              ; the nested call's OWN arguments may carry the same conflict
+              this.rustExtractSelfCallConflicts(nA ctx wr)
+              def nTmp:string (ctx.rustGetTempVar())
+              wr.out((("let mut " + nTmp) + " = ") false)
+              ctx.setInExpr()
+              this.WalkNode(nA ctx wr)
+              ctx.unsetInExpr()
+              wr.out(";" true)
+              nA.rust_use_tmpvar = nTmp
+            }
+          }
         }
       }
       ; a self call has no receiver of its own to hoist, and its arguments

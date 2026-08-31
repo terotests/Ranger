@@ -93,6 +93,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   get slower for it (704 ms → 788 ms). Past 64 the returns stop being worth the
   bytes: 128 buys seven more layers for another half megabyte.
 
+### Fixed
+
+- **The Rust backend hoists a self call the argument only *contains*.** One
+  written directly as an argument — `this.dist(this.near(x))` — was already
+  lifted into a local, because both calls borrow `self` and Rust allows only
+  one such borrow at a time (E0499). One reached through anything else was not:
+  the check looked at the argument's own head, so `itemAt outR (this
+  .nearestIndex(…))` hid the call behind an index and the generated code did
+  not compile. Only the nested call moves out now, into a local of its own,
+  which is what rustc's own advice on the error says: an index stays the place
+  it names and nothing is moved out of it.
+
+  Nothing that opens a scope is searched, and the search stops at that branch
+  rather than stepping over it. A loop body is the case that matters — `for xs
+  item { this.markAsyncFrom(item visited) }` becomes a closure taking `item`,
+  so the call in it borrows `self` when the closure runs, not at the call site,
+  and a `let` lifted out of it lands where `item` does not exist. Hoisting into
+  loop bodies took the compiler's own Rust rendering from 6 errors to 119.
+
+- **`evg-trace` builds for Rust.** The tracer's palette refinement is where the
+  nested-call shape above came from, so `-l=rust` produced a program rustc
+  rejected. `npm run evg:trace:cli:rust` now builds it, and the smoke test
+  checks four targets rather than three: Node, Python, C++ and Rust all return
+  byte-for-byte the same SVG.
+
 ### Changed
 
 - **Tarkennin is the tool the edit mode opens on**, rather than Yhdistä. It is
