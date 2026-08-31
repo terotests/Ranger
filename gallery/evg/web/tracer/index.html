@@ -1393,6 +1393,28 @@
   // labMixture, which is not multiplicative in the distance.
   var WAND_PASSES = 2;
 
+  // What a hint is worth, as a multiple of the strongest ordinary evidence a
+  // region can carry. It was infinity — a region the brush covered was
+  // foreground and nothing could say otherwise — which is right for a brush
+  // that paints pixels and wrong for one that lands on whole regions. The
+  // brush has a width, and a stroke down a standing figure reaches the feet,
+  // where it catches the sand around them. Those regions became hard
+  // constraints, the colour model learned from them that sand is the object,
+  // and the whole beach followed: on the photograph the brush scored 0.170
+  // with a precision of 0.178, having selected the man and 60 000 px of
+  // shore. Nothing downstream could refuse it, because a constraint is not
+  // evidence and cannot be outvoted.
+  //
+  // Finite, it can be. A hint that landed correctly is still never in danger —
+  // nothing outvotes it, because everything around it agrees — and one that
+  // landed on the wrong side of a foot is now a strong opinion rather than an
+  // axiom. Tried once before on the synthetic bench alone, where it changed no
+  // score at any strength, and reverted for it; the photograph is what showed
+  // that the bench could not see this.
+  var WAND_HINT = 0.3;
+
+  var WAND_PASSES = 2;
+
   // A hint is an axiom: a region the user's brush covered is foreground and
   // nothing outvotes it. Making it finite was tried, because the brush has a
   // width and drawn down a figure with a gap between the legs it covers the
@@ -1844,22 +1866,39 @@
   // tuning. A clustered GMM was tried first, at every k from 2 to 6, and
   // measured worse than nearest-seed at all of them; this is the same idea
   // without the clustering, which is what one region per component already is.
-  function labMixture(g, i, seeds, penalty) {
+  // `norm` is the total area of *both* models, not of this one, and that is
+  // the whole of the class prior. Normalising each model by its own total
+  // makes belonging to the smaller one cheaper — and the background is 93% of
+  // a photograph while the object is 7%. On the beach picture the brush caught
+  // a little sand at the man's feet; those regions joined the foreground
+  // model, and every other sand region then found itself a better match for
+  // the small model than for the large one it also belonged to. The tool
+  // selected the man and the whole shore. Shared, the background's size counts
+  // in its favour, which is what a prior is.
+  function labMixture(g, i, seeds, norm, penalty) {
     var s2 = 2 * WAND_SIGMA_M * WAND_SIGMA_M;
-    var es = [], best = Infinity, tot = 0;
+    var es = [], best = Infinity;
     seeds.forEach(function (j) {
       var w = g.seen[j] > 0 ? g.seen[j] : 1;
       var d = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
       if (penalty) d *= penalty(j);
       var e = d * d / s2 - Math.log(w);
-      es.push(e); tot += w;
+      es.push(e);
       if (e < best) best = e;
     });
     if (!es.length) return 40;
     var sum = 0;
     for (var k = 0; k < es.length; k++) sum += Math.exp(-(es[k] - best));
-    var nll = best - Math.log(sum) + Math.log(tot);
+    var nll = best - Math.log(sum) + Math.log(norm > 0 ? norm : 1);
     return WAND_SIGMA_M * Math.sqrt(2 * Math.max(0, nll));
+  }
+
+  // The shared normaliser: how much picture the two models stand on together.
+  function labNorm(g, a, b) {
+    var tot = 0, seen = new Set();
+    a.forEach(function (j) { if (!seen.has(j)) { seen.add(j); tot += g.seen[j] > 0 ? g.seen[j] : 1; } });
+    b.forEach(function (j) { if (!seen.has(j)) { seen.add(j); tot += g.seen[j] > 0 ? g.seen[j] : 1; } });
+    return tot;
   }
 
   // Only the neighbourhood of the seeds is at stake. A click on a hand has no
@@ -1918,7 +1957,8 @@
     // One solve, against whatever the models currently say. Everything that
     // does not change between passes — the candidate set, the neighbourhood
     // depths, the pairwise weights — is computed once, above.
-    function cut(fgModel, bgModel, weightOf) {
+    function cut(fgModel, bgModel, weightOf, hint) {
+      var norm = labNorm(g, fgModel, bgModel);
       var N = list.length, S = N, T = N + 1, V = N + 2;
       var head = new Int32Array(V).fill(-1);
       var to = [], next = [], cap = [];
@@ -1928,10 +1968,10 @@
       }
       for (var k = 0; k < N; k++) {
         var i = list[k], area = g.seen[i];
-        if (fg.has(i)) { edge(S, k, 1e9, 0); continue; }
-        if (bg.has(i)) { edge(k, T, 1e9, 0); continue; }
-        var dF = labMixture(g, i, fgModel, weightOf);
-        var dB = bgModel.size ? labMixture(g, i, bgModel, weightOf) : 40;
+        if (fg.has(i)) { edge(S, k, area * hint, 0); continue; }
+        if (bg.has(i)) { edge(k, T, area * hint, 0); continue; }
+        var dF = labMixture(g, i, fgModel, norm, weightOf);
+        var dB = bgModel.size ? labMixture(g, i, bgModel, norm, weightOf) : 40;
         // Colour is not the whole of the evidence. A region the same shade as
         // something the user pointed at, but a dozen regions away from it, is
         // more likely to be a different thing that happens to match — the
@@ -2005,7 +2045,7 @@
     // instructions, and a pass that changes nothing ends it.
     var sel = null;
     for (var pass = 0; pass < WAND_PASSES; pass++) {
-      var got = cut(fgModel, bgModel, function (j) { return weight.get(j) || 1; });
+      var got = cut(fgModel, bgModel, function (j) { return weight.get(j) || 1; }, WAND_HINT);
       if (sel && got.size === sel.size && Array.from(got).every(function (i) { return sel.has(i); })) {
         sel = got; break;
       }
@@ -2022,6 +2062,14 @@
         else bgModel.add(i);
       });
     }
+
+    // A hint is strong evidence and not an axiom, so in principle the cut can
+    // refuse every one of them. If it does there is nothing to grow from and
+    // the user pointed at nothing for no visible reason, which is a worse
+    // answer than a wrong one: solve once more with the hints nailed down.
+    var anySeed = false;
+    fg.forEach(function (i) { if (sel.has(i)) anySeed = true; });
+    if (!anySeed) sel = cut(fgModel, bgModel, function (j) { return weight.get(j) || 1; }, 1e9);
 
     // Only what hangs together with something the user actually pointed at.
     var keep = new Set(), stack = [];
@@ -2266,8 +2314,9 @@
     bgModel.forEach(function (j) { weight.set(j, wandBg.has(j) ? 1 : WAND_AUTO_BG); });
     sel.forEach(function (i) {
       if (before.has(i)) return;
-      var dF = labMixture(g, i, wandFg);
-      var dB = bgModel.size ? labMixture(g, i, bgModel, function (j) {
+      var norm = labNorm(g, wandFg, bgModel);
+      var dF = labMixture(g, i, wandFg, norm);
+      var dB = bgModel.size ? labMixture(g, i, bgModel, norm, function (j) {
         return weight.get(j) || 1;
       }) : 1e9;
       // Surrounded, and not plainly the background it is surrounded by.

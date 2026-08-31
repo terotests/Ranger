@@ -123,6 +123,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **A photograph, and it found two things the drawings could not.**
+  `npm run evg:trace:web:photo` runs the wand against a beach photograph that
+  is committed with the repository — a man in a yoga pose, thin limbs, a gap
+  between the legs, a sky that is six blues, sand that blows out, and a dark
+  mat lying against his feet in his own colour. The truth is built from the
+  picture without the tracer (the background is blue, or bright and
+  colourless; the man is what is left, then a majority filter and the largest
+  blob), and it was checked by looking at it: it rounds off the loose hair and
+  cuts the feet where they meet the mat, and is right everywhere else.
+  `--write` saves it so the next person can look too. Unlike the photo
+  composites this replaces, the fixture is in the repository, so the number is
+  reproducible rather than a claim.
+
+  The man is **6.8% of the frame**. That is much harder than the synthetic set,
+  where the figures are a third of it.
+
+  **The first find was a bias in my own formula.** The area-weighted mixture
+  normalised each model by *its own* total area, so belonging to the smaller
+  model was cheaper — and the background is 93% of a photograph while the
+  object is 7%. The brush, being 26 units wide, caught a little sand at the
+  man's feet; those regions joined the foreground model, and every other sand
+  region then found itself a better match for the small model than for the
+  large one it also belonged to. The tool selected the man and the entire
+  shore: **0.170, at a precision of 0.178**. Both models now share
+  one normaliser, which is the class prior the formula was missing: the
+  background's size counts in its favour. Of 59 886 wrongly selected pixels,
+  46 983 were regions that touch the frame and sit in the background model
+  already — after the fix, none.
+
+  **The second was that a hint could not be outvoted.** Softening the
+  constraint had been tried before and reverted, because on the synthetic
+  bench it changed no score at any strength. With the class prior in place the
+  photograph shows what the bench could not: at `WAND_HINT` 0.2–0.4 all twenty
+  jittered hands reach 100% of ceiling, and above 0.6 the worst of them falls
+  to 70%. A hint that landed correctly is still never in danger — everything
+  around it agrees — and one that landed on the wrong side of a foot is now a
+  strong opinion rather than an axiom.
+
+  | | |
+  |---|---|
+  | ceiling (720 shapes) | 0.657 |
+  | a click | 0.514 (78%) |
+  | a drawn outline | 0.700 (100%) |
+  | **a brush stroke down the man** | **0.716 (100%), precision 0.965** |
+  | twenty hands, worst | **100%** |
+  | a stroke that runs on into the ground | 0.463 (70%), precision 0.546 |
+
+  Neither change moves the synthetic bench at all — 95% on one stroke, 99% with
+  a correction, before and after — and the jitter worst case improves from 86%
+  to 89%. What they cost is steerability's first stroke, 77% to 74%, and the
+  small dab, 84% to 81%; the corrected answer is 95%. Twice now a change has
+  measured as nothing on eleven drawings and as everything on one photograph,
+  which is the argument for keeping the photograph in the suite.
+
+  **And one finding that is not a bug.** The last row of the table is the same
+  tool with the same settings and a stroke that carries on past the hips into
+  the gap between the legs — 15% of its length on the ground rather than the
+  man. The brush is 26 units wide and the man's shin is about twenty, so it
+  paints sand either way; sized to the subject (16 or 10) the careless stroke
+  scores 100% too. But a narrower brush costs the synthetic set — one small dab
+  falls from 84% to 66% — because there the figures are large. The right width
+  follows the *subject*, which the user can see and the tool cannot, so the
+  default is unchanged at 26 and this is written down rather than tuned away.
+
 - **The tracer merged away the edge the selection needed.** `minColorDelta`
   collapses palette entries closer together than it — written for the case
   where asking for more colours than the picture holds splits one region
