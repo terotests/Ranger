@@ -1776,6 +1776,88 @@ in `TreeCtl`, captured from the library first — propagation rules and a
 tri-state boundary are exactly the shape of thing this repository keeps
 getting wrong by reading rather than measuring.
 
+## Timeline, and the component with no oracle at all
+
+Every other component here is measured against a headless library. ReUI's
+Timeline has none under it — it is a hand-written component — and its source
+could not be reached from this environment: reui.io is refused by the proxy,
+there is no npm package, and the plausible GitHub paths are 404. So there is no
+trace to diff against, no `behaviours.json` entry and no conformance spec. A
+spec here would be a step that cannot fail, which is the thing this harness
+exists to refuse.
+
+**What there is, is a picture, and a picture is a measurement.** The reference
+rendering `defaultValue={3}` over four items shows:
+
+- the DOT filled for steps 1, 2 and 3, and pale for 4
+- the LINE dark between 1–2 and 2–3, and pale between 3–4
+
+So the dot is `step <= value` and the line is `step < value`, and **they are not
+the same predicate**. That is the whole finding. The obvious implementation
+gives both the same `completed` flag and draws a dark line under the current
+step — and `npm run ui:timeline:check` fails four ways when you do.
+
+What the picture does not show is not built rather than guessed: horizontal
+orientation, behaviour at a value outside 1..n, and whether the reference's
+`value`/`onValueChange` make it interactive. As used, it is a list.
+
+**There is no `TimelineCtl`**, because there is nothing to control. `TreeCtl`
+exists because arrows, ranges, drop targets and an insertion index are hard and
+worth measuring; a timeline is a list of records and one integer.
+
+### The icons are the real files
+
+lucide-static 1.37.0 (ISC), pasted verbatim. `EVGDisplayList` imports a whole
+SVG document — circles, lines and paths, fill and stroke — so the file declares
+the geometry and the STYLESHEET decides the colour: `stroke="currentColor"`
+resolves to the hosting element's fill. One copy of each icon serves both a
+dark dot and a pale one.
+
+The gate checks that neither colour is the parser's default black, because a
+mis-spelt property is invisible otherwise — which is exactly what happened.
+
+### Four things that were wrong, and what caught each
+
+- **`fill-color` instead of `fill`.** The property is spelt as SVG spells it.
+  The sheet ignores an unknown property without complaining, so every icon came
+  out black and the page still rendered. Found by reading the display list's
+  colours, not by looking at it.
+- **A 4px gap at the wrong end.** The line stopped four pixels short of the
+  next dot instead of clearing two at each end. The reference's own arithmetic
+  says which: `translate-y-6.5` against a 24px dot is 2, and
+  `calc(100% - 1.5rem - 0.25rem)` takes 28 off the height, so 2 and 2. No
+  screenshot was going to show that; the check did on its first run.
+- **A synthetic probe that lied.** A hand-built row said `align-items: stretch`
+  needs an explicit parent height, and a whole `rowHeight` field was written
+  around that claim. Measured again on the real page, stretch worked — and then
+  removing it changed nothing at all, because the rail's content already adds
+  up to the row's height. The declaration was inert and is gone. **Probe the
+  real thing, not a model of it.**
+- **A stale compiled artifact, twice.** A mutation run leaves the mutated
+  `.cjs` behind; the next check reads it and reports a failure that is not
+  there, and the next screenshot renders a page that does not exist. Both new
+  checks now compile before they read, like every other gate.
+
+`height: fill` is worth one line of its own: it is NOT flex-grow. `EVGUnit`
+resolves it to the parent's size, and a child asking for it stops the parent
+growing at all. The line's height is therefore a number, computed in Ranger —
+the same subtraction the reference writes as a `calc()`, in a language that can
+do arithmetic.
+
+One thing the check cannot catch, and says so: layout clamps a child to the
+space its siblings left, so a line asked for MORE than the rest of the column
+comes out right anyway. Only an undershoot is visible, and there is a mutation
+for that.
+
+### The gates
+
+`ui:timeline:check` is 33 assertions and 10 mutations, all caught bar the two
+that are provably unobservable. `ui:tree:checkbox` is 23 assertions over the
+checkbox composition — the box being its own hit target, a box click leaving
+focus and selection alone, the tick travelling with a dragged row, and
+`aria-checked` on the row with no nested widget — and 5 mutations, all caught.
+Both are in `run-gallery-editor-tests.sh`, which is now 39 suites.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

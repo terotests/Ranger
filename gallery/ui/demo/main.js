@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS } from "./generated.js";
 
 const W = 1240;
 
@@ -301,7 +301,13 @@ let dialogDragAt = null;
  */
 const treeview = new TreeDemo();
 treeview.init(TREE_CSS);
+
+// The timeline. The one demo on this page with no controller behind it,
+// because there is nothing to control: a list of records and one integer.
+const timeline = new TimelineDemo();
+timeline.init(TIMELINE_CSS);
 let lastTreeHover = "";
+let lastTimelineHover = "";
 
 // One kept tree per demo. The builders they are handed are the same static
 // `page()` functions the PNG snapshots and the accessibility audit call, so
@@ -453,6 +459,38 @@ const DEMOS = {
         return true;
       },
       setPressed: (id) => treeview.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  // The timeline. Presentational: a press steps the value on and the picture
+  // is redrawn from it, which is the only interaction there is — the reference
+  // has none at all, and a page with a value in it and no way to change it
+  // cannot show that the value is what draws the picture.
+  timeline: {
+    height: () => timeline.heightPx(),
+    list: () => timeline.displayListJson(),
+    hit: (x, y) => timeline.hitId(x, y),
+    a11y: (gen, focus) => timeline.a11yJson(gen, focus),
+    press: (id) => timeline.press(id),
+    hover: (id) => {
+      if (id === lastTimelineHover) return false;
+      lastTimelineHover = id;
+      timeline.setHover(id);
+      return true;
+    },
+    key: (k) => timeline.key(k),
+    host: () => ({
+      tick: (dt) => timeline.tick(dt),
+      busy: () => timeline.busyNow(),
+      setHover: (id) => {
+        if (id === lastTimelineHover) return false;
+        lastTimelineHover = id;
+        timeline.setHover(id);
+        return true;
+      },
+      setPressed: (id) => timeline.setPressed(id),
       root: () => null,
     }),
     animated: true,
@@ -1132,7 +1170,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

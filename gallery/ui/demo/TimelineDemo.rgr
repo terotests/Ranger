@@ -1,0 +1,475 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TimelineDemo — ReUI's git activity timeline
+; =============================================================================
+; A rail of dots down the left, one per event, joined by a line; a title, a
+; description and a relative date to the right of each.
+;
+; --- THE ORACLE PROBLEM, STATED RATHER THAN PAPERED OVER ----------------------
+;
+; Every other component in this directory is measured against a headless
+; library: the tree against @headless-tree/core, the table against TanStack,
+; the sortable against dnd-kit, the rest against Radix. Timeline has NO library
+; under it. ReUI's is a hand-written component, and its source could not be
+; reached from here — reui.io is refused by the proxy, there is no npm package,
+; and the plausible GitHub paths are 404. So there is no trace to diff against
+; and no `behaviours.json` entry: a spec here would be a step that cannot fail,
+; which this harness exists to refuse.
+;
+; What there IS, is a picture of the reference rendering `defaultValue={3}`
+; over four items, and a picture is a measurement. Read off it:
+;
+;   the DOT is filled for steps 1, 2 and 3, and pale for 4
+;   the LINE is dark between 1-2 and 2-3, and pale between 3-4
+;
+; So the two rules are `step <= value` for the dot and `step < value` for the
+; line, and they are NOT the same predicate — which is the whole finding. The
+; obvious implementation gives both the same `data-completed` flag and draws a
+; dark line under item 3.
+;
+; What the picture does NOT show, and is therefore NOT built rather than
+; guessed: horizontal orientation, what happens at a value outside 1..n, and
+; whether the reference's `value`/`onValueChange` make this interactive. As
+; used, it is a list: no handlers, no keyboard, no focus.
+;
+; --- WHY THERE IS NO TimelineCtl ---------------------------------------------
+;
+; Because there is nothing to control. `TreeCtl` exists because arrows, ranges,
+; drop targets and an insertion index are hard and worth measuring. A timeline
+; is a list of records and one integer. Putting that behind a controller would
+; be ceremony, and the file would say nothing the two lines below do not.
+;
+; --- THE ICONS ARE THE REAL ONES ---------------------------------------------
+;
+; lucide-static 1.37.0, ISC, pasted verbatim: `git-fork`,
+; `git-pull-request-arrow`, `git-compare-arrows`, `git-merge`. Not traced, not
+; approximated — `EVGDisplayList` imports a whole SVG document, so the file
+; declares the geometry and the STYLESHEET decides the colour, because
+; `stroke="currentColor"` resolves to the hosting element's fill. That is what
+; lets one icon be dark on a pale dot and white on a dark one with no second
+; copy of the artwork.
+;
+; The attributes are single-quoted so the markup can live in a Ranger string
+; without escaping. Measured: the parser accepts either.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGComponent.rgr"
+Import "../../evg/EVGReconcile.rgr"
+
+treefactory Tl {
+    child addChild
+    text  textContent
+
+    tag Page  EVGElement (props (className "tl-page"))
+    tag Card  EVGElement (props (className "tl-card"))
+    ; `role="list"` with `listitem` children. The reference publishes no role
+    ; at all — it is divs — and that is the one place this deliberately does
+    ; NOT copy it: an ordered run of events is a list, the HTML for it would be
+    ; an `<ol>`, and a reader that is told nothing has to guess from layout.
+    tag List  EVGElement (props (className "tl-list") (role "list"))
+    tag Item  EVGElement (props (className "tl-item") (role "listitem"))
+    ; The left column: the dot, and under it the line to the next dot.
+    tag Rail  EVGElement (props (className "tl-rail") (a11yHidden true))
+    tag Dot   EVGElement (props (className "tl-dot"))
+    tag Icon  EVGElement (props (className "tl-icon") (tagName "path"))
+    tag Line  EVGElement (props (className "tl-line"))
+    tag Body  EVGElement (props (className "tl-body"))
+    tag Title EVGElement (props (className "tl-title") (elementType 1))
+    tag Desc  EVGElement (props (className "tl-desc") (elementType 1))
+    tag Date  EVGElement (props (className "tl-date") (elementType 1))
+}
+
+; One event. A component for the same reason the tree's rows are: the instance
+; comes back across a rebuild, so whatever state an event grows later has
+; somewhere to live that survives the value changing.
+class TimelineRow extends EVGComponent {
+    def step:int 1
+    def rowId:string ""
+    def title:string ""
+    def description:string ""
+    def date:string ""
+    def icon:string ""
+    ; `step <= value`.
+    def isDone:boolean false
+    ; `step < value`. Not the same flag — see the header.
+    def isJoined:boolean false
+    ; The last event has nothing below it, so it draws no line whatever the
+    ; value is.
+    def isLast:boolean false
+    ; --- why this row is told the row height ------------------------------------
+    ;
+    ; The line has to run from under one dot to just above the next, and the
+    ; stylesheet cannot say how tall that is. Two ways of asking were tried and
+    ; measured, and neither works:
+    ;
+    ;   `height: fill` is not flex-grow. `EVGUnit` resolves it to the PARENT's
+    ;   size, and a child asking for it stops the parent growing at all — the
+    ;   rail collapsed from 104 back to 52 and the line came out 24. `fill` is
+    ;   a different thing with an inviting name.
+    ;
+    ;   `align-items: stretch` on the item does nothing here, which was worth
+    ;   finding out: with the line's height stated, the rail's content already
+    ;   adds up to the row's height, so there is nothing to stretch. It was in
+    ;   the sheet for a while, believed load-bearing, and removing it changed
+    ;   not one pixel.
+    ;
+    ; So the height is a number, and the reference reaches the same conclusion:
+    ; `h-[calc(100%-1.5rem-0.25rem)]` is a hand-written subtraction. This does
+    ; the subtraction in Ranger, which is the same idea in a language that can
+    ; do arithmetic — set on the ELEMENT rather than by the sheet for the reason
+    ; the tree's indent is: a stylesheet matching one class token cannot say
+    ; "this row's height, less the dot".
+    ;
+    ; The cost is that the row height is a constant of the fixture. A variable
+    ; one would need the line's height set after layout, which is a second pass
+    ; this demo does not have.
+    ;
+    ; One thing the check cannot catch: layout clamps a child to the space its
+    ; siblings left, so a line asked for MORE than the rest of the column comes
+    ; out exactly right anyway. Only an undershoot is visible, and there is a
+    ; mutation for that one.
+    def rowHeight:double 104.0
+
+    Constructor () {
+    }
+
+    fn view:EVGElement () {
+        def cls:string "tl-item"
+        if isDone {
+            cls = (cls + " tl-item-done")
+        }
+        def row (tree Tl (Item (props (id rowId) (className cls))))
+
+        def dotCls:string "tl-dot"
+        def iconCls:string "tl-icon"
+        if isDone {
+            dotCls = "tl-dot tl-dot-done"
+            iconCls = "tl-icon tl-icon-done"
+        }
+        def rail (tree Tl (Rail))
+        def dot (tree Tl (Dot (props (className dotCls))))
+        def glyph (tree Tl (Icon (props (className iconCls))))
+        glyph.svgSource = icon
+        dot.addChild(glyph)
+        rail.addChild(dot)
+        if (isLast == false) {
+            def lineCls:string "tl-line"
+            if isJoined {
+                lineCls = "tl-line tl-line-done"
+            }
+            def line (tree Tl (Line (props (className lineCls))))
+            ; The row, less the dot (24) and the 2px clear at each end.
+            line.height = (EVGUnit.px((rowHeight - 28.0)))
+            rail.addChild(line)
+        }
+        row.addChild(rail)
+
+        def body (tree Tl (Body))
+        body.addChild((tree Tl (Title title)))
+        body.addChild((tree Tl (Desc description)))
+        body.addChild((tree Tl (Date date)))
+        row.addChild(body)
+        return row
+    }
+}
+
+class TimelineEvent {
+    def title:string ""
+    def description:string ""
+    def date:string ""
+    def icon:string ""
+
+    Constructor () {
+    }
+}
+
+class TimelineDemo {
+
+    def events:[TimelineEvent]
+    ; ReUI's `defaultValue`. Which step the timeline has reached.
+    def value:int 3
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def host:EVGComponentHost (new EVGComponentHost())
+    def reconciler:EVGReconcile (new EVGReconcile())
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 900.0
+    def pageH:double 520.0
+
+    Constructor () {
+    }
+
+    ; --- the icons, verbatim from lucide-static 1.37.0 (ISC) -------------------
+
+    sfn svgOpen:string () {
+        return "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    }
+
+    sfn iconFork:string () {
+        return ((TimelineDemo.svgOpen()) + "<circle cx='12' cy='18' r='3'/><circle cx='6' cy='6' r='3'/><circle cx='18' cy='6' r='3'/><path d='M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9'/><path d='M12 12v3'/></svg>")
+    }
+
+    sfn iconPullRequest:string () {
+        return ((TimelineDemo.svgOpen()) + "<circle cx='5' cy='6' r='3'/><path d='M5 9v12'/><circle cx='19' cy='18' r='3'/><path d='m15 9-3-3 3-3'/><path d='M12 6h5a2 2 0 0 1 2 2v7'/></svg>")
+    }
+
+    sfn iconCompare:string () {
+        return ((TimelineDemo.svgOpen()) + "<circle cx='5' cy='6' r='3'/><path d='M12 6h5a2 2 0 0 1 2 2v7'/><path d='m15 9-3-3 3-3'/><circle cx='19' cy='18' r='3'/><path d='M12 18H7a2 2 0 0 1-2-2V9'/><path d='m9 15 3 3-3 3'/></svg>")
+    }
+
+    sfn iconMerge:string () {
+        return ((TimelineDemo.svgOpen()) + "<circle cx='18' cy='18' r='3'/><circle cx='6' cy='6' r='3'/><path d='M6 21V9a9 9 0 0 0 9 9'/></svg>")
+    }
+
+    ; --- the data ---------------------------------------------------------------
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        this.event("Forked Repository"
+            "Forked the repository to create a new branch for development."
+            "15 minutes ago" (TimelineDemo.iconFork()))
+        this.event("Pull Request Submitted"
+            "Submitted PR #342 with new feature implementation. Waiting for code review."
+            "10 minutes ago" (TimelineDemo.iconPullRequest()))
+        this.event("Comparing Branches"
+            "Received comments on PR. Minor adjustments needed in error handling."
+            "5 minutes ago" (TimelineDemo.iconCompare()))
+        this.event("Merged Branch"
+            "Merged the feature branch into the main branch. Ready for deployment."
+            "Just now" (TimelineDemo.iconMerge()))
+
+        this.rebuild()
+    }
+
+    fn event:void (title:string description:string date:string icon:string) {
+        def e (new TimelineEvent())
+        e.title = title
+        e.description = description
+        e.date = date
+        e.icon = icon
+        push events e
+    }
+
+    fn setValue:void (v:int) {
+        value = v
+        this.rebuild()
+    }
+
+    ; --- the look ------------------------------------------------------------------
+
+    fn rowProps:void (r:TimelineRow i:int) {
+        def e:TimelineEvent (itemAt events i)
+        def step:int (i + 1)
+        r.step = step
+        r.rowId = ("tl-item-" + (to_string step))
+        r.title = e.title
+        r.description = e.description
+        r.date = e.date
+        r.icon = e.icon
+        ; The two predicates, and they differ by one. See the header: the
+        ; reference's own picture is what says so.
+        r.isDone = (step <= value)
+        r.isJoined = (step < value)
+        r.isLast = (step == (array_length events))
+    }
+
+    fn listBlock:EVGElement () {
+        def t (tree Tl (List (props (id "tl") (key "tl"))))
+        host.enter("tl")
+        def i:int 0
+        while (i < (array_length events)) {
+            def key:string ("e" + (to_string i))
+            def got:EVGComponent (host.use(key (new TimelineRow())))
+            def r:TimelineRow (cast got to:TimelineRow)
+            this.rowProps(r i)
+            t.addChild((r.render()))
+            i = (i + 1)
+        }
+        host.leave()
+        return t
+    }
+
+    fn page:EVGElement () {
+        host.beginPass()
+        def p:EVGElement (this.pageBody())
+        host.endPass()
+        return p
+    }
+
+    fn pageBody:EVGElement () {
+        def p (tree Tl (Page (props (id "page"))))
+        def card (tree Tl (Card (props (id "tl-card"))))
+        card.addChild((this.listBlock()))
+        p.addChild(card)
+        return p
+    }
+
+    ; --- the host ---------------------------------------------------------------
+
+    fn rebuild:void () {
+        def next:EVGElement (this.page())
+        if root {
+            reconciler.resetStats()
+            reconciler.reconcile((unwrap root) next)
+        } {
+            root = next
+        }
+    }
+
+    ; A press steps the timeline on, wrapping at the end. Not the reference's
+    ; behaviour — the reference has none — but a page with a value in it and no
+    ; way to change it cannot show that the value is what draws the picture.
+    fn press:boolean (target:string) {
+        def n:int (array_length events)
+        def next:int (value + 1)
+        if (next > n) {
+            next = 0
+        }
+        this.setValue(next)
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        return false
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Timeline demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn hostProblems:[string] () {
+        return (host.lint())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Timeline demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn summary:string () {
+        return ((((to_string (array_length events)) + " events, reached step ") + (to_string value)))
+    }
+}

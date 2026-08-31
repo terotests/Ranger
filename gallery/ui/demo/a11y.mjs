@@ -42,6 +42,7 @@ const { TableDemo } = require(path.join(ROOT, "gallery/ui/bin/TableDemo.cjs"));
 const { DropdownDemo } = require(path.join(ROOT, "gallery/ui/bin/DropdownDemo.cjs"));
 const { DialogDemo } = require(path.join(ROOT, "gallery/ui/bin/DialogDemo.cjs"));
 const { TreeDemo } = require(path.join(ROOT, "gallery/ui/bin/TreeDemo.cjs"));
+const { TimelineDemo } = require(path.join(ROOT, "gallery/ui/bin/TimelineDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
@@ -50,6 +51,7 @@ const TABLE_CSS = fs.readFileSync(path.join(HERE, "table.css"), "utf8");
 const DROPDOWN_CSS = fs.readFileSync(path.join(HERE, "dropdown.css"), "utf8");
 const DIALOG_CSS = fs.readFileSync(path.join(HERE, "dialog.css"), "utf8");
 const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
+const TIMELINE_CSS = fs.readFileSync(path.join(HERE, "timeline.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
 // the audit holds one — the same one for both states below, which is also a
@@ -84,6 +86,9 @@ dialog.init(DIALOG_CSS);
 // renders, so the audit is what decides whether copying it is defensible.
 const treeview = new TreeDemo();
 treeview.init(TREE_CSS);
+
+const timeline = new TimelineDemo();
+timeline.init(TIMELINE_CSS);
 
 const CHECKED = ["Always Show Full URLs"];
 
@@ -229,6 +234,16 @@ const STATES = [
       return dialog.a11yProblems();
     },
     tree: () => dialog.a11yJson(15, ""),
+  },
+  {
+    // The rail is a picture of the value and says nothing a reader needs, so
+    // it is out of the tree entirely — which means this case is checking that
+    // the LIST survived being the only thing left. A timeline whose rail was
+    // announced would read as eight items where a person sees four.
+    name: "timeline — a list of four events, three of them reached",
+    size: [900, 520],
+    lint: () => timeline.a11yProblems().concat(timeline.hostProblems()),
+    tree: () => timeline.a11yJson(17, ""),
   },
   {
     name: "tree — three folders open, focus on a nested row",

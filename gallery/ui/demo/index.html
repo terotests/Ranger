@@ -152,6 +152,29 @@
             horizontal arrows are for nesting and nothing else.
           </p>
         </section>
+        <section data-for="timeline">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click anywhere</strong> to step the timeline on, and watch
+            the rail. The dot and the line do <em>not</em> flip together: at
+            step 3 the third dot is filled and the line under it is still pale,
+            because the two are different predicates &mdash;
+            <code>step &lt;= value</code> for the dot,
+            <code>step &lt; value</code> for the line.
+          </p>
+          <p class="hint">
+            That is the whole finding, and it came off a <em>picture</em> of the
+            reference rather than its source, which could not be reached. The
+            obvious implementation gives both the same flag and draws a dark
+            line under the current step.
+          </p>
+          <p class="hint">
+            The icons are <strong>lucide's own files</strong>, imported whole.
+            <code>stroke="currentColor"</code> resolves to the hosting
+            element's fill, so one copy of the artwork is dark on a pale dot and
+            white on a filled one.
+          </p>
+        </section>
         <section data-for="dialog">
           <h2>what to try</h2>
           <p class="hint">

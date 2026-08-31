@@ -49,6 +49,8 @@ SUITES=(
   ui:sortable:motion
   ui:table:check
   ui:tree:dnd:check
+  ui:tree:checkbox
+  ui:timeline:check
 )
 
 failed=()
