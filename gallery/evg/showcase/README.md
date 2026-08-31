@@ -83,6 +83,21 @@ algorithm `EvgTraceFit` implements, so handing both the same thresholded bitmap
 isolates the fit from everything else. They currently land within half a percent
 of each other on both error and segment count.
 
+What the numbers hide is that the two colour tracers are good at opposite
+things, and one design decision explains both halves of it: this tracer paints
+a handful of large layers out of one global palette, vtracer paints one to two
+thousand small shapes each with its own colour. On the Hokusai print that makes
+this one better — it keeps the ink outlines the drawing is made of, which
+vtracer smooths away — and it loses the smooth sky, which comes back as one
+hard band. On a photograph it reverses: run the same benchmark over a portrait
+and vtracer wins the error (10.67 against 13.83) because a face is continuous
+tone and a global palette posterises it. The metric is not taking sides; it is
+measuring a real difference in what each is for. Two things it does not
+measure: this tracer's output is 15 paths against vtracer's 1977 for half the
+bytes at nearly the same SSIM, which is the difference between a file somebody
+can open and edit and one they cannot. And the `broken` preset is tuned for
+graphic art — on a portrait it turns skin orange.
+
 `npm run evg:trace:cli:smoke` builds all four and asserts they produce the
 same SVG byte for byte — which is the claim worth testing, since a difference
 in integer division or float printing between targets would otherwise surface
