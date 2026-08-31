@@ -34,13 +34,15 @@ import { writePng } from "./png.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.resolve(HERE, "../../../game_engine/pose/mediapipe_poc/assets/images");
 
-// The silhouette of the portrait, read off the picture by eye and then made
-// exact: the polygon fixes the topology, and each row's left and right edge is
-// moved to where the picture stops being the man, searched 20 px inward and 8
-// outward. Capped outward on purpose — where the colour test fails, and it
-// does fail against one warm pane of the window, the error is bounded at eight
-// pixels rather than running away.
-const PORTRAIT_POLY = [[255, 27], [282, 28], [306, 34], [330, 46], [346, 64], [355, 92], [356, 124], [349, 150], [337, 176], [321, 197], [308, 213], [306, 226], [330, 240], [356, 252], [380, 268], [401, 290], [417, 318], [428, 352], [436, 390], [440, 430], [438, 470], [432, 510], [427, 550], [420, 598], [414, 639], [98, 639], [100, 590], [104, 545], [102, 500], [98, 460], [96, 420], [98, 378], [104, 344], [114, 312], [128, 286], [146, 266], [166, 250], [186, 238], [206, 226], [208, 213], [196, 197], [184, 176], [176, 150], [173, 124], [176, 92], [188, 62], [210, 40], [232, 30]];
+// The fence around the portrait's silhouette. A fence and not the edge: the
+// edge is measured from the picture, and the polygon only has to contain the
+// man and stay out of the flags. Drawn as the edge the first time, and drawn
+// wrong — it cut the corner of both shoulders, where the suit is widest just
+// below the collar rather than sloping, and left a wedge of jacket outside the
+// truth on each side. Capping the outward search at a few pixels then made it
+// unrecoverable. The numbers below are read off the picture row by row, from
+// where the colour test flips, not off the shape of a jacket as imagined.
+const PORTRAIT_POLY = [[255, 27], [282, 28], [306, 34], [330, 46], [346, 64], [355, 92], [356, 124], [349, 150], [337, 176], [321, 197], [332, 210], [330, 224], [374, 248], [424, 272], [421, 296], [423, 320], [420, 360], [424, 400], [421, 440], [414, 480], [409, 520], [405, 560], [395, 600], [392, 639], [91, 639], [96, 600], [78, 560], [70, 520], [62, 480], [58, 440], [60, 400], [65, 360], [75, 320], [83, 296], [104, 272], [156, 248], [199, 224], [201, 210], [196, 197], [184, 176], [176, 150], [173, 124], [176, 92], [188, 62], [210, 40], [232, 30]];
 
 const CASES = {
   pose: {
@@ -74,10 +76,16 @@ const CASES = {
         const lum = 0.299*r + 0.587*g + 0.114*b;
         if (r > 45 && g < 0.62 * r) return true;
         if (lum > 60 && b > 0.72 * r) return true;
+        // A drape in deep shadow is too dark for the first test — its red falls
+        // under 45 — and too warm for the second. Without this the flag and the
+        // suit are one unbroken run from x=33 to x=409 on row 520 and no scan
+        // separates them. Navy cloth is dark too, but its blue exceeds its red,
+        // so it is not caught; the cut at 45 keeps hair, which sits at 49.
+        if (lum < 45 && b < r) return true;
         return false;
       };
       const fg = new Uint8Array(W * H);
-      const IN = 20, OUTW = 8;
+      const IN = 10, OUTW = 6;
       for (let y = 0; y < H; y++) {
         const xs = [];
         for (let i = 0, j = PORTRAIT_POLY.length - 1; i < PORTRAIT_POLY.length; j = i++) {
