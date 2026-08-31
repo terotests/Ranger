@@ -123,6 +123,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around it, which is what the min-cut is for. A band up to 0.1 costs nothing
   measurable and 0.2 costs nine points, so a tenth is where it sits.
 
+- **The answer has to cohere, and one shape was 732 islands.** Cutting the
+  portrait out showed what no score had: the man, both flags, and 356 loose
+  fragments, with **9.5% of the cut area outside its largest piece**. Tidiness
+  could not touch it — it scores a piece by area against outline and a
+  9 844-pixel flag pays for itself at any radius — so three steps now run after
+  the cut, all of them drop-only.
+
+  1. **The body.** Erode the selection until hair-thin joins snap, take the
+     pieces that still hold a hint, and call the largest of them the body.
+  2. **The fence.** Its convex hull. Generous on purpose: it swallows the gap
+     under an arm and the notch between two fingers, so whatever falls outside
+     it was never plausible.
+  3. **Ownership.** Grow the eroded cores back through the selection, all at
+     once, each cell going to whichever core reaches it first. Two blobs joined
+     by a neck part at the neck, which is where a person would part them.
+
+  That took the strays from 18 713 px to 9 497, and then stopped, and the
+  reason it stopped is the interesting half. The flag beside his shoulder was
+  not joined to the suit by a thread. **It was the same path element** — and
+  not because the tracer had merged them. It was the *base surface* the tracer
+  draws under the whole stack, which on a photograph shows through wherever
+  nothing else was painted: on this portrait that one path is visible in **732
+  separate islands totalling 65 565 px**, a fifth of the frame, and among them
+  are the man's own chest and the holes inside the flag. One node in the graph,
+  so taking it takes the flag and dropping it takes his chest, and no work on
+  the selection could decide that — the question was being asked one level too
+  high.
+
+  So a region that is partly kept is now **clipped** rather than dropped, using
+  the same mechanism a drawn line already uses to cut a shape it crosses. Those
+  clips are torn up and redrawn on every stroke: left standing, a region clipped
+  to yesterday's body cannot be given back by today's correction, and
+  steerability fell from 95% to 75% for exactly that reason before they were
+  made transient.
+
+  | the portrait, cut out | before | after |
+  |---|---|---|
+  | pieces | 358 | **36** (3 over 40 px) |
+  | largest piece | 90.5% | **99.4%** |
+  | everything else | 18 713 px | **1 020 px** |
+  | brush IoU | 0.733 | **0.759**, precision 0.818 |
+  | twenty hands, worst | 97% | **100%** |
+
+  The synthetic bench does not move (95% on one stroke, 99% corrected), nor
+  does the beach picture, nor jitter (89% worst, 95% median), and steerability
+  is 74% → 95% → 96%. What is left on the portrait is the hair, which was never
+  selected and is a recall problem rather than a stray one, and 1 020 px of
+  fragments beside his shoulder.
+
 - **Two photographs, and they found what the drawings could not.**
   `npm run evg:trace:web:photo` runs the wand against two photographs that are
   committed with the repository. The first is a beach photograph — a man in a yoga pose, thin limbs, a gap

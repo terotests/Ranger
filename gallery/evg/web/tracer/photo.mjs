@@ -237,6 +237,7 @@ for (const name of names) {
     if (x < 0 || y < 0 || x >= W || y >= H || !truth[y*W + x]) { stop = i; break; }
   }
   const strokeClean = stroke.slice(0, Math.max(2, stop));
+  if (writeTo) fs.writeFileSync(path.join(writeTo, name + "-stroke.json"), JSON.stringify(strokeClean));
   const offFigure = (pts) => {
     let off = 0, tot = 0;
     for (let i = 0; i + 1 < pts.length; i++) for (let k = 0; k < 100; k++) {

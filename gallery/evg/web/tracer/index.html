@@ -1329,6 +1329,22 @@
   // raster of each clip so the enclosure rule and the crop box see the same
   // picture the viewer will.
   var wandClipOf = new Map(), wandClipEls = new Map(), wandClipRaster = new Map();
+  // Clips a drawn line made are part of the answer and stay. Clips the coherence
+  // step made are a conclusion from the hints given so far, so they are torn up
+  // and redrawn on every stroke — left standing, a region clipped to yesterday's
+  // body cannot be given back by today's correction, and steerability went from
+  // 95% to 75% for exactly that reason.
+  var wandAutoClips = new Set();
+  function wandClearAutoClips() {
+    wandAutoClips.forEach(function (cid) {
+      var el = wandClipEls.get(cid);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      wandClipEls.delete(cid);
+      wandClipRaster.delete(cid);
+    });
+    wandClipOf.forEach(function (cid, i) { if (wandAutoClips.has(cid)) wandClipOf.delete(i); });
+    wandAutoClips = new Set();
+  }
   // What the user has pointed at, and what they have pointed away from. These
   // accumulate across strokes: the flow is draw, look, add the hand it missed,
   // ⌥ the curtain it took, and every stroke re-runs the whole classification.
@@ -2275,6 +2291,7 @@
     var sel = wandSmart(g, wandFg, wandBg, +wandReach.value / 100);
     var raw = new Set(sel);
     wandTrim(g, sel, +wandTidyEl.value);
+    wandCohere(g, sel, wandFg);
     wandEncloseSmart(g, sel);
     wandSel = sel;
     wandPaint();
@@ -2297,6 +2314,247 @@
   // The enclosure rule, but no longer allowed to decide membership on its own.
   // A hole in the selection gets a hand up, not a free pass: the gap between an
   // arm and a body is enclosed too, and it is not part of the arm.
+  // ------------------------------------------------- the answer has to cohere
+  //
+  // Three steps after the cut, in this order, all of them drop-only. Without
+  // them the portrait came out as the man plus both flags plus 356 loose
+  // fragments: the navy flag beside his shoulder is the suit's own colour, and
+  // it touches him, so neither colour nor adjacency can refuse it. Tidiness
+  // cannot either — it scores a piece by area against outline and a
+  // 9 844-pixel flag pays for itself at any radius.
+  //
+  //   1. the body   erode the selection until hair-thin joins snap, take the
+  //                 pieces that still hold a hint, and call the largest of
+  //                 them the body. Eroding is the whole point: the flag is
+  //                 joined to the shoulder by a seam a pixel or two wide, and
+  //                 to anything that only asks "are these connected" it is
+  //                 part of him.
+  //   2. the fence  the body's convex hull. Generous on purpose — it swallows
+  //                 the gap under an arm and the notch between two fingers —
+  //                 so whatever falls outside it was never plausible.
+  //   3. what is left has to hang together with a hint in the picture, not in
+  //                 the region graph, because a seam one cell wide is
+  //                 adjacency to the graph and a gap to the eye.
+  //
+  // Closing holes comes after all three: doing it first welds a stray to the
+  // body and then every test believes it.
+  var WAND_SNAP = 4;
+
+  function wandErode(mask, cw, ch, r) {
+    var cur = mask;
+    for (var pass = 0; pass < r; pass++) {
+      var next = new Uint8Array(cur.length);
+      for (var y = 1; y < ch - 1; y++) {
+        var row = y * cw;
+        for (var x = 1; x < cw - 1; x++) {
+          var p = row + x;
+          if (cur[p] && cur[p-1] && cur[p+1] && cur[p-cw] && cur[p+cw]) next[p] = 1;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
+
+  // Connected pieces of a mask, with which of them hold a hint and how big
+  // each is.
+  function wandPieces(g, mask, fg) {
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+    var comp = new Int32Array(n).fill(-1), stack = [];
+    var seeded = [], sizes = [], nc = 0;
+    for (var s = 0; s < n; s++) {
+      if (!mask[s] || comp[s] >= 0) continue;
+      var id = nc++;
+      comp[s] = id; stack.push(s);
+      var count = 0, hasSeed = false;
+      while (stack.length) {
+        var q = stack.pop(); count++;
+        var rid = g.ids[q];
+        if (rid && fg.has(rid - 1)) hasSeed = true;
+        var x = q % cw, y = (q / cw) | 0;
+        if (x > 0 && mask[q-1] && comp[q-1] < 0) { comp[q-1] = id; stack.push(q-1); }
+        if (x < cw-1 && mask[q+1] && comp[q+1] < 0) { comp[q+1] = id; stack.push(q+1); }
+        if (y > 0 && mask[q-cw] && comp[q-cw] < 0) { comp[q-cw] = id; stack.push(q-cw); }
+        if (y < ch-1 && mask[q+cw] && comp[q+cw] < 0) { comp[q+cw] = id; stack.push(q+cw); }
+      }
+      seeded.push(hasSeed); sizes.push(count);
+    }
+    return { comp: comp, seeded: seeded, sizes: sizes, n: nc };
+  }
+
+  // Every region whose visible cells are mostly outside `inside` goes. A region
+  // that is partly in and partly out is *clipped* rather than dropped, because
+  // of one shape in particular.
+  //
+  // The tracer draws a base surface under the whole stack, and on a photograph
+  // it shows through wherever nothing else was painted. On the official
+  // portrait that one path is visible in **732 separate islands** totalling
+  // 65 565 pixels — a fifth of the frame — and among them are the man's own
+  // chest and the gaps inside the flag beside him. One node in the graph, so
+  // taking it takes the flag's holes and dropping it takes his chest. No
+  // amount of work on the selection can decide that, because the question is
+  // asked one level too high: a shape scattered over 732 islands is not one
+  // thing, and the answer is to keep the islands that belong to the body and
+  // clip away the rest. The clip is the same mechanism a drawn line already
+  // uses to cut a shape it crosses, and like everything here it only removes.
+  function wandDropOutside(g, sel, eff, inside, spare) {
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+    var mine = new Int32Array(g.n), kept = new Int32Array(g.n);
+    for (var p = 0; p < n; p++) {
+      if (!eff[p]) continue;
+      var r = g.ids[p];
+      if (!r) continue;
+      mine[r-1]++;
+      if (inside[p]) kept[r-1]++;
+    }
+    var clipMe = [];
+    sel.forEach(function (i) {
+      if (spare && spare.has(i)) return;
+      if (!mine[i]) return;
+      if (!kept[i]) { sel.delete(i); return; }
+      if (kept[i] < mine[i]) clipMe.push(i);
+    });
+    if (!clipMe.length) return;
+    // One clip path per region, built from its kept cells as rows of
+    // rectangles in user space.
+    clipMe.forEach(function (i) {
+      var d = [], id1 = i + 1;
+      for (var y = 0; y < ch; y++) {
+        var row = y * cw, run = -1;
+        for (var x = 0; x <= cw; x++) {
+          var on = x < cw && eff[row + x] && inside[row + x] && g.ids[row + x] === id1;
+          if (on && run < 0) run = x;
+          if (!on && run >= 0) {
+            var ux = g.vb[0] + run / g.sc, uy = g.vb[1] + y / g.sc;
+            d.push("M" + ux.toFixed(2) + " " + uy.toFixed(2)
+              + "h" + ((x - run) / g.sc).toFixed(2)
+              + "v" + (1 / g.sc).toFixed(2)
+              + "h" + (-(x - run) / g.sc).toFixed(2) + "z");
+            run = -1;
+          }
+        }
+      }
+      if (!d.length) { sel.delete(i); return; }
+      var cid = "wandclip" + (++wandSeq);
+      var cp = document.createElementNS(SVGNS, "clipPath");
+      cp.setAttribute("id", cid);
+      cp.setAttribute("clipPathUnits", "userSpaceOnUse");
+      var pe = document.createElementNS(SVGNS, "path");
+      pe.setAttribute("d", d.join(""));
+      cp.appendChild(pe);
+      g.svg.appendChild(cp);
+      wandClipEls.set(cid, cp);
+      wandAutoClips.add(cid);
+      var mark = new Uint8Array(n);
+      for (var p2 = 0; p2 < n; p2++) if (inside[p2] && g.ids[p2] === id1) mark[p2] = 1;
+      wandClipRaster.set(cid, mark);
+      wandClipOf.set(i, cid);
+    });
+  }
+
+  function wandCohere(g, sel, fg) {
+    wandClearAutoClips();
+    if (!sel.size) return;
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+
+    // 1 — the body
+    var eff = wandCells(g, sel);
+    var thin = wandErode(eff, cw, ch, WAND_SNAP);
+    var core = wandPieces(g, thin, fg);
+    var bodyId = -1, bodyN = 0;
+    for (var c = 0; c < core.n; c++) {
+      if (core.seeded[c] && core.sizes[c] > bodyN) { bodyN = core.sizes[c]; bodyId = c; }
+    }
+    if (bodyId < 0) return;               // the stroke is thinner than the erosion
+
+    // 2 — the fence: the body's convex hull. Columns' extreme cells are enough,
+    // since the hull of a shape is the hull of its silhouette.
+    var pts = [];
+    for (var x = 0; x < cw; x++) {
+      var lo = -1, hi = -1;
+      for (var y = 0; y < ch; y++) if (core.comp[y*cw + x] === bodyId) { if (lo < 0) lo = y; hi = y; }
+      if (lo >= 0) { pts.push([x, lo]); if (hi !== lo) pts.push([x, hi]); }
+    }
+    if (pts.length >= 3) {
+      pts.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+      var cross = function (o, a, b) {
+        return (a[0]-o[0]) * (b[1]-o[1]) - (a[1]-o[1]) * (b[0]-o[0]);
+      };
+      var lower = [], upper = [], k;
+      for (k = 0; k < pts.length; k++) {
+        while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], pts[k]) <= 0) lower.pop();
+        lower.push(pts[k]);
+      }
+      for (k = pts.length - 1; k >= 0; k--) {
+        while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], pts[k]) <= 0) upper.pop();
+        upper.push(pts[k]);
+      }
+      lower.pop(); upper.pop();
+      var hull = lower.concat(upper);
+      if (hull.length >= 3) {
+        var loX = new Int32Array(ch).fill(1e9), hiX = new Int32Array(ch).fill(-1);
+        for (var e = 0; e < hull.length; e++) {
+          var a2 = hull[e], b2 = hull[(e + 1) % hull.length];
+          var yA = Math.min(a2[1], b2[1]), yB = Math.max(a2[1], b2[1]);
+          for (var yy = yA; yy <= yB; yy++) {
+            var t = (b2[1] === a2[1]) ? 0 : (yy - a2[1]) / (b2[1] - a2[1]);
+            var xx = Math.round(a2[0] + (b2[0] - a2[0]) * t);
+            if (xx < loX[yy]) loX[yy] = xx;
+            if (xx > hiX[yy]) hiX[yy] = xx;
+          }
+        }
+        var inHull = new Uint8Array(n);
+        for (var y2 = 0; y2 < ch; y2++) {
+          if (hiX[y2] < 0) continue;
+          var base = y2 * cw;
+          for (var x2 = loX[y2]; x2 <= hiX[y2]; x2++) inHull[base + x2] = 1;
+        }
+        wandDropOutside(g, sel, eff, inHull, null);
+      }
+    }
+
+    // 3 — and what is left belongs to the body rather than merely touching it.
+    //
+    // Plain connectedness is not enough and this is the case that shows why:
+    // the flag behind his shoulder is not joined to the suit by a thread, it
+    // lies against it for two hundred rows. Erosion snaps a thread; it cannot
+    // part two things that genuinely lean on each other, and the hull cannot
+    // either, because the flag sits inside the span of his own shoulders.
+    //
+    // So grow the eroded cores back into the selection, all of them at once,
+    // each cell going to whichever core reaches it first. Two blobs joined by a
+    // neck are divided at the neck, which is where a person would divide them,
+    // and a region whose cells mostly land on a core the user never pointed at
+    // is not part of the answer.
+    if (!sel.size) return;
+    var eff2 = wandCells(g, sel);
+    var thin2 = wandErode(eff2, cw, ch, WAND_SNAP);
+    var cores = wandPieces(g, thin2, fg);
+    if (!cores.n) return;
+    var anySeed = false;
+    for (var c2 = 0; c2 < cores.n; c2++) if (cores.seeded[c2]) anySeed = true;
+    if (!anySeed) return;
+    var owner = new Int32Array(n).fill(-1);
+    var queue = new Int32Array(n), qh = 0, qt = 0;
+    for (var p2 = 0; p2 < n; p2++) {
+      if (cores.comp[p2] >= 0) { owner[p2] = cores.comp[p2]; queue[qt++] = p2; }
+    }
+    while (qh < qt) {
+      var q2 = queue[qh++], own = owner[q2];
+      var qx = q2 % cw, qy = (q2 / cw) | 0;
+      if (qx > 0 && eff2[q2-1] && owner[q2-1] < 0) { owner[q2-1] = own; queue[qt++] = q2-1; }
+      if (qx < cw-1 && eff2[q2+1] && owner[q2+1] < 0) { owner[q2+1] = own; queue[qt++] = q2+1; }
+      if (qy > 0 && eff2[q2-cw] && owner[q2-cw] < 0) { owner[q2-cw] = own; queue[qt++] = q2-cw; }
+      if (qy < ch-1 && eff2[q2+cw] && owner[q2+cw] < 0) { owner[q2+cw] = own; queue[qt++] = q2+cw; }
+    }
+    var keep = new Uint8Array(n);
+    for (var p3 = 0; p3 < n; p3++) {
+      var o2 = owner[p3];
+      if (o2 >= 0 && cores.seeded[o2]) keep[p3] = 1;
+    }
+    wandDropOutside(g, sel, eff2, keep, null);
+  }
+
   function wandEncloseSmart(g, sel) {
     if (!sel.size) return;
     var before = new Set(sel);
