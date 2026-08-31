@@ -46,10 +46,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raster is 1.5× finer and the same drape comes out admissible there, which is
   why the rule was put in the page and swept in place before being believed.
 
+  `tracer/cylshot.mjs` draws the two answers side by side with what the rule
+  alone changed, and the pictures say it better than the table. It runs where
+  it has to run — last, after the cut, the tidy-up, the fence and the hole
+  filling, as a resolver over a finished answer rather than another opinion
+  inside the energy. On the beach picture it does exactly what it was designed
+  to do: 478 px of green running down the front shin to the foot and along the
+  back leg, against 389 px of red at the arms. On the portrait it brings back
+  **3 032 px of hair** — the strands are cylinders, attached at a neck and
+  running out, which is why erosion needed a closing pass to keep them at all —
+  and in the same breath 4 815 px of the flagpole, the drape folds at the right
+  edge and the desk carvings, because **a curtain fold is a cylinder too**.
+  That is the whole finding in one picture: the shape is right and the shape is
+  not enough.
+
   Kept, off, because the geometry is sound and it is the candidate set that
   fails: give the cut a reason to reach the foot — a boundary term that knows a
   real edge from an invented one — and this is the rule that decides what to do
-  with it. `npm run evg:trace:web:cyl` after `photo.mjs --write`.
+  with it. `npm run evg:trace:web:cyl` and `:cylshot` after `photo.mjs
+  --write`.
 
 - **The wand's brush gives evidence instead of drawing a border.** Drag over
   the thing you want and the regions under the brush become *certain

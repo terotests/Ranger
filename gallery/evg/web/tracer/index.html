@@ -3053,13 +3053,15 @@
   // fails: give the cut a reason to reach the foot in the first place — a
   // boundary term that knows a real edge from an invented one — and this is
   // the rule that would decide what to do with it.
-  var WAND_CYL_LONG = 1e9;   // 1e9 = off, which is the default and is measured
-  var WAND_CYL_FAN = 1.5;
-  var WAND_CYL_AREA = 0.05;
-  var WAND_CYL_MIN = 8;
+  // `long: 1e9` is off, which is the default and is the measured one. The
+  // harness overrides the whole object through window.__cylSet, so the
+  // comparison pictures in cylshot.mjs can be drawn again without editing
+  // this file.
+  var WAND_CYL = { long: 1e9, fan: 1.5, area: 0.05, min: 8 };
 
   function wandCylinders(g, sel) {
-    if (!sel.size || WAND_CYL_LONG >= 1e9) return;
+    var C = window.__cylSet || WAND_CYL;
+    if (!sel.size || C.long >= 1e9) return;
     var cw = g.cw, ch = g.ch, n = cw * ch, p, x, y;
     var eff = wandCells(g, sel);
 
@@ -3138,13 +3140,13 @@
     for (var k = 0; k < cn; k++) {
       var r = info[k];
       if (!r.join || r.frame) continue;                   // no neck, or it runs off the picture
-      if (r.area < WAND_CYL_MIN) continue;
-      if (r.area > WAND_CYL_AREA * bodyN) continue;
+      if (r.area < C.min) continue;
+      if (r.area > C.area * bodyN) continue;
       var span = Math.hypot(r.x1 - r.x0 + 1, r.y1 - r.y0 + 1);
       var depth = r.band.length - 1, neck = r.band[0] || 1, widest = 0;
       for (var t2 = 1; t2 <= depth; t2++) if ((r.band[t2] || 0) > widest) widest = r.band[t2] || 0;
-      if (depth / span < WAND_CYL_LONG) continue;
-      if (widest / neck > WAND_CYL_FAN) continue;
+      if (depth / span < C.long) continue;
+      if (widest / neck > C.fan) continue;
       take[k] = 1; any = true;
     }
     if (!any) return;

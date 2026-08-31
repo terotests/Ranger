@@ -604,6 +604,7 @@
     "evg:trace:web:photo": "node gallery/evg/web/tracer/photo.mjs",
     "evg:trace:web:audit": "node gallery/evg/web/tracer/audit.mjs",
     "evg:trace:web:cyl": "node gallery/evg/web/tracer/cyl.mjs",
+    "evg:trace:web:cylshot": "node gallery/evg/web/tracer/cylshot.mjs",
     "evg:trace:web:serve": "node gallery/evg/web/tracer/build.mjs && python3 -m http.server -d gallery/evg/web/tracer/dist 8006",
     "evg": "npm run evg:compile && npm run evg:run",
     "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli",
