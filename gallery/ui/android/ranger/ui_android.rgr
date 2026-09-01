@@ -285,6 +285,78 @@ class UiAndroid {
         return (app.key(name))
     }
 
+    ; --- the surface's ripple -------------------------------------------------
+    ;
+    ; `evg-surface-effect: ripple` is a POST-PROCESS: the page is drawn, and
+    ; then the finished pixels are read through a shader that bends the sample
+    ; position in a ring around wherever the surface was touched. Nothing on the
+    ; page knows it happened — which is why nothing here rebuilds anything.
+    ;
+    ; The demo has carried the whole effect all along and no Android host has
+    ; ever asked for it, because `android.graphics.Canvas` has no stage to run
+    ; a shader over a finished frame in. `RuntimeShader` (API 33) does, so this
+    ; is what a host needs: where the touches are, how old they are, and a clock
+    ; to age them by.
+    ;
+    ; SCREEN coordinates in, page coordinates out — the drops are stamped onto
+    ; the page and the page is what the shader works in.
+
+    fn rippleAt:void (x:double y:double) {
+        app.ripple((this.toPageX(x)) (this.toPageY(y)))
+    }
+
+    ; A finger dragged across the surface leaves a WAKE — one source every few
+    ; pixels rather than one that follows the pointer, because a wake is a row
+    ; of sources and a source that moves has no history.
+    fn rippleTo:void (x:double y:double) {
+        app.rippleDragTo((this.toPageX(x)) (this.toPageY(y)))
+    }
+
+    fn rippleEnd:void () {
+        app.rippleRelease()
+    }
+
+    ; Milliseconds, because that is what a frame loop has. Answers whether
+    ; anything is still moving, so a host can stop asking for frames without a
+    ; second call.
+    fn tick:boolean (dtMs:double) {
+        app.tick(dtMs)
+        return (app.busyNow())
+    }
+
+    fn busy:boolean () {
+        return (app.busyNow())
+    }
+
+    ; The touches in flight, oldest first, in PAGE pixels. Read one at a time
+    ; rather than as arrays: a host that is about to write eight uniforms wants
+    ; eight numbers, not a copy of three lists per frame.
+    fn dropCount:int () {
+        return (app.dropCount())
+    }
+
+    fn dropX:double (i:int) {
+        if (i >= (array_length app.dropXs)) {
+            return 0.0
+        }
+        return (itemAt app.dropXs i)
+    }
+
+    fn dropY:double (i:int) {
+        if (i >= (array_length app.dropYs)) {
+            return 0.0
+        }
+        return (itemAt app.dropYs i)
+    }
+
+    ; Seconds since the touch. The shader turns this into a radius.
+    fn dropAge:double (i:int) {
+        if (i >= (array_length app.dropAges)) {
+            return 0.0
+        }
+        return (itemAt app.dropAges i)
+    }
+
     ; --- what the page says ---------------------------------------------------
 
     fn navPage:string () {

@@ -1,14 +1,36 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; EVGUnit.rgr - Unit parsing and resolution for EVG layout
-; Supports: px, %, em, rem, hp (height percent), fill, and the absolute print
-; units pt / pc / in / mm / cm, which are folded into px at parse time.
+; Supports: px, %, em, rem, hp (height percent), vw / vh, fill, and the
+; absolute print units pt / pc / in / mm / cm, which are folded into px at
+; parse time.
 ;
-; Not supported, deliberately: vw/vh (a print page has no viewport), ch/ex
-; (they need font metrics the unit layer has no access to), and calc().
+; `vw` and `vh` are the VIEWPORT, which is a different thing from the parent —
+; and the reason they are worth having at all: `height: 100%` needs a chain of
+; ancestors that all have a definite height, so a page that wants to be as tall
+; as the screen has to be handed that number by its host. `100vh` asks the
+; layout, which already knows: `EVGLayout.pageWidth` / `pageHeight`.
+;
+; ON PAPER that is the PAGE AREA — the sheet less its margins — which is what
+; CSS says viewport-percentage lengths mean in paged media, and what the print
+; renderers already give the layout as its page size (`EVGPDFRenderer` and
+; `EVGHTMLRenderer` both set `layout.pageWidth` to the section width less two
+; margins before laying a page out). So `100vh` is the text column on A4 and
+; the window on a screen, with nothing to configure in either.
+;
+; A unit cannot reach the layout on its own, so whoever resolves it calls
+; `setContext` first, the same way `rem` gets the root font size. With no
+; viewport handed over — an element resolved outside a layout — a viewport
+; length comes out ZERO rather than falling back to the parent's size: one of
+; those is a visible mistake and the other is `100vh` quietly meaning two
+; different things depending on where the element sits.
+;
+; Not supported, deliberately: vmin / vmax (nothing has asked, and they are two
+; more lines the day something does), ch/ex (they need font metrics the unit
+; layer has no access to), and calc().
 ; An unrecognised suffix leaves the unit UNSET — i.e. auto, the way a browser
 ; drops a declaration it cannot parse. It must not fall through to the bare
-; number path, because to_double("10vw") is 10 and the length would silently
+; number path, because to_double("10ch") is 10 and the length would silently
 ; become 10px.
 
 ; Unit type constants
@@ -19,6 +41,8 @@
 ; 4 = FILL (expand to fill available space)
 ; 5 = REM (relative to the ROOT font size)
 ; 6 = FIT_CONTENT (as wide as the children turn out to be)
+; 7 = VIEWPORT_WIDTH (vw, % of the layout's page width)
+; 8 = VIEWPORT_HEIGHT (vh, % of the layout's page height)
 
 class EVGUnit {
     def value:double 0.0
@@ -29,12 +53,63 @@ class EVGUnit {
     ; tree, so whoever resolves it (EVGElement/EVGBox.resolveUnits) sets this
     ; first. Ignored by every other unit type.
     def rootFontSize:double 14.0
+    ; And what `vw` / `vh` resolve against: the layout's page size, which on
+    ; paper is the page area rather than the sheet. Zero means nobody said, and
+    ; a viewport length then comes out zero — see the note at the top.
+    def viewportW:double 0.0
+    def viewportH:double 0.0
     
     Constructor () {
         value = 0.0
         unitType = 0
         isSet = false
         pixels = 0.0
+    }
+
+    ; Everything a relative length needs beyond its parent's size: the root
+    ; font size for `rem`, the viewport for `vw` and `vh`. One call rather than
+    ; three assignments at every site, because the three travel together and a
+    ; site that set two of them would be a bug nothing announces.
+    fn setContext:void (rfs:double vw:double vh:double) {
+        rootFontSize = rfs
+        viewportW = vw
+        viewportH = vh
+    }
+
+    ; The part before a suffix, and whether it is a NUMBER — digits, one dot,
+    ; a sign. `to_double` stops at the first character it cannot use, so a
+    ; suffix test on its own is not enough to know a length was written the way
+    ; the parser thinks it was: "10vmin" ends in "in", inches are one of the
+    ; absolute units, and it parsed as 10 inches — 960 pixels — for a unit this
+    ; layer deliberately does not support. Every branch below asks this first.
+    sfn isNumeric:boolean (str:string) {
+        def n:int (strlen str)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        def digits:int 0
+        while (i < n) {
+            def c:int (charAt str i)
+            def isDigit:boolean ((c >= 48) && (c <= 57))
+            if isDigit {
+                digits = (digits + 1)
+            } {
+                ; A sign only at the front, a dot anywhere, nothing else.
+                if (c == 46) {
+                } {
+                    if ((c == 43) || (c == 45)) {
+                        if (i > 0) {
+                            return false
+                        }
+                    } {
+                        return false
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
     }
 
     sfn isAlpha:boolean (c:int) {
@@ -145,6 +220,9 @@ class EVGUnit {
         def lastChar:int (charAt trimmed (len - 1))
         if (lastChar == 37) {  ; '%'
             def numStr:string (substring trimmed 0 (len - 1))
+            if (EVGUnit.isNumeric(numStr) == false) {
+                return unit
+            }
             def numVal@(optional):double (to_double numStr)
             if numVal {
                 unit.value = (unwrap numVal)
@@ -161,6 +239,9 @@ class EVGUnit {
             def suffix3:string (substring trimmed (len - 3) len)
             if (suffix3 == "rem") {
                 def numStr3:string (substring trimmed 0 (len - 3))
+                if (EVGUnit.isNumeric(numStr3) == false) {
+                    return unit
+                }
                 def numVal3@(optional):double (to_double numStr3)
                 if numVal3 {
                     unit.value = (unwrap numVal3)
@@ -179,6 +260,9 @@ class EVGUnit {
             def perUnit:double (EVGUnit.pxPerUnit(suffix))
             if (perUnit > 0.0) {
                 def numStrA:string (substring trimmed 0 (len - 2))
+                if (EVGUnit.isNumeric(numStrA) == false) {
+                    return unit
+                }
                 def numValA@(optional):double (to_double numStrA)
                 if numValA {
                     unit.value = ((unwrap numValA) * perUnit)
@@ -190,6 +274,9 @@ class EVGUnit {
             }
             if (suffix == "em") {
                 def numStr:string (substring trimmed 0 (len - 2))
+                if (EVGUnit.isNumeric(numStr) == false) {
+                    return unit
+                }
                 def numVal@(optional):double (to_double numStr)
                 if numVal {
                     unit.value = (unwrap numVal)
@@ -200,6 +287,9 @@ class EVGUnit {
             }
             if (suffix == "px") {
                 def numStr:string (substring trimmed 0 (len - 2))
+                if (EVGUnit.isNumeric(numStr) == false) {
+                    return unit
+                }
                 def numVal@(optional):double (to_double numStr)
                 if numVal {
                     unit.value = (unwrap numVal)
@@ -211,10 +301,41 @@ class EVGUnit {
             }
             if (suffix == "hp") {
                 def numStr:string (substring trimmed 0 (len - 2))
+                if (EVGUnit.isNumeric(numStr) == false) {
+                    return unit
+                }
                 def numVal@(optional):double (to_double numStr)
                 if numVal {
                     unit.value = (unwrap numVal)
                     unit.unitType = 3
+                    unit.isSet = true
+                }
+                return unit
+            }
+            ; The viewport, which is the layout's page size — and on paper the
+            ; page AREA, because that is the page size the print renderers set.
+            if (suffix == "vw") {
+                def numStrVW:string (substring trimmed 0 (len - 2))
+                if (EVGUnit.isNumeric(numStrVW) == false) {
+                    return unit
+                }
+                def numValVW@(optional):double (to_double numStrVW)
+                if numValVW {
+                    unit.value = (unwrap numValVW)
+                    unit.unitType = 7
+                    unit.isSet = true
+                }
+                return unit
+            }
+            if (suffix == "vh") {
+                def numStrVH:string (substring trimmed 0 (len - 2))
+                if (EVGUnit.isNumeric(numStrVH) == false) {
+                    return unit
+                }
+                def numValVH@(optional):double (to_double numStrVH)
+                if numValVH {
+                    unit.value = (unwrap numValVH)
+                    unit.unitType = 8
                     unit.isSet = true
                 }
                 return unit
@@ -275,6 +396,19 @@ class EVGUnit {
             return
         }
         
+        ; VIEWPORT_WIDTH / VIEWPORT_HEIGHT. The parent is not consulted: that
+        ; is the whole point of the unit, and it is what makes `100vh` on a
+        ; nested box mean the screen rather than whatever box it happens to be
+        ; sitting in.
+        if (unitType == 7) {
+            pixels = ((viewportW * value) / 100.0)
+            return
+        }
+        if (unitType == 8) {
+            pixels = ((viewportH * value) / 100.0)
+            return
+        }
+
         ; FILL - resolved by layout engine
         if (unitType == 4) {
             pixels = parentSize
@@ -347,6 +481,13 @@ class EVGUnit {
     fn isFill:boolean () {
         return (unitType == 4)
     }
+
+    fn isViewport:boolean () {
+        if (unitType == 7) {
+            return true
+        }
+        return (unitType == 8)
+    }
     
     fn toString:string () {
         if (isSet == false) {
@@ -369,6 +510,12 @@ class EVGUnit {
         }
         if (unitType == 5) {
             return ((to_string value) + "rem")
+        }
+        if (unitType == 7) {
+            return ((to_string value) + "vw")
+        }
+        if (unitType == 8) {
+            return ((to_string value) + "vh")
         }
         return (to_string value)
     }

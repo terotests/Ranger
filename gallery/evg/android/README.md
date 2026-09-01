@@ -20,6 +20,7 @@ or Java2D out. No app lives here, and neither does any knowledge of one.
 | `src/main/kotlin/…/EvgPainter.kt` | Display list → surface calls |
 | `src/main/kotlin/…/RecordingSurface.kt` | Counts what the painter dispatched, so coverage is a number |
 | `src/android/kotlin/…/AndroidEvgSurface.kt` | `android.graphics` implementation, plus `FaceSet` and `ImageStore` |
+| `src/android/kotlin/…/RippleEffect.kt` | `evg-surface-effect: ripple` as an AGSL post-process (API 33+) |
 | `src/awt/kotlin/…/AwtEvgSurface.kt` | The same surface on Java2D, so a port is testable without a device |
 | `androidstubs/` | Platform declarations, so a host type-checks with no SDK installed |
 
@@ -48,6 +49,15 @@ file the compiler wrote.
 Both are a facade in Ranger plus a `View`. That is the claim this directory
 exists to make good on: the seam is the display list, so a new host is a page of
 delegation rather than a second renderer.
+
+## The one thing that is not a surface
+
+`evg-surface-effect: ripple` is not a draw command and cannot be: it is a pass
+over the finished pixels. `RippleEffect` is that pass on Android — the display
+list's `effectKind` and its dozen `effect*` numbers, handed to a `RuntimeShader`
+through `RenderEffect.createRuntimeShaderEffect`, which is the same stage
+`evg-webgl.js` runs its own version in. It is a translation of that shader, not
+a second one; API 33 and later, a no-op below.
 
 ## What the surfaces do not agree on
 
