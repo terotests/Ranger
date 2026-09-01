@@ -28,6 +28,7 @@ Import "ScrollerCtl.rgr"
 Import "QuestionnaireCtl.rgr"
 Import "FilterCtl.rgr"
 Import "EventCalCtl.rgr"
+Import "NumberCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
@@ -1370,6 +1371,7 @@ class UiHost {
             ; a different thing from "not there".
             out = out + ",\"haspopup\":" + (UiHost.textOrNull(row.hasPopup))
             out = out + ",\"multiselectable\":" + (UiHost.textOrNull(row.multiSelectable))
+            out = out + ",\"valuetext\":" + (UiHost.textOrNull(row.valueText))
             ; Absent rather than zero where there is none: the DOM reports null
             ; for a node without the attribute, and 0 is a different claim.
             out = out + ",\"level\":" + (UiHost.numOrNull(row.level))

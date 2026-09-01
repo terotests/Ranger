@@ -125,6 +125,18 @@ class UiRow {
     def hasRange:boolean false
     def valueMin:int 0
     def valueMax:int 0
+    ; `aria-valuetext`, as the DOM spells it: what a reader is told INSTEAD of
+    ; the number. "" for a control that publishes none.
+    ;
+    ; Its own field for the reason `sorted` has one. A progress bar reading
+    ; "40 of 100 files" and one reading "40" are identical in every field
+    ; above, and the text is the whole point of the label a caller supplied.
+    ; It is also how INDETERMINATE stays legible: both references leave the
+    ; attribute absent when there is no value, and "" here is that absence.
+    ;
+    ; The element path already carries this as `a11yValue`; this is the
+    ; controller path's spelling of the same attribute.
+    def valueText:string ""
     ; What a text field HOLDS, and where the caret is in it.
     ;
     ; The slider's lesson a second time, and worse: every field above is

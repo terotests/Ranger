@@ -1,0 +1,514 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; NumberCtl — a number field, measured against Base UI
+; =============================================================================
+; The request was ReUI's Number Field, and reui.io is refused by the egress
+; proxy. Radix has no number field at all, so there is no second reference to
+; hold this against — but shadcn's `components/base/…` registry IS Base UI and
+; Base UI ships `number-field`, which is the component a shadcn-family number
+; input wraps. `conformance/oracle/numberfield.json` holds the capture and
+; `numberfield_check.mjs` gates it.
+;
+; THIS ALSO CORRECTS THE PLAN. `PLAN_INPUTS.md` says the P2 NumberCtl step has
+; no oracle available. That was written before the Base UI registry was
+; installed for the Switch work, and it is now simply wrong.
+;
+; --- FIVE THINGS THE MEASUREMENT SAID THAT A GUESS WOULD NOT -----------------
+;
+;   IT IS NOT A SPINBUTTON. `role` is absent, and so are aria-valuenow,
+;   aria-valuemin and aria-valuemax. It is `type="text"` with
+;   `inputmode="numeric"` and `aria-roledescription="Number field"`. Everyone
+;   implements WAI-ARIA's spinbutton pattern here; the reference deliberately
+;   does not, and a text input with a numeric keypad is what a person on a
+;   phone actually wants. The pattern is a recommendation, the reference is
+;   what shadcn ships, and this follows the reference.
+;
+;   THE LARGE STEP IS ON SHIFT, NOT ON PAGE UP. PageUp and PageDown do nothing
+;   at all — measured on three separate fields, including one with an explicit
+;   `largeStep`. Shift+ArrowUp is where it lives. "PageUp is the big one" is
+;   the plausible guess and it is wrong in both halves.
+;
+;   AND THE DEFAULT LARGE STEP IS 10, ABSOLUTE. Not ten times the step: a
+;   field with `step: 0.25` moves from 0 to 10 on Shift+ArrowUp, not to 2.5.
+;   That is the single least guessable number in this component.
+;
+;   THE MINUS KEY IS REJECTED WHEN NO NEGATIVE IS IN RANGE. Typing "-99" into
+;   a field whose min is 0 leaves "99", which then clamps to the max. The same
+;   keystrokes into a field whose min is -100 give -99. So the character
+;   filter is a function of the RANGE, not a fixed set — which is the sort of
+;   thing that looks like a bug when you meet it and is a considered decision.
+;
+;   EMPTY IS NOT ZERO. Deleting the contents leaves the field empty and the
+;   value absent. Ranger has no null, so `hasValue` sits beside `value` — the
+;   same shape `ProgressCtl` needed, for the same reason: storing 0 reports a
+;   number the person never typed.
+;
+; --- AND ONE ABOUT WHEN --------------------------------------------------
+;
+; Typed text is reconciled ON BLUR, not on every keystroke, and the blur also
+; FORMATS: "12abc34" reads "1234" while focused and "1,234" once focus leaves.
+; A field that parsed every keystroke could not be typed into at all, because
+; "-" and "1." are invalid numbers that are valid prefixes of valid ones. So
+; `text` is what is being typed and `value` is what it settled to, and the two
+; are deliberately allowed to disagree while the field has focus.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class NumberCtl extends UiCtl {
+    ; What has settled. `hasValue` false is an EMPTY field, which is not zero.
+    def value:double 0.0
+    def hasValue:boolean false
+    ; What is currently in the box. Equal to the formatted value except while
+    ; someone is typing, which is the whole point of it being separate.
+    def text:string ""
+    def focused:boolean false
+
+    def step:double 1.0
+    ; MEASURED: 10, absolute, and not a multiple of `step`.
+    def largeStep:double 10.0
+    def minValue:double 0.0
+    def maxValue:double 0.0
+    def hasMin:boolean false
+    def hasMax:boolean false
+    ; Thousands separators on blur, as the reference does. A flag because it is
+    ; a locale decision and the capture is one locale.
+    def groupThousands:boolean true
+
+    Constructor () {
+    }
+
+    fn setRange:void (lo:double hi:double) {
+        minValue = lo
+        maxValue = hi
+        hasMin = true
+        hasMax = true
+    }
+
+    fn setValue:void (v:double) {
+        value = (this.clampTo(v))
+        hasValue = true
+        text = (this.formatted())
+    }
+
+    fn clearValue:void () {
+        hasValue = false
+        value = 0.0
+        text = ""
+    }
+
+    fn clampTo:double (v:double) {
+        def out:double v
+        if hasMin {
+            if (out < minValue) {
+                out = minValue
+            }
+        }
+        if hasMax {
+            if (out > maxValue) {
+                out = maxValue
+            }
+        }
+        return out
+    }
+
+    ; --- can a negative even be typed? --------------------------------------
+    ;
+    ; MEASURED: the minus key is rejected when no in-range number carries one.
+    ; A function of the range, not a fixed character set.
+
+    fn allowsNegative:boolean () {
+        if hasMin {
+            return (minValue < 0.0)
+        }
+        return true
+    }
+
+    ; --- stepping -------------------------------------------------------------
+    ;
+    ; From the settled value, and from the MIN when the field is empty — an
+    ; empty field pressed up has to land somewhere, and zero would be outside
+    ; the range of a field whose min is 5.
+
+    fn stepBy:void (delta:double) {
+        def base:double value
+        if hasValue {
+        } {
+            base = 0.0
+            if hasMin {
+                base = minValue
+            }
+            ; An empty field's first step lands ON the base rather than one
+            ; step past it, so pressing up in an empty 0..10 field gives 0 and
+            ; not 1 — the base is a value the person has not rejected.
+            value = (this.clampTo(base))
+            hasValue = true
+            text = (this.formatted())
+            return
+        }
+        value = (this.clampTo(base + delta))
+        hasValue = true
+        text = (this.formatted())
+    }
+
+    fn increment:void () {
+        this.stepBy(step)
+    }
+
+    fn decrement:void () {
+        this.stepBy(0.0 - step)
+    }
+
+    ; --- the buttons ---------------------------------------------------------
+    ;
+    ; MEASURED: they go disabled AT the bound, and publish aria-disabled
+    ; "false" rather than nothing when they are enabled. That distinction is
+    ; not cosmetic — an earlier probe in this directory read `hasAttribute`
+    ; and reported every button disabled.
+
+    fn canIncrement:boolean () {
+        if hasMax {
+            if hasValue {
+                return (value < maxValue)
+            }
+        }
+        return true
+    }
+
+    fn canDecrement:boolean () {
+        if hasMin {
+            if hasValue {
+                return (value > minValue)
+            }
+        }
+        return true
+    }
+
+    ; --- keys -----------------------------------------------------------------
+    ;
+    ; MEASURED, including the two that do NOTHING. PageUp and PageDown are
+    ; listed and refused on purpose: leaving them out would make them fall
+    ; through to a caller, and the reference swallows neither and moves for
+    ; neither.
+
+    fn onKey:boolean (key:string shift:boolean) {
+        if (key == "ArrowUp") {
+            if shift {
+                this.stepBy(largeStep)
+            } {
+                this.stepBy(step)
+            }
+            return true
+        }
+        if (key == "ArrowDown") {
+            if shift {
+                this.stepBy(0.0 - largeStep)
+            } {
+                this.stepBy(0.0 - step)
+            }
+            return true
+        }
+        if (key == "PageUp") {
+            return false
+        }
+        if (key == "PageDown") {
+            return false
+        }
+        if (key == "Home") {
+            if hasMin {
+                value = minValue
+                hasValue = true
+                text = (this.formatted())
+                return true
+            }
+            return false
+        }
+        if (key == "End") {
+            if hasMax {
+                value = maxValue
+                hasValue = true
+                text = (this.formatted())
+                return true
+            }
+            return false
+        }
+        return false
+    }
+
+    ; --- typing ---------------------------------------------------------------
+    ;
+    ; A character is accepted or it is not; nothing is parsed until blur.
+    ; MEASURED: letters are rejected outright — "abc" into a field holding 5
+    ; leaves 5, even while focused — and "12abc34" reads "1234".
+
+    fn acceptsChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if (c == 46) {
+            ; One decimal point only.
+            return ((indexOf text ".") < 0)
+        }
+        if (c == 45) {
+            ; A minus, only where the range allows one and only at the front.
+            if ((this.allowsNegative()) == false) {
+                return false
+            }
+            return ((strlen text) == 0)
+        }
+        return false
+    }
+
+    fn typeChar:boolean (c:int) {
+        if (this.acceptsChar(c)) {
+            text = text + (strfromcode c)
+            return true
+        }
+        return false
+    }
+
+    fn typeText:void (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            this.typeChar((charAt s i))
+            i = (i + 1)
+        }
+    }
+
+    fn backspace:void () {
+        def n:int (strlen text)
+        if (n > 0) {
+            text = (substring text 0 (n - 1))
+        }
+    }
+
+    fn setText:void (s:string) {
+        text = ""
+        this.typeText(s)
+    }
+
+    ; --- parsing, which happens on BLUR ---------------------------------------
+
+    sfn parse:double (s:string ok:[boolean]) {
+        def t:string (trim s)
+        def len:int (strlen t)
+        if (len == 0) {
+            push ok false
+            return 0.0
+        }
+        def i:int 0
+        def sign:double 1.0
+        def c0:int (charAt t 0)
+        if (c0 == 45) {
+            sign = -1.0
+            i = 1
+        }
+        def whole:double 0.0
+        def frac:double 0.0
+        def scale:double 1.0
+        def seenDigit:boolean false
+        def inFrac:boolean false
+        while (i < len) {
+            def c:int (charAt t i)
+            if ((c >= 48) && (c <= 57)) {
+                def d:double (to_double (c - 48))
+                if inFrac {
+                    scale = (scale * 10.0)
+                    frac = (frac + (d / scale))
+                } {
+                    whole = ((whole * 10.0) + d)
+                }
+                seenDigit = true
+            } {
+                if (c == 46) {
+                    inFrac = true
+                } {
+                    ; A separator that survived from a previous format. Skipped
+                    ; rather than refused: the field re-reads its own output
+                    ; when focus returns, and "1,234" has to parse back to 1234.
+                    if (c == 44) {
+                    } {
+                        push ok false
+                        return 0.0
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if seenDigit {
+        } {
+            push ok false
+            return 0.0
+        }
+        push ok true
+        return (sign * (whole + frac))
+    }
+
+    fn focus:void () {
+        focused = true
+        ; Focus shows the RAW number: the separators are a reading aid and a
+        ; person editing "1,234" should not have to step over a comma.
+        if hasValue {
+            text = (this.plain())
+        }
+    }
+
+    ; The reconcile point. Everything typed is read here, clamped here, and
+    ; formatted here — and an unparseable box empties rather than becoming 0.
+    fn blur:void () {
+        focused = false
+        def ok:[boolean]
+        def v:double (NumberCtl.parse(text ok))
+        if (itemAt ok 0) {
+            value = (this.clampTo(v))
+            hasValue = true
+            text = (this.formatted())
+        } {
+            hasValue = false
+            value = 0.0
+            text = ""
+        }
+    }
+
+    ; --- how it reads ---------------------------------------------------------
+
+    ; The number with no separators: what an editor sees.
+    fn plain:string () {
+        return (NumberCtl.numText(value))
+    }
+
+    ; MEASURED: "1,234" after blur. Grouped from the right in threes, and only
+    ; the whole part — the reference does not group after the point.
+    fn formatted:string () {
+        if hasValue {
+        } {
+            return ""
+        }
+        def raw:string (this.plain())
+        if groupThousands {
+        } {
+            return raw
+        }
+        def neg:boolean false
+        def body:string raw
+        if ((strlen body) > 0) {
+            if ((charAt body 0) == 45) {
+                neg = true
+                body = (substring body 1 (strlen body))
+            }
+        }
+        def whole:string body
+        def rest:string ""
+        def dot:int (indexOf body ".")
+        if (dot >= 0) {
+            whole = (substring body 0 dot)
+            rest = (substring body dot (strlen body))
+        }
+        def out:string ""
+        def n:int (strlen whole)
+        def i:int 0
+        while (i < n) {
+            def fromEnd:int (n - i)
+            if (i > 0) {
+                if ((fromEnd % 3) == 0) {
+                    out = out + ","
+                }
+            }
+            out = out + (strfromcode (charAt whole i))
+            i = (i + 1)
+        }
+        def head:string ""
+        if neg {
+            head = "-"
+        }
+        return head + out + rest
+    }
+
+    ; A double as text, without an exponent and without a trailing ".0" — the
+    ; reference shows "6" and not "6.0", and "0.25" rather than "0.250000".
+    sfn numText:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def whole:int (to_int a)
+        def fracPart:double (a - (to_double whole))
+        ; Four places, then trimmed. Enough for a 0.25 step and short of the
+        ; place where doubles start printing their own noise.
+        def scaled:int (to_int ((fracPart * 10000.0) + 0.5))
+        if (scaled >= 10000) {
+            whole = (whole + 1)
+            scaled = 0
+        }
+        def out:string (to_string whole)
+        if (scaled > 0) {
+            def fs:string (to_string scaled)
+            while ((strlen fs) < 4) {
+                fs = "0" + fs
+            }
+            while ((strlen fs) > 0) {
+                def last:int (charAt fs ((strlen fs) - 1))
+                if (last == 48) {
+                    fs = (substring fs 0 ((strlen fs) - 1))
+                } {
+                    fs = fs
+                    break
+                }
+            }
+            if ((strlen fs) > 0) {
+                out = out + "." + fs
+            }
+        }
+        if neg {
+            out = "-" + out
+        }
+        return out
+    }
+
+    ; --- the reported rows ----------------------------------------------------
+    ;
+    ; MEASURED: a TEXT FIELD, not a spinbutton. No role override, no valuenow,
+    ; and a roledescription that says what it is. Publishing a spinbutton here
+    ; would be implementing WAI-ARIA's recommendation instead of the reference,
+    ; and the two disagree.
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def f:UiRow (new UiRow ())
+        f.tid = tid
+        f.role = (EVGA11yRole.textField())
+        f.name = name
+        f.roleDescription = "Number field"
+        f.focusable = true
+        f.tabStop = true
+        f.hasText = true
+        f.text = text
+        push out f
+
+        def dec:UiRow (new UiRow ())
+        dec.tid = tid + "-dec"
+        dec.parentTid = tid
+        dec.role = (EVGA11yRole.button())
+        dec.name = "Decrease"
+        dec.focusable = true
+        dec.disabled = ((this.canDecrement()) == false)
+        push out dec
+
+        def inc:UiRow (new UiRow ())
+        inc.tid = tid + "-inc"
+        inc.parentTid = tid
+        inc.role = (EVGA11yRole.button())
+        inc.name = "Increase"
+        inc.focusable = true
+        inc.disabled = ((this.canIncrement()) == false)
+        push out inc
+
+        return out
+    }
+}

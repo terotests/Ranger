@@ -84,6 +84,32 @@ Gate: the oracle is `<input type=number>` — the browser has opinions about
 what `step` does at the ends and how a partial value commits, and those are
 measurable.
 
+**Done, against a different reference — and the difference is the point.**
+`NumberCtl.rgr` is measured against `@base-ui/react/number-field`
+(`conformance/oracle/numberfield.json`, 58 assertions in
+`numberfield_check.mjs`), not against `<input type=number>`. The swap is not a
+convenience: shadcn's `components/base/…` registry IS Base UI, so that is the
+component a shadcn-family number input actually wraps — and the two references
+**disagree about the most basic question in the component**. A native
+`<input type=number>` is a `spinbutton` with `aria-valuenow`, `aria-valuemin`
+and `aria-valuemax`; Base UI publishes *none* of those. It renders
+`type="text"` with `inputmode="numeric"` and `aria-roledescription="Number
+field"`, which is what a person on a phone actually wants and what WAI-ARIA's
+spinbutton pattern would have talked us out of.
+
+Four more things the capture settled that neither guessing nor the native
+input would have given:
+
+- the large step is on **Shift+Arrow**, not PageUp — PageUp and PageDown do
+  nothing at all, measured on three fields including one with an explicit
+  `largeStep`;
+- the default large step is **10, absolute** — with `step: 0.25`, Shift+Up
+  goes 0 → 10, not 0 → 2.5;
+- the minus key is **rejected when the range holds no negative**, so `-99`
+  typed into a `min: 0` field leaves `99` and clamps to the max;
+- typed text is reconciled **on blur**, and blur also *formats*: `12abc34`
+  reads `1234` while focused and `1,234` once focus leaves.
+
 ### P3 — `Track2DCtl`, the primitive that does not exist
 
 A value pair on an area: press, drag, arrow keys, page keys, clamped to the

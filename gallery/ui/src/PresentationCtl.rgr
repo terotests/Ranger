@@ -91,9 +91,40 @@ class SeparatorCtl extends UiCtl {
 ; maximum, "loading" otherwise — three words, and a bar that only knows two of
 ; them tells a reader the wrong thing while it waits.
 class ProgressCtl extends UiCtl {
-    def value:int 0
-    def maxValue:int 100
+    ; MEASURED against BOTH references at once — `@radix-ui/react-progress`
+    ; and `@base-ui/react/progress`, which are the two libraries shadcn ships
+    ; over. `conformance/oracle/progress.json` holds the capture and
+    ; `progress_check.mjs` gates it; the fourteen places the two libraries
+    ; disagree are recorded there rather than averaged away.
+    ;
+    ; This class existed before the capture and got the hard part right by
+    ; reasoning: an indeterminate bar publishes a RANGE and no POSITION, which
+    ; is what makes a reader say "busy" instead of "0 percent". Measuring it
+    ; found two things reasoning had not:
+    ;
+    ;   IT DID NOT CLAMP. A value of 140 against a max of 100 was reported as
+    ;   140 and drawn 140% wide. Neither reference will do that — Radix
+    ;   refuses to report anything and goes indeterminate, Base UI clamps to
+    ;   the max. This one clamps, following Base UI: a bar that silently
+    ;   becomes indeterminate when a caller's arithmetic drifts one over is
+    ;   harder to notice than one pinned at full, and a shadcn-family bar is
+    ;   the Base UI one. `outOfRange` exists so the choice stays inspectable
+    ;   rather than silently absorbed.
+    ;
+    ;   THE PERCENTAGE TRUNCATED. `idiv (value * 100) maxValue` gives 37 for
+    ;   3 of 8. Both references round, and both read "38%" — 37.5 rounded up.
+    ;   That is the one case where truncation and rounding differ by a whole
+    ;   unit, and it is in the capture for exactly that reason.
+    ;
+    ; `value` is a DOUBLE because the capture contains 33.333: both libraries
+    ; pass a fractional value straight through to `aria-valuenow`, so an int
+    ; here could not have represented what was measured.
+    def value:double 0.0
+    def maxValue:double 100.0
     def indeterminate:boolean false
+    ; What a reader is told INSTEAD of the percentage, "" for none. Both
+    ; references let a caller supply this and both then use it verbatim.
+    def valueLabel:string ""
     def indicatorEl:EVGElement
 
     Constructor () {
@@ -109,10 +140,77 @@ class ProgressCtl extends UiCtl {
         if indeterminate {
             return "indeterminate"
         }
-        if (value >= maxValue) {
+        if ((this.clamped()) >= maxValue) {
             return "complete"
         }
         return "loading"
+    }
+
+    ; --- clamping, which is a CHOICE and is written down as one -------------
+
+    fn outOfRange:boolean () {
+        if indeterminate {
+            return false
+        }
+        if (value > maxValue) {
+            return true
+        }
+        if (value < 0.0) {
+            return true
+        }
+        return false
+    }
+
+    fn clamped:double () {
+        if (value > maxValue) {
+            return maxValue
+        }
+        if (value < 0.0) {
+            return 0.0
+        }
+        return value
+    }
+
+    ; --- the fraction --------------------------------------------------------
+    ;
+    ; A FRACTION, not a width, so a caller decides the pixels. Base UI is the
+    ; only reference for this: Radix's Indicator carries `data-value` and
+    ; `data-max` and NO style at all — the fill is the consumer's job, which
+    ; is why shadcn's Progress supplies a translateX itself.
+
+    fn fraction:double () {
+        if indeterminate {
+            ; No fill to compute. Zero rather than one, so a caller that draws
+            ; it anyway draws nothing rather than a full bar claiming the work
+            ; is finished.
+            return 0.0
+        }
+        if (maxValue <= 0.0) {
+            return 0.0
+        }
+        return ((this.clamped()) / maxValue)
+    }
+
+    ; A ROUNDED integer percentage — where both references agree, which makes
+    ; it settled rather than chosen. 3 of 8 is 37.5 and reads "38%".
+    fn percent:int () {
+        return (to_int (((this.fraction()) * 100.0) + 0.5))
+    }
+
+    fn percentText:string () {
+        return ((to_string (this.percent())) + "%")
+    }
+
+    ; "" while indeterminate, which is how the attribute stays ABSENT rather
+    ; than becoming an empty one — the distinction the component turns on.
+    fn valueText:string () {
+        if indeterminate {
+            return ""
+        }
+        if ((strlen valueLabel) > 0) {
+            return valueLabel
+        }
+        return (this.percentText())
     }
 
     fn build:void () {
@@ -128,14 +226,7 @@ class ProgressCtl extends UiCtl {
         ind.className = "ui-progress-indicator"
         UiTree.setState(ind "ui-progress-indicator" word)
         UiTree.clearChildren(ind)
-        def pct:int 0
-        if (indeterminate == false) {
-            if (maxValue > 0) {
-                def scaled:int (value * 100)
-                pct = (idiv scaled maxValue)
-            }
-        }
-        def wide:string ((to_string pct) + "%")
+        def wide:string ((to_string (this.percent())) + "%")
         UiTree.inline(ind "width" wide)
         el.addChild(ind)
     }
@@ -155,13 +246,18 @@ class ProgressCtl extends UiCtl {
         ; The range is always announced; the position only when there is one.
         ; An indeterminate bar reports min and max with NO valuenow, and that
         ; absence is what makes a reader say "busy" rather than "0 percent".
+        ; Measured: BOTH references leave the attribute off entirely.
         r.hasRange = true
         r.valueMin = 0
-        r.valueMax = maxValue
+        r.valueMax = (to_int maxValue)
         if (indeterminate == false) {
             r.hasValueNow = true
-            r.valueNow = value
+            ; The CLAMPED number. Reporting 140 of 100 to a reader is the
+            ; invisible half of the bug whose visible half is a bar drawn past
+            ; its own end.
+            r.valueNow = (to_int ((this.clamped()) + 0.5))
         }
+        r.valueText = (this.valueText())
         push out r
         def ind:UiRow (UiRow.of((this.indicatorTid()) (EVGA11yRole.none()) ""))
         ind.parentTid = tid
