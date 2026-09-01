@@ -21,6 +21,7 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
+- Issue #76: a Ranger local named after a Go keyword (`go`, `chan`, `select`, `defer`, …) is emitted verbatim and the Go output does not parse. The `reserved_words` block in `Lang.rgr` lists two Go keywords out of 25; `gallery/vela` has been emitting unparseable Go because one of its locals is called `go` (August 2026)
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
@@ -2625,6 +2626,90 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #76: A Ranger local named after a Go keyword emits Go that does not parse
+
+**Status:** open. Found while measuring formatter output for
+[`PLAN_FORMAT.md`](PLAN_FORMAT.md).
+
+### Reproduction
+
+```ranger
+class T {
+  fn run:int () {
+    def go:boolean true
+    def n:int 0
+    while go {
+      n = (n + 1)
+      if (n > 2) {
+        go = false
+      }
+    }
+    return n
+  }
+}
+sfn main:void () {
+  def t:T (new T())
+  print ("" + (t.run()))
+}
+```
+
+The compiler reports `[OK] Compilation successful!` and writes
+
+```go
+var go bool= true;
+for go {
+```
+
+which is not Go. `gofmt` exits 2 on it:
+
+```
+k.go:21:7: expected 'IDENT', found 'go'
+k.go:23:7: expected operand, found 'go'
+```
+
+Rust, C# and Kotlin compile the same source without complaint — they rename the
+identifier.
+
+### Cause
+
+The per-target `reserved_words` block in `compiler/Lang.rgr` has **two** entries
+for Go:
+
+```ranger
+go {
+    type _type
+    range _range
+}
+```
+
+Go has 25 keywords. `func` and `map` happen to be covered by the shared `*`
+block, which leaves `go`, `var`, `chan`, `select`, `defer`, `package`, `import`,
+`interface`, `struct`, `switch`, `case`, `default`, `fallthrough`, `goto`,
+`const`, `else`, `for`, `if`, `return` and `continue` unmapped. Most of those
+would be unusual variable names; `go`, `map`, `type`, `range`, `select`, `chan`
+and `defer` are not — `go` is an ordinary loop flag, and it is what
+`gallery/vela/src/VlJson.rgr:636` calls one.
+
+### Effect
+
+`gallery/vela/src/VlChart.rgr` compiled to Go has not parsed for as long as that
+local has existed. Nothing caught it because the Go path is only exercised by
+programs that avoid the name, and the compiler itself reports success — the
+failure is in a file nobody compiles.
+
+### Fix
+
+Complete the Go entry in the `reserved_words` block. It is a data change, not a
+code change. It alters emitted identifiers for any program that uses one of the
+names, so it wants the conformance suite and a golden review, which is why
+[`PLAN_FORMAT.md`](PLAN_FORMAT.md) lists it as phase 0 rather than folding it
+into the formatting work.
+
+The same audit is worth doing for every target: the Go list being 2 entries long
+suggests the others were filled in as errors were hit rather than from the
+language's keyword list. The `swift3` block has 4 entries (`operator`, `static`,
+`init`, `guard`) and Swift has far more keywords than that.
 
 ## Issue #75: A trailing block on a `class` is taken for the class body, so the real body is never analysed
 
