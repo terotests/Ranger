@@ -33,7 +33,7 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
-| Lengths | `px`, `%`, `em`, `rem`, and the absolute print units `pt` / `pc` / `in` / `mm` / `cm`, plus EVG's own `hp` and `fill` | `vw` / `vh`, `ch` / `ex`, `calc()` — all rejected rather than misread |
+| Lengths | `px`, `%`, `em`, `rem`, `vw` / `vh`, and the absolute print units `pt` / `pc` / `in` / `mm` / `cm`, plus EVG's own `hp` and `fill` | `vmin` / `vmax`, `ch` / `ex`, `calc()` — all rejected rather than misread |
 | Kerning | GPOS pair adjustments (formats 1 and 2, incl. Extension lookups) and the legacy `kern` table, in measurement and in paint | Ligatures and other GPOS features |
 | Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | — |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
@@ -598,9 +598,35 @@ whoever resolves it hands the value over).
 **Any unknown unit became pixels.** The same `to_double` behaviour meant `10vw`
 resolved to 10px and `calc(100% - 20px)` to 100px. An unrecognised suffix now
 leaves the length unset — i.e. `auto`, which is what a browser does with a
-declaration it cannot parse. `vw`/`vh` (a print page has no viewport), `ch`/`ex`
-(they need font metrics the unit layer cannot reach) and `calc()` stay out of
-scope, but they now stay out loudly.
+declaration it cannot parse. `ch`/`ex` (they need font metrics the unit layer
+cannot reach) and `calc()` stay out of scope, but they now stay out loudly.
+
+A suffix test alone was not enough, and a later pass found the hole: the
+NUMBER has to be a number too. `to_double` stops at the first character it
+cannot use, so `10vmin` — which ends in `in`, one of the absolute units — came
+out as ten inches, 960 pixels, for a unit this layer does not support. Every
+branch now checks that what precedes the suffix is digits before it believes
+the suffix.
+
+**`vw` and `vh` are in.** The line above used to say they were out because a
+print page has no viewport, and that was the wrong way round: a print page has
+a *page area*, which is exactly what CSS says viewport-percentage lengths mean
+in paged media, and it is already what the print renderers hand `EVGLayout` as
+its page size (the section less two margins). So the same rule reads correctly
+on paper and on a screen with no print-specific code: `vw`/`vh` resolve against
+`EVGLayout.pageWidth` / `pageHeight`, published onto the root and inherited the
+way the root font size is.
+
+What they buy over `%` is the case `%` cannot express: `height: 100%` needs a
+chain of ancestors that all have a definite height, so a page that wants to be
+as tall as its window has to be handed that number by its host. The ui
+gallery's dashboard was: its page, sidebar and hairline stated a constant
+`1420px`, which looked full in every window shorter than that and stopped two
+thirds of the way down an Android tablet in portrait. They say `100vh` now.
+
+Verification: `npm run evg:viewport:test` — 22 checks over the parse, the
+arithmetic, a nested `100vh` that is the page rather than the 300-pixel box it
+sits in, box lengths in `vh`, and a page area of A4 less two 40pt margins.
 
 The absolute print units — `pt`, `pc`, `in`, `mm`, `cm` — landed in the same
 pass. They are pinned to CSS's reference pixel (`1in = 96px`) and folded to px

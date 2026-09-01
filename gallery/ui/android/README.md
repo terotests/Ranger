@@ -166,10 +166,16 @@ was shorter than that and a column taller than the window looks full.
 
 A tablet in portrait is not shorter than that. 800dp of width scales the page by
 0.6, so 1280dp of height is 2137 page pixels: the sidebar stopped two thirds of
-the way down, and below it was the host's own background. The fix is the rule
-the scroll box was already following — the height is `pageH`, set inline from
-the one field that knows what the viewport is, and the stylesheet no longer
-names a number that only one viewport made true.
+the way down, and below it was the host's own background.
+
+`height: 100%` could not fix it — a percentage needs a parent with a definite
+height, and the page's own height is exactly the number nobody in the tree has —
+so EVG grew the unit that asks the layout instead:
+[`vw` and `vh`](../../evg/EVGUnit.rgr) resolve against `EVGLayout.pageWidth` /
+`pageHeight`, which every host already sets and which on paper is the page area,
+the sheet less its margins. The page, the sidebar, the hairline and the scroll
+box all say `100vh` now, and the stylesheet no longer names a number that only
+one viewport made true.
 
 The account row rides the bottom edge either way, because `.db-side-body` is
 `flex: 1`. In the browser demo, where the viewport is 900, that row is now *on*

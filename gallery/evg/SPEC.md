@@ -1037,7 +1037,7 @@ When implementing an EVG renderer in a new language, ensure support for:
 
 ### Required
 - [ ] XML parsing with attribute extraction
-- [ ] Unit value parsing (px, %, em, hp, fill)
+- [ ] Unit value parsing (px, %, em, rem, vw, vh, hp, fill)
 - [ ] Box model calculations (margin, padding, border)
 - [ ] Flow layout algorithm with wrapping
 - [ ] Absolute positioning

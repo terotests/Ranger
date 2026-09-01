@@ -57,26 +57,30 @@
   flex-wrap: nowrap;
   background-color: #fafafa;
   width: 1336px;
-  /* NO HEIGHT. It is the viewport, set inline from `pageH` — the same field
-   * the scroll box's height comes from — because a host is free to be any
-   * height and a constant here is only ever true of one of them. */
+  /* THE VIEWPORT. Not a constant: a host is free to be any height, and 1420 —
+   * what this said until an Android tablet in portrait was 2137 page pixels
+   * tall — was only ever true of the windows it had been shown in. `vh` is the
+   * layout's page size, which every host sets and which on paper is the page
+   * area. `100%` could not do this: the page's parent is nothing. */
+  height: 100vh;
 }
 
 /* THE SCROLL CONTAINER. `overflow: hidden` with a definite height, which in
  * EVG is now a box whose content keeps its own size and is MOVED rather than
  * squeezed to fit — measured against a browser, see oracle/scroll.json. The
- * height is set inline from `pageH`, so the viewport the layout gives it and
- * the viewport the demo pages by cannot be two different numbers. */
+ * height is `100vh` like everything else that is the viewport, so the viewport
+ * the layout gives it and the viewport the demo pages by cannot be two
+ * different numbers: they are the same number, asked for once. */
 .db-scroll {
   overflow: hidden;
   width: 1080px;
+  height: 100vh;
 }
 
 /* --- the sidebar --------------------------------------------------------- */
 
-/* NO HEIGHT here either: the sidebar is as tall as the viewport, set inline
- * with the page's. `.db-side-body` is `flex: 1`, so the account row rides the
- * bottom edge wherever that edge is. */
+/* As tall as the viewport, like the page. `.db-side-body` is `flex: 1`, so the
+ * account row rides the bottom edge wherever that edge turns out to be. */
 .db-side {
   display: flex;
   flex-direction: column;
@@ -84,6 +88,7 @@
   background-color: #ffffff;
   padding: 8px;
   width: 255px;
+  height: 100vh;
 }
 
 /* A hairline, and it is an ELEMENT rather than `border-right` on the sidebar,
@@ -95,6 +100,7 @@
 .db-side-edge {
   background-color: #e4e4e7;
   width: 1px;
+  height: 100vh;
 }
 
 /* AUTO HEIGHT, deliberately. This is the content inside the scroll box, and

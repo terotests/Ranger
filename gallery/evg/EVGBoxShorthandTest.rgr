@@ -83,7 +83,7 @@ class EVGBoxShorthandTest {
         s.applyTree(el "")
         ; 400px of containing block, so a percentage has the same thing to
         ; resolve against as the oracle's 400px parent did.
-        el.box.resolveUnits(400.0 200.0 16.0 16.0)
+        el.box.resolveUnits(400.0 200.0 16.0 16.0 0.0 0.0)
         return el
     }
 
@@ -158,7 +158,7 @@ class EVGBoxShorthandTest {
         def el:EVGElement (EVGElement.createDiv())
         el.className = "b"
         s.applyTree(el "")
-        el.box.resolveUnits(400.0 200.0 16.0 16.0)
+        el.box.resolveUnits(400.0 200.0 16.0 16.0 0.0 0.0)
         return (EVGBoxShorthandTest.padOf(el))
     }
 

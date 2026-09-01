@@ -1597,35 +1597,30 @@ class DashboardDemo {
     }
 
     fn pageBody:EVGElement () {
+        ; THE VIEWPORT IS IN THE STYLESHEET, as `100vh`.
+        ;
+        ; The page, the sidebar and the hairline stood at a constant 1420 —
+        ; the height this page was before it scrolled, kept because it is
+        ; taller than the 900 the browser shows and a column taller than the
+        ; window looks full. On a window TALLER than 1420 it stops looking
+        ; full: an Android tablet in portrait is 2137 page pixels tall, and the
+        ; sidebar ended two thirds of the way down with the host's own
+        ; background under it.
+        ;
+        ; `100%` would not have fixed it — a percentage needs a parent with a
+        ; definite height and the page's height is the number nobody in the
+        ; tree has — so EVG grew `vw`/`vh`, which ask the layout. The layout is
+        ; told by `laidOutOnce` below, from the same `pageH` the scroll box
+        ; used to be given inline.
         def page (tree Db (Page (props (id "page"))))
-        ; THE VIEWPORT, ON EVERYTHING THAT IS NOT THE SCROLL BOX.
-        ;
-        ; The page, the sidebar and the hairline all stood at a constant 1420
-        ; in the stylesheet — the height this page was before it scrolled, kept
-        ; because it happens to be taller than the 900 the browser demo shows
-        ; and a column taller than the window looks full. On a window TALLER
-        ; than 1420 it stops looking full: the sidebar and the page's own
-        ; background end partway down and the rest of the screen is whatever
-        ; the host painted behind them, which is what an Android tablet in
-        ; portrait shows (a 800dp-wide screen scales the page by 0.6, so its
-        ; 1280dp of height is 2137 page pixels).
-        ;
-        ; So it is `pageH`, from the same field the scroll box's height comes
-        ; from, and the stylesheet no longer names a number that only one
-        ; viewport made true.
-        page.height = (EVGUnit.px(pageH))
-        def side:EVGElement (this.sidebar())
-        side.height = (EVGUnit.px(pageH))
-        page.addChild(side)
-        def edge (tree Db (SideEdge))
-        edge.height = (EVGUnit.px(pageH))
-        page.addChild(edge)
+        page.addChild((this.sidebar()))
+        page.addChild((tree Db (SideEdge)))
 
-        ; THE SCROLL CONTAINER. Its height is the page's, its content is
-        ; whatever the current view came to, and the offset is put on before
-        ; the layout so the layout can clamp it.
+        ; THE SCROLL CONTAINER. Its height is the viewport's — `100vh` in the
+        ; sheet, like the page and the sidebar — its content is whatever the
+        ; current view came to, and the offset is put on before the layout so
+        ; the layout can clamp it.
         def scroll (tree Db (Scroll (props (id "db-scroll"))))
-        scroll.height = (EVGUnit.px(pageH))
         scroll.scrollTop = scrollY
 
         def content (tree Db (Content (props (id "db-content"))))

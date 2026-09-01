@@ -129,6 +129,13 @@ class EVGLayout {
         ; afterwards.
         root.applyOwnFontSize()
         root.rootFontSize = root.inheritedFontSize
+        ; THE VIEWPORT, published once and inherited from here. `vw` and `vh`
+        ; mean the page size this layout was given — which on paper is the page
+        ; AREA, because that is what the print renderers set it to: the section
+        ; less two margins. A host that wants `100vh` to mean its window says
+        ; so with `setPageSize`, which every host already calls.
+        root.viewportW = pageWidth
+        root.viewportH = pageHeight
         ; The root has no parent to inherit a direction from, so it settles
         ; its own. This is the switch: `direction: rtl` here and every
         ; container below turns around with it.
