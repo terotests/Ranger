@@ -78,6 +78,8 @@ SUITES=(
   # How far a flex item may be shrunk: `min-width: auto` on a flex item is its
   # min-content size, not zero — and `overflow` puts it back to zero.
   evg:flexmin:check
+  # The colour maths, against what the browser makes of hex and hsl().
+  evg:color:check
   ui:sortable:motion
   ui:table:check
   ui:virtual:check
