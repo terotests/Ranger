@@ -984,9 +984,24 @@ correctly almost everywhere as `member._async`; this one shape is not.
 
 The first guess was that Python's `CreatePropertyGet` writes `prop.vref` where
 the generic and C++ writers walk the node, so the rename never reaches it.
-That guess was WRONG and the change was reverted: walking the node emits the
-same text, byte for byte, because the property node carries no descriptor to
-be renamed from. The real defect is further back — a property read off a call
-result is not resolved to the class member at all. A direct reproduction
-(`(PropMain.mk()).async`) does not even compile: *"Undefined variable .async"*.
-Filed rather than guessed at again.
+Made alone, that change emitted byte-for-byte identical output, and it was
+reverted rather than kept.
+
+It was half of the answer. `GetProperty` resolves the member and attaches the
+descriptor to the property EXPRESSION node but never to the property node
+itself, so there was nothing on that node to be renamed from — which is why
+walking it changed nothing. **Fixed (ISSUES.md #80)**: the descriptor is
+attached to the property node, and Python and PHP walk it like every other
+writer. Either change alone does nothing; together they close it.
+
+The Python engine now builds, runs, and answers all 2,066 probes — agreeing
+with es6 on 2,061. The five that differ are recorded in `KNOWN_TARGET_GAPS`
+rather than hidden: four are negative zero not surviving an operation, so
+`1/-0` answers `+Infinity`, and the fifth is `uni-lastindexof`, which Rust
+gets wrong identically. They are newly visible, not newly broken.
+
+A second defect turned up in the same shape and is filed unfixed
+(**ISSUES.md #81**): `(expr).field` does not resolve at all as a CALL
+ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles and
+`ArgMain.id((h.nodeOf()).plain)` on the next line does not. Nothing to do with
+keywords — any property name fails.
