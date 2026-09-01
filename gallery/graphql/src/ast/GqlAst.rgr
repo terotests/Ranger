@@ -226,6 +226,30 @@ class GqlKind {
         }
         return "Unknown"
     }
+
+    ; Named type definitions in an SDL document — not schema, not
+    ; `directive @…`, and the caller still has to reject extensions.
+    sfn isNamedTypeDef:boolean (kind:int) {
+        if (kind == (GqlKind.scalarDef())) {
+            return true
+        }
+        if (kind == (GqlKind.objectDef())) {
+            return true
+        }
+        if (kind == (GqlKind.interfaceDef())) {
+            return true
+        }
+        if (kind == (GqlKind.unionDef())) {
+            return true
+        }
+        if (kind == (GqlKind.enumDef())) {
+            return true
+        }
+        if (kind == (GqlKind.inputDef())) {
+            return true
+        }
+        return false
+    }
 }
 
 class GqlNode {

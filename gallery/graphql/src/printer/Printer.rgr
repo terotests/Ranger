@@ -43,34 +43,34 @@ class GqlPrinter {
     }
 
     fn printDef:string (n:GqlNode) {
-        if (n.kind == 2) {
+        if (n.kind == (GqlKind.operation())) {
             return (this.printOperation(n))
         }
-        if (n.kind == 3) {
+        if (n.kind == (GqlKind.fragmentDef())) {
             return (this.printFragment(n))
         }
-        if (n.kind == 40) {
+        if (n.kind == (GqlKind.schemaDef())) {
             return (this.printSchema(n))
         }
-        if (n.kind == 41) {
+        if (n.kind == (GqlKind.scalarDef())) {
             return (this.printScalar(n))
         }
-        if (n.kind == 42) {
+        if (n.kind == (GqlKind.objectDef())) {
             return (this.printObject(n))
         }
-        if (n.kind == 43) {
+        if (n.kind == (GqlKind.interfaceDef())) {
             return (this.printInterface(n))
         }
-        if (n.kind == 44) {
+        if (n.kind == (GqlKind.unionDef())) {
             return (this.printUnion(n))
         }
-        if (n.kind == 45) {
+        if (n.kind == (GqlKind.enumDef())) {
             return (this.printEnum(n))
         }
-        if (n.kind == 46) {
+        if (n.kind == (GqlKind.inputDef())) {
             return (this.printInput(n))
         }
-        if (n.kind == 47) {
+        if (n.kind == (GqlKind.directiveDef())) {
             return (this.printDirectiveDef(n))
         }
         return ""
@@ -85,7 +85,34 @@ class GqlPrinter {
 
     fn quoteString:string (s:string isBlock:boolean) {
         if isBlock {
-            return ("\"\"\"" + (strfromcode 10) + s + (strfromcode 10) + "\"\"\"")
+            def bout:string ("\"\"\"" + (strfromcode 10))
+            def bn:int (strlen s)
+            def bi:int 0
+            while (bi < bn) {
+                if ((bi + 2) < bn) {
+                    if ((charAt s bi) == 34) {
+                        if ((charAt s (bi + 1)) == 34) {
+                            if ((charAt s (bi + 2)) == 34) {
+                                bout = (bout + "\\\"\"\"")
+                                bi = (bi + 3)
+                            } {
+                                bout = (bout + (strfromcode (charAt s bi)))
+                                bi = (bi + 1)
+                            }
+                        } {
+                            bout = (bout + (strfromcode (charAt s bi)))
+                            bi = (bi + 1)
+                        }
+                    } {
+                        bout = (bout + (strfromcode (charAt s bi)))
+                        bi = (bi + 1)
+                    }
+                } {
+                    bout = (bout + (strfromcode (charAt s bi)))
+                    bi = (bi + 1)
+                }
+            }
+            return (bout + (strfromcode 10) + "\"\"\"")
         }
         def out:string "\""
         def n:int (strlen s)
@@ -174,10 +201,10 @@ class GqlPrinter {
     }
 
     fn printSel:string (n:GqlNode) {
-        if (n.kind == 11) {
+        if (n.kind == (GqlKind.fragmentSpread())) {
             return ("..." + n.name + (this.printDirs(n)))
         }
-        if (n.kind == 12) {
+        if (n.kind == (GqlKind.inlineFragment())) {
             def out:string "..."
             if ((strlen n.typeCondition) > 0) {
                 out = (out + " on " + n.typeCondition)
@@ -209,7 +236,7 @@ class GqlPrinter {
                 out = (out + ", ")
             }
             def a:GqlNode (itemAt n.args i)
-            if (a.kind == 51) {
+            if (a.kind == (GqlKind.inputValue())) {
                 out = (out + (this.printInputValue(a)))
             } {
                 def v:GqlNode (a.firstValue())
@@ -235,13 +262,13 @@ class GqlPrinter {
     }
 
     fn printValue:string (n:GqlNode) {
-        if (n.kind == 30) {
+        if (n.kind == (GqlKind.variable())) {
             return ("$" + n.name)
         }
-        if (n.kind == 33) {
+        if (n.kind == (GqlKind.stringVal())) {
             return (this.quoteString(n.text n.isBlock))
         }
-        if (n.kind == 37) {
+        if (n.kind == (GqlKind.listVal())) {
             def out:string "["
             def i:int 0
             while (i < (array_length n.children)) {
@@ -254,7 +281,7 @@ class GqlPrinter {
             }
             return (out + "]")
         }
-        if (n.kind == 38) {
+        if (n.kind == (GqlKind.objectVal())) {
             def out2:string "{"
             def j:int 0
             while (j < (array_length n.children)) {

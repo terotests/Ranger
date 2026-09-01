@@ -28,8 +28,31 @@ class GqlParser {
     def pos:int 0
     def error:string ""
     def commentCount:int 0
+    def depth:int 0
+    ; Nested lists / selection sets / types. A 50 000-deep `[` chain is not a
+    ; document, it is a DoS, and on C++/Rust/Swift it is a segfault.
+    def maxDepth:int 256
+    def maxTokens:int 100000
 
     Constructor () {
+    }
+
+    fn descend:boolean () {
+        if ((this.ok()) == false) {
+            return false
+        }
+        depth = (depth + 1)
+        if (depth > maxDepth) {
+            this.fail("document nested too deeply")
+            return false
+        }
+        return true
+    }
+
+    fn ascend:void () {
+        if (depth > 0) {
+            depth = (depth - 1)
+        }
     }
 
     fn peek:GqlToken () {
@@ -57,7 +80,7 @@ class GqlParser {
 
     fn atEnd:boolean () {
         def t:GqlToken (this.peek())
-        return (t.kind == 0)
+        return (t.kind == (GqlTokenKind.endOfInput()))
     }
 
     fn atName:boolean (word:string) {
@@ -133,12 +156,14 @@ class GqlParser {
 
     fn parse:GqlNode (src:string) {
         def tk:GqlTokenizer (new GqlTokenizer)
+        tk.maxTokens = maxTokens
         tokens = (tk.tokenize(src))
         commentCount = tk.commentCount
         pos = 0
         error = tk.error
+        depth = 0
         def doc:GqlNode (new GqlNode)
-        doc.kind = 1
+        doc.kind = (GqlKind.document())
         if ((strlen error) > 0) {
             return doc
         }
@@ -205,7 +230,11 @@ class GqlParser {
             return (this.parseFragmentDef())
         }
         if (this.atName("extend")) {
-            return (this.parseExtension(desc))
+            if ((strlen desc) > 0) {
+                this.fail("a description cannot precede an extension")
+                return (new GqlNode)
+            }
+            return (this.parseExtension(""))
         }
         if (this.atName("schema")) {
             return (this.parseSchema(desc false))
@@ -241,7 +270,7 @@ class GqlParser {
 
     fn parseAnonymousOperation:GqlNode () {
         def op:GqlNode (new GqlNode)
-        op.kind = 2
+        op.kind = (GqlKind.operation())
         op.text = "query"
         this.mark(op)
         this.parseSelectionSetInto(op)
@@ -250,7 +279,7 @@ class GqlParser {
 
     fn parseOperation:GqlNode () {
         def op:GqlNode (new GqlNode)
-        op.kind = 2
+        op.kind = (GqlKind.operation())
         this.mark(op)
         def kw:GqlToken (this.advance())
         op.text = kw.text
@@ -289,7 +318,7 @@ class GqlParser {
 
     fn parseVariableDef:GqlNode () {
         def v:GqlNode (new GqlNode)
-        v.kind = 14
+        v.kind = (GqlKind.variableDef())
         this.mark(v)
         if ((this.expectPunct("$")) == false) {
             return v
@@ -310,25 +339,33 @@ class GqlParser {
     }
 
     fn parseSelectionSetInto:void (owner:GqlNode) {
+        if ((this.descend()) == false) {
+            return
+        }
         if ((this.expectPunct("{")) == false) {
+            this.ascend()
             return
         }
         if (this.atPunct("}")) {
             this.fail("expected a selection")
+            this.ascend()
             return
         }
         while ((this.atPunct("}")) == false) {
             if ((this.ok()) == false) {
+                this.ascend()
                 return
             }
             if (this.atEnd()) {
                 this.fail("unterminated selection set")
+                this.ascend()
                 return
             }
             def sel:GqlNode (this.parseSelection())
             push owner.children sel
         }
         this.expectPunct("}")
+        this.ascend()
     }
 
     fn parseSelection:GqlNode () {
@@ -340,7 +377,7 @@ class GqlParser {
 
     fn parseField:GqlNode () {
         def f:GqlNode (new GqlNode)
-        f.kind = 10
+        f.kind = (GqlKind.fieldSel())
         this.mark(f)
         def first:string (this.expectName())
         if (this.atPunct(":")) {
@@ -372,7 +409,7 @@ class GqlParser {
             return (this.parseInlineFragment())
         }
         def sp:GqlNode (new GqlNode)
-        sp.kind = 11
+        sp.kind = (GqlKind.fragmentSpread())
         this.mark(sp)
         sp.name = (this.expectName())
         this.parseDirectives(sp false)
@@ -381,7 +418,7 @@ class GqlParser {
 
     fn parseInlineFragment:GqlNode () {
         def n:GqlNode (new GqlNode)
-        n.kind = 12
+        n.kind = (GqlKind.inlineFragment())
         this.mark(n)
         if (this.takeNameWord("on")) {
             n.typeCondition = (this.expectName())
@@ -393,7 +430,7 @@ class GqlParser {
 
     fn parseFragmentDef:GqlNode () {
         def n:GqlNode (new GqlNode)
-        n.kind = 3
+        n.kind = (GqlKind.fragmentDef())
         this.mark(n)
         this.takeNameWord("fragment")
         n.name = (this.expectName())
@@ -435,7 +472,7 @@ class GqlParser {
 
     fn parseArgument:GqlNode (constOnly:boolean) {
         def a:GqlNode (new GqlNode)
-        a.kind = 13
+        a.kind = (GqlKind.argument())
         this.mark(a)
         a.name = (this.expectName())
         if ((this.expectPunct(":")) == false) {
@@ -458,7 +495,7 @@ class GqlParser {
 
     fn parseDirective:GqlNode (constOnly:boolean) {
         def d:GqlNode (new GqlNode)
-        d.kind = 15
+        d.kind = (GqlKind.directive())
         this.mark(d)
         this.expectPunct("@")
         d.name = (this.expectName())
@@ -477,27 +514,27 @@ class GqlParser {
                 return n
             }
             this.advance()
-            n.kind = 30
+            n.kind = (GqlKind.variable())
             n.name = (this.expectName())
             n.text = ("$" + n.name)
             return n
         }
         def t:GqlToken (this.peek())
-        if (t.kind == 2) {
+        if (t.kind == (GqlTokenKind.intTok())) {
             this.advance()
-            n.kind = 31
+            n.kind = (GqlKind.intVal())
             n.text = t.text
             return n
         }
-        if (t.kind == 3) {
+        if (t.kind == (GqlTokenKind.floatTok())) {
             this.advance()
-            n.kind = 32
+            n.kind = (GqlKind.floatVal())
             n.text = t.text
             return n
         }
-        if (t.kind == 4) {
+        if (t.kind == (GqlTokenKind.stringTok())) {
             this.advance()
-            n.kind = 33
+            n.kind = (GqlKind.stringVal())
             n.text = t.text
             n.isBlock = t.isBlock
             return n
@@ -511,21 +548,21 @@ class GqlParser {
         if (this.atNameTok()) {
             def w:GqlToken (this.advance())
             if (w.text == "true") {
-                n.kind = 34
+                n.kind = (GqlKind.boolVal())
                 n.text = "true"
                 return n
             }
             if (w.text == "false") {
-                n.kind = 34
+                n.kind = (GqlKind.boolVal())
                 n.text = "false"
                 return n
             }
             if (w.text == "null") {
-                n.kind = 35
+                n.kind = (GqlKind.nullVal())
                 n.text = "null"
                 return n
             }
-            n.kind = 36
+            n.kind = (GqlKind.enumVal())
             n.name = w.text
             n.text = w.text
             return n
@@ -536,42 +573,54 @@ class GqlParser {
 
     fn parseListValue:GqlNode (constOnly:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 37
+        n.kind = (GqlKind.listVal())
         this.mark(n)
+        if ((this.descend()) == false) {
+            return n
+        }
         this.expectPunct("[")
         while ((this.atPunct("]")) == false) {
             if ((this.ok()) == false) {
+                this.ascend()
                 return n
             }
             if (this.atEnd()) {
                 this.fail("unterminated list")
+                this.ascend()
                 return n
             }
             def v:GqlNode (this.parseValue(constOnly))
             push n.children v
         }
         this.expectPunct("]")
+        this.ascend()
         return n
     }
 
     fn parseObjectValue:GqlNode (constOnly:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 38
+        n.kind = (GqlKind.objectVal())
         this.mark(n)
+        if ((this.descend()) == false) {
+            return n
+        }
         this.expectPunct("{")
         while ((this.atPunct("}")) == false) {
             if ((this.ok()) == false) {
+                this.ascend()
                 return n
             }
             if (this.atEnd()) {
                 this.fail("unterminated object")
+                this.ascend()
                 return n
             }
             def f:GqlNode (new GqlNode)
-            f.kind = 13
+            f.kind = (GqlKind.argument())
             this.mark(f)
             f.name = (this.expectName())
             if ((this.expectPunct(":")) == false) {
+                this.ascend()
                 return n
             }
             def v:GqlNode (this.parseValue(constOnly))
@@ -579,23 +628,29 @@ class GqlParser {
             push n.children f
         }
         this.expectPunct("}")
+        this.ascend()
         return n
     }
 
     fn parseType:GqlNode () {
         if (this.atPunct("[")) {
             def list:GqlNode (new GqlNode)
-            list.kind = 21
+            list.kind = (GqlKind.listType())
             this.mark(list)
+            if ((this.descend()) == false) {
+                return list
+            }
             this.advance()
             def inner:GqlNode (this.parseType())
             push list.children inner
             if ((this.expectPunct("]")) == false) {
+                this.ascend()
                 return list
             }
+            this.ascend()
             if (this.takePunct("!")) {
                 def nn:GqlNode (new GqlNode)
-                nn.kind = 22
+                nn.kind = (GqlKind.nonNullType())
                 nn.line = list.line
                 nn.col = list.col
                 push nn.children list
@@ -604,12 +659,12 @@ class GqlParser {
             return list
         }
         def named:GqlNode (new GqlNode)
-        named.kind = 20
+        named.kind = (GqlKind.namedType())
         this.mark(named)
         named.name = (this.expectName())
         if (this.takePunct("!")) {
             def nn2:GqlNode (new GqlNode)
-            nn2.kind = 22
+            nn2.kind = (GqlKind.nonNullType())
             nn2.line = named.line
             nn2.col = named.col
             push nn2.children named
@@ -649,7 +704,7 @@ class GqlParser {
 
     fn parseSchema:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 40
+        n.kind = (GqlKind.schemaDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -670,7 +725,7 @@ class GqlParser {
                     return n
                 }
                 def root:GqlNode (new GqlNode)
-                root.kind = 53
+                root.kind = (GqlKind.rootOp())
                 this.mark(root)
                 if (this.atName("query")) {
                     root.name = "query"
@@ -710,7 +765,7 @@ class GqlParser {
 
     fn parseScalar:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 41
+        n.kind = (GqlKind.scalarDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -743,7 +798,7 @@ class GqlParser {
 
     fn parseObjectType:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 42
+        n.kind = (GqlKind.objectDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -754,13 +809,7 @@ class GqlParser {
         if (this.atPunct("{")) {
             this.parseFieldDefs(n)
         } {
-            if (isExt == false) {
-                if ((array_length n.implementsTypes) == 0) {
-                    if ((array_length n.directives) == 0) {
-                        ; `type Foo` is a valid (empty) object type.
-                    }
-                }
-            } {
+            if isExt {
                 if ((array_length n.implementsTypes) == 0) {
                     if ((array_length n.directives) == 0) {
                         this.fail("extend type needs fields, implements or a directive")
@@ -773,7 +822,7 @@ class GqlParser {
 
     fn parseInterface:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 43
+        n.kind = (GqlKind.interfaceDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -817,7 +866,7 @@ class GqlParser {
 
     fn parseFieldDef:GqlNode () {
         def f:GqlNode (new GqlNode)
-        f.kind = 50
+        f.kind = (GqlKind.fieldDef())
         this.mark(f)
         if (this.atString()) {
             def st:GqlToken (this.advance())
@@ -859,7 +908,7 @@ class GqlParser {
 
     fn parseInputValue:GqlNode () {
         def v:GqlNode (new GqlNode)
-        v.kind = 51
+        v.kind = (GqlKind.inputValue())
         this.mark(v)
         if (this.atString()) {
             def st:GqlToken (this.advance())
@@ -882,7 +931,7 @@ class GqlParser {
 
     fn parseUnion:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 44
+        n.kind = (GqlKind.unionDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -893,13 +942,13 @@ class GqlParser {
             this.takePunct("|")
             def first:string (this.expectName())
             def a:GqlNode (new GqlNode)
-            a.kind = 20
+            a.kind = (GqlKind.namedType())
             a.name = first
             push n.children a
             while (this.takePunct("|")) {
                 def more:string (this.expectName())
                 def b:GqlNode (new GqlNode)
-                b.kind = 20
+                b.kind = (GqlKind.namedType())
                 b.name = more
                 push n.children b
             }
@@ -915,7 +964,7 @@ class GqlParser {
 
     fn parseEnum:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 45
+        n.kind = (GqlKind.enumDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -937,7 +986,7 @@ class GqlParser {
                     return n
                 }
                 def ev:GqlNode (new GqlNode)
-                ev.kind = 52
+                ev.kind = (GqlKind.enumValueDef())
                 this.mark(ev)
                 if (this.atString()) {
                     def st:GqlToken (this.advance())
@@ -960,7 +1009,7 @@ class GqlParser {
 
     fn parseInput:GqlNode (desc:string isExt:boolean) {
         def n:GqlNode (new GqlNode)
-        n.kind = 46
+        n.kind = (GqlKind.inputDef())
         n.description = desc
         n.isExtension = isExt
         this.mark(n)
@@ -997,7 +1046,7 @@ class GqlParser {
 
     fn parseDirectiveDef:GqlNode (desc:string) {
         def n:GqlNode (new GqlNode)
-        n.kind = 47
+        n.kind = (GqlKind.directiveDef())
         n.description = desc
         this.mark(n)
         this.takeNameWord("directive")

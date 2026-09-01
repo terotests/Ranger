@@ -71,8 +71,19 @@ def paths (Gql.fieldPaths("query Dashboard { currentUser { id name } }"))
 def fields (Gql.typeFields(sdl "Invoice"))
 ```
 
+Start at `Gql.parse`. The result carries `error`; `format` / `fieldPaths` /
+`typeNames` / `typeFields` / `opType` live on that result so an empty
+string and a failed parse are not the same fact. The `Gql.format(src)`
+string helpers still exist, but they return `""` in both cases.
+
 `Gql.format` is the round trip (text → tree → text). Tests compare the second
 tree to the first, because whitespace and commas are not part of the language.
+A `"""` inside a block string is written back as `\"""`.
+
+`Gql.parseWith(src maxDepth maxTokens)` caps nesting (default 256) and
+token count (default 100 000). A document that is only `[` characters is
+not a query, and on native targets it is a segfault rather than an
+exception.
 
 ## Files
 
@@ -85,6 +96,7 @@ tree to the first, because whitespace and commas are not part of the language.
 | `src/printer/Printer.rgr` | Canonical GraphQL text |
 | `src/Gql.rgr` | `parse` / `format` / `fieldPaths` / `typeFields` |
 | `tests/GraphQLTest.rgr` | Feature-by-feature suite |
+| `ISSUES.md` | Chained-call bind rule, depth limits, shape follow-up |
 
 ## What this is not
 

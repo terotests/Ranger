@@ -5,11 +5,14 @@
 ; ==============================================================================
 ;
 ;     def r (Gql.parse("{ currentUser { id name } }"))
-;     def paths (Gql.fieldPaths("{ currentUser { id name } }"))
-;     def fields (Gql.typeFields(sdl "Invoice"))
+;     if (r.okResult()) {
+;         def paths (r.fieldPaths())
+;         def printed (r.format())
+;     }
 ;
-; Everything else in this project is reachable from here. Nothing here does
-; work of its own: it wires a tokenizer to a parser to a printer.
+; The string helpers (`Gql.format`, `Gql.typeNames`, …) still exist, but they
+; return "" both when the document is empty and when it did not parse. A
+; caller that needs the difference starts at `Gql.parse` and reads `error`.
 ;
 ; This is Ranger's *language* layer for GraphQL — the northbound API toward
 ; application data. It is not a host bridge. Pointer events, IME, clipboard
@@ -32,11 +35,95 @@ class GqlParseResult {
         if ((strlen error) > 0) {
             return false
         }
-        return (document.kind == 1)
+        return (document.kind == (GqlKind.document()))
     }
 
     fn toJson:string () {
         return (document.toJson())
+    }
+
+    fn format:string () {
+        if ((this.okResult()) == false) {
+            return ""
+        }
+        def pr:GqlPrinter (new GqlPrinter)
+        return (pr.printDoc(document))
+    }
+
+    fn fieldPaths:string () {
+        if ((this.okResult()) == false) {
+            return ""
+        }
+        return (document.fieldPaths())
+    }
+
+    fn typeNames:string () {
+        if ((this.okResult()) == false) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (array_length document.children)) {
+            def ch:GqlNode (itemAt document.children i)
+            if (ch.isExtension == false) {
+                if (GqlKind.isNamedTypeDef(ch.kind)) {
+                    if ((strlen out) > 0) {
+                        out = (out + (strfromcode 10))
+                    }
+                    out = (out + ch.name)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Fields of every definition that shares `typeName`, including
+    ; `extend type`. The original type comes first, extensions after,
+    ; so a later codegen pass sees the whole shape.
+    fn typeFields:string (typeName:string) {
+        if ((this.okResult()) == false) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (array_length document.children)) {
+            def ch:GqlNode (itemAt document.children i)
+            if (ch.name == typeName) {
+                if (GqlKind.isNamedTypeDef(ch.kind)) {
+                    def j:int 0
+                    while (j < (array_length ch.children)) {
+                        def f:GqlNode (itemAt ch.children j)
+                        if ((strlen out) > 0) {
+                            out = (out + (strfromcode 10))
+                        }
+                        if (ch.kind == (GqlKind.enumDef())) {
+                            out = (out + f.name)
+                        } {
+                            if (ch.kind == (GqlKind.unionDef())) {
+                                out = (out + f.name)
+                            } {
+                                out = (out + f.name + ": " + (f.typeText()))
+                            }
+                        }
+                        j = (j + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn opType:string () {
+        if ((this.okResult()) == false) {
+            return ""
+        }
+        def op:GqlNode (document.childAt(0))
+        if (op.kind != (GqlKind.operation())) {
+            return ""
+        }
+        return op.text
     }
 }
 
@@ -50,92 +137,39 @@ class Gql {
         return result
     }
 
+    sfn parseWith:GqlParseResult (src:string maxDepth:int maxTokens:int) {
+        def parser:GqlParser (new GqlParser)
+        parser.maxDepth = maxDepth
+        parser.maxTokens = maxTokens
+        def result:GqlParseResult (new GqlParseResult)
+        result.document = (parser.parse(src))
+        result.error = parser.error
+        result.commentCount = parser.commentCount
+        return result
+    }
+
     sfn format:string (src:string) {
         def result:GqlParseResult (Gql.parse(src))
-        if ((result.okResult()) == false) {
-            return ""
-        }
-        def pr:GqlPrinter (new GqlPrinter)
-        return (pr.printDoc(result.document))
+        return (result.format())
     }
 
     sfn fieldPaths:string (src:string) {
         def result:GqlParseResult (Gql.parse(src))
-        if ((result.okResult()) == false) {
-            return ""
-        }
-        return (result.document.fieldPaths())
+        return (result.fieldPaths())
     }
 
-    ; Type names defined in an SDL document, one per line, in source order.
     sfn typeNames:string (sdl:string) {
         def result:GqlParseResult (Gql.parse(sdl))
-        if ((result.okResult()) == false) {
-            return ""
-        }
-        def out:string ""
-        def i:int 0
-        def doc:GqlNode result.document
-        while (i < (array_length doc.children)) {
-            def ch:GqlNode (itemAt doc.children i)
-            if ((strlen ch.name) > 0) {
-                if (ch.kind >= 41) {
-                    if (ch.kind <= 47) {
-                        if ((strlen out) > 0) {
-                            out = (out + (strfromcode 10))
-                        }
-                        out = (out + ch.name)
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        return out
+        return (result.typeNames())
     }
 
-    ; Field list of one named type: `id: ID!` / `number: String!` per line.
-    ; This is the shape ranger-graphql-gen will turn into a Ranger class.
     sfn typeFields:string (sdl:string typeName:string) {
         def result:GqlParseResult (Gql.parse(sdl))
-        if ((result.okResult()) == false) {
-            return ""
-        }
-        def doc:GqlNode result.document
-        def t:GqlNode (doc.childNamed(typeName))
-        if (t.kind == 0) {
-            return ""
-        }
-        def out:string ""
-        def i:int 0
-        while (i < (array_length t.children)) {
-            def f:GqlNode (itemAt t.children i)
-            if ((strlen out) > 0) {
-                out = (out + (strfromcode 10))
-            }
-            if (t.kind == 45) {
-                out = (out + f.name)
-            } {
-                if (t.kind == 44) {
-                    out = (out + f.name)
-                } {
-                    out = (out + f.name + ": " + (f.typeText()))
-                }
-            }
-            i = (i + 1)
-        }
-        return out
+        return (result.typeFields(typeName))
     }
 
     sfn opType:string (src:string) {
         def result:GqlParseResult (Gql.parse(src))
-        if ((result.okResult()) == false) {
-            return ""
-        }
-        def doc:GqlNode result.document
-        def op:GqlNode (doc.childAt(0))
-        if (op.kind != 2) {
-            return ""
-        }
-        return op.text
+        return (result.opType())
     }
 }

@@ -19,6 +19,12 @@ class GqlTokenizer {
     def tokens:[GqlToken]
     def error:string ""
     def commentCount:int 0
+    ; graphql-js has maxTokens for the same reason: a document that is only
+    ; punctuation can be huge without being nested, and the host should say
+    ; no rather than allocate until it dies.
+    def maxTokens:int 100000
+    def curLine:int 1
+    def curCol:int 1
 
     Constructor () {
     }
@@ -78,6 +84,10 @@ class GqlTokenizer {
     }
 
     fn pushTok:void (kind:int text:string raw:string isBlock:boolean start:int line:int col:int) {
+        if ((array_length tokens) >= maxTokens) {
+            this.failLex("too many tokens" line col)
+            return
+        }
         def t:GqlToken (new GqlToken)
         t.kind = kind
         t.text = text
@@ -87,6 +97,35 @@ class GqlTokenizer {
         t.line = line
         t.col = col
         push tokens t
+    }
+
+    ; Walk a consumed span and keep line/col honest. A block string owns its
+    ; own newlines: adding `consumed` to `col` and never touching `line` puts
+    ; every later token on the description's first line.
+    fn bump:void (src:string from:int to:int) {
+        def k:int from
+        while (k < to) {
+            def c:int (charAt src k)
+            if (c == 10) {
+                curLine = (curLine + 1)
+                curCol = 1
+                k = (k + 1)
+            } {
+                if (c == 13) {
+                    k = (k + 1)
+                    if (k < to) {
+                        if ((charAt src k) == 10) {
+                            k = (k + 1)
+                        }
+                    }
+                    curLine = (curLine + 1)
+                    curCol = 1
+                } {
+                    curCol = (curCol + 1)
+                    k = (k + 1)
+                }
+            }
+        }
     }
 
     fn failLex:void (message:string line:int col:int) {
@@ -102,8 +141,8 @@ class GqlTokenizer {
         commentCount = 0
         def n:int (strlen src)
         def i:int 0
-        def line:int 1
-        def col:int 1
+        curLine = 1
+        curCol = 1
         ; UTF-8 BOM as the three bytes EF BB BF, or a lone FEFF if the host
         ; already decoded it to one character. Either way it is Ignored.
         if (n >= 3) {
@@ -123,59 +162,64 @@ class GqlTokenizer {
             }
         }
         while (i < n) {
-            def c:int (charAt src i)
-            if (c == 10) {
-                line = (line + 1)
-                col = 1
-                i = (i + 1)
+            if ((strlen error) > 0) {
+                i = n
             } {
-                if (c == 13) {
+                def c:int (charAt src i)
+                if (c == 10) {
+                    curLine = (curLine + 1)
+                    curCol = 1
                     i = (i + 1)
-                    if (i < n) {
-                        if ((charAt src i) == 10) {
-                            i = (i + 1)
-                        }
-                    }
-                    line = (line + 1)
-                    col = 1
                 } {
-                    if (c == 9) {
+                    if (c == 13) {
                         i = (i + 1)
-                        col = (col + 1)
-                    } {
-                        if (c == 32) {
-                            i = (i + 1)
-                            col = (col + 1)
-                        } {
-                            if (c == 44) {
+                        if (i < n) {
+                            if ((charAt src i) == 10) {
                                 i = (i + 1)
-                                col = (col + 1)
+                            }
+                        }
+                        curLine = (curLine + 1)
+                        curCol = 1
+                    } {
+                        if (c == 9) {
+                            i = (i + 1)
+                            curCol = (curCol + 1)
+                        } {
+                            if (c == 32) {
+                                i = (i + 1)
+                                curCol = (curCol + 1)
                             } {
-                                if (c == 35) {
-                                    def j:int (i + 1)
-                                    while (j < n) {
-                                        def hc:int (charAt src j)
-                                        if (hc == 10) {
-                                            break
-                                        }
-                                        if (hc == 13) {
-                                            break
-                                        }
-                                        j = (j + 1)
-                                    }
-                                    commentCount = (commentCount + 1)
-                                    col = (col + (j - i))
-                                    i = j
+                                if (c == 44) {
+                                    i = (i + 1)
+                                    curCol = (curCol + 1)
                                 } {
-                                    def consumed:int (this.scanOne(src i n line col))
-                                    if (consumed <= 0) {
-                                        if ((strlen error) == 0) {
-                                            this.failLex(("unexpected character " + (strfromcode c)) line col)
+                                    if (c == 35) {
+                                        def j:int (i + 1)
+                                        while (j < n) {
+                                            def hc:int (charAt src j)
+                                            if (hc == 10) {
+                                                break
+                                            }
+                                            if (hc == 13) {
+                                                break
+                                            }
+                                            j = (j + 1)
                                         }
-                                        i = n
+                                        commentCount = (commentCount + 1)
+                                        curCol = (curCol + (j - i))
+                                        i = j
                                     } {
-                                        i = (i + consumed)
-                                        col = (col + consumed)
+                                        def consumed:int (this.scanOne(src i n curLine curCol))
+                                        if (consumed <= 0) {
+                                            if ((strlen error) == 0) {
+                                                this.failLex(("unexpected character " + (strfromcode c)) curLine curCol)
+                                            }
+                                            i = n
+                                        } {
+                                            def next:int (i + consumed)
+                                            this.bump(src i next)
+                                            i = next
+                                        }
                                     }
                                 }
                             }
@@ -184,7 +228,7 @@ class GqlTokenizer {
                 }
             }
         }
-        this.pushTok(0 "" "" false n line col)
+        this.pushTok(0 "" "" false n curLine curCol)
         return tokens
     }
 
