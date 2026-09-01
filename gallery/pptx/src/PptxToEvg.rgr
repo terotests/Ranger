@@ -1194,7 +1194,27 @@ class PptxToEvg {
                     (x1 + hw) (y1 + hw)
                     (x1 - hw) (y1 + hw)
                 ))
-                if (i < (segs - 1)) {
+                ; EVERY vertex of a CLOSED ring gets one, the last included.
+                ;
+                ; The guard below is there so an open polyline does not grow a
+                ; square cap past its final point, and on an open path it is
+                ; right. On a closed one it skipped the join where the ring
+                ; comes back to the vertex it started from — leaving one notch
+                ; per shape, and always in the same place.
+                ;
+                ; For a rounded rectangle that place is not arbitrary:
+                ; `roundRectPoints` starts at the top-right corner with the arc
+                ; at -90 degrees, which is the junction of the top edge and the
+                ; corner. So every rounded box on every slide had a single
+                ; unfilled pixel at its top right, and it survived the edge
+                ; snapping in `PptxView` because it was never the same bug —
+                ; that one was the fill falling short, this one is the OUTLINE
+                ; with a hole in it.
+                def wantJoin:boolean (i < (segs - 1))
+                if closed {
+                    wantJoin = true
+                }
+                if wantJoin {
                     this.pushPathFill(dl join col)
                 }
             }
@@ -1531,6 +1551,44 @@ class PptxToEvg {
                 }
                 filled = true
             } {
+                ; A ROUNDED BOX WITH AN OUTLINE IS FILLED AS THE SAME RING
+                ; ITS OUTLINE IS STROKED FROM, and that is the only way the
+                ; two can be guaranteed to meet.
+                ;
+                ; Otherwise the fill goes out as a rectangle command and the
+                ; rasteriser snaps it to whole pixels, while the outline goes
+                ; out as a polygon and is rasterised at float precision. Two
+                ; approximations of two slightly different rectangles, and
+                ; where they disagree the paper shows through. Snapping the
+                ; rectangle's edges rather than its size fixed the long seam
+                ; down the straight side; it could not fix the corner, because
+                ; at the corner the two are not even approximating the same
+                ; curve — one is an integer-radius arc, the other six chords.
+                ;
+                ; Sharing the ring removes the question. Only when there is an
+                ; outline to disagree with, and only for the plain case: a
+                ; gradient, a shadow or a rotation all need the rectangle
+                ; command, and none of them has a hairline to lose.
+                def ringFilled:boolean false
+                if (shape.preset == "roundRect") {
+                    if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
+                        if ((shape.shadow.isSet) == false) {
+                            if ((shape.rotation > -0.001) && (shape.rotation < 0.001)) {
+                                if (shape.fill.isSet) {
+                                    if ((shape.fillGrad.isSet) == false) {
+                                        def rr:double (PptxToEvg.cornerRadius(shape w h))
+                                        def rring:[double] (PptxToEvg.roundRectPoints(x y w h rr))
+                                        this.pushPathFill(dl rring (this.colorFrom(shape.fill)))
+                                        ringFilled = true
+                                        filled = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if ringFilled {
+                } {
                 if (shape.fill.isSet) {
                     def rc (new EVGDrawCmd())
                     rc.kind = 0
@@ -1567,6 +1625,7 @@ class PptxToEvg {
                         push dl.cmds rc2
                     }
                 }
+            }
             }
             }
         }

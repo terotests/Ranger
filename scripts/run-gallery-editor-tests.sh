@@ -34,6 +34,7 @@ SUITES=(
   # which loses up to two pixels off the right and the bottom and none off the
   # left — a hairline of desk between a box and its border.
   pptx:seam:test
+  pptx:seam:scan
   pptx:frame:test
   pptx:css:test
   pptx:a11y:test
