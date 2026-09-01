@@ -28,7 +28,7 @@ function requireDom(name) {
   }
 }
 
-for (const name of ["MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo", "CalendarDemo"]) {
+for (const name of ["FilterDemo", "EventCalDemo", "MessageDemo", "MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo", "CalendarDemo"]) {
   if (!fs.existsSync(path.join(UI, "bin", name + ".cjs"))) {
     console.error(`compiled ${name} missing — run \`npm run ui:demo:build\` first`);
     process.exit(3);
@@ -53,7 +53,10 @@ fs.writeFileSync(
     'export { FormDemo } from "../bin/FormDemo.cjs";\n' +
     'export { ProfileDemo } from "../bin/ProfileDemo.cjs";\n' +
     'export { DashboardDemo } from "../bin/DashboardDemo.cjs";\n' +
-    'export { CalendarDemo } from "../bin/CalendarDemo.cjs";\n',
+    'export { CalendarDemo } from "../bin/CalendarDemo.cjs";\n' +
+    'export { FilterDemo } from "../bin/FilterDemo.cjs";\n' +
+    'export { EventCalDemo } from "../bin/EventCalDemo.cjs";\n' +
+    'export { MessageDemo } from "../bin/MessageDemo.cjs";\n',
 );
 
 const css = (f) => JSON.stringify(fs.readFileSync(path.join(HERE, f), "utf8"));
@@ -73,7 +76,10 @@ fs.writeFileSync(
     `export const FORM_CSS = ${css("form.css")};\n` +
     `export const PROFILE_CSS = ${css("profile.css")};\n` +
     `export const DASHBOARD_CSS = ${css("dashboard.css")};\n` +
-    `export const CALENDAR_CSS = ${css("calendar.css")};\n`,
+    `export const CALENDAR_CSS = ${css("calendar.css")};\n` +
+    `export const FILTERS_CSS = ${css("filters.css")};\n` +
+    `export const EVENTCAL_CSS = ${css("eventcal.css")};\n` +
+    `export const MESSAGE_CSS = ${css("message.css")};\n`,
 );
 
 const esbuild = requireDom("esbuild");

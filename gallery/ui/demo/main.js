@@ -26,14 +26,14 @@
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -326,6 +326,29 @@ let lastProfileHover = "";
 // demo owns the look and not one rule of the month arithmetic.
 const calendar = new CalendarDemo();
 calendar.init(CALENDAR_CSS);
+
+// The filter bar. `FilterCtl` decides every predicate here — the same
+// controller `ui:filters:check` runs against @tanstack/table-core — and the
+// list of matching tasks under the chips is that controller's answer, not a
+// second opinion drawn to look like one.
+const filters = new FilterDemo();
+filters.init(FILTERS_CSS);
+let lastFiltersHover = "";
+
+// The event calendar. Where each box sits is `EventCalCtl`'s answer, measured
+// against a rendered @schedule-x/calendar; this page turns its fractions into
+// pixels and nothing else.
+const eventcal = new EventCalDemo();
+eventcal.init(EVENTCAL_CSS);
+let lastEventcalHover = "";
+
+// The chat transcript. It had a headless render entry and its own gate and was
+// never in this file at all — so it passed every check while being absent from
+// the only place a person looks. That is the same shape of hole as a
+// controller with no surface, one level up.
+const message = new MessageDemo();
+message.init(MESSAGE_CSS);
+let lastMessageHover = "";
 let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
@@ -682,6 +705,90 @@ const DEMOS = {
       root: () => null,
     }),
     animated: true,
+  },
+
+  filters: {
+    height: () => filters.heightPx(),
+    list: () => filters.displayListJson(),
+    hit: (x, y) => filters.hitId(x, y),
+    a11y: (gen, focus) => filters.a11yJson(gen, focus),
+    // The id the hit test returned, passed through unchanged. The text field
+    // lost a whole feature here once by dropping what it was given, so this
+    // stays a pass-through and the demo decides what a click on that id means.
+    press: (id) => filters.press(id),
+    hover: (id) => {
+      if (id === lastFiltersHover) return false;
+      lastFiltersHover = id;
+      filters.setHover(id);
+      return true;
+    },
+    key: (k) => filters.key(k),
+    host: () => ({
+      tick: (dt) => filters.tick(dt),
+      busy: () => filters.busyNow(),
+      setHover: (id) => {
+        if (id === lastFiltersHover) return false;
+        lastFiltersHover = id;
+        filters.setHover(id);
+        return true;
+      },
+      setPressed: (id) => filters.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  eventcal: {
+    height: () => eventcal.heightPx(),
+    list: () => eventcal.displayListJson(),
+    hit: (x, y) => eventcal.hitId(x, y),
+    a11y: (gen, focus) => eventcal.a11yJson(gen, focus),
+    press: (id) => eventcal.press(id),
+    hover: (id) => {
+      if (id === lastEventcalHover) return false;
+      lastEventcalHover = id;
+      eventcal.setHover(id);
+      return true;
+    },
+    key: (k) => eventcal.key(k),
+    host: () => ({
+      tick: (dt) => eventcal.tick(dt),
+      busy: () => eventcal.busyNow(),
+      setHover: (id) => {
+        if (id === lastEventcalHover) return false;
+        lastEventcalHover = id;
+        eventcal.setHover(id);
+        return true;
+      },
+      setPressed: (id) => eventcal.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  message: {
+    height: () => message.heightPx(),
+    list: () => message.displayListJson(),
+    hit: (x, y) => message.hitId(x, y),
+    a11y: (gen, focus) => message.a11yJson(gen, focus),
+    press: (id) => message.press(id),
+    hover: (id) => {
+      if (id === lastMessageHover) return false;
+      lastMessageHover = id;
+      message.setHover(id);
+      return true;
+    },
+    key: (k) => message.key(k),
+    host: () => ({
+      tick: (dt) => message.tick(dt),
+      busy: () => message.busyNow(),
+      setHover: (id) => {
+        if (id === lastMessageHover) return false;
+        lastMessageHover = id;
+        message.setHover(id);
+        return true;
+      },
+      setPressed: (id) => message.setPressed(id),
+      root: () => null,
+    }),
   },
 
   timeline: {
@@ -1408,7 +1515,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "profile", "dashboard", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "profile", "dashboard", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

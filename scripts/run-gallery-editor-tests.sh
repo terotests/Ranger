@@ -137,12 +137,21 @@ SUITES=(
   # specified: `columnFilters` is a flat AND and cannot hold a combinator at
   # all.
   ui:filters:check
+  # And the filter bar DRAWN, which is a separate gate for a separate failure:
+  # a controller nobody can click is indistinguishable from a broken one. Every
+  # interaction goes through hitId at a real coordinate, and the assertion that
+  # matters is that the list of matching rows CHANGES.
+  ui:filters:demo
   # The event calendar's LAYOUT. reui.io is blocked by the proxy exactly as
   # ui.shadcn.com is, so ReUI's surface was never read and none of this claims
   # it — what is measured is where a real calendar puts overlapping events,
   # and the answer is not the obvious one: three overlapping events are 100%,
   # 66.67% and 33.33% wide, overlaid, not a third each.
   ui:eventcal:check
+  # The event calendar drawn. The overlap rule is invisible until it is: three
+  # boxes that all end at the same right edge, each narrower than the last, is
+  # the thing an even split would not produce.
+  ui:eventcal:demo
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl

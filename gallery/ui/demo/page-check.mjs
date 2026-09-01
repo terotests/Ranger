@@ -103,7 +103,7 @@ const names = await page.evaluate(() =>
 // fourteenth demo arrived — a number in an assertion is a second place to
 // remember something, and it is the place nobody remembers.
 const EXPECTED = ["menubar", "toolbar", "sortable", "table", "tree", "timeline",
-  "resizable", "form", "calendar", "profile", "dashboard", "dropdown", "dialog", "motion"];
+  "resizable", "form", "calendar", "filters", "eventcal", "message", "profile", "dashboard", "dropdown", "dialog", "motion"];
 ok("the switcher offers every demo",
   EXPECTED.every((n) => names.includes(n)) && names.length === EXPECTED.length,
   names.join(","));
@@ -462,6 +462,86 @@ console.log("--- and a reader is told the same thing a person is shown ---");
   const eyeAfter = await attrs("fm-secret-eye");
   ok("and flips it when pressed", eyeAfter && eyeAfter.pressed === "true",
     JSON.stringify(eyeAfter));
+}
+
+console.log("--- the filter bar filters, in a browser ---");
+{
+  // The controller has 121 assertions and the demo has 32, and BOTH ran in
+  // Node. The text field had exactly that shape once — green in the
+  // controller, green in the demo's own API, and unclickable on the page,
+  // because `main.js` dropped the coordinate between them. So this clicks
+  // PIXELS, and reads the answer back off what was painted.
+  await page.click('#demos input[value="filters"]');
+  await page.waitForTimeout(250);
+
+  // The count, out of the display list the page just drew.
+  const countNow = () =>
+    page.evaluate(() => {
+      const list = JSON.parse(window.__lastList || "null");
+      if (!list) return "(no list)";
+      const c = list.cmds.find((k) => typeof k.text === "string" && / of \d+ tasks$/.test(k.text));
+      return c ? c.text : "(no count)";
+    });
+  // Where a piece of drawn text is, in the canvas's own coordinates — which is
+  // what `offsetX/offsetY` are, so no scaling guesswork.
+  const whereIs = (needle) =>
+    page.evaluate((n) => {
+      const list = JSON.parse(window.__lastList || "null");
+      if (!list) return null;
+      const c = list.cmds.find((k) => k.text === n);
+      return c ? { x: c.x + c.w / 2, y: c.y + c.h / 2 } : null;
+    }, needle);
+  const clickAt = async (pt) => {
+    const r = await page.evaluate(() => {
+      const c = document.querySelector("#stage canvas");
+      const b = c.getBoundingClientRect();
+      return { x: b.x, y: b.y };
+    });
+    await page.mouse.click(r.x + pt.x, r.y + pt.y);
+    await page.waitForTimeout(150);
+  };
+
+  ok("the page draws the count", (await countNow()) === "2 of 6 tasks", await countNow());
+  ok("and the four-value chip collapses on screen",
+    await page.evaluate(() => JSON.parse(window.__lastList).cmds.some((k) => k.text === "Ada, Grace, Alan +1")));
+
+  // Open the priority chip's value list by clicking the word "Urgent".
+  const urgent = await whereIs("Urgent");
+  ok("the value chip is on the page to be clicked", urgent !== null, JSON.stringify(urgent));
+  if (urgent) {
+    await clickAt(urgent);
+    const opened = await page.evaluate(() =>
+      JSON.parse(window.__lastList).cmds.filter((k) => k.text === "Low").length);
+    ok("clicking it opens the option list", opened > 0, "found " + opened);
+
+    // Pick "Low". `is` replaces rather than accumulates, so the answer narrows.
+    const low = await whereIs("Low");
+    if (low) {
+      await clickAt(low);
+      const after = await countNow();
+      ok("picking a different value changes the answer ON THE PAGE",
+        after === "1 of 6 tasks", after);
+      ok("and the surviving row is drawn",
+        await page.evaluate(() => JSON.parse(window.__lastList).cmds.some((k) => k.text === "Trim the atlas")));
+    } else {
+      ok("the option is on the page to be clicked", false, "no 'Low'");
+    }
+  }
+
+  // And a reader is told the same thing. The count is role=status, so it is in
+  // the tree rather than only in the paint.
+  // The tree is `{root, focus, gen, nodes}` — a FLAT node list, not a nested
+  // one. An earlier version of this walked `n.children`, found nothing, and
+  // reported the component silent when it was the probe that was wrong.
+  const spoken = await page.evaluate(() => {
+    const t = JSON.parse(window.__lastA11y || "null");
+    if (!t || !t.nodes) return "(no tree)";
+    return t.nodes
+      .filter((n) => n.role === "status" && / of \d+ tasks$/.test(n.name || ""))
+      .map((n) => n.name)
+      .join("|");
+  });
+  ok("and a reader is told the count, as a status", spoken === "1 of 6 tasks", spoken);
 }
 
 console.log("--- the window follows the pointer ---");

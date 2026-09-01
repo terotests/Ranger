@@ -265,6 +265,73 @@
             counted as such rather than quietly scored as parity.
           </p>
         </section>
+        <section data-for="filters">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click a value, pick something else, and watch the list
+            under it.</strong> The count and the rows are
+            <code>FilterCtl</code>&rsquo;s answer, not a second one drawn to
+            look like one &mdash; which is the only way to tell a filter bar
+            from a picture of a filter bar.
+          </p>
+          <p class="hint">
+            <strong>Deselect everything in a chip.</strong> It does <em>not</em>
+            empty the list. TanStack drops a filter whose value is empty rather
+            than matching nothing, so a half-built chip shows every row &mdash;
+            and the obvious code goes the other way, because
+            <code>[].includes(x)</code> is false. Measured down both of
+            TanStack&rsquo;s routes, which disagree: that cleanup lives in
+            <code>setColumnFilters</code> and nowhere else, so a bar holding its
+            own rule tree never gets it for free.
+          </p>
+          <p class="hint">
+            <strong>The assignee chip holds four people and draws three.</strong>
+            &ldquo;+1&rdquo; is the overflow rule from the reference screenshot,
+            on the page rather than only in a gate.
+          </p>
+          <p class="hint">
+            <strong>Arrow keys move between chips; Backspace removes the focused
+            one.</strong> The first ArrowRight <em>moves</em> &mdash; the tab
+            stop is already on the first chip, and a version that spent it
+            adopting focus is the defect the controller&rsquo;s gate caught.
+          </p>
+        </section>
+        <section data-for="eventcal">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Look at the three boxes stacked at 16:00.</strong> They all
+            end at the <em>same right edge</em>, and each one is narrower than
+            the last &mdash; 100%, 66.67%, 33.33%. Almost every hand-written
+            calendar gives three overlapping events a third of the width each,
+            and that is a visibly different calendar. Measured from a rendered
+            <code>@schedule-x/calendar</code>, with three events rather than
+            two, because two are 50/50 under either rule.
+          </p>
+          <p class="hint">
+            <strong>The 10:00 event is full width.</strong> It starts exactly
+            when the 09:00 one ends, so it takes that column back rather than
+            opening a fourth. Touching is not overlapping &mdash; a calendar
+            testing with <code>&gt;=</code> squeezes the whole morning to a
+            quarter for no reason a person can see.
+          </p>
+          <p class="hint">
+            <strong>&ldquo;On call&rdquo; runs 23:00 to 01:00 and is in the
+            all-day band, not the grid.</strong> A timed event crossing midnight
+            is promoted to a multi-day span. The plausible guess is two boxes,
+            and the plausible guess is wrong.
+          </p>
+          <p class="hint">
+            <strong>The bands use the other overlap rule.</strong> They stack by
+            first fit over <em>inclusive</em> dates, so two that share a single
+            day cannot share a lane. Two overlap rules in one component, and
+            using either one twice is wrong in one place.
+          </p>
+          <p class="hint">
+            ReUI&rsquo;s own chrome is <em>not</em> drawn here: reui.io is
+            refused by the egress proxy, so its view switcher and its colours
+            were never seen. What is measured is where the events go.
+          </p>
+        </section>
         <section data-for="timeline">
           <h2>what to try</h2>
           <p class="hint">

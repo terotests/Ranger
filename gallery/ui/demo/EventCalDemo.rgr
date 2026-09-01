@@ -1,0 +1,485 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; EventCalDemo — a week of events, drawn where the measurement says they go
+; =============================================================================
+; `EventCalCtl` owns the layout and is measured against a rendered
+; @schedule-x/calendar in `conformance/oracle/eventcal_check.mjs` — 84
+; assertions. Nothing about where an event sits is decided again here.
+;
+; WHY THIS FILE EXISTS. The overlap rule is the one part of a calendar that is
+; INVISIBLE UNTIL IT IS DRAWN. "Column 1 of 3, left 33.33%, width 66.67%" is a
+; row in a gate; three boxes fanning out to the right with the narrowest on top
+; is the thing a person can look at and say is wrong. A controller that is
+; right and a page that never shows it are indistinguishable from outside,
+; which is the failure the input work was pulled up on.
+;
+; THE GEOMETRY IS A FRACTION, so this file multiplies. `EventCalCtl` reports
+; top, height, left and width as fractions of the day and of the column, and
+; the pixel arithmetic here is the only place they become sizes. That keeps the
+; measured half free of any page's dimensions — the same numbers hold at any
+; height, which is what made them comparable to the reference at all.
+;
+; ReUI's own chrome is NOT drawn here. reui.io is refused by the egress proxy,
+; so its view switcher, its colours and its labels were never seen, and a
+; guess at them dressed up as a reference implementation would be worse than
+; the plain grid below.
+; =============================================================================
+
+Import "../src/EventCalCtl.rgr"
+Import "../src/UiTree.rgr"
+Import "../src/UiDate.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Ec {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "ec-page"))
+    tag Head     EVGElement (props (className "ec-head"))
+    tag NavBtn   EVGElement (props (className "ec-navbtn") (role "button"))
+    tag NavGlyph EVGElement (props (className "ec-navglyph") (elementType 1) (a11yHidden true))
+    tag Caption  EVGElement (props (className "ec-caption") (role "status") (elementType 1))
+    tag ViewBtn  EVGElement (props (className "ec-viewbtn") (role "button"))
+    tag ViewTxt  EVGElement (props (className "ec-viewtxt") (elementType 1) (a11yHidden true))
+    tag Body     EVGElement (props (className "ec-body") (role "region"))
+    tag DayCols  EVGElement (props (className "ec-daycols"))
+    tag DayHead  EVGElement (props (className "ec-dayhead") (elementType 1) (a11yHidden true))
+    tag Band     EVGElement (props (className "ec-band") (role "list") (a11yLabel "All day"))
+    tag BandRow  EVGElement (props (className "ec-bandrow"))
+    tag BandEv   EVGElement (props (className "ec-bandev") (role "listitem"))
+    tag BandTxt  EVGElement (props (className "ec-bandtxt") (elementType 1) (a11yHidden true))
+    tag Grid     EVGElement (props (className "ec-grid") (role "list") (a11yLabel "Events"))
+    tag Col      EVGElement (props (className "ec-col"))
+    tag Ev       EVGElement (props (className "ec-ev") (role "listitem"))
+    tag EvTxt    EVGElement (props (className "ec-evtxt") (elementType 1) (a11yHidden true))
+    tag Note     EVGElement (props (className "ec-note") (elementType 1))
+}
+
+class EventCalDemo {
+    def model:EventCalCtl (new EventCalCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 900.0
+    def pageH:double 520.0
+
+    ; The drawn grid. Only the working day is shown, because a 24-hour column
+    ; 300 pixels tall gives an hour twelve pixels and nothing in it is legible
+    ; — but the FRACTIONS stay whole-day, so what is drawn is a window onto the
+    ; measured geometry rather than a second geometry with its own arithmetic.
+    def firstHour:int 8
+    def lastHour:int 19
+    def colGap:double 4.0
+    def gridH:double 300.0
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "eventcal"
+        model.name = "Week"
+        def mon:int (UiDate.toDays(2026 5 11))
+        model.weekStart = mon
+
+        ; The oracle's own events, so the picture and the gate are the same
+        ; data. The 09:00 cluster is the one that proves the overlay: A keeps
+        ; the full width, B and C sit over its right half.
+        model.addTimed("a" "Standup" mon 540 600)
+        model.addTimed("b" "Triage" mon 540 570)
+        model.addTimed("c" "Parser review" mon 570 630)
+        model.addTimed("d" "Linker sync" mon 600 660)
+        model.addTimed("e" "1:1" mon 840 900)
+        model.addTimed("g" "Design" mon 960 1020)
+        model.addTimed("h" "Roadmap" mon 970 1030)
+        model.addTimed("i" "Retro" mon 980 1040)
+        model.addTimed("l" "Wrap up" mon 1080 1110)
+        ; Tuesday and Thursday, so the week is not one busy column and six
+        ; empty ones — a layout bug in an empty column is invisible.
+        model.addTimed("m" "Interview" (mon + 1) 600 690)
+        model.addTimed("n" "Planning" (mon + 3) 780 900)
+        ; The midnight crossing, which the measurement says is PROMOTED to the
+        ; band rather than split in two.
+        model.addSpanning("j" "On call" mon 1380 (mon + 1) 60)
+        model.addAllDay("f" "Release week" (mon + 1) (mon + 3))
+        model.addAllDay("k" "Offsite" (mon + 2) (mon + 4))
+        model.layout()
+
+        root = (this.page())
+    }
+
+    ; --- fractions to pixels -------------------------------------------------
+    ;
+    ; The ONLY place the measured geometry becomes a size. `firstHour` and
+    ; `lastHour` window the day: a fraction of 1 maps to midnight, and the
+    ; drawn column shows the slice between them.
+
+    fn windowTop:double () {
+        return ((to_double firstHour) / 24.0)
+    }
+
+    fn windowSpan:double () {
+        return ((to_double (lastHour - firstHour)) / 24.0)
+    }
+
+    fn yOf:double (id:string) {
+        def f:double (model.topOf(id))
+        return (((f - (this.windowTop())) / (this.windowSpan())) * gridH)
+    }
+
+    fn hOf:double (id:string) {
+        def f:double (model.heightOf(id))
+        return ((f / (this.windowSpan())) * gridH)
+    }
+
+    fn colWidth:double () {
+        return (((pageW - 120.0) - (colGap * 6.0)) / 7.0)
+    }
+
+    ; A CSS length. Rounded to two places: the fractions are thirds, and a
+    ; number with seventeen digits in it is noise in every dump that ever
+    ; prints this tree.
+    sfn px:string (v:double) {
+        def scaled:int (to_int (v * 100.0))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = "0" + fs
+        }
+        return ((to_string whole) + "." + fs + "px")
+    }
+
+    ; --- the look ------------------------------------------------------------
+
+    fn evClass:string (id:string) {
+        def cls:string "ec-ev"
+        if (focused == id) {
+            cls = (cls + " ec-ev-focus")
+        }
+        return cls
+    }
+
+    fn viewClass:string (v:string) {
+        if (model.view == v) {
+            return "ec-viewbtn ec-viewbtn-on"
+        }
+        return "ec-viewbtn"
+    }
+
+    fn viewTxtClass:string (v:string) {
+        ; Its own token: no descendant selectors, so the label cannot inherit
+        ; the selected fill from the button around it.
+        if (model.view == v) {
+            return "ec-viewtxt ec-viewtxt-on"
+        }
+        return "ec-viewtxt"
+    }
+
+    fn page:EVGElement () {
+        def page (tree Ec (Page))
+
+        def head (tree Ec
+            (Head
+                (NavBtn (props (id "ec-prev") (a11yLabel "Previous week")) (NavGlyph "‹"))
+                (Caption (props (id "ec-caption")) (model.label()))
+                (NavBtn (props (id "ec-next") (a11yLabel "Next week")) (NavGlyph "›"))))
+        def vi:int 0
+        def views:[string] ([] _:string ( "day" "week" "month" ))
+        def labels:[string] ([] _:string ( "Day" "Week" "Month" ))
+        while (vi < (array_length views)) {
+            def v:string (itemAt views vi)
+            ; Named rather than used inline: a bare `(itemAt …)` in text
+            ; position is read as a tag name by the tree factory.
+            def lbl:string (itemAt labels vi)
+            head.addChild((tree Ec
+                (ViewBtn (props (id ("ec-view-" + v))
+                                (className (this.viewClass(v)))
+                                (a11yLabel lbl))
+                    (ViewTxt (props (className (this.viewTxtClass(v)))) lbl))))
+            vi = (vi + 1)
+        }
+        page.addChild(head)
+
+        def body (tree Ec (Body (props (id "ec-body") (a11yLabel (model.label())))))
+
+        ; The weekday strip. Decoration: each event already carries its own day
+        ; in its accessible name, so a column header would say it twice.
+        def cols (tree Ec (DayCols))
+        def d:int 0
+        while (d < 7) {
+            def dow:int (UiDate.weekday((model.weekStart + d)))
+            def p:[int] ([] _:int ( 0 0 0 ))
+            UiDate.fromDays((model.weekStart + d) p)
+            def head2 (tree Ec (DayHead ((UiDate.dayAbbr(dow)) + " " + (to_string (itemAt p 2)))))
+            UiTree.inline(head2 "width" (EventCalDemo.px((this.colWidth()))))
+            cols.addChild(head2)
+            d = (d + 1)
+        }
+        body.addChild(cols)
+
+        ; --- the all-day band, one row per lane ------------------------------
+        def band (tree Ec (Band (props (id "ec-band"))))
+        def bandItems:[CalEvent] (model.bandEvents())
+        def maxLane:int 0
+        def bi:int 0
+        while (bi < (array_length bandItems)) {
+            def be:CalEvent (itemAt bandItems bi)
+            if (be.lane > maxLane) {
+                maxLane = be.lane
+            }
+            bi = (bi + 1)
+        }
+        def lane:int 1
+        while (lane <= maxLane) {
+            def row (tree Ec (BandRow))
+            def bj:int 0
+            while (bj < (array_length bandItems)) {
+                def be:CalEvent (itemAt bandItems bj)
+                if (be.lane == lane) {
+                    def offset:int (be.startDay - model.weekStart)
+                    def spanDays:int ((be.endDay - be.startDay) + 1)
+                    def chip (tree Ec
+                        (BandEv (props (id ("ec-" + be.id)) (a11yLabel (be.title + ", all day")))
+                            (BandTxt be.title)))
+                    ; Placed by hand, because a band chip spans several day
+                    ; columns and no flex row expresses "starts at column 1 and
+                    ; is three columns wide". Inline is legal for exactly this:
+                    ; a case the sheet cannot say.
+                    UiTree.inline(chip "left" (EventCalDemo.px(((to_double offset) * ((this.colWidth()) + colGap)))))
+                    UiTree.inline(chip "width" (EventCalDemo.px((((to_double spanDays) * (this.colWidth()))
+                        + ((to_double (spanDays - 1)) * colGap)))))
+                    row.addChild(chip)
+                }
+                bj = (bj + 1)
+            }
+            band.addChild(row)
+            lane = (lane + 1)
+        }
+        body.addChild(band)
+
+        ; --- the time grid ---------------------------------------------------
+        def grid (tree Ec (Grid (props (id "ec-grid"))))
+        def dd:int 0
+        while (dd < 7) {
+            def col (tree Ec (Col (props (id ("ec-col-" + (to_string dd))))))
+            UiTree.inline(col "width" (EventCalDemo.px((this.colWidth()))))
+            UiTree.inline(col "height" (EventCalDemo.px(gridH)))
+            def dayItems:[CalEvent] (model.timedOn((model.weekStart + dd)))
+            def k:int 0
+            while (k < (array_length dayItems)) {
+                def e:CalEvent (itemAt dayItems k)
+                def box (tree Ec
+                    (Ev (props (id ("ec-" + e.id))
+                               (className (this.evClass(e.id)))
+                               (a11yLabel (e.title + ", " + (EventCalCtl.clock(e.startMin))
+                                   + " to " + (EventCalCtl.clock(e.endMin)))))
+                        (EvTxt e.title)))
+                ; THE MEASURED NUMBERS, become pixels. `left` and `width` are
+                ; fractions of the column: column 0 of 3 is the full width,
+                ; column 2 of 3 is a third of it, offset two thirds — the
+                ; overlay, not an even split.
+                UiTree.inline(box "top" (EventCalDemo.px((this.yOf(e.id)))))
+                UiTree.inline(box "height" (EventCalDemo.px((this.hOf(e.id)))))
+                UiTree.inline(box "left" (EventCalDemo.px(((model.leftOf(e.id)) * (this.colWidth())))))
+                UiTree.inline(box "width" (EventCalDemo.px(((model.widthOf(e.id)) * (this.colWidth())))))
+                ; And the stacking, which is what makes the overlay legible:
+                ; the narrowest box is on top.
+                UiTree.inline(box "z-index" (to_string (model.zOf(e.id))))
+                col.addChild(box)
+                k = (k + 1)
+            }
+            grid.addChild(col)
+            dd = (dd + 1)
+        }
+        body.addChild(grid)
+        page.addChild(body)
+
+        page.addChild((tree Ec (Note
+            "Three overlapping events fan out to the right: the first keeps the full width and each later one overlays it. Measured, not guessed.")))
+        return page
+    }
+
+    ; --- events --------------------------------------------------------------
+
+    fn press:boolean (target:string) {
+        if (target == "") {
+            return false
+        }
+        if (target == "ec-prev") {
+            model.step(-1)
+            model.layout()
+            this.rebuild()
+            return true
+        }
+        if (target == "ec-next") {
+            model.step(1)
+            model.layout()
+            this.rebuild()
+            return true
+        }
+        if (target == "ec-view-day") { return (this.pickView("day")) }
+        if (target == "ec-view-week") { return (this.pickView("week")) }
+        if (target == "ec-view-month") { return (this.pickView("month")) }
+        focused = target
+        model.activeId = target
+        this.rebuild()
+        return true
+    }
+
+    fn pickView:boolean (v:string) {
+        model.setView(v)
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        if (k == "ArrowLeft") {
+            model.step(-1)
+            model.layout()
+            this.rebuild()
+            return true
+        }
+        if (k == "ArrowRight") {
+            model.step(1)
+            model.layout()
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Event calendar demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Event calendar demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}
