@@ -8376,7 +8376,7 @@ class RangerFlowParser {
       def currC:RangerAppClassDesc ctx.currentClass
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
-      m.compiledName = (ctx.transformWord(s))
+      m.compiledName = (ctx.transformMemberWord(s))
       m.node = node
       m.is_static = true
       m.nameNode = (at node.children 2)
@@ -8401,7 +8401,7 @@ class RangerFlowParser {
       def currC:RangerAppClassDesc ctx.currentClass
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
-      m.compiledName = (ctx.transformWord(s))
+      m.compiledName = (ctx.transformMemberWord(s))
       m.node = node
       m.is_static = true
       m.nameNode = (at node.children 1)

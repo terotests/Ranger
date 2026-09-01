@@ -24,6 +24,8 @@
 - Issue #78 (fixed): on Python a method whose name is a builtin was DECLARED under its renamed form and CALLED under its original one. `fn str` came out as `def _str`, and a chained `r.str(...)` called a method that does not exist — `AttributeError: 'LcRow' object has no attribute 'str'`. Every other writer reads `compiledName` at the call site; the Python writer wrote `method.vref`. Found by the phase-3 chain fixture, which is the first Ranger program to chain a call to such a method on Python (September 2026)
 
 - Issue #80 (fixed): a property read through `(expr).field` emitted the SOURCE spelling of the name, not the renamed one. `GetProperty` resolves the member and attaches the descriptor to the expression node but never to the property node itself, so a name that is a keyword of the target came out unrenamed. The TS engine writes `(fnV.functionNodeOf()).async` and `async` is a Python keyword, so **the engine had never once built for Python** — a `SyntaxError` the compiler reported as a successful build. The same property is renamed correctly at its declaration (`self._async`) and at ordinary reads (`member._async`). Fixed by attaching the descriptor to the property node and by making the Python and PHP writers read it, as every other writer already did. The engine now builds, runs, and answers 2,061 of its 2,066 conformance probes identically to JavaScript (September 2026)
+- Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
+
 ### Still Open
 - Issue #81: `(expr).field` does not resolve when it appears as a CALL ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles; `ArgMain.id((h.nodeOf()).plain)` on the very next line gives "Undefined variable .plain". Nothing to do with keywords — any property name fails. The dot-tail branch in `WalkNode` is never reached for an argument, so the tail is left as an unresolved `.field` vref. Found while fixing #80 (September 2026)
 - Issue #79: on Rust a method that returns `this` returns `self.clone()`, so every call after the first in a chain mutates a COPY. `a.bump().bump().bump()` leaves `a.n` at 1 where JavaScript, Python and Go all say 3. No error, no warning — a silently wrong answer, and the builder pattern is exactly the shape that hits it. Reproduces on a 13-line program with no generics and no aliasing (September 2026)
@@ -2631,6 +2633,135 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #82: the JavaScript keyword table renamed METHOD and PROPERTY names, which changed the API its callers already spell
+
+**Status:** fixed (September 2026). Caught by CI, not by the local suite --
+see "Why the local run said PASS" below, which is the more useful half.
+
+### Reproduction
+
+`gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr` declares
+
+```ranger
+sfn null:EvHandle () {
+    return ((EvalConstPool.__singleton()).nullValue)
+}
+```
+
+`EvHandle.null()` is the constructor three test suites and every JavaScript
+consumer of the engine module call. After #76 added an `es6` block to
+`reserved_words` and put `null` beside the C#/Dart cases in `transformWord`,
+the module emitted `EvHandle._null` -- declaration and call site consistently,
+so the module itself worked, but the name its callers use was gone:
+
+```
+AssertionError: expected '<threw EvalValue.null is not a function>' to deeply equal '10'
+```
+
+2,209 of the 2,215 assertions in `runtime-conformance.test.ts` failed that way,
+because every one of them goes through `engine.callFunction(fn, EvalValue.null())`.
+
+### Cause
+
+A keyword table is not a single word set. JavaScript reserves its keywords only
+where a NAME may stand:
+
+```js
+const null = 1;          // SyntaxError
+function f(null) {}      // SyntaxError
+obj.null                 // legal
+this.null = 1            // legal
+class X { static null() {} }   // legal
+```
+
+`transformWord` is called from both positions -- from `defineVariable` and
+`assignParamCompiledName` for bindings, and from `createStaticMethod`,
+`r.funcdesc` and the two flow parsers for members -- and had no way to tell
+them apart. C# and Dart reserve the word in both positions, so for those the
+single table was right and the defect never showed.
+
+Two names in the repo were hit. `EvHandle.null` broke three suites;
+`EvHandle.function` broke nothing in tree but had equally been renamed out
+from under any caller.
+
+### Fix
+
+`transformWord` splits three ways in `ng_RangerAppWriterContext.rgr`:
+
+- `transformBindingWord` -- locals, parameters, and any non-property
+  `defineVariable`. Adds the es6 `null` case.
+- `transformMemberWord` -- methods, static methods and properties. For es6 it
+  is the identity; every other target reserves the word in both positions, so
+  for those it is `transformWord` unchanged.
+- `transformWord` -- unchanged behaviour for everything else, minus the es6
+  `null` case that moved into `transformBindingWord`.
+
+The member sites are `createStaticMethod` and the property branch of
+`defineVariable` in `ng_RangerAppWriterContext.rgr`, `r.funcdesc` in
+`ng_RangerAppFunctionDesc.rgr`, and the three/two `m.compiledName`
+assignments in `ng_FlowWork.rgr` and `ng_RangerFlowParser.rgr`.
+
+Fixture, compiled to es6 and run by node:
+
+```ranger
+class MKw {
+  def class:int 1
+  def default:int 2
+  fn function:int (function:int) {
+    def new:int function
+    return (new + this.class + this.default)
+  }
+  fn delete:int () { return (this.function(3)) }
+}
+```
+
+```js
+class MKw  {
+  constructor() { this.class = 1; this.default = 2; }
+  function (_function) {
+    const _new = _function;
+    return (_new + this.class) + this.default;
+  };
+  delete () { return this.function(3); };
+}
+```
+
+Members keep their names; the parameter and the local are renamed. `node
+--check` accepts it and it answers 6.
+
+### Why the local run said PASS and CI said FAIL
+
+This is the part worth keeping. `engine_module.cjs` is a build artifact, and
+`buildEngineModuleIfNeeded` in `tests/runtime-conformance.test.ts` rebuilt it
+only when one of four `.rgr` files under `migrate/src/` was newer than it. The
+COMPILER was not in that list. So after any compiler change the module was
+judged up to date, and the suite measured the engine built by the PREVIOUS
+compiler -- it passed locally for exactly the same reason `scripts/build-engine-module.sh`
+already carries a comment about a stale `.cjs` reading as success. CI builds
+the module fresh on every run and caught it in seven seconds.
+
+`bin/output.js` and `compiler/Lang.rgr` are now in that dependency list. Any
+test that consumes a build artifact needs the tool that produced it among its
+dependencies, or the gate measures the wrong thing and reports green.
+
+### Verification
+
+- Self-host reaches a fixpoint (gen2 == gen3) and `node --check` reads it
+- `runtime-conformance.test.ts`: 2,215 of 2,215 pass, from a module rebuilt by
+  the fixed compiler
+- The keyword fixture above compiles, parses and runs on node
+- Repo-wide: no es6 output renames a member any more; before the fix
+  `engine_module.cjs` had `_null` at 12 sites and `_function` at 2
+- `scripts/suite_matrix.sh`: 72 pass, 5 fail, 9 excluded, and
+  `scripts/suite_baseline_diff.sh` against the pre-fix compiler says
+  regressions=0 pre-existing=5 -- the same five files as before
+- `scripts/fmt_parity.sh` against the compiler from before the formatter work:
+  every target byte-identical under `-format=none` except the two already
+  documented there (C++ 44 lines of `rg_ordered_map`, Python 20 lines of #78)
+- `tests/fixtures/format_members.rgr` and three cases in `format.test.ts` pin
+  the split: members keep their names, the parameter and the two locals are
+  renamed, `node --check` accepts it, and it answers `6 1 2`
 
 ## Issue #81: `(expr).field` does not resolve as a call argument
 

@@ -6899,6 +6899,20 @@ class RangerAppWriterContext  {
     };
     return res;
   };
+  transformMemberWord (input_word) {
+    if ( this.getTargetLangName() == "es6" ) {
+      return input_word;
+    }
+    return this.transformWord(input_word);
+  };
+  transformBindingWord (input_word) {
+    if ( this.getTargetLangName() == "es6" ) {
+      if ( input_word == "null" ) {
+        return "_null";
+      }
+    }
+    return this.transformWord(input_word);
+  };
   transformWord (input_word) {
     switch (input_word ) { 
       case "map" : 
@@ -6907,12 +6921,10 @@ class RangerAppWriterContext  {
         break;
     };
     const twLang = this.getTargetLangName();
-    if ( (twLang == "csharp" || twLang == "dart") || twLang == "es6" ) {
+    if ( twLang == "csharp" || twLang == "dart" ) {
       if ( input_word == "null" ) {
         return "_null";
       }
-    }
-    if ( twLang == "csharp" || twLang == "dart" ) {
       if ( input_word == "true" ) {
         return "_true";
       }
@@ -7177,7 +7189,7 @@ class RangerAppWriterContext  {
     const s = withName;
     const m = new RangerAppFunctionDesc();
     m.name = s;
-    m.compiledName = this.transformWord(s);
+    m.compiledName = this.transformMemberWord(s);
     m.node = nameNode;
     m.nameNode = nameNode;
     const rCtx = this.getRoot();
@@ -7766,7 +7778,7 @@ class RangerAppWriterContext  {
         p.compiledName = "__len";
         break;
       default: 
-        p.compiledName = this.transformWord(p.name);
+        p.compiledName = this.transformBindingWord(p.name);
         break;
     };
   };
@@ -7788,7 +7800,11 @@ class RangerAppWriterContext  {
           desc.compiledName = "__len";
           break;
         default: 
-          desc.compiledName = this.transformWord(name);
+          if ( desc.varType == 8 ) {
+            desc.compiledName = this.transformMemberWord(name);
+          } else {
+            desc.compiledName = this.transformBindingWord(name);
+          }
           break;
       };
     } else {
@@ -20618,7 +20634,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const currC_6 = ctx.currentClass;
         const m_1 = new RangerAppFunctionDesc();
         m_1.name = s_4;
-        m_1.compiledName = ctx.transformWord(s_4);
+        m_1.compiledName = ctx.transformMemberWord(s_4);
         m_1.node = node;
         m_1.is_static = true;
         m_1.nameNode = node.children[2];
@@ -20639,7 +20655,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const currC_7 = ctx.currentClass;
         const m_2 = new RangerAppFunctionDesc();
         m_2.name = s_5;
-        m_2.compiledName = ctx.transformWord(s_5);
+        m_2.compiledName = ctx.transformMemberWord(s_5);
         m_2.node = node;
         m_2.is_static = true;
         m_2.nameNode = node.children[1];
@@ -74058,7 +74074,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             const m = new RangerAppFunctionDesc();
                                                             const cn_4 = node.getSecond();
                                                             m.name = cn_4.vref;
-                                                            m.compiledName = ctx.transformWord(cn_4.vref);
+                                                            m.compiledName = ctx.transformMemberWord(cn_4.vref);
                                                             m.node = node;
                                                             m.nameNode = node.children[1];
                                                             if ( node.hasBooleanProperty("strong") ) {

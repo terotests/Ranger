@@ -6,7 +6,7 @@ operator type:void all {
     def m@(lives temp):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
     def cn:CodeNode (node.getSecond())
     m.name = cn.vref
-    m.compiledName = (ctx.transformWord(cn.vref))
+    m.compiledName = (ctx.transformMemberWord(cn.vref))
     m.node = node
     m.nameNode = (itemAt node.children 1)
     if (node.hasBooleanProperty("strong")) {

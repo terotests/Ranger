@@ -59,6 +59,7 @@ const LONGCHAIN = "tests/fixtures/format_longchain.rgr";
 const STRESS = "tests/fixtures/format_stress.rgr";
 const PRECEDENCE = "tests/fixtures/format_precedence.rgr";
 const PROPNAME = "tests/fixtures/format_propname.rgr";
+const MEMBERS = "tests/fixtures/format_members.rgr";
 const STRESS_OUT = "105 aa/bb/cc/dd/eeeeeeeeeeee/ffffffffffff/gggggggggggg";
 
 const HAS_GO = have("go", ["version"]);
@@ -576,4 +577,41 @@ describe("reserved words: the target's own parser reads the output", () => {
     execFileSync("g++", ["-std=c++17", "-O0", "-o", bin, path.join(OUT, "kw.cpp")]);
     expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("8 v 3");
   }, 240000);
+
+  // ISSUES.md #82. A keyword table is not one word set: JavaScript reserves
+  // its keywords only where a NAME may stand. Renaming a member changes the
+  // API its callers already spell, which is how `EvHandle.null()` -- called
+  // by three suites and by every JavaScript consumer of the engine module --
+  // became `EvHandle._null()` and failed 2,209 assertions.
+  describe("JavaScript renames a binding but not a member", () => {
+    let js = "";
+    beforeAll(() => {
+      js = compile(MEMBERS, "es6", "js", "mem");
+    }, 120000);
+
+    it("a method, a static method and a property keep their names", () => {
+      expect(js).toContain("this.class = 1;");
+      expect(js).toContain("this.default = 2;");
+      expect(js).toMatch(/^  function \(/m);
+      expect(js).toMatch(/^  delete \(/m);
+      expect(js).toContain("return this.function(3);");
+      expect(js).toContain("m.delete()");
+    });
+
+    it("a parameter and a local are renamed", () => {
+      expect(js).toContain("function (_function)");
+      expect(js).toContain("const _new = _function;");
+      expect(js).toContain("const _var =");
+      // The binding forms that are actually illegal must never appear.
+      expect(js).not.toMatch(/\b(const|let|var)\s+(function|new|var|class|default|delete|null)\s*=/);
+    });
+
+    it("node parses it and it answers", () => {
+      execFileSync(process.execPath, ["--check", path.join(OUT, "mem.js")]);
+      expect(
+        execFileSync(process.execPath, [path.join(OUT, "mem.js")],
+                     { encoding: "utf-8" }).trim()
+      ).toBe("6 1 2");
+    });
+  });
 });
