@@ -15,6 +15,8 @@ import fi.ranger.evg.AndroidEvgSurface
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.FaceSet
 import fi.ranger.evg.ImageStore
+import fi.ranger.evg.RippleEffect
+import fi.ranger.rgr.EVGDisplayList
 import fi.ranger.rgr.UiAndroid
 
 /**
@@ -73,6 +75,24 @@ class DashboardView @JvmOverloads constructor(
         Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC),
     )
 
+    /**
+     * The last frame, kept until something changes it.
+     *
+     * `UiAndroid.frame()` lays the page out and runs the chart's Vega runtime;
+     * that is the right cost for a page that changed and the wrong one for a
+     * repaint that was asked for by an animation. Every path below that touches
+     * the page goes through [changed], which is the only thing that drops this.
+     */
+    private var frame: EVGDisplayList? = null
+
+    /**
+     * The surface's ripple, which is a post-process rather than anything in the
+     * display list — see [RippleEffect]. A no-op below API 33.
+     */
+    private val ripple = RippleEffect(this)
+    private var rippleNanos = 0L
+    private var rippleQueued = false
+
     // --- the fling ------------------------------------------------------------
     // Android's `OverScroller` would do this, and would also mean an AndroidX
     // dependency's worth of behaviour this host cannot check off-device. The
@@ -90,7 +110,7 @@ class DashboardView @JvmOverloads constructor(
                     (d.focusX / density).toDouble(),
                     (d.focusY / density).toDouble(),
                 )
-                if (zoomed) invalidate()
+                if (zoomed) changed()
                 return true
             }
         },
@@ -112,7 +132,7 @@ class DashboardView @JvmOverloads constructor(
             override fun onDown(e: MotionEvent) = false
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                if (app.resetZoom()) invalidate()
+                if (app.resetZoom()) changed()
                 return false
             }
 
@@ -125,14 +145,14 @@ class DashboardView @JvmOverloads constructor(
              * container wants.
              */
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-                var changed = app.scrollByScreen((dy / density).toDouble())
-                if (app.panBy((-dx / density).toDouble())) changed = true
-                if (changed) {
+                var moved = app.scrollByScreen((dy / density).toDouble())
+                if (app.panBy((-dx / density).toDouble())) moved = true
+                if (moved) {
                     // A drag that scrolls is not a drag that presses. Whatever
                     // the finger landed on stops being lit the moment the page
                     // moves under it, which is what a touch interface does.
                     app.releasePress()
-                    invalidate()
+                    changed()
                 }
                 return false
             }
@@ -155,7 +175,7 @@ class DashboardView @JvmOverloads constructor(
         } else {
             app.resize(dw, dh)
         }
-        invalidate()
+        changed()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -167,7 +187,7 @@ class DashboardView @JvmOverloads constructor(
         // In PAGE pixels, because the scale is already on: panning is a
         // property of the document, not of the screen.
         canvas.translate(-app.panX().toFloat(), 0f)
-        EvgPainter.paint(app.frame(), AndroidEvgSurface(canvas, images, faces))
+        EvgPainter.paint(frameNow(), AndroidEvgSurface(canvas, images, faces))
         canvas.restoreToCount(saved)
 
         advanceFling()
@@ -219,11 +239,25 @@ class DashboardView @JvmOverloads constructor(
                 flingDpPerSec = 0f
                 requestFocus()
                 app.pressAt(x, y)
-                invalidate()
+                // The SURFACE reacts too, wherever the finger landed and
+                // whatever it hit. The control never learns that anything
+                // happened, which is the point of an effect over the finished
+                // picture.
+                app.rippleAt(x, y)
+                startRipple()
+                changed()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // A finger dragged across the surface leaves a wake. The page
+                // itself is not touched here — the detectors above own what a
+                // drag MEANS — so this does not invalidate.
+                app.rippleTo(x, y)
+                startRipple()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                app.rippleEnd()
                 app.releasePress()
-                invalidate()
+                changed()
             }
             else -> return true
         }
@@ -253,8 +287,82 @@ class DashboardView @JvmOverloads constructor(
             else -> ""
         }
         if (name.isEmpty()) return super.onKeyDown(keyCode, event)
-        if (app.key(name)) invalidate()
+        if (app.key(name)) changed()
         return true
+    }
+
+    /**
+     * The page changed: the frame it was drawn from is no longer the page, and
+     * the screen is no longer the frame.
+     */
+    private fun changed() {
+        frame = null
+        invalidate()
+    }
+
+    private fun frameNow(): EVGDisplayList {
+        val f = frame ?: app.frame()
+        frame = f
+        return f
+    }
+
+    // --- the ripple's clock ---------------------------------------------------
+    //
+    // A ripple frame changes NOTHING about the page: the touches age, the
+    // shader reads them, and the picture the effect is applied to is the one
+    // that was already there. So this drives itself with `postOnAnimation`
+    // rather than `invalidate` — the view is re-composited with new uniforms,
+    // and the layout, the chart and the painter are not asked again.
+
+    private fun startRipple() {
+        if (!ripple.available) return
+        if (rippleQueued) return
+        rippleQueued = true
+        rippleNanos = 0L
+        postOnAnimation(rippleTick)
+    }
+
+    // The type is written out because the body names the value it is being
+    // assigned to — inference cannot chase that, and says so.
+    private val rippleTick: Runnable = Runnable {
+        rippleQueued = false
+        val now = System.nanoTime()
+        val dt = if (rippleNanos == 0L) 0.0 else (now - rippleNanos) / 1_000_000.0
+        rippleNanos = now
+        // A frame that arrived after a second away — the app was backgrounded —
+        // would age every touch out of existence in one step. Ageing it by
+        // nothing instead lets the next frame do it properly.
+        val busy = if (dt > 0.0 && dt < 250.0) app.tick(dt) else app.busy()
+        syncRipple()
+        if (busy) {
+            rippleQueued = true
+            postOnAnimation(rippleTick)
+        } else {
+            rippleNanos = 0L
+            ripple.clear()
+        }
+    }
+
+    private fun syncRipple() {
+        if (!ripple.available) return
+        val n = app.dropCount()
+        if (n <= 0) {
+            ripple.clear()
+            return
+        }
+        val drops = FloatArray(n * 3)
+        for (i in 0 until n) {
+            drops[i * 3] = app.dropX(i).toFloat()
+            drops[i * 3 + 1] = app.dropY(i).toFloat()
+            drops[i * 3 + 2] = app.dropAge(i).toFloat()
+        }
+        ripple.update(
+            frameNow(),
+            drops,
+            n,
+            (density * app.scale()).toFloat(),
+            app.panX().toFloat(),
+        )
     }
 
     init {

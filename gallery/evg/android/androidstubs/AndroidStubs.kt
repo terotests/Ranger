@@ -41,6 +41,37 @@ class BlurMaskFilter(radius: Float, style: Blur) : MaskFilter() {
 
 open class MaskFilter
 
+/**
+ * `RuntimeShader` is AGSL — Skia's own shading language, handed to apps at API
+ * 33. The constructor compiles, and it THROWS on a program it cannot compile,
+ * which is why the host that builds one catches.
+ */
+class RuntimeShader(sksl: String) : Shader() {
+    fun setFloatUniform(name: String, value: Float) {}
+    fun setFloatUniform(name: String, a: Float, b: Float) {}
+    fun setFloatUniform(name: String, a: Float, b: Float, c: Float) {}
+    fun setFloatUniform(name: String, a: Float, b: Float, c: Float, d: Float) {}
+    fun setFloatUniform(name: String, values: FloatArray) {}
+    fun setIntUniform(name: String, value: Int) {}
+    fun setInputShader(name: String, shader: Shader) {}
+}
+
+/**
+ * A post-process over a view's finished pixels. `createRuntimeShaderEffect`
+ * renders the view into a texture, binds it to the named `uniform shader`, and
+ * lets the program decide every pixel — the same stage the WebGL host runs its
+ * surface effects in.
+ */
+class RenderEffect {
+    companion object {
+        fun createRuntimeShaderEffect(shader: RuntimeShader, uniformShaderName: String): RenderEffect =
+            RenderEffect()
+
+        fun createBlurEffect(radiusX: Float, radiusY: Float, tile: Shader.TileMode): RenderEffect =
+            RenderEffect()
+    }
+}
+
 open class Shader {
     enum class TileMode { CLAMP, REPEAT, MIRROR }
 }

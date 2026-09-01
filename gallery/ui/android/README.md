@@ -128,6 +128,13 @@ worth, a pinch that has to leave the point under the fingers where it was, and a
 pan that stops at the edge. Checked in the same generated Kotlin the app runs,
 not in a second implementation of the same sums.
 
+**Does the ripple get the right numbers?** The shader itself needs a device, but
+what the host hands it does not: a touch has to become a PAGE coordinate (a host
+that passed screen pixels would ring somewhere else, and be wrong by more the
+further you are from the origin), the ages have to advance on the frame clock,
+and the page has to go quiet on its own after about three seconds or the host
+asks for frames forever.
+
 **Does a finger land?** Screen coordinates in, a test id out, and the page
 changes: a tap on a sidebar link moves the page you are on, a tap on a range
 button selects it and the chart is rebuilt, a drag scrolls and stops at the
@@ -136,7 +143,7 @@ The presses are found by hit-testing the screen the way the app does, not by
 calling `press(id)` — the coordinate conversion is exactly what this port adds
 and therefore what is worth checking.
 
-46 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
+59 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
 `tmp/ui-android/dashboard.png` (a landscape tablet), `dashboard-portrait.png`
 (the same tablet turned) and `dashboard-phone.png` (a 411×823 phone), so the
 result is something to look at rather than a number.
@@ -217,6 +224,36 @@ already there — and `rebuild()` now marks that layout stale, which it always
 should have: it builds new elements, so the rectangles in the cached layout
 belong to a tree that no longer exists.
 
+### The ripple is a shader, so it is not in the painter
+
+`evg-surface-effect: ripple` is the one thing on this page that is not a draw
+command and cannot be: it is a pass over the FINISHED pixels — the page is
+drawn, then read back through a program that bends the sample position in a ring
+around wherever the surface was touched. The WebGL host renders to a texture and
+draws that texture through a fragment shader; `android.graphics.Canvas` has no
+equivalent stage, which is why this port shipped without it.
+
+`RuntimeShader` (API 33) is that stage. `RenderEffect.createRuntimeShaderEffect`
+renders the view into a texture, binds it to a named `uniform shader`, and lets
+the program decide every pixel — so [`RippleEffect`](../../evg/android/src/android/kotlin/fi/ranger/evg/RippleEffect.kt)
+is a translation of `evg-webgl.js`'s `RIPPLE_FRAG` into AGSL rather than a
+second effect to keep in step with the first. Two things are different and both
+are simplifications: a view's coordinates run y-down like the page, so the flips
+a GL texture needs are gone; and AGSL has no `dFdx`, so the height field's
+gradient — where the glint comes from — is a finite difference one page pixel
+away instead of a hardware derivative.
+
+Below API 33 nothing happens and the page draws as it always did. If the shader
+will not compile or a uniform is rejected, the effect turns itself off and says
+so once under the `EvgRipple` tag — `npm run ui:android:run -- --logcat`.
+
+**A ripple frame does not redraw the page.** Ageing a touch changes nothing
+about what was drawn, so the clock only updates the shader's uniforms and
+re-composites; the layout, the chart and the painter are not asked again. That
+is also why the view now caches its frame: `UiAndroid.frame()` lays the page out
+and runs the chart's Vega runtime, which is the right cost for a page that
+changed and the wrong one for an animation.
+
 ### The gestures are in Ranger, the `MotionEvent` unpacking is not
 
 `DashboardView` is the one file here that cannot run without a device, so every
@@ -256,7 +293,9 @@ Verified, off-device, on this repository's own demo:
   its badges and its checkbox column, and the scrollbar indicator.
 * The viewport arithmetic, the presses, the scrolling, the keys and the
   pinch/pan hold, and a screen taller than the page's content still gets a
-  full-height sidebar with its account row on the bottom edge. 46 checks.
+  full-height sidebar with its account row on the bottom edge, and the ripple's
+  touches land in page coordinates, age on a clock and retire on their own.
+  59 checks.
 * `MainActivity` and `DashboardView` type-check against the platform stubs.
 
 Not verified here: the APK build, and whether Skia draws what the surface asks
@@ -265,11 +304,10 @@ environment this was written in.
 
 Known gaps, in rough order of how much they would be missed:
 
-* **No ripple.** `evg-surface-effect: ripple` is a post-process the WebGL host
-  runs as a shader over the finished surface. There is no such stage in a
-  `Canvas` painter and no command in the display list to carry it, so a touch on
-  Android does not ring. Everything the ripple is *made of* — where the touches
-  are, how old they are — is in the page and unused here.
+* **The ripple needs API 33.** `evg-surface-effect: ripple` is a post-process
+  over the finished surface, and a `Canvas` painter has no such stage —
+  `RuntimeShader` does, so the effect is there on Android 13 and later and
+  absent below it. See below.
 * **No accessibility mirror.** The browser page mirrors `a11yJson()` into real
   DOM over the canvas, because a canvas hands a screen reader one empty graphic.
   The Android equivalent is a `View.AccessibilityDelegate` with a virtual view

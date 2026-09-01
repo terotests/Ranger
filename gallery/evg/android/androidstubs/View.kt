@@ -24,6 +24,8 @@ open class View(context: Context, attrs: AttributeSet? = null) {
     fun setLayerType(layerType: Int, paint: android.graphics.Paint?) {}
     open fun invalidate() {}
     open fun requestFocus(): Boolean = false
+    open fun setRenderEffect(effect: android.graphics.RenderEffect?) {}
+    open fun postOnAnimation(action: Runnable) {}
     open fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = false
     open fun postInvalidateOnAnimation() {}
     protected open fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {}

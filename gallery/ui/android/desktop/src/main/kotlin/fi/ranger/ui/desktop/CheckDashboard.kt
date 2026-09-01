@@ -212,6 +212,62 @@ object CheckDashboard {
         ok("End goes to the bottom", app.key("End") && near(app.scrollTop(), app.maxScroll(), 1.0))
         app.key("Home")
 
+        println("--- the surface's ripple ---")
+        // The effect itself is a shader over the finished pixels and only a
+        // device can show it. What CAN be checked here is everything the host
+        // hands that shader: where a touch landed in PAGE coordinates, how the
+        // ages advance, and when the page goes quiet — which is the part a host
+        // gets wrong by handing the shader screen pixels, or by ageing touches
+        // on a clock that never stops.
+        val fresh = UiAndroid()
+        fresh.start(1280.0, 800.0, css.readText())
+        ok("nothing is rippling at rest", fresh.dropCount() == 0 && !fresh.busy())
+
+        fresh.rippleAt(640.0, 400.0)
+        ok("a touch makes a drop", fresh.dropCount() == 1)
+        ok(
+            "at the page point under the finger, not the screen point",
+            near(fresh.dropX(0), fresh.toPageX(640.0), 0.01) &&
+                near(fresh.dropY(0), fresh.toPageY(400.0), 0.01),
+        )
+        ok("and the page is busy while it lives", fresh.busy())
+        ok("a new touch starts at zero", near(fresh.dropAge(0), 0.0, 0.001))
+
+        ok("a tick ages it", fresh.tick(100.0) && near(fresh.dropAge(0), 0.1, 0.001))
+
+        // A drag leaves a WAKE — one source every 26 page pixels rather than
+        // one that follows the finger, because a wake is a row of sources.
+        fresh.rippleTo(645.0, 400.0)
+        ok("a small move adds nothing", fresh.dropCount() == 1)
+        fresh.rippleTo(700.0, 400.0)
+        ok("a real one adds a source", fresh.dropCount() == 2)
+        fresh.rippleEnd()
+        fresh.rippleTo(900.0, 400.0)
+        ok("and a lifted finger leaves none", fresh.dropCount() == 2)
+
+        // Zoomed in, the same screen point is a different page point, and the
+        // drop has to follow the page or the ring appears away from the finger.
+        fresh.pinch(2.0, 640.0, 400.0)
+        fresh.rippleAt(640.0, 400.0)
+        val last = fresh.dropCount() - 1
+        ok(
+            "a touch on a zoomed page still lands under the finger",
+            near(fresh.dropX(last), fresh.toPageX(640.0), 0.01),
+        )
+        fresh.resetZoom()
+
+        // Every drop dies with its own decay: three seconds is the renderer's
+        // own threshold, and the page has to go quiet on its own or the host
+        // asks for frames forever.
+        var spun = 0
+        while (fresh.busy() && spun < 400) {
+            fresh.tick(16.0)
+            spun++
+        }
+        ok("they all retire", fresh.dropCount() == 0)
+        ok("so the page goes quiet without being told to", !fresh.busy())
+        ok("and it took about three seconds", spun in 150..250, "$spun frames of 16ms")
+
         println("--- a screen taller than the page ---")
         // A tablet in PORTRAIT: 800dp wide scales the page by 0.6, so the
         // screen is worth 2137 page pixels — more than the dashboard's own
