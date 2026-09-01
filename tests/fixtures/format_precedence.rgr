@@ -26,10 +26,14 @@ class PrecMain {
     def r6:int ((a * b) + (b * c))
     ; a pair around something already atomic: `(to_double x)` is just `x`
     def d:double (to_double a)
+    ; Go gives all six comparison operators ONE precedence level, so dropping
+    ; this pair makes it `(false == a) < b` -- a type error there, and a
+    ; chained comparison on Python. It has to survive.
+    def r8:int (PrecMain.b2i(false == (a < b)))
     def r7:double (d * 2.0)
     ; printed as an int: targets disagree on how a double is spelled (`4` on
     ; JavaScript, `4.0` on Python) and that is not what this fixture is about
     def r7i:int (to_int r7)
-    print ("" + r1 + " " + r2 + " " + r3 + " " + r4 + " " + r5 + " " + r6 + " " + r7i)
+    print ("" + r1 + " " + r2 + " " + r3 + " " + r4 + " " + r5 + " " + r6 + " " + r7i + " " + r8)
   }
 }

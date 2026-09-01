@@ -701,14 +701,41 @@ The Ranger tree is already fully parenthesised by construction — the nesting
 IS the precedence — so a pair in the OUTPUT is needed only where the target
 would re-associate differently from the tree.
 
-**The table.** One shared set of binding powers on `RangerGenericClassWriter`,
-because every target here is C-family and orders these operators the same way.
+**The table.** One shared set of binding powers on `RangerGenericClassWriter`.
 The rule is deliberately one-directional: **drop the pair only when the operand
 binds STRICTLY tighter than the operator it sits inside.** Parentheses around a
 tighter-binding operand are never required in any context, so the rule cannot
 change what a program means. Equal precedence keeps its pair, which leaves
 `(a - b) - c` alone rather than reasoning about associativity, and an operator
 missing from the table keeps its pair too.
+
+**The first version of this table was wrong, and the Go self-host build is what
+said so.** It claimed "every target here is C-family and orders these operators
+the same way". That is false:
+
+- **Go gives all six comparison operators one precedence level**, where C, Java
+  and JavaScript put `<` above `==`. So `false == (u < s)` became
+  `false == u < s`, which Go reads as `(false == u) < s`:
+  `invalid operation: false == int64(len(...))`, seven times over, and the
+  compiler no longer built for Go.
+- **Go also puts `|` and `^` beside `+`**, and `&` and the shifts beside `*`,
+  where C puts the whole bitwise family below comparison. `a | (b + c)` would
+  have become `a | b + c`, which Go reads as `(a | b) + c`.
+- **Python is different again**: `&` binds tighter than comparison there, and
+  `a == b < c` is a chained comparison meaning `(a == b) and (b < c)`.
+- **Rust and Swift make comparison non-associative**, so `a == b < c` does not
+  parse at all.
+
+What survives is only what every target really agrees on:
+`|| < && < comparisons < additive < multiplicative`, with **all six comparisons
+at one level** and the bitwise and shift operators given no entry at all —
+C, Go and Python place them in three different positions, so nothing there can
+be dropped safely.
+
+The correction cost **one pair per target** on the sample. The distinction that
+could have broken Go, Python, Rust and Swift bought almost nothing, which is
+the argument for the conservative table rather than an argument against
+precedence.
 
 ```js
 a + (b * c)      ->  a + b * c          // tighter: dropped
@@ -747,15 +774,11 @@ compiler as it stood after phase 3:
 
 | Target | Before | After | Removed |
 | --- | --- | --- | --- |
-| Swift 6 | 1268 | 1130 | **138 (10%)** |
-| Go | 1417 | 1345 | 72 (5%) |
-| JavaScript | 1144 | 1074 | 70 (6%) |
-| Python | 1031 | 961 | 70 (6%) |
-| Dart | 1105 | 1035 | 70 (6%) |
-| Kotlin | 1111 | 1046 | 65 (5%) |
-| C# | 1152 | 1091 | 61 (5%) |
-| C++ | 1958 | 1905 | 53 (2%) |
-| Rust | 1978 | 1947 | 31 (1%) |
+| Swift 6 | 1268 | 1131 | **137 (10%)** |
+| Go | 1417 | 1346 | 71 (5%) |
+| JavaScript | 1144 | 1075 | 69 (6%) |
+| Python | 1031 | 962 | 69 (6%) |
+| Rust | 1978 | 1948 | 30 (1%) |
 
 ### A measurement error worth recording
 

@@ -13341,7 +13341,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             newNode.add(callArgs);
             innerNode = newNode;
             item.is_part_of_chain = true;
-            if ( false == item.children.length > 0 ) {
+            if ( false == (item.children.length > 0) ) {
               if ( i + 1 < ch_len ) {
                 const flatArg = node.children[(i + 1)];
                 flatArg.is_part_of_chain = true;
@@ -15338,7 +15338,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             return false;
           }
           dotNode = sec.getFirst();
-          if ( dotNode.vref.length > 0 == false ) {
+          if ( (dotNode.vref.length > 0) == false ) {
             return false;
           }
           if ( dotNode.vref[0] != "." ) {
@@ -15371,7 +15371,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const fc_1 = node.getFirst();
       const sec_1 = node.getSecond();
       const third = node.getThird();
-      if ( sec_1.vref.length > 0 == false ) {
+      if ( (sec_1.vref.length > 0) == false ) {
         return false;
       }
       if ( sec_1.vref[0] != "." ) {
@@ -15762,7 +15762,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
       } else {
-        if ( m.nameNode.type_name == "void" || m.nameNode.type_name.length > 0 == false && m.nameNode.array_type.length > 0 == false ) {
+        if ( m.nameNode.type_name == "void" || (m.nameNode.type_name.length > 0) == false && (m.nameNode.array_type.length > 0) == false ) {
           if ( false == ctx.getFlag("in_task") ) {
             const rvNode = fnBody.children[fnBody.didReturnAtIndex];
             if ( rvNode.children.length > 1 ) {
@@ -15895,7 +15895,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       const fnName = node.children[1];
-      if ( false == fnName.vref.length > 0 ) {
+      if ( false == (fnName.vref.length > 0) ) {
         ctx.addError(node, "operator function has no name");
         return;
       }
@@ -15927,7 +15927,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let opParamSet = {};
       let regParams = {};
       let regNames = {};
-      if ( false == node.register_name.length > 0 ) {
+      if ( false == (node.register_name.length > 0) ) {
         await opBody.forTree((async (item, i) => { 
           if ( ( typeof(regToArg[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(regToArg, item.vref) ) ) {
             if ( ( typeof(opParamSet[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(opParamSet, item.vref) ) ) {
@@ -16258,7 +16258,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const BlockOP = ctx.getLastBlockOp();
         let newDefNodes = [];
         let newRNodes = [];
-        if ( false == node.register_name.length > 0 ) {
+        if ( false == (node.register_name.length > 0) ) {
           await opBody_1.forTree((async (item, i) => { 
             if ( ( typeof(regToArg[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(regToArg, item.vref) ) ) {
               if ( ( typeof(opParamSet[item.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(opParamSet, item.vref) ) ) {
@@ -22197,7 +22197,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       newTC.is_primitive = TTypes.isPrimitive(TTypes.nameToValue(sig));
       newTC.value_type = TTypes.nameToValue(sig);
       newTC.name = sig;
-      if ( sig.length > 0 == false ) {
+      if ( (sig.length > 0) == false ) {
         newTC.is_empty = true;
       }
       return newTC;
@@ -22237,7 +22237,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         );
       }
       newTC.name = sig;
-      if ( sig.length > 0 == false ) {
+      if ( (sig.length > 0) == false ) {
         newTC.is_empty = true;
       }
       return newTC;
@@ -22348,53 +22348,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( opName == "and" ) {
         return 4;
       }
-      if ( opName == "|" ) {
+      if ( opName == "==" ) {
         return 5;
       }
-      if ( opName == "^" ) {
-        return 6;
-      }
-      if ( opName == "&" ) {
-        return 7;
-      }
-      if ( opName == "==" ) {
-        return 8;
-      }
       if ( opName == "!=" ) {
-        return 8;
+        return 5;
       }
       if ( opName == "<" ) {
-        return 9;
+        return 5;
       }
       if ( opName == ">" ) {
-        return 9;
+        return 5;
       }
       if ( opName == "<=" ) {
-        return 9;
+        return 5;
       }
       if ( opName == ">=" ) {
-        return 9;
-      }
-      if ( opName == "<<" ) {
-        return 10;
-      }
-      if ( opName == ">>" ) {
-        return 10;
+        return 5;
       }
       if ( opName == "+" ) {
-        return 11;
+        return 6;
       }
       if ( opName == "-" ) {
-        return 11;
+        return 6;
       }
       if ( opName == "*" ) {
-        return 12;
+        return 7;
       }
       if ( opName == "/" ) {
-        return 12;
+        return 7;
       }
       if ( opName == "%" ) {
-        return 12;
+        return 7;
       }
       return 0;
     };
@@ -43047,7 +43032,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(this.getObjectTypeString(a_name, ctx) + "", false);
                                 break;
                               default: 
-                                if ( t_name == "void" || false == t_name.length > 0 ) {
+                                if ( t_name == "void" || false == (t_name.length > 0) ) {
                                   wr.out("()", false);
                                   return;
                                 }
@@ -73048,7 +73033,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             const folders = operatorsOf.filter_7(fs.folders, ((item, index) => { 
                                                               return item.name == name;
                                                             }));
-                                                            if ( false == folders.length > 0 ) {
+                                                            if ( false == (folders.length > 0) ) {
                                                               if ( files.length > 0 ) {
                                                                 res = files[0];
                                                               } else {
@@ -73075,7 +73060,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             const folders_1 = operatorsOf.filter_7(fs.folders, ((item, index) => { 
                                                               return item.name == name;
                                                             }));
-                                                            if ( false == files_1.length > 0 ) {
+                                                            if ( false == (files_1.length > 0) ) {
                                                               if ( folders_1.length > 0 ) {
                                                                 res_3 = folders_1[0];
                                                               } else {

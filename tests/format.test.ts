@@ -162,7 +162,7 @@ describe("output formatter: operator precedence (phase 2)", () => {
   // The rule drops a pair only when the operand binds STRICTLY tighter, which
   // is why it cannot change what a program means -- and why r2 and r3 below
   // keep theirs. Every case is executed, not just read.
-  const PREC_OUT = "14 20 3 1 1 18 4";
+  const PREC_OUT = "14 20 3 1 1 18 4 0";
 
   it("drops a pair around an operand that binds tighter", () => {
     const js = compile(PRECEDENCE, "es6", "js", "prec");
@@ -180,10 +180,22 @@ describe("output formatter: operator precedence (phase 2)", () => {
     expect(js).toContain("const r3 = a - (b - c);");
   }, 120000);
 
-  it("knows relational binds tighter than equality", () => {
+  it("drops the pair between a comparison and a boolean operator", () => {
     const js = compile(PRECEDENCE, "es6", "js", "prec");
     expect(js).toContain("b2i((a < b && b < c))");
     expect(js).toContain("b2i((a == b || b != c))");
+  }, 120000);
+
+  it("KEEPS the pair between two comparisons, because Go and Python differ", () => {
+    // The first version of the table said relational binds tighter than
+    // equality, which is true of C, Java and JavaScript and false of Go --
+    // all six comparison operators share one level there, so `false == u < s`
+    // reads as `(false == u) < s`. Seven of those broke the Go self-host
+    // build. On Python the same shape is a CHAINED comparison, and Rust and
+    // Swift will not parse it at all. Comparisons now share one level, so no
+    // pair between two of them is ever dropped.
+    const js = compile(PRECEDENCE, "es6", "js", "prec");
+    expect(js).toContain("b2i((false == (a < b)))");
   }, 120000);
 
   it("drops a pair around something already atomic", () => {

@@ -59,45 +59,62 @@ class RangerGenericClassWriter {
   ; The Ranger tree is already fully parenthesised by construction -- the
   ; nesting IS the precedence -- so a pair of parentheses in the output is
   ; needed only where the TARGET's precedence would re-associate differently
-  ; from the tree. Every target here is C-family and orders these operators the
-  ; same way, so one shared table answers for all of them; a target that
-  ; disagrees overrides this method.
+  ; from the tree.
   ;
-  ; The rule is one-directional on purpose: drop the pair only when the operand
-  ; binds STRICTLY TIGHTER than the operator it sits inside. Parentheses around
-  ; a tighter-binding operand are never required in any context, so the rule
-  ; cannot change what a program means. Equal precedence keeps its pair, which
-  ; leaves `(a - b) - c` alone rather than reasoning about associativity.
+  ; The first version of this table said "every target here is C-family and
+  ; orders these operators the same way". That is FALSE, and the Go self-host
+  ; build is what said so:
   ;
-  ; Higher binds tighter. 0 is "not an operator I know", and that keeps the
-  ; pair.
+  ;   Go gives all six comparison operators ONE precedence level, where C, Java
+  ;   and JavaScript put `<` above `==`. So `false == (u < s)` became
+  ;   `false == u < s`, which Go reads as `(false == u) < s` --
+  ;   `invalid operation: false == int64(len(...))`, seven times over.
+  ;
+  ;   Go also puts `|` and `^` beside `+`, and `&` and the shifts beside `*`,
+  ;   where C puts the whole bitwise family below comparison -- so `a | (b + c)`
+  ;   would have become `a | b + c`, which Go reads as `(a | b) + c`.
+  ;
+  ;   Python is different again: `&` binds TIGHTER than comparison there, and
+  ;   `a == b < c` is a chained comparison meaning `(a == b) and (b < c)`.
+  ;   Rust and Swift make comparison non-associative, so `a == b < c` will not
+  ;   even parse.
+  ;
+  ; What survives is the part every target really does agree on, and nothing
+  ; else earns a number: an operator with no entry keeps its parentheses.
+  ; Comparisons all share one level, so no pair is ever dropped BETWEEN two of
+  ; them, which is what makes Go, Python, Rust and Swift safe at once. The
+  ; bitwise and shift operators have no entry at all, because C, Go and Python
+  ; place them in three different positions.
+  ;
+  ; A target whose ordering is richer than this can override the method and say
+  ; so; none needs to for correctness, only for tighter output.
+  ;
+  ; Higher binds tighter. 0 is "not something I am sure about", and that keeps
+  ; the pair.
   fn bindingPowerOf:int (opName:string) {
     if (opName == "||") { return 3 }
     if (opName == "or") { return 3 }
     if (opName == "&&") { return 4 }
     if (opName == "and") { return 4 }
-    if (opName == "|") { return 5 }
-    if (opName == "^") { return 6 }
-    if (opName == "&") { return 7 }
-    if (opName == "==") { return 8 }
-    if (opName == "!=") { return 8 }
-    if (opName == "<") { return 9 }
-    if (opName == ">") { return 9 }
-    if (opName == "<=") { return 9 }
-    if (opName == ">=") { return 9 }
-    if (opName == "<<") { return 10 }
-    if (opName == ">>") { return 10 }
-    if (opName == "+") { return 11 }
-    if (opName == "-") { return 11 }
-    if (opName == "*") { return 12 }
-    if (opName == "/") { return 12 }
-    if (opName == "%") { return 12 }
+    if (opName == "==") { return 5 }
+    if (opName == "!=") { return 5 }
+    if (opName == "<") { return 5 }
+    if (opName == ">") { return 5 }
+    if (opName == "<=") { return 5 }
+    if (opName == ">=") { return 5 }
+    if (opName == "+") { return 6 }
+    if (opName == "-") { return 6 }
+    if (opName == "*") { return 7 }
+    if (opName == "/") { return 7 }
+    if (opName == "%") { return 7 }
     return 0
   }
 
   ; Does an operand of this binding power need parentheses inside a parent of
-  ; that one? Only "strictly tighter" answers no; everything else, including
-  ; either side being unknown, answers yes.
+  ; that one? Only "strictly tighter" answers no. Equal precedence answers YES,
+  ; and that is not caution for its own sake: it is what keeps `false == (u < s)`
+  ; intact on Go, where both operators sit at one level and dropping the pair
+  ; changes the parse.
   fn operandNeedsParens:boolean (childBp:int parentBp:int) {
     if (childBp <= 0) {
       return true
