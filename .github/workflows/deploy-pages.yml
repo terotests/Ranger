@@ -262,6 +262,15 @@ jobs:
           npm install --no-save --no-audit --no-fund documentation
           python3 -m pip install --quiet --disable-pip-version-check pdoc
 
+      # Dart for dartdoc, and .NET for DocFX. Both are ubuntu-latest actions;
+      # gradle for Dokka is already on the runner.
+      - uses: dart-lang/setup-dart@v1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install DocFX
+        run: dotnet tool install -g docfx && echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
       - name: Build the Vela page
         run: bash gallery/vela/web/build.sh --out "$GITHUB_WORKSPACE/_site/vela"
 
@@ -276,6 +285,8 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/vela/api/javascript/index.html"
           test -s "$GITHUB_WORKSPACE/_site/vela/api/python/vela_chart.html"
           test -s "$GITHUB_WORKSPACE/_site/vela/api/kotlin/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/dart/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/csharp/index.html"
 
       # ---- PPTX playground at /pptx/ --------------------------------------
       # The viewer and editor with no server behind them: the page fetches a

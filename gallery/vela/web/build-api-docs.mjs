@@ -38,8 +38,14 @@ const LANGS = [
     probe: () => npx(["documentation", "--version"]),
     // -f html writes a directory; the package.json this pipeline emits names
     // the same command in its own `docs` script.
-    run: (dir, out) => npx(["documentation", "build", path.join(dir, "vela_chart.js"),
-                            "-f", "html", "-o", out, "--shallow"]),
+    //
+    // Run from INSIDE the package. documentation.js takes the project name and
+    // version from the nearest package.json, and from the repository root that
+    // is Ranger's own -- the published API was headed "ranger-compiler 3.3.1"
+    // instead of "vela-chart 1.0.0", which is the sort of thing that looks
+    // deliberate to a reader.
+    run: (dir, out) => npx(["documentation", "build", "vela_chart.js",
+                            "-f", "html", "-o", out, "--shallow"], dir),
     entry: "index.html",
   },
   {
@@ -54,16 +60,41 @@ const LANGS = [
     id: "kotlin", label: "Kotlin", tool: "Dokka",
     flag: "-l=kotlin", file: "vela_chart.kt", pkg: "vela.chart",
     home: "https://kotl.in/dokka",
-    // Dokka's pages load the Kotlin Playground from unpkg.com for the "Run"
-    // button on samples. It is the only external request any of these three
-    // tools makes, and a published site should say so rather than make it
-    // quietly.
-    external: "unpkg.com (Kotlin Playground, for the Run button on samples)",
     probe: () => run("gradle", ["--version"]),
     // Dokka resolves the Kotlin toolchain and its own plugin from
     // mavenCentral, so this one needs the network as well as gradle.
     run: (dir) => run("gradle", ["dokkaHtml", "--no-daemon", "-q"], dir, 1800000),
     from: "build/dokka/html",
+    entry: "index.html",
+  },
+  {
+    id: "dart", label: "Dart", tool: "dartdoc",
+    flag: "-l=dart", file: "vela_chart.dart", pkg: "vela_chart",
+    home: "https://dart.dev/tools/dart-doc",
+    // dartdoc documents `lib/` and nothing else: a package with the library at
+    // its root reports "Initialized dartdoc with 0 libraries" and succeeds,
+    // which is a green build that published nothing. So the source is compiled
+    // INTO lib/ and the manifest lifted back to the package root, which is the
+    // layout every Dart package has.
+    into: "lib",
+    lift: ["pubspec.yaml", "README.md"],
+    extraFlags: ["-pubspec", "-description=The Vela chart API"],
+    probe: () => run("dart", ["--version"]),
+    run: (dir, out) => {
+      const got = run("dart", ["pub", "get"], dir);
+      if (!got.ok) return got;
+      return run("dart", ["doc", "--output", out], dir, 1200000);
+    },
+    entry: "index.html",
+  },
+  {
+    id: "csharp", label: "C#", tool: "DocFX",
+    flag: "-l=csharp", file: "vela_chart.cs", pkg: "Vela.Chart",
+    home: "https://dotnet.github.io/docfx/",
+    extraFlags: ["-csnamespace=Vela.Chart"],
+    probe: () => run("docfx", ["--version"]),
+    run: (dir, out) => run("docfx", ["docfx.json", "-o", out], dir, 1200000),
+    from: "_site",
     entry: "index.html",
   },
 ];
@@ -75,20 +106,28 @@ function run(cmd, args, cwd, timeout = 600000) {
   });
   return { ok: r.status === 0, out: (r.stdout || "") + (r.stderr || "") };
 }
-const npx = (args) => run("npx", ["--no-install", ...args]);
+const npx = (args, cwd) => run("npx", ["--no-install", ...args], cwd);
 
 function compile(lang, dir) {
-  fs.mkdirSync(path.join(ROOT, dir), { recursive: true });
+  const inner = lang.into ? `${dir}/${lang.into}` : dir;
+  fs.mkdirSync(path.join(ROOT, inner), { recursive: true });
   execFileSync(process.execPath, [
     "--max-old-space-size=8192", "bin/output.js", lang.flag, SRC,
-    `-d=${dir}`, `-o=${lang.file}`, "-nodecli",
+    `-d=${inner}`, `-o=${lang.file}`, "-nodecli",
     "-apidoc=docs", "-apipackage",
     `-name=${lang.pkg}`, "-version=1.0.0", "-license=MIT",
+    ...(lang.extraFlags || []),
   ], {
     cwd: ROOT, encoding: "utf-8",
     env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
     maxBuffer: 64 * 1024 * 1024,
   });
+  // The manifest belongs at the package root even when the source went into
+  // lib/, because that is where the tool looks for it.
+  for (const f of (lang.lift || [])) {
+    const from = path.join(ROOT, inner, f);
+    if (fs.existsSync(from)) fs.renameSync(from, path.join(ROOT, dir, f));
+  }
 }
 
 function copyTree(from, to) {
@@ -97,6 +136,40 @@ function copyTree(from, to) {
     const a = path.join(from, e.name), b = path.join(to, e.name);
     if (e.isDirectory()) copyTree(a, b); else fs.copyFileSync(a, b);
   }
+}
+
+// Which third-party hosts will a reader's browser be sent to? Measured from
+// the generated files rather than stated from memory: a hand-written note
+// claiming Dokka's unpkg script was "the only external request" was already
+// wrong by seven, because Dokka also pulls the JetBrains typefaces and
+// dartdoc pulls Google Fonts.
+//
+// Only what the page FETCHES counts. `<a href="https://api.dart.dev/…">` is a
+// cross-reference a reader may click, not a request their browser makes, and
+// counting it would overstate the exposure as badly as missing the fonts
+// understated it. So this matches the tags that fetch -- link, script, img --
+// and `url(…)` inside stylesheets.
+function externalHosts(dir) {
+  const hosts = new Set();
+  const add = (u) => {
+    const m = /^https?:\/\/([a-z0-9.-]+)/i.exec(u);
+    if (m) hosts.add(m[1].toLowerCase());
+  };
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!/\.(html|css|js)$/.test(e.name)) continue;
+      const text = fs.readFileSync(p, "utf-8");
+      for (const m of text.matchAll(
+        /<(?:link|script|img|iframe)\b[^>]*?\b(?:href|src)\s*=\s*["']([^"']+)/gi)) add(m[1]);
+      for (const m of text.matchAll(/url\(\s*["']?(https?:[^)"']+)/gi)) add(m[1]);
+      // @import in a stylesheet fetches too.
+      for (const m of text.matchAll(/@import\s+["'](https?:[^"']+)/gi)) add(m[1]);
+    }
+  };
+  walk(dir);
+  return [...hosts].sort();
 }
 
 function countFiles(dir) {
@@ -122,7 +195,9 @@ function indexPage(results) {
         <p class="tool">built by <strong>${esc(r.tool)}</strong></p>
         <p class="num">${r.pages} page${r.pages === 1 ? "" : "s"} · ${r.kb} KB</p>
         <p class="art">artifacts: <span>api.json</span> <span>api.md</span></p>
-        ${r.external ? `<p class="ext">loads ${esc(r.external)}</p>` : ""}
+        ${r.hosts && r.hosts.length
+            ? `<p class="ext">fetches from ${r.hosts.map(esc).join(", ")}</p>`
+            : `<p class="ext">no third-party requests</p>`}
        </a>`
     : `<div class="card off">
         <h2>${esc(r.label)}</h2>
@@ -206,8 +281,9 @@ function main() {
     // missing toolchain still leaves the API published in a readable form.
     const langOut = path.join(dest, l.id);
     fs.mkdirSync(langOut, { recursive: true });
+    const docsDir = path.join(ROOT, l.into ? `${dir}/${l.into}` : dir, "docs");
     for (const f of ["api.json", "api.md"]) {
-      fs.copyFileSync(path.join(ROOT, dir, "docs", f), path.join(langOut, f));
+      fs.copyFileSync(path.join(docsDir, f), path.join(langOut, f));
     }
 
     if (!l.probe().ok) {
@@ -226,8 +302,9 @@ function main() {
     }
     copyTree(produced, langOut);
     const { pages, kb } = countFiles(langOut);
+    const hosts = externalHosts(langOut);
     console.log(`${l.tool.padEnd(16)} ${String(pages).padStart(4)} pages, ${kb} KB`);
-    results.push({ ...l, built: true, pages, kb });
+    results.push({ ...l, built: true, pages, kb, hosts });
   }
 
   fs.writeFileSync(path.join(dest, "index.html"), indexPage(results));

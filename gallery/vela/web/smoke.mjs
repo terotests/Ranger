@@ -69,10 +69,21 @@ const server = http.createServer((req, res) => {
     file = path.join(file, 'index.html');
     if (!fs.existsSync(file)) { res.writeHead(404); res.end('no'); return; }
   }
-  const type = file.endsWith('.js') ? 'text/javascript'
-    : file.endsWith('.ttf') ? 'font/ttf'
-    : file.endsWith('.json') ? 'application/json'
-    : 'text/html';
+  // A stylesheet served as text/html is REFUSED by the browser in standards
+  // mode, and the page then renders as unstyled blue links -- which looks
+  // exactly like a documentation tool that emitted no CSS. It was this server
+  // that was wrong, not the generated site; GitHub Pages types these
+  // correctly. Guessed from the extension, and every type these pages use is
+  // listed rather than falling through to text/html.
+  const TYPES = {
+    '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+    '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+    '.gif': 'image/gif', '.ico': 'image/x-icon', '.map': 'application/json',
+    '.ttf': 'font/ttf', '.woff': 'font/woff', '.woff2': 'font/woff2',
+    '.otf': 'font/otf', '.eot': 'application/vnd.ms-fontobject',
+    '.html': 'text/html', '.txt': 'text/plain', '.md': 'text/markdown',
+  };
+  const type = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
   res.writeHead(200, { 'content-type': type });
   res.end(fs.readFileSync(file));
 });
@@ -281,22 +292,29 @@ async function render(spec) {
 {
   await page.goto(base + '/api/', { waitUntil: 'load' });
   const cards = await page.locator('.card').count();
-  check('the API index offers three languages', cards === 3, `${cards} card(s)`);
+  check('the API index offers five languages', cards === 5, `${cards} card(s)`);
 
+  // Not every toolchain is installable everywhere -- .NET is blocked by the
+  // egress policy on this machine -- so a missing one is REPORTED here and
+  // fails only the CI run, which passes --require. What must never happen is
+  // a language quietly vanishing from the index.
   const built = await page.locator('.card.ok').count();
-  if (built < 3) {
-    const off = await page.locator('.card.off').allInnerTexts();
-    check('every documentation toolchain ran', false,
-          `only ${built} of 3 built: ${off.join(' / ').replace(/\s+/g, ' ')}`);
-  } else {
-    check('every documentation toolchain ran', true, '3 of 3');
+  const off = await page.locator('.card.off').allInnerTexts();
+  check('every language is on the index, built or not', built + off.length === 5,
+        `${built} built, ${off.length} reported as not run`);
+  if (off.length) {
+    console.log(`       not built here: ${off.map(t => t.split('\n')[0]).join(', ')}`);
   }
 
-  for (const [id, entry, marker, why] of [
+  const BUILT = [
     ['javascript', 'index.html',      'documentation.js', "documentation.js signs its own footer"],
     ['python',     'vela_chart.html', 'pdoc',             'pdoc signs its own footer'],
-    ['kotlin',     'index.html',      'Dokka',            'Dokka signs its own footer'],
-  ]) {
+    ['kotlin',     'index.html',      'dokka',            'Dokka signs its own footer'],
+    ['dart',       'index.html',      'dartdoc',          'dartdoc signs its own footer'],
+    ['csharp',     'index.html',      'docfx',            'DocFX signs its own footer'],
+  ].filter(([id]) => fs.existsSync(path.join(DIST, 'api', id, 'index.html'))
+                  || fs.existsSync(path.join(DIST, 'api', id, 'vela_chart.html')));
+  for (const [id, entry, marker, why] of BUILT) {
     const r = await page.goto(`${base}/api/${id}/${entry}`, { waitUntil: 'load' });
     check(`${id}: the generated site is served`, r && r.status() === 200,
           r ? `HTTP ${r.status()}` : 'no response');
@@ -308,6 +326,19 @@ async function render(spec) {
           `looked for ${JSON.stringify(marker)}`);
     check(`${id}: the API is actually in it`, html.includes('VlDataRow'),
           'expected the VlDataRow class');
+  }
+
+  // Did the tool's own stylesheet actually APPLY? A page whose CSS was
+  // refused looks like a page that never had any, and the first screenshot of
+  // this site was of exactly that -- a server here typing .css as text/html.
+  // Body text that is still the browser default 16px/serif means no
+  // stylesheet took effect.
+  for (const [id, entry] of BUILT.map(([a, b]) => [a, b])) {
+    await page.goto(`${base}/api/${id}/${entry}`, { waitUntil: 'load' });
+    const font = await page.evaluate(() =>
+      getComputedStyle(document.body).fontFamily.toLowerCase());
+    check(`${id}: the tool's own stylesheet is applied`,
+          font !== '' && !/^(times|serif)/.test(font), `body font-family: ${font}`);
   }
 
   // The examples are Ranger functions compiled for that target. They are the
