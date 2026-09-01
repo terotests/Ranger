@@ -528,6 +528,20 @@ class FormDemo {
             def r (tree Fm (Radio (props (id ("fm-delivery-" + it.value)) (a11yLabel it.name))))
             r.a11yDisabled = it.disabled
             r.a11yFocusable = (it.disabled == false)
+            ; AND A CLASS, so the disabled one LOOKS disabled.
+            ;
+            ; "No receipt" is disabled on purpose — the demo is showing five
+            ; kinds of control and one of the states they have — but it was
+            ; drawn exactly like the two beside it. A control that cannot be
+            ; chosen and gives no sign of it is indistinguishable from one that
+            ; is broken, and it was reported as broken, which is the correct
+            ; reading of what was on the screen.
+            ;
+            ; The accessible tree has always said so; a screen reader was told
+            ; and a person looking was not.
+            if it.disabled {
+                UiTree.addClass(r "fm-radio-off")
+            }
             ; EVERY radio says whether it is chosen, not just the chosen one.
             ; A `role="radio"` with no `aria-checked` is a required attribute
             ; missing, which axe reports as critical and the internal lint did
@@ -537,9 +551,22 @@ class FormDemo {
                 r.addChild((tree Fm (Dot)))
             } {
                 r.a11yChecked = (EVGA11yTri.no())
-                r.addChild((tree Fm (Ring)))
+                def ring (tree Fm (Ring))
+                ; ON THE RING ITSELF, not on an ancestor. EVG's stylesheet has
+                ; no descendant selectors outside the `.theme-x .y` form — a
+                ; real limit of the engine rather than an oversight here — so
+                ; `.fm-radio-off .fm-ring` is not a rule that can be written
+                ; and each part carries its own class.
+                if it.disabled {
+                    UiTree.addClass(ring "fm-ring-off")
+                }
+                r.addChild(ring)
             }
-            r.addChild((tree Fm (RadioLb it.name)))
+            def rlb (tree Fm (RadioLb it.name))
+            if it.disabled {
+                UiTree.addClass(rlb "fm-radio-label-off")
+            }
+            r.addChild(rlb)
             g.addChild(r)
             i = (i + 1)
         }
