@@ -1,0 +1,363 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; StepperCtl — a sequence you walk, not a set you pick from
+; =============================================================================
+; The request was ReUI's Stepper, and reui.io is refused by the egress proxy.
+; Unlike the progress bar and the number field there is no near-equivalent to
+; borrow: NONE of the three registries shadcn ships over has a stepper — not
+; Radix, not Base UI, not React Aria — and WAI-ARIA has no stepper role. So the
+; FLOW here is SPECIFIED, exactly as the questionnaire's was, and nothing in
+; this file is dressed up as measured.
+;
+; --- WHAT WAS MEASURED IS THE DECISION ---------------------------------------
+;
+; A stepper is built one of two ways, and `conformance/oracle/stepper.json`
+; captures both side by side in a browser so the choice is made against data:
+;
+;   AS A TABLIST — `role="tablist"`, `role="tab"`, `aria-selected`, arrow keys.
+;   AS AN ORDERED LIST — one item carrying `aria-current="step"`.
+;
+; The capture settles it. A Radix tablist ACTIVATES AS IT MOVES AND WRAPS: from
+; the first of four steps, one ArrowRight lands on the second and three more
+; land back on the first. That is the wrong promise for a stepper twice over —
+; a person filling in a form cannot arrow past the last step into the first,
+; and a reader told it can reach step four either finds nothing happens (a
+; tablist that lies) or finds it has skipped the two in between.
+;
+; A TAB IS FREELY SELECTABLE AND A STEP IS NOT. So this is an ordered list with
+; `aria-current="step"`, which is the token ARIA has for exactly this, and its
+; movement CLAMPS rather than wrapping.
+;
+; That it needed no new plumbing is the tell that it is the right shape:
+; `UiRow.current` is already a free-form string, because a breadcrumb puts
+; "page" in it. A stepper is the same claim about a different kind of sequence.
+;
+; --- THE FLOW, WHICH IS SPECIFIED --------------------------------------------
+;
+; `linear` is the whole design question. A linear stepper refuses to jump ahead
+; past the first unfinished step — that is what makes it a stepper rather than
+; a tab strip with numbers on it — and a non-linear one lets a person wander.
+; Both are real; ReUI offers both; the flag says which, and `canGoTo` answers
+; it in one place so no caller has to re-derive the rule.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class StepItem {
+    def key:string ""
+    def label:string ""
+    ; The line under the label, "" for none.
+    def hint:string ""
+    ; Has this step been satisfied? A caller sets it; the stepper only reads
+    ; it. Validation belongs to whatever is inside the step, not to the strip
+    ; of circles at the top.
+    def complete:boolean false
+    ; A step that cannot be entered at all — skipped by movement the way a
+    ; disabled tab is, which IS a behaviour worth borrowing from the tablist
+    ; capture even though the rest of it is not.
+    def disabled:boolean false
+
+    Constructor () {
+    }
+}
+
+class StepperCtl extends UiCtl {
+    def steps:[StepItem]
+    def current:int 0
+    ; Linear: no jumping ahead past the first unfinished step. The design
+    ; question, not a detail.
+    def linear:boolean true
+
+    Constructor () {
+        def none:[StepItem]
+        steps = none
+    }
+
+    fn addStep:StepItem (key:string label:string hint:string) {
+        def s:StepItem (new StepItem ())
+        s.key = key
+        s.label = label
+        s.hint = hint
+        push steps s
+        return s
+    }
+
+    fn count:int () {
+        return (array_length steps)
+    }
+
+    fn stepAt:StepItem (i:int) {
+        if (i < 0) {
+            return (new StepItem ())
+        }
+        if (i >= (array_length steps)) {
+            return (new StepItem ())
+        }
+        return (itemAt steps i)
+    }
+
+    fn indexOfKey:int (key:string) {
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:StepItem (itemAt steps i)
+            if (s.key == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- what each step IS ---------------------------------------------------
+    ;
+    ; Three states, and they are not derivable from the index alone: a step
+    ; BEFORE the current one that was skipped is not complete, and a step after
+    ; it that a caller has already satisfied is not "upcoming". So `complete`
+    ; is the caller's flag and position only decides which one is current.
+
+    fn stateOf:string (i:int) {
+        def s:StepItem (this.stepAt(i))
+        if s.disabled {
+            return "disabled"
+        }
+        if (i == current) {
+            return "current"
+        }
+        if s.complete {
+            return "complete"
+        }
+        return "upcoming"
+    }
+
+    ; --- can you go there? ---------------------------------------------------
+    ;
+    ; One place, so no caller re-derives the rule. A linear stepper lets you go
+    ; BACK anywhere you have been and FORWARD only as far as the first
+    ; unfinished step — not one step at a time, which would make a person who
+    ; filled in three steps click three times to return to the fourth.
+
+    fn firstIncomplete:int () {
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:StepItem (itemAt steps i)
+            if s.complete {
+            } {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (array_length steps)
+    }
+
+    fn canGoTo:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length steps)) {
+            return false
+        }
+        def s:StepItem (itemAt steps i)
+        if s.disabled {
+            return false
+        }
+        if linear {
+        } {
+            return true
+        }
+        ; Anywhere at or before the frontier — the first step not yet done.
+        return (i <= (this.firstIncomplete()))
+    }
+
+    fn goTo:boolean (i:int) {
+        if (this.canGoTo(i)) {
+            current = i
+            return true
+        }
+        return false
+    }
+
+    fn goToKey:boolean (key:string) {
+        return (this.goTo((this.indexOfKey(key))))
+    }
+
+    ; --- moving -------------------------------------------------------------
+    ;
+    ; A disabled step is SKIPPED, which is the one thing worth borrowing from
+    ; the tablist capture. Movement CLAMPS at both ends, which is the thing
+    ; worth refusing: the capture shows a tablist wrapping from the last item
+    ; to the first, and a form cannot do that.
+
+    fn nextEnabled:int (from:int dir:int) {
+        def i:int (from + dir)
+        while ((i >= 0) && (i < (array_length steps))) {
+            def s:StepItem (itemAt steps i)
+            if s.disabled {
+                i = (i + dir)
+            } {
+                return i
+            }
+        }
+        return -1
+    }
+
+    fn canAdvance:boolean () {
+        def s:StepItem (this.stepAt(current))
+        if s.complete {
+            return ((this.nextEnabled(current 1)) >= 0)
+        }
+        ; The gate: an incomplete step does not let you past it in a linear
+        ; stepper. In a free one it does, because there is nothing to gate.
+        if linear {
+            return false
+        }
+        return ((this.nextEnabled(current 1)) >= 0)
+    }
+
+    fn next:boolean () {
+        if ((this.canAdvance()) == false) {
+            return false
+        }
+        def i:int (this.nextEnabled(current 1))
+        if (i < 0) {
+            return false
+        }
+        current = i
+        return true
+    }
+
+    fn back:boolean () {
+        def i:int (this.nextEnabled(current -1))
+        if (i < 0) {
+            return false
+        }
+        current = i
+        return true
+    }
+
+    ; --- keys ---------------------------------------------------------------
+    ;
+    ; Arrows move the SELECTION, not the position: pressing right on the strip
+    ; highlights the next step you are allowed to enter, and Enter goes there.
+    ; That is the ordered-list model. A tablist would have activated on arrival
+    ; and wrapped, which the capture shows and this deliberately does not do.
+
+    fn onKey:boolean (key:string) {
+        if (key == "ArrowRight") {
+            def i:int (this.nextEnabled(current 1))
+            if (i < 0) {
+                return false
+            }
+            return (this.goTo(i))
+        }
+        if (key == "ArrowLeft") {
+            def i:int (this.nextEnabled(current -1))
+            if (i < 0) {
+                return false
+            }
+            return (this.goTo(i))
+        }
+        if (key == "Home") {
+            def i:int 0
+            while (i < (array_length steps)) {
+                if (this.canGoTo(i)) {
+                    return (this.goTo(i))
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (key == "End") {
+            ; The furthest step you are ALLOWED to reach, which in a linear
+            ; stepper is the frontier and not the last circle on the screen.
+            def i:int ((array_length steps) - 1)
+            while (i >= 0) {
+                if (this.canGoTo(i)) {
+                    return (this.goTo(i))
+                }
+                i = (i - 1)
+            }
+            return false
+        }
+        return false
+    }
+
+    ; --- what it says --------------------------------------------------------
+
+    fn positionText:string () {
+        return "Step " + (to_string (current + 1)) + " of " + (to_string (array_length steps))
+    }
+
+    fn completedCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:StepItem (itemAt steps i)
+            if s.complete {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- the reported rows ---------------------------------------------------
+    ;
+    ; A LIST, not a tablist. One item carries `aria-current="step"`; nothing
+    ; carries `aria-selected`, because nothing here is selectable in the sense
+    ; a tab is.
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def root:UiRow (new UiRow ())
+        root.tid = tid
+        root.role = (EVGA11yRole.list())
+        root.name = name
+        root.orientation = "horizontal"
+        push out root
+
+        def n:int (array_length steps)
+        def i:int 0
+        while (i < n) {
+            def s:StepItem (itemAt steps i)
+            def r:UiRow (new UiRow ())
+            r.tid = tid + "-" + s.key
+            r.parentTid = tid
+            r.role = (EVGA11yRole.listItem())
+            ; The state is in the NAME as well as in `current`, because
+            ; "complete" and "upcoming" have no ARIA attribute of their own and
+            ; a reader arriving on step three should not have to infer from
+            ; silence whether it is done.
+            def st:string (this.stateOf(i))
+            r.name = s.label + ", " + st
+            r.state = st
+            r.setPos = (i + 1)
+            r.setSize = n
+            if (i == current) {
+                r.current = "step"
+            }
+            ; Reachable only where it can actually be entered — which is the
+            ; whole difference from a tablist, made observable.
+            r.focusable = (this.canGoTo(i))
+            r.tabStop = (i == current)
+            r.disabled = s.disabled
+            push out r
+            i = (i + 1)
+        }
+
+        ; "Step 2 of 4" as a live status, so moving is announced. Without it a
+        ; reader hears a new step's name and nothing about where it sits.
+        def pos:UiRow (new UiRow ())
+        pos.tid = tid + "-position"
+        pos.parentTid = tid
+        pos.role = (EVGA11yRole.status())
+        pos.name = (this.positionText())
+        push out pos
+
+        return out
+    }
+}

@@ -162,6 +162,13 @@ SUITES=(
   # Radix has none. It is NOT a spinbutton, the large step is on Shift and not
   # PageUp, and its default is 10 absolute rather than ten steps.
   ui:number:check
+  # The stepper, which has NO reference anywhere: no registry ships one and
+  # ARIA has no stepper role. So the flow is specified — what was measured is
+  # the DECISION, a Radix tablist beside an ordered list with
+  # aria-current="step". The tablist activates as it moves and wraps from the
+  # last step to the first, which is not something that can happen to a person
+  # filling in a form.
+  ui:stepper:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
