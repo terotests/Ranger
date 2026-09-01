@@ -2074,7 +2074,14 @@ class RangerApiPackageWriter {
   }
 
   ; DocFX reads the assembly and its XML documentation file, so the project
-  ; above is the whole input. This only names it.
+  ; above is the whole input to the `metadata` stage. The `build` stage needs
+  ; more than that, and this is where the config used to stop short: metadata
+  ; writes `api/*.yml` and `api/toc.yml` but NEVER an `api/index.md`, so a
+  ; content list of `api/**.yml` and `api/index.md` gave DocFX no landing page
+  ; to render. It produced `_site/api/*.html`, no `_site/index.html`, exited 0
+  ; and printed "0 error(s)" -- a site with no front door, reported as success.
+  ; The landing page and the top-level toc are written here so the `build`
+  ; stage always has content of its own.
   fn writeDocFxConfig:void (model:RangerApiModel ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def name:string (this.settingOr(ctx "name" model.moduleName))
     if ((strlen name) == 0) {
@@ -2096,12 +2103,39 @@ class RangerApiPackageWriter {
     wr.out("]," true)
     wr.out("\"build\": {" true)
     wr.indent(1)
-    wr.out("\"content\": [ { \"files\": [ \"api/**.yml\", \"api/index.md\" ] } ]," true)
+    wr.out("\"content\": [" true)
+    wr.indent(1)
+    wr.out("{ \"files\": [ \"api/**.yml\", \"api/**.md\" ] }," true)
+    wr.out("{ \"files\": [ \"index.md\", \"toc.yml\" ] }" true)
+    wr.indent(-1)
+    wr.out("]," true)
     wr.out("\"dest\": \"_site\"" true)
     wr.indent(-1)
     wr.out("}" true)
     wr.indent(-1)
     wr.out("}" true)
+    this.writeDocFxHome(model ctx name orig_wr)
+  }
+
+  ; The two files the `build` stage renders into `_site/index.html` and the
+  ; site navigation. Without them DocFX has only the generated `api/` yml,
+  ; which it renders without ever producing a root page.
+  fn writeDocFxHome:void (model:RangerApiModel ctx:RangerAppWriterContext name:string orig_wr:CodeWriter) {
+    def descr:string (this.settingOr(ctx "description" model.description))
+    def index:CodeWriter (orig_wr.getFileWriter("." "index.md"))
+    index.out(("# " + name) true)
+    index.out("" true)
+    if ((strlen descr) > 0) {
+      index.out(descr true)
+      index.out("" true)
+    }
+    index.out("Generated from Ranger declarations. Every member below carries the" true)
+    index.out("documentation written on the Ranger source it was compiled from." true)
+    index.out("" true)
+    index.out("- [API reference](api/)" true)
+    def toc:CodeWriter (orig_wr.getFileWriter("." "toc.yml"))
+    toc.out("- name: API reference" true)
+    toc.out("  href: api/" true)
   }
 
   ; -------------------------------------------------- Swift / SwiftPM

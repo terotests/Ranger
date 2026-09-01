@@ -87,16 +87,15 @@ const LANGS = [
     },
     entry: "index.html",
   },
-  {
-    id: "csharp", label: "C#", tool: "DocFX",
-    flag: "-l=csharp", file: "vela_chart.cs", pkg: "Vela.Chart",
-    home: "https://dotnet.github.io/docfx/",
-    extraFlags: ["-csnamespace=Vela.Chart"],
-    probe: () => run("docfx", ["--version"]),
-    run: (dir, out) => run("docfx", ["docfx.json", "-o", out], dir, 1200000),
-    from: "_site",
-    entry: "index.html",
-  },
+  // C# / DocFX is OUT of this pipeline for now. It ran on the runner, exited 0,
+  // printed "0 error(s)" and produced `_site/api/*.html` with no
+  // `_site/index.html` -- so `--require` failed the whole deploy over a page
+  // nobody could see. The docfx.json the compiler writes has since been given
+  // the index.md and toc.yml its `build` stage needs (see writeDocFxConfig in
+  // ng_RangerApiDoc.rgr and the case in api-docs.test.ts), but nothing here
+  // has run DocFX against it: the egress policy on the dev box blocks the
+  // .NET download host, so it cannot be checked before it ships. Put the entry
+  // back once a run has actually produced a site.
 ];
 
 function run(cmd, args, cwd, timeout = 600000) {
@@ -294,14 +293,39 @@ function main() {
     const siteTmp = path.join(ROOT, dir, "__site");
     const r = l.run(dir, siteTmp);
     const produced = l.from ? path.join(ROOT, dir, l.from) : siteTmp;
-    if (!r.ok || !fs.existsSync(path.join(produced, l.entry))) {
-      const why = (r.out.trim().split("\n").pop() || "no output").slice(0, 120);
-      console.log(`${l.tool} FAILED — ${why}`);
-      results.push({ ...l, built: false, why: `${l.tool} failed: ${why}` });
+    // A tool that exits 0 and a tool that produces no page are different
+    // failures and used to report the same way: DocFX exited 0, printed
+    // "0 error(s)" and wrote no index.html, and the log said
+    // `DocFX FAILED — 0 error(s)`, which names neither problem. The tail of
+    // the real output goes to the log so the next one is diagnosable.
+    const entryAt = path.join(produced, l.entry);
+    const missing = !fs.existsSync(entryAt);
+    if (!r.ok || missing) {
+      const tail = r.out.trim().split("\n").filter((x) => x.trim()).slice(-8);
+      const what = !r.ok
+        ? `exited non-zero`
+        : `exited 0 but wrote no ${l.entry} in ${l.from || "__site"}/`;
+      console.log(`${l.tool} FAILED — ${what}`);
+      for (const line of tail) console.log(`      | ${line.slice(0, 160)}`);
+      fs.writeFileSync(path.join(langOut, "toolchain.log"), r.out);
+      results.push({ ...l, built: false, why: `${l.tool} ${what}` });
       continue;
     }
     copyTree(produced, langOut);
     const { pages, kb } = countFiles(langOut);
+    // An entry file alone is not a site, but "how many pages is enough" is a
+    // per-tool question and not a floor: documentation.js writes ONE page for
+    // the whole API and pdoc writes two, while DocFX splits every type out.
+    // So each language says what its own output must contain, and only where
+    // there is something to say. A blanket minimum fails the single-page
+    // tools; no check at all is how DocFX published `_site/api/*.html` with
+    // no root page and called it success.
+    const v = l.verify ? l.verify(langOut) : null;
+    if (v && !v.ok) {
+      console.log(`${l.tool} FAILED — ${v.why}`);
+      results.push({ ...l, built: false, why: `${l.tool} ${v.why}` });
+      continue;
+    }
     const hosts = externalHosts(langOut);
     console.log(`${l.tool.padEnd(16)} ${String(pages).padStart(4)} pages, ${kb} KB`);
     results.push({ ...l, built: true, pages, kb, hosts });

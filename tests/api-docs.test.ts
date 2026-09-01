@@ -336,6 +336,29 @@ describe("C# target: XML documentation a NuGet package can ship", () => {
     expect(fs.existsSync(path.join(dir, "docfx.json"))).toBe(true);
   });
 
+  // The `metadata` stage writes api/*.yml and api/toc.yml but never an
+  // api/index.md, so a content list naming that file gave the `build` stage
+  // nothing of its own: DocFX rendered _site/api/*.html, no _site/index.html,
+  // exited 0 and printed "0 error(s)". A site with no front door, reported as
+  // a success. The landing page and the toc are written here so `build`
+  // always has content.
+  it("writes the landing page and toc the build stage renders", () => {
+    const cfg = JSON.parse(read(dir, "docfx.json"));
+    const globs = cfg.build.content.flatMap((c: any) => c.files);
+    expect(globs).toContain("index.md");
+    expect(globs).toContain("toc.yml");
+    // The file DocFX never generates must not be the only markdown named.
+    expect(globs).not.toContain("api/index.md");
+    expect(cfg.build.dest).toBe("_site");
+    expect(cfg.metadata[0].dest).toBe("api");
+
+    const index = read(dir, "index.md");
+    expect(index).toContain("# Evg.A11y");
+    expect(index).toContain("Accessibility tree");
+    expect(index).toContain("[API reference](api/)");
+    expect(read(dir, "toc.yml")).toContain("href: api/");
+  });
+
   const haveMcs = (() => {
     try {
       execFileSync("mcs", ["--version"], { stdio: "ignore" });

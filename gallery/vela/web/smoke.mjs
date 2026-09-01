@@ -292,15 +292,15 @@ async function render(spec) {
 {
   await page.goto(base + '/api/', { waitUntil: 'load' });
   const cards = await page.locator('.card').count();
-  check('the API index offers five languages', cards === 5, `${cards} card(s)`);
+  check('the API index offers four languages', cards === 4, `${cards} card(s)`);
 
-  // Not every toolchain is installable everywhere -- .NET is blocked by the
-  // egress policy on this machine -- so a missing one is REPORTED here and
+  // Not every toolchain is installable everywhere -- the Dart SDK host is
+  // blocked by the egress policy here -- so a missing one is REPORTED and
   // fails only the CI run, which passes --require. What must never happen is
   // a language quietly vanishing from the index.
   const built = await page.locator('.card.ok').count();
   const off = await page.locator('.card.off').allInnerTexts();
-  check('every language is on the index, built or not', built + off.length === 5,
+  check('every language is on the index, built or not', built + off.length === 4,
         `${built} built, ${off.length} reported as not run`);
   if (off.length) {
     console.log(`       not built here: ${off.map(t => t.split('\n')[0]).join(', ')}`);
@@ -311,7 +311,6 @@ async function render(spec) {
     ['python',     'vela_chart.html', 'pdoc',             'pdoc signs its own footer'],
     ['kotlin',     'index.html',      'dokka',            'Dokka signs its own footer'],
     ['dart',       'index.html',      'dartdoc',          'dartdoc signs its own footer'],
-    ['csharp',     'index.html',      'docfx',            'DocFX signs its own footer'],
   ].filter(([id]) => fs.existsSync(path.join(DIST, 'api', id, 'index.html'))
                   || fs.existsSync(path.join(DIST, 'api', id, 'vela_chart.html')));
   for (const [id, entry, marker, why] of BUILT) {
