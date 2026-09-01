@@ -166,6 +166,8 @@ open class Canvas {
     fun translate(dx: Float, dy: Float) {}
     fun drawColor(color: Int) {}
     fun drawRect(rect: RectF, paint: Paint) {}
+    fun drawCircle(cx: Float, cy: Float, radius: Float, paint: Paint) {}
+    fun drawLine(startX: Float, startY: Float, stopX: Float, stopY: Float, paint: Paint) {}
     fun drawRoundRect(rect: RectF, rx: Float, ry: Float, paint: Paint) {}
     fun drawPath(path: Path, paint: Paint) {}
     fun drawText(text: String, x: Float, y: Float, paint: Paint) {}

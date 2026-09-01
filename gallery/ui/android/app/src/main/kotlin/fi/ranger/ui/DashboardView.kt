@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
+import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
 import android.view.GestureDetector
@@ -53,6 +55,53 @@ class DashboardView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
 
+    // --- the measuring marks ---------------------------------------------------
+    //
+    // Where the last press was, in the two spaces it exists in: the pixels the
+    // event carried, and the page point they were turned into. Both are drawn
+    // when `logTouches` is on, which makes a screenshot a MEASUREMENT rather
+    // than an impression — the whole question is which of the two is under the
+    // finger and by how much the other one misses.
+    private var markEventX = -1f
+    private var markEventY = -1f
+    private var markPageX = 0.0
+    private var markPageY = 0.0
+
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /**
+     * A ring in DEVICE pixels where the event said the finger was, and a cross
+     * in PAGE pixels — drawn through the same transform the page is drawn
+     * through — where the app decided that is.
+     *
+     * If the cross sits inside the ring, the round trip is honest and a press
+     * that lands on the wrong control is a hit-testing question. If they are
+     * apart, the distance between them is the bug, in the units it happens in.
+     */
+    private fun drawMarks(canvas: Canvas, s: Float) {
+        if (markEventX < 0f) return
+
+        // Page space: the same scale and pan the frame was painted with.
+        val saved = canvas.save()
+        canvas.scale(s, s)
+        canvas.translate(-app.panX().toFloat(), 0f)
+        markPaint.style = Paint.Style.STROKE
+        markPaint.strokeWidth = 2f
+        markPaint.color = Color.rgb(0, 120, 255)
+        val px = markPageX.toFloat()
+        val py = markPageY.toFloat()
+        canvas.drawLine(px - 14f, py, px + 14f, py, markPaint)
+        canvas.drawLine(px, py - 14f, px, py + 14f, markPaint)
+        canvas.restoreToCount(saved)
+
+        // Device space: exactly what the MotionEvent carried, no arithmetic.
+        markPaint.color = Color.rgb(230, 40, 40)
+        markPaint.strokeWidth = 3f
+        canvas.drawCircle(markEventX, markEventY, 22f, markPaint)
+        canvas.drawLine(markEventX - 30f, markEventY, markEventX + 30f, markEventY, markPaint)
+        canvas.drawLine(markEventX, markEventY - 30f, markEventX, markEventY + 30f, markPaint)
+    }
+
     /**
      * Print where a press landed and what it was turned into. On until the
      * coordinate spaces have been watched on a real screen for a while; it is
@@ -100,13 +149,23 @@ class DashboardView @JvmOverloads constructor(
     private val ripple = RippleEffect(this)
     private var rippleNanos = 0L
     private var rippleQueued = false
-    private var slowRippleFrames = 0
 
     /**
-     * Off once this device has shown it cannot keep up, and off when a person
-     * says so from the menu. The page is what matters; the ring is what is nice.
+     * Whether the surface effect is worth running here.
+     *
+     * It starts **off on an emulator**. That is not a guess about performance,
+     * it is what an emulator is: the GPU under it is a software rasteriser, and
+     * a shader over every pixel of a 2400x1080 page is seconds of work per
+     * frame there — enough to starve the system compositor, which is what "System
+     * UI isn't responding" is. On real hardware Skia runs this on the GPU and it
+     * costs a ring.
+     *
+     * The menu turns it on anyway, which is the point: an emulator is where you
+     * would want to look at it, so the choice is a person's rather than this
+     * line's. It also turns it off, and the view turns it off by itself the
+     * first time a frame arrives late.
      */
-    var rippleAffordable = true
+    var rippleAffordable = !onEmulator
 
     // --- the fling ------------------------------------------------------------
     // Android's `OverScroller` would do this, and would also mean an AndroidX
@@ -216,6 +275,8 @@ class DashboardView @JvmOverloads constructor(
         canvas.translate(-app.panX().toFloat(), 0f)
         EvgPainter.paint(frameNow(), AndroidEvgSurface(canvas, images, faces))
         canvas.restoreToCount(saved)
+
+        if (logTouches) drawMarks(canvas, s)
 
         advanceFling()
     }
@@ -335,6 +396,10 @@ class DashboardView @JvmOverloads constructor(
      */
     private fun logTouch(event: MotionEvent, x: Double, y: Double) {
         val s = density * app.scale()
+        markEventX = event.x
+        markEventY = event.y
+        markPageX = app.toPageX(x)
+        markPageY = app.toPageY(y)
         Log.d(
             TAG,
             "down ev=(${event.x}, ${event.y})px view=${width}x${height}px density=$density" +
@@ -390,15 +455,17 @@ class DashboardView @JvmOverloads constructor(
         // checked.
         val busy = app.tick(dt)
 
-        // AND THE EFFECT PAYS FOR ITSELF OR STOPS. The interval between these
-        // callbacks is what the whole pipeline managed, shader included; a
-        // handful in a row over 60ms means this device cannot afford the ring,
-        // and a page that is drawn late is worse than a page that does not
-        // ripple.
-        if (dt > 60.0) slowRippleFrames++ else slowRippleFrames = 0
-        if (slowRippleFrames >= 6) {
+        // AND THE EFFECT PAYS FOR ITSELF OR STOPS, AT THE FIRST BAD FRAME.
+        //
+        // The interval between these callbacks is what the whole pipeline
+        // managed, shader included. This used to allow six slow frames in a row
+        // before giving up, which is the wrong shape of patience: six frames of
+        // a pipeline that is taking hundreds of milliseconds each is seconds of
+        // a starved compositor, and the system's own watchdog fires at five.
+        // One frame over 120ms is already a device that cannot afford this.
+        if (dt > 120.0) {
             rippleAffordable = false
-            Log.w(TAG, "ripple is costing more than the page on this device — off")
+            Log.w(TAG, "a ripple frame took " + dt.toInt() + "ms — effect off, the page comes first")
         }
 
         syncRipple()
@@ -407,7 +474,6 @@ class DashboardView @JvmOverloads constructor(
             postOnAnimation(rippleTick)
         } else {
             rippleNanos = 0L
-            slowRippleFrames = 0
             ripple.clear()
         }
     }
@@ -438,8 +504,31 @@ class DashboardView @JvmOverloads constructor(
         )
     }
 
+    /**
+     * A window that is going away must not leave a full-screen shader attached
+     * to it, and a queued frame must not outlive the view that queued it.
+     */
+    override fun onDetachedFromWindow() {
+        ripple.clear()
+        rippleQueued = false
+        rippleNanos = 0L
+        super.onDetachedFromWindow()
+    }
+
     private companion object {
         const val TAG = "EvgTouch"
+
+        /**
+         * `ranchu` is the emulator's board and `goldfish` was the one before
+         * it. This is the oldest check in Android and still the honest one: the
+         * question is not which device this is, it is whether there is a GPU
+         * under it.
+         */
+        val onEmulator: Boolean =
+            Build.HARDWARE == "ranchu" ||
+                Build.HARDWARE == "goldfish" ||
+                Build.FINGERPRINT.startsWith("generic") ||
+                Build.FINGERPRINT.contains("emulator")
     }
 
     init {

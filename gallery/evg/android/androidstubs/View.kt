@@ -29,6 +29,7 @@ open class View(context: Context, attrs: AttributeSet? = null) {
     open fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = false
     open fun postInvalidateOnAnimation() {}
     protected open fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {}
+    protected open fun onDetachedFromWindow() {}
     protected open fun onDraw(canvas: Canvas) {}
     open fun onTouchEvent(event: MotionEvent): Boolean = false
 }

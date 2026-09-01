@@ -142,6 +142,39 @@ object CheckDashboard {
             if (png.count(kind) == 0) println("      (not reached by this page: $kind)")
         }
 
+        println("--- the box that was drawn is the box a finger finds ---")
+        // THE CHECK THAT WAS MISSING, and its absence is why an emulator found
+        // something this run did not.
+        //
+        // Everything below hunts for an element by asking the hit test where it
+        // is and then pressing there, which is self-consistent by construction:
+        // a host whose hit test disagreed with its own painter by a hundred
+        // pixels would pass every one of them. So this starts from the element's
+        // LAID-OUT box — the rectangle the painter is handed — converts its
+        // centre to a screen coordinate with the same arithmetic the view uses
+        // to place the canvas, and requires the hit test to answer with that
+        // element.
+        //
+        //     screen = (page - panX) * scale        (and the view multiplies by
+        //     density on top, which cancels on the way back in)
+        for (id in listOf("db-nav-team", "db-nav-dashboard", "db-range-d90", "db-brand")) {
+            val el = boxOf(app, id)
+            if (el == null) {
+                ok("$id is on the page", false)
+                continue
+            }
+            val cx = el.calculatedX + el.calculatedWidth / 2.0
+            val cy = el.calculatedY + el.calculatedHeight / 2.0
+            val sx = (cx - app.panX()) * app.scale()
+            val sy = cy * app.scale()
+            val hit = app.hitAt(sx, sy)
+            ok(
+                "the centre of $id answers with $id",
+                hit == id,
+                "drawn at page ($cx, $cy) -> screen ($sx, $sy) -> hit '$hit'",
+            )
+        }
+
         println("--- what a finger does ---")
         // The sidebar's Analytics link, found the way the app finds it: hit
         // test at a screen coordinate. 1:1-ish here, but the conversion is

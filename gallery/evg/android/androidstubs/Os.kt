@@ -10,6 +10,10 @@ class Bundle
  * directory exists to prevent.
  */
 object Build {
+    /** "ranchu" or "goldfish" on an emulator, the device's own board otherwise. */
+    @JvmField val HARDWARE: String = ""
+    @JvmField val FINGERPRINT: String = ""
+
     object VERSION {
         @JvmField val SDK_INT: Int = 34
     }
