@@ -252,21 +252,34 @@ class ToolIconPath {
         if (k == (ToolIcon.arrangeRight())) {
             return "M19.5 2L19.5 22L20.5 22L20.5 2Z M3.75 4.25L3.75 9.75L17.25 9.75L17.25 4.25Z M9.5 14.25L9.5 19.75L17.25 19.75L17.25 14.25Z"
         }
-        ; --- undo and redo, traced faithfully, staircase and all
+        ; --- undo and redo, whose arrowheads are drawn rather than traced
         ;
-        ; The arrowheads below are flights of one-unit steps, and that is not
-        ; the tracer being coarse — it is what the drawing was. A diagonal
-        ; built out of axis-aligned rectangles is a staircase, and following
-        ; its boundary exactly gives a staircase back. So these two are the
-        ; conversion working and the artwork not: they gain the scaling and the
-        ; data-ness the others gain, and they still want an arrowhead drawn as
-        ; a triangle by hand rather than approximated by bars. Tracing cannot
-        ; supply what was never in the picture.
+        ; Every other outline in this file came back from the tracer and was
+        ; kept exactly as it came. These two did not, and the reason is worth
+        ; keeping: their arrowheads were built from one-unit rectangles, so
+        ; following the boundary exactly returned a flight of fourteen steps.
+        ; That was the conversion working and the ARTWORK not — a diagonal
+        ; made of bars is a staircase however faithfully you trace it, and
+        ; tracing cannot supply what was never in the picture.
+        ;
+        ; So the silhouette is the traced one and the head is a triangle: the
+        ; same three corners the steps were approximating, joined by one line.
+        ; Nine points instead of twenty-three, and it is a diagonal at any size
+        ; rather than a staircase that gets coarser the larger it is drawn.
+        ;
+        ; AND THE TWO ARE SWAPPED FROM WHAT THEY USED TO BE, because they were
+        ; the wrong way round. `edit.undo` was drawing an arrow that points
+        ; RIGHT and `edit.redo` one that points left — backwards from every
+        ; office application, in all three of the apps that share this strip.
+        ; Nobody had noticed because at fourteen pixels a staircase arrowhead
+        ; is a smudge and you read the button by its position; drawing the head
+        ; as a clean triangle made it legible and made it obviously wrong. So
+        ; undo goes back and redo goes forward, which is what the words mean.
         if (k == (ToolIcon.undo())) {
-            return "M16.25 5L16.25 9.25L2 9.25L2 19.25L4.75 19.25L4.75 12.25L16.25 12.25L16.25 16.5L17.75 16.5L17.75 15L19.25 15L19.25 13.5L20.5 13.5L20.5 12.25L22 12.25L22 9.25L20.5 9.25L20.5 7.75L19.25 7.75L19.25 6.5L17.75 6.5L17.75 5Z"
+            return "M6.75 4.25L2 10.5L6.75 16.5L8.25 16.5L8.25 12L19 12L19 19.5L22 19.5L22 8.75L8.25 8.75L8.25 4.25Z"
         }
         if (k == (ToolIcon.redo())) {
-            return "M6.75 4.25L6.75 5.75L5 5.75L5 7.25L3.5 7.25L3.5 8.75L2 8.75L2 12L3.5 12L3.5 13.5L5 13.5L5 15L6.75 15L6.75 16.5L8.25 16.5L8.25 12L19 12L19 19.5L22 19.5L22 8.75L8.25 8.75L8.25 4.25Z"
+            return "M16.25 5L16.25 9.25L2 9.25L2 19.25L4.75 19.25L4.75 12.25L16.25 12.25L16.25 16.5L22 10.75Z"
         }
         ; --- the paint bucket
         if (k == (ToolIcon.paint())) {

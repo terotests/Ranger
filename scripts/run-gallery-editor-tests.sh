@@ -29,6 +29,11 @@ SUITES=(
   # hypothetical either; it happened while the icons were being converted, and
   # a suite reported ALL PASS against a build that had not compiled.
   pptx:chrome:test
+  # A shape and its own outline must touch. The rasteriser used to put a
+  # rectangle on the grid by truncating its position and its size separately,
+  # which loses up to two pixels off the right and the bottom and none off the
+  # left — a hairline of desk between a box and its border.
+  pptx:seam:test
   pptx:frame:test
   pptx:css:test
   pptx:a11y:test

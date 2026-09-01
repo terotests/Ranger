@@ -1,0 +1,203 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxSeamTest — a shape and its own outline must touch
+; ==============================================================================
+;
+; Reported as a hairline of white between a blue box and its border, seen
+; zoomed in on a phone. It was real, and it was not where the report pointed:
+; the software rasteriser put every rectangle on the pixel grid by truncating
+; its position AND its size, independently, which are different operations.
+;
+;   fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+;
+; A fill at x=208.65 w=175.95 has its true right edge at 384.6. Truncating
+; gives x=208 and w=175, so it is painted to 383 — up to two pixels short, and
+; short only on the right and the bottom, because truncation only ever loses
+; length off the far edge. The shape's OUTLINE is not a rectangle: a rounded
+; box is stroked as a polygon and rasterised at full precision, so it lands
+; where the geometry says. The pixel between them keeps whatever was behind.
+;
+; So the property this pins is not "the rasteriser rounds nicely". It is:
+;
+;   A SHAPE REACHES ITS OWN EDGE. Whatever is drawn at the geometry's right
+;   edge — an outline, the next shape along — meets the fill with nothing
+;   between them.
+;
+; Three sections, in the order the bug was actually understood:
+;
+;   the arithmetic, on the helper that snaps an edge;
+;   two rectangles that share an edge in float space, which must share it on
+;   the grid, since that is the same property between neighbours;
+;   and the reported case itself — a fill, and ink drawn where its right edge
+;   is, with the pixels between them counted.
+;
+; The numbers are the ones from the report rather than convenient ones, so a
+; regression has to reproduce the original to get past this.
+;
+;   npm run pptx:seam:test
+; ==============================================================================
+
+Import "../src/PptxView.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class SeamCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print ("  PASS  " + name + " (got " + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print (("  FAIL  " + name + " — got " + (to_string got))
+                + " want " + (to_string want))
+        }
+    }
+}
+
+class PptxSeamTest {
+
+    ; Paint one display list into a fresh canvas and hand back the view, so a
+    ; test can read pixels off it. The size is small: this is about which
+    ; pixel gets painted, not about a picture.
+    sfn render:PptxView (dl:EVGDisplayList w:int h:int) {
+        def v (new PptxView())
+        v.canvas.init(w h)
+        v.ctx.attach(v.canvas)
+        v.paintSoftCanvas(dl)
+        return v
+    }
+
+    ; Is the pixel at (x,y) still the colour the canvas was cleared to? The
+    ; clear is `canvas.clear(40 44 58)`, the desk behind the page, and that is
+    ; what a seam shows through as.
+    ;
+    ; EXACT, and it has to be. The first version of this allowed a tolerance
+    ; and the outline colour from the report — 34,51,68, a dark navy — fell
+    ; inside it, so the check called the border itself a gap and failed against
+    ; a rasteriser that was doing the right thing. A tolerance here is not
+    ; leniency, it is a second colour the test cannot tell from the first.
+    sfn isBackdrop:boolean (v:PptxView x:int y:int) {
+        def off:int (((y * v.canvas.w) + x) * 4)
+        if ((buffer_get v.canvas.px off) != 40) {
+            return false
+        }
+        if ((buffer_get v.canvas.px (off + 1)) != 44) {
+            return false
+        }
+        if ((buffer_get v.canvas.px (off + 2)) != 58) {
+            return false
+        }
+        return true
+    }
+
+    sfn main:void () {
+        def c (new SeamCheck())
+
+        print "=== an edge lands on the grid, not a position and a length ==="
+        ; The reported command, to the number.
+        c.eqInt("the left edge of the reported box" (PptxView.snapEdge(208.65)) 209)
+        c.eqInt("and its right edge, which truncation put at 383"
+            (PptxView.snapEdge(208.65 + 175.95)) 385)
+        c.eqInt("so its width spans both" (PptxView.snapSpan(208.65 175.95)) 176)
+        ; Truncating the size on its own gives 175, and that one pixel is the
+        ; whole bug. Stated as an assertion so the difference is on the record.
+        c.ok("which is not what rounding the size alone gives"
+            ((PptxView.snapSpan(208.65 175.95)) != (to_int 175.95)))
+        ; Negative coordinates happen when a slide is scrolled off the left.
+        c.eqInt("an edge left of zero rounds away from zero"
+            (PptxView.snapEdge((0.0 - 4.5))) -5)
+        c.eqInt("and a span across zero is still the distance between edges"
+            (PptxView.snapSpan((0.0 - 4.5) 9.0)) 10)
+
+        print ""
+        print "=== two rectangles sharing an edge share it on the grid ==="
+        ; This is the same property as the seam, between neighbours instead of
+        ; between a shape and its outline: a table's cells, a chart's bars.
+        def tiles (new EVGDisplayList())
+        tiles.addRect(2.4 2.0 10.3 8.0 (EVGColor.rgb(220 40 40)))
+        tiles.addRect(12.7 2.0 10.3 8.0 (EVGColor.rgb(40 220 40)))
+        def tv (PptxSeamTest.render(tiles 30 14))
+        def gaps:int 0
+        def x:int 3
+        while (x < 22) {
+            if (PptxSeamTest.isBackdrop(tv x 5)) {
+                gaps = (gaps + 1)
+            }
+            x = (x + 1)
+        }
+        c.eqInt("no backdrop shows between two abutting rectangles" gaps 0)
+
+        print ""
+        print "=== the reported case: a fill, and ink at its own right edge ==="
+        ; The fill is the command from the deck. The ink stands in for the
+        ; outline: two pixels wide, drawn OUTWARD from the true right edge,
+        ; which is exactly where the polygon stroke put it. If the fill stops
+        ; short, the backdrop shows through between the two.
+        ; FRACTIONAL IN BOTH AXES. The first version of this had whole
+        ; numbers vertically, which made the bottom assertion below pass
+        ; against the truncating rasteriser too — an assertion that cannot
+        ; fail is not one. 4.35 + 11.9 puts the bottom edge at 16.25.
+        def scene (new EVGDisplayList())
+        scene.addRect(8.65 4.35 15.95 11.9 (EVGColor.rgb(25 118 210)))
+        scene.addRect(24.6 4.35 2.0 11.9 (EVGColor.rgb(34 51 68)))
+        scene.addRect(8.65 16.25 15.95 2.0 (EVGColor.rgb(34 51 68)))
+        def sv (PptxSeamTest.render(scene 40 20))
+        def seam:int 0
+        ; From the fill's snapped left edge (9) to the border's snapped right
+        ; edge (26). Outside that the backdrop is SUPPOSED to show, so a scan
+        ; that included it would be asserting the wrong thing.
+        def sx:int 9
+        while (sx < 27) {
+            if (PptxSeamTest.isBackdrop(sv sx 10)) {
+                seam = (seam + 1)
+            }
+            sx = (sx + 1)
+        }
+        c.eqInt("nothing shows through between the box and its border" seam 0)
+        ; And the fill really did reach: the pixel just inside the true right
+        ; edge is the fill's colour, not the border's and not the backdrop's.
+        def off:int (((10 * sv.canvas.w) + 24) * 4)
+        c.eqInt("the fill is painted up to its own edge"
+            (buffer_get sv.canvas.px (off + 2)) 210)
+
+        print ""
+        print "=== and the bottom, which is the same edge turned ==="
+        ; The report showed the gap on the right and the bottom and never on
+        ; the left or the top, because truncation only loses length off the
+        ; far edge. Asserting the bottom too is what makes that claim a test.
+        ; The fill runs 4..15 and the band under it 16..17, so nothing between
+        ; y=4 and y=17 may be desk. Under truncation the fill stopped at 14 and
+        ; this counts the hole.
+        def down:int 0
+        def dy:int 4
+        while (dy < 18) {
+            if (PptxSeamTest.isBackdrop(sv 12 dy)) {
+                down = (down + 1)
+            }
+            dy = (dy + 1)
+        }
+        c.eqInt("and nothing shows through along the bottom either" down 0)
+
+        print ""
+        print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
