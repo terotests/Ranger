@@ -94,6 +94,8 @@ class RangerApiBuilder {
   ; in a first pass so the leak check can look forward as well as back.
   def publicClassNames:[string:boolean]
   def internalClassNames:[string:boolean]
+  ; every declaration named by an `example` entry, in declaration order
+  def exampleFns@(weak):[RangerAppFunctionDesc]
 
   fn typeNameOf:string (node:CodeNode) {
     def base:string ""
@@ -372,7 +374,61 @@ class RangerApiBuilder {
       }
       push model.classes ac
     }
+    ; The example references are resolved LAST, when every class is in the
+    ; registry: an example usually lives beside the API it demonstrates, but
+    ; nothing says it has to, and a forward reference is the normal case when
+    ; the examples are gathered into one class of their own.
+    this.resolveExamples(model ctx)
     return model
+  }
+
+  ; Finds the function an `example` entry names, anywhere in the program, and
+  ; marks it. A name that resolves to nothing is an error: a doc block that
+  ; points at a function somebody deleted would otherwise render an empty
+  ; block, which is worse than not having an example at all.
+  fn findExampleFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
+    return (RangerDocCommentWriter.lookupFn(ctx name))
+  }
+
+  fn markExamplesOf:void (doc:RangerDocBlock owner:CodeNode ctx:RangerAppWriterContext) {
+    for doc.exampleRefs name:string i {
+      def fd:RangerAppFunctionDesc (this.findExampleFn(ctx name))
+      if ((strlen fd.name) == 0) {
+        ctx.addError(owner ("`example " + name + "` names no function in this program"))
+        continue
+      }
+      fd.is_doc_example = true
+      def seen:boolean false
+      for exampleFns known:RangerAppFunctionDesc k {
+        if (known.name == fd.name) {
+          seen = true
+        }
+      }
+      if (seen == false) {
+        push exampleFns fd
+      }
+    }
+  }
+
+  fn resolveExamples:void (model:RangerApiModel ctx:RangerAppWriterContext) {
+    for model.classes c:RangerApiClass ci {
+      if c.has_doc {
+        def cdoc:RangerDocBlock (unwrap c.doc)
+        this.markExamplesOf(cdoc (unwrap c.node) ctx)
+      }
+      for c.methods m:RangerApiMethod mi {
+        if m.has_doc {
+          def mdoc:RangerDocBlock (unwrap m.doc)
+          this.markExamplesOf(mdoc (unwrap m.node) ctx)
+        }
+      }
+      for c.fields f:RangerApiField fi {
+        if f.has_doc {
+          def fdoc:RangerDocBlock (unwrap f.doc)
+          this.markExamplesOf(fdoc (unwrap c.node) ctx)
+        }
+      }
+    }
   }
 }
 
@@ -382,6 +438,57 @@ class RangerApiBuilder {
 ; entries, the paragraph shape, and the type mapping. A language writer
 ; implements only its own comment delimiters.
 class RangerDocCommentWriter {
+
+  ; Bodies of the `example`-named functions for the declaration being written,
+  ; already in this target's syntax. Set by the bridge before each render.
+  def exampleTexts:[string]
+
+  fn clearExamples:void () {
+    def empty:[string]
+    exampleTexts = empty
+  }
+
+  ; The function an `example` entry names, anywhere in the program. Answers a
+  ; descriptor with an empty name when there is none.
+  sfn lookupFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (get root.definedClasses cname)
+      def m@(optional):RangerAppFunctionDesc (cl.findStaticMethod(name))
+      if ((null? m) == false) {
+        return (unwrap m)
+      }
+      def m2@(optional):RangerAppFunctionDesc (cl.findMethod(name))
+      if ((null? m2) == false) {
+        return (unwrap m2)
+      }
+    }
+    return (new RangerAppFunctionDesc)
+  }
+
+  ; Collects the rendered bodies for the declaration about to be written.
+  fn loadExamples:void (doc:RangerDocBlock ctx:RangerAppWriterContext) {
+    this.clearExamples()
+    for doc.exampleRefs name:string i {
+      def fd:RangerAppFunctionDesc (RangerDocCommentWriter.lookupFn(ctx name))
+      if ((strlen fd.docExampleText) > 0) {
+        push exampleTexts fd.docExampleText
+      }
+    }
+  }
+
+  ; The examples a doc block asks for: the literal strings it carries, then
+  ; the rendered bodies of the functions it names.
+  fn allExamples:[string] (doc:RangerDocBlock) {
+    def out:[string]
+    for doc.examples e:string i {
+      push out e
+    }
+    for exampleTexts t:string i {
+      push out t
+    }
+    return out
+  }
 
   ; A Ranger type as JSDoc spells it. documentation.js and every other JSDoc
   ; consumer expect JavaScript type names, not Ranger ones.
@@ -553,7 +660,7 @@ class RangerDocCommentWriter {
     for doc.see s:string i {
       wr.out((" * @see " + s) true)
     }
-    for doc.examples e:string i {
+    for (this.allExamples(doc)) e:string i {
       wr.out(" * @example" true)
       def exLines:[string] (this.linesOf(e))
       for exLines line:string j {
@@ -610,7 +717,7 @@ class RangerDocCommentWriter {
     for doc.see s:string i {
       wr.out(("/// <seealso cref=\"" + (this.xmlEscape(s)) + "\"/>") true)
     }
-    for doc.examples e:string i {
+    for (this.allExamples(doc)) e:string i {
       wr.out("/// <example><code>" true)
       def exLines:[string] (this.linesOf(e))
       for exLines line:string j {
@@ -741,7 +848,7 @@ class RangerDocCommentWriter {
         wr.out(("/// See also: ``" + sname + "``") true)
       }
     }
-    for doc.examples e:string i {
+    for (this.allExamples(doc)) e:string i {
       wr.out("///" true)
       wr.out("/// ```swift" true)
       def exLines:[string] (this.linesOf(e))
@@ -863,9 +970,9 @@ class RangerDocCommentWriter {
       wr.out((" * @see " + sname) true)
       wroteTag = true
     }
-    for doc.examples e:string i {
+    for (this.allExamples(doc)) e:string i {
       wr.out(" *" true)
-      wr.out(" * ```" true)
+      wr.out(" * ```kotlin" true)
       def exLines:[string] (this.linesOf(e))
       for exLines line:string j {
         wr.out((" * " + line) true)
@@ -1027,7 +1134,7 @@ class RangerDocCommentWriter {
         wr.out(("    " + sname) true)
       }
     }
-    for doc.examples e:string i {
+    for (this.allExamples(doc)) e:string i {
       wr.out("" true)
       wr.out("Example:" true)
       def exLines:[string] (this.linesOf(e))
@@ -1135,7 +1242,7 @@ class RangerDocCommentWriter {
         wr.out(("/// See also [" + sname + "]." ) true)
       }
     }
-    for doc.examples e:string i {
+    for (this.allExamples(doc)) e:string i {
       wr.out("///" true)
       wr.out("/// ```dart" true)
       def exLines:[string] (this.linesOf(e))
@@ -1188,24 +1295,26 @@ class RangerDocCommentWriter {
     return out
   }
 
-  fn writeJsDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+  fn writeJsDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (fd.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap fd.docBlock)
     def view:RangerDocBlock (doc.viewFor("es6"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam] (this.paramsOf(fd view true))
     def rn:CodeNode (unwrap fd.nameNode)
     def rt:string (this.jsTypeOf(rn))
     this.writeJsDoc(view rt ps wr)
   }
 
-  fn writeCsDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+  fn writeCsDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (fd.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap fd.docBlock)
     def view:RangerDocBlock (doc.viewFor("csharp"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam] (this.paramsOf(fd view false))
     def rn:CodeNode (unwrap fd.nameNode)
     def rt:string (this.csTypeName(rn.type_name))
@@ -1213,33 +1322,36 @@ class RangerDocCommentWriter {
     this.writeCsAttrs(view wr)
   }
 
-  fn writeJsDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+  fn writeJsDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (cl.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap cl.docBlock)
     def view:RangerDocBlock (doc.viewFor("es6"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam]
     this.writeJsDoc(view "void" ps wr)
   }
 
-  fn writeCsDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+  fn writeCsDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (cl.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap cl.docBlock)
     def view:RangerDocBlock (doc.viewFor("csharp"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam]
     this.writeCsDoc(view "void" ps wr)
     this.writeCsAttrs(view wr)
   }
 
-  fn writeSwiftDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+  fn writeSwiftDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (fd.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap fd.docBlock)
     def view:RangerDocBlock (doc.viewFor("swift6"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam] (this.paramsOf(fd view false))
     def rn:CodeNode (unwrap fd.nameNode)
     def rt:string (this.swiftTypeName(rn.type_name))
@@ -1247,18 +1359,20 @@ class RangerDocCommentWriter {
     this.writeSwiftAttrs(view wr)
   }
 
-  fn writeSwiftDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+  fn writeSwiftDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (cl.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap cl.docBlock)
     def view:RangerDocBlock (doc.viewFor("swift6"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam]
     this.writeSwiftDoc(view "Void" ps wr)
     this.writeSwiftAttrs(view wr)
   }
 
   fn writeSwiftDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
     if (p.has_doc == false) {
       return
     }
@@ -1295,12 +1409,13 @@ class RangerDocCommentWriter {
     return (out + ")")
   }
 
-  fn writeKotlinDocForMethod:void (cl:RangerAppClassDesc fd:RangerAppFunctionDesc wr:CodeWriter) {
+  fn writeKotlinDocForMethod:void (cl:RangerAppClassDesc fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (fd.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap fd.docBlock)
     def view:RangerDocBlock (doc.viewFor("kotlin"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam] (this.paramsOf(fd view false))
     def rn:CodeNode (unwrap fd.nameNode)
     def rt:string (this.kotlinTypeName(rn.type_name))
@@ -1308,18 +1423,20 @@ class RangerDocCommentWriter {
     this.writeKotlinAttrs(view (this.kotlinReplaceWith(cl view)) wr)
   }
 
-  fn writeKotlinDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+  fn writeKotlinDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (cl.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap cl.docBlock)
     def view:RangerDocBlock (doc.viewFor("kotlin"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam]
     this.writeKotlinDoc(view "Unit" ps wr)
     this.writeKotlinAttrs(view "" wr)
   }
 
   fn writeKotlinDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
     if (p.has_doc == false) {
       return
     }
@@ -1330,12 +1447,13 @@ class RangerDocCommentWriter {
     this.writeKotlinAttrs(view "" wr)
   }
 
-  fn writePyDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+  fn writePyDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (fd.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap fd.docBlock)
     def view:RangerDocBlock (doc.viewFor("python"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam] (this.paramsOf(fd view false))
     ; the Ranger type names have to become Python ones for the Args: block
     for ps p:RangerApiParam i {
@@ -1346,22 +1464,24 @@ class RangerDocCommentWriter {
     this.writePyDoc(view rt ps wr)
   }
 
-  fn writePyDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+  fn writePyDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (cl.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap cl.docBlock)
     def view:RangerDocBlock (doc.viewFor("python"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam]
     this.writePyDoc(view "None" ps wr)
   }
 
-  fn writeDartDocForMethod:void (fd:RangerAppFunctionDesc wr:CodeWriter) {
+  fn writeDartDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (fd.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap fd.docBlock)
     def view:RangerDocBlock (doc.viewFor("dart"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam] (this.paramsOf(fd view false))
     def rn:CodeNode (unwrap fd.nameNode)
     def rt:string (this.dartTypeName(rn.type_name))
@@ -1369,18 +1489,20 @@ class RangerDocCommentWriter {
     this.writeDartAttrs(view wr)
   }
 
-  fn writeDartDocForClass:void (cl:RangerAppClassDesc wr:CodeWriter) {
+  fn writeDartDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if (cl.has_doc == false) {
       return
     }
     def doc:RangerDocBlock (unwrap cl.docBlock)
     def view:RangerDocBlock (doc.viewFor("dart"))
+    this.loadExamples(view ctx)
     def ps:[RangerApiParam]
     this.writeDartDoc(view "void" ps wr)
     this.writeDartAttrs(view wr)
   }
 
   fn writeDartDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
     if (p.has_doc == false) {
       return
     }
@@ -1436,6 +1558,7 @@ class RangerDocCommentWriter {
   }
 
   fn writeJsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
     if (p.has_doc == false) {
       return
     }
@@ -1448,6 +1571,7 @@ class RangerDocCommentWriter {
   }
 
   fn writeCsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
     if (p.has_doc == false) {
       return
     }

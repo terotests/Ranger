@@ -405,6 +405,7 @@ Options: -<option>=<value>
 Flags: -<flag>
   -apipackage    Write the packaging the target ecosystem expects (package.json for npm, .csproj and docfx.json for NuGet)
   -apistrict     An undocumented public declaration or parameter is an error, not a warning
+  -keep-examples Emit the functions named by `example`. They are type checked either way; by default they are left out
   -forever       Leave the main program into eternal loop (Go, Swift)
   -allowti       Allow type inference at target lang (creates slightly smaller code)
   -plugins-only  ignore built-in language output and use only plugins
@@ -808,6 +809,29 @@ Entries: `public`, `internal`, `description`, `param`, `returns`, `throws`,
 `since`, `deprecated { since use description }`, `see`, `example`, `category`,
 `experimental`, `platform`, and `target <name> { … }` for markup that only one
 language has.
+
+**`example` names a function, not a string.** The sample is compiled and type
+checked with the rest of the program, rendered into each target's doc comment
+in *that target's* syntax — `const g = new Greeter()` on JavaScript,
+`g.greet(name : "world")` on Swift — and then left out of the emitted code.
+`-keep-examples` puts it back.
+
+```ranger
+fn greet:string ( name:string ) {
+    ...
+} doc {
+    public
+    description "Builds a greeting for a name."
+    example greetExample
+}
+
+class GreeterExamples {
+    sfn greetExample:void () {
+        def g:Greeter (new Greeter())
+        print (g.greet("world"))
+    }
+}
+```
 
 The compiler writes the documentation into the generated code in the target's
 own form and, with `-apidoc=<dir>`, a target-independent `api.json`, a Markdown

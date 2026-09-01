@@ -129,6 +129,9 @@ fn find:Node ( id:string ) {
     returns "The matching node." ; compiler already knows the type
     since "1.2"
     see Node
+    example findExample          ; a FUNCTION, compiled and type checked,
+                                 ; rendered per target, then left out of the
+                                 ; output (-keep-examples puts it back)
     deprecated { since "2.0" use "find" description "Use find instead." }
 }
 ```

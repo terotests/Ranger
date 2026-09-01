@@ -714,7 +714,7 @@ class RangerPythonClassWriter {
     ; A docstring is the first STATEMENT of the block, not a comment above it
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-      clDocWr.writePyDocForClass((unwrap cl) wr)
+      clDocWr.writePyDocForClass((unwrap cl) ctx wr)
     }
 
     ; The lazily filled slot the singleton accessor below reads. A class
@@ -849,6 +849,11 @@ class RangerPythonClassWriter {
 
     ; Static methods
     for cl.static_methods variant:RangerAppFunctionDesc i {
+      if variant.is_doc_example {
+        if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+          continue _
+        }
+      }
       if (variant.nameNode.hasFlag("main")) {
         continue _
       } {
@@ -860,7 +865,7 @@ class RangerPythonClassWriter {
       wr.indent(1)
       if variant.has_doc {
         def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-        sDocWr.writePyDocForMethod(variant wr)
+        sDocWr.writePyDocForMethod(variant ctx wr)
       }
       def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
       subCtx.is_function = true
@@ -875,6 +880,11 @@ class RangerPythonClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue
+          }
+        }
         if(has declaredFunction variant.name) {
           continue
         }
@@ -888,7 +898,7 @@ class RangerPythonClassWriter {
         wr.indent(1)
         if variant.has_doc {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          mDocWr.writePyDocForMethod(variant wr)
+          mDocWr.writePyDocForMethod(variant ctx wr)
         }
         def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
         subCtx.is_function = true

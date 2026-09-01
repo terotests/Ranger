@@ -31,7 +31,12 @@ class RangerDocBlock {
   def is_deprecated:boolean false
   def deprecation:RangerDocDeprecation
   def see:[string]
+  ; `example "…"` — a literal, which nothing checks
   def examples:[string]
+  ; `example someFunction` — the NAME of a Ranger function. Resolved to a real
+  ; declaration, type-checked with the rest of the program, and rendered into
+  ; the doc comment as the target's own compiled source. PLAN_API_DOCS.md §18.
+  def exampleRefs:[string]
   def category:string ""
   def platform:string ""
   ; verbatim attributes, valid only inside a `target` view
@@ -100,6 +105,9 @@ class RangerDocBlock {
     }
     for examples e:string i {
       push merged.examples e
+    }
+    for exampleRefs r:string i {
+      push merged.exampleRefs r
     }
     for ov.attrs a:string i {
       push merged.attrs a
@@ -261,7 +269,20 @@ class RangerDocReader {
           push doc.see (this.textFrom(item 1))
         }
         case "example" {
-          push doc.examples (this.textFrom(item 1))
+          ; `example "…"` is a literal; `example name` names a function. The
+          ; two are told apart by the node, not by looking at the text: a
+          ; literal that happens to be one word is still a literal.
+          def first:CodeNode
+          if (argc > 1) {
+            first = (at item.children 1)
+            if (first.value_type == RangerNodeType.String) {
+              push doc.examples (this.textFrom(item 1))
+            } {
+              push doc.exampleRefs first.vref
+            }
+          } {
+            ctx.addError(item "example needs either a string or the name of a function")
+          }
         }
         case "category" {
           doc.category = (this.textFrom(item 1))

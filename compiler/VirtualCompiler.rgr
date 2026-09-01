@@ -595,6 +595,7 @@ class tester {
       'strict' 'Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.'
       'apistrict' 'An undocumented public declaration or parameter is an error, not a warning'
       'apipackage' 'Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet'
+      'keep-examples' 'Emit the functions named by `example` into the output. They are type checked either way; by default they are left out'
       'docstyle-none' 'Do not write documentation comments into the generated code'
       'strict-ownership' 'Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)'
       'rust-shared-classes' 'Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)'
@@ -1231,6 +1232,13 @@ class tester {
         }
 
         wr = contentFork
+
+        ; Every doc example is rendered in the target's own syntax before a
+        ; single class is written, because the doc comment that quotes one is
+        ; usually emitted before the example itself would have been.
+        for apiBuilder.exampleFns exFn:RangerAppFunctionDesc exIdx {
+          exFn.docExampleText = (lcc.langWriter.renderDocExample(exFn appCtx (unwrap wr)))
+        }
 
         def handledClasses:[string:boolean]
 

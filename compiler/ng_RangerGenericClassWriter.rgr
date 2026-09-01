@@ -342,6 +342,57 @@ class RangerGenericClassWriter {
       this.release_local_vars(node (unwrap ctx.parent) wr)
     }
   }
+  ; Renders the BODY of a doc example in this target's own syntax.
+  ;
+  ; The writer is detached: it is a plain CodeWriter rather than a fork, so
+  ; nothing it produces reaches the output file. Its `parent` is set to the
+  ; real content writer all the same, because a body may ask upward for the
+  ; import list or for a file — a fork would have registered a slice and the
+  ; example would have been emitted twice.
+  ;
+  ; This runs BEFORE any class is written and the example is then skipped at
+  ; emission, so each body is walked exactly once either way.
+  fn renderDocExample:string (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext outer:CodeWriter) {
+    def wr:CodeWriter (new CodeWriter ())
+    wr.parent = outer
+    def body@(optional):CodeNode fd.fnBody
+    if (null? body) {
+      return ""
+    }
+    def fnCtx@(optional):RangerAppWriterContext fd.fnCtx
+    if (null? fnCtx) {
+      return ""
+    }
+    def subCtx:RangerAppWriterContext (unwrap fnCtx)
+    def wasFn:boolean subCtx.is_function
+    subCtx.is_function = true
+    this.WalkNode((unwrap body) subCtx wr)
+    subCtx.is_function = wasFn
+    def rendered:string (wr.getCode())
+    return (this.trimTrailingBlank(rendered))
+  }
+
+  ; A rendered body ends with the newline the last statement wrote, which
+  ; becomes a blank line inside the fence of every doc comment that quotes it.
+  ; Named trimTrailingBlank rather than trim: `trim` is one of the method names
+  ; the compiler resolves elsewhere, and defining it makes every call site fail.
+  fn trimTrailingBlank:string (text:string) {
+    def n:int (strlen text)
+    while (n > 0) {
+      def last:string (substring text (n - 1) n)
+      if ((last == "\n") || (last == "\r")) {
+        n = n - 1
+      } {
+        if (last == " ") {
+          n = n - 1
+        } {
+          return (substring text 0 n)
+        }
+      }
+    }
+    return ""
+  }
+
   fn WalkNode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; ---------------------------------------------------------------------------------------
     ; TODO: find out why this ugly hack is necessary, at some point the target language changes

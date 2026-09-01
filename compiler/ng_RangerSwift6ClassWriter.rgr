@@ -1139,7 +1139,7 @@ class RangerSwift6ClassWriter {
     ; every class that another class names after `extends`.
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-      clDocWr.writeSwiftDocForClass((unwrap cl) wr)
+      clDocWr.writeSwiftDocForClass((unwrap cl) ctx wr)
     }
     def swVis:RangerDocCommentWriter (new RangerDocCommentWriter)
     wr.out((swVis.classVisibility((unwrap cl) "" "public " "")) false)
@@ -1253,6 +1253,11 @@ class RangerSwift6ClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
+      if variant.is_doc_example {
+        if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+          continue _
+        }
+      }
       def sIsOverride:boolean false
       if (has parentStaticFunction variant.name) {
         def pStatic:RangerAppFunctionDesc (unwrap (get parentStaticFunction variant.name))
@@ -1262,7 +1267,7 @@ class RangerSwift6ClassWriter {
       }
       if variant.has_doc {
         def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-        sDocWr.writeSwiftDocForMethod(variant wr)
+        sDocWr.writeSwiftDocForMethod(variant ctx wr)
       }
       if sIsOverride {
         wr.out("override " false)
@@ -1315,6 +1320,11 @@ class RangerSwift6ClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue
+          }
+        }
         if(has dblDeclaredFunction variant.compiledName) {
           continue
         }
@@ -1325,7 +1335,7 @@ class RangerSwift6ClassWriter {
         set dblDeclaredFunction variant.compiledName true
         if variant.has_doc {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          mDocWr.writeSwiftDocForMethod(variant wr)
+          mDocWr.writeSwiftDocForMethod(variant ctx wr)
         }
         if isOverride {
           wr.out("override " false)

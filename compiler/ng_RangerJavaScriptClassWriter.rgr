@@ -1023,7 +1023,7 @@ class RangerJavaScriptClassWriter {
 
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-      clDocWr.writeJsDocForClass((unwrap cl) wr)
+      clDocWr.writeJsDocForClass((unwrap cl) ctx wr)
     }
 
     if do_export {
@@ -1175,10 +1175,15 @@ class RangerJavaScriptClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
 
         if variant.has_doc {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          mDocWr.writeJsDocForMethod(variant wr)
+          mDocWr.writeJsDocForMethod(variant ctx wr)
         }
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('async ' false)
@@ -1223,6 +1228,11 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } 
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
 
         if (variant.nameNode.hasFlag("test")) {
           print "Found a test function, but not writing it: " + (variant.nameNode.vref)
@@ -1231,7 +1241,7 @@ class RangerJavaScriptClassWriter {
 
         if variant.has_doc {
           def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          sDocWr.writeJsDocForMethod(variant wr)
+          sDocWr.writeJsDocForMethod(variant ctx wr)
         }
         wr.out("static " false)
         if( variant.nameNode.hasFlag('async') ) {
@@ -1363,6 +1373,11 @@ class RangerJavaScriptClassWriter {
       }
 
       for cl.static_methods variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } {
@@ -1392,7 +1407,7 @@ class RangerJavaScriptClassWriter {
           }
           if variant.has_doc {
             def jsDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-            jsDocWr.writeJsDocForMethod(variant wr)
+            jsDocWr.writeJsDocForMethod(variant ctx wr)
           }
           if useDefineProp {
             wr.out((("Object.defineProperty(" + cl.name + ", \"" + variant.compiledName + "\", { value: ") + asyncKeyword + "function(") false)

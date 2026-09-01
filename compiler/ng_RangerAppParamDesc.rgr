@@ -166,6 +166,13 @@ class RangerAppParamDesc {
   ; both extend this class, so one slot serves classes, methods and fields.
   def has_doc:boolean false
   def docBlock:RangerDocBlock
+  ; This declaration is named by an `example` entry somewhere. It is compiled
+  ; and type-checked like any other function, then left OUT of the emitted
+  ; code -- the point of an example is that it is checked, not that it ships.
+  def is_doc_example:boolean false
+  ; The body of an example, rendered in the target's own syntax, filled in
+  ; before any class is written.
+  def docExampleText:string ""
   def has_events:boolean false
   def eMap:RangerParamEventMap
 

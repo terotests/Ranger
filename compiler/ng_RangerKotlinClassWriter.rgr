@@ -833,7 +833,7 @@ class RangerKotlinClassWriter {
     wr.out("" true)
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-      clDocWr.writeKotlinDocForClass((unwrap cl) wr)
+      clDocWr.writeKotlinDocForClass((unwrap cl) ctx wr)
     }
     def ktVis:RangerDocCommentWriter (new RangerDocCommentWriter)
     wr.out((ktVis.classVisibility((unwrap cl) "" "" "internal ")) false)
@@ -997,6 +997,11 @@ class RangerKotlinClassWriter {
       wr.out("}" true)
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
+      if variant.is_doc_example {
+        if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+          continue _
+        }
+      }
       wr.out("" true)
       if (variant.nameNode.hasFlag("main")) {
         continue _
@@ -1007,7 +1012,7 @@ class RangerKotlinClassWriter {
       def sIsOverride:boolean (variant.nameNode.hasFlag("override"))
       if variant.has_doc {
         def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-        sDocWr.writeKotlinDocForMethod((unwrap cl) variant wr)
+        sDocWr.writeKotlinDocForMethod((unwrap cl) variant ctx wr)
       }
       if sIsOverride {
         wr.out("override " false)
@@ -1045,6 +1050,11 @@ class RangerKotlinClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
         wr.out("" true)
         def shouldOverride:boolean false
         if (variant.nameNode.hasFlag("override")) {
@@ -1065,7 +1075,7 @@ class RangerKotlinClassWriter {
         }
         if variant.has_doc {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          mDocWr.writeKotlinDocForMethod((unwrap cl) variant wr)
+          mDocWr.writeKotlinDocForMethod((unwrap cl) variant ctx wr)
         }
         if shouldOverride {
           wr.out("override " false)

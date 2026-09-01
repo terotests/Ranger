@@ -683,7 +683,7 @@ class RangerCSharpClassWriter {
     this.writeCSharpUnionInterfaces(ctx wr)
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-      clDocWr.writeCsDocForClass((unwrap cl) wr)
+      clDocWr.writeCsDocForClass((unwrap cl) ctx wr)
       def clDoc:RangerDocBlock (unwrap cl.docBlock)
       if clDoc.is_public {
         wr.out('public ' false)
@@ -793,6 +793,11 @@ class RangerCSharpClassWriter {
       wr.out("}" true)
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
+      if variant.is_doc_example {
+        if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+          continue
+        }
+      }
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {
         continue
       }
@@ -801,7 +806,7 @@ class RangerCSharpClassWriter {
       } {
         if variant.has_doc {
           def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          sDocWr.writeCsDocForMethod(variant wr)
+          sDocWr.writeCsDocForMethod(variant ctx wr)
         }
         def sVis:RangerDocCommentWriter (new RangerDocCommentWriter)
         wr.out((sVis.memberVisibility((unwrap cl) variant "public " "public " "internal ")) false)
@@ -828,9 +833,14 @@ class RangerCSharpClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue
+          }
+        }
         if variant.has_doc {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
-          mDocWr.writeCsDocForMethod(variant wr)
+          mDocWr.writeCsDocForMethod(variant ctx wr)
         }
         def mVis:RangerDocCommentWriter (new RangerDocCommentWriter)
         wr.out((mVis.memberVisibility((unwrap cl) variant "public " "public " "internal ")) false)

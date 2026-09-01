@@ -685,3 +685,136 @@ describe("Dart target: dartdoc and a generated export surface", () => {
     expect(text).toContain("Since 1.2");
   }, 1800000);
 });
+
+describe("`example` names a function, not a string", () => {
+  // The whole point: the sample is compiled, so it cannot drift from the API
+  // it demonstrates -- and each target shows the sample in ITS OWN syntax.
+  const targets = [
+    { lang: "-es6", ext: "js", fence: "@example", body: 'const g = new Greeter();' },
+    { lang: "-l=kotlin", ext: "kt", fence: "```kotlin", body: 'val g : Greeter  =  Greeter();' },
+    { lang: "-l=python", ext: "py", fence: "Example:", body: "g = Greeter()" },
+    { lang: "-l=dart", ext: "dart", fence: "```dart", body: "Greeter g =  Greeter();" },
+    { lang: "-l=csharp", ext: "cs", fence: "<example><code>", body: "Greeter g = new Greeter();" },
+    { lang: "-l=swift6", ext: "swift", fence: "```swift", body: "let g : Greeter = Greeter()" },
+  ];
+
+  for (const t of targets) {
+    it(`renders the example in ${t.ext} syntax and leaves it out of the output`, () => {
+      const r = compile(
+        "tests/fixtures/api_docs_example.rgr",
+        [t.lang, `-o=x.${t.ext}`],
+        `example-${t.ext}`
+      );
+      expect(r.ok, r.stdout).toBe(true);
+      const code = read(r.dir, `x.${t.ext}`);
+      expect(code).toContain(t.fence);
+      expect(code).toContain(t.body);
+      // the example function and the class that holds it are gone: an
+      // example is checked, not shipped
+      expect(code).not.toContain("greetExample");
+      expect(code).not.toMatch(/(^|\n)\s*(public |final |internal )*class GreeterExamples/);
+      // the API it documents is still there
+      expect(code).toContain("Builds a greeting for a name.");
+    });
+  }
+
+  it("keeps the example in the output under -keep-examples", () => {
+    const r = compile(
+      "tests/fixtures/api_docs_example.rgr",
+      ["-l=kotlin", "-o=x.kt", "-keep-examples"],
+      "example-keep"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    const code = read(r.dir, "x.kt");
+    expect(code).toContain("greetExample");
+    expect(code).toContain("class GreeterExamples");
+  });
+
+  it("type checks the example: a mistake inside one fails the build", () => {
+    const r = compile(
+      "tests/fixtures/api_docs_example_broken.rgr",
+      ["-l=kotlin", "-o=x.kt"],
+      "example-broken"
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stdout).toContain("greetz");
+  });
+
+  it("rejects an example that names no function", () => {
+    const r = compile(
+      "tests/fixtures/api_docs_example_missing.rgr",
+      ["-l=kotlin", "-o=x.kt"],
+      "example-missing"
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stdout).toContain("`example noSuchExample` names no function");
+  });
+
+  it("renders the example exactly as the compiler emits that code", () => {
+    // the rendered sample is the writer's own output, so it cannot claim
+    // syntax the target would not have produced
+    const r = compile(
+      "tests/fixtures/api_docs_example.rgr",
+      ["-l=kotlin", "-o=x.kt", "-keep-examples"],
+      "example-faithful"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    const code = read(r.dir, "x.kt");
+    const open = code.indexOf("```kotlin");
+    const close = code.indexOf("```", open + 9);
+    const inDoc = code
+      .slice(open + 9, close)
+      .split("\n")
+      .map((l) => l.replace(/^\s*\*\s?/, "").trim())
+      .filter((l) => l.length > 0);
+    expect(inDoc.length).toBeGreaterThan(1);
+    // every rendered line appears verbatim in the emitted example function
+    const emitted = code.slice(code.indexOf("greetExample"));
+    for (const line of inDoc) {
+      expect(emitted, `rendered line missing from emitted code: ${line}`).toContain(line);
+    }
+  });
+
+  it("keeps a class that holds an example AND something else", () => {
+    // The removal is per class and conservative: a class is only dropped when
+    // every member is an example. A top-level `sfn` attaches to the LAST
+    // declared class, so `main` landing in an examples class must not delete
+    // the program's entry point.
+    const src = fs
+      .readFileSync(path.join(ROOT, "tests/fixtures/api_docs_example.rgr"), "utf8")
+      .replace(/class App \{[\s\S]*?\n\}/, "")
+      .trimEnd()
+      .concat('\nsfn main:void () {\n  print "ok"\n}\n');
+    const tmp = path.join(ROOT, "tests/fixtures/.api_docs_example_mainlast.rgr");
+    fs.writeFileSync(tmp, src);
+    try {
+      const r = compile(
+        "tests/fixtures/.api_docs_example_mainlast.rgr",
+        ["-l=kotlin", "-o=x.kt"],
+        "example-mainlast"
+      );
+      expect(r.ok, r.stdout).toBe(true);
+      const code = read(r.dir, "x.kt");
+      // the example body is still gone
+      expect(code).not.toContain("greetExample");
+      // but the class survives, because main lives in it
+      expect(code).toContain("class GreeterExamples");
+      expect(code).toContain("fun main(");
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
+  });
+
+  it("a compiled example still runs", () => {
+    const r = compile(
+      "tests/fixtures/api_docs_example.rgr",
+      ["-es6", "-o=x.js"],
+      "example-run"
+    );
+    expect(r.ok, r.stdout).toBe(true);
+    const out = execFileSync(process.execPath, [path.join(r.dir, "x.js")], {
+      encoding: "utf8",
+    });
+    expect(out.trim()).toBe("Hello, Ranger");
+  });
+});

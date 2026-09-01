@@ -204,7 +204,7 @@ block on a line of its own binds to nothing and is a compile error.
                   | 'throws' <string>
                   | 'since' <string>
                   | 'see' <identifier>
-                  | 'example' <string>
+                  | 'example' (<identifier> | <string>)
                   | 'category' <string>
                   | 'platform' <identifier>
                   | 'attr' <string>
@@ -230,7 +230,10 @@ fn find:EVGA11yNode ( id:string ) {
 ```
 
 A doc entry may not carry information the compiler already has: `param x int "…"`
-is a compile error, because the type is in the signature. `public` is what puts
+is a compile error, because the type is in the signature. `example` names a
+**function** rather than quoting one: it is type checked with the program,
+rendered into each target's doc comment in that target's own syntax, and left
+out of the emitted code. `public` is what puts
 a declaration in the API surface — there is no `export` keyword. See
 [`PLAN_API_DOCS.md`](../PLAN_API_DOCS.md).
 

@@ -47,6 +47,7 @@ rgrc program.rgr -l=go -d=./bin -o=program.go
 | `-csnamespace=<name>` | The C# namespace for the generated types. |
 | `-ktpackage=<name>` | The Kotlin package for the generated types. |
 | `-apistrict` | An undocumented public declaration or parameter is an error, not a warning. |
+| `-keep-examples` | Emit the functions named by an `example` doc entry. They are type checked either way; by default they are left out of the output. |
 
 To see the complete list, run `rgrc` with no arguments.
 

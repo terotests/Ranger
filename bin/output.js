@@ -394,6 +394,7 @@ class RangerDocBlock  {
     this.is_deprecated = false;
     this.see = [];
     this.examples = [];
+    this.exampleRefs = [];
     this.category = "";
     this.platform = "";
     this.attrs = [];
@@ -460,8 +461,12 @@ class RangerDocBlock  {
       var e = this.examples[i_3];
       merged.examples.push(e);
     };
-    for ( let i_4 = 0; i_4 < ov.attrs.length; i_4++) {
-      var a = ov.attrs[i_4];
+    for ( let i_4 = 0; i_4 < this.exampleRefs.length; i_4++) {
+      var r = this.exampleRefs[i_4];
+      merged.exampleRefs.push(r);
+    };
+    for ( let i_5 = 0; i_5 < ov.attrs.length; i_5++) {
+      var a = ov.attrs[i_5];
       merged.attrs.push(a);
     };
     if ( (ov.description.length) > 0 ) {
@@ -470,8 +475,8 @@ class RangerDocBlock  {
     if ( (ov.returns.length) > 0 ) {
       merged.returns = ov.returns;
     }
-    for ( let i_5 = 0; i_5 < ov.params.length; i_5++) {
-      var p_1 = ov.params[i_5];
+    for ( let i_6 = 0; i_6 < ov.params.length; i_6++) {
+      var p_1 = ov.params[i_6];
       merged.params.push(p_1);
     };
     return merged;
@@ -606,7 +611,17 @@ class RangerDocReader  {
           doc.see.push(this.textFrom(item, 1));
           break;
         case "example" : 
-          doc.examples.push(this.textFrom(item, 1));
+          let first;
+          if ( argc > 1 ) {
+            first = item.children[1];
+            if ( first.value_type == 4 ) {
+              doc.examples.push(this.textFrom(item, 1));
+            } else {
+              doc.exampleRefs.push(first.vref);
+            }
+          } else {
+            ctx.addError(item, "example needs either a string or the name of a function");
+          }
           break;
         case "category" : 
           doc.category = this.textFrom(item, 1);
@@ -748,6 +763,7 @@ class RangerApiBuilder  {
     this.strict = false;
     this.publicClassNames = {};
     this.internalClassNames = {};
+    this.exampleFns = [];
   }
   typeNameOf (node) {
     let base = "";
@@ -1017,12 +1033,87 @@ class RangerApiBuilder  {
       }
       model.classes.push(ac);
     };
+    this.resolveExamples(model, ctx);
     return model;
+  };
+  findExampleFn (ctx, name) {
+    return RangerDocCommentWriter.lookupFn(ctx, name);
+  };
+  markExamplesOf (doc, owner, ctx) {
+    for ( let i = 0; i < doc.exampleRefs.length; i++) {
+      var name = doc.exampleRefs[i];
+      const fd = this.findExampleFn(ctx, name);
+      if ( (fd.name.length) == 0 ) {
+        ctx.addError(owner, ("`example " + name) + "` names no function in this program");
+        continue;
+      }
+      fd.is_doc_example = true;
+      let seen = false;
+      for ( let k = 0; k < this.exampleFns.length; k++) {
+        var known = this.exampleFns[k];
+        if ( known.name == fd.name ) {
+          seen = true;
+        }
+      };
+      if ( seen == false ) {
+        this.exampleFns.push(fd);
+      }
+    };
+  };
+  resolveExamples (model, ctx) {
+    for ( let ci = 0; ci < model.classes.length; ci++) {
+      var c = model.classes[ci];
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        this.markExamplesOf(cdoc, c.node, ctx);
+      }
+      for ( let mi = 0; mi < c.methods.length; mi++) {
+        var m = c.methods[mi];
+        if ( m.has_doc ) {
+          const mdoc = m.doc;
+          this.markExamplesOf(mdoc, m.node, ctx);
+        }
+      };
+      for ( let fi = 0; fi < c.fields.length; fi++) {
+        var f = c.fields[fi];
+        if ( f.has_doc ) {
+          const fdoc = f.doc;
+          this.markExamplesOf(fdoc, c.node, ctx);
+        }
+      };
+    };
   };
 }
 class RangerDocCommentWriter  {
   constructor() {
+    this.exampleTexts = [];
   }
+  clearExamples () {
+    let empty = [];
+    this.exampleTexts = empty;
+  };
+  loadExamples (doc, ctx) {
+    this.clearExamples();
+    for ( let i = 0; i < doc.exampleRefs.length; i++) {
+      var name = doc.exampleRefs[i];
+      const fd = RangerDocCommentWriter.lookupFn(ctx, name);
+      if ( (fd.docExampleText.length) > 0 ) {
+        this.exampleTexts.push(fd.docExampleText);
+      }
+    };
+  };
+  allExamples (doc) {
+    let out = [];
+    for ( let i = 0; i < doc.examples.length; i++) {
+      var e = doc.examples[i];
+      out.push(e);
+    };
+    for ( let i_1 = 0; i_1 < this.exampleTexts.length; i_1++) {
+      var t = this.exampleTexts[i_1];
+      out.push(t);
+    };
+    return out;
+  };
   jsTypeName (t) {
     let out = t;
     switch (t ) { 
@@ -1183,8 +1274,8 @@ class RangerDocCommentWriter  {
       var s = doc.see[i_3];
       wr.out(" * @see " + s, true);
     };
-    for ( let i_4 = 0; i_4 < doc.examples.length; i_4++) {
-      var e = doc.examples[i_4];
+    for ( let i_4 = 0; i_4 < this.allExamples(doc).length; i_4++) {
+      var e = this.allExamples(doc)[i_4];
       wr.out(" * @example", true);
       const exLines = this.linesOf(e);
       for ( let j = 0; j < exLines.length; j++) {
@@ -1241,8 +1332,8 @@ class RangerDocCommentWriter  {
       var s = doc.see[i_2];
       wr.out(("/// <seealso cref=\"" + this.xmlEscape(s)) + "\"/>", true);
     };
-    for ( let i_3 = 0; i_3 < doc.examples.length; i_3++) {
-      var e = doc.examples[i_3];
+    for ( let i_3 = 0; i_3 < this.allExamples(doc).length; i_3++) {
+      var e = this.allExamples(doc)[i_3];
       wr.out("/// <example><code>", true);
       const exLines = this.linesOf(e);
       for ( let j = 0; j < exLines.length; j++) {
@@ -1366,8 +1457,8 @@ class RangerDocCommentWriter  {
         wr.out(("/// See also: ``" + sname) + "``", true);
       };
     }
-    for ( let i_5 = 0; i_5 < doc.examples.length; i_5++) {
-      var e = doc.examples[i_5];
+    for ( let i_5 = 0; i_5 < this.allExamples(doc).length; i_5++) {
+      var e = this.allExamples(doc)[i_5];
       wr.out("///", true);
       wr.out("/// ```swift", true);
       const exLines = this.linesOf(e);
@@ -1488,10 +1579,10 @@ class RangerDocCommentWriter  {
       wr.out(" * @see " + sname, true);
       wroteTag = true;
     };
-    for ( let i_4 = 0; i_4 < doc.examples.length; i_4++) {
-      var e = doc.examples[i_4];
+    for ( let i_4 = 0; i_4 < this.allExamples(doc).length; i_4++) {
+      var e = this.allExamples(doc)[i_4];
       wr.out(" *", true);
-      wr.out(" * ```", true);
+      wr.out(" * ```kotlin", true);
       const exLines = this.linesOf(e);
       for ( let j = 0; j < exLines.length; j++) {
         var line_1 = exLines[j];
@@ -1645,8 +1736,8 @@ class RangerDocCommentWriter  {
         wr.out("    " + sname, true);
       };
     }
-    for ( let i_4 = 0; i_4 < doc.examples.length; i_4++) {
-      var e = doc.examples[i_4];
+    for ( let i_4 = 0; i_4 < this.allExamples(doc).length; i_4++) {
+      var e = this.allExamples(doc)[i_4];
       wr.out("", true);
       wr.out("Example:", true);
       const exLines = this.linesOf(e);
@@ -1751,8 +1842,8 @@ class RangerDocCommentWriter  {
         wr.out(("/// See also [" + sname) + "].", true);
       };
     }
-    for ( let i_5 = 0; i_5 < doc.examples.length; i_5++) {
-      var e = doc.examples[i_5];
+    for ( let i_5 = 0; i_5 < this.allExamples(doc).length; i_5++) {
+      var e = this.allExamples(doc)[i_5];
       wr.out("///", true);
       wr.out("/// ```dart", true);
       const exLines = this.linesOf(e);
@@ -1800,71 +1891,78 @@ class RangerDocCommentWriter  {
     };
     return out;
   };
-  writeJsDocForMethod (fd, wr) {
+  writeJsDocForMethod (fd, ctx, wr) {
     if ( fd.has_doc == false ) {
       return;
     }
     const doc = fd.docBlock;
     const view = doc.viewFor("es6");
+    this.loadExamples(view, ctx);
     const ps = this.paramsOf(fd, view, true);
     const rn = fd.nameNode;
     const rt = this.jsTypeOf(rn);
     this.writeJsDoc(view, rt, ps, wr);
   };
-  writeCsDocForMethod (fd, wr) {
+  writeCsDocForMethod (fd, ctx, wr) {
     if ( fd.has_doc == false ) {
       return;
     }
     const doc = fd.docBlock;
     const view = doc.viewFor("csharp");
+    this.loadExamples(view, ctx);
     const ps = this.paramsOf(fd, view, false);
     const rn = fd.nameNode;
     const rt = this.csTypeName(rn.type_name);
     this.writeCsDoc(view, rt, ps, wr);
     this.writeCsAttrs(view, wr);
   };
-  writeJsDocForClass (cl, wr) {
+  writeJsDocForClass (cl, ctx, wr) {
     if ( cl.has_doc == false ) {
       return;
     }
     const doc = cl.docBlock;
     const view = doc.viewFor("es6");
+    this.loadExamples(view, ctx);
     let ps = [];
     this.writeJsDoc(view, "void", ps, wr);
   };
-  writeCsDocForClass (cl, wr) {
+  writeCsDocForClass (cl, ctx, wr) {
     if ( cl.has_doc == false ) {
       return;
     }
     const doc = cl.docBlock;
     const view = doc.viewFor("csharp");
+    this.loadExamples(view, ctx);
     let ps = [];
     this.writeCsDoc(view, "void", ps, wr);
     this.writeCsAttrs(view, wr);
   };
-  writeSwiftDocForMethod (fd, wr) {
+  writeSwiftDocForMethod (fd, ctx, wr) {
     if ( fd.has_doc == false ) {
       return;
     }
     const doc = fd.docBlock;
     const view = doc.viewFor("swift6");
+    this.loadExamples(view, ctx);
     const ps = this.paramsOf(fd, view, false);
     const rn = fd.nameNode;
     const rt = this.swiftTypeName(rn.type_name);
     this.writeSwiftDoc(view, rt, ps, wr);
     this.writeSwiftAttrs(view, wr);
   };
-  writeSwiftDocForClass (cl, wr) {
+  writeSwiftDocForClass (cl, ctx, wr) {
     if ( cl.has_doc == false ) {
       return;
     }
     const doc = cl.docBlock;
     const view = doc.viewFor("swift6");
+    this.loadExamples(view, ctx);
     let ps = [];
     this.writeSwiftDoc(view, "Void", ps, wr);
     this.writeSwiftAttrs(view, wr);
   };
   writeSwiftDocForField (p, wr) {
+    this.clearExamples();
     if ( p.has_doc == false ) {
       return;
     }
@@ -1897,29 +1995,32 @@ class RangerDocCommentWriter  {
     };
     return out + ")";
   };
-  writeKotlinDocForMethod (cl, fd, wr) {
+  writeKotlinDocForMethod (cl, fd, ctx, wr) {
     if ( fd.has_doc == false ) {
       return;
     }
     const doc = fd.docBlock;
     const view = doc.viewFor("kotlin");
+    this.loadExamples(view, ctx);
     const ps = this.paramsOf(fd, view, false);
     const rn = fd.nameNode;
     const rt = this.kotlinTypeName(rn.type_name);
     this.writeKotlinDoc(view, rt, ps, wr);
     this.writeKotlinAttrs(view, this.kotlinReplaceWith(cl, view), wr);
   };
-  writeKotlinDocForClass (cl, wr) {
+  writeKotlinDocForClass (cl, ctx, wr) {
     if ( cl.has_doc == false ) {
       return;
     }
     const doc = cl.docBlock;
     const view = doc.viewFor("kotlin");
+    this.loadExamples(view, ctx);
     let ps = [];
     this.writeKotlinDoc(view, "Unit", ps, wr);
     this.writeKotlinAttrs(view, "", wr);
   };
   writeKotlinDocForField (p, wr) {
+    this.clearExamples();
     if ( p.has_doc == false ) {
       return;
     }
@@ -1929,12 +2030,13 @@ class RangerDocCommentWriter  {
     this.writeKotlinDoc(view, "Unit", ps, wr);
     this.writeKotlinAttrs(view, "", wr);
   };
-  writePyDocForMethod (fd, wr) {
+  writePyDocForMethod (fd, ctx, wr) {
     if ( fd.has_doc == false ) {
       return;
     }
     const doc = fd.docBlock;
     const view = doc.viewFor("python");
+    this.loadExamples(view, ctx);
     const ps = this.paramsOf(fd, view, false);
     for ( let i = 0; i < ps.length; i++) {
       var p = ps[i];
@@ -1944,38 +2046,42 @@ class RangerDocCommentWriter  {
     const rt = this.pyTypeOf(rn);
     this.writePyDoc(view, rt, ps, wr);
   };
-  writePyDocForClass (cl, wr) {
+  writePyDocForClass (cl, ctx, wr) {
     if ( cl.has_doc == false ) {
       return;
     }
     const doc = cl.docBlock;
     const view = doc.viewFor("python");
+    this.loadExamples(view, ctx);
     let ps = [];
     this.writePyDoc(view, "None", ps, wr);
   };
-  writeDartDocForMethod (fd, wr) {
+  writeDartDocForMethod (fd, ctx, wr) {
     if ( fd.has_doc == false ) {
       return;
     }
     const doc = fd.docBlock;
     const view = doc.viewFor("dart");
+    this.loadExamples(view, ctx);
     const ps = this.paramsOf(fd, view, false);
     const rn = fd.nameNode;
     const rt = this.dartTypeName(rn.type_name);
     this.writeDartDoc(view, rt, ps, wr);
     this.writeDartAttrs(view, wr);
   };
-  writeDartDocForClass (cl, wr) {
+  writeDartDocForClass (cl, ctx, wr) {
     if ( cl.has_doc == false ) {
       return;
     }
     const doc = cl.docBlock;
     const view = doc.viewFor("dart");
+    this.loadExamples(view, ctx);
     let ps = [];
     this.writeDartDoc(view, "void", ps, wr);
     this.writeDartAttrs(view, wr);
   };
   writeDartDocForField (p, wr) {
+    this.clearExamples();
     if ( p.has_doc == false ) {
       return;
     }
@@ -2017,6 +2123,7 @@ class RangerDocCommentWriter  {
     return whenInternal;
   };
   writeJsDocForField (p, wr) {
+    this.clearExamples();
     if ( p.has_doc == false ) {
       return;
     }
@@ -2027,6 +2134,7 @@ class RangerDocCommentWriter  {
     this.writeJsDocTyped(view, "void", ps, this.jsTypeOf(pn), wr);
   };
   writeCsDocForField (p, wr) {
+    this.clearExamples();
     if ( p.has_doc == false ) {
       return;
     }
@@ -2037,6 +2145,22 @@ class RangerDocCommentWriter  {
     this.writeCsAttrs(view, wr);
   };
 }
+RangerDocCommentWriter.lookupFn = function(ctx, name) {
+  const root = ctx.getRoot();
+  for ( let ci = 0; ci < root.definedClassList.length; ci++) {
+    var cname = root.definedClassList[ci];
+    const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
+    const m = cl.findStaticMethod(name);
+    if ( (typeof(m) === "undefined") == false ) {
+      return m;
+    }
+    const m2 = cl.findMethod(name);
+    if ( (typeof(m2) === "undefined") == false ) {
+      return m2;
+    }
+  };
+  return new RangerAppFunctionDesc();
+};
 class RangerApiArtifactWriter  {
   constructor() {
   }
@@ -3004,6 +3128,8 @@ class RangerAppParamDesc  {
     this.description = "";     /* note: unused */
     this.git_doc = "";
     this.has_doc = false;
+    this.is_doc_example = false;
+    this.docExampleText = "";
     this.has_events = false;
   }
   addEvent (name, e) {
@@ -3487,6 +3613,31 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   };
   doesInherit () {
     return this.is_inherited;
+  };
+  isDocExampleOnly () {
+    let anyMember = false;
+    for ( let vi = 0; vi < this.variables.length; vi++) {
+      var v = this.variables[vi];
+      return false;
+    };
+    for ( let mi = 0; mi < this.methods.length; mi++) {
+      var m = this.methods[mi];
+      if ( m.is_doc_example == false ) {
+        return false;
+      }
+      anyMember = true;
+    };
+    for ( let si = 0; si < this.static_methods.length; si++) {
+      var m_1 = this.static_methods[si];
+      if ( m_1.is_doc_example == false ) {
+        return false;
+      }
+      anyMember = true;
+    };
+    if ( this.has_constructor ) {
+      return false;
+    }
+    return anyMember;
   };
   isNormalClass () {
     const special = ((((this.is_operator_class || this.is_trait) || this.is_system) || this.is_generic_instance) || this.is_system_union) || this.is_union;
@@ -21464,6 +21615,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             this.release_local_vars(node, ctx.parent, wr);
           }
         };
+        async renderDocExample (fd, ctx, outer) {
+          const wr = new CodeWriter();
+          wr.parent = outer;
+          const body = fd.fnBody;
+          if ( typeof(body) === "undefined" ) {
+            return "";
+          }
+          const fnCtx = fd.fnCtx;
+          if ( typeof(fnCtx) === "undefined" ) {
+            return "";
+          }
+          const subCtx = fnCtx;
+          const wasFn = subCtx.is_function;
+          subCtx.is_function = true;
+          await this.WalkNode(body, subCtx, wr);
+          subCtx.is_function = wasFn;
+          const rendered = wr.getCode();
+          return this.trimTrailingBlank(rendered);
+        };
+        trimTrailingBlank (text) {
+          let n = text.length;
+          while (n > 0) {
+            const last = text.substring((n - 1), n );
+            if ( (last == "\n") || (last == "\r") ) {
+              n = n - 1;
+            } else {
+              if ( last == " " ) {
+                n = n - 1;
+              } else {
+                return text.substring(0, n );
+              }
+            }
+          };
+          return "";
+        };
         async WalkNode (node, ctx, wr) {
           await operatorsOf.forEach_15(node.children, ((item, index) => { 
             if ( (typeof(item.evalCtx) !== "undefined" && item.evalCtx != null )  ) {
@@ -24868,7 +25054,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("}", true);
           if ( cl.has_doc ) {
             const clDocWr = new RangerDocCommentWriter();
-            clDocWr.writeSwiftDocForClass(cl, wr);
+            clDocWr.writeSwiftDocForClass(cl, ctx, wr);
           }
           const swVis = new RangerDocCommentWriter();
           wr.out(swVis.classVisibility((cl), "", "public ", ""), false);
@@ -24978,6 +25164,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( variant_2.nameNode.hasFlag("main") ) {
               continue;
             }
+            if ( variant_2.is_doc_example ) {
+              if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                continue;
+              }
+            }
             let sIsOverride = false;
             if ( ( typeof(parentStaticFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(parentStaticFunction, variant_2.name) ) ) {
               const pStatic = (( Object.prototype.hasOwnProperty.call(parentStaticFunction, variant_2.name) ? parentStaticFunction[variant_2.name] : undefined ));
@@ -24987,7 +25178,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             if ( variant_2.has_doc ) {
               const sDocWr = new RangerDocCommentWriter();
-              sDocWr.writeSwiftDocForMethod(variant_2, wr);
+              sDocWr.writeSwiftDocForMethod(variant_2, ctx, wr);
             }
             if ( sIsOverride ) {
               wr.out("override ", false);
@@ -25043,6 +25234,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
             for ( let i_11 = 0; i_11 < mVs_1.variants.length; i_11++) {
               var variant_3 = mVs_1.variants[i_11];
+              if ( variant_3.is_doc_example ) {
+                if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                  continue;
+                }
+              }
               if ( ( typeof(dblDeclaredFunction[variant_3.compiledName] ) != "undefined" && Object.prototype.hasOwnProperty.call(dblDeclaredFunction, variant_3.compiledName) ) ) {
                 continue;
               }
@@ -25053,7 +25249,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               dblDeclaredFunction[variant_3.compiledName] = true;
               if ( variant_3.has_doc ) {
                 const mDocWr = new RangerDocCommentWriter();
-                mDocWr.writeSwiftDocForMethod(variant_3, wr);
+                mDocWr.writeSwiftDocForMethod(variant_3, ctx, wr);
               }
               if ( isOverride ) {
                 wr.out("override ", false);
@@ -37693,7 +37889,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out("", true);
                             if ( cl.has_doc ) {
                               const clDocWr = new RangerDocCommentWriter();
-                              clDocWr.writeKotlinDocForClass(cl, wr);
+                              clDocWr.writeKotlinDocForClass(cl, ctx, wr);
                             }
                             const ktVis = new RangerDocCommentWriter();
                             wr.out(ktVis.classVisibility((cl), "", "", "internal "), false);
@@ -37866,6 +38062,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
                               var variant_1 = cl.static_methods[i_5];
+                              if ( variant_1.is_doc_example ) {
+                                if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                  continue;
+                                }
+                              }
                               wr.out("", true);
                               if ( variant_1.nameNode.hasFlag("main") ) {
                                 continue;
@@ -37876,7 +38077,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const sIsOverride = variant_1.nameNode.hasFlag("override");
                               if ( variant_1.has_doc ) {
                                 const sDocWr = new RangerDocCommentWriter();
-                                sDocWr.writeKotlinDocForMethod(cl, variant_1, wr);
+                                sDocWr.writeKotlinDocForMethod(cl, variant_1, ctx, wr);
                               }
                               if ( sIsOverride ) {
                                 wr.out("override ", false);
@@ -37914,6 +38115,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
                               for ( let i_7 = 0; i_7 < mVs_1.variants.length; i_7++) {
                                 var variant_2 = mVs_1.variants[i_7];
+                                if ( variant_2.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 wr.out("", true);
                                 let shouldOverride = false;
                                 if ( variant_2.nameNode.hasFlag("override") ) {
@@ -37929,7 +38135,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                                 if ( variant_2.has_doc ) {
                                   const mDocWr = new RangerDocCommentWriter();
-                                  mDocWr.writeKotlinDocForMethod(cl, variant_2, wr);
+                                  mDocWr.writeKotlinDocForMethod(cl, variant_2, ctx, wr);
                                 }
                                 if ( shouldOverride ) {
                                   wr.out("override ", false);
@@ -38622,7 +38828,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out("", true);
                             if ( cl.has_doc ) {
                               const clDocWr = new RangerDocCommentWriter();
-                              clDocWr.writeDartDocForClass(cl, wr);
+                              clDocWr.writeDartDocForClass(cl, ctx, wr);
                             }
                             wr.out("class " + cl.name, false);
                             const dartUnions = this.unionInterfacesOf((cl), ctx);
@@ -38764,10 +38970,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( variant_1.nameNode.hasFlag("main") ) {
                                 continue;
                               }
+                              if ( variant_1.is_doc_example ) {
+                                if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                  continue;
+                                }
+                              }
                               wr.out("", true);
                               if ( variant_1.has_doc ) {
                                 const sDocWr = new RangerDocCommentWriter();
-                                sDocWr.writeDartDocForMethod(variant_1, wr);
+                                sDocWr.writeDartDocForMethod(variant_1, ctx, wr);
                               }
                               wr.out("static ", false);
                               await this.writeTypeDef(variant_1.nameNode, ctx, wr);
@@ -38793,6 +39004,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
                               for ( let i_6 = 0; i_6 < mVs_1.variants.length; i_6++) {
                                 var variant_2 = mVs_1.variants[i_6];
+                                if ( variant_2.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 wr.out("", true);
                                 let shouldOverride = false;
                                 if ( variant_2.nameNode.hasFlag("override") ) {
@@ -38803,7 +39019,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                                 if ( variant_2.has_doc ) {
                                   const mDocWr = new RangerDocCommentWriter();
-                                  mDocWr.writeDartDocForMethod(variant_2, wr);
+                                  mDocWr.writeDartDocForMethod(variant_2, ctx, wr);
                                 }
                                 if ( shouldOverride ) {
                                   wr.out("@override", true);
@@ -39392,7 +39608,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.writeCSharpUnionInterfaces(ctx, wr);
                             if ( cl.has_doc ) {
                               const clDocWr = new RangerDocCommentWriter();
-                              clDocWr.writeCsDocForClass(cl, wr);
+                              clDocWr.writeCsDocForClass(cl, ctx, wr);
                               const clDoc = cl.docBlock;
                               if ( clDoc.is_public ) {
                                 wr.out("public ", false);
@@ -39496,6 +39712,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
                               var variant = cl.static_methods[i_3];
+                              if ( variant.is_doc_example ) {
+                                if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                  continue;
+                                }
+                              }
                               if ( variant.nameNode.hasFlag("main") && (variant.nameNode.code.filename != ctx.getRootFile()) ) {
                                 continue;
                               }
@@ -39504,7 +39725,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               } else {
                                 if ( variant.has_doc ) {
                                   const sDocWr = new RangerDocCommentWriter();
-                                  sDocWr.writeCsDocForMethod(variant, wr);
+                                  sDocWr.writeCsDocForMethod(variant, ctx, wr);
                                 }
                                 const sVis = new RangerDocCommentWriter();
                                 wr.out(sVis.memberVisibility((cl), variant, "public ", "public ", "internal "), false);
@@ -39529,9 +39750,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
                               for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                                 var variant_1 = mVs.variants[i_5];
+                                if ( variant_1.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 if ( variant_1.has_doc ) {
                                   const mDocWr = new RangerDocCommentWriter();
-                                  mDocWr.writeCsDocForMethod(variant_1, wr);
+                                  mDocWr.writeCsDocForMethod(variant_1, ctx, wr);
                                 }
                                 const mVis = new RangerDocCommentWriter();
                                 wr.out(mVis.memberVisibility((cl), variant_1, "public ", "public ", "internal "), false);
@@ -44049,7 +44275,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.indent(1);
                             if ( cl.has_doc ) {
                               const clDocWr = new RangerDocCommentWriter();
-                              clDocWr.writePyDocForClass(cl, wr);
+                              clDocWr.writePyDocForClass(cl, ctx, wr);
                             }
                             if ( cl.isSingletonClass() ) {
                               wr.out("_rg_singleton_instance = None", true);
@@ -44157,6 +44383,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
                               var variant = cl.static_methods[i_4];
+                              if ( variant.is_doc_example ) {
+                                if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                  continue;
+                                }
+                              }
                               if ( variant.nameNode.hasFlag("main") ) {
                                 continue;
                               } else {
@@ -44168,7 +44399,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.indent(1);
                               if ( variant.has_doc ) {
                                 const sDocWr = new RangerDocCommentWriter();
-                                sDocWr.writePyDocForMethod(variant, wr);
+                                sDocWr.writePyDocForMethod(variant, ctx, wr);
                               }
                               const subCtx_1 = variant.fnCtx;
                               subCtx_1.is_function = true;
@@ -44183,6 +44414,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
                               for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
                                 var variant_1 = mVs.variants[i_6];
+                                if ( variant_1.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_1.name) ) ) {
                                   continue;
                                 }
@@ -44196,7 +44432,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.indent(1);
                                 if ( variant_1.has_doc ) {
                                   const mDocWr = new RangerDocCommentWriter();
-                                  mDocWr.writePyDocForMethod(variant_1, wr);
+                                  mDocWr.writePyDocForMethod(variant_1, ctx, wr);
                                 }
                                 const subCtx_2 = variant_1.fnCtx;
                                 subCtx_2.is_function = true;
@@ -45179,7 +45415,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( cl.has_doc ) {
                               const clDocWr = new RangerDocCommentWriter();
-                              clDocWr.writeJsDocForClass(cl, wr);
+                              clDocWr.writeJsDocForClass(cl, ctx, wr);
                             }
                             if ( do_export ) {
                               wr.out("export ", false);
@@ -45318,9 +45554,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
                               for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                                 var variant = mVs.variants[i_5];
+                                if ( variant.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 if ( variant.has_doc ) {
                                   const mDocWr = new RangerDocCommentWriter();
-                                  mDocWr.writeJsDocForMethod(variant, wr);
+                                  mDocWr.writeJsDocForMethod(variant, ctx, wr);
                                 }
                                 if ( variant.nameNode.hasFlag("async") ) {
                                   wr.out("async ", false);
@@ -45362,13 +45603,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( variant_1.nameNode.hasFlag("main") ) {
                                   continue;
                                 }
+                                if ( variant_1.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 if ( variant_1.nameNode.hasFlag("test") ) {
                                   console.log("Found a test function, but not writing it: " + variant_1.nameNode.vref);
                                   continue;
                                 }
                                 if ( variant_1.has_doc ) {
                                   const sDocWr = new RangerDocCommentWriter();
-                                  sDocWr.writeJsDocForMethod(variant_1, wr);
+                                  sDocWr.writeJsDocForMethod(variant_1, ctx, wr);
                                 }
                                 wr.out("static ", false);
                                 if ( variant_1.nameNode.hasFlag("async") ) {
@@ -45496,6 +45742,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               for ( let i_10 = 0; i_10 < cl.static_methods.length; i_10++) {
                                 var variant_2 = cl.static_methods[i_10];
+                                if ( variant_2.is_doc_example ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    continue;
+                                  }
+                                }
                                 if ( variant_2.nameNode.hasFlag("main") ) {
                                   continue;
                                 } else {
@@ -45519,7 +45770,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                   if ( variant_2.has_doc ) {
                                     const jsDocWr = new RangerDocCommentWriter();
-                                    jsDocWr.writeJsDocForMethod(variant_2, wr);
+                                    jsDocWr.writeJsDocForMethod(variant_2, ctx, wr);
                                   }
                                   if ( useDefineProp ) {
                                     wr.out(((((("Object.defineProperty(" + cl.name) + ", \"") + variant_2.compiledName) + "\", { value: ") + asyncKeyword) + "function(", false);
@@ -60340,6 +60591,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return true;
                             }
                             if ( node.hasClassDescription ) {
+                              const exCl = node.clDesc;
+                              if ( (typeof(exCl) === "undefined") == false ) {
+                                const exDesc = exCl;
+                                if ( exDesc.isDocExampleOnly() ) {
+                                  if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                    return true;
+                                  }
+                                }
+                              }
                               await this.langWriter.writeClass(node, ctx, wr);
                               return true;
                             }
@@ -65262,7 +65522,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               let the_file = "";
                                                               let plugins_only = false;
                                                               const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file", "apidoc", "write the API documentation artifacts into this subdirectory", "apiformat", "which API artifacts to write: json, markdown, report (default json,markdown)", "csnamespace", "C# namespace for the generated types", "ktpackage", "Kotlin package for the generated types"];
-                                                              const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "apistrict", "An undocumented public declaration or parameter is an error, not a warning", "apipackage", "Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet", "docstyle-none", "Do not write documentation comments into the generated code", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                                              const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "apistrict", "An undocumented public declaration or parameter is an error, not a warning", "apipackage", "Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet", "keep-examples", "Emit the functions named by `example` into the output. They are type checked either way; by default they are left out", "docstyle-none", "Do not write documentation comments into the generated code", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                                               const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                                               if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                                                 cli.printHeader();
@@ -65761,6 +66021,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   }
                                                                 }
                                                                 wr = contentFork;
+                                                                for ( let exIdx = 0; exIdx < apiBuilder.exampleFns.length; exIdx++) {
+                                                                  var exFn = apiBuilder.exampleFns[exIdx];
+                                                                  exFn.docExampleText = await lcc.langWriter.renderDocExample(exFn, appCtx, (wr));
+                                                                };
                                                                 let handledClasses = {};
                                                                 for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
                                                                   var cName = appCtx.definedClassList[i_4];

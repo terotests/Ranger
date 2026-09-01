@@ -405,6 +405,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       return true
     }
     if node.hasClassDescription {
+      ; A class holding nothing but doc examples has nothing left to emit once
+      ; the examples are removed. The guard belongs HERE rather than in the
+      ; caller's class loop: a program with a top-level `main` reaches its
+      ; classes through the static-methods node instead, and a guard in the
+      ; loop alone let the empty shell through on exactly those programs.
+      def exCl@(optional weak):RangerAppClassDesc node.clDesc
+      if ((null? exCl) == false) {
+        def exDesc:RangerAppClassDesc (unwrap exCl)
+        if (exDesc.isDocExampleOnly()) {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            return true
+          }
+        }
+      }
       langWriter.writeClass(node ctx wr)
       return true
     }

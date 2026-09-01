@@ -276,7 +276,7 @@ Small, closed, and checked. Every entry is a vref followed by either strings or 
 | `since` | `since "1.2"` | Library version that introduced it |
 | `deprecated` | `deprecated { since "2.0" use "find" description "…" }` | See §4.2 |
 | `see` | `see EVGA11yNode` | A cross-reference. The name is resolved (§6.4) |
-| `example` | `example "…"` or `example { … }` | Sample code. Repeatable |
+| `example` | `example someFunction` or `example "…"` | Sample code. Repeatable. See §18 |
 | `category` | `category "Accessibility"` | Grouping hint for the rendered output |
 | `experimental` | flag | Stability marker; renders as the target's alpha/beta tag |
 | `platform` | `platform editor` | Audience/platform of the symbol. See §11.4 |
@@ -1605,3 +1605,116 @@ the multi-file emission of Phase F.
 The type-leak check of §5.2 **is** implemented and runs for every target, because
 it is the check that keeps a `public` Swift or Rust declaration from failing in
 the target compiler rather than in Ranger.
+
+---
+
+## 18. `example` names a function, not a string
+
+A code sample written as a string is the one thing in this vocabulary that
+breaks §3's rule: it restates the program, in the medium least able to keep up
+with it. Nothing checks it, and a signature change rots it silently.
+
+So `example` takes the **name of a Ranger function**:
+
+```ranger
+fn greet:string ( name:string ) {
+    return (prefix + ", " + name)
+} doc {
+    public
+    description "Builds a greeting for a name."
+    param name "Who to greet."
+    example greetExample
+}
+
+class GreeterExamples {
+    sfn greetExample:void () {
+        def g:Greeter (new Greeter())
+        def out:string (g.greet("world"))
+        print out
+    }
+}
+```
+
+`example "…"` with a literal string still works, for prose that is not Ranger
+at all — a shell command, a JSON body. It is unchecked, and that is now a
+visible choice rather than the only option.
+
+### 18.1 What the reader sees
+
+The body is rendered **by the target's own writer**, so each language shows its
+own syntax from the one source:
+
+| Target | The same example |
+| --- | --- |
+| JavaScript | `const g = new Greeter();` |
+| Kotlin | `val g : Greeter  =  Greeter();` |
+| Swift | `let g : Greeter = Greeter()`, and `g.greet(name : "world")` |
+| C# | `Greeter g = new Greeter();`, with `out` renamed to `_out` |
+| Dart | `Greeter g =  Greeter();` |
+| Python | `g = Greeter()` |
+
+Swift shows the argument label and C# the keyword rename because those are what
+the compiler actually emits. A hand-written sample cannot track either.
+
+The rendering is the writer's own output, walked through the same `WalkNode`
+that writes the method bodies, into a **detached** `CodeWriter` — a plain one
+rather than a `fork`, because a fork registers a slice and the example would
+have been emitted into the file as well. `tests/api-docs.test.ts` asserts that
+every rendered line appears verbatim in the emitted function under
+`-keep-examples`, so the sample cannot claim syntax the target would not
+produce.
+
+### 18.2 Checked, then removed
+
+An example is an ordinary function: collected, analysed and **type-checked**
+with the rest of the program. A mistake inside one fails the build.
+
+It is then left out of the emitted code. The whole function is skipped by every
+writer, and a class whose members are *all* examples is skipped entirely —
+`class GreeterExamples { }` left standing is not "removed from the output".
+
+The removal is deliberately conservative: a class is dropped only when every
+member is an example and it has no fields and no constructor. This matters more
+than it looks, because **a top-level `sfn` attaches to the last declared
+class** — so a `main` written after an examples class lands *inside* it, and
+deleting the class would delete the program's entry point. It keeps the class
+instead. The fixture in `tests/fixtures/api_docs_example.rgr` gives `main` its
+own class for that reason, and a test covers the other arrangement.
+
+`-keep-examples` emits them, for a build that wants the samples compiled and
+runnable.
+
+### 18.3 Where it runs in the pipeline
+
+```text
+CollectMethods → StartWalk (the example is type-checked here)
+              → RangerApiBuilder.build   resolves `example` names, marks the
+                                         functions, errors on a name that
+                                         resolves to nothing
+              → render pass              every example body walked once, in
+                                         the target's syntax, before any class
+                                         is written — the doc comment quoting
+                                         one is usually emitted first
+              → code generation          the examples are skipped
+```
+
+Each body is walked exactly once: once for the render, never for emission.
+
+### 18.4 What this rules out
+
+Not `@sample`. KDoc's `@sample` names a function Dokka inlines from compiled
+source, which is the idiomatic Kotlin answer and would be better — except that
+it requires the function to *be in the output*, and the point here is that it
+is not. The two are mutually exclusive, and removability was the requirement.
+Under `-keep-examples` a future version could emit `@sample` instead of the
+inlined body.
+
+### 18.5 A finding the rendering exposed
+
+The rendered Kotlin reads
+`((_data.row()).str("region", "North")).num("sales", 120.0)` where a person
+would write `_data.row().str(…).num(…)`. That is not the example mechanism
+adding parentheses: the same source in an ordinary method body emits
+`(o.a(1)).b(2);` too. Chain emission on Kotlin parenthesises every step, and
+the example rendering is faithful to it. Worth fixing in the writers; it is not
+this feature's to fix, and a sample that lies about the output would be worse.

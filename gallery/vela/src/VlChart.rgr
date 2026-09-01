@@ -140,13 +140,8 @@ object a geoshape reads, or a value that came out of the parser."
     description "One row of a dataset, filled column by column.
 
 A row is handed back already attached to its dataset, so nothing has to be
-pushed anywhere by the caller:
-
-```
-def data (VlDataset.create())
-data.row().str(\"region\" \"North\").num(\"sales\" 120.0)
-data.row().str(\"region\" \"South\").num(\"sales\"  93.0)
-```"
+pushed anywhere by the caller."
+    example datasetExample
     see VlDataset
 }
 
@@ -397,13 +392,8 @@ the same thing to everything downstream.
 
 The dataset is a value **beside** the chart rather than a thing inside it: a
 spreadsheet's selection becomes one dataset and a dashboard's six panels read
-it.
-
-```
-def data (VlDataset.create())
-data.row().str(\"region\" \"North\").num(\"sales\" 120.0)
-data.row().str(\"region\" \"South\").num(\"sales\"  93.0)
-```"
+it."
+    example datasetExample
     see VlChart
 }
 
@@ -1217,11 +1207,7 @@ what makes them read as marks rather than as hairlines."
     category "Marks"
     description "One mark and the channels it reads.
 
-Every setter answers the mark, so a mark is written as one sentence:
-
-```
-chart.bar().x(\"region\").y(\"sales\").aggregate(\"sum\").title(\"Total sales\")
-```
+Every setter answers the mark, so a mark is written as one sentence.
 
 `aggregate`, `bin`, `title` and the rest apply to the channel most recently
 named — the cursor — which is what makes that sentence read in the order it is
@@ -1232,6 +1218,7 @@ A channel names a **column**. A constant goes through `valueNumber` or
 column called red and `.color(\"#c00\")` meaning paint it red cannot both be
 true, and the version that guesses is the one that draws a chart nobody asked
 for."
+    example markSentenceExample
     see VlChart
 }
 
@@ -1930,6 +1917,7 @@ axis neither of them asked for."
     } doc {
         public
         category "Output"
+        example chartQuickExample
         description "The chart as a Vega-Lite specification.
 
 One mark comes out as a plain specification; several come out as layers, each
@@ -1952,18 +1940,6 @@ drawn an empty axis and said nothing."
     category "Marks"
     description "A chart: a dataset, the channels every mark shares, how big it is, and the marks.
 
-```
-def data (VlDataset.create())
-data.row().str(\"region\" \"North\").num(\"sales\" 120.0)
-data.row().str(\"region\" \"South\").num(\"sales\"  93.0)
-
-def chart (VlChart.create(data))
-chart.size(300 200)
-chart.bar().x(\"region\").y(\"sales\").aggregate(\"sum\")
-
-def spec:VlJson (chart.toSpec())
-```
-
 The fluent surface is a **writer of specifications**, not the engine. Every
 call writes into a specification and `toSpec` hands that specification over;
 nothing here computes a scale, a layout or a pixel. There is no path where the
@@ -1971,18 +1947,58 @@ API computes something the engine would have computed differently, because the
 API computes nothing at all.
 
 A channel said on the chart is inherited by every mark on it, so a line and the
-points on top of it are two marks and one set of axes rather than two charts:
-
-```
-chart.x(\"quarter\").y(\"sales\").color(\"region\")
-chart.area().markOpacity(0.35)
-chart.line()
-```
+points on top of it are two marks and one set of axes rather than two charts.
 
 A channel need not state its type — the data says. A column of numbers is a
 quantity, a column of ISO dates an instant, anything else a name. A field the
 data does not have is an **error** rather than a guess: `errors` is non-empty
 and the caller can say so instead of drawing an empty axis."
+    example chartQuickExample
+    example sharedChannelExample
     since "1.0"
     see VlDataset
+}
+
+; ------------------------------------------------------------------------------
+; The examples the doc blocks above name.
+;
+; These are ordinary functions: they are compiled and type-checked with the
+; rest of the file, so a signature change breaks the build rather than the
+; documentation. They are left OUT of the emitted code — `-keep-examples`
+; puts them back — and each doc comment carries the body rendered in its own
+; target's syntax, so a Kotlin reader is shown Kotlin.
+; ------------------------------------------------------------------------------
+class VlChartExamples {
+
+    sfn datasetExample:void () {
+        def data (VlDataset.create())
+        data.row().str("region" "North").num("sales" 120.0)
+        data.row().str("region" "South").num("sales" 93.0)
+    }
+
+    sfn chartQuickExample:void () {
+        def data (VlDataset.create())
+        data.row().str("region" "North").num("sales" 120.0)
+        data.row().str("region" "South").num("sales" 93.0)
+        def chart (VlChart.create(data))
+        chart.size(300 200)
+        chart.bar().x("region").y("sales").aggregate("sum")
+        def spec (chart.toSpec())
+    }
+
+    sfn markSentenceExample:void () {
+        def data (VlDataset.create())
+        data.row().str("region" "North").num("sales" 120.0)
+        def chart (VlChart.create(data))
+        chart.bar().x("region").y("sales").aggregate("sum").title("Total sales")
+    }
+
+    sfn sharedChannelExample:void () {
+        def data (VlDataset.create())
+        data.row().str("region" "North").num("sales" 120.0)
+        def chart (VlChart.create(data))
+        chart.x("region").y("sales").color("region")
+        chart.area().markOpacity(0.35)
+        chart.line()
+    }
 }
