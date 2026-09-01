@@ -178,6 +178,53 @@ class InputCtl extends UiCtl {
         anchor = (this.clamp(anchor))
     }
 
+    ; The whole state at once, from a platform text-input session.
+    ;
+    ; This is the door the web bridge comes through, and it is deliberately
+    ; the widest one in the class: a native `<input>` has ALREADY done the
+    ; edit by the time we hear about it — `beforeinput` carries the old value
+    ; and `input` the new one, measured — so there is nothing to replay and
+    ; no inputType to interpret. Value, anchor and caret, wholesale.
+    ;
+    ; Which is the point. Everything the field cannot do by hand — IME, dead
+    ; keys, the clipboard, undo, emoji that are four code units wide, a
+    ; phone keyboard that sends no per-character keydown — arrives through
+    ; here as a value that is simply different, and needs no case of its own.
+    ;
+    ; `anchor` first and `caret` second, both clamped: a session that reports
+    ; a selection out of range (it should not, but a mirror that trusts an
+    ; external number without checking is a crash waiting for an off-by-one)
+    ; collapses to something drawable rather than indexing past the string.
+    ; The FILTER still applies. A session reports what the platform allowed,
+    ; and the platform does not know that this field is a number: `inputmode`
+    ; is a keyboard hint on a phone and nothing at all on a desktop keyboard,
+    ; and `type=number` cannot be used for the proxy because such an input
+    ; reports `selectionStart` as null and the mirror needs it.
+    ;
+    ; So the model still refuses what the field will not hold, and the caller
+    ; pushes the corrected value back into the session. Wiring the bridge
+    ; without this quietly undid the number field's filter — every edit went
+    ; round `insertText`, where the filter lives, so "Amount" took letters
+    ; again.
+    fn applyEdit:void (v:string selStart:int selEnd:int) {
+        def kept:string (this.filterText(v))
+        def a:int (this.clamp(selStart))
+        def b:int (this.clamp(selEnd))
+        if (kept != v) {
+            ; Something was refused. The caret cannot stay where the platform
+            ; put it — that index counts characters that are not there — so it
+            ; goes to the end of what was kept, which is where a person's next
+            ; keystroke should land.
+            value = kept
+            anchor = (strlen kept)
+            caret = (strlen kept)
+            return
+        }
+        value = v
+        anchor = (this.clamp(selStart))
+        caret = (this.clamp(selEnd))
+    }
+
     ; Replace the selection with `t`, or insert it at the caret when there is
     ; none. Every edit goes through here — Backspace and Delete included, by
     ; first making a one-character selection — so there is one place where a

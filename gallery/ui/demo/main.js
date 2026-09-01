@@ -25,6 +25,7 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
@@ -534,6 +535,12 @@ const DEMOS = {
     // Shift+click extends rather than collapses — measured, [2,10] from a
     // caret at 2 and a click at 10.
     cursorAt: (x, y) => form.cursorAt(x, y),
+    // The platform owns the editing; see evg-textinput.js.
+    textSession: {
+      focused: () => form.focusedField(),
+      state: (tid) => JSON.parse(form.fieldStateJson(tid)),
+      apply: (tid, v, a, b) => form.applyEdit(tid, v, a, b),
+    },
     press: (id, x, y, ev) => form.beginSelection(id, x, !!(ev && ev.shiftKey)),
     // `drag`/`drop` put the pointer under CAPTURE, which is the whole reason
     // they are declared: without it a selection that starts inside the box
@@ -577,6 +584,11 @@ const DEMOS = {
     hit: (x, y) => profile.hitId(x, y),
     a11y: (gen, focus) => profile.a11yJson(gen, focus),
     cursorAt: (x, y) => profile.cursorAt(x, y),
+    textSession: {
+      focused: () => profile.focusedField(),
+      state: (tid) => JSON.parse(profile.fieldStateJson(tid)),
+      apply: (tid, v, a, b) => profile.applyEdit(tid, v, a, b),
+    },
     press: (id, x, y, ev) => profile.beginSelection(id, x, !!(ev && ev.shiftKey)),
     drag: (id, ev) => profile.extendSelection(ev.offsetX),
     drop: () => profile.endSelection(),
@@ -1257,6 +1269,7 @@ let mirror = null;
 function press(x, y, ev) {
   const id = hitAt(x, y);
   if (demo().press(id, x, y, ev)) paint();
+  syncTextSession();
 }
 
 function paint() {
@@ -1402,6 +1415,7 @@ radios(
     state.focus = "";
     syncPanels();
     syncMotionClock();
+    syncTextSession();
   },
 );
 boxes(
@@ -1528,6 +1542,7 @@ canvas.addEventListener("pointerdown", (ev) => {
       canvas.setPointerCapture(ev.pointerId);
       paint();
     }
+    syncTextSession();
     return;
   }
   press(ev.offsetX, ev.offsetY, ev);
@@ -1576,6 +1591,7 @@ canvas.addEventListener("dblclick", (ev) => {
   const d = demo();
   if (!d.dblclick) return;
   if (d.dblclick(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY)) paint();
+  syncTextSession();
 });
 canvas.addEventListener("pointerup", () => {
   const d = demo();
@@ -1589,6 +1605,7 @@ canvas.addEventListener("pointerup", () => {
   if (!held || !d.drop) return;
   held = false;
   if (d.drop()) paint();
+  syncTextSession();
 });
 canvas.addEventListener("pointerleave", () => {
   const d = demo();
@@ -1648,6 +1665,76 @@ window.addEventListener("keydown", (ev) => {
   // exist once that paint has built them. One more pass settles it.
   if (settlePendingRow()) paint();
 });
+
+// The text-input session. A real, transparent <input> over the focused field:
+// the browser does the editing and Ranger mirrors it, so IME, dead keys, the
+// clipboard, undo, emoji and a phone's on-screen keyboard all work without a
+// line of code each. See evg-textinput.js for what was measured first.
+const textInput = createTextInputBridge({
+  host: stage,
+  canvas,
+  onEdit: ({ value, selStart, selEnd }) => {
+    const d = demo();
+    const s = d.textSession;
+    if (!s) return;
+    const tid = textInput.activeTid();
+    if (!tid) return;
+    if (!s.apply(tid, value, selStart, selEnd)) return;
+    paint();
+    // The model may have REFUSED part of it — a number field will not take
+    // letters, and the platform has no idea. Push the corrected value back
+    // into the session, but only when it actually differs: writing to the
+    // proxy's `value` for no reason disturbs the browser's own undo history,
+    // which is one of the things this bridge exists to inherit.
+    const after = s.state(tid);
+    if (after && after.value !== value) textInput.sync(after);
+  },
+  // Keys the APPLICATION owns rather than the field. Everything else — every
+  // arrow, Home, End, Ctrl+Arrow, Backspace over an emoji — stays with the
+  // proxy on purpose: those are precisely the platform rules this exists to
+  // borrow, and intercepting them here would be reimplementing them again.
+  onKey: (k) => {
+    if (k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
+    const d = demo();
+    const took = d.keyWith ? d.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey) : false;
+    // Focus may have moved to another field, or off the fields entirely.
+    syncTextSession();
+    if (took) paint();
+    return took;
+  },
+});
+
+/**
+ * Hand the keyboard to whichever field the demo now says is focused, or take
+ * it back. Called after anything that can move focus — a click, a Tab, a
+ * demo switch — because the demo owns focus and the bridge only follows it.
+ */
+function syncTextSession() {
+  const d = demo();
+  const s = d.textSession;
+  if (!s) {
+    textInput.blurField();
+    return;
+  }
+  const tid = s.focused();
+  if (!tid) {
+    textInput.blurField();
+    return;
+  }
+  const st = s.state(tid);
+  if (!st) {
+    textInput.blurField();
+    return;
+  }
+  if (textInput.activeTid() === tid) {
+    // Same field, but Ranger may have moved the caret itself — a click, a
+    // drag, a double-click. The proxy has to agree or the next keystroke
+    // edits at the old place.
+    textInput.sync(st);
+    return;
+  }
+  textInput.focusField(tid, st);
+}
 
 mirror = createA11yMirror(stage, {
   canvas,

@@ -680,6 +680,12 @@ class ProfileDemo {
         return target
     }
 
+    fn fieldBoxOf:EVGElement (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        return (ProfileDemo.byId(r target))
+    }
+
     fn indexAt:int (target:string px:double) {
         def c:InputCtl (this.inputFor(target))
         if (c.tid != target) {
@@ -792,6 +798,77 @@ class ProfileDemo {
             i = (i + 1)
         }
         return ""
+    }
+
+
+    ; --- the platform text-input session --------------------------------------
+    ;
+    ; The web host puts a real, transparent `<input>` over the focused field
+    ; and lets the browser do the editing; these two methods are the seam.
+    ; JSON across it, the way the display list and the accessible tree already
+    ; cross it — one method rather than nine accessors that can drift.
+
+    fn focusedField:string () {
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == focused) {
+                return c.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Everything the proxy needs to become this field: what it holds, where
+    ; the selection is, what KIND it is — which decides the proxy's `type` and
+    ; `inputmode`, so a password proxy reveals correctly and a number proxy
+    ; brings up a numeric keypad on a phone — and where it is drawn, so the
+    ; IME's candidate window appears next to the text it is composing rather
+    ; than in a corner.
+    fn fieldStateJson:string (tid:string) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return "null"
+        }
+        def box:EVGElement (this.fieldBoxOf(tid))
+        def out:string "{"
+        out = (out + "\"tid\":" + (EVGA11yTree.jsonString(c.tid)))
+        out = (out + ",\"value\":" + (EVGA11yTree.jsonString(c.value)))
+        out = (out + ",\"selStart\":" + (to_string (c.selStart())))
+        out = (out + ",\"selEnd\":" + (to_string (c.selEnd())))
+        out = (out + ",\"kind\":" + (EVGA11yTree.jsonString(c.kind)))
+        out = (out + ",\"maxLength\":" + (to_string c.maxLength))
+        if c.readOnly {
+            out = (out + ",\"readOnly\":true")
+        }
+        if (box.id == tid) {
+            out = (out + ",\"box\":{\"x\":" + (to_string (to_int (box.calculatedX))))
+            out = (out + ",\"y\":" + (to_string (to_int (box.calculatedY))))
+            out = (out + ",\"w\":" + (to_string (to_int (box.calculatedWidth))))
+            out = (out + ",\"h\":" + (to_string (to_int (box.calculatedHeight))) + "}")
+        }
+        return (out + "}")
+    }
+
+    ; The session reported an edit. Wholesale — see `InputCtl.applyEdit`: the
+    ; browser has already done the work, and there is nothing here to replay.
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return false
+        }
+        if (c.readOnly) {
+            return false
+        }
+        if (c.disabled) {
+            return false
+        }
+        c.applyEdit(v selStart selEnd)
+        c.ensureCaretVisible((this.engine()))
+        this.rebuild()
+        return true
     }
 
     fn setHover:void (id:string) { hovered = id }

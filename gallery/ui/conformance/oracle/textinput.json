@@ -1,0 +1,473 @@
+{
+  "typing": {
+    "events": [
+      {
+        "kind": "keydown",
+        "inputType": null,
+        "data": null,
+        "isComposing": false,
+        "value": "ab",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertText",
+        "data": "c",
+        "isComposing": false,
+        "value": "ab",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "input",
+        "inputType": "insertText",
+        "data": "c",
+        "isComposing": false,
+        "value": "abc",
+        "selStart": 3,
+        "selEnd": 3
+      }
+    ],
+    "$comment": "Whether `value` already carries the new character when `beforeinput` fires decides the bridge's shape: if it does not, the bridge can simply read the input on `input` and mirror it wholesale."
+  },
+  "composition": {
+    "events": [
+      {
+        "kind": "compositionstart",
+        "inputType": null,
+        "data": "",
+        "isComposing": null,
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0
+      },
+      {
+        "kind": "compositionupdate",
+        "inputType": null,
+        "data": "にほ",
+        "isComposing": null,
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertCompositionText",
+        "data": "にほ",
+        "isComposing": true,
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0
+      },
+      {
+        "kind": "input",
+        "inputType": "insertCompositionText",
+        "data": "にほ",
+        "isComposing": true,
+        "value": "にほ",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "compositionupdate",
+        "inputType": null,
+        "data": "にほん",
+        "isComposing": null,
+        "value": "にほ",
+        "selStart": 0,
+        "selEnd": 2
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertCompositionText",
+        "data": "にほん",
+        "isComposing": true,
+        "value": "にほ",
+        "selStart": 0,
+        "selEnd": 2
+      },
+      {
+        "kind": "input",
+        "inputType": "insertCompositionText",
+        "data": "にほん",
+        "isComposing": true,
+        "value": "にほん",
+        "selStart": 3,
+        "selEnd": 3
+      },
+      {
+        "kind": "compositionupdate",
+        "inputType": null,
+        "data": "日本",
+        "isComposing": null,
+        "value": "にほん",
+        "selStart": 0,
+        "selEnd": 3
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertCompositionText",
+        "data": "日本",
+        "isComposing": true,
+        "value": "にほん",
+        "selStart": 0,
+        "selEnd": 3
+      },
+      {
+        "kind": "input",
+        "inputType": "insertCompositionText",
+        "data": "日本",
+        "isComposing": true,
+        "value": "日本",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "compositionend",
+        "inputType": null,
+        "data": "日本",
+        "isComposing": null,
+        "value": "日本",
+        "selStart": 2,
+        "selEnd": 2
+      }
+    ],
+    "midComposition": {
+      "value": "にほ",
+      "selStart": 2,
+      "selEnd": 2
+    },
+    "midComposition2": {
+      "value": "にほん",
+      "selStart": 3,
+      "selEnd": 3
+    },
+    "afterCommit": {
+      "value": "日本",
+      "selStart": 2,
+      "selEnd": 2
+    },
+    "$comment": "The composing range is what a field has to underline, and it is the one part of this a hidden proxy cannot draw for us. If the range is not readable from the events, the bridge has to track it from compositionstart plus the data length."
+  },
+  "compositionInsideText": {
+    "state": {
+      "value": "abろcd",
+      "selStart": 3,
+      "selEnd": 3
+    },
+    "events": [
+      {
+        "kind": "compositionstart",
+        "inputType": null,
+        "data": "",
+        "isComposing": null,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "compositionupdate",
+        "inputType": null,
+        "data": "ろ",
+        "isComposing": null,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertCompositionText",
+        "data": "ろ",
+        "isComposing": true,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "input",
+        "inputType": "insertCompositionText",
+        "data": "ろ",
+        "isComposing": true,
+        "value": "abろcd",
+        "selStart": 3,
+        "selEnd": 3
+      }
+    ]
+  },
+  "compositionCancelled": {
+    "state": {
+      "value": "abcd",
+      "selStart": 2,
+      "selEnd": 2
+    },
+    "events": [
+      {
+        "kind": "compositionstart",
+        "inputType": null,
+        "data": "",
+        "isComposing": null,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "compositionupdate",
+        "inputType": null,
+        "data": "ろ",
+        "isComposing": null,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertCompositionText",
+        "data": "ろ",
+        "isComposing": true,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "input",
+        "inputType": "insertCompositionText",
+        "data": "ろ",
+        "isComposing": true,
+        "value": "abろcd",
+        "selStart": 3,
+        "selEnd": 3
+      },
+      {
+        "kind": "compositionupdate",
+        "inputType": null,
+        "data": "",
+        "isComposing": null,
+        "value": "abろcd",
+        "selStart": 2,
+        "selEnd": 3
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertCompositionText",
+        "data": "",
+        "isComposing": true,
+        "value": "abろcd",
+        "selStart": 2,
+        "selEnd": 3
+      },
+      {
+        "kind": "input",
+        "inputType": "insertCompositionText",
+        "data": null,
+        "isComposing": true,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      },
+      {
+        "kind": "compositionend",
+        "inputType": null,
+        "data": "",
+        "isComposing": null,
+        "value": "abcd",
+        "selStart": 2,
+        "selEnd": 2
+      }
+    ]
+  },
+  "clipboard": {
+    "events": [
+      {
+        "kind": "keydown",
+        "inputType": null,
+        "data": null,
+        "isComposing": false,
+        "value": "hello world",
+        "selStart": 0,
+        "selEnd": 5
+      },
+      {
+        "kind": "keydown",
+        "inputType": null,
+        "data": null,
+        "isComposing": false,
+        "value": "hello world",
+        "selStart": 0,
+        "selEnd": 5
+      },
+      {
+        "kind": "keydown",
+        "inputType": null,
+        "data": null,
+        "isComposing": false,
+        "value": "hello world",
+        "selStart": 6,
+        "selEnd": 11
+      },
+      {
+        "kind": "keydown",
+        "inputType": null,
+        "data": null,
+        "isComposing": false,
+        "value": "hello world",
+        "selStart": 6,
+        "selEnd": 11
+      },
+      {
+        "kind": "paste",
+        "inputType": null,
+        "data": null,
+        "isComposing": null,
+        "value": "hello world",
+        "selStart": 6,
+        "selEnd": 11
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "insertFromPaste",
+        "data": "hello",
+        "isComposing": false,
+        "value": "hello world",
+        "selStart": 6,
+        "selEnd": 11
+      },
+      {
+        "kind": "input",
+        "inputType": "insertFromPaste",
+        "data": "hello",
+        "isComposing": false,
+        "value": "hello hello",
+        "selStart": 11,
+        "selEnd": 11
+      }
+    ],
+    "state": {
+      "value": "hello hello",
+      "selStart": 11,
+      "selEnd": 11
+    },
+    "$comment": "Copy then paste over a different selection, with no code of ours."
+  },
+  "undo": {
+    "beforeUndo": {
+      "value": "startXYZ",
+      "selStart": 8,
+      "selEnd": 8
+    },
+    "afterUndo": {
+      "value": "start",
+      "selStart": 5,
+      "selEnd": 5
+    },
+    "afterRedo": {
+      "value": "startXYZ",
+      "selStart": 8,
+      "selEnd": 8
+    },
+    "events": [
+      {
+        "kind": "beforeinput",
+        "inputType": "historyUndo",
+        "data": null,
+        "isComposing": false,
+        "value": "startXYZ",
+        "selStart": 8,
+        "selEnd": 8
+      },
+      {
+        "kind": "input",
+        "inputType": "historyUndo",
+        "data": null,
+        "isComposing": false,
+        "value": "start",
+        "selStart": 5,
+        "selEnd": 5
+      },
+      {
+        "kind": "beforeinput",
+        "inputType": "historyRedo",
+        "data": null,
+        "isComposing": false,
+        "value": "start",
+        "selStart": 5,
+        "selEnd": 5
+      },
+      {
+        "kind": "input",
+        "inputType": "historyRedo",
+        "data": null,
+        "isComposing": false,
+        "value": "startXYZ",
+        "selStart": 8,
+        "selEnd": 8
+      }
+    ],
+    "$comment": "Undo is one of the six things InputCtl says out loud that it does not do. Through a native proxy it is not implemented at all — it is simply there, and arrives as an inputType like any other edit."
+  },
+  "backspace": [
+    {
+      "name": "plain ascii",
+      "value": "abc",
+      "codeUnitsBefore": 3,
+      "codeUnitsAfter": 2,
+      "removed": 1,
+      "result": "ab"
+    },
+    {
+      "name": "combining acute",
+      "value": "café",
+      "codeUnitsBefore": 5,
+      "codeUnitsAfter": 4,
+      "removed": 1,
+      "result": "cafe"
+    },
+    {
+      "name": "a BMP-external emoji",
+      "value": "hi🙂",
+      "codeUnitsBefore": 4,
+      "codeUnitsAfter": 2,
+      "removed": 2,
+      "result": "hi"
+    },
+    {
+      "name": "a regional-indicator flag",
+      "value": "hi🇫🇮",
+      "codeUnitsBefore": 6,
+      "codeUnitsAfter": 2,
+      "removed": 4,
+      "result": "hi"
+    },
+    {
+      "name": "a ZWJ family",
+      "value": "hi👨‍👩‍👧‍👦",
+      "codeUnitsBefore": 13,
+      "codeUnitsAfter": 2,
+      "removed": 11,
+      "result": "hi"
+    },
+    {
+      "name": "a skin-tone modifier",
+      "value": "hi👍🏽",
+      "codeUnitsBefore": 6,
+      "codeUnitsAfter": 2,
+      "removed": 4,
+      "result": "hi"
+    }
+  ],
+  "backspaceComment": "How many CODE UNITS one Backspace removes. Anything other than 1 is a shape that `caret - 1` breaks: it leaves half a surrogate pair, a bare combining mark, or one flag letter. This is the table `previousGraphemeBoundary` has to reproduce — or, through a native proxy, never has to, because the browser has already done it.",
+  "arrowLeft": [
+    {
+      "name": "combining acute",
+      "value": "café",
+      "caret": 3,
+      "ofLength": 5
+    },
+    {
+      "name": "a ZWJ family",
+      "value": "hi👨‍👩‍👧‍👦",
+      "caret": 2,
+      "ofLength": 13
+    }
+  ]
+}

@@ -197,6 +197,64 @@ defects were visible.
 Still not wired, and not pretended otherwise: **Shift+click** is implemented
 and reachable but has no end-to-end gate, and **triple-click** is not bound.
 
+### P2 — the web text bridge — **done**
+
+The architectural change, and the one that makes the rest cheap: `InputCtl`
+stops being a thing that handles keys and becomes an editor's **state model**,
+around which the platform opens its own text-input session.
+
+Measured first, in `conformance/oracle/textinput.json`, from a real `<input>`
+driven through the DevTools protocol — IME composition included, so the events
+are the ones a Japanese keyboard produces rather than a simulation:
+
+- **`beforeinput` carries the OLD value, `input` the new one.** So the bridge
+  is a plain mirror — read `value`, `selectionStart`, `selectionEnd` on
+  `input` — and never diffs or replays an `inputType`. That single fact is the
+  whole design.
+- **Composition is readable.** At `beforeinput:insertCompositionText` the
+  selection is the range about to be replaced and `data` is the replacement,
+  so the composing range is `selectionStart .. selectionStart + data.length`.
+  That is the one thing a hidden proxy cannot draw for us.
+- **Copy, cut, paste and undo need no code**: they arrive as
+  `insertFromPaste`, `deleteByCut`, `historyUndo`, `historyRedo`.
+- **One Backspace removes 1 code unit from "abc", 2 from an emoji, 4 from a
+  flag and 11 from a ZWJ family** — while ArrowLeft over a decomposed "é"
+  skips 2 where Backspace removes 1. Chromium's own delete and its own caret
+  motion disagree about that cluster. A hand-written grapheme walker would
+  have to reproduce an inconsistency, not a standard.
+
+`gallery/evg/gl/evg-textinput.js` puts a transparent, `pointer-events: none`,
+`aria-hidden` `<input>` over the focused field. `InputCtl.applyEdit(value,
+selStart, selEnd)` takes the whole state at once. Gated end to end in
+`page-check.mjs`: paste, undo, a ZWJ family, a live IME composition, Tab
+staying with the application, a password proxy, and the number field still
+refusing letters.
+
+Two things this got wrong on the way, both kept as notes rather than quietly
+fixed:
+
+- The proxy sat **on top of** the field and swallowed the pointer, so the
+  I-beam stopped appearing the moment a field was focused. `pointer-events:
+  none`.
+- The page focuses its canvas on every `pointerdown`, which ended the session
+  on the second click of a double-click — the word was selected in Ranger, the
+  proxy still read a collapsed caret, and the keystroke went round the old
+  path and inserted instead of replacing. `sync` now takes the focus back.
+
+And one regression it introduced and then closed: routing edits through
+`applyEdit` bypassed `insertText`, which is where the number field's filter
+lives, so Amount took letters again. The filter moved into `applyEdit`, and
+the corrected value is pushed back into the session — only when it differs,
+because writing to the proxy's `value` disturbs the browser's undo history.
+
+`ui:demo:page` now runs in CI. It did not before, which is precisely why the
+P1b wiring defects survived: the only gate that could see them never ran.
+
+Undo GRANULARITY is deliberately not asserted — the oracle coalesced "XYZ"
+into one undo and the page undoes per keystroke. Coalescing is the browser's
+business; the gate asserts that undo reverses typing and gets back to the
+start, which is the claim being made.
+
 ### P5 — `PasswordCtl` and `OtpCtl`
 
 The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal

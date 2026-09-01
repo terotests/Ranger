@@ -106,6 +106,13 @@ SUITES=(
   ui:form:check
   ui:profile:check
   ui:dashboard:check
+  # THE PAGE ITSELF, in a real browser. This was missing, and its absence is
+  # exactly why three wiring defects survived: click-to-caret worked in the
+  # controller and in the demo's API while `main.js` dropped the coordinate,
+  # and no gate ran the path a person actually uses. It also carries the
+  # platform text session — paste, undo, IME and a Backspace over a ZWJ
+  # family — which cannot be shown anywhere but in a browser.
+  ui:demo:page
 )
 
 failed=()

@@ -56,7 +56,12 @@ const port = server.address().port;
 
 const { chromium } = requireDom("playwright-core");
 const browser = await chromium.launch({ executablePath: findChromium() });
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
+// A context of its own, so the clipboard can be granted: the point of the
+// text bridge is that copy and paste are the platform's, and a check that
+// cannot reach the clipboard cannot show that.
+const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+const page = await context.newPage();
 
 const problems = [];
 page.on("pageerror", (e) => problems.push(`uncaught: ${e.message.split("\n")[0]}`));
@@ -94,7 +99,14 @@ console.log("--- every demo ---");
 // first frame.
 const names = await page.evaluate(() =>
   [...document.querySelectorAll("#demos input[type=radio]")].map((r) => r.value));
-ok("the switcher offers all thirteen", names.length === 13, names.join(","));
+// By NAME, not by count. This said "all thirteen" and went red the day a
+// fourteenth demo arrived — a number in an assertion is a second place to
+// remember something, and it is the place nobody remembers.
+const EXPECTED = ["menubar", "toolbar", "sortable", "table", "tree", "timeline",
+  "resizable", "form", "calendar", "profile", "dashboard", "dropdown", "dialog", "motion"];
+ok("the switcher offers every demo",
+  EXPECTED.every((n) => names.includes(n)) && names.length === EXPECTED.length,
+  names.join(","));
 for (const n of names) {
   problems.length = 0;
   await page.click(`#demos input[value="${n}"]`);
@@ -132,12 +144,24 @@ console.log("--- the keyboard reaches the demo ---");
   await page.mouse.click(rect.x, rect.y);
   await page.waitForTimeout(120);
   const focusedTag = await page.evaluate(() => document.activeElement.tagName);
-  ok("clicking the picture puts the focus on it", focusedTag === "CANVAS", focusedTag);
+  // CANVAS or INPUT. Clicking a TEXT FIELD now hands the keyboard to the
+  // hidden native proxy that owns the editing session, so INPUT is the right
+  // answer there and CANVAS is the right answer everywhere else. This
+  // asserted CANVAS alone, from before there was a session to hand over to.
+  ok("clicking the picture puts the focus on it",
+    focusedTag === "CANVAS" || focusedTag === "INPUT", focusedTag);
   await page.keyboard.type("XY");
   await page.waitForTimeout(200);
   const after = await drawn();
   ok("and typing reaches the field", after === before + "XY", before + " -> " + after);
 }
+
+// Shared by the two form sections below. Declared out here because both need
+// them and a check that reaches into another block's scope is a check that
+// stops working the moment the blocks are reordered.
+let freshForm;
+let box;
+const IN_TEXT = 40;
 
 console.log("--- the pointer edits the text, not just the focus ---");
 {
@@ -156,7 +180,7 @@ console.log("--- the pointer edits the text, not just the focus ---");
   // module scope and keep their state — so the first version of this ran the
   // double-click against a field the click test had already typed into and
   // read "Ada ZXLovelace" back.
-  const freshForm = async () => {
+  freshForm = async () => {
     await page.reload({ waitUntil: "networkidle" });
     await page.click('#demos input[value="form"]');
     await page.waitForTimeout(300);
@@ -173,7 +197,7 @@ console.log("--- the pointer edits the text, not just the focus ---");
     const n = (t.nodes || []).find((x) => x.id === "fm-name");
     return n ? n.value : undefined;
   });
-  const box = await page.evaluate(() => {
+  box = await page.evaluate(() => {
     const el = document.querySelector('[data-a11y-id="fm-name"]');
     if (!el) return null;
     const r = el.getBoundingClientRect();
@@ -188,7 +212,6 @@ console.log("--- the pointer edits the text, not just the focus ---");
   // well past the end of the text — the first version of this check clicked
   // there, got the caret at 12, and read as the very bug it was written for.
   // The offset is in text, and the click lands around the fifth character.
-  const IN_TEXT = 40;
   await page.mouse.click(box.x + IN_TEXT, box.y);
   await page.waitForTimeout(120);
   await page.keyboard.type("X");
@@ -238,6 +261,158 @@ console.log("--- the pointer edits the text, not just the focus ---");
   await page.waitForTimeout(120);
   const cur = await page.evaluate(() => document.querySelector("#stage canvas").style.cursor);
   ok("the pointer says the box is text", cur === "text", cur);
+}
+
+console.log("--- the platform owns the editing, not us ---");
+{
+  // The payoff. None of the four below is implemented anywhere in this repo:
+  // they work because a real, transparent <input> sits over the focused field
+  // and does the editing, and Ranger mirrors its value and selection. Before
+  // the bridge, `keydown` was turned into edits by hand and every one of them
+  // was impossible — three are on InputCtl's own list of things it does not
+  // do, and the fourth breaks any implementation that deletes one code unit.
+  const proxy = () => page.evaluate(() => {
+    const i = [...document.querySelectorAll("input")].find(
+      (x) => x.getAttribute("aria-hidden") === "true");
+    return i ? { value: i.value, s: i.selectionStart, e: i.selectionEnd,
+                 focused: document.activeElement === i, type: i.type } : null;
+  });
+  const rangerValue = () => page.evaluate(() => {
+    const t = JSON.parse(window.__lastA11y || "{}");
+    const n = (t.nodes || []).find((x) => x.id === "fm-name");
+    return n ? n.value : undefined;
+  });
+  const clickField = async () => {
+    await freshForm();
+    await page.mouse.click(box.x + IN_TEXT, box.y);
+    await page.waitForTimeout(150);
+  };
+
+  await clickField();
+  const p0 = await proxy();
+  ok("a focused field hands the keyboard to a real input", p0 && p0.focused, JSON.stringify(p0));
+  ok("seeded with the field's own value and caret",
+    p0 && p0.value === "Ada Lovelace" && p0.s === p0.e && p0.s > 0, JSON.stringify(p0));
+
+  // 1. COPY AND PASTE. InputCtl lists the clipboard as not implemented.
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("ControlOrMeta+c");
+  await page.keyboard.press("End");
+  await page.keyboard.type("! ");
+  await page.keyboard.press("ControlOrMeta+v");
+  await page.waitForTimeout(200);
+  ok("copy and paste work, with no code of ours",
+    (await rangerValue()) === "Ada Lovelace! Ada Lovelace", JSON.stringify(await rangerValue()));
+
+  // 2. UNDO. Also on the not-implemented list.
+  //
+  // GRANULARITY IS NOT ASSERTED. The oracle typed "XYZ" into a bare <input>
+  // and one Ctrl+Z took all three back; here each keystroke undoes on its
+  // own. Coalescing is the browser's business — it depends on timing, on word
+  // boundaries and on whether anything has written to `value` in between —
+  // and pinning it would be asserting a number nobody promised. What is
+  // asserted is the claim actually being made: undo reverses typing, and
+  // keeps reversing it back to where the field started, with no code of ours.
+  await clickField();
+  await page.keyboard.type("QQQ");
+  await page.waitForTimeout(120);
+  const typed = await rangerValue();
+  ok("typing changed it", typed === "Ada QQQLovelace", JSON.stringify(typed));
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.waitForTimeout(150);
+  const oneUndo = await rangerValue();
+  ok("one undo reverses part of it", oneUndo !== typed, `${JSON.stringify(typed)} -> ${JSON.stringify(oneUndo)}`);
+  let steps = 1;
+  let now = oneUndo;
+  while (now !== "Ada Lovelace" && steps < 8) {
+    await page.keyboard.press("ControlOrMeta+z");
+    await page.waitForTimeout(120);
+    const next = await rangerValue();
+    if (next === now) break;
+    now = next;
+    steps++;
+  }
+  ok("and undoing gets back to where the field started",
+    now === "Ada Lovelace", `${JSON.stringify(now)} after ${steps} undos`);
+
+  // 3. GRAPHEMES. One Backspace over a ZWJ family removes ELEVEN code units.
+  // `caret - 1` leaves half a surrogate pair and the field draws a mojibake
+  // box; the browser knows where the cluster ends because it is the browser.
+  await clickField();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText("\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}");
+  await page.waitForTimeout(150);
+  const withFamily = await rangerValue();
+  await page.keyboard.press("Backspace");
+  await page.waitForTimeout(200);
+  const afterBksp = await rangerValue();
+  ok("one Backspace removes a whole ZWJ family, not one code unit",
+    withFamily.length - afterBksp.length === 11 && afterBksp === "Ada Lovelace",
+    `${withFamily.length} -> ${afterBksp.length}, ${JSON.stringify(afterBksp)}`);
+
+  // 4. IME. Driven through the DevTools protocol, so the page sees a real
+  // composition rather than a simulation of one — this is what a Japanese or
+  // Chinese keyboard produces, and it is the single largest thing a
+  // keydown-to-edit field cannot do at all.
+  await clickField();
+  await page.keyboard.press("End");
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Input.imeSetComposition", { text: "にほ", selectionStart: 2, selectionEnd: 2 });
+  await page.waitForTimeout(150);
+  const composing = await rangerValue();
+  ok("a composition in progress reaches the field",
+    typeof composing === "string" && composing.endsWith("にほ"), JSON.stringify(composing));
+  await cdp.send("Input.insertText", { text: "日本" });
+  await page.waitForTimeout(200);
+  const committed = await rangerValue();
+  ok("and committing it replaces the composition",
+    committed === "Ada Lovelace日本", JSON.stringify(committed));
+
+  // Tab still belongs to the application, not to the field.
+  await clickField();
+  await page.keyboard.press("Tab");
+  await page.waitForTimeout(200);
+  const afterTab = await proxy();
+  ok("Tab moves to the next field rather than typing one",
+    afterTab && afterTab.focused && afterTab.value !== "Ada Lovelace", JSON.stringify(afterTab));
+
+  // The model still refuses what the field will not hold. `inputmode` is a
+  // keyboard hint on a phone and nothing on a desktop keyboard, so without
+  // this the bridge quietly undid the number field's filter — every edit now
+  // goes round `insertText`, which is where that filter used to live.
+  await freshForm();
+  const amt = await page.evaluate(() => {
+    const el = document.querySelector('[data-a11y-id="fm-amount"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + 20, y: r.y + r.height / 2 };
+  });
+  if (amt) {
+    await page.mouse.click(amt.x, amt.y);
+    await page.waitForTimeout(150);
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("12ab3");
+    await page.waitForTimeout(200);
+    const amount = await page.evaluate(() => {
+      const t = JSON.parse(window.__lastA11y || "{}");
+      const n = (t.nodes || []).find((x) => x.id === "fm-amount");
+      return n ? n.value : undefined;
+    });
+    ok("a number field still refuses letters", amount === "123", JSON.stringify(amount));
+  }
+
+  // And a password field gets a password proxy — so the platform's own
+  // reveal, and on a phone the right keyboard.
+  await freshForm();
+  const pw = await page.evaluate(() => {
+    const el = document.querySelector('[data-a11y-id="fm-secret"]');
+    const r = el.getBoundingClientRect();
+    return { x: r.x + 20, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(pw.x, pw.y);
+  await page.waitForTimeout(150);
+  const pp = await proxy();
+  ok("a password field gets a password proxy", pp && pp.type === "password", JSON.stringify(pp));
 }
 
 console.log("--- the window follows the pointer ---");
