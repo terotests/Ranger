@@ -1,274 +1,242 @@
-// The Vela chart API, published as one page per language, from the compiler's
-// own API pipeline.
+// The Vela chart API, published with each platform's OWN documentation tool.
 //
 //   node gallery/vela/web/build-api-docs.mjs --out _site/vela/api
 //
 // WHAT THIS IS
 // ------------
-// `-apidoc` writes api.json -- the API as a structure, language-neutral -- and
-// the compiler writes the SOURCE for each target with that API's documentation
-// in the form that ecosystem reads: JSDoc on JavaScript, a Google docstring on
-// Python, KDoc on Kotlin. The structure is the same API; the rendering is not,
-// and the rendering is the interesting half.
+// `-apidoc -apipackage` writes, per target, the package that ecosystem expects:
+// a package.json whose `docs` script calls documentation.js, a pyproject.toml
+// and a module carrying `__docformat__ = "google"` for pdoc, a
+// build.gradle.kts with the Dokka plugin. This step then runs those tools.
 //
-// So the page takes the index from api.json and the prose from the generated
-// source, side by side, one tab per language. Nothing here re-renders a doc
-// comment: what is shown is the exact text the compiler emitted, which is the
-// only way the page can be evidence of anything.
+// That is the point, and it is the test PLAN_API_DOCS.md 7.3 sets: the target's
+// own tool reads Ranger's output with no Ranger-specific plugin. A page built
+// by a renderer of ours would prove nothing about that -- it would only prove
+// we can render our own JSON. These pages are built by documentation.js, pdoc
+// and Dokka, so the site IS the evidence.
 //
-// WHY NOT documentation.js / pdoc / Dokka
-// ---------------------------------------
-// Those are the right tools to POINT AT this output, and PLAN_API_DOCS.md 7.3
-// makes "the target's own tool works on it with no Ranger plugin" the test that
-// the output is real. They are the wrong tools to BUILD A PAGE with here: three
-// of them means three toolchains in the Pages job, three site layouts, and a
-// deploy that fails when one of them is missing. This needs node, which the job
-// already has.
-import { execFileSync } from "child_process";
+// EVERY LANGUAGE IS INDEPENDENTLY OPTIONAL
+// ----------------------------------------
+// A tool that is not installed is reported and skipped; the index says so on
+// the page rather than quietly showing fewer tabs. `--require` turns that into
+// a failure for CI, where a silently missing toolchain would publish a smaller
+// site than intended and nobody would notice.
+import { execFileSync, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SRC = "gallery/vela/src/VlChart.rgr";
+const WORK = "tmp/vela-apidoc";
 
-// The three were chosen for how differently they spell the same thing: a JSDoc
-// block, an indented Google docstring, and KDoc. A fourth would say less.
 const LANGS = [
-  { id: "javascript", flag: "-es6",       ext: "js", label: "JavaScript", comment: "JSDoc" },
-  { id: "python",     flag: "-l=python",  ext: "py", label: "Python",     comment: "Google docstring" },
-  { id: "kotlin",     flag: "-l=kotlin",  ext: "kt", label: "Kotlin",     comment: "KDoc" },
+  {
+    id: "javascript", label: "JavaScript", tool: "documentation.js",
+    flag: "-es6", file: "vela_chart.js", pkg: "vela-chart",
+    home: "https://documentation.js.org/",
+    probe: () => npx(["documentation", "--version"]),
+    // -f html writes a directory; the package.json this pipeline emits names
+    // the same command in its own `docs` script.
+    run: (dir, out) => npx(["documentation", "build", path.join(dir, "vela_chart.js"),
+                            "-f", "html", "-o", out, "--shallow"]),
+    entry: "index.html",
+  },
+  {
+    id: "python", label: "Python", tool: "pdoc",
+    flag: "-l=python", file: "vela_chart.py", pkg: "vela-chart",
+    home: "https://pdoc.dev/",
+    probe: () => run("pdoc", ["--version"]),
+    run: (dir, out) => run("pdoc", ["-o", out, "vela_chart.py"], dir),
+    entry: "vela_chart.html",
+  },
+  {
+    id: "kotlin", label: "Kotlin", tool: "Dokka",
+    flag: "-l=kotlin", file: "vela_chart.kt", pkg: "vela.chart",
+    home: "https://kotl.in/dokka",
+    // Dokka's pages load the Kotlin Playground from unpkg.com for the "Run"
+    // button on samples. It is the only external request any of these three
+    // tools makes, and a published site should say so rather than make it
+    // quietly.
+    external: "unpkg.com (Kotlin Playground, for the Run button on samples)",
+    probe: () => run("gradle", ["--version"]),
+    // Dokka resolves the Kotlin toolchain and its own plugin from
+    // mavenCentral, so this one needs the network as well as gradle.
+    run: (dir) => run("gradle", ["dokkaHtml", "--no-daemon", "-q"], dir, 1800000),
+    from: "build/dokka/html",
+    entry: "index.html",
+  },
 ];
 
-function compile(lang, outDir) {
-  fs.mkdirSync(path.join(ROOT, outDir), { recursive: true });
+function run(cmd, args, cwd, timeout = 600000) {
+  const r = spawnSync(cmd, args, {
+    cwd: cwd ? path.join(ROOT, cwd) : ROOT, encoding: "utf-8", timeout,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return { ok: r.status === 0, out: (r.stdout || "") + (r.stderr || "") };
+}
+const npx = (args) => run("npx", ["--no-install", ...args]);
+
+function compile(lang, dir) {
+  fs.mkdirSync(path.join(ROOT, dir), { recursive: true });
   execFileSync(process.execPath, [
     "--max-old-space-size=8192", "bin/output.js", lang.flag, SRC,
-    `-d=${outDir}`, `-o=vela_chart.${lang.ext}`, "-nodecli",
-    "-apidoc=docs", "-apiformat=json,markdown",
+    `-d=${dir}`, `-o=${lang.file}`, "-nodecli",
+    "-apidoc=docs", "-apipackage",
+    `-name=${lang.pkg}`, "-version=1.0.0", "-license=MIT",
   ], {
     cwd: ROOT, encoding: "utf-8",
     env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
     maxBuffer: 64 * 1024 * 1024,
   });
-  const dir = path.join(ROOT, outDir);
-  return {
-    api: JSON.parse(fs.readFileSync(path.join(dir, "docs/api.json"), "utf-8")),
-    source: fs.readFileSync(path.join(dir, `vela_chart.${lang.ext}`), "utf-8"),
+}
+
+function copyTree(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    const a = path.join(from, e.name), b = path.join(to, e.name);
+    if (e.isDirectory()) copyTree(a, b); else fs.copyFileSync(a, b);
+  }
+}
+
+function countFiles(dir) {
+  let n = 0, bytes = 0;
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".html")) { n++; bytes += fs.statSync(p).size; }
+    }
   };
-}
-
-// The documented declarations of a generated file, in order: the comment block
-// the compiler wrote and the line it belongs to. Deliberately dumb -- it reads
-// the shapes these three writers actually emit and nothing else, because a
-// half-clever parser that silently matches the wrong block would put one
-// method's prose under another's name.
-function extractDocs(lang, src) {
-  const out = [];
-  const lines = src.split("\n");
-  if (lang.ext === "py") {
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^(\s*)(?:class\s+(\w+)|def\s+(\w+)\s*\()/);
-      if (!m) continue;
-      const name = m[2] || m[3];
-      let j = i + 1;
-      if (m[3] && /^\s*$/.test(lines[j] || "")) j++;
-      const q = (lines[j] || "").match(/^\s*"""/);
-      if (!q) continue;
-      const body = [];
-      let first = lines[j].replace(/^\s*"""/, "");
-      if (first.trim()) body.push(first.trim());
-      for (j = j + 1; j < lines.length && !/"""\s*$/.test(lines[j]); j++) body.push(lines[j]);
-      if (j < lines.length) {
-        const tail = lines[j].replace(/"""\s*$/, "");
-        if (tail.trim()) body.push(tail);
-      }
-      out.push({ name, kind: m[2] ? "class" : "member",
-                 decl: lines[i].trim(), doc: dedent(body) });
-    }
-    return out;
-  }
-  // JavaScript and Kotlin: a `/** … */` block, then the declaration under it.
-  for (let i = 0; i < lines.length; i++) {
-    if (!/^\s*\/\*\*\s*$/.test(lines[i])) continue;
-    const body = [];
-    let j = i + 1;
-    for (; j < lines.length && !/^\s*\*\/\s*$/.test(lines[j]); j++) {
-      body.push(lines[j].replace(/^\s*\*\s?/, ""));
-    }
-    let k = j + 1;
-    while (k < lines.length && !lines[k].trim()) k++;
-    const decl = (lines[k] || "").trim();
-    if (!decl) continue;
-    // `Class.method = function (…)` is how JavaScript receives a static, and
-    // missing it dropped all eight of VlJson's constructors from that panel.
-    const nm = decl.match(
-      /(?:class|fun|internal fun)\s+(\w+)|^\w+\.(\w+)\s*=\s*function|^(\w+)\s*\(/);
-    out.push({
-      name: nm ? (nm[1] || nm[2] || nm[3]) : decl.split(/[\s(]/)[0],
-      kind: /^(?:class|open class|sealed)/.test(decl) ? "class" : "member",
-      decl, doc: dedent(body),
-    });
-    i = k;
-  }
-  return out;
-}
-
-function dedent(lines) {
-  while (lines.length && !lines[0].trim()) lines.shift();
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  const indents = lines.filter((l) => l.trim()).map((l) => l.match(/^\s*/)[0].length);
-  const cut = indents.length ? Math.min(...indents) : 0;
-  return lines.map((l) => l.slice(cut)).join("\n");
+  walk(dir);
+  return { pages: n, kb: Math.round(bytes / 1024) };
 }
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function render(langs, apiClasses) {
-  const documented = apiClasses.filter((c) => c.documented);
-  const publicCount = documented.filter((c) => c.public).length;
-  // documented members only. Counting every method of a documented class said
-  // 172 where the page shows 129, which is a number that describes nothing.
-  const methodCount = documented.reduce(
-    (n, c) => n + (c.methods || []).filter((m) => m.documented).length, 0);
-
-  const tabs = langs.map((l, i) =>
-    `<button class="tab${i === 0 ? " on" : ""}" data-lang="${l.id}">${esc(l.label)}` +
-    `<span class="conv">${esc(l.comment)}</span></button>`).join("");
-
-  const panels = langs.map((l, i) => {
-    // Each language resolves through ITS OWN api.json. compiledName is
-    // per-target -- Python declares `bin` as `_bin` because `bin` is a
-    // builtin -- and looking one language's members up under another's names
-    // silently dropped five Python cards.
-    const own = new Map();
-    for (const c of l.api.classes) {
-      const mm = new Map();
-      for (const m of (c.methods || [])) mm.set(m.name, m.compiledName || m.name);
-      own.set(c.name, mm);
-    }
-    const byName = new Map();
-    for (const d of l.docs) if (!byName.has(d.name + "/" + d.kind)) byName.set(d.name + "/" + d.kind, d);
-    const sections = documented.map((c) => {
-      const cd = byName.get(c.name + "/class");
-      const members = (c.methods || []).filter((m) => m.documented).map((m) => {
-        const local = (own.get(c.name) || new Map()).get(m.name) || m.compiledName || m.name;
-        const d = byName.get(local + "/member");
-        if (!d) return "";
-        return `<article class="m"><h4><code>${esc(d.decl.replace(/\s*\{\s*$/, ""))}</code></h4>` +
-               `<pre class="doc">${esc(d.doc)}</pre></article>`;
-      }).join("");
-      if (!members && !cd) return "";
-      return `<section class="cls"><h3>${esc(c.name)}` +
-        (c.public ? `<span class="badge pub">public</span>` : `<span class="badge int">internal</span>`) +
-        `</h3>` +
-        (cd ? `<pre class="doc cd">${esc(cd.doc)}</pre>` : "") + members + `</section>`;
-    }).join("");
-    return `<div class="panel${i === 0 ? " on" : ""}" data-lang="${l.id}">${sections}</div>`;
-  }).join("");
+function indexPage(results) {
+  const built = results.filter((r) => r.built);
+  const cards = results.map((r) => r.built
+    ? `<a class="card ok" href="${r.id}/${r.entry}">
+        <h2>${esc(r.label)}</h2>
+        <p class="tool">built by <strong>${esc(r.tool)}</strong></p>
+        <p class="num">${r.pages} page${r.pages === 1 ? "" : "s"} · ${r.kb} KB</p>
+        <p class="art">artifacts: <span>api.json</span> <span>api.md</span></p>
+        ${r.external ? `<p class="ext">loads ${esc(r.external)}</p>` : ""}
+       </a>`
+    : `<div class="card off">
+        <h2>${esc(r.label)}</h2>
+        <p class="tool">${esc(r.tool)} <strong>not run</strong></p>
+        <p class="num">${esc(r.why)}</p>
+        <p class="art">the pipeline's own artifacts are still here:
+          <a href="${r.id}/api.json">api.json</a> · <a href="${r.id}/api.md">api.md</a></p>
+       </div>`).join("");
 
   return `<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vela chart API — one API, three languages</title>
+<title>Vela chart API — built by each platform's own tool</title>
 <style>
- :root { color-scheme: light dark; --bg:#fff; --fg:#1a1a1a; --mut:#5a5a5a;
-   --line:#e3e3e3; --card:#fafafa; --acc:#2b6cb0; --pub:#276749; --int:#7b7b7b; }
- @media (prefers-color-scheme: dark) { :root { --bg:#15171a; --fg:#e8e8e8;
-   --mut:#a2a2a2; --line:#2c2f34; --card:#1c1f23; --acc:#7fb0e6; --pub:#68d391; --int:#8e8e8e; } }
- * { box-sizing:border-box }
- body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system,
-   BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
- header { padding:2rem 1.25rem 1rem; border-bottom:1px solid var(--line); }
- .wrap { max-width:960px; margin:0 auto; }
- h1 { margin:0 0 .35rem; font-size:1.6rem; letter-spacing:-.01em }
- .sub { color:var(--mut); margin:0 0 1rem; max-width:60ch }
- .stats { display:flex; gap:1.5rem; flex-wrap:wrap; color:var(--mut); font-size:.86rem; margin:0 0 1rem }
- .stats b { color:var(--fg) }
- .tabs { display:flex; gap:.5rem; flex-wrap:wrap }
- .tab { font:inherit; cursor:pointer; background:var(--card); color:var(--fg);
-   border:1px solid var(--line); border-radius:8px; padding:.5rem .85rem; display:flex;
-   flex-direction:column; align-items:flex-start; line-height:1.25 }
- .tab.on { border-color:var(--acc); box-shadow:inset 0 -2px 0 var(--acc) }
- .conv { font-size:.72rem; color:var(--mut) }
- main { padding:1.5rem 1.25rem 4rem }
- .panel { display:none } .panel.on { display:block }
- .cls { margin:0 0 2.25rem; padding:0 0 .5rem; border-bottom:1px solid var(--line) }
- h3 { font-size:1.15rem; margin:1.5rem 0 .5rem; display:flex; align-items:center; gap:.6rem }
- .badge { font-size:.68rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
-   border:1px solid currentColor; border-radius:999px; padding:.05rem .45rem }
- .pub { color:var(--pub) } .int { color:var(--int) }
- .m { margin:.9rem 0 0; padding:.75rem .9rem; background:var(--card);
-   border:1px solid var(--line); border-radius:8px }
- .m h4 { margin:0 0 .5rem; font-weight:600; font-size:.9rem }
- code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace }
- h4 code { color:var(--acc); font-size:.88rem }
- pre.doc { margin:0; white-space:pre-wrap; overflow-x:auto; font-size:.82rem;
-   color:var(--mut); line-height:1.5 }
- pre.cd { margin:0 0 .5rem; padding:.6rem .8rem; background:var(--card);
-   border:1px solid var(--line); border-radius:8px }
- footer { border-top:1px solid var(--line); padding:1.25rem; color:var(--mut); font-size:.82rem }
- a { color:var(--acc) }
-</style></head><body>
-<header><div class="wrap">
- <h1>Vela chart API</h1>
- <p class="sub">One API, documented three ways. The structure comes from the
- compiler's <code>-apidoc</code> pipeline; the prose under each declaration is
- the exact comment the compiler wrote for that language, not a re-rendering of
- a common source.</p>
- <p class="stats"><span><b>${documented.length}</b> documented classes</span>
-  <span><b>${publicCount}</b> public</span>
-  <span><b>${methodCount}</b> documented members</span>
-  <span>generated from <b>gallery/vela/src/VlChart.rgr</b></span></p>
- <div class="tabs">${tabs}</div>
-</div></header>
-<main><div class="wrap">${panels}</div></main>
-<footer><div class="wrap">Built by <code>gallery/vela/web/build-api-docs.mjs</code>
- from this commit's compiler. The examples in each comment are Ranger functions
- that were compiled and type checked for that target, then rendered into the
- comment — see <code>PLAN_API_DOCS.md</code> §18.</div></footer>
-<script>
- for (const t of document.querySelectorAll('.tab')) {
-   t.addEventListener('click', () => {
-     for (const x of document.querySelectorAll('.tab')) x.classList.toggle('on', x === t);
-     for (const p of document.querySelectorAll('.panel'))
-       p.classList.toggle('on', p.dataset.lang === t.dataset.lang);
-   });
- }
-</script></body></html>`;
+ :root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--mut:#5a5a5a;--line:#e3e3e3;
+  --card:#fafafa;--acc:#2b6cb0;--off:#9a9a9a}
+ @media (prefers-color-scheme:dark){:root{--bg:#15171a;--fg:#e8e8e8;--mut:#a2a2a2;
+  --line:#2c2f34;--card:#1c1f23;--acc:#7fb0e6;--off:#777}}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+ .wrap{max-width:900px;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+ h1{margin:0 0 .4rem;font-size:1.7rem;letter-spacing:-.01em}
+ .sub{color:var(--mut);max-width:64ch;margin:0 0 2rem}
+ .grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+ .card{display:block;text-decoration:none;color:inherit;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:1.1rem 1.2rem}
+ .card.ok:hover{border-color:var(--acc)}
+ .card.off{opacity:.72}
+ .card h2{margin:0 0 .3rem;font-size:1.1rem}
+ .tool{margin:0 0 .5rem;color:var(--mut);font-size:.88rem}
+ .card.ok .tool strong{color:var(--acc)}
+ .num{margin:0 0 .6rem;color:var(--mut);font-size:.82rem}
+ .art{margin:0;font-size:.75rem;color:var(--mut)}
+ .art span,.art a{border:1px solid var(--line);border-radius:4px;padding:.05rem .3rem;
+  margin-right:.25rem;color:var(--mut)}
+ .art a{color:var(--acc);text-decoration:none}
+ .ext{margin:.5rem 0 0;font-size:.72rem;color:var(--mut);font-style:italic}
+ .note{margin:2rem 0 0;padding:1rem 1.1rem;border-left:3px solid var(--line);color:var(--mut);
+  font-size:.88rem}
+ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+ a{color:var(--acc)}
+</style></head><body><div class="wrap">
+<h1>Vela chart API</h1>
+<p class="sub">One API, published by <strong>each platform's own documentation
+ tool</strong>. The compiler's <code>-apidoc -apipackage</code> pipeline writes the
+ package each ecosystem expects — a <code>package.json</code> whose <code>docs</code>
+ script calls documentation.js, a <code>pyproject.toml</code> and a module carrying
+ <code>__docformat__&nbsp;=&nbsp;"google"</code>, a <code>build.gradle.kts</code> with the
+ Dokka plugin — and those tools then build the pages below. Nothing here is
+ rendered by Ranger, which is what makes the site evidence rather than a
+ claim.</p>
+<div class="grid">${cards}</div>
+<p class="note">Generated from <code>gallery/vela/src/VlChart.rgr</code> by this
+ commit's compiler. The examples in each page are Ranger functions that were
+ compiled and type checked for that target and then rendered into the comment
+ — see <code>PLAN_API_DOCS.md</code> §18. ${built.length} of ${results.length}
+ toolchains ran here.</p>
+</div></body></html>`;
 }
 
 function main() {
   const args = process.argv.slice(2);
   let out = "gallery/vela/web/dist/api";
-  for (let i = 0; i < args.length; i++) if (args[i] === "--out") out = args[++i];
+  let require_ = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--out") out = args[++i];
+    else if (args[i] === "--require") require_ = true;
+  }
+  const dest = path.isAbsolute(out) ? out : path.join(ROOT, out);
+  fs.mkdirSync(dest, { recursive: true });
 
-  const langs = [];
-  let apiClasses = null;
+  const results = [];
   for (const l of LANGS) {
+    const dir = `${WORK}/${l.id}`;
+    fs.rmSync(path.join(ROOT, dir), { recursive: true, force: true });
     process.stdout.write(`  ${l.label.padEnd(11)}`);
-    const { api, source } = compile(l, `tmp/vela-apidoc/${l.id}`);
-    const docs = extractDocs(l, source);
-    if (docs.length === 0) throw new Error(`no documentation extracted for ${l.label}`);
-    langs.push({ ...l, docs, api });
-    apiClasses = apiClasses || api.classes;
-    console.log(`${String(docs.length).padStart(4)} documented declarations`);
+    compile(l, dir);
+
+    // The pipeline's own artifacts go up whether or not the tool ran, so a
+    // missing toolchain still leaves the API published in a readable form.
+    const langOut = path.join(dest, l.id);
+    fs.mkdirSync(langOut, { recursive: true });
+    for (const f of ["api.json", "api.md"]) {
+      fs.copyFileSync(path.join(ROOT, dir, "docs", f), path.join(langOut, f));
+    }
+
+    if (!l.probe().ok) {
+      console.log(`${l.tool} is not installed — skipped`);
+      results.push({ ...l, built: false, why: `${l.tool} is not on PATH here` });
+      continue;
+    }
+    const siteTmp = path.join(ROOT, dir, "__site");
+    const r = l.run(dir, siteTmp);
+    const produced = l.from ? path.join(ROOT, dir, l.from) : siteTmp;
+    if (!r.ok || !fs.existsSync(path.join(produced, l.entry))) {
+      const why = (r.out.trim().split("\n").pop() || "no output").slice(0, 120);
+      console.log(`${l.tool} FAILED — ${why}`);
+      results.push({ ...l, built: false, why: `${l.tool} failed: ${why}` });
+      continue;
+    }
+    copyTree(produced, langOut);
+    const { pages, kb } = countFiles(langOut);
+    console.log(`${l.tool.padEnd(16)} ${String(pages).padStart(4)} pages, ${kb} KB`);
+    results.push({ ...l, built: true, pages, kb });
   }
 
-  const dir = path.isAbsolute(out) ? out : path.join(ROOT, out);
-  fs.mkdirSync(dir, { recursive: true });
-  const html = render(langs, apiClasses);
-  fs.writeFileSync(path.join(dir, "index.html"), html);
-  // The artifacts themselves, beside the page, so the pipeline's own output is
-  // downloadable rather than only rendered.
-  for (const l of langs) {
-    const from = path.join(ROOT, `tmp/vela-apidoc/${l.id}/docs`);
-    const to = path.join(dir, l.id);
-    fs.mkdirSync(to, { recursive: true });
-    for (const f of ["api.json", "api.md"]) fs.copyFileSync(path.join(from, f), path.join(to, f));
+  fs.writeFileSync(path.join(dest, "index.html"), indexPage(results));
+  const built = results.filter((r) => r.built).length;
+  console.log(`\n  ${built} of ${results.length} toolchains ran; wrote ${path.join(dest, "index.html")}`);
+  if (require_ && built !== results.length) {
+    console.error("  --require: a documentation toolchain was missing or failed");
+    process.exit(1);
   }
-  console.log(`\n  wrote ${path.join(dir, "index.html")} (${(html.length / 1024).toFixed(0)} KB)`);
 }
 
 main();

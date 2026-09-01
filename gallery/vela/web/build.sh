@@ -82,13 +82,17 @@ node --input-type=module -e "
   }
 " || exit 1
 
-# ---- the chart API, one page per language --------------------------------
-# The compiler's own -apidoc pipeline, run for three targets, rendered into one
-# page with a tab each. It needs no documentation.js, pdoc or Dokka: those are
-# the right tools to POINT AT this output (PLAN_API_DOCS.md 7.3 makes "the
-# target's own tool reads it with no Ranger plugin" the test that it is real),
-# and the wrong ones to build a page with here, because three of them means
-# three toolchains in the Pages job and a deploy that fails when one is absent.
+# ---- the chart API, built by each platform's own tool ---------------------
+# -apidoc -apipackage writes the package each ecosystem expects, and this runs
+# THAT ECOSYSTEM'S OWN TOOL over it: documentation.js, pdoc, Dokka. It is the
+# test PLAN_API_DOCS.md 7.3 sets -- the target's own tool reads Ranger's output
+# with no Ranger plugin -- so the published site is the evidence rather than a
+# claim about it.
+#
+# Each language is independently optional: a tool that is not installed is
+# reported on the index page and its api.json / api.md still go up. Pass
+# --require in CI, where a silently missing toolchain would publish a smaller
+# site than intended and nobody would notice.
 node "$WEB/build-api-docs.mjs" --out "$OUT/api" || {
   echo "FAILED to build the chart API pages" >&2
   exit 1

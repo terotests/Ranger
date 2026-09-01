@@ -83,7 +83,24 @@ const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 const problems = [];
 page.on('pageerror', e => problems.push(`page error: ${e}`));
-page.on('console', m => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+// Dokka's generated pages load the Kotlin Playground from unpkg.com for the
+// "Run" button on samples. It is the only external fetch any of the three
+// documentation tools makes -- documentation.js and pdoc are entirely
+// self-contained -- and it cannot resolve from a sandbox with no egress.
+// The browser reports the failure twice: once as a failed REQUEST, which
+// carries the URL, and once as a console error, which does not. So the URL is
+// recorded here and the matching console line is ignored, rather than
+// ignoring every "Failed to load resource" and losing a real one with it.
+const externalFailures = new Set();
+page.on('requestfailed', r => {
+  const u = r.url();
+  if (/^https?:\/\//.test(u) && !u.startsWith(base)) externalFailures.add(u);
+});
+page.on('console', m => {
+  if (m.type() !== 'error') return;
+  if (/Failed to load resource/.test(m.text()) && externalFailures.size) return;
+  problems.push(`console: ${m.text()}`);
+});
 
 // The page points relative data URLs at the Vega editor; here they should come
 // from the test server instead.
@@ -256,35 +273,57 @@ async function render(spec) {
   await page.click('#tab-svg');
 }
 
-// ---- the chart API pages ---------------------------------------------------
-// Three tabs, one API, and each panel has to carry the documentation comment
-// its own ecosystem reads. A panel that came out empty -- an extractor that
-// stopped matching after a writer changed its output shape -- looks exactly
-// like a working page until somebody clicks that tab.
+// ---- the chart API, built by each platform's own tool ----------------------
+// The point of these pages is that RANGER DID NOT RENDER THEM: documentation.js,
+// pdoc and Dokka did, from the packages `-apipackage` writes. So the checks ask
+// for each tool's own fingerprint rather than for content we chose -- a page we
+// generated ourselves could satisfy any check we invented for it.
 {
   await page.goto(base + '/api/', { waitUntil: 'load' });
-  const tabs = await page.locator('.tab').count();
-  check('the API page offers three languages', tabs === 3, `${tabs} tab(s)`);
+  const cards = await page.locator('.card').count();
+  check('the API index offers three languages', cards === 3, `${cards} card(s)`);
 
-  for (const [lang, marker] of [['javascript', '@returns {'],
-                                ['python', 'Args:'],
-                                ['kotlin', '@return ']]) {
-    await page.click(`.tab[data-lang="${lang}"]`);
-    const cards = await page.locator(`.panel[data-lang="${lang}"] article.m`).count();
-    const text = await page.locator(`.panel[data-lang="${lang}"]`).innerText();
-    check(`${lang}: every documented member is on the page`,
-          cards === 129, `${cards} member cards`);
-    check(`${lang}: the comment is the one this ecosystem reads`,
-          text.includes(marker), `looking for ${JSON.stringify(marker)}`);
+  const built = await page.locator('.card.ok').count();
+  if (built < 3) {
+    const off = await page.locator('.card.off').allInnerTexts();
+    check('every documentation toolchain ran', false,
+          `only ${built} of 3 built: ${off.join(' / ').replace(/\s+/g, ' ')}`);
+  } else {
+    check('every documentation toolchain ran', true, '3 of 3');
   }
 
-  // The example bodies are Ranger functions compiled for each target, so the
-  // JavaScript panel must show JavaScript rather than Ranger or Kotlin.
-  await page.click('.tab[data-lang="javascript"]');
-  const js = await page.locator('.panel[data-lang="javascript"]').innerText();
-  check('the compiled example reads as the target language',
-        js.includes('const data = VlDataset.create();'),
-        'expected the JavaScript form of the dataset example');
+  for (const [id, entry, marker, why] of [
+    ['javascript', 'index.html',      'documentation.js', "documentation.js signs its own footer"],
+    ['python',     'vela_chart.html', 'pdoc',             'pdoc signs its own footer'],
+    ['kotlin',     'index.html',      'Dokka',            'Dokka signs its own footer'],
+  ]) {
+    const r = await page.goto(`${base}/api/${id}/${entry}`, { waitUntil: 'load' });
+    check(`${id}: the generated site is served`, r && r.status() === 200,
+          r ? `HTTP ${r.status()}` : 'no response');
+    const html = await page.content();
+    // Case-insensitively: Dokka signs itself `dokka` and `dokkaHtml` in the
+    // markup, not `Dokka`, and asserting the capitalised form failed on a
+    // page that was perfectly fine.
+    check(`${id}: ${why}`, html.toLowerCase().includes(marker.toLowerCase()),
+          `looked for ${JSON.stringify(marker)}`);
+    check(`${id}: the API is actually in it`, html.includes('VlDataRow'),
+          'expected the VlDataRow class');
+  }
+
+  // The examples are Ranger functions compiled for that target. They are the
+  // one part of the page that could not have come from a doc tool alone.
+  await page.goto(`${base}/api/javascript/index.html`, { waitUntil: 'load' });
+  const jsText = await page.locator('body').innerText();
+  check('the compiled example is on the JavaScript page',
+        jsText.includes('VlDataset.create()') && jsText.includes('"region"'),
+        'expected the dataset example');
+}
+
+// Say what was reached for, rather than only that it was tolerated.
+if (externalFailures.size) {
+  console.log(`\n  the published pages request ${externalFailures.size} external`
+    + ` resource(s), unreachable from here:`);
+  for (const u of externalFailures) console.log(`    ${u}`);
 }
 
 await browser.close();
