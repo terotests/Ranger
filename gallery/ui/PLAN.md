@@ -2721,6 +2721,55 @@ have dropped its softened backdrop straight onto the canvas, under everything
 the post-pass was about to draw over it. It goes back to the frame's own target
 now.
 
+### The ring landed on the wrong half of the page
+
+Reported: the y axis was inverted. It was. `vUV` comes off the fullscreen
+triangle as a GL texture coordinate, whose origin is the BOTTOM left; a drop's
+x and y are page coordinates, whose origin is the top left. The shader read one
+as the other:
+
+    vec2 p = vUV * uRes;            // wrong: y measured from the bottom
+    vec2 p = vec2(vUV.x, 1.0 - vUV.y) * uRes;
+
+So every ring appeared at the page's height MINUS where it was touched — click
+near the top of the dashboard and it rippled near the bottom of it. Measured
+rather than eyeballed: two drops asked for at page y=150 and y=400 put their
+rings at y≈750 and y≈500.
+
+Everything downstream of `p` is now in page space, which means the two places
+that hand a vector back to GL have to flip it back. The displacement, because
+the texture's y runs the other way:
+
+    vec2 offset = vec2(push.x, -push.y) * uStrength / uRes;
+
+And the gradient the normal comes from, because `dFdy` differentiates against
+window y, which runs up, while the height field and the light are both in page
+space:
+
+    vec2 grad = vec2(dFdx(wave), -dFdy(wave)) * uBump;
+
+That second one is the quiet half. Getting it wrong does not put the ring
+anywhere visible — it moves the LIGHT to the other side of the page, and a
+glint on the wrong edge of a wave still looks like a glint.
+
+**Every existing check passed on all of it.** The drop was recorded at the
+place it was touched and the display list said so; it is the SHADER that put it
+somewhere else, and nothing between the two looks at a picture. The gate is now
+a diff of two rippled frames with drops at different heights, asserting the
+change is centred where the page was touched.
+
+The two heights are different distances from the middle on purpose: a
+symmetric pair is the one pair an inverted axis maps onto itself, so 150 and
+750 would have passed either way.
+
+**A divergence found while building that probe**, recorded rather than fixed:
+the post-pass target is NOT multisampled while the canvas is, so a rippling
+frame is slightly more aliased along diagonal edges than a still one. It first
+showed up as noise swamping the ring when the probe diffed a rippled frame
+against a calm one — which is why it diffs two rippled frames instead. The fix
+would be a multisampled renderbuffer and a blit, and it is not worth it until
+something other than a chart's zigzag shows it.
+
 **Still to come**: a height-field version, which would let the waves reflect off
 the cards rather than pass through them, and needs a simulation texture with a
 wave equation per pixel rather than analytic rings. And the reference's
