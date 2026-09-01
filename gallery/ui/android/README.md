@@ -147,7 +147,7 @@ The presses are found by hit-testing the screen the way the app does, not by
 calling `press(id)` — the coordinate conversion is exactly what this port adds
 and therefore what is worth checking.
 
-59 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
+62 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
 `tmp/ui-android/dashboard.png` (a landscape tablet), `dashboard-portrait.png`
 (the same tablet turned) and `dashboard-phone.png` (a 411×823 phone), so the
 result is something to look at rather than a number.
@@ -251,6 +251,23 @@ Below API 33 nothing happens and the page draws as it always did. If the shader
 will not compile or a uniform is rejected, the effect turns itself off and says
 so once under the `EvgRipple` tag — `npm run ui:android:run -- --logcat`.
 
+**And it pays for itself or stops.** A shader over every pixel is the one thing
+here that can cost more than it is worth, and a machine with no real GPU under
+it — an emulator, most of all — pays in frames. Three things follow from that,
+and the first two were learned by hanging one:
+
+* The shader answers an idle pixel immediately. A ring is a thin annulus and the
+  rest of the page is what was drawn, so most pixels skip the two extra wave
+  sums the glint costs and the three extra reads the aberration costs.
+* The clock always advances. `tick` clamps a late frame rather than skipping it,
+  because a step that is skipped is a page that never goes quiet — and a page
+  that never goes quiet keeps a full-screen shader running for as long as the
+  app is open. That rule is in the facade, where `CheckDashboard` drives it with
+  a clock that jumps a second at a time and one that reports nothing at all.
+* Six frames in a row over 60ms and the view turns the effect off for the
+  session. The menu turns it back on, or off before that — which is also how to
+  tell whether the effect is what a slow page is slow because of.
+
 **A ripple frame does not redraw the page.** Ageing a touch changes nothing
 about what was drawn, so the clock only updates the shader's uniforms and
 re-composites; the layout, the chart and the painter are not asked again. That
@@ -298,8 +315,9 @@ Verified, off-device, on this repository's own demo:
 * The viewport arithmetic, the presses, the scrolling, the keys and the
   pinch/pan hold, and a screen taller than the page's content still gets a
   full-height sidebar with its account row on the bottom edge, and the ripple's
-  touches land in page coordinates, age on a clock and retire on their own.
-  59 checks.
+  touches land in page coordinates, age on a clock and retire on their own —
+  including when the clock reports a second between frames, or nothing at all.
+  62 checks.
 * `MainActivity` and `DashboardView` type-check against the platform stubs.
 
 Not verified here: the APK build, and whether Skia draws what the surface asks

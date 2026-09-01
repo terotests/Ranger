@@ -2,6 +2,8 @@ package fi.ranger.ui
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.Toast
 
 /**
@@ -37,6 +39,35 @@ class MainActivity : Activity() {
         title = "Ranger EVG — dashboard"
     }
 
+    /**
+     * One item, and it is the ripple.
+     *
+     * The effect is the one thing here that can cost more than it is worth: it
+     * is a shader over every pixel of the page, and a machine without a real GPU
+     * under it — an emulator, most of all — pays for that in frames. The view
+     * turns it off by itself when the frames say so; this is how a person turns
+     * it off before that, or back on to see whether it was the effect at all.
+     */
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, MENU_RIPPLE, 0, rippleLabel())
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId != MENU_RIPPLE) return super.onOptionsItemSelected(item)
+        view.rippleAffordable = !view.rippleAffordable
+        Toast.makeText(this, rippleLabel(), Toast.LENGTH_SHORT).show()
+        invalidateOptionsMenu()
+        return true
+    }
+
+    private fun rippleLabel(): String =
+        if (view.rippleAffordable) "Surface ripple: on" else "Surface ripple: off"
+
     private fun readAsset(name: String): String =
         runCatching { assets.open(name).use { it.readBytes().toString(Charsets.UTF_8) } }.getOrDefault("")
+
+    private companion object {
+        const val MENU_RIPPLE = 1
+    }
 }

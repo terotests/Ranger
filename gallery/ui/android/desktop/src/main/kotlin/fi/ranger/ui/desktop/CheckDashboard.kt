@@ -233,7 +233,16 @@ object CheckDashboard {
         ok("and the page is busy while it lives", fresh.busy())
         ok("a new touch starts at zero", near(fresh.dropAge(0), 0.0, 0.001))
 
-        ok("a tick ages it", fresh.tick(100.0) && near(fresh.dropAge(0), 0.1, 0.001))
+        ok("a tick ages it", fresh.tick(50.0) && near(fresh.dropAge(0), 0.05, 0.001))
+        // And a step nobody believes is CLAMPED rather than skipped: at most one
+        // slow frame's worth, 64ms, however long the frame really took.
+        val aged = fresh.dropAge(0)
+        fresh.tick(5000.0)
+        ok(
+            "a frame that arrived a second late ages by one slow frame, not a second",
+            near(fresh.dropAge(0) - aged, 0.064, 0.001),
+            "${fresh.dropAge(0) - aged}",
+        )
 
         // A drag leaves a WAKE — one source every 26 page pixels rather than
         // one that follows the finger, because a wake is a row of sources.
@@ -265,8 +274,28 @@ object CheckDashboard {
             spun++
         }
         ok("they all retire", fresh.dropCount() == 0)
+        // The rule that hung an emulator, as a check. A frame clock that
+        // reports something impossible — a second between frames, or nothing
+        // at all — must still ADVANCE, because a page that cannot go quiet
+        // keeps a shader over every pixel of it running for as long as the app
+        // is open. Clamping does that; skipping the step does not.
+        fresh.rippleAt(400.0, 300.0)
+        var stubborn = 0
+        while (fresh.busy() && stubborn < 500) {
+            fresh.tick(9000.0)
+            stubborn++
+        }
+        ok("a clock that jumps a second at a time still ends it", !fresh.busy())
+        fresh.rippleAt(400.0, 300.0)
+        var frozen = 0
+        while (fresh.busy() && frozen < 5000) {
+            fresh.tick(0.0)
+            frozen++
+        }
+        ok("and so does one that reports no time at all", !fresh.busy())
         ok("so the page goes quiet without being told to", !fresh.busy())
         ok("and it took about three seconds", spun in 150..250, "$spun frames of 16ms")
+
 
         println("--- a screen taller than the page ---")
         // A tablet in PORTRAIT: 800dp wide scales the page by 0.6, so the

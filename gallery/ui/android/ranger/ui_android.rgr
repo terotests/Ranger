@@ -319,8 +319,29 @@ class UiAndroid {
     ; Milliseconds, because that is what a frame loop has. Answers whether
     ; anything is still moving, so a host can stop asking for frames without a
     ; second call.
+    ;
+    ; THE STEP IS CLAMPED HERE, and that is the point of this method existing
+    ; rather than the host calling `app.tick` itself. A frame can arrive a
+    ; second late — the app was backgrounded, or the machine is a
+    ; software-rendered emulator — and ageing every touch out of existence in
+    ; one step is wrong. But so is the other reflex, which is to SKIP a step
+    ; that looks impossible: the host did that, no touch ever aged on a device
+    ; whose frames were slower than the limit, `busy` never went false, and a
+    ; shader over every pixel of the page ran for as long as the app was open.
+    ; It hung the emulator's system UI.
+    ;
+    ; A clamp cannot do that. However late a frame is, time moves — which is
+    ; also the only property that makes "the page goes quiet on its own" true
+    ; rather than hopeful, and it is checked.
     fn tick:boolean (dtMs:double) {
-        app.tick(dtMs)
+        def step:double dtMs
+        if (step < 4.0) {
+            step = 4.0
+        }
+        if (step > 64.0) {
+            step = 64.0
+        }
+        app.tick(step)
         return (app.busyNow())
     }
 

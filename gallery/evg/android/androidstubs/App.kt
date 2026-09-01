@@ -23,6 +23,7 @@ open class Activity : Context() {
     fun setContentView(view: View) {}
     fun startActivityForResult(intent: Intent, requestCode: Int) {}
     open fun onCreateOptionsMenu(menu: Menu): Boolean = false
+    fun invalidateOptionsMenu() {}
     open fun onOptionsItemSelected(item: MenuItem): Boolean = false
     protected open fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {}
     open fun onBackPressed() {}
