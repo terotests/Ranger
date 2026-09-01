@@ -23,8 +23,9 @@
 - Issue #77 (fixed): `npm test` ran 1 of its 83 test files. `es-conformance-targets.test.ts` compiles a 45,000-line interpreter to five targets, which starves the vitest reporter under `singleFork` exactly as the config's own comment predicts; the run ends with `Timeout calling "onTaskUpdate"` and the remaining 82 files never run. The summary reads `Test Files 1 failed (83)` — a suite with one failure, not a suite that stopped. Fixed by adding the file to the exclude list it was already documented as belonging to (September 2026)
 - Issue #78 (fixed): on Python a method whose name is a builtin was DECLARED under its renamed form and CALLED under its original one. `fn str` came out as `def _str`, and a chained `r.str(...)` called a method that does not exist — `AttributeError: 'LcRow' object has no attribute 'str'`. Every other writer reads `compiledName` at the call site; the Python writer wrote `method.vref`. Found by the phase-3 chain fixture, which is the first Ranger program to chain a call to such a method on Python (September 2026)
 
+- Issue #80 (fixed): a property read through `(expr).field` emitted the SOURCE spelling of the name, not the renamed one. `GetProperty` resolves the member and attaches the descriptor to the expression node but never to the property node itself, so a name that is a keyword of the target came out unrenamed. The TS engine writes `(fnV.functionNodeOf()).async` and `async` is a Python keyword, so **the engine had never once built for Python** — a `SyntaxError` the compiler reported as a successful build. The same property is renamed correctly at its declaration (`self._async`) and at ordinary reads (`member._async`). Fixed by attaching the descriptor to the property node and by making the Python and PHP writers read it, as every other writer already did. The engine now builds, runs, and answers 2,061 of its 2,066 conformance probes identically to JavaScript (September 2026)
 ### Still Open
-- Issue #80: a property read off a CALL RESULT is not resolved to the class member, so a name that is a keyword of the target is emitted unrenamed. The TS engine emits `fnV.functionNodeOf().async` and `async` is a Python keyword, so **the engine has never built for Python** — `SyntaxError`, silently, for as long as it has existed. The same property is renamed correctly at its declaration (`self._async`) and at ordinary reads (`member._async`). A direct reproduction does not even compile: `(PropMain.mk()).async` gives "Undefined variable .async" (September 2026)
+- Issue #81: `(expr).field` does not resolve when it appears as a CALL ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles; `ArgMain.id((h.nodeOf()).plain)` on the very next line gives "Undefined variable .plain". Nothing to do with keywords — any property name fails. The dot-tail branch in `WalkNode` is never reached for an argument, so the tail is left as an unresolved `.field` vref. Found while fixing #80 (September 2026)
 - Issue #79: on Rust a method that returns `this` returns `self.clone()`, so every call after the first in a chain mutates a COPY. `a.bump().bump().bump()` leaves `a.n` at 1 where JavaScript, Python and Go all say 3. No error, no warning — a silently wrong answer, and the builder pattern is exactly the shape that hits it. Reproduces on a 13-line program with no generics and no aliasing (September 2026)
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
@@ -2630,6 +2631,60 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #81: `(expr).field` does not resolve as a call argument
+
+**Status:** open. Found while fixing #80, which is a different defect in the
+same shape.
+
+### Reproduction
+
+```ranger
+class NodeA {
+  def plain:int 7
+}
+class HolderA {
+  def n:NodeA (new NodeA())
+  fn nodeOf:NodeA () {
+    return n
+  }
+}
+class ArgMain {
+  sfn id:int (v:int) {
+    return v
+  }
+  sfn main:void () {
+    def h:HolderA (new HolderA())
+    def ok:int ((h.nodeOf()).plain)               ; compiles
+    def bad:int (ArgMain.id((h.nodeOf()).plain))  ; Undefined variable .plain
+  }
+}
+```
+
+The two lines differ only in whether the property read is an initialiser or an
+argument.
+
+### Not a keyword problem
+
+`.plain` fails exactly as `.async` does. This is unrelated to `reserved_words`
+and unrelated to #80 — it is the resolution of the dot-tail itself.
+
+### Cause
+
+`(expr).field` is parsed with the field as a dot-prefixed tail vref, and
+`RangerFlowParser.WalkNode` has a branch that rewrites that pair into a
+`property` expression. Instrumenting that branch shows it is reached for the
+initialiser and never for the argument, so the tail stays an unresolved
+`.field` vref and the "Undefined variable" check fires on it later.
+
+### Workaround
+
+Bind the receiver first, which is the same workaround Issue #63 needs:
+
+```ranger
+def n:NodeA (h.nodeOf())
+def bad:int (ArgMain.id(n.plain))
+```
 
 ## Issue #79: a Rust method returning `this` returns a clone, so a chain mutates copies
 

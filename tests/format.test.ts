@@ -58,6 +58,7 @@ const KEYWORDS = "tests/fixtures/format_keywords.rgr";
 const LONGCHAIN = "tests/fixtures/format_longchain.rgr";
 const STRESS = "tests/fixtures/format_stress.rgr";
 const PRECEDENCE = "tests/fixtures/format_precedence.rgr";
+const PROPNAME = "tests/fixtures/format_propname.rgr";
 const STRESS_OUT = "105 aa/bb/cc/dd/eeeeeeeeeeee/ffffffffffff/gggggggggggg";
 
 const HAS_GO = have("go", ["version"]);
@@ -396,6 +397,51 @@ describe("output formatter: emitted shapes (phase 5)", () => {
     execFileSync("g++", ["-std=c++17", "-O0", "-o", bin,
                          path.join(OUT, "helper.cpp")]);
     expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("3");
+  }, 240000);
+});
+
+describe("a property name renamed at its declaration is renamed where it is read", () => {
+  // ISSUES.md #80. `def async` is declared as `self._async` on Python, and a
+  // read through `(expr).field` used to emit the source spelling -- a file the
+  // target cannot parse, reported by the compiler as a successful build. The
+  // TS engine writes exactly this shape and had never once built for Python.
+  const PN_OUT = "1 1 7";
+
+  it("Python: the read matches the declaration", () => {
+    const py = compile(PROPNAME, "python", "py", "propname");
+    expect(py).toContain("self._async");
+    expect(py).not.toMatch(/\)\.async\b/);
+    expect(py).toMatch(/\)\._async\b/);
+  }, 120000);
+
+  it.runIf(HAS_PY)("Python: and the program runs", () => {
+    compile(PROPNAME, "python", "py", "propname");
+    expect(
+      execFileSync("python3", [path.join(OUT, "propname.py")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(PN_OUT);
+  }, 120000);
+
+  it("every target agrees on the answer", () => {
+    compile(PROPNAME, "es6", "js", "propname");
+    expect(
+      execFileSync(process.execPath, [path.join(OUT, "propname.js")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(PN_OUT);
+  }, 120000);
+
+  it.runIf(HAS_GO)("Go", () => {
+    compile(PROPNAME, "go", "go", "propname");
+    expect(
+      execFileSync("go", ["run", "propname.go"], { cwd: OUT, encoding: "utf-8" }).trim()
+    ).toBe(PN_OUT);
+  }, 240000);
+
+  it.runIf(HAS_GXX)("C++", () => {
+    compile(PROPNAME, "cpp", "cpp", "propname");
+    const bin = path.join(OUT, "propname.bin");
+    execFileSync("g++", ["-std=c++17", "-O0", "-o", bin, path.join(OUT, "propname.cpp")]);
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe(PN_OUT);
   }, 240000);
 });
 

@@ -13940,6 +13940,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( (typeof(varDef) !== "undefined" && varDef != null )  ) {
             prop.flow_done = true;
             prop.eval_type = 11;
+            if ( prop.nsp.length == 0 ) {
+              prop.nsp.push(varDef);
+            }
             node.hasParamDesc = true;
             node.ownParamDesc = varDef;
             node.paramDesc = varDef;
@@ -45601,7 +45604,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const prop = node.getThird();
                             await this.writeCallReceiver(obj, ctx, wr);
                             wr.out("->", false);
-                            wr.out(prop.vref, false);
+                            await this.WalkNode(prop, ctx, wr);
                           };
                           async CreateLambdaCall (node, ctx, wr) {
                             const fName = node.children[0];
@@ -46238,7 +46241,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               ctx.unsetInExpr();
                             }
                             wr.out(".", false);
-                            wr.out(prop.vref, false);
+                            await this.WalkNode(prop, ctx, wr);
                           };
                           async CreateLambdaCall (node, ctx, wr) {
                             const fName = node.children[0];

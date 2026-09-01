@@ -319,8 +319,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def obj:CodeNode (node.getSecond())
       def prop:CodeNode (node.getThird())
       this.writeCallReceiver(obj ctx wr)
+      ; The property name comes from the resolved descriptor, not from the
+      ; source spelling: `def async` is declared as `self._async` on Python and
+      ; writing `prop.vref` here spelled it the old way. Every other writer
+      ; walks the node, which reads the descriptor list GetProperty attaches.
       wr.out('->' false)
-      wr.out(prop.vref false)
+      this.WalkNode(prop ctx wr)
   }
   
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

@@ -831,6 +831,20 @@ class RangerFlowParser {
 
           prop.flow_done = true
           prop.eval_type = RangerNodeType.VRef
+          ; The NAME to emit lives on the descriptor, not on this node. A
+          ; property whose name is a keyword of the target is renamed at its
+          ; declaration -- `def async` becomes `self._async` on Python -- and
+          ; this vref still carries the source spelling. Writers reach it two
+          ; ways, and both read the descriptor list rather than the vref, so
+          ; putting it here fixes every target at once.
+          ;
+          ; Without it, `if ((h.nodeOf()).async)` emitted `h.nodeOf().async`
+          ; against a `self._async` declaration: a Python SyntaxError the
+          ; compiler reported as a successful build, and the reason the TS
+          ; engine had never once built for Python (ISSUES.md #80).
+          if ((array_length prop.nsp) == 0) {
+            push prop.nsp (unwrap varDef)
+          }
 
           node.hasParamDesc = true
           node.ownParamDesc = varDef
