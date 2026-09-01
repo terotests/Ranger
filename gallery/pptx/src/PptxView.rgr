@@ -359,6 +359,22 @@ class PptxView {
         return ((PptxView.snapEdge(v + size)) - (PptxView.snapEdge(v)))
     }
 
+    ; THE CORNER RADIUS IS STILL TRUNCATED, and that is on purpose. Snapping
+    ; the edges leaves exactly one pixel of background at the top of a rounded
+    ; box's corner arc, and rounding the radius the same way looks like the
+    ; obvious next move: 19.55 truncates to 19 while the outline curves on the
+    ; real 19.55, so the fill's corner is a fraction tighter than the ring
+    ; around it.
+    ;
+    ; It was tried and measured and it is WORSE — two stray pixels instead of
+    ; one, because a larger integer radius pulls the arc past the polygon on
+    ; the other side of the join. The remaining pixel is not an offset that a
+    ; different rounding would cure; it is a filled arc of integer radius and a
+    ; six-chords-per-corner polygon disagreeing about coverage where they meet,
+    ; and the honest fix for that is to rasterise the corner by coverage rather
+    ; than to pick a better integer. One pixel, in one corner of one shape, was
+    ; not worth that change.
+
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
         canvas.clear(40 44 58)
         def i:int 0
