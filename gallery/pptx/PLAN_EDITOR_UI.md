@@ -95,7 +95,7 @@ with three rules that are not obvious from the picture and have to survive:
 
 ## Phases
 
-### P0 — the shell, laid out rather than computed (this change)
+### P0 — the shell, laid out rather than computed (done)
 
 `PptxChrome.rgr`: build the shell as an element tree, style it with the
 stylesheet that already exists, lay it out with `EVGLayout`, and hand back the
@@ -110,6 +110,27 @@ proof, since those PNGs must come out identical.
 
 That is the whole of P0. It buys nothing visible and it is the only step that
 makes the rest safe.
+
+**Done, and wired in.** `panelWidth`, `panelHeight`, `propsWidth`, `propsRect`,
+`notesHeight` and `notesRect` read off the layout now; `W < 820` is a media
+query rather than a line of code, so a host can move it. All fifteen snapshots
+are byte-identical and the browser's 127 selftests pass, breakpoints included.
+
+Two things the wiring taught, both worth keeping:
+
+- **A host's sheet REPLACES the app's, and that is a contract**
+  (`PptxFrameTest`: "with no breakpoints, a phone gets what it asked for").
+  Laying the app's sizes underneath a host's broke it in a way no host would
+  have guessed: the phone breakpoint gives the panel a HEIGHT, a height turns
+  the panel into a strip, and a host that asked only for `width: 210px` got a
+  strip it never asked for. So the sheet is split — `structureCss` is the
+  arrangement and is always underneath, `sizesCss` is the app's numbers and is
+  what a host replaces. The properties band lives in the structure because its
+  width and its breakpoint were hard-coded fields that no host could ever
+  change.
+- **A layout has to be told when its inputs change.** `view.panel` flips
+  `panelVisible` and read the width in the same breath, off a layout computed
+  when the panel was still hidden. Five call sites, five `syncChrome`s.
 
 ### P1 — the strip
 

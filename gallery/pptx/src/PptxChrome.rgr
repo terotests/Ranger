@@ -50,12 +50,15 @@ class PptxChrome {
     def coarse:boolean false
 
     ; The six regions, in window pixels. `stage` is the hole.
-    def toolbarRect:PptxEditRect
-    def panelRect:PptxEditRect
-    def propsRect:PptxEditRect
-    def notesRect:PptxEditRect
-    def statusRect:PptxEditRect
-    def stageRect:PptxEditRect
+    ; Given a value where they are DECLARED, not in the constructor: a field
+    ; that only gets one there reads as optional to a caller, and a caller that
+    ; has to unwrap a rectangle is a caller that will forget to.
+    def toolbarRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def panelRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def propsRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def notesRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def statusRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def stageRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
 
     ; The root of the laid-out tree, kept so a caller can walk it — the panel
     ; and the properties band are filled with controllers in later phases and
@@ -76,12 +79,6 @@ class PptxChrome {
     def notesOn:boolean true
 
     Constructor () {
-        toolbarRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
-        panelRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
-        propsRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
-        notesRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
-        statusRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
-        stageRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
     }
 
     ; The shell, as a stylesheet.
@@ -96,19 +93,23 @@ class PptxChrome {
     ; middle — the panel runs past it on one side and the properties band on
     ; the other — so the row holding the three bands is the one that stretches,
     ; and the notes live INSIDE its middle column rather than beside it.
-    sfn shellCss:string () {
+    ; THE ARRANGEMENT, which is always underneath. This is the part no caller
+    ; has ever been able to state and none is expected to: how the six regions
+    ; are stacked and nested. It is parsed before a host's own sheet so that a
+    ; host writing `.slide-panel { width: 210px }` gets a 210px panel without
+    ; having to restate a layout it does not know about.
+    ;
+    ; The properties band is HERE and not in the sizes below, and that is
+    ; deliberate: its width and its breakpoint were hard-coded fields in the
+    ; app — `def propsW:int 168` and `if (W < 820) { return 0 }` — so no host
+    ; has ever been able to change them, and moving them into the part a host
+    ; replaces would quietly take a band away from every host that has its own
+    ; stylesheet.
+    sfn structureCss:string () {
         return (".pptx-chrome { display: flex; flex-direction: column;"
               + " flex-wrap: nowrap; align-items: stretch }"
-              ; The strip and the status line: given heights, full width.
-              + " .toolbar { height: 34px; padding-left: 5px }"
-              + " .toolbar-tabs { height: 28px }"
-              + " .toolbar-button { width: 30px; height: 54px }"
-              + " .pptx-status { height: 22px }"
-              ; The middle, which is what is left over.
               + " .pptx-middle { display: flex; flex-direction: row;"
               + " flex-wrap: nowrap; align-items: stretch; flex: 1 }"
-              + " .slide-panel { width: 150px }"
-              + " .pptx-props { width: 168px }"
               ; The stage and the notes, stacked, in what the two bands leave.
               ; `min-width: 0` because this column is the one that gives way
               ; when the window narrows, and a flex item's automatic minimum
@@ -117,13 +118,27 @@ class PptxChrome {
               + " flex-wrap: nowrap; align-items: stretch; flex: 1;"
               + " min-width: 0 }"
               + " .pptx-stage { flex: 1; min-height: 0 }"
+              + " .pptx-props { width: 168px }"
+              ; The band goes before the panel does — it is the widest thing on
+              ; the screen that the reader did not ask for.
+              + " @media (max-width: 819px) { .pptx-props { width: 0px } }")
+    }
+
+    ; THE SIZES, which are the app's defaults and which a host REPLACES rather
+    ; than adds to. `setChromeCss` does not lay these underneath a host's sheet,
+    ; and the reason is a bug this cost: the phone breakpoint below gives the
+    ; panel a HEIGHT, a height turns the panel into a strip, and a host that
+    ; asked only for `width: 210px` would have got a strip on a phone it never
+    ; asked for — its width overridden in one dimension and ignored in the
+    ; other. A host that states its own chrome states all of it.
+    sfn sizesCss:string () {
+        return (" .toolbar { height: 34px; padding-left: 5px }"
+              + " .toolbar-tabs { height: 28px }"
+              + " .toolbar-button { width: 30px; height: 54px }"
+              + " .slide-panel { width: 150px }"
               + " .notes { height: 92px }"
               ; A tablet: the list of slides is worth less than the slide.
               + " @media (max-width: 900px) { .slide-panel { width: 96px } }"
-              ; THE PROPERTIES BAND GOES FIRST, and at a width of its own
-              ; rather than the panel's — it is the widest thing on the screen
-              ; that the reader did not ask for.
-              + " @media (max-width: 819px) { .pptx-props { width: 0px } }"
               ; A phone: the notes are the first thing to go — they are the
               ; least useful thing on a small screen and the most expensive,
               ; because they cost height, which is what a phone has least of.
@@ -139,6 +154,11 @@ class PptxChrome {
               + " @media (pointer: coarse) { .toolbar { height: 48px;"
               + " padding-left: 8px } .toolbar-button { width: 44px;"
               + " height: 66px } }")
+    }
+
+    ; Both, which is what the app uses when no host has said otherwise.
+    sfn shellCss:string () {
+        return ((PptxChrome.structureCss()) + (PptxChrome.sizesCss()))
     }
 
     ; Lay the shell out at a window size and read the boxes off it.

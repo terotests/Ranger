@@ -220,13 +220,21 @@ class ChromeCheck {
             c.stageRect.h 676.0)
     }
 
-    ; AND THE POINT OF ALL OF IT: the same numbers the app works out by hand.
+    ; THE APP AGREES WITH IT.
     ;
-    ; Everything above compares the layout against figures written into this
-    ; file, which proves it is self-consistent and nothing more. What makes P0
-    ; worth doing is that the layout agrees with `panelWidth`, `propsWidth`,
-    ; `notesHeight` and `notesRect` — the arithmetic that has been drawing this
-    ; editor all along. If it does, the arithmetic can go and no picture moves.
+    ; This began as the proof that the layout reproduced the arithmetic, and
+    ; that is what it was for exactly as long as the two existed side by side.
+    ; The app delegates to the layout now, so `panelWidth` and the rest ARE
+    ; this — and a test where both sides come from one place proves less than
+    ; it looks like it does. What it still catches, and did catch, is the
+    ; WIRING: the app lays the shell out through its own stylesheet and its own
+    ; flags, and when that sheet was missing the arrangement, twenty-seven of
+    ; these failed at once.
+    ;
+    ; The proof that no number moved is elsewhere and is stronger than an
+    ; assertion: all fifteen `pptx:editor:shots` snapshots come out
+    ; byte-identical, and the browser's own 127 selftests — including the
+    ; phone and desktop breakpoint checks — pass unchanged.
     ;
     ; The strip's height is the one number that does not come from either: the
     ; band is as tall as the page showing on it needs and only the strip knows
