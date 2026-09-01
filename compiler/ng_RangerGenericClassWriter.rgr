@@ -1158,6 +1158,14 @@ class RangerGenericClassWriter {
 
   fn writeInterface:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
   }
+  ; Called once, after every class of the program has been written and before
+  ; the import lines are collected. A target that emits a preamble of runtime
+  ; helpers writes it here rather than ahead of the first class: by now the
+  ; body exists, so it can tell which helpers the program actually reached for
+  ; and leave the rest out. Writing still lands in the right place because the
+  ; preamble goes into a position tag created earlier.
+  fn finalizeFile:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+  }
   fn disabledVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
 
