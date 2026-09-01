@@ -56,6 +56,8 @@ function have(tool: string, args: string[] = ["--version"]): boolean {
 const CHAINS = "tests/fixtures/format_chains.rgr";
 const KEYWORDS = "tests/fixtures/format_keywords.rgr";
 const LONGCHAIN = "tests/fixtures/format_longchain.rgr";
+const STRESS = "tests/fixtures/format_stress.rgr";
+const STRESS_OUT = "105 aa/bb/cc/dd/eeeeeeeeeeee/ffffffffffff/gggggggggggg";
 
 const HAS_GO = have("go", ["version"]);
 const HAS_PY = have("python3");
@@ -218,6 +220,47 @@ describe("output formatter: long chains and argument lists (phase 3)", () => {
     execFileSync("g++", ["-std=c++17", "-O0", "-o", bin, path.join(OUT, "lc.cpp")]);
     expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe(EXPECTED);
   }, 240000);
+
+  it("survives arguments that contain the characters it scans for", () => {
+    // A text rule fails on text. These arguments hold `a.b().c()`, `))((`,
+    // `x,y,z`, an escaped quote and `http://x//y` -- a chain link, unbalanced
+    // brackets, separators, a quote and a comment marker, all inside strings.
+    const js = compile(STRESS, "es6", "js", "stress");
+    expect(js).toMatch(/r\.put\("dot", "a\.b\(\)\.c\(\)"\)\n/);
+    expect(js).toMatch(/\n\s+\.put\("slash", "http:\/\/x\/\/y"\);/);
+    // a chain inside an `if` condition is at depth > 0 and must be left alone
+    expect(js).toMatch(/if \( r\.put\("k", "v"\)\.size\(\) > 0 \)/);
+    // the inner call keeps its own arguments on one line; only the outer
+    // list expands
+    expect(js).toMatch(/SMain\.join3\(\n\s+SMain\.join3\("aa", "bb", "cc", "dd"\),/);
+    expect(
+      execFileSync(process.execPath, [path.join(OUT, "stress.js")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(STRESS_OUT);
+  }, 120000);
+
+  it.runIf(HAS_GO)("the same, run on Go", () => {
+    compile(STRESS, "go", "go", "stress");
+    execFileSync("gofmt", ["-e", path.join(OUT, "stress.go")], { stdio: "ignore" });
+    expect(
+      execFileSync("go", ["run", "stress.go"], { cwd: OUT, encoding: "utf-8" }).trim()
+    ).toBe(STRESS_OUT);
+  }, 240000);
+
+  it.runIf(HAS_GXX)("the same, built with g++", () => {
+    compile(STRESS, "cpp", "cpp", "stress");
+    const bin = path.join(OUT, "stress.bin");
+    execFileSync("g++", ["-std=c++17", "-O0", "-o", bin, path.join(OUT, "stress.cpp")]);
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe(STRESS_OUT);
+  }, 240000);
+
+  it.runIf(HAS_PY)("the same, run on Python, which the formatter never touches", () => {
+    compile(STRESS, "python", "py", "stress");
+    expect(
+      execFileSync("python3", [path.join(OUT, "stress.py")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(STRESS_OUT);
+  }, 120000);
 
   it("never reformats a comment", () => {
     // PLAN_FORMAT.md S1 is about what a doc comment shows the reader.

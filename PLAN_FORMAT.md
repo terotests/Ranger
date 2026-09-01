@@ -644,6 +644,34 @@ declines both, correctly. Where it does apply — a builder chain, a wide call �
 it produces exactly what prettier and clang-format produce, and it produces it
 on the targets that have no formatter to produce it for them.
 
+### Probed the way a text rule fails
+
+A rule that reads text fails on text, so `tests/fixtures/format_stress.rgr`
+feeds it the characters it scans for, inside string literals where they mean
+nothing: `a.b().c()`, `))((`, `x,y,z`, an escaped quote, and `http://x//y` —
+a chain link, unbalanced brackets, separators, a quote and a comment marker.
+It also chains inside an `if` condition, where the links sit at bracket depth
+1 and must be left alone, and nests a call inside a call, where only the outer
+argument list may expand.
+
+```js
+r.put("dot", "a.b().c()")
+  .put("paren", "))((")
+  .put("comma", "x,y,z")
+  .put("quote", "he said \"hi\"")
+  .put("slash", "http://x//y");
+let n = r.size();
+if ( r.put("k", "v").size() > 0 ) {
+  n = n + 100;
+}
+const s = SMain.join3(
+  SMain.join3("aa", "bb", "cc", "dd"),
+  "eeeeeeeeeeee",
+  ...
+```
+
+JavaScript, Go, C++ and Python all print the same answer.
+
 So phase 3 is done as specified, and the measurement says the next line-length
 win is not here. It is in how operator expressions are emitted, which is §5's
 category B on the targets that have a reprinting formatter (prettier takes
