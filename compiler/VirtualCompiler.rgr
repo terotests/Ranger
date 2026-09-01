@@ -579,7 +579,8 @@ class tester {
       'operatordoc'  'write operator documention into .md file'
       'apidoc'  'write the API documentation artifacts into this subdirectory'
       'apiformat'  'which API artifacts to write: json, markdown, report (default json,markdown)'
-      'format'  'Output formatting: "ranger" (the default) drops parentheses a target does not need; "none" emits exactly what the writers emit'
+      'format'  'Output formatting: "ranger" (the default) drops parentheses a target does not need and breaks a long method chain onto one line per call; "none" emits exactly what the writers emit'
+      'width'  'Line width the formatter aims at, when -format is not none. Defaults to the target ecosystem\'s own: 80 on JavaScript, Dart and C++, 100 elsewhere'
       'csnamespace'  'C# namespace for the generated types'
       'ktpackage'  'Kotlin package for the generated types'
     ))
@@ -1014,6 +1015,23 @@ class tester {
     def fileSystem@(lives) (new CodeFileSystem())
     if (appCtx.hasCompilerFlag("sourcemap")) {
       fileSystem.enableSourceMaps()
+    }
+    ; PLAN_FORMAT.md phase 3: break long method chains on the finished text.
+    ; -1 is "on, at the target's own default width"; -width= overrides it.
+    def fmtSetting:string (appCtx.getCompilerSetting("format"))
+    if (fmtSetting != "none") {
+      fileSystem.formatWidth = (0 - 1)
+      def widthOpt@(optional) (params.getParam("width"))
+      if (!null? widthOpt) {
+        def widthStr:string (unwrap widthOpt)
+        def widthOpt2@(optional):int (to_int widthStr)
+        if (!null? widthOpt2) {
+          def widthNum:int (unwrap widthOpt2)
+          if (widthNum > 0) {
+            fileSystem.formatWidth = widthNum
+          }
+        }
+      }
     }
     
     def file (fileSystem.getFile("." the_target)) 

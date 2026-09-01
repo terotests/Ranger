@@ -21,8 +21,10 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 - Issue #76 (fixed): a Ranger name that is a keyword of the target was emitted verbatim and the file did not parse. Not a Go defect but a family of them: **JavaScript was worst at 41 of 46 keywords and had no `reserved_words` block at all**, C++ had 25 missing behind 56 existing entries, Go 20 of 25, Rust 2. Found by `scripts/reserved_probe.py`, which asks each target's own parser about every keyword; Dart, Kotlin, Swift and C# report UNCHECKED where no parser is installed (September 2026)
 - Issue #77 (fixed): `npm test` ran 1 of its 83 test files. `es-conformance-targets.test.ts` compiles a 45,000-line interpreter to five targets, which starves the vitest reporter under `singleFork` exactly as the config's own comment predicts; the run ends with `Timeout calling "onTaskUpdate"` and the remaining 82 files never run. The summary reads `Test Files 1 failed (83)` — a suite with one failure, not a suite that stopped. Fixed by adding the file to the exclude list it was already documented as belonging to (September 2026)
+- Issue #78 (fixed): on Python a method whose name is a builtin was DECLARED under its renamed form and CALLED under its original one. `fn str` came out as `def _str`, and a chained `r.str(...)` called a method that does not exist — `AttributeError: 'LcRow' object has no attribute 'str'`. Every other writer reads `compiledName` at the call site; the Python writer wrote `method.vref`. Found by the phase-3 chain fixture, which is the first Ranger program to chain a call to such a method on Python (September 2026)
 
 ### Still Open
+- Issue #79: on Rust a method that returns `this` returns `self.clone()`, so every call after the first in a chain mutates a COPY. `a.bump().bump().bump()` leaves `a.n` at 1 where JavaScript, Python and Go all say 3. No error, no warning — a silently wrong answer, and the builder pattern is exactly the shape that hits it. Reproduces on a 13-line program with no generics and no aliasing (September 2026)
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
@@ -2627,6 +2629,141 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #79: a Rust method returning `this` returns a clone, so a chain mutates copies
+
+**Status:** open. Found while testing chain formatting
+([`PLAN_FORMAT.md`](PLAN_FORMAT.md) phase 3) — the fixture chains six calls and
+Rust was the one target that printed the wrong number.
+
+### Reproduction
+
+```ranger
+class Acc {
+  def n:int 0
+  fn bump:Acc () {
+    n = n + 1
+    return this
+  }
+}
+class RbMain {
+  sfn main:void () {
+    def a:Acc (new Acc())
+    a.bump().bump().bump()
+    print ("" + a.n)
+  }
+}
+```
+
+| Target | Answer |
+| --- | --- |
+| JavaScript | 3 |
+| Python | 3 |
+| Go | 3 |
+| **Rust** | **1** |
+
+### Cause
+
+`return this` is emitted as `self.clone()`:
+
+```rust
+  fn bump(&mut self) -> Acc {
+    self.n += 1;
+    self.clone()
+  }
+```
+
+The first `bump()` mutates `a`. It then hands back a copy, and the second and
+third `bump()` calls mutate that copy, which is dropped. The count reaches 1
+and no one is told.
+
+`Acc` is not detected as shared here — nothing aliases it — so it is emitted as
+a value struct, and a value struct cannot return itself by reference from a
+`&mut self` method. The shared-class path (`Rc<RefCell<T>>`, the default since
+PLAN_RUST_OWNERSHIP 2b) is the one that could, and the sharing analysis does
+not currently count "returns `this`" as a reason to treat a class as shared.
+
+### Why it matters more than most
+
+It is silent. There is no compile error, no warning and no panic — the program
+runs and prints the wrong number. The shape that triggers it is the builder
+pattern, which is the single most common reason to return `this` at all, and
+it is what `gallery/vela`'s chart API is built on.
+
+### Note
+
+This is not a formatting defect and phase 3 did not cause it: a copy of the
+pre-change compiler produces the identical output. It was found because chain
+breaking needed a chain to test, and the fixture was run rather than only
+inspected.
+
+## Issue #78: a Python method renamed at its declaration was called by its old name
+
+**Status:** fixed.
+
+### Reproduction
+
+```ranger
+class LcRow {
+  def cells:[string]
+  fn str:LcRow (k:string v:string) {
+    push cells (k + "=" + v)
+    return this
+  }
+}
+```
+
+compiled with `-l=python` declares
+
+```python
+  def _str(self, k, v):
+```
+
+because `str` is a Python builtin and the `python` block of `reserved_words`
+renames it — and then writes the chained call as
+
+```python
+  r._str("region", "North").str("category", "Hardware")
+```
+
+The first call is renamed; every call after it in the chain is not. The
+program raises at runtime:
+
+```
+AttributeError: 'LcRow' object has no attribute 'str'. Did you mean: '_str'?
+```
+
+### Cause
+
+`RangerPythonClassWriter.CreateCallExpression` wrote `method.vref` — the name
+as it appears in the Ranger source. Every other writer resolves the same thing
+through `node.fnDesc.compiledName`, which is where the rename lives:
+
+```ranger
+def methodName method.vref
+if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+  methodName = node.fnDesc.compiledName
+}
+```
+
+The first call in the chain came out right because it reaches the writer by a
+different path.
+
+### Why it went unnoticed
+
+It needs a method whose name is a Python builtin AND a call to it in a chain.
+`reserved_words` has 100 entries for Python, so the declaration side has been
+right all along, and the failure is a runtime `AttributeError` in generated
+Python rather than anything the compiler reports.
+
+It was found by the phase-3 fixture in `tests/fixtures/format_longchain.rgr`,
+which chains `str` six times — written to test chain breaking, not renaming.
+
+### Effect on output
+
+20 lines across `gallery/vela/src/VlChart.rgr`, all of them `.str(` becoming
+`._str(`. `scripts/fmt_parity.sh` reports Python as the one target that
+differs from a pre-fix baseline, and says why.
 
 ## Issue #77: `npm test` ran one of its eighty-three test files
 

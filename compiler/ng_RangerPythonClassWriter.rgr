@@ -671,7 +671,15 @@ class RangerPythonClassWriter {
         ctx.unsetInExpr()
       }
       wr.out("." false)
-      wr.out(method.vref false)
+      ; The DECLARATION is renamed when the method's name is a Python builtin
+      ; -- `fn str` is defined as `_str` -- but this call site was writing the
+      ; original name, so a chained `r.str(...)` called a method that does not
+      ; exist. Every other writer reads compiledName here; Python did not.
+      def pyMethodName:string method.vref
+      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+        pyMethodName = node.fnDesc.compiledName
+      }
+      wr.out(pyMethodName false)
       wr.out("(" false)
       ctx.setInExpr()
 

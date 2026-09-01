@@ -2,6 +2,612 @@
 
 Import "ng_SourceMap.rgr"
 
+; ---------------------------------------------------------------------------
+; PLAN_FORMAT.md S5, phase 3: a long method chain is broken -- every link or
+; none of them.
+;
+; This runs over FINISHED LINES rather than during emission, and that is the
+; whole reason it is small. A chain is assembled by CreateCallExpression
+; recursing through its receiver, so mid-emission no one holds the whole chain;
+; deciding there would mean editing eleven writers and knowing, at each one,
+; how much of the line was still to come. A finished line knows its own length,
+; its own indentation and every link it holds.
+;
+; It is also why phase 3 does not wait for phase 2: the decision is made on the
+; text, so however the operator path ends up parenthesising `(xs[i]).get()`,
+; the breaking rule reads the result rather than the shape that produced it.
+;
+; The rule is prettier's and Biome's, which arrived at it independently: a
+; chain stays on one line while it fits, and once it does not, EVERY link goes
+; onto its own line. Never some and not others -- a half-broken chain is the
+; one shape that reads worse than either.
+; ---------------------------------------------------------------------------
+class RangerSourceFormat {
+
+    ; Only real source is touched. package.json, .md and .csproj come through
+    ; the same file system and a "line too long" rule means nothing in them.
+    static fn defaultWidthFor:int (ext:string) {
+        if (ext == "js") { return 80 }
+        if (ext == "ts") { return 80 }
+        if (ext == "mjs") { return 80 }
+        if (ext == "cjs") { return 80 }
+        if (ext == "dart") { return 80 }
+        if (ext == "cpp") { return 80 }
+        if (ext == "hpp") { return 80 }
+        if (ext == "h") { return 80 }
+        if (ext == "go") { return 100 }
+        if (ext == "rs") { return 100 }
+        if (ext == "kt") { return 100 }
+        if (ext == "cs") { return 100 }
+        if (ext == "java") { return 100 }
+        if (ext == "scala") { return 100 }
+        if (ext == "swift") { return 100 }
+        if (ext == "php") { return 100 }
+        return 0
+    }
+
+    ; Go inserts a semicolon after a line that ends in `)`, so a chain broken
+    ; before the dot does not parse there. Go keeps the dot on the line it
+    ; came from; every other target here starts the new line with it.
+    static fn dotLeadsLine:boolean (ext:string) {
+        if (ext == "go") {
+            return false
+        }
+        return true
+    }
+
+    static fn isSpaceCode:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9) { return true }
+        return false
+    }
+
+    static fn indentOf:string (line:string) {
+        def i:int 0
+        def n:int (strlen line)
+        while (i < n) {
+            def c:int (charAt line i)
+            def sp:boolean (RangerSourceFormat.isSpaceCode(c))
+            if (sp == false) {
+                break _
+            }
+            i = i + 1
+        }
+        return (substring line 0 i)
+    }
+
+    ; A comment is never reformatted. That is the rule every ecosystem
+    ; formatter follows, and PLAN_FORMAT.md S1 is about what a doc comment
+    ; shows the reader -- breaking one here would be the same mistake from the
+    ; other side.
+    static fn isCommentOrEmpty:boolean (line:string) {
+        def t:string (trim line)
+        def n:int (strlen t)
+        if (n == 0) {
+            return true
+        }
+        def c0:int (charAt t 0)
+        if (c0 == 42) { return true }
+        if (c0 == 35) { return true }
+        if (c0 == 59) { return true }
+        if (n < 2) {
+            return false
+        }
+        def two:string (substring t 0 2)
+        if (two == "//") { return true }
+        if (two == "/*") { return true }
+        return false
+    }
+
+    ; Where the code on this line ends and a trailing line comment begins.
+    ; Everything after it is left alone: a comment that happens to contain
+    ; `).` or a comma is not a chain link or an argument separator, and
+    ; splitting inside one would be the same mistake as reformatting it.
+    static fn codeEndOf:int (line:string) {
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                while (i < n) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                i = i + 1
+            } {
+                if (c == 47) {
+                    if (i < (n - 1)) {
+                        def nx:int (charAt line (i + 1))
+                        if (nx == 47) {
+                            return i
+                        }
+                    }
+                }
+                i = i + 1
+            }
+        }
+        return n
+    }
+
+    ; Every index at bracket depth 0 where a member access follows a CALL --
+    ; `).` or `)->`. Those are the links of a chain. A `.` after a name is not
+    ; a link, so `a.b.c()` is one call and stays put. String and character
+    ; literals are stepped over whole.
+    static fn chainSplits:[int] (line:string) {
+        def out:[int]
+        def n:int (RangerSourceFormat.codeEndOf(line))
+        def depth:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                while (i < n) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                i = i + 1
+            } {
+                if (((c == 40) || (c == 91)) || (c == 123)) {
+                    depth = depth + 1
+                    i = i + 1
+                } {
+                    if (((c == 41) || (c == 93)) || (c == 125)) {
+                        depth = depth - 1
+                        i = i + 1
+                    } {
+                        def isLink:boolean false
+                        if (depth == 0) {
+                            if (i > 0) {
+                                def prev:int (charAt line (i - 1))
+                                if (prev == 41) {
+                                    if (c == 46) {
+                                        isLink = true
+                                    }
+                                    if (c == 45) {
+                                        if (i < (n - 1)) {
+                                            def nx:int (charAt line (i + 1))
+                                            if (nx == 62) {
+                                                isLink = true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if isLink {
+                            push out i
+                        }
+                        i = i + 1
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    static fn breakChainLine:string (line:string ext:string) {
+        def splits:[int] (RangerSourceFormat.chainSplits(line))
+        def cnt:int (array_length splits)
+        ; "more than two calls": two split points means three calls.
+        if (cnt < 2) {
+            return line
+        }
+        def ind:string (RangerSourceFormat.indentOf(line))
+        def step:string (ind + "  ")
+        def lead:boolean (RangerSourceFormat.dotLeadsLine(ext))
+        def res:string ""
+        def prev:int 0
+        for splits sp:int si {
+            def piece:string (substring line prev sp)
+            if lead {
+                if (si == 0) {
+                    res = res + piece
+                } {
+                    res = res + step + piece
+                }
+                res = res + "\n"
+            } {
+                def dotLen:int 1
+                def dc:int (charAt line sp)
+                if (dc == 45) {
+                    dotLen = 2
+                }
+                def tail:int (sp + dotLen)
+                def withDot:string (substring line prev tail)
+                if (si == 0) {
+                    res = res + withDot
+                } {
+                    res = res + step + withDot
+                }
+                res = res + "\n"
+            }
+            prev = sp
+            if (lead == false) {
+                def dl:int 1
+                def dc2:int (charAt line sp)
+                if (dc2 == 45) {
+                    dl = 2
+                }
+                prev = sp + dl
+            }
+        }
+        def last:string (substring line prev (strlen line))
+        res = res + step + last
+        return res
+    }
+
+    ; `if (`, `while (` and their kin open a parenthesis that is not an
+    ; argument list. Breaking at "commas" there would be breaking at commas
+    ; that are really somebody else's.
+    static fn isCallKeyword:boolean (word:string) {
+        if (word == "if") { return true }
+        if (word == "while") { return true }
+        if (word == "for") { return true }
+        if (word == "switch") { return true }
+        if (word == "catch") { return true }
+        if (word == "return") { return true }
+        if (word == "guard") { return true }
+        if (word == "foreach") { return true }
+        if (word == "using") { return true }
+        if (word == "lock") { return true }
+        if (word == "match") { return true }
+        if (word == "when") { return true }
+        return false
+    }
+
+    static fn isWordCode:boolean (c:int) {
+        if ((c >= 97) && (c <= 122)) { return true }
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 48) && (c <= 57)) { return true }
+        if (c == 95) { return true }
+        return false
+    }
+
+    ; The word immediately before position i, skipping spaces.
+    static fn wordBefore:string (line:string i:int) {
+        def j:int (i - 1)
+        while (j >= 0) {
+            def c:int (charAt line j)
+            def sp:boolean (RangerSourceFormat.isSpaceCode(c))
+            if (sp == false) {
+                break _
+            }
+            j = j - 1
+        }
+        def endPos:int (j + 1)
+        while (j >= 0) {
+            def c2:int (charAt line j)
+            def w:boolean (RangerSourceFormat.isWordCode(c2))
+            if (w == false) {
+                break _
+            }
+            j = j - 1
+        }
+        def startPos:int (j + 1)
+        if (startPos >= endPos) {
+            return ""
+        }
+        return (substring line startPos endPos)
+    }
+
+    ; The argument list to expand: the FIRST `(` that opens a real call and
+    ; holds at least two commas of its own. Returns the open index, or -1.
+    static fn argListOpen:int (line:string) {
+        def n:int (RangerSourceFormat.codeEndOf(line))
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                while (i < n) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                i = i + 1
+            } {
+                if (c == 40) {
+                    def before:string (RangerSourceFormat.wordBefore(line i))
+                    def kw:boolean (RangerSourceFormat.isCallKeyword(before))
+                    def isCall:boolean false
+                    if (i > 0) {
+                        def pc:int (charAt line (i - 1))
+                        def wordy:boolean (RangerSourceFormat.isWordCode(pc))
+                        if (wordy || (pc == 41)) {
+                            isCall = true
+                        }
+                    }
+                    if (kw) {
+                        isCall = false
+                    }
+                    if isCall {
+                        def commas:int (RangerSourceFormat.topCommaCount(line i n))
+                        if (commas >= 2) {
+                            return i
+                        }
+                    }
+                    i = i + 1
+                } {
+                    i = i + 1
+                }
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; Commas belonging to the group opened at `open`, and nothing nested.
+    static fn topCommaCount:int (line:string open:int limit:int) {
+        def cnt:int 0
+        def depth:int 0
+        def i:int open
+        while (i < limit) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                while (i < limit) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                i = i + 1
+            } {
+                if (((c == 40) || (c == 91)) || (c == 123)) {
+                    depth = depth + 1
+                    i = i + 1
+                } {
+                    if (((c == 41) || (c == 93)) || (c == 125)) {
+                        depth = depth - 1
+                        if (depth == 0) {
+                            return cnt
+                        }
+                        i = i + 1
+                    } {
+                        if (depth == 1) {
+                            if (c == 44) {
+                                cnt = cnt + 1
+                            }
+                        }
+                        i = i + 1
+                    }
+                }
+            }
+        }
+        return 0
+    }
+
+    static fn topCommaAt:[int] (line:string open:int limit:int) {
+        def out:[int]
+        def depth:int 0
+        def i:int open
+        while (i < limit) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                while (i < limit) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                i = i + 1
+            } {
+                if (((c == 40) || (c == 91)) || (c == 123)) {
+                    depth = depth + 1
+                    i = i + 1
+                } {
+                    if (((c == 41) || (c == 93)) || (c == 125)) {
+                        depth = depth - 1
+                        if (depth == 0) {
+                            push out i
+                            return out
+                        }
+                        i = i + 1
+                    } {
+                        if (depth == 1) {
+                            if (c == 44) {
+                                push out i
+                            }
+                        }
+                        i = i + 1
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; One argument per line, closing paren back at the statement's own indent.
+    ; That is prettier's, black's and clang-format's shape, and Go needs the
+    ; trailing comma or its semicolon insertion rejects the close.
+    ; The code on this line, minus a trailing line comment and trailing space.
+    static fn codeTailChar:int (line:string) {
+        def e:int (RangerSourceFormat.codeEndOf(line))
+        def j:int (e - 1)
+        while (j >= 0) {
+            def c:int (charAt line j)
+            def sp:boolean (RangerSourceFormat.isSpaceCode(c))
+            if (sp == false) {
+                return c
+            }
+            j = j - 1
+        }
+        return 0
+    }
+
+    static fn breakArgLine:string (line:string ext:string) {
+        ; A line whose code ends in `{` is a DECLARATION or a lambda header,
+        ; not a call: `void Worker::copyInto( ... ) {`. Expanding its parameter
+        ; list is legal in every target here and clang-format does it, but a
+        ; signature is the most-read line in a file and the most asserted-on
+        ; text in the suite, and reflowing one buys the least. Calls only.
+        def tail:int (RangerSourceFormat.codeTailChar(line))
+        if (tail == 123) {
+            return line
+        }
+        def open:int (RangerSourceFormat.argListOpen(line))
+        if (open < 0) {
+            return line
+        }
+        def limit:int (RangerSourceFormat.codeEndOf(line))
+        def marks:[int] (RangerSourceFormat.topCommaAt(line open limit))
+        def mcnt:int (array_length marks)
+        if (mcnt < 3) {
+            return line
+        }
+        def closeIdx:int (itemAt marks (mcnt - 1))
+        def ind:string (RangerSourceFormat.indentOf(line))
+        def step:string (ind + "  ")
+        def res:string (substring line 0 (open + 1))
+        res = res + "\n"
+        def prev:int (open + 1)
+        def i:int 0
+        while (i < (mcnt - 1)) {
+            def cm:int (itemAt marks i)
+            def arg:string (trim (substring line prev cm))
+            res = res + step + arg + ",\n"
+            prev = cm + 1
+            i = i + 1
+        }
+        def lastArg:string (trim (substring line prev closeIdx))
+        def goLike:boolean false
+        if (ext == "go") {
+            goLike = true
+        }
+        if goLike {
+            res = res + step + lastArg + ",\n"
+        } {
+            res = res + step + lastArg + "\n"
+        }
+        def rest:string (substring line closeIdx (strlen line))
+        res = res + ind + rest
+        return res
+    }
+
+    ; A line whose quote scan ends INSIDE a string is a line this pass cannot
+    ; reason about: a multi-line literal, or a stray apostrophe. Its brackets
+    ; are not the brackets they appear to be, so nothing is broken there.
+    ; No output emitted today reaches this -- the only lines that trip it are
+    ; doc comments with an apostrophe in them, which are already skipped --
+    ; and it costs one scan to make sure that stays true.
+    static fn hasOpenString:boolean (line:string) {
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                def closed:boolean false
+                while (i < n) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            closed = true
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                if (closed == false) {
+                    return true
+                }
+                i = i + 1
+            } {
+                if (c == 47) {
+                    if (i < (n - 1)) {
+                        def nx:int (charAt line (i + 1))
+                        if (nx == 47) {
+                            return false
+                        }
+                    }
+                }
+                i = i + 1
+            }
+        }
+        return false
+    }
+
+    static fn formatSource:string (text:string ext:string width:int) {
+        def w:int width
+        if (w <= 0) {
+            w = (RangerSourceFormat.defaultWidthFor(ext))
+        }
+        if (w <= 0) {
+            return text
+        }
+        def lines:[string] (strsplit text "\n")
+        def out:[string]
+        for lines line:string li {
+            def keep:boolean true
+            def len:int (strlen line)
+            if (len > w) {
+                def skip:boolean (RangerSourceFormat.isCommentOrEmpty(line))
+                if (skip == false) {
+                    def openStr:boolean (RangerSourceFormat.hasOpenString(line))
+                    if openStr {
+                        skip = true
+                    }
+                }
+                if (skip == false) {
+                    ; Chains first: a chain that fits once broken never needs
+                    ; its arguments expanded as well, and expanding both at
+                    ; once is how a formatter produces a shape nobody wrote.
+                    def broken:string (RangerSourceFormat.breakChainLine(line ext))
+                    if (broken == line) {
+                        broken = (RangerSourceFormat.breakArgLine(line ext))
+                    }
+                    push out broken
+                    keep = false
+                }
+            }
+            if keep {
+                push out line
+            }
+        }
+        return (join out "\n")
+    }
+}
+
 class CodeFile {
     def path_name:string ""
     def name:string ""
@@ -75,6 +681,10 @@ class CodeFile {
 class CodeFileSystem {
     def files:[CodeFile]
     def sourceMapsEnabled:boolean false
+    ; PLAN_FORMAT.md phase 3. 0 leaves every line as emitted (-format=none);
+    ; -1 means "on, at the target's own default width"; a positive number is
+    ; an explicit -width=. The compiler sets this before saveTo.
+    def formatWidth:int 0
 
     fn enableSourceMaps:void () {
         sourceMapsEnabled = true
@@ -129,6 +739,22 @@ class CodeFileSystem {
             def file_content:string (file.getCode())
             if ((strlen file_content) > 0) {
                 def outName:string (trim file.name)
+                ; Break long chains on the finished text. Keyed on the
+                ; extension rather than on the target language, so that
+                ; package.json, .md and .csproj -- which reach this same loop
+                ; -- are left alone without any plumbing.
+                if (formatWidth != 0) {
+                    def nameParts:[string] (strsplit outName ".")
+                    def partCnt:int (array_length nameParts)
+                    if (partCnt > 1) {
+                        def fileExt:string (itemAt nameParts (partCnt - 1))
+                        def useWidth:int formatWidth
+                        if (useWidth < 0) {
+                            useWidth = 0
+                        }
+                        file_content = (RangerSourceFormat.formatSource(file_content fileExt useWidth))
+                    }
+                }
                 def writeSourceMap:boolean false
                 if (this.shouldWriteSourceMaps()) {
                     if (this.isJsOutputFile(outName)) {

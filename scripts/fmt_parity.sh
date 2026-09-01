@@ -48,5 +48,18 @@ for src in "${SRCS[@]}"; do
     fi
   done
 done
-[ $fail -eq 0 ] && echo "-format=none is byte-for-byte identical to the baseline"
+# Python's output is EXPECTED to differ from a baseline taken before the
+# method-rename fix: `fn str` is declared as `_str` on Python, and the chained
+# call site used to write the original name, so `r.str(...)` called a method
+# that did not exist. That is a bug fix and it applies whatever -format says.
+# Every other target must still be byte-identical.
+if [ $fail -eq 0 ]; then
+  echo "-format=none is byte-for-byte identical to the baseline"
+elif [ "$fail" = 1 ]; then
+  echo
+  echo "A target that DIFFERS is only acceptable when the difference is a"
+  echo "deliberate codegen fix, named here. Anything else is a regression in"
+  echo "the -format=none escape hatch, which is supposed to be exactly what"
+  echo "the previous compiler emitted."
+fi
 exit $fail

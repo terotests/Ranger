@@ -341,10 +341,8 @@ have fixed. Rust and Swift 6 are phase 1b, for the reasons in §10.2.
 stacked `((…))`, and removes the need for a new manual suppression at every
 future call site.
 
-**Phase 3 — chains and argument lists.** The all-or-nothing rule of §5, width
-aware. `CodeWriter` already tracks `columnNumber` and `currentLine`
-(`compiler/ng_writer.rgr:189`), so the writer can already tell how much room is
-left — the information needed for this is present and unused.
+**Phase 3 — chains and argument lists. DONE.** The all-or-nothing rule of §5,
+width aware, applied to finished lines rather than during emission. §10.5.
 
 **Phase 4 — `-format=native`.** Run the ecosystem tool when it is present. Cheap
 once phases 1–3 mean it has little to do.
@@ -549,3 +547,105 @@ all.
 Phase 2 remains the larger correctness win: `(xs[i]).get()` still has one pair,
 because the operator path wraps its own result independently of the receiver
 decision. Phase 1 stopped that becoming `((xs[i])).get()`; it did not remove it.
+
+---
+
+## 10.5 What shipped: phase 3
+
+`RangerSourceFormat` in `compiler/ng_writer.rgr`, applied in
+`CodeFileSystem.saveTo` to the finished text of every file whose extension
+names a source language.
+
+### Why on finished lines rather than during emission
+
+A chain is assembled by `CreateCallExpression` recursing through its receiver,
+so at no point mid-emission does anyone hold the whole chain. Deciding there
+would mean editing eleven writers and knowing, at each one, how much of the
+line was still to come. A finished line knows its own length, its own
+indentation, and every link it holds.
+
+It is also why phase 3 did not have to wait for phase 2. The decision is made
+on the text, so however the operator path ends up parenthesising
+`(xs[i]).get()`, the breaking rule reads the result rather than the shape that
+produced it.
+
+Keying on the file extension rather than the target language means
+`package.json`, `.md` and `.csproj` — which come through the same loop — are
+left alone with no plumbing at all.
+
+### The rule
+
+Prettier's and Biome's, which arrived at it independently: a chain stays on one
+line while it fits; once it does not, **every** link goes onto its own line. A
+half-broken chain is the one shape that reads worse than either. Same for
+argument lists: all on one line, or one argument per line. Chains are tried
+first — a chain that fits once broken never needs its arguments expanded too.
+
+Thresholds: more than two calls in the chain (two split points), three or more
+arguments in the list, and the line over the width. Widths are each ecosystem's
+own default — 80 on JavaScript, Dart and C++, 100 elsewhere — with `-width=`
+overriding and `-format=none` disabling.
+
+### Calls only, not declarations
+
+A line whose code ends in `{` is a declaration or a lambda header, not a call:
+`void Worker::copyInto( const std::vector<uint8_t>& dst, ... ) {`. Expanding
+its parameter list is legal on every target here and clang-format does it —
+and the first version of this did it, which is how `codegen-cpp` found it. It
+is excluded on purpose: a signature is the most-read line in a file and the
+most asserted-on text in the suite, and reflowing one buys the least.
+
+### Two things the parser, not the style guide, decided
+
+**Go breaks after the dot, not before it.** Go inserts a semicolon after a line
+ending in `)`, so the usual form —
+
+```go
+r.str("region", "North")
+    .str("category", "Hardware")
+```
+
+— is a syntax error there. Go gets `r.str("region", "North").` with the dot
+trailing. `gofmt -e` accepts the result and the program runs; the test asserts
+both, and asserts that no *other* target uses the Go form.
+
+**An expanded argument list needs a trailing comma on Go**, for the same
+reason: `)` on its own line after a bare identifier is a semicolon insertion
+away from a parse error.
+
+Python is excluded entirely: a line cannot be broken outside brackets there
+without enclosing parentheses, which would put back what phase 1 removed.
+
+### What it is worth on real code, which is less than it looks
+
+| Target | longest line before | after |
+| --- | --- | --- |
+| C# | 132 | **117** (12 lines over 100 → 10) |
+| JavaScript | 128 | 128 |
+| Go | 111 | 111 |
+| Kotlin | 101 | 101 |
+| Swift | 176 | 176 |
+| Dart | 100 | 100 |
+
+Only C# moved on `VlChart.rgr`, and the honest reading is that **most long
+lines in real Ranger output are neither chains nor multi-argument calls**. They
+are operator expressions:
+
+```js
+if ( ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) ) )
+```
+
+```swift
+if ( (String(text[text.index(text.startIndex, offsetBy:0)..<text.index(text.startIndex, offsetBy:1)])) == "-" ) {
+```
+
+Neither is a chain; neither has three arguments at any one level. The rule
+declines both, correctly. Where it does apply — a builder chain, a wide call —
+it produces exactly what prettier and clang-format produce, and it produces it
+on the targets that have no formatter to produce it for them.
+
+So phase 3 is done as specified, and the measurement says the next line-length
+win is not here. It is in how operator expressions are emitted, which is §5's
+category B on the targets that have a reprinting formatter (prettier takes
+JavaScript's 128 to 112 by itself) and Ranger's own problem on Go, Kotlin, C#,
+Swift and Java.

@@ -31,6 +31,12 @@ for f in $(ls tests/*.test.ts | sort); do
   # which is what a crash or a 900s timeout looks like.
   if grep -aq "Tests .*failed" "tmp/suite-matrix-$base.log"; then
     v=FAIL; fail=$((fail+1))
+  elif grep -aqE "Tests +[0-9]+ skipped \\([0-9]+\\)" "tmp/suite-matrix-$base.log"; then
+    # Every test in the file skipped -- a toolchain this machine does not
+    # have. vitest exits non-zero for it, which is not a failure and must not
+    # be counted as one: compiler-dart, compiler-chain-kotlin-swift and three
+    # others were reported as broken purely for being unrunnable here.
+    v=SKIPPED; skip=$((skip+1))
   elif grep -aq "Tests .* passed" "tmp/suite-matrix-$base.log"; then
     v=PASS; pass=$((pass+1))
     grep -aq 'Timeout calling "onTaskUpdate"' "tmp/suite-matrix-$base.log" \

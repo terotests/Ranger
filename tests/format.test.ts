@@ -55,6 +55,7 @@ function have(tool: string, args: string[] = ["--version"]): boolean {
 
 const CHAINS = "tests/fixtures/format_chains.rgr";
 const KEYWORDS = "tests/fixtures/format_keywords.rgr";
+const LONGCHAIN = "tests/fixtures/format_longchain.rgr";
 
 const HAS_GO = have("go", ["version"]);
 const HAS_PY = have("python3");
@@ -150,6 +151,85 @@ describe("output formatter: call-receiver parentheses", () => {
                          path.join(OUT, "chains_on.cpp")]);
     expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("3");
   }, 240000);
+});
+
+describe("output formatter: long chains and argument lists (phase 3)", () => {
+  // PLAN_FORMAT.md S5: a chain stays on one line while it fits, and once it
+  // does not, EVERY link goes onto its own line. Never some and not others.
+  // Each text assertion is paired with a run, because inserting a newline is
+  // only whitespace in a language whose parser agrees that it is.
+  const EXPECTED = "6 first-argument-value|second-argument-value|" +
+    "third-argument-value|fourth-argument-value|fifth";
+
+  it("breaks every link of a chain that does not fit", () => {
+    const js = compile(LONGCHAIN, "es6", "js", "lc");
+    expect(js).toContain('r.str("region", "North")\n');
+    expect(js).toMatch(/\n\s+\.str\("category", "Hardware"\)/);
+    expect(js).toMatch(/\n\s+\.num\("units", 3100\.0\);/);
+    // all-or-nothing: no link may be left sharing a line with another
+    expect(js).not.toMatch(/\)\.\w+\([^)]*\)\.\w+\(/);
+    expect(
+      execFileSync(process.execPath, [path.join(OUT, "lc.js")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(EXPECTED);
+  }, 120000);
+
+  it("expands an argument list that does not fit, one argument per line", () => {
+    const js = compile(LONGCHAIN, "es6", "js", "lc");
+    expect(js).toMatch(/wide\(\n\s+"first-argument-value",\n\s+"second-argument-value",/);
+  }, 120000);
+
+  it("-format=none leaves both on one line", () => {
+    const js = compile(LONGCHAIN, "es6", "js", "lc_off", ["-format=none"]);
+    expect(js).toMatch(/\.num\("margin", 0\.42\)\)\.num\("units", 3100\.0\);/);
+    expect(
+      execFileSync(process.execPath, [path.join(OUT, "lc_off.js")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(EXPECTED);
+  }, 120000);
+
+  it("-width= raises the threshold, so nothing breaks", () => {
+    const js = compile(LONGCHAIN, "es6", "js", "lc_wide", ["-width=400"]);
+    expect(js).not.toMatch(/\n\s+\.str\("category"/);
+    expect(
+      execFileSync(process.execPath, [path.join(OUT, "lc_wide.js")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(EXPECTED);
+  }, 120000);
+
+  it.runIf(HAS_GO)("keeps the dot on the previous line for Go, which the parser requires", () => {
+    // Go inserts a semicolon after a line ending in `)`, so a chain broken
+    // BEFORE the dot does not parse. Go is the one target that breaks after.
+    const go = compile(LONGCHAIN, "go", "go", "lc");
+    expect(go).toMatch(/\.\n\s+str\("category", "Hardware"\)\./);
+    expect(go).not.toMatch(/\n\s+\.str\(/);
+    // and an expanded argument list needs its trailing comma there
+    expect(go).toMatch(/"fifth",\n\s*\)/);
+    execFileSync("gofmt", ["-e", path.join(OUT, "lc.go")], { stdio: "ignore" });
+    expect(
+      execFileSync("go", ["run", "lc.go"], { cwd: OUT, encoding: "utf-8" }).trim()
+    ).toBe(EXPECTED);
+  }, 240000);
+
+  it.runIf(HAS_GXX)("breaks a C++ chain at -> and still compiles", () => {
+    const cpp = compile(LONGCHAIN, "cpp", "cpp", "lc");
+    expect(cpp).toMatch(/\n\s+->str\(/);
+    const bin = path.join(OUT, "lc.bin");
+    execFileSync("g++", ["-std=c++17", "-O0", "-o", bin, path.join(OUT, "lc.cpp")]);
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe(EXPECTED);
+  }, 240000);
+
+  it("never reformats a comment", () => {
+    // PLAN_FORMAT.md S1 is about what a doc comment shows the reader.
+    // Breaking one here would be the same mistake from the other side.
+    const js = compile(CHAINS, "es6", "js", "chains_on");
+    for (const line of js.split("\n")) {
+      const t = line.trim();
+      if (t.startsWith("*") || t.startsWith("//") || t.startsWith("/*")) {
+        expect(t).not.toMatch(/^\.\w/);
+      }
+    }
+  }, 120000);
 });
 
 describe("reserved words: the target's own parser reads the output", () => {
