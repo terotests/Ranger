@@ -1749,6 +1749,15 @@ class EvHandle {
         }
         return false
     }
+    ; hasOwnData for a caller holding the atom id -- see EvPropertyBag.hasDataAtom.
+    fn hasOwnDataAtom:boolean (ka:int) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasDataAtom(ka))
+        }
+        return false
+    }
     fn getOwnData:EvHandle (key:string) {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
