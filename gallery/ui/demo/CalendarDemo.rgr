@@ -182,16 +182,25 @@ class CalendarDemo {
         def card (tree Cal (Card))
         def nav (tree Cal
             (Nav
-                ; ASCII, deliberately. The measurer's advance table covers
-                ; codes 32-126 and the atlas is built from the same range, so
-                ; a typographic chevron draws as an empty box — measured, in
-                ; the first render of this page. The button's accessible name
-                ; carries the meaning; the glyph is decoration.
+                ; A real typographic chevron. This said ASCII was
+                ; deliberate, because the atlas supposedly stops at code 126
+                ; and a chevron drew as an empty box. That reason was WRONG:
+                ; re-measured by rendering the characters, the painter draws
+                ; U+2039, U+203A, the euro sign, an a-umlaut and colour emoji
+                ; perfectly well. The empty box came from the SOURCE — the
+                ; file contained the six characters backslash-u-2039, because
+                ; Ranger does not interpret \u escapes and the tool that
+                ; wrote the line did not either.
+                ;
+                ; What IS true, and is the narrower thing: the measurer falls
+                ; back to half an em for anything outside 32-126, so a RUN
+                ; containing non-ASCII is spaced wrong. One glyph alone in a
+                ; centred box is unaffected, which is what this is.
                 (NavBtn (props (id "cal-prev") (a11yLabel "Go to the Previous Month"))
-                    (NavGlyph "<"))
+                    (NavGlyph "‹"))
                 (Caption (props (id "cal-caption")) (model.monthLabel()))
                 (NavBtn (props (id "cal-next") (a11yLabel "Go to the Next Month"))
-                    (NavGlyph ">"))))
+                    (NavGlyph "›"))))
         card.addChild(nav)
 
         def grid (tree Cal

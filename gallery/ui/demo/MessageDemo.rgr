@@ -70,13 +70,30 @@ treefactory Msg {
     tag ContentE  EVGElement (props (className "ms-content ms-content-end"))
     tag Group     EVGElement (props (className "ms-group"))
     tag GroupE    EVGElement (props (className "ms-group ms-group-end"))
-    tag Bubble    EVGElement (props (className "ms-bubble"))
-    tag BubbleM   EVGElement (props (className "ms-bubble ms-bubble-muted"))
+    ; `role="text"` on the bubble, not on the run inside it.
+    ;
+    ; In the DOM a log contains TEXT NODES and a reader announces them as they
+    ; are appended; the reference marks nothing per message. This tree has no
+    ; text nodes — only elements with roles — so plain text inside a region
+    ; does not reach it at all. Measured: the first version produced a tree of
+    ; three nodes, "Conversation" and the typing marker, with every message
+    ; missing, while the picture was perfect. The lint said the log role did
+    ; not exist; it did not say the transcript was empty, because as far as
+    ; the tree was concerned there was nothing there to miss.
+    ;
+    ; So each bubble is the carrier, and `text` is what a platform tree calls
+    ; that — AXStaticText on macOS, StaticText in UIA. It is the closest
+    ; honest mapping and not an invention.
+    tag Bubble    EVGElement (props (className "ms-bubble") (role "text"))
+    tag BubbleM   EVGElement (props (className "ms-bubble ms-bubble-muted") (role "text"))
     tag BubbleTx  EVGElement (props (className "ms-bubble-text") (elementType 1))
     tag BubbleTxM EVGElement (props (className "ms-bubble-text ms-bubble-text-muted") (elementType 1))
-    tag React     EVGElement (props (className "ms-react"))
+    ; Carriers too, for the same reason as the bubble. "Delivered" is a claim
+    ; about the message and the reaction is a fact about it; a transcript that
+    ; announces neither has dropped both.
+    tag React     EVGElement (props (className "ms-react") (role "text"))
     tag ReactTx   EVGElement (props (className "ms-react-text") (elementType 1) (a11yHidden true))
-    tag Footer    EVGElement (props (className "ms-footer") (elementType 1))
+    tag Footer    EVGElement (props (className "ms-footer") (elementType 1) (role "text"))
     ; `role="status"` is the reference's own, and it is the only behaviour in
     ; the component: a polite live region, so "Oliver is typing…" is announced
     ; without interrupting whatever is being read.
@@ -97,7 +114,7 @@ class MessageDemo {
     def pressed:string ""
     def focused:string ""
     def pageW:double 900.0
-    def pageH:double 620.0
+    def pageH:double 420.0
 
     Constructor () {
     }
@@ -128,7 +145,15 @@ class MessageDemo {
     fn bubbleWidth:double (text:string) {
         def eng:EVGTextEngine (this.engine())
         def m:EVGTextMetrics (eng.measureRun(text bubbleFont bubbleSize))
-        def w:double (m.width + (bubblePadX * 2.0))
+        ; A pixel of slack, and it is not a fudge.
+        ;
+        ; A box sized EXACTLY to its content is a tie, and the wrap decides
+        ; ties by comparing two doubles that took different routes to the same
+        ; number. Measured: the run came to 233.8432 and the box to
+        ; 233.84320000000002, so the last word wrapped and the emoji fell out
+        ; of a bubble one line tall. One pixel costs nothing and removes the
+        ; coin flip.
+        def w:double ((m.width + (bubblePadX * 2.0)) + 1.0)
         if (w > bubbleMaxW) {
             return bubbleMaxW
         }
@@ -158,15 +183,20 @@ class MessageDemo {
     fn bubble:EVGElement (id:string text:string mine:boolean) {
         def w:double (this.bubbleWidth(text))
         def inner:double (w - (bubblePadX * 2.0))
+        ; The text element is pulled into a name before its width is set:
+        ; assigning to a field of a call result is not something this parser
+        ; takes, and the error it gives is a bare "Parse error" with no line.
         if mine {
             def b (tree Msg (Bubble (props (id id)) (BubbleTx text)))
             b.width = (EVGUnit.px(w))
-            (b.getChild(0)).width = (EVGUnit.px(inner))
+            def t1:EVGElement (b.getChild(0))
+            t1.width = (EVGUnit.px(inner))
             return b
         }
         def b2 (tree Msg (BubbleM (props (id id)) (BubbleTxM text)))
         b2.width = (EVGUnit.px(w))
-        (b2.getChild(0)).width = (EVGUnit.px(inner))
+        def t2:EVGElement (b2.getChild(0))
+        t2.width = (EVGUnit.px(inner))
         return b2
     }
 
@@ -203,11 +233,13 @@ class MessageDemo {
         def thread (tree Msg (Thread (props (id "ms-thread"))))
 
         def m1 (this.message("ms-m1" "ME" true))
-        (this.contentOf(m1 true)).addChild((this.bubble("ms-b1" "Deploying to prod real quick." true)))
+        def c1:EVGElement (this.contentOf(m1 true))
+        c1.addChild((this.bubble("ms-b1" "Deploying to prod real quick." true)))
         thread.addChild(m1)
 
         def m2 (this.message("ms-m2" "R" false))
-        (this.contentOf(m2 false)).addChild((this.bubble("ms-b2" "It's 4:55 PM. On a Friday." false)))
+        def c2:EVGElement (this.contentOf(m2 false))
+        c2.addChild((this.bubble("ms-b2" "It's 4:55 PM. On a Friday." false)))
         thread.addChild(m2)
 
         def m3 (this.message("ms-m3" "ME" true))
@@ -223,24 +255,35 @@ class MessageDemo {
         ; avatar appears once.
         def m4 (this.message("ms-m4" "R" false))
         def g4 (tree Msg (Group (props (id "ms-g4"))))
-        g4.addChild((this.bubble("ms-b4" "It's always a one-line change." false)))
+        g4.addChild((this.bubble("ms-b4" "It's always a one-line change 😭." false)))
         def b5:EVGElement (this.bubble("ms-b5" "Alright, let me take a look." false))
         ; The reaction is pinned to the bubble's bottom edge, half in and half
         ; out, so it reads as attached to that bubble and not to the next one.
-        def react (tree Msg (React (props (id "ms-b5-react") (a11yLabel "Reactions: thumbs up")) (ReactTx "+1")))
+        def react (tree Msg (React (props (id "ms-b5-react") (a11yLabel "Reactions: thumbs up")) (ReactTx "👍")))
         react.position = "absolute"
-        react.left = (EVGUnit.px(210.0))
+        ; From the bubble's OWN width, so it stays on the edge when the text
+        ; changes. A literal here would be a third place that has to know how
+        ; wide "Alright, let me take a look." is.
+        def b5w:double (this.bubbleWidth("Alright, let me take a look."))
+        react.left = (EVGUnit.px((b5w - 14.0)))
         react.top = (EVGUnit.px(30.0))
         b5.addChild(react)
         g4.addChild(b5)
-        (this.contentOf(m4 false)).addChild(g4)
+        def c4:EVGElement (this.contentOf(m4 false))
+        c4.addChild(g4)
         thread.addChild(m4)
 
         page.addChild(thread)
 
         ; The marker. A live region, and the only behaviour in the component.
         def marker (tree Msg (Marker (props (id "ms-marker"))))
-        marker.addChild((tree Msg (MarkerWho "Oliver")))
+        ; The name is MEASURED, like a bubble. A fixed width left a gap
+        ; between "Oliver" and "is typing" that the reference does not have —
+        ; a name is as wide as the name is, and this one is data.
+        def who:string "Oliver"
+        def whoEl (tree Msg (MarkerWho who))
+        whoEl.width = (EVGUnit.px((this.textWidthOf(who))))
+        marker.addChild(whoEl)
         marker.addChild((tree Msg (MarkerTx " is typing...")))
         page.addChild(marker)
         return page

@@ -23,7 +23,7 @@
   background-color: #ffffff;
   padding: 28px;
   width: 900px;
-  height: 620px;
+  height: 420px;
 }
 
 /* `role="log"` on the thread: new messages are announced as they arrive. The
@@ -178,11 +178,12 @@
   height: 22px;
 }
 
+/* No width: the demo measures the name and sets it. A fixed one left a gap
+ * between the name and the verb that the reference does not have. */
 .ms-marker-who {
   color: #18181b;
   font-size: 16px;
   font-weight: bold;
-  width: 56px;
   height: 22px;
 }
 

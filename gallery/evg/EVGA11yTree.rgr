@@ -140,12 +140,25 @@ class EVGA11yRole {
     ; lint is the only reason that was noticed.
     sfn rowGroup:int ()         { return 45 }
 
+    ; A LOG: a live region whose new content is appended, and which a reader
+    ; announces as it arrives. `status` is the other polite one and they are
+    ; not interchangeable — a status is a single changing value, a log is a
+    ; growing list, and a transcript is the second.
+    ;
+    ; Added because a tree literal saying role="log" produced no error and no
+    ; node: `EVGA11yFromTree` drops a role it does not know AND everything
+    ; under it, so a whole conversation went missing from the accessible tree
+    ; while the picture looked perfect. The lint said so, which is the only
+    ; reason it was noticed.
+    sfn log:int ()              { return 46 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
         if (role == 43) { return "navigation" }
         if (role == 44) { return "form" }
         if (role == 45) { return "rowgroup" }
+        if (role == 46) { return "log" }
         if (role == 41) { return "tree" }
         if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }

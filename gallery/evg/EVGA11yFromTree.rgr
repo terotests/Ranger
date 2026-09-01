@@ -73,6 +73,7 @@ class EVGA11yFromTree {
         ; built from roles is missing from the tree while the picture is
         ; perfect.
         if (name == "rowgroup")         { return (EVGA11yRole.rowGroup()) }
+        if (name == "log")              { return (EVGA11yRole.log()) }
         if (name == "combobox")         { return (EVGA11yRole.comboBox()) }
         if (name == "listbox")          { return (EVGA11yRole.listBox()) }
         if (name == "option")           { return (EVGA11yRole.option()) }

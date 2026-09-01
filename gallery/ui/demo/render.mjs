@@ -102,6 +102,14 @@ const DEMOS = {
     },
   },
 
+  message: {
+    module: "gallery/ui/bin/MessageDemo.cjs",
+    css: "message.css",
+    height: 620,
+    list: (M, css) => { const d = new M.MessageDemo(); d.init(css); return d.displayListJson(); },
+    errors: (M, css) => { const d = new M.MessageDemo(); d.init(css); return d.styleErrorCount(); },
+  },
+
   calendar: {
     module: "gallery/ui/bin/CalendarDemo.cjs",
     css: "calendar.css",

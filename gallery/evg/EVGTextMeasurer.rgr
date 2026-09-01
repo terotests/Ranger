@@ -229,11 +229,57 @@ class EVGTextMeasurer {
             }
             return ((itemAt t (ch - 32)) * fontSize)
         }
+        ; --- surrogate pairs, which is to say emoji -------------------------
+        ;
+        ; A code point above the BMP arrives as TWO code units, and half an em
+        ; each made an emoji exactly one em wide. Measured in Chromium at
+        ; 13px and 16px — the fractions are identical at both, so they really
+        ; are per-em:
+        ;
+        ;   thumbs up  1.2477 em      crying face  1.1685 em      eye  1.0 em
+        ;
+        ; So the pair was under-measured by a factor of about 1.2, and a chat
+        ; bubble sized from that wrapped its emoji onto a second line and
+        ; spilled it out of the box. That is what this fixes.
+        ;
+        ; The HIGH surrogate carries the whole width and the low one carries
+        ; none, so a caret index still lands between characters rather than
+        ; inside one.
+        ;
+        ; 1.25 em for an emoji this does not know individually, and that
+        ; number is deliberately the WIDEST measured rather than the average.
+        ; The two failure modes are not symmetric: over-measuring leaves a box
+        ; a few pixels wide, and under-measuring wraps a line that was meant
+        ; to fit and pushes it out of its container.
+        if ((ch >= 55296) && (ch <= 56319)) {
+            if (ch == 55357) {
+                return (fontSize * 1.25)
+            }
+            return (fontSize * 1.25)
+        }
+        if ((ch >= 56320) && (ch <= 57343)) {
+            return 0.0
+        }
+        ; A zero-width joiner and a variation selector take no space of their
+        ; own — they modify the run around them. Counting them as half an em
+        ; each is how a family of four ends up measured as seven characters.
+        if (ch == 8205) {
+            return 0.0
+        }
+        if (ch == 65039) {
+            return 0.0
+        }
         ; Outside the table — anything beyond printable ASCII and the euro.
         ; Half an em, which is the middle of the measured range rather than a
         ; number picked by feel, and it is a GUESS: the honest fix for a
         ; character this table does not hold is to measure with the face that
         ; will draw it, through `EVGTextEngine.setMeasurer`.
+        ;
+        ; Measured, for the record, so the size of the guess is known rather
+        ; than assumed: a left chevron is 0.3999 em, an a-umlaut 0.6128, a
+        ; bullet 0.5898 and the euro 0.6362. Half an em is within about a
+        ; fifth of all of them, which is fine for a glyph alone in a box and
+        ; is not fine for a sentence.
         return (fontSize * 0.5)
     }
 

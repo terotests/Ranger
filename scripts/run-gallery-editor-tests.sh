@@ -110,6 +110,15 @@ SUITES=(
   # every demo uses. required, invalid and readonly in the DOM's own three
   # states, and a password toggle that reports pressed rather than spelling
   # its state into its name.
+  # Switch against Base UI — a SECOND headless reference beside Radix, which
+  # is what shadcn's base/ registry ships. Ten behaviours agree; three things
+  # are recorded as having no equivalent rather than scored.
+  ui:switch:check
+  # The chat transcript. Specified from a screenshot rather than measured —
+  # no library has a message or a bubble — but three of its assertions come
+  # from real bugs: a transcript missing from the accessible tree entirely, a
+  # bubble sized to a floating-point tie, and an emoji measured as two halves.
+  ui:message:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
