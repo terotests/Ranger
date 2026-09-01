@@ -615,6 +615,8 @@
     "ui:offset:js": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/tests/OffsetProbe.rgr -d=./gallery/ui/bin -o=OffsetProbe.js -nodecli && node ./gallery/ui/bin/OffsetProbe.js",
     "ui:offset:cpp": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/ui/tests/OffsetProbe.rgr -d=./gallery/ui/bin -o=OffsetProbe.cpp -nodecli && g++ -std=c++17 -O0 -o ./gallery/ui/bin/offsetprobe ./gallery/ui/bin/OffsetProbe.cpp && ./gallery/ui/bin/offsetprobe",
     "ui:switch:oracle": "node gallery/ui/conformance/oracle/switch_oracle.mjs",
+    "ui:filters:oracle": "node gallery/ui/conformance/oracle/filters_oracle.mjs",
+    "ui:filters:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/filters_check.mjs",
     "ui:switch:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/switch_check.mjs",
     "ui:textinput:oracle": "node gallery/ui/conformance/oracle/textinput_oracle.mjs",
     "ui:pointer:oracle": "node gallery/ui/conformance/oracle/pointer_oracle.mjs",

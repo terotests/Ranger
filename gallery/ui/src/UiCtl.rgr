@@ -69,6 +69,18 @@ class UiRow {
     ; a chevron is not something a reader can see. Measured on Radix: the
     ; dropdown's own trigger carries it too, not only the nested rows.
     def hasPopup:string ""
+    ; `aria-multiselectable`, as the DOM spells it: "true" on a listbox a
+    ; person picks several from, "" on one that closes after a pick. A string
+    ; for the reason `required` is one — absent and "false" are different
+    ; claims.
+    ;
+    ; The one thing that separates a filter chip's value list from a select's:
+    ; both are listboxes of options with a selected state, and without this a
+    ; reader cannot tell whether picking a second one replaces the first. It
+    ; travels the CONTROLLER path only; `EVGA11yNode` has no field for it yet,
+    ; so a demo that draws its list through the element tree does not publish
+    ; it. Recorded rather than quietly half-done.
+    def multiSelectable:string ""
     ; `aria-level` and `aria-setsize`, 0 for a row that has neither.
     ;
     ; Their own fields for the reason `sorted` has one: a tree is a flat list

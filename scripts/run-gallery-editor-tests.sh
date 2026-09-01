@@ -129,6 +129,14 @@ SUITES=(
   # the parts have oracles and the flow does not. Specified from the component
   # source, and three of its rules are mutation-proved.
   ui:quest:check
+  # The filter bar. Its PREDICATES are TanStack's and were measured — including
+  # the two things that route through code a reimplementation never sees: an
+  # empty chip is dropped rather than matched, and that dropping happens in
+  # `setColumnFilters` and nowhere else, so a component holding its own rule
+  # tree has to do it itself. The tree, the operators and the chips are
+  # specified: `columnFilters` is a flat AND and cannot hold a combinator at
+  # all.
+  ui:filters:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl

@@ -1,0 +1,1388 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FilterCtl — the filter bar, over predicates measured from TanStack Table
+; =============================================================================
+; The row of chips: "Assignee | has any of | ●●● +1 | ⋮"  "Priority | is |
+; Urgent | ⋮"  and a button on the end that adds another. shadcn's filter
+; components are a presentation over `@tanstack/react-table`'s `columnFilters`,
+; so the PREDICATE half of this is a library's and was measured;
+; `conformance/oracle/filters.json` holds the capture and `filters_check.mjs`
+; gates it.
+;
+; --- WHAT IS MEASURED AND WHAT IS SPECIFIED ----------------------------------
+;
+; MEASURED, from @tanstack/table-core: what each filter function returns for a
+; given cell and filter value, which values make a filter inert, and what a
+; wired table does with both.
+;
+; SPECIFIED, from the component: the operator vocabulary (`is`, `is not`,
+; `has any of`, `has none of`, `contains`, `is between`), which operators a
+; field kind offers, the rule tree, and the chip surface. TanStack has none of
+; these — it has nine functions and no notion of an operator at all.
+;
+; Where an operator is the NEGATION of a measured one it is implemented as that
+; one inverted, and the gate proves it on the measured cases rather than on
+; cases invented to suit it.
+;
+; --- FOUR THINGS THE MEASUREMENT SAID THAT A GUESS WOULD NOT ------------------
+;
+;   AN EMPTY RULE IS INERT, NOT EMPTY-MATCHING. TanStack drops a filter whose
+;   value is empty, so a half-built chip shows every row rather than none.
+;   The obvious code path does the opposite, because `[].includes(x)` is false.
+;   And the cleanup lives in `setColumnFilters` and NOWHERE ELSE — a component
+;   that owns its own filter state, which is exactly what a filter bar with a
+;   rule tree is, never goes through that setter. Measured down both routes:
+;   pushed in as state, an empty multi-select hides all six rows. So the test
+;   is ours to make, and `ruleActive` is where it is made.
+;
+;   IT IS A PER-OPERATOR QUESTION. `inNumberRange` goes inert only when BOTH
+;   bounds are blank; the multi-value ones go inert on an empty list. There is
+;   no single emptiness predicate that is right for all of them.
+;
+;   CASE FOLDS FOR STRINGS AND NOT FOR LISTS. `equalsString` matches "urgent"
+;   against "URGENT"; `arrIncludesSome` does not match ["ada"] against ["Ada"].
+;   One rule for the whole component would be wrong for half of it — and it is
+;   the right split for what they hold, because an option's stored value is an
+;   id and a text filter is prose.
+;
+;   A RANGE TYPED BACKWARDS IS SWAPPED, not emptied. `resolveFilterValue`
+;   compares the parsed bounds and exchanges them. A blank bound becomes an
+;   open end, which is why there is no `is greater than` operator here: it is
+;   `is between` with the top left blank, and that is the measurement rather
+;   than a simplification.
+;
+; --- THE PART TANSTACK CANNOT HOLD -------------------------------------------
+;
+; `columnFilters` is a FLAT ARRAY, ANDed, one entry per column. It cannot say
+; "priority is urgent OR assignee has any of these", and it cannot nest. So the
+; tree — the `combinator`, the groups — is not TanStack's state and never
+; reaches the table. This controller owns it and evaluates it, and
+; `columnFilterJson` compiles down only for the one shape TanStack can hold: a
+; single top-level AND of at most one active rule per field. When the tree is
+; anything else it says so instead of quietly handing over something narrower,
+; because a filter bar that silently drops an OR is worse than one that admits
+; it cannot push it down.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; One selectable value on an option or multi field: what is stored, and what a
+; person reads. Separate because the chip shows "Urgent" and the rule holds
+; "urgent", and the measured comparison is on the stored one.
+class FilterOption {
+    def value:string ""
+    def label:string ""
+
+    Constructor () {
+    }
+}
+
+; A column a rule can point at. `kind` decides which operators the chip offers
+; and how its cell is compared:
+;
+;   text   one string cell, compared case-insensitively
+;   option one stored id per row, chosen from `options`
+;   multi  zero or more stored ids per row — the assignee chip
+;   number one numeric cell, compared as a number even when it arrives as text
+class FilterField {
+    def key:string ""
+    def label:string ""
+    def kind:string "text"
+    def options:[FilterOption]
+
+    Constructor () {
+        def none:[FilterOption]
+        options = none
+    }
+}
+
+; A cell: always a LIST, even when the field holds one value. The multi case is
+; not a special case bolted on — a row with nobody assigned has an empty list,
+; and that row is in the measured fixture precisely because "no values" and
+; "one value" must not be different code paths.
+class FilterCell {
+    def field:string ""
+    def vals:[string]
+
+    Constructor () {
+        def none:[string]
+        vals = none
+    }
+}
+
+class FilterRecord {
+    def key:string ""
+    def cells:[FilterCell]
+
+    Constructor () {
+        def none:[FilterCell]
+        cells = none
+    }
+}
+
+; A node of the rule tree. Groups and rules are one class with a `kind`,
+; and children are held BY ID in a flat list — the same shape `UiTreeNode`
+; uses, and for the same reason: it is the shape a fixture can write down and
+; a serialiser can walk without recursion into a class it also owns.
+class FilterNode {
+    def id:string ""
+    ; "group" or "rule"
+    def kind:string "rule"
+    ; groups only: "and" or "or"
+    def combinator:string "and"
+    ; groups only, child ids in order
+    def kids:[string]
+    ; rules only
+    def path:string ""
+    def operator:string ""
+    def vals:[string]
+
+    Constructor () {
+        def noKids:[string]
+        def noVals:[string]
+        kids = noKids
+        vals = noVals
+    }
+}
+
+; A parsed bound: the number, and whether the text was one. Ranger has no
+; null to hand back and no NaN worth passing around, so the answer is a pair.
+class FilterNum {
+    def ok:boolean false
+    def v:double 0.0
+
+    Constructor () {
+    }
+}
+
+class FilterCtl extends UiCtl {
+    def fields:[FilterField]
+    def nodes:[FilterNode]
+    def records:[FilterRecord]
+    def rootId:string "root"
+    ; Which chip the pointer opened, "" for none. One at a time, like every
+    ; other popover in this gallery.
+    def openId:string ""
+    ; Roving focus across the bar: the chip id focus sits on, "" before
+    ; anything is focused.
+    def activeId:string ""
+    ; How many values a chip shows before it collapses the rest into "+N".
+    ; Three, from the screenshot: four assignees draw as three avatars and a
+    ; "+1". Named rather than inlined because it is the one number here that
+    ; is read off a picture and nothing else.
+    def displayLimit:int 3
+
+    Constructor () {
+        def nf:[FilterField]
+        def nn:[FilterNode]
+        def nr:[FilterRecord]
+        fields = nf
+        nodes = nn
+        records = nr
+        this.addGroup("root" "" "and")
+    }
+
+    ; --- building ----------------------------------------------------------
+
+    fn addField:FilterField (key:string label:string kind:string) {
+        def f:FilterField (new FilterField ())
+        f.key = key
+        f.label = label
+        f.kind = kind
+        push fields f
+        return f
+    }
+
+    fn addOption:void (fieldKey:string value:string label:string) {
+        def f:FilterField (this.field(fieldKey))
+        if ((strlen f.key) == 0) {
+            return
+        }
+        def o:FilterOption (new FilterOption ())
+        o.value = value
+        o.label = label
+        push f.options o
+    }
+
+    fn field:FilterField (key:string) {
+        def i:int 0
+        while (i < (array_length fields)) {
+            def f:FilterField (itemAt fields i)
+            if (f.key == key) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new FilterField ())
+    }
+
+    fn node:FilterNode (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FilterNode (itemAt nodes i)
+            if (n.id == id) {
+                return n
+            }
+            i = (i + 1)
+        }
+        return (new FilterNode ())
+    }
+
+    fn has:boolean (id:string) {
+        def n:FilterNode (this.node(id))
+        return ((strlen n.id) > 0)
+    }
+
+    fn addGroup:void (id:string parentId:string combinator:string) {
+        def g:FilterNode (new FilterNode ())
+        g.id = id
+        g.kind = "group"
+        g.combinator = combinator
+        push nodes g
+        if ((strlen parentId) > 0) {
+            def p:FilterNode (this.node(parentId))
+            push p.kids id
+        }
+    }
+
+    fn addRule:void (id:string parentId:string path:string operator:string) {
+        def r:FilterNode (new FilterNode ())
+        r.id = id
+        r.kind = "rule"
+        r.path = path
+        r.operator = operator
+        push nodes r
+        def pid:string parentId
+        if ((strlen pid) == 0) {
+            pid = rootId
+        }
+        def p:FilterNode (this.node(pid))
+        push p.kids id
+    }
+
+    fn addValue:void (ruleId:string value:string) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return
+        }
+        push r.vals value
+    }
+
+    fn setValues:void (ruleId:string values:[string]) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return
+        }
+        r.vals = values
+    }
+
+    fn setOperator:void (ruleId:string operator:string) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return
+        }
+        r.operator = operator
+        ; Changing the operator can change how many values it takes. Trimming
+        ; here rather than at evaluation keeps the serialised state honest:
+        ; a rule that says `is` must not carry four values it will never use.
+        def arity:int (FilterCtl.arityOf(operator))
+        if (arity == 1) {
+            if ((array_length r.vals) > 1) {
+                def keep:[string]
+                push keep (itemAt r.vals 0)
+                r.vals = keep
+            }
+        }
+    }
+
+    fn setCombinator:void (groupId:string combinator:string) {
+        def g:FilterNode (this.node(groupId))
+        if (g.kind != "group") {
+            return
+        }
+        if (combinator == "or") {
+            g.combinator = "or"
+        } {
+            g.combinator = "and"
+        }
+    }
+
+    ; Removing a chip. The node leaves its parent's child list AND the node
+    ; list, and a group loses its descendants with it — a tree that keeps
+    ; orphans serialises them into nothing and evaluates them into surprises.
+    fn removeNode:void (id:string) {
+        if (id == rootId) {
+            return
+        }
+        def n:FilterNode (this.node(id))
+        if ((strlen n.id) == 0) {
+            return
+        }
+        def doomed:[string]
+        push doomed id
+        if (n.kind == "group") {
+            def qi:int 0
+            while (qi < (array_length doomed)) {
+                def cur:FilterNode (this.node((itemAt doomed qi)))
+                def ci:int 0
+                while (ci < (array_length cur.kids)) {
+                    push doomed (itemAt cur.kids ci)
+                    ci = (ci + 1)
+                }
+                qi = (qi + 1)
+            }
+        }
+        def keptNodes:[FilterNode]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def cand:FilterNode (itemAt nodes i)
+            if (!(FilterCtl.hasValue(doomed cand.id))) {
+                push keptNodes cand
+            }
+            i = (i + 1)
+        }
+        nodes = keptNodes
+        ; And out of every child list.
+        def j:int 0
+        while (j < (array_length nodes)) {
+            def g:FilterNode (itemAt nodes j)
+            if (g.kind == "group") {
+                def keptKids:[string]
+                def k:int 0
+                while (k < (array_length g.kids)) {
+                    def kid:string (itemAt g.kids k)
+                    if (!(FilterCtl.hasValue(doomed kid))) {
+                        push keptKids kid
+                    }
+                    k = (k + 1)
+                }
+                g.kids = keptKids
+            }
+            j = (j + 1)
+        }
+        if (openId == id) {
+            openId = ""
+        }
+        if (activeId == id) {
+            activeId = ""
+        }
+    }
+
+    fn clear:void () {
+        def g:FilterNode (this.node(rootId))
+        def kids:[string] g.kids
+        def i:int 0
+        while (i < (array_length kids)) {
+            this.removeNode((itemAt kids i))
+            i = (i + 1)
+        }
+        openId = ""
+        activeId = ""
+    }
+
+    sfn hasValue:boolean (hay:[string] needle:string) {
+        def i:int 0
+        while (i < (array_length hay)) {
+            if ((itemAt hay i) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the operator vocabulary -------------------------------------------
+    ;
+    ; SPECIFIED, not measured — TanStack has no operators. Each one names the
+    ; measured filter function it stands on, and the negations say so.
+    ;
+    ;   is            equalsString, case-folded
+    ;   is_not        equalsString, inverted
+    ;   contains      includesString, case-folded, substring
+    ;   not_contains  includesString, inverted
+    ;   is_any_of     the cell's one value is in the rule's list
+    ;   has_any_of    arrIncludesSome, exact
+    ;   has_all_of    arrIncludesAll, exact
+    ;   has_none_of   arrIncludesSome, inverted
+    ;   is_between    inNumberRange, blank end = open, backwards = swapped
+    ;
+    ; There is no `is_greater_than`: it is `is_between` with a blank upper
+    ; bound, which is what the measurement says an open end IS.
+
+    sfn operatorLabel:string (op:string) {
+        if (op == "is") { return "is" }
+        if (op == "is_not") { return "is not" }
+        if (op == "contains") { return "contains" }
+        if (op == "not_contains") { return "does not contain" }
+        if (op == "is_any_of") { return "is any of" }
+        if (op == "has_any_of") { return "has any of" }
+        if (op == "has_all_of") { return "has all of" }
+        if (op == "has_none_of") { return "has none of" }
+        if (op == "is_between") { return "is between" }
+        return op
+    }
+
+    ; 1 for an operator that takes a single value, 2 for the two bounds of a
+    ; range, 0 for one that takes a list.
+    sfn arityOf:int (op:string) {
+        if (op == "is") { return 1 }
+        if (op == "is_not") { return 1 }
+        if (op == "contains") { return 1 }
+        if (op == "not_contains") { return 1 }
+        if (op == "is_between") { return 2 }
+        return 0
+    }
+
+    sfn isNegated:boolean (op:string) {
+        if (op == "is_not") { return true }
+        if (op == "not_contains") { return true }
+        if (op == "has_none_of") { return true }
+        return false
+    }
+
+    ; The positive operator a negation inverts. Written down so the gate can
+    ; assert the pairing on the MEASURED cases instead of trusting the two
+    ; branches below to stay in step.
+    sfn positiveOf:string (op:string) {
+        if (op == "is_not") { return "is" }
+        if (op == "not_contains") { return "contains" }
+        if (op == "has_none_of") { return "has_any_of" }
+        return op
+    }
+
+    ; Which operators a chip offers, by field kind.
+    sfn operatorsFor:[string] (kind:string) {
+        def out:[string]
+        if (kind == "text") {
+            push out "contains"
+            push out "not_contains"
+            push out "is"
+            push out "is_not"
+            return out
+        }
+        if (kind == "option") {
+            push out "is"
+            push out "is_not"
+            push out "is_any_of"
+            return out
+        }
+        if (kind == "multi") {
+            push out "has_any_of"
+            push out "has_all_of"
+            push out "has_none_of"
+            return out
+        }
+        if (kind == "number") {
+            push out "is_between"
+            push out "is"
+            push out "is_not"
+            return out
+        }
+        return out
+    }
+
+    fn operatorAllowed:boolean (fieldKey:string op:string) {
+        def f:FilterField (this.field(fieldKey))
+        def ops:[string] (FilterCtl.operatorsFor(f.kind))
+        return (FilterCtl.hasValue(ops op))
+    }
+
+    ; --- emptiness, per operator -------------------------------------------
+    ;
+    ; The measured rule, and the one an implementation gets backwards. A rule
+    ; that is not active contributes NOTHING — it does not match nothing.
+
+    sfn ruleActiveFor:boolean (op:string vals:[string]) {
+        def n:int (array_length vals)
+        if (op == "is_between") {
+            ; Both blank is inert; one blank is an open end and still filters.
+            if (n == 0) {
+                return false
+            }
+            def lo:string ""
+            def hi:string ""
+            if (n > 0) { lo = (itemAt vals 0) }
+            if (n > 1) { hi = (itemAt vals 1) }
+            if (((strlen lo) == 0) && ((strlen hi) == 0)) {
+                return false
+            }
+            return true
+        }
+        if ((FilterCtl.arityOf(op)) == 1) {
+            if (n == 0) {
+                return false
+            }
+            ; The empty string goes inert for every function — that test is in
+            ; `shouldAutoRemoveFilter` itself, not in any one filter fn.
+            return ((strlen (itemAt vals 0)) > 0)
+        }
+        ; A list operator: empty list, no filter.
+        return (n > 0)
+    }
+
+    fn ruleActive:boolean (id:string) {
+        def r:FilterNode (this.node(id))
+        if (r.kind == "group") {
+            def i:int 0
+            while (i < (array_length r.kids)) {
+                if (this.ruleActive((itemAt r.kids i))) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if ((strlen r.id) == 0) {
+            return false
+        }
+        return (FilterCtl.ruleActiveFor(r.operator r.vals))
+    }
+
+    ; --- the predicates -----------------------------------------------------
+
+    sfn lower:string (s:string) {
+        return (to_lowercase s)
+    }
+
+    ; The measured comparisons, each named after the filter function it
+    ; reproduces so the gate can point at one.
+    sfn eqFold:boolean (cell:string want:string) {
+        return ((FilterCtl.lower(cell)) == (FilterCtl.lower(want)))
+    }
+
+    sfn containsFold:boolean (cell:string want:string) {
+        return ((indexOf (FilterCtl.lower(cell)) (FilterCtl.lower(want))) >= 0)
+    }
+
+    ; A number, and whether the text was one at all.
+    ;
+    ; Hand-written rather than handed to a builtin, for the reason the offset
+    ; gate exists: a bound typed into a chip has to compare the same way on
+    ; both backends, and "whatever the host's string-to-number does" is not a
+    ; specification. Decimal, an optional sign, one optional point. Anything
+    ; else is not a number and says so rather than coming back as a zero that
+    ; silently filters.
+    sfn parseNum:FilterNum (s:string) {
+        def out:FilterNum (new FilterNum ())
+        def t:string (trim s)
+        def len:int (strlen t)
+        if (len == 0) {
+            return out
+        }
+        def i:int 0
+        def sign:double 1.0
+        def c0:int (charAt t 0)
+        if (c0 == 45) {
+            sign = -1.0
+            i = 1
+        }
+        if (c0 == 43) {
+            i = 1
+        }
+        def whole:double 0.0
+        def frac:double 0.0
+        def scale:double 1.0
+        def seenDigit:boolean false
+        def inFrac:boolean false
+        while (i < len) {
+            def c:int (charAt t i)
+            if ((c >= 48) && (c <= 57)) {
+                def d:double (to_double (c - 48))
+                if inFrac {
+                    scale = (scale * 10.0)
+                    frac = (frac + (d / scale))
+                } {
+                    whole = ((whole * 10.0) + d)
+                }
+                seenDigit = true
+            } {
+                if (c == 46) {
+                    if inFrac {
+                        return out
+                    }
+                    inFrac = true
+                } {
+                    return out
+                }
+            }
+            i = (i + 1)
+        }
+        if seenDigit {
+        } {
+            return out
+        }
+        out.ok = true
+        out.v = (sign * (whole + frac))
+        return out
+    }
+
+    ; Does one cell — a list of stored values — satisfy one rule?
+    fn ruleMatches:boolean (r:FilterNode rec:FilterRecord) {
+        def cell:FilterCell (this.cellOf(rec r.path))
+        def op:string r.operator
+        def neg:boolean (FilterCtl.isNegated(op))
+        def positive:string (FilterCtl.positiveOf(op))
+        def hit:boolean (this.positiveMatches(positive cell r.vals))
+        if neg {
+            if hit {
+                return false
+            }
+            return true
+        }
+        return hit
+    }
+
+    fn positiveMatches:boolean (op:string cell:FilterCell vals:[string]) {
+        def n:int (array_length cell.vals)
+        if (op == "is") {
+            ; equalsString, case-folded. A cell with no value matches nothing,
+            ; which is the measured answer for a null cell.
+            if (n == 0) { return false }
+            if ((array_length vals) == 0) { return false }
+            return (FilterCtl.eqFold((itemAt cell.vals 0) (itemAt vals 0)))
+        }
+        if (op == "contains") {
+            if (n == 0) { return false }
+            if ((array_length vals) == 0) { return false }
+            return (FilterCtl.containsFold((itemAt cell.vals 0) (itemAt vals 0)))
+        }
+        if (op == "is_any_of") {
+            if (n == 0) { return false }
+            def one:string (itemAt cell.vals 0)
+            def i:int 0
+            while (i < (array_length vals)) {
+                if (FilterCtl.eqFold(one (itemAt vals i))) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (op == "has_any_of") {
+            ; arrIncludesSome: EXACT comparison, measured. A cell with no
+            ; values never matches — the unassigned row in the fixture.
+            def i:int 0
+            while (i < (array_length vals)) {
+                if (FilterCtl.hasValue(cell.vals (itemAt vals i))) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (op == "has_all_of") {
+            def i:int 0
+            while (i < (array_length vals)) {
+                if (!(FilterCtl.hasValue(cell.vals (itemAt vals i)))) {
+                    return false
+                }
+                i = (i + 1)
+            }
+            ; An empty list is vacuously true here and false for `has_any_of` —
+            ; measured, and the asymmetry is real. It never shows, because an
+            ; empty list makes the rule inert before this is reached.
+            return true
+        }
+        if (op == "is_between") {
+            if (n == 0) { return false }
+            def cellNum:FilterNum (FilterCtl.parseNum((itemAt cell.vals 0)))
+            if cellNum.ok {
+            } {
+                return false
+            }
+            def x:double cellNum.v
+            def loRaw:string ""
+            def hiRaw:string ""
+            if ((array_length vals) > 0) { loRaw = (itemAt vals 0) }
+            if ((array_length vals) > 1) { hiRaw = (itemAt vals 1) }
+            def loNum:FilterNum (FilterCtl.parseNum(loRaw))
+            def hiNum:FilterNum (FilterCtl.parseNum(hiRaw))
+            def lo:double loNum.v
+            def hi:double hiNum.v
+            def hasLo:boolean loNum.ok
+            def hasHi:boolean hiNum.ok
+            ; Backwards is swapped, not empty — measured in resolveFilterValue.
+            if (hasLo && hasHi) {
+                if (lo > hi) {
+                    def t:double lo
+                    lo = hi
+                    hi = t
+                }
+            }
+            if hasLo {
+                if (x < lo) { return false }
+            }
+            if hasHi {
+                if (x > hi) { return false }
+            }
+            return true
+        }
+        return false
+    }
+
+    fn cellOf:FilterCell (rec:FilterRecord fieldKey:string) {
+        def i:int 0
+        while (i < (array_length rec.cells)) {
+            def c:FilterCell (itemAt rec.cells i)
+            if (c.field == fieldKey) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new FilterCell ())
+    }
+
+    ; --- evaluating the tree ------------------------------------------------
+    ;
+    ; An inert child is SKIPPED, in an OR group as well as an AND one. That is
+    ; the whole content of the emptiness rule: a half-built chip does not turn
+    ; an OR into a match-everything any more than it turns an AND into a
+    ; match-nothing. A group with no active children is itself inert, and an
+    ; inert root passes every row.
+
+    fn nodeMatches:boolean (id:string rec:FilterRecord) {
+        def n:FilterNode (this.node(id))
+        if (n.kind == "rule") {
+            return (this.ruleMatches(n rec))
+        }
+        def anyActive:boolean false
+        def allHit:boolean true
+        def someHit:boolean false
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def kid:string (itemAt n.kids i)
+            if (this.ruleActive(kid)) {
+                anyActive = true
+                def hit:boolean (this.nodeMatches(kid rec))
+                if hit {
+                    someHit = true
+                } {
+                    allHit = false
+                }
+            }
+            i = (i + 1)
+        }
+        if anyActive {
+        } {
+            return true
+        }
+        if (n.combinator == "or") {
+            return someHit
+        }
+        return allHit
+    }
+
+    fn matches:boolean (recordKey:string) {
+        def i:int 0
+        while (i < (array_length records)) {
+            def r:FilterRecord (itemAt records i)
+            if (r.key == recordKey) {
+                return (this.nodeMatches(rootId r))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The surviving row keys, in the order they were added — the thing the
+    ; oracle's `wired` section reports and the gate compares against.
+    fn survivors:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length records)) {
+            def r:FilterRecord (itemAt records i)
+            if (this.nodeMatches(rootId r)) {
+                push out r.key
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- records ------------------------------------------------------------
+
+    fn addRecord:FilterRecord (key:string) {
+        def r:FilterRecord (new FilterRecord ())
+        r.key = key
+        push records r
+        return r
+    }
+
+    fn setCell:void (recordKey:string fieldKey:string vals:[string]) {
+        def i:int 0
+        while (i < (array_length records)) {
+            def r:FilterRecord (itemAt records i)
+            if (r.key == recordKey) {
+                def j:int 0
+                while (j < (array_length r.cells)) {
+                    def c:FilterCell (itemAt r.cells j)
+                    if (c.field == fieldKey) {
+                        c.vals = vals
+                        return
+                    }
+                    j = (j + 1)
+                }
+                def nc:FilterCell (new FilterCell ())
+                nc.field = fieldKey
+                nc.vals = vals
+                push r.cells nc
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- the chip surface ---------------------------------------------------
+
+    fn valueLabel:string (fieldKey:string value:string) {
+        def f:FilterField (this.field(fieldKey))
+        def i:int 0
+        while (i < (array_length f.options)) {
+            def o:FilterOption (itemAt f.options i)
+            if (o.value == value) {
+                return o.label
+            }
+            i = (i + 1)
+        }
+        return value
+    }
+
+    ; What the chip's value slot reads. Four assignees draw as three and a
+    ; "+1"; a range reads as its two ends with the blank one left open; an
+    ; unfilled chip reads as its placeholder, because a chip with nothing in it
+    ; still has to say what it is waiting for.
+    fn valueText:string (ruleId:string) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return ""
+        }
+        def n:int (array_length r.vals)
+        if (r.operator == "is_between") {
+            def lo:string ""
+            def hi:string ""
+            if (n > 0) { lo = (itemAt r.vals 0) }
+            if (n > 1) { hi = (itemAt r.vals 1) }
+            if (((strlen lo) == 0) && ((strlen hi) == 0)) {
+                return "Select…"
+            }
+            if ((strlen lo) == 0) {
+                return "≤ " + hi
+            }
+            if ((strlen hi) == 0) {
+                return "≥ " + lo
+            }
+            return lo + " – " + hi
+        }
+        if (n == 0) {
+            return "Select…"
+        }
+        def shown:int n
+        if (shown > displayLimit) {
+            shown = displayLimit
+        }
+        def out:string ""
+        def i:int 0
+        while (i < shown) {
+            if (i > 0) {
+                out = out + ", "
+            }
+            out = out + (this.valueLabel(r.path (itemAt r.vals i)))
+            i = (i + 1)
+        }
+        if (n > shown) {
+            out = out + " +" + (to_string (n - shown))
+        }
+        return out
+    }
+
+    ; The whole chip as one line, which is what a reader is given for the
+    ; group: "Assignee has any of Ada, Grace, Alan +1".
+    fn chipText:string (ruleId:string) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return ""
+        }
+        def f:FilterField (this.field(r.path))
+        return f.label + " " + (FilterCtl.operatorLabel(r.operator)) + " " + (this.valueText(ruleId))
+    }
+
+    ; --- picking values -----------------------------------------------------
+
+    ; A multi chip toggles; a single-value one replaces. Same split the
+    ; questionnaire makes between a checkbox row and a radio row, and for the
+    ; same reason — it is the arity of the operator, not the kind of the field,
+    ; because `is` on a multi field is still one value.
+    fn toggleValue:void (ruleId:string value:string) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return
+        }
+        if ((FilterCtl.arityOf(r.operator)) == 1) {
+            def one:[string]
+            push one value
+            r.vals = one
+            return
+        }
+        if ((FilterCtl.arityOf(r.operator)) == 2) {
+            return
+        }
+        if (FilterCtl.hasValue(r.vals value)) {
+            def kept:[string]
+            def i:int 0
+            while (i < (array_length r.vals)) {
+                def v:string (itemAt r.vals i)
+                if (v != value) {
+                    push kept v
+                }
+                i = (i + 1)
+            }
+            r.vals = kept
+            return
+        }
+        push r.vals value
+    }
+
+    fn setBound:void (ruleId:string which:int text:string) {
+        def r:FilterNode (this.node(ruleId))
+        if (r.kind != "rule") {
+            return
+        }
+        def lo:string ""
+        def hi:string ""
+        if ((array_length r.vals) > 0) { lo = (itemAt r.vals 0) }
+        if ((array_length r.vals) > 1) { hi = (itemAt r.vals 1) }
+        if (which == 0) { lo = text } { hi = text }
+        def out:[string]
+        push out lo
+        push out hi
+        r.vals = out
+    }
+
+    fn isChosen:boolean (ruleId:string value:string) {
+        def r:FilterNode (this.node(ruleId))
+        return (FilterCtl.hasValue(r.vals value))
+    }
+
+    ; --- opening a chip -----------------------------------------------------
+
+    fn open:void (id:string) {
+        openId = id
+        activeId = id
+    }
+
+    fn close:void () {
+        openId = ""
+    }
+
+    fn isOpen:boolean (id:string) {
+        return (openId == id)
+    }
+
+    ; --- roving focus across the bar ---------------------------------------
+    ;
+    ; The chips are a toolbar: one tab stop, arrows between them, and the add
+    ; button is the last stop rather than a separate one — which is why it is
+    ; in `stops()` and not appended by the caller.
+
+    fn stops:[string] () {
+        def out:[string]
+        def g:FilterNode (this.node(rootId))
+        def i:int 0
+        while (i < (array_length g.kids)) {
+            push out (itemAt g.kids i)
+            i = (i + 1)
+        }
+        push out "add"
+        return out
+    }
+
+    fn focusFirst:void () {
+        def s:[string] (this.stops())
+        if ((array_length s) > 0) {
+            activeId = (itemAt s 0)
+        }
+    }
+
+    fn moveFocus:void (delta:int) {
+        def s:[string] (this.stops())
+        def n:int (array_length s)
+        if (n == 0) {
+            return
+        }
+        def at:int -1
+        def i:int 0
+        while (i < n) {
+            if ((itemAt s i) == activeId) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        ; Nothing adopted yet. `rows()` puts the tab stop on the FIRST stop in
+        ; that state, so focus is already visibly there and an arrow key has to
+        ; move OFF it — a version that adopted the first stop here spent the
+        ; person's first ArrowRight going nowhere, and the two halves of the
+        ; component disagreed about where focus was without either being
+        ; wrong on its own.
+        if (at < 0) {
+            at = 0
+        }
+        def next:int (at + delta)
+        ; Clamped, not wrapped. A toolbar wraps; this bar does not, because its
+        ; last stop is the add button and arriving back on a chip after it
+        ; reads as if the button did something.
+        if (next < 0) { next = 0 }
+        if (next > (n - 1)) { next = (n - 1) }
+        activeId = (itemAt s next)
+    }
+
+    fn onKey:boolean (key:string) {
+        if (key == "ArrowRight") {
+            this.moveFocus(1)
+            return true
+        }
+        if (key == "ArrowLeft") {
+            this.moveFocus(-1)
+            return true
+        }
+        if (key == "Home") {
+            this.focusFirst()
+            return true
+        }
+        if (key == "End") {
+            def s:[string] (this.stops())
+            activeId = (itemAt s ((array_length s) - 1))
+            return true
+        }
+        if (key == "Escape") {
+            if ((strlen openId) > 0) {
+                this.close()
+                return true
+            }
+            return false
+        }
+        ; Backspace on a focused chip removes it — the one destructive key, and
+        ; only when nothing is open, so it cannot fire while a value list has
+        ; focus inside it.
+        if (key == "Backspace") {
+            if ((strlen openId) > 0) {
+                return false
+            }
+            if ((strlen activeId) == 0) {
+                return false
+            }
+            if (activeId == "add") {
+                return false
+            }
+            def gone:string activeId
+            this.moveFocus(1)
+            this.removeNode(gone)
+            return true
+        }
+        return false
+    }
+
+    ; --- serialisation ------------------------------------------------------
+    ;
+    ; The shape the component carries: `path` is an ARRAY even for a
+    ; single-segment field, and `value` is an array even for `is`. Both are
+    ; the component's shape, not a convenience — a nested field is a path and
+    ; a one-value operator is the degenerate list.
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c == 34) {
+                out = out + "\\\""
+            } {
+                if (c == 92) {
+                    out = out + "\\\\"
+                } {
+                    out = out + (strfromcode c)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn q:string (s:string) {
+        return "\"" + (FilterCtl.esc(s)) + "\""
+    }
+
+    sfn arr:string (items:[string]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = out + ","
+            }
+            out = out + (FilterCtl.q((itemAt items i)))
+            i = (i + 1)
+        }
+        return out + "]"
+    }
+
+    fn nodeJson:string (id:string) {
+        def n:FilterNode (this.node(id))
+        if (n.kind == "rule") {
+            def path:[string]
+            push path n.path
+            def r:string "{"
+            r = r + (FilterCtl.q("id")) + ":" + (FilterCtl.q(n.id))
+            r = r + "," + (FilterCtl.q("type")) + ":" + (FilterCtl.q("rule"))
+            r = r + "," + (FilterCtl.q("path")) + ":" + (FilterCtl.arr(path))
+            r = r + "," + (FilterCtl.q("operator")) + ":" + (FilterCtl.q(n.operator))
+            r = r + "," + (FilterCtl.q("value")) + ":" + (FilterCtl.arr(n.vals))
+            return r + "}"
+        }
+        def out:string "{"
+        out = out + (FilterCtl.q("id")) + ":" + (FilterCtl.q(n.id))
+        out = out + "," + (FilterCtl.q("type")) + ":" + (FilterCtl.q("group"))
+        out = out + "," + (FilterCtl.q("combinator")) + ":" + (FilterCtl.q(n.combinator))
+        out = out + "," + (FilterCtl.q("rules")) + ":["
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            if (i > 0) {
+                out = out + ","
+            }
+            out = out + (this.nodeJson((itemAt n.kids i)))
+            i = (i + 1)
+        }
+        return out + "]}"
+    }
+
+    fn toJson:string () {
+        return (this.nodeJson(rootId))
+    }
+
+    ; --- compiling down to TanStack ----------------------------------------
+    ;
+    ; The finding made executable. `columnFilters` can hold a flat AND of one
+    ; entry per column and nothing else, so this reports whether the current
+    ; tree fits and refuses rather than narrowing it silently. The four ways it
+    ; does not fit are all real states a person can reach in the bar:
+    ; an OR at the root, a nested group, two chips on one field, and a negation
+    ; — TanStack has no `not`, so `has none of` cannot be pushed down either.
+
+    fn pushdownReason:string () {
+        def g:FilterNode (this.node(rootId))
+        if (g.combinator != "and") {
+            return "or-at-root"
+        }
+        def seen:[string]
+        def i:int 0
+        while (i < (array_length g.kids)) {
+            def kid:FilterNode (this.node((itemAt g.kids i)))
+            if (kid.kind == "group") {
+                return "nested-group"
+            }
+            if (this.ruleActive(kid.id)) {
+                if (FilterCtl.isNegated(kid.operator)) {
+                    return "negated-operator"
+                }
+                if (FilterCtl.hasValue(seen kid.path)) {
+                    return "two-rules-one-field"
+                }
+                push seen kid.path
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn canPushDown:boolean () {
+        return ((strlen (this.pushdownReason())) == 0)
+    }
+
+    ; The TanStack filter function an operator compiles to, "" when none does.
+    sfn filterFnFor:string (op:string) {
+        if (op == "is") { return "equalsString" }
+        if (op == "contains") { return "includesString" }
+        if (op == "is_any_of") { return "arrIncludes" }
+        if (op == "has_any_of") { return "arrIncludesSome" }
+        if (op == "has_all_of") { return "arrIncludesAll" }
+        if (op == "is_between") { return "inNumberRange" }
+        return ""
+    }
+
+    ; `[{"id":…,"value":…}]`, or `[]` when the tree does not fit — and the
+    ; caller is expected to have asked `canPushDown` first.
+    fn columnFilterJson:string () {
+        if (!(this.canPushDown())) {
+            return "[]"
+        }
+        def g:FilterNode (this.node(rootId))
+        def out:string "["
+        def wrote:int 0
+        def i:int 0
+        while (i < (array_length g.kids)) {
+            def kid:FilterNode (this.node((itemAt g.kids i)))
+            if (this.ruleActive(kid.id)) {
+                if (wrote > 0) {
+                    out = out + ","
+                }
+                def value:string ""
+                if ((FilterCtl.arityOf(kid.operator)) == 1) {
+                    value = (FilterCtl.q((itemAt kid.vals 0)))
+                } {
+                    value = (FilterCtl.arr(kid.vals))
+                }
+                out = out + "{" + (FilterCtl.q("id")) + ":" + (FilterCtl.q(kid.path))
+                out = out + "," + (FilterCtl.q("value")) + ":" + value + "}"
+                wrote = (wrote + 1)
+            }
+            i = (i + 1)
+        }
+        return out + "]"
+    }
+
+    ; --- the reported rows --------------------------------------------------
+    ;
+    ; The bar is a toolbar of chips. A chip is a GROUP holding three buttons —
+    ; field, operator, value — plus its menu, because those are three separate
+    ; things a person clicks and a reader must be able to reach each of them.
+    ; The group carries the whole chip as its name so a reader arriving on it
+    ; hears the filter before it hears the parts.
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def bar:UiRow (new UiRow ())
+        bar.tid = "filterbar"
+        bar.role = (EVGA11yRole.toolbar())
+        bar.name = "Filters"
+        bar.orientation = "horizontal"
+        push out bar
+
+        def g:FilterNode (this.node(rootId))
+        def i:int 0
+        while (i < (array_length g.kids)) {
+            def id:string (itemAt g.kids i)
+            def r:FilterNode (this.node(id))
+            def f:FilterField (this.field(r.path))
+
+            def chip:UiRow (new UiRow ())
+            chip.tid = id
+            chip.parentTid = "filterbar"
+            chip.role = (EVGA11yRole.group())
+            chip.name = (this.chipText(id))
+            chip.focusable = true
+            chip.tabStop = (activeId == id)
+            push out chip
+
+            def fieldBtn:UiRow (new UiRow ())
+            fieldBtn.tid = id + "-field"
+            fieldBtn.parentTid = id
+            fieldBtn.role = (EVGA11yRole.button())
+            fieldBtn.name = f.label
+            fieldBtn.hasPopup = "menu"
+            fieldBtn.focusable = true
+            push out fieldBtn
+
+            def opBtn:UiRow (new UiRow ())
+            opBtn.tid = id + "-op"
+            opBtn.parentTid = id
+            opBtn.role = (EVGA11yRole.button())
+            opBtn.name = (FilterCtl.operatorLabel(r.operator))
+            opBtn.hasPopup = "menu"
+            opBtn.focusable = true
+            push out opBtn
+
+            def valBtn:UiRow (new UiRow ())
+            valBtn.tid = id + "-value"
+            valBtn.parentTid = id
+            valBtn.role = (EVGA11yRole.button())
+            valBtn.name = (this.valueText(id))
+            valBtn.hasPopup = "listbox"
+            valBtn.focusable = true
+            if (this.isOpen(id)) {
+                valBtn.expanded = 2
+                valBtn.state = "open"
+            } {
+                valBtn.expanded = 1
+                valBtn.state = "closed"
+            }
+            push out valBtn
+
+            def menuBtn:UiRow (new UiRow ())
+            menuBtn.tid = id + "-menu"
+            menuBtn.parentTid = id
+            menuBtn.role = (EVGA11yRole.button())
+            ; Named for the filter it acts on, not "More": a bar of chips has
+            ; one of these per chip and a reader offered four identical "More"
+            ; buttons has been given a list and no way to choose from it — the
+            ; same rule the navigation landmark is under.
+            menuBtn.name = "Options for " + f.label
+            menuBtn.hasPopup = "menu"
+            menuBtn.focusable = true
+            push out menuBtn
+
+            ; The open value list, and its options with their chosen state.
+            if (this.isOpen(id)) {
+                def list:UiRow (new UiRow ())
+                list.tid = id + "-list"
+                list.parentTid = id
+                list.role = (EVGA11yRole.listBox())
+                list.name = f.label
+                ; A list a person picks several from says so, which is the only
+                ; thing that tells a reader the list stays open after a pick.
+                if ((FilterCtl.arityOf(r.operator)) == 0) {
+                    list.multiSelectable = "true"
+                }
+                push out list
+                def oi:int 0
+                while (oi < (array_length f.options)) {
+                    def o:FilterOption (itemAt f.options oi)
+                    def orow:UiRow (new UiRow ())
+                    orow.tid = id + "-opt-" + o.value
+                    orow.parentTid = id + "-list"
+                    orow.role = (EVGA11yRole.option())
+                    orow.name = o.label
+                    orow.focusable = true
+                    if (this.isChosen(id o.value)) {
+                        orow.selected = 2
+                    } {
+                        orow.selected = 1
+                    }
+                    push out orow
+                    oi = (oi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+
+        def add:UiRow (new UiRow ())
+        add.tid = "add"
+        add.parentTid = "filterbar"
+        add.role = (EVGA11yRole.button())
+        add.name = "Add filter"
+        add.hasPopup = "menu"
+        add.focusable = true
+        add.tabStop = (activeId == "add")
+        push out add
+
+        ; Nothing focused yet: the first stop is the tab stop, which is the
+        ; roving-focus contract — a toolbar always has exactly one.
+        if ((strlen activeId) == 0) {
+            def s:[string] (this.stops())
+            if ((array_length s) > 0) {
+                def first:string (itemAt s 0)
+                def j:int 0
+                while (j < (array_length out)) {
+                    def row:UiRow (itemAt out j)
+                    if (row.tid == first) {
+                        row.tabStop = true
+                    }
+                    j = (j + 1)
+                }
+            }
+        }
+        return out
+    }
+}

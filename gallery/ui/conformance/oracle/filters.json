@@ -1,0 +1,1051 @@
+{
+  "note": "Captured by filters_oracle.mjs from @tanstack/table-core. The predicates, autoRemove and the two wiring routes are MEASURED; the operator vocabulary, the rule tree and the chip surface are specified — see FINDINGS.",
+  "library": "@tanstack/table-core@8.21.3",
+  "resolvesFilterValue": [
+    "inNumberRange"
+  ],
+  "rows": [
+    {
+      "id": "r1",
+      "title": "Ship the parser",
+      "assignee": [
+        "ada"
+      ],
+      "priority": "urgent",
+      "points": 8
+    },
+    {
+      "id": "r2",
+      "title": "Fix the lexer",
+      "assignee": [
+        "grace",
+        "ada"
+      ],
+      "priority": "high",
+      "points": 3
+    },
+    {
+      "id": "r3",
+      "title": "Write the docs",
+      "assignee": [],
+      "priority": "low",
+      "points": 1
+    },
+    {
+      "id": "r4",
+      "title": "Ship the linker",
+      "assignee": [
+        "alan"
+      ],
+      "priority": "urgent",
+      "points": 13
+    },
+    {
+      "id": "r5",
+      "title": "Audit the tests",
+      "assignee": [
+        "katherine",
+        "grace"
+      ],
+      "priority": "medium",
+      "points": 5
+    },
+    {
+      "id": "r6",
+      "title": "Trim the atlas",
+      "assignee": [
+        "ada"
+      ],
+      "priority": "low",
+      "points": 2
+    }
+  ],
+  "predicates": {
+    "includesString": [
+      {
+        "cell": "Ada Lovelace",
+        "filter": "ada",
+        "pass": true
+      },
+      {
+        "cell": "Ada Lovelace",
+        "filter": "ADA",
+        "pass": true
+      },
+      {
+        "cell": "Ada Lovelace",
+        "filter": "lace",
+        "pass": true
+      },
+      {
+        "cell": "Ada Lovelace",
+        "filter": "adalovelace",
+        "pass": false
+      },
+      {
+        "cell": "Ada Lovelace",
+        "filter": "",
+        "pass": true
+      },
+      {
+        "cell": "Ada Lovelace",
+        "filter": " ",
+        "pass": true
+      },
+      {
+        "cell": 42,
+        "filter": "4",
+        "pass": true
+      },
+      {
+        "cell": null,
+        "filter": "a",
+        "pass": false
+      }
+    ],
+    "includesStringSensitive": [
+      {
+        "cell": "Ada Lovelace",
+        "filter": "ada",
+        "pass": false
+      },
+      {
+        "cell": "Ada Lovelace",
+        "filter": "Ada",
+        "pass": true
+      }
+    ],
+    "equalsString": [
+      {
+        "cell": "urgent",
+        "filter": "urgent",
+        "pass": true
+      },
+      {
+        "cell": "urgent",
+        "filter": "URGENT",
+        "pass": true
+      },
+      {
+        "cell": "urgent",
+        "filter": "urg",
+        "pass": false
+      },
+      {
+        "cell": null,
+        "filter": "urgent",
+        "pass": false
+      }
+    ],
+    "equals": [
+      {
+        "cell": "urgent",
+        "filter": "urgent",
+        "pass": true
+      },
+      {
+        "cell": 3,
+        "filter": 3,
+        "pass": true
+      },
+      {
+        "cell": 3,
+        "filter": "3",
+        "pass": false
+      },
+      {
+        "cell": null,
+        "filter": null,
+        "pass": true
+      }
+    ],
+    "weakEquals": [
+      {
+        "cell": 3,
+        "filter": "3",
+        "pass": true
+      },
+      {
+        "cell": "3",
+        "filter": 3,
+        "pass": true
+      },
+      {
+        "cell": 0,
+        "filter": "",
+        "pass": true
+      }
+    ],
+    "arrIncludes": [
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": "ada",
+        "pass": true
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": "alan",
+        "pass": false
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": "Ada",
+        "pass": false
+      }
+    ],
+    "arrIncludesAll": [
+      {
+        "cell": [
+          "ada",
+          "grace",
+          "alan"
+        ],
+        "filter": [
+          "ada",
+          "grace"
+        ],
+        "pass": true
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [
+          "ada",
+          "alan"
+        ],
+        "pass": false
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [],
+        "pass": true
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [
+          "Ada"
+        ],
+        "pass": false
+      }
+    ],
+    "arrIncludesSome": [
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [
+          "alan",
+          "grace"
+        ],
+        "pass": true
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [
+          "alan",
+          "katherine"
+        ],
+        "pass": false
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [],
+        "pass": false
+      },
+      {
+        "cell": [],
+        "filter": [
+          "ada"
+        ],
+        "pass": false
+      },
+      {
+        "cell": [
+          "ada",
+          "grace"
+        ],
+        "filter": [
+          "Ada"
+        ],
+        "pass": false
+      }
+    ],
+    "inNumberRange": [
+      {
+        "cell": 5,
+        "filter": [
+          1,
+          10
+        ],
+        "pass": true
+      },
+      {
+        "cell": 1,
+        "filter": [
+          1,
+          10
+        ],
+        "pass": true
+      },
+      {
+        "cell": 10,
+        "filter": [
+          1,
+          10
+        ],
+        "pass": true
+      },
+      {
+        "cell": 0,
+        "filter": [
+          1,
+          10
+        ],
+        "pass": false
+      },
+      {
+        "cell": 11,
+        "filter": [
+          1,
+          10
+        ],
+        "pass": false
+      },
+      {
+        "cell": 5,
+        "filter": [
+          null,
+          10
+        ],
+        "pass": true
+      },
+      {
+        "cell": 5,
+        "filter": [
+          1,
+          null
+        ],
+        "pass": true,
+        "rawPass": false
+      },
+      {
+        "cell": 5,
+        "filter": [
+          null,
+          null
+        ],
+        "pass": true,
+        "rawPass": false
+      },
+      {
+        "cell": 5,
+        "filter": [
+          10,
+          1
+        ],
+        "pass": true,
+        "rawPass": false
+      },
+      {
+        "cell": "5",
+        "filter": [
+          1,
+          10
+        ],
+        "pass": true
+      }
+    ]
+  },
+  "autoRemove": {
+    "includesString": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "empty array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "includesStringSensitive": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "empty array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "equalsString": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "empty array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "arrIncludes": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "empty array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "arrIncludesAll": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "empty array",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "arrIncludesSome": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "empty array",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "equals": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "empty array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "weakEquals": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "empty array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ],
+    "inNumberRange": [
+      {
+        "value": "empty string",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "undefined",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "null",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "zero",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "empty array",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "one-element array",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "both ends blank",
+        "own": true,
+        "effective": true
+      },
+      {
+        "value": "lower bound only",
+        "own": false,
+        "effective": false
+      },
+      {
+        "value": "upper bound only",
+        "own": false,
+        "effective": false
+      }
+    ]
+  },
+  "wired": {
+    "none": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": []
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": []
+      }
+    },
+    "urgent": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r4"
+        ],
+        "applied": [
+          "priority"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r4"
+        ],
+        "applied": [
+          "priority"
+        ]
+      }
+    },
+    "anyOfTwo": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r2",
+          "r4",
+          "r6"
+        ],
+        "applied": [
+          "assignee"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r2",
+          "r4",
+          "r6"
+        ],
+        "applied": [
+          "assignee"
+        ]
+      }
+    },
+    "twoChips": {
+      "pushed": {
+        "rows": [
+          "r1"
+        ],
+        "applied": [
+          "priority",
+          "assignee"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1"
+        ],
+        "applied": [
+          "priority",
+          "assignee"
+        ]
+      }
+    },
+    "emptyMulti": {
+      "pushed": {
+        "rows": [],
+        "applied": [
+          "assignee"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": []
+      }
+    },
+    "emptyText": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": [
+          "title"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": []
+      }
+    },
+    "unassigned": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r2",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": [
+          "assignee"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r2",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": [
+          "assignee"
+        ]
+      }
+    },
+    "atLeastFive": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r4",
+          "r5"
+        ],
+        "applied": [
+          "points"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r4",
+          "r5"
+        ],
+        "applied": [
+          "points"
+        ]
+      }
+    },
+    "blankRange": {
+      "pushed": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": [
+          "points"
+        ]
+      },
+      "set": {
+        "rows": [
+          "r1",
+          "r2",
+          "r3",
+          "r4",
+          "r5",
+          "r6"
+        ],
+        "applied": []
+      }
+    }
+  },
+  "FINDINGS": {
+    "columnFiltersAreAnded": {
+      "what": "`columnFilters` is a flat array of {id, value}, one per column, and every entry must pass. `twoChips` returns the intersection.",
+      "consequence": "The `combinator` in the shadcn filter state has no TanStack equivalent. An OR group, and any nesting at all, is evaluated by the component and never reaches the table. FilterCtl therefore owns the tree and its evaluation, and compiles to `columnFilters` only for the one shape TanStack can hold: a single top-level AND of one rule per column."
+    },
+    "autoRemoveIsSetterOnly": {
+      "what": "`emptyMulti` down the two routes disagrees: through the setter the filter is dropped and all six rows survive; pushed in as state it is applied and NO row survives. `shouldAutoRemoveFilter` is called from `table.setColumnFilters` and from `column.setFilterValue`, and from nowhere in the filtering itself.",
+      "consequence": "A filter bar that keeps its own tree does not get this cleanup, so it must do the emptiness test itself before compiling a rule down. FilterCtl treats an empty rule as INERT — it contributes nothing to the predicate rather than matching nothing — which is what the setter route does and what a half-built chip must do."
+    },
+    "resolveFilterValueIsPartOfTheFn": {
+      "what": "Only [\"inNumberRange\"] carries a `resolveFilterValue`, and `getFilteredRowModel` runs it before the predicate. Without it a blank bound compares as NaN and the row fails; with it a blank bound becomes an open end. Rows carrying `rawPass` in the predicates section are exactly the ones where this changed the answer.",
+      "consequence": "'The predicate' is the pair, not the function. FilterCtl's range operator normalises its bounds before comparing, and the gate covers a blank lower bound, a blank upper bound and both blank."
+    },
+    "autoRemoveDiffersPerFn": {
+      "what": "`inNumberRange` drops the filter only when BOTH ends are blank; `arrIncludesSome` also drops an empty array, which the shared falsey test would not (an empty array is truthy). The shared test adds undefined and the empty string on top of whatever the function says.",
+      "consequence": "'Is this rule empty?' is a per-operator question, not one shared predicate. FilterCtl asks it per operator."
+    },
+    "noOperatorVocabulary": {
+      "what": "TanStack has nine filter functions and no notion of an operator label, a negation, or which operators a column type offers.",
+      "consequence": "`is` / `is not` / `has any of` / `has none of` and the mapping from a column type to its operator list are SPECIFIED from the component, not measured. Where an operator is the negation of a measured one, its predicate is the measured one inverted, and the gate proves that on the measured cases rather than on cases invented for it."
+    },
+    "arrayOperatorsAreCaseSensitive": {
+      "what": "`arrIncludesSome` on [\"ada\",\"grace\"] against [\"Ada\"] is recorded above, beside `equalsString` on \"urgent\" against \"URGENT\". The string operators fold case and the array ones do not.",
+      "consequence": "One case rule for the whole component would be wrong for half of it. FilterCtl folds case for the text and single-value operators and compares the multi-value ones exactly, which is also the right answer for the thing they hold: an option's stored value is an id, not prose."
+    },
+    "invertedRangeIsSwapped": {
+      "what": "`resolveFilterValue` on [10, 1] returns [1, 10] — it compares the two parsed bounds and swaps them when min > max. So a range typed backwards matches the same rows as the same range typed forwards, recorded above as the [10,1] probe passing for the cell 5.",
+      "consequence": "A person dragging two number inputs past each other does not get an empty table. FilterCtl swaps too, and the gate covers it — this is the sort of quiet kindness that gets dropped in a reimplementation because nobody writes it down."
+    },
+    "numbersAreCoercedOnBothSides": {
+      "what": "`inNumberRange` on the string \"5\" against [1,10] passes: the bounds go through parseFloat in `resolveFilterValue` and the cell is compared with `>=`/`<=`, which coerces. `includesString` on the number 42 against \"4\" also passes, via String().",
+      "consequence": "A column whose cells arrive as strings still filters as numbers. Recorded because the opposite is the plausible guess."
+    }
+  }
+}
