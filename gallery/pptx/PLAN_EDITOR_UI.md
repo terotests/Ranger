@@ -42,6 +42,46 @@ So the shape of the work is not "replace the chrome with components". It is
 **let the engine that is already parsing that stylesheet lay it out**, and then
 fill the boxes it computes with the controllers.
 
+## Two things that are not up for negotiation
+
+**The slide stays the slide.** This project changes the CHROME around the deck
+and nothing about the deck. Fidelity to what PowerPoint or LibreOffice would
+draw is the whole point of `PptxView` / `PptxToEvg` and is measured by the
+visual harness; a slide that renders differently after this work is a
+regression, however much better the panel beside it looks. The palette stops at
+the edge of the stage.
+
+**The surface must scale to the visible area.** It does not today, and the
+numbers say so plainly. The standalone host sizes the canvas like this:
+
+```js
+let h = Math.round(box.height) || 0;
+// the desktop layout does not state a height
+if (h < 200) h = Math.round(w * 0.6);
+```
+
+So the editor's height is a GUESS DERIVED FROM ITS WIDTH. In a 1440x900 window
+the canvas comes out 1120x681 with dead space below it and to the right; in a
+900x640 window, 900x512. The window is never asked how much room there is.
+
+The app side is already right and is not the problem: `ptScale` fits the page
+to whatever area it is told it has, through `view.fitScaleFor`, and P0 made the
+stage rect that area comes from a laid-out box rather than a subtraction. What
+is missing is upstream of it — the host has to measure the visible area and
+hand it over, and the page around the canvas has to give the frame a real
+height instead of leaving it to an aspect ratio.
+
+Which makes the requirement concrete, and it is two separate things:
+
+- **Fill the visible area.** The frame gets a height from the viewport, the
+  host passes it, and the chrome laid out in P0 takes it from there. Nothing in
+  `PptxApp` needs to change for this.
+- **A zoom the reader controls.** Fitting the page to the stage is one policy
+  among several — fit-width, fit-page, 100%, and a number the reader picks are
+  all normal in an editor and none of them exist here. `showScale` and
+  `fitScaleFor` already carry the arithmetic; what is missing is the control
+  and the state behind it, and the status line is where such a control belongs.
+
 ## The seam
 
 One idea carries the whole plan, and the dashboard demo already proves it: a
