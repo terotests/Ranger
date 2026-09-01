@@ -258,6 +258,73 @@ console.log("--- what a reader gets ---");
   ok("no style errors", d.styleErrorCount() === 0);
 }
 
+console.log("--- a panel keeps what does not fit inside it ---");
+{
+  // Reported: drag the divider far enough and the trail wrote itself straight
+  // across the divider and into the panel beside it.
+  //
+  // The trail collapses as the panel narrows, but collapsing has a floor: at
+  // some width even "Home / ../ Breadcrumb One" is wider than the panel, and
+  // what a box does with content bigger than itself is decided by `overflow`.
+  // The panel declared none.
+  //
+  // A browser was asked before this was written, because the obvious answer is
+  // wrong. A flex item's default `min-width: auto` does NOT prevent the spill,
+  // it moves it: the item keeps its min-content width and the BOX hangs out of
+  // the row. Only `overflow: hidden` leaves nothing sticking out. So what is
+  // checked here is the clip, not the size of anything.
+  const d = fresh();
+  at(d, 15);
+  d.settle();
+  const list = JSON.parse(d.displayListJson());
+
+  // Walk the clip stack the way the renderer does: k=4 pushes a rectangle,
+  // k=5 pops one, and what a command is actually allowed to paint is the
+  // intersection of everything still on the stack.
+  const PUSH = 4, POP = 5;
+  const stack = [];
+  const clipped = [];
+  for (const c of list.cmds) {
+    if (c.k === PUSH) {
+      const top = stack.length ? stack[stack.length - 1] : { x: -1e9, y: -1e9, r: 1e9, b: 1e9 };
+      stack.push({
+        x: Math.max(top.x, c.x), y: Math.max(top.y, c.y),
+        r: Math.min(top.r, c.x + c.w), b: Math.min(top.b, c.y + c.h),
+      });
+      continue;
+    }
+    if (c.k === POP) { stack.pop(); continue; }
+    if (!c.text) continue;
+    clipped.push({ cmd: c, clip: stack.length ? stack[stack.length - 1] : null });
+  }
+
+  // The panel under test, and the case under test. If nothing in the trail
+  // reaches past the panel there is no overflow here and the assertion below
+  // would pass on any stylesheet at all — so prove the situation first.
+  const crumbs = clipped.filter((e) => /Home|Breadcrumb|One|\//.test(e.cmd.text));
+  ok("the trail is drawn", crumbs.length > 0, String(crumbs.length));
+  const spilling = crumbs.filter((e) => e.clip && e.cmd.x + e.cmd.w > e.clip.r + 0.5);
+  ok("and at this width some of it does not fit",
+    spilling.length > 0,
+    "no crumb reaches past its clip — the case this guards is not being exercised");
+
+  // Every crumb is inside SOME clip. Without one, a command that reaches past
+  // the panel is painted past the panel, which is the report.
+  const loose = crumbs.filter((e) => !e.clip);
+  ok("every crumb is drawn inside a clip", loose.length === 0,
+    loose.length + " with no clip, e.g. " + JSON.stringify(loose.length ? loose[0].cmd.text : ""));
+
+  // And that clip stops at the panel. The divider sits just past the panel's
+  // right edge, so a clip wider than the panel is a clip that lets the trail
+  // cross it.
+  const panelBox = list.cmds.find((c) => c.k === PUSH);
+  ok("the panel is what clips them", !!panelBox, JSON.stringify(panelBox || null));
+  const widest = Math.max(...crumbs.map((e) => e.clip ? e.clip.r : Infinity));
+  ok("and the clip stops at the panel's edge",
+    panelBox && widest <= panelBox.x + panelBox.w + 0.5,
+    "widest clip right edge " + widest + " vs panel " + (panelBox ? panelBox.x + panelBox.w : "?"));
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

@@ -600,6 +600,8 @@
     "evg:scroll:oracle": "node gallery/ui/conformance/oracle/scroll_oracle.mjs",
     "evg:radius:oracle": "node gallery/ui/conformance/oracle/radius_oracle.mjs",
     "evg:radius:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/radius_check.mjs",
+    "evg:flexmin:oracle": "node gallery/ui/conformance/oracle/flexmin_oracle.mjs",
+    "evg:flexmin:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/flexmin_check.mjs",
     "evg:textbox:oracle": "node gallery/ui/conformance/oracle/textbox_oracle.mjs",
     "evg:textbox:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/textbox_check.mjs",
     "evg:scroll:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/scroll_check.mjs",

@@ -46,6 +46,27 @@
  * `height: 298px` overwrote the percentages the demo had just set.
  *
  * One owner per number. */
+/* A PANEL CLIPS. Reported: drag the divider far enough and the trail inside
+ * the left panel wrote itself straight across the divider and into the panel
+ * beside it.
+ *
+ * The trail collapses as the panel narrows, but collapsing has a floor — at
+ * some width even "Home / ../ Breadcrumb One" is wider than the panel, and
+ * what a box does with content bigger than itself is decided by `overflow`
+ * and nothing else. Measured in a browser rather than assumed, because the
+ * obvious answer is wrong: a flex item's default `min-width: auto` does NOT
+ * prevent this. It only moves it — the item keeps its min-content width and
+ * the BOX spills past the row instead of the text spilling past the box. Of
+ * the three configurations, only one leaves nothing sticking out:
+ *
+ *   min-width:auto (default)   box 159px in a 120px row, spills 39px
+ *   min-width:0                box 80px, content overflows the box
+ *   min-width:0 overflow:hidden box 80px, content clipped, nothing spills
+ *
+ * So it is this pair, which is also what react-resizable-panels puts on a
+ * panel. `min-width: 0` is what lets the box shrink to the size the splitter
+ * asked for, and `overflow: hidden` is what keeps what does not fit inside
+ * it. */
 .rz-panel {
   display: flex;
   flex-direction: column;
@@ -53,6 +74,8 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* The divider, and the grip in the middle of it. Six pixels of hit area around

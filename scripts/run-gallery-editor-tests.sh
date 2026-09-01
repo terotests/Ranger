@@ -50,6 +50,9 @@ SUITES=(
   evg:tags:check
   evg:textbox:check
   evg:radius:check
+  # How far a flex item may be shrunk: `min-width: auto` on a flex item is its
+  # min-content size, not zero — and `overflow` puts it back to zero.
+  evg:flexmin:check
   ui:sortable:motion
   ui:table:check
   ui:virtual:check
