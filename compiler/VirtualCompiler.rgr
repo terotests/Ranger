@@ -902,6 +902,22 @@ class tester {
       if ((fmtName != "none") && (fmtName != "ranger")) {
         print "Invalid -format value : " + fmtName
         print "allowed values: none ranger"
+        ; `native` is a real step, it is just not a compiler flag: Ranger has
+        ; no subprocess primitive, and giving the compiler one would mean
+        ; implementing process execution for eleven targets so that a cosmetic
+        ; pass could run a program off PATH. It lives outside instead, where
+        ; it is also easier to not run.
+        if (fmtName == "native") {
+          print ""
+          print "`native` is a separate step rather than a flag. Compile as usual,"
+          print "then run the target's own formatter over the output:"
+          print ""
+          print "    npm run format:native -- <output directory>"
+          print ""
+          print "It is optional in every direction: a formatter that is not installed"
+          print "is reported and skipped, and one that fails leaves the file exactly"
+          print "as Ranger wrote it."
+        }
         return res
       }
     }

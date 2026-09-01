@@ -399,6 +399,98 @@ describe("output formatter: emitted shapes (phase 5)", () => {
   }, 240000);
 });
 
+describe("native formatting is an optional step (phase 4)", () => {
+  // PLAN_FORMAT.md phase 4. Not a compiler flag: Ranger has no subprocess
+  // primitive, and giving the compiler one would mean implementing process
+  // execution for eleven targets so a cosmetic pass could run a program off
+  // PATH. What is asserted here is mostly the OPTIONALITY -- a missing tool,
+  // a failing tool and a file nobody has a formatter for must all be
+  // survivable, because a step that can break a build is not optional.
+  const NATIVE = ["python3", path.join(ROOT, "scripts/fmt_native.py")];
+
+  function native(args: string[]) {
+    const r = require("child_process").spawnSync(
+      NATIVE[0], [NATIVE[1], ...args],
+      { cwd: ROOT, encoding: "utf-8" });
+    return { out: (r.stdout || "") + (r.stderr || ""), code: r.status };
+  }
+
+  it("the compiler names the step instead of pretending to be it", () => {
+    // -format=native has to fail, but failing without saying what to run
+    // would just look like the feature is missing.
+    const r = require("child_process").spawnSync(
+      process.execPath,
+      ["bin/output.js", "-es6", CHAINS, "-d=tests/.output-format",
+       "-o=nv.js", "-nodecli", "-format=native"],
+      { cwd: ROOT, encoding: "utf-8",
+        env: { ...process.env,
+               RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" } });
+    const out = (r.stdout || "") + (r.stderr || "");
+    expect(out).toContain("allowed values: none ranger");
+    expect(out).toContain("npm run format:native");
+  }, 120000);
+
+  it("survives a file type no formatter is configured for", () => {
+    const d = path.join(OUT, "native_none");
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "notes.txt"), "not source\n");
+    const { out, code } = native([d]);
+    expect(out).toContain("no source files with a known formatter");
+    expect(code).toBe(0);
+  }, 120000);
+
+  it("reports a missing formatter and leaves the file untouched", () => {
+    // Swift has no toolchain here, which makes it the honest test rather than
+    // a mocked one.
+    const swift = compile(CHAINS, "swift6", "swift", "native_missing");
+    const d = path.join(OUT, "native_missing_dir");
+    fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, "a.swift");
+    fs.writeFileSync(f, swift);
+    const { out, code } = native([d]);
+    expect(out).toMatch(/not installed:\s+swift-format/);
+    expect(out).toContain("left exactly as Ranger wrote them");
+    expect(fs.readFileSync(f, "utf-8")).toBe(swift);
+    expect(code, "a missing formatter must not fail the run").toBe(0);
+  }, 240000);
+
+  it("--strict turns a missing formatter into a failure, for CI", () => {
+    const d = path.join(OUT, "native_missing_dir");
+    const { code } = native([d, "--strict"]);
+    expect(code).toBe(1);
+  }, 120000);
+
+  it("leaves the file alone when the formatter cannot parse it", () => {
+    // A tool that fails has nothing useful to say about the file, and its
+    // stdout is not the file. This is what stops a formatter truncating
+    // output it could not read.
+    const d = path.join(OUT, "native_broken");
+    fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, "broken.go");
+    const junk = "package main\nfunc {{{ not go at all\n";
+    fs.writeFileSync(f, junk);
+    const { out, code } = native([d]);
+    expect(out).toMatch(/tool failed:\s+1/);
+    expect(fs.readFileSync(f, "utf-8"), "output must survive a failing tool").toBe(junk);
+    expect(code).toBe(0);
+  }, 120000);
+
+  it.runIf(HAS_GO)("actually reformats, and the program still runs", () => {
+    const d = path.join(OUT, "native_go");
+    fs.mkdirSync(d, { recursive: true });
+    const go = compile(LONGCHAIN, "go", "go", "native_run");
+    const f = path.join(d, "main.go");
+    fs.writeFileSync(f, go);
+    const { out } = native([d]);
+    expect(out).toMatch(/reformatted:\s+1/);
+    expect(fs.readFileSync(f, "utf-8")).not.toBe(go);
+    expect(
+      execFileSync("go", ["run", "main.go"], { cwd: d, encoding: "utf-8" }).trim()
+    ).toBe("6 first-argument-value|second-argument-value|" +
+           "third-argument-value|fourth-argument-value|fifth");
+  }, 240000);
+});
+
 describe("reserved words: the target's own parser reads the output", () => {
   // A name that is a keyword of the target has to be renamed or the generated
   // file does not parse. scripts/reserved_probe.py asks this question of every

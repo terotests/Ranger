@@ -133,6 +133,8 @@
     "jsengine:all": "npm run jsengine:build && npm run jsengine:bench && npm run jsengine:octane && npm run jsengine:conformance",
     "test:publish": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.publish.config.ts",
     "test:es6": "vitest run --config tests/vitest.config.ts compiler.test.ts",
+    "format:native": "python3 scripts/fmt_native.py",
+    "format:native:check": "python3 scripts/fmt_native.py --check",
     "format:measure": "python3 scripts/fmt_measure.py",
     "format:parity": "bash scripts/fmt_parity.sh",
     "format:runcheck": "bash scripts/fmt_runcheck.sh",

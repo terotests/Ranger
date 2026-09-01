@@ -72207,6 +72207,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 if ( fmtName != "none" && fmtName != "ranger" ) {
                                                                   console.log("Invalid -format value : " + fmtName);
                                                                   console.log("allowed values: none ranger");
+                                                                  if ( fmtName == "native" ) {
+                                                                    console.log("");
+                                                                    console.log("`native` is a separate step rather than a flag. Compile as usual,");
+                                                                    console.log("then run the target's own formatter over the output:");
+                                                                    console.log("");
+                                                                    console.log("    npm run format:native -- <output directory>");
+                                                                    console.log("");
+                                                                    console.log("It is optional in every direction: a formatter that is not installed");
+                                                                    console.log("is reported and skipped, and one that fails leaves the file exactly");
+                                                                    console.log("as Ranger wrote it.");
+                                                                  }
                                                                   return res;
                                                                 }
                                                               }

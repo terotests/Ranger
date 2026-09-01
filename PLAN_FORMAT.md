@@ -342,14 +342,7 @@ powers, plus a second rule for operators the table does not know. §10.6.
 **Phase 3 — chains and argument lists. DONE.** The all-or-nothing rule of §5,
 width aware, applied to finished lines rather than during emission. §10.5.
 
-**Phase 4 — `-format=native`.** Run the ecosystem tool when it is present. Cheap
-once phases 1–3 mean it has little to do. NOT BUILT: `-format=native` is
-rejected today with `allowed values: none ranger`, which is better than a flag
-that quietly does something else. It is also the one phase whose value depends
-on what is installed on the machine, and the one that would have MASKED every
-defect this work found — `gofmt` run over the Go output from the start would
-have reformatted around the reserved-word collisions and the precedence error
-instead of letting them surface as parse and build failures.
+**Phase 4 — native formatting. DONE, as a step rather than a flag.** §10.8.
 
 **Phase 5 — category C. DONE, and both of its premises were wrong.** §10.7.
 
@@ -875,3 +868,71 @@ copy of the pre-work compiler — **regressions=0, pre-existing=5**. The self-ho
 reaches a fixpoint, `-format=none` is byte-identical to the baseline on nine
 targets (Python and C++ differ by the two deliberate emission fixes named in
 `scripts/fmt_parity.sh`), and 45 program/target pairs run identically both ways.
+
+---
+
+## 10.8 What shipped: phase 4, as a step rather than a flag
+
+### Why it is not `-format=native`
+
+§6 drew phase 4 as a compiler flag. It cannot honestly be one: **Ranger has no
+subprocess primitive.** Giving the compiler one would mean implementing process
+execution for eleven targets — and putting "run an arbitrary program off PATH"
+inside a compiler that is itself compiled to C++, Go, Rust and the rest — so
+that a cosmetic pass could call `gofmt`. That is a large and permanent
+capability to add for a formatting nicety.
+
+Outside the compiler it needs none of that, and it lands where it was asked to
+be: a step you run, or do not.
+
+```
+npm run format:native -- <output directory>
+npm run format:native:check -- <output directory>
+python3 scripts/fmt_native.py <paths> [--check] [--strict]
+```
+
+`-format=native` still fails, because a flag that silently means something else
+is worse than one that fails — but it now names the command instead of leaving
+the feature looking absent.
+
+### Optional in every direction
+
+A step that can break a build is not optional, so none of this can:
+
+- **A formatter that is not installed** is reported by name and file count,
+  and those files are left exactly as Ranger wrote them. Exit code 0.
+- **A formatter that fails** — it could not parse the file, it crashed — leaves
+  the file exactly as Ranger wrote it. A failing tool's stdout is not the file,
+  and treating it as one is how a formatter truncates output it could not read.
+- **Every tool is run as a stdin→stdout filter**, and the result is written to
+  a temporary in the same directory and moved into place. Nothing edits a file
+  in place, so a tool that dies mid-write cannot leave a half-written source
+  file.
+- **A file type with no formatter configured** is skipped without comment.
+- Nothing in the build, the test suite or any other script calls it.
+
+`--strict` exists for the opposite need: it fails on a missing or failing tool,
+which is §7's "records which tools were present rather than silently skipping".
+A silent skip is what makes a formatting gate meaningless.
+
+`--check` changes nothing and reports what would be rewritten.
+
+### Measured
+
+On `VlChart.rgr`, five of six targets are reformatted and `dart format` is
+absent here — reported, skipped, exit 0. Every target of the stress fixture
+still produces its exact answer afterwards on JavaScript, Python, Go and C++.
+
+Rust prints `101` where the others print `105`, before *and* after `rustfmt` —
+that is ISSUES #79 (a chained `return this` returns a clone), reproduced
+independently by a fixture written for something else entirely, and not
+anything native formatting did.
+
+### The argument for doing it last
+
+Phase 4 is the one phase whose value depends on what is installed on the
+machine, and the one that would have **masked every defect this work found**.
+`gofmt` run over the Go output from the start would have reformatted around the
+reserved-word collisions and the precedence error instead of letting them
+surface as parse and build failures. A formatter is a poor oracle for
+correctness precisely because it is good at making things look fine.
