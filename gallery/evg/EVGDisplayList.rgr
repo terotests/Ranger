@@ -1529,15 +1529,62 @@ class EVGDisplayList {
 
     ; Two decimals is plenty for a pixel and keeps the payload small.
     sfn num:string (v:double) {
+        ; WHATEVER COMES IN, A JSON NUMBER GOES OUT. This is the only writer of
+        ; every coordinate, size, radius and colour in the list, so a value it
+        ; cannot spell does not make one command wrong — it makes the whole
+        ; frame unparseable, and the page that was drawing it stops. Reported
+        ; as a ripple frozen mid-flight with `SyntaxError: Expected ',' or '}'
+        ; after property` beside it: the paint loop threw, and a loop that
+        ; throws does not ask for another frame.
+        ;
+        ; Two ways in. A value that is not a number came out as "0.NaN", since
+        ; the fraction was formatted from a NaN. And the integer divide below
+        ; TRUNCATES TO 32 BITS, so a magnitude past 2^31 wrapped: 1e10 came out
+        ; as "1410065408.858993459200", which parses and is simply wrong, and
+        ; past about 1e19 the leftover went exponential — "1.0000000001e+21"
+        ; as a FRACTION — which is where the JSON stops being JSON.
+        ;
+        ; So: NaN becomes zero, and the magnitude is pinned inside the range
+        ; the arithmetic below is exact over. Ten million pixels is four
+        ; thousand times the tallest page in this gallery, and it keeps the
+        ; scaled value under 2^31 with a factor of two to spare, so nothing a
+        ; real page draws is touched. Clamping does not make a wrong value
+        ; right — the frame will look wrong where the bad number was — but a
+        ; page that keeps drawing can be looked at, and one that has stopped
+        ; cannot.
+        def limit:double 10000000.0
+        ; A value is kept only if it compares as either side of zero. Zero
+        ; itself fails both and stays the zero it already is, which is why the
+        ; test can be this blunt — and a NaN fails both as well, because a NaN
+        ; fails EVERY comparison. That is the whole test, with no library
+        ; behind it, and it catches one thing more that an equality test does
+        ; not: a slot read past the end of an array, which on this target is
+        ; not a number at all and is equal to itself, so `v == v` waved it
+        ; through and the arithmetic below turned it back into a NaN.
+        def x:double 0.0
+        if (v > 0.0) {
+            x = v
+        }
+        if (v < 0.0) {
+            x = v
+        }
+        ; Infinities pass the comparison above and are pinned here with
+        ; everything else too big to spell.
+        if (x > limit) {
+            x = limit
+        }
+        if (x < (0.0 - limit)) {
+            x = (0.0 - limit)
+        }
         ; Sign first, magnitude second. `to_int` FLOORS rather than truncating
         ; here, so the old two-branch rounding turned -45 into "-46.99": the
         ; scaled value floored to -4501 and then the integer divide floored
         ; again. Every negative coordinate in every scene was off by one and a
         ; bit — invisible until a rotation angle was written through it.
-        def neg:boolean (v < 0.0)
-        def av:double v
+        def neg:boolean (x < 0.0)
+        def av:double x
         if neg {
-            av = (0.0 - v)
+            av = (0.0 - x)
         }
         def scaled:int (to_int ((av * 100.0) + 0.5))
         def whole:int (idiv scaled 100)

@@ -58,6 +58,7 @@ class EVGJsonTest {
         this.testFlatRectHasNoGradient()
         this.testRectAndBorder()
         this.testTextAndImage()
+        this.testEveryNumberIsANumber()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed > 0) {
@@ -65,6 +66,62 @@ class EVGJsonTest {
         } {
             print "ALL PASS"
         }
+    }
+
+    ; WHATEVER GOES IN, A JSON NUMBER COMES OUT.
+    ;
+    ; `num` writes every coordinate, size, radius and colour in the list, so a
+    ; value it cannot spell does not make one command wrong — it makes the
+    ; whole frame unparseable, and the page drawing it stops dead. That is what
+    ; it looked like from the outside: a ripple frozen mid-flight, with
+    ; `SyntaxError: Expected ',' or '}' after property` beside it.
+    ;
+    ; Two ways in, and neither one announced itself. A value that was not a
+    ; number came out as "0.NaN". And the integer divide truncated to 32 bits,
+    ; so a magnitude past 2^31 WRAPPED: 1e10 came out as
+    ; "1410065408.858993459200", which parses and is merely wrong, and past
+    ; about 1e19 the leftover went exponential and stopped being JSON at all.
+    ;
+    ; So the test is the contract rather than the arithmetic: hand it the worst
+    ; values there are and require something a parser will take.
+    fn testEveryNumberIsANumber:void () {
+        print "-- num writes a number for anything it is given"
+        ; The ordinary cases still have to be exactly right — a guard that
+        ; rounds real coordinates is worse than the fault it guards against.
+        this.ok("a plain value is unchanged" ((EVGDisplayList.num(1336.25)) == "1336.25"))
+        this.ok("and a negative one" ((EVGDisplayList.num(-45.0)) == "-45.00"))
+        this.ok("and zero" ((EVGDisplayList.num(0.0)) == "0.00"))
+        ; Everything up to the clamp keeps its value: the old code went wrong
+        ; at 2^31, which is inside this.
+        this.ok("and a value past 2^31, which used to wrap"
+            ((EVGDisplayList.num(3000000000.0)) == "10000000.00"))
+        ; Written as a product because the lexer takes no exponent literals,
+        ; and this is well past where the fraction used to go exponential.
+        def huge:double (1000000000.0 * 1000000000000.0)
+        this.ok("a huge value is pinned, not wrapped"
+            ((EVGDisplayList.num(huge)) == "10000000.00"))
+        this.ok("and a hugely negative one keeps its sign"
+            ((EVGDisplayList.num((0.0 - huge))) == "-10000000.00"))
+        ; A NaN fails every comparison, which is exactly how it is caught.
+        def nan:double (0.0 / 0.0)
+        this.ok("a value that is not a number becomes zero"
+            ((EVGDisplayList.num(nan)) == "0.00"))
+        def inf:double (1.0 / 0.0)
+        this.ok("an infinity is pinned at the limit"
+            ((EVGDisplayList.num(inf)) == "10000000.00"))
+        this.ok("and a negative infinity"
+            ((EVGDisplayList.num((0.0 - inf))) == "-10000000.00"))
+        ; And the point of all of it: a command carrying one of these still
+        ; produces a list something can read. The needle is what a parser would
+        ; choke on — a second dot inside one number.
+        def dl (new EVGDisplayList())
+        dl.addRect(nan inf huge 10.0 (EVGColor.rgb(1 2 3)))
+        def json:string (dl.toJson())
+        this.ok("and a command carrying them writes no second dot"
+            ((indexOf json ".0.") < 0))
+        this.ok("nor an exponent" ((indexOf json "e+") < 0))
+        this.ok("nor the word NaN" ((indexOf json "NaN") < 0))
+        this.ok("nor an Infinity" ((indexOf json "Infinity") < 0))
     }
 
     ; The sanctioned way to add a path. Points, one ring, and a box derived
