@@ -80,6 +80,8 @@ SUITES=(
   evg:flexmin:check
   # The colour maths, against what the browser makes of hex and hsl().
   evg:color:check
+  # How wide text is, which is where a caret gets drawn.
+  evg:advance:check
   ui:sortable:motion
   ui:table:check
   ui:virtual:check

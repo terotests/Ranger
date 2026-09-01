@@ -761,7 +761,9 @@
     "pptx:seam:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxSeamTest.rgr ./gallery/pptx/bin PptxSeamTest.js",
     "pptx:seam:scan": "node gallery/pptx/tools/seam_scan.mjs",
     "evg:color:oracle": "node gallery/ui/conformance/oracle/color_oracle.mjs",
-    "evg:color:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/color_check.mjs"
+    "evg:color:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/color_check.mjs",
+    "evg:advance:oracle": "node gallery/ui/conformance/oracle/advance_oracle.mjs",
+    "evg:advance:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/advance_check.mjs"
   },
   "repository": {
     "type": "git",

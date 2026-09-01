@@ -103,40 +103,140 @@ class EVGTextMeasurer {
         return (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
     }
     
-    fn measureChar:double (ch:int fontFamily:string fontSize:double) {
-        ; Estimate width of a single character
-        ; Proportional fonts have varying widths
-        ; This is a rough approximation
-        
-        ; Space (32) - narrower
-        if (ch == 32) {
-            return (fontSize * 0.3)
-        }
-        
-        ; i, l, j, t, f - narrow characters
-        if ((ch == 105) || (ch == 108) || (ch == 106) || (ch == 116) || (ch == 102)) {
-            return (fontSize * 0.3)
-        }
-        
-        ; m, w - wide characters
-        if ((ch == 109) || (ch == 119)) {
-            return (fontSize * 0.8)
-        }
-        
-        ; M, W - uppercase wide
-        if ((ch == 77) || (ch == 87)) {
-            return (fontSize * 0.9)
-        }
-        
-        ; I - narrow uppercase
-        if (ch == 73) {
-            return (fontSize * 0.35)
-        }
-        
-        ; Default for most characters
-        return (fontSize * 0.55)
+
+    ; --- how wide a character really is ---------------------------------------
+    ;
+    ; MEASURED, one advance per printable character, as a fraction of the em.
+    ; `advance_oracle.mjs` asks a browser for each one with canvas
+    ; `measureText` at a 100px reference and this is what it said.
+    ;
+    ; What it replaces was a handful of buckets — space and `i l j t f` at 0.3
+    ; of the size, `m w` at 0.8, `M W` at 0.9, everything else in between — and
+    ; those buckets put "At least 8 characters." 12.4 pixels wide of the truth
+    ; at 13px, and "ada.example.com" 7.9 wide. That second number is the bug
+    ; this was written for: a caret is drawn at the measured width of the text
+    ; before it, so the caret sat eight pixels past the end of the text.
+    ;
+    ; It is worse than a caret being untidy. The RENDERER does not estimate —
+    ; the GL backend builds its glyph atlas with the browser's own
+    ; `measureText` — so the text was DRAWN at its true width while the layout
+    ; believed the buckets. Two measurements of one string, and everything
+    ; placed from the wrong one: the caret, the selection band, the index a
+    ; click maps to, the width of a box meant to fit its label.
+    ;
+    ; WHAT THIS TABLE IS NOT. It is a sum of single advances, and a browser
+    ; kerns pairs, which no per-character table can express. Measured over
+    ; fifteen strings the sum is EXACT for twelve and drifts at most 3.9px on
+    ; the all-caps pairs that kern hardest — "AVATAR", "To Wave". So the table
+    ; is right for text and slightly wide for capitals, which is a different
+    ; and much smaller error than the one it replaces, and the check reports it
+    ; rather than hiding it.
+    ;
+    ; AND IT IS ONE FACE. Arial, Helvetica and `sans-serif` all measured
+    ; identically here because they resolve to the same substitute; a machine
+    ; with a different Arial will differ slightly. The honest fix for that is
+    ; to measure with the face actually in use, which the browser can do
+    ; through `setMeasurer` — this table is what every target can carry.
+    sfn advanceEm:[double] () {
+        return ([] _:double (
+            0.27783 0.27783 0.35498 0.55615 0.55615 0.88916 0.66699 0.19092
+            0.33301 0.33301 0.38916 0.58398 0.27783 0.33301 0.27783 0.27783
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615
+            0.55615 0.55615 0.27783 0.27783 0.58398 0.58398 0.58398 0.55615
+            1.01514 0.66699 0.66699 0.72217 0.72217 0.66699 0.61084 0.77783
+            0.72217 0.27783 0.50000 0.66699 0.55615 0.83301 0.72217 0.77783
+            0.66699 0.77783 0.72217 0.66699 0.61084 0.72217 0.66699 0.94385
+            0.66699 0.66699 0.61084 0.27783 0.27783 0.27783 0.46924 0.55615
+            0.33301 0.55615 0.55615 0.50000 0.55615 0.55615 0.27783 0.55615
+            0.55615 0.22217 0.22217 0.50000 0.22217 0.83301 0.55615 0.55615
+            0.55615 0.55615 0.33301 0.50000 0.27783 0.55615 0.50000 0.72217
+            0.50000 0.50000 0.50000 0.33398 0.25977 0.33398 0.58398
+        ))
     }
-    
+
+    ; The same for a monospace face, where every advance is the same number and
+    ; the sum is exact by construction.
+    sfn monoAdvanceEm:[double] () {
+        return ([] _:double (
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+        ))
+    }
+
+    ; The euro, which the invoice demo puts in front of an amount and which is
+    ; the one character outside printable ASCII the gallery asks for.
+    sfn euroEm:double () {
+        return 0.55615
+    }
+
+    sfn monoEuroEm:double () {
+        return 0.60205
+    }
+
+    ; Is this family drawn with one advance for every character?
+    ; Is this family drawn with one advance for every character?
+    ;
+    ; By name, and in both spellings, because Ranger has no case folding to
+    ; reach for here. The families the gallery actually names are `monospace`,
+    ; `Courier New` and `Consolas`; anything else is measured with the
+    ; proportional table, which is the safer way to be wrong — a proportional
+    ; table on a monospace face is a little narrow, a monospace table on a
+    ; proportional face is wrong for every character.
+    sfn isMono:boolean (fontFamily:string) {
+        if ((indexOf fontFamily "mono") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "Mono") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "courier") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "Courier") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "Consol") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "consol") >= 0) {
+            return true
+        }
+        return false
+    }
+
+    fn measureChar:double (ch:int fontFamily:string fontSize:double) {
+        def mono:boolean (EVGTextMeasurer.isMono(fontFamily))
+        if (ch == 8364) {
+            if mono {
+                return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
+            }
+            return ((EVGTextMeasurer.euroEm()) * fontSize)
+        }
+        if ((ch >= 32) && (ch <= 126)) {
+            def t:[double] (EVGTextMeasurer.advanceEm())
+            if mono {
+                t = (EVGTextMeasurer.monoAdvanceEm())
+            }
+            return ((itemAt t (ch - 32)) * fontSize)
+        }
+        ; Outside the table — anything beyond printable ASCII and the euro.
+        ; Half an em, which is the middle of the measured range rather than a
+        ; number picked by feel, and it is a GUESS: the honest fix for a
+        ; character this table does not hold is to measure with the face that
+        ; will draw it, through `EVGTextEngine.setMeasurer`.
+        return (fontSize * 0.5)
+    }
+
     fn wrapText:[string] (text:string fontFamily:string fontSize:double maxWidth:double) {
         ; Wrap text to fit within maxWidth
         ; Returns array of lines
