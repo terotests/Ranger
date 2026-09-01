@@ -60,15 +60,25 @@ class PptxChromeTheme {
     ; sheet of paper lying on something, which is the one place a dark surface
     ; earns its keep here.
     def desk:EVGColor (EVGColor.rgb(228 228 231))
+    ; The radius the whole gallery is drawn with.
+    def radius:double 8.0
     ; The panels: the thumbnails down one side, the properties down the other.
-    def panel:EVGColor (EVGColor.rgb(250 250 250))
+    ; WHITE, like the dashboard's sidebar — the page around it is the near
+    ; white, and the panel lifting off it by one step is what gives the
+    ; arrangement its depth. Both being 250 was flat.
+    def panel:EVGColor (EVGColor.rgb(255 255 255))
     ; A row inside a panel that is hovered or otherwise raised.
+    ; `.db-nav:hover` and `.db-nav-on` are the same fill, which is the
+    ; dashboard saying a row you are on and a row you are over are worth the
+    ; same amount of attention.
     def panelAlt:EVGColor (EVGColor.rgb(244 244 245))
     ; The row that is selected, and the ring around the chosen thumbnail.
-    def selected:EVGColor (EVGColor.rgb(228 228 231))
+    def selected:EVGColor (EVGColor.rgb(244 244 245))
     def accent:EVGColor (EVGColor.rgb(37 99 235))
     def line:EVGColor (EVGColor.rgb(228 228 231))
-    def ink:EVGColor (EVGColor.rgb(24 24 27))
+    ; `.db-nav-text` for a label, `.db-nav-text-on` for the one you are on.
+    def ink:EVGColor (EVGColor.rgb(39 39 42))
+    def inkOn:EVGColor (EVGColor.rgb(9 9 11))
     def dim:EVGColor (EVGColor.rgb(113 113 122))
 
     Constructor () {
@@ -79,7 +89,10 @@ class PptxStripView extends EVGToolbarView {
     ; The radius everything on the strip is drawn with. One number, because a
     ; strip whose pills and tabs disagree about their corners reads as two
     ; strips.
-    def pillRadius:double 6.0
+    ; EIGHT, because that is what the dashboard uses on every row, button and
+    ; card of it. A chrome that agrees with the gallery to within two pixels is
+    ; a chrome that looks like a near-miss of it.
+    def pillRadius:double 8.0
 
     Constructor () {
     }
@@ -94,8 +107,8 @@ class PptxStripView extends EVGToolbarView {
         t.bg = (EVGColor.rgb(250 250 250))
         ; zinc-200, which is what every hairline in the gallery is.
         t.line = (EVGColor.rgb(228 228 231))
-        ; zinc-900 and zinc-500: the two text weights, and nothing between.
-        t.ink = (EVGColor.rgb(24 24 27))
+        ; `.db-nav-text` and `.db-nav-text-dim`, to the number.
+        t.ink = (EVGColor.rgb(39 39 42))
         t.dim = (EVGColor.rgb(113 113 122))
         ; A filled shape inside an icon. Mid zinc, so it reads as part of the
         ; drawing rather than as a smudge.
@@ -111,7 +124,9 @@ class PptxStripView extends EVGToolbarView {
 
     ; A rounded rectangle, which the display list can draw and no toolbar has
     ; ever asked it for.
-    fn pushPill:void (dl:EVGDisplayList x:double y:double w:double h:double
+    ; STATIC, because it reads nothing off the view. The panel's tabs want the
+    ; same pill and have no view to ask for it.
+    sfn pushPill:void (dl:EVGDisplayList x:double y:double w:double h:double
         rad:double col:EVGColor) {
         if (w <= 0.0) {
             return
@@ -169,11 +184,11 @@ class PptxStripView extends EVGToolbarView {
                     def pw:double (to_double (t.w - 4))
                     def ph:double (to_double (t.h - 4))
                     if t.pressed {
-                        this.pushPill(dl px py pw ph pillRadius theme.pressedBg)
+                        PptxStripView.pushPill(dl px py pw ph pillRadius theme.pressedBg)
                     }
                     if (bar.hot == i) {
                         if (t.pressed == false) {
-                            this.pushPill(dl px py pw ph pillRadius theme.hotBg)
+                            PptxStripView.pushPill(dl px py pw ph pillRadius theme.hotBg)
                         }
                     }
                     if (t.textW > 0) {
@@ -212,7 +227,7 @@ class PptxStripView extends EVGToolbarView {
                     ; White, so it lifts off the near-white band the way a
                     ; selected row does everywhere else in the gallery, and
                     ; inset top and bottom so the row has a rhythm.
-                    this.pushPill(dl (to_double t.x) (to_double (t.y + 3))
+                    PptxStripView.pushPill(dl (to_double t.x) (to_double (t.y + 3))
                         (to_double t.w) (to_double (t.h - 5)) pillRadius theme.tipBg)
                     col = theme.ink
                 }

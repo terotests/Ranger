@@ -5499,24 +5499,43 @@ class PptxApp {
                 }
             }
             if visible {
+                ; THE SLIDE YOU ARE ON, said the way the dashboard says it: a
+                ; filled row BEHIND the thing, not a saturated ring around it.
+                ; A 2px accent frame drawn outside the thumbnail was the
+                ; loudest thing in the panel — louder than the slide it was
+                ; pointing at, which is the wrong way round for a picture of a
+                ; picture.
+                ;
+                ; Behind, and so drawn first. Drawing it after meant painting
+                ; the thumbnail again on top, which built the same thumbnail
+                ; twice a frame and was caught by the cache counter the panel
+                ; keeps for exactly that.
+                if (i == index) {
+                    PptxStripView.pushPill(dl (to_double (tx - 6)) (to_double (ty - 5))
+                        (to_double (tw + 12)) (to_double (th + 10)) skin.radius skin.panelAlt)
+                }
                 dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
                 def sub:EVGDisplayList (this.thumbnailAt(i tx ty tw))
                 dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
                 PptxApp.appendList(dl sub)
                 dl.addClipEnd()
-                def border:EVGColor theme.line
-                if (i == index) {
-                    border = skin.accent
-                    dl.addFrame((to_double (tx - 2)) (to_double (ty - 2)) (to_double (tw + 4)) (to_double (th + 4)) 2.0 border)
-                } {
-                    dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
-                }
+                ; Every thumbnail keeps its hairline, the selected one too, so
+                ; the row does not jump as the selection moves.
+                dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.line)
                 ; The number: beside a column's thumbnail, under a strip's,
                 ; because a strip has no room to its left.
+                ; …and the number goes dark for the one you are on, which is
+                ; `.db-nav-text-on` doing the same job. The filled row alone is
+                ; a quiet signal — deliberately, since it must not shout over
+                ; the thumbnails — and a quiet signal wants a second one.
+                def numInk:EVGColor (PptxApp.panelLabel())
+                if (i == index) {
+                    numInk = skin.inkOn
+                }
                 if onTop {
-                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 (PptxApp.panelLabel()))
+                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 numInk)
                 } {
-                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 (PptxApp.panelLabel()))
+                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 numInk)
                 }
                 ; A section names the run of slides that starts here, so it is
                 ; written once, above the first of them.
@@ -5971,22 +5990,33 @@ class PptxApp {
             slidesBg = off
             outlineBg = on
         }
-        dl.addRect(0.0 top half (to_double h) slidesBg)
-        dl.addRect(half top ((to_double w) - half) (to_double h) outlineBg)
-        dl.addRect(0.0 (to_double ((toolbarH + h) - 1)) (to_double w) 1.0 theme.line)
-        def slidesInk:EVGColor (PptxApp.panelLabel())
-        def outlineInk:EVGColor (PptxApp.panelLabel())
+        ; TWO ROWS OF THE DASHBOARD'S SIDEBAR, which is what this pair is.
+        ;
+        ; It used to be two flat half-width panels of slightly different grey
+        ; with an accent rule under whichever was on — a shape that needs a
+        ; comment to explain that it is a control at all, and the comment was
+        ; there. A filled pill needs none: the same 8px radius, the same
+        ; `#f4f4f5` fill and the same two text colours the dashboard's nav rows
+        ; use, so the two look like they came out of one design rather than two.
+        dl.addRect(0.0 top (to_double w) (to_double h) skin.panel)
+        def pad:double 4.0
+        def cell:double (half - (pad * 2.0))
+        def pillY:double (top + 3.0)
+        def pillH:double ((to_double h) - 8.0)
+        def slidesInk:EVGColor skin.ink
+        def outlineInk:EVGColor skin.ink
         if (this.outlineOn()) {
-            outlineInk = skin.ink
-            ; The tab that is on is underlined, because two panels of the same
-            ; grey with one word each is not a control anybody can read.
-            dl.addRect(half (to_double ((toolbarH + h) - 2)) ((to_double w) - half) 2.0 skin.accent)
+            PptxStripView.pushPill(dl (half + pad) pillY cell pillH skin.radius skin.panelAlt)
+            outlineInk = skin.inkOn
+            slidesInk = skin.dim
         } {
-            slidesInk = skin.ink
-            dl.addRect(0.0 (to_double ((toolbarH + h) - 2)) half 2.0 skin.accent)
+            PptxStripView.pushPill(dl pad pillY cell pillH skin.radius skin.panelAlt)
+            slidesInk = skin.inkOn
+            outlineInk = skin.dim
         }
-        toolbarView.pushText(dl "Slides" 10.0 (top + 6.0) 11.0 slidesInk)
-        toolbarView.pushText(dl "Outline" (half + 8.0) (top + 6.0) 11.0 outlineInk)
+        dl.addRect(0.0 (to_double ((toolbarH + h) - 1)) (to_double w) 1.0 theme.line)
+        toolbarView.pushText(dl "Slides" (pad + 8.0) (top + 6.0) 11.0 slidesInk)
+        toolbarView.pushText(dl "Outline" (half + pad + 8.0) (top + 6.0) 11.0 outlineInk)
     }
 
     fn paintOutline:void (dl:EVGDisplayList) {
