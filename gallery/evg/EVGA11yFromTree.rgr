@@ -204,6 +204,9 @@ class EVGA11yFromTree {
             n.orientation = el.a11yOrientation
             n.current = el.a11yCurrent
             n.value = el.a11yValue
+            n.required = el.a11yRequired
+            n.invalid = el.a11yInvalid
+            n.readOnly = el.a11yReadOnly
             n.hasValueNow = el.a11yHasValue
             n.valueNow = el.a11yValueNow
             n.hasValueRange = el.a11yHasRange

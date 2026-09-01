@@ -716,6 +716,20 @@ class EVGElement {
     ; `glyphText()` is the bullets, and neither belongs to a reader: a browser
     ; exposes no value for `type=password` either.
     def a11yValue:string ""
+    ; `aria-required`, `aria-invalid` and `aria-readonly`, as the DOM spells
+    ; them: "true", "false", or "" for a control that says nothing.
+    ;
+    ; STRINGS AND NOT BOOLEANS, and that is the whole point of them. Absent
+    ; and "false" are different claims — a field that says
+    ; `aria-required="false"` has been asked and answered, and one that says
+    ; nothing has not. The controller path has spelled them this way since the
+    ; `input_required` spec recorded the rule against a real <input>
+    ; ("aria-required is published only when it was asked for"); the element
+    ; path could not say either at all, so a demo-built form drew a red ring
+    ; and a message for a person and told a reader nothing.
+    def a11yRequired:string ""
+    def a11yInvalid:string ""
+    def a11yReadOnly:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
     ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
@@ -2297,6 +2311,9 @@ class EVGElement {
         role = other.role
         a11yLabel = other.a11yLabel
         a11yValue = other.a11yValue
+        a11yRequired = other.a11yRequired
+        a11yInvalid = other.a11yInvalid
+        a11yReadOnly = other.a11yReadOnly
         a11yRoleDescription = other.a11yRoleDescription
         a11yDescription = other.a11yDescription
         a11yHasPopup = other.a11yHasPopup
@@ -2444,6 +2461,18 @@ class EVGElement {
         if ((name == "role") || (name == "a11yRole")) {
             role = (trim value)
             return
+        }
+        if ((name == "a11yRequired") || (name == "aria-required")) {
+            a11yRequired = value
+            return true
+        }
+        if ((name == "a11yInvalid") || (name == "aria-invalid")) {
+            a11yInvalid = value
+            return true
+        }
+        if ((name == "a11yReadOnly") || (name == "aria-readonly")) {
+            a11yReadOnly = value
+            return true
         }
         if ((name == "a11yValue") || (name == "aria-valuetext")) {
             a11yValue = value

@@ -470,14 +470,27 @@ class FormDemo {
         }
         box.a11yFocusable = (c.disabled == false)
         box.a11yDisabled = c.disabled
-        ; `required` and `invalid` are NOT published here, and that is a limit
-        ; rather than an omission: `EVGA11yNode` has no field for either, so a
-        ; demo-built tree cannot state them. They are measured where the
-        ; instrument exists — `input_required` drives a required and an invalid
-        ; field against a real <input> and compares both — and the picture's
-        ; claim is the red ring and the message under it, which the gate checks
-        ; as a class and a description. Publishing half of it here would be a
-        ; second, weaker answer to a question already answered properly.
+        ; `required`, `invalid` and `readonly`, in the DOM's own three states:
+        ; "true", or NOTHING. Never "false" — absent and "false" are different
+        ; claims, and that distinction is the finding the `input_required`
+        ; spec was written to record.
+        ;
+        ; This block used to say the opposite: that `EVGA11yNode` had no field
+        ; for either, so a demo-built tree could not state them, and that
+        ; publishing half of it would be a weaker answer. The first half was
+        ; true when it was written and stopped being true without the comment
+        ; noticing — which is how a recorded limit becomes a reason nobody
+        ; rechecks. The picture's red ring and "That address is missing an @."
+        ; reached a person and reached nobody else.
+        if f.required {
+            box.a11yRequired = "true"
+        }
+        if (f.isBad()) {
+            box.a11yInvalid = "true"
+        }
+        if (c.readOnly) {
+            box.a11yReadOnly = "true"
+        }
         def eng:EVGTextEngine (this.engine())
 
         ; How far the text run starts from the box's content edge. A prefix is
@@ -669,6 +682,10 @@ class FormDemo {
             eyeLabel = "Hide password"
         }
         def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) "👁"))
+        eye.a11yPressed = (EVGA11yTri.no())
+        if secretShown {
+            eye.a11yPressed = (EVGA11yTri.yes())
+        }
         ; PINNED TO THE RIGHT EDGE, and positioned the way the caret is.
         ;
         ; It used to be appended straight after the text in a row, so it moved
@@ -685,13 +702,20 @@ class FormDemo {
         ; which is a route already proven in this file.
         eye.position = "absolute"
         eye.left = (EVGUnit.px((halfTextW - 6.0)))
-        ; The NAME carries the state, not `aria-pressed`. The plan calls for a
-        ; toggle button, and EVGElement has no aria-pressed to set from a
-        ; demo-built tree — so rather than half-claim it, this uses the other
-        ; accepted spelling: a button whose accessible name says what pressing
-        ; it will do. A reader hears "Show password" and then "Hide password",
-        ; which is the same information in one fewer attribute. See the task
-        ; for aria-pressed on a demo tree.
+        ; A TOGGLE, and it says so in the state as well as in the name.
+        ;
+        ; The comment that used to be here said `EVGElement` has no
+        ; aria-pressed to set from a demo-built tree, so the name carried the
+        ; state instead. That was simply wrong — `a11yPressed` is on the
+        ; element, `pressed` is on the node, `EVGA11yFromTree` copies one to
+        ; the other, and it serialises. The whole chain existed and nothing
+        ; used it. A limit written down once and never rechecked is worse than
+        ; no note at all, because it stops anyone looking.
+        ;
+        ; The name still says what pressing it will DO — "Show password" while
+        ; hidden — which is the other accepted spelling and is not redundant
+        ; with the state: one tells a reader what happens next, the other what
+        ; is true now.
         pwBox.addChild(eye)
         row.addChild(pw)
 
@@ -949,6 +973,16 @@ class FormDemo {
             if (box.id == c.tid) {
                 def inner:EVGElement (FormDemo.byId(box target))
                 if (inner.id == target) {
+                    ; A CONTROL of its own is not part of the field, even
+                    ; though it sits inside its box. The password's eye is a
+                    ; button living in the password's box: mapping every
+                    ; descendant to the field made clicking the eye focus the
+                    ; field instead of toggling it, which is the bug this rule
+                    ; introduced and the reason a role check belongs here.
+                    ; A glyph run and a caret have no role; a button does.
+                    if ((strlen inner.role) > 0) {
+                        return target
+                    }
                     return c.tid
                 }
             }

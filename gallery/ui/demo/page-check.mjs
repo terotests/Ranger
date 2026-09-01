@@ -415,6 +415,55 @@ console.log("--- the platform owns the editing, not us ---");
   ok("a password field gets a password proxy", pp && pp.type === "password", JSON.stringify(pp));
 }
 
+console.log("--- and a reader is told the same thing a person is shown ---");
+{
+  // The JSON tree carrying `invalid` is not the same as a reader hearing it.
+  // These read the MIRROR — the real DOM elements a screen reader walks — so
+  // the last hop is covered too. It was not: `aria-pressed` was only ever
+  // derived from `checked`, so a control that set `pressed` honestly got
+  // nothing, and `aria-readonly` was `node.readonly ? "true" : null`, which
+  // turns a measured "false" into "true" the moment the field becomes a
+  // string.
+  await freshForm();
+  const attrs = (id) => page.evaluate((x) => {
+    const el = document.querySelector(`[data-a11y-id="${x}"]`);
+    if (!el) return null;
+    return {
+      required: el.getAttribute("aria-required"),
+      invalid: el.getAttribute("aria-invalid"),
+      readonly: el.getAttribute("aria-readonly"),
+      pressed: el.getAttribute("aria-pressed"),
+    };
+  }, id);
+
+  const email = await attrs("fm-email");
+  ok("the field in error is announced as invalid", email && email.invalid === "true",
+    JSON.stringify(email));
+  const nameField = await attrs("fm-name");
+  ok("a required field is announced as required", nameField && nameField.required === "true",
+    JSON.stringify(nameField));
+  ok("and it claims nothing about validity", nameField && nameField.invalid === null,
+    JSON.stringify(nameField));
+  const invoice = await attrs("fm-invoice");
+  ok("the read-only field is announced as read-only", invoice && invoice.readonly === "true",
+    JSON.stringify(invoice));
+
+  const eyeBefore = await attrs("fm-secret-eye");
+  ok("the password toggle reports its state", eyeBefore && eyeBefore.pressed === "false",
+    JSON.stringify(eyeBefore));
+  const eyeBox = await page.evaluate(() => {
+    const el = document.querySelector('[data-a11y-id="fm-secret-eye"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(eyeBox.x, eyeBox.y);
+  await page.waitForTimeout(200);
+  const eyeAfter = await attrs("fm-secret-eye");
+  ok("and flips it when pressed", eyeAfter && eyeAfter.pressed === "true",
+    JSON.stringify(eyeAfter));
+}
+
 console.log("--- the window follows the pointer ---");
 {
   // Reported: the window only jumped at the end of a drag. `dragBy` moved the

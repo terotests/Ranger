@@ -297,7 +297,46 @@ multi-byte character in half. A conversion layer is deliberately NOT written:
 it would be untested code for a host that does not exist. The gate is there so
 that the day one does, this is a known quantity.
 
-### P5 — `PasswordCtl` and `OtpCtl`
+### P5 — input semantics and a11y — **done**
+
+Scoped by measurement first, and it was smaller and stranger than the report
+said. Three of the four pieces were already there in some form:
+
+- **`pressed` was wired end to end and simply unused.** The node had it, it
+  serialised, `EVGElement.a11yPressed` existed and `EVGA11yFromTree` copied
+  it — and `FormDemo` spelled the state into the button's NAME instead, under
+  a comment saying "EVGElement has no aria-pressed to set from a demo-built
+  tree". That was true once and stopped being true without the comment
+  noticing. A recorded limit nobody rechecks is worse than no note at all.
+- **`readOnly` was a BOOLEAN on the element path** where the controller path
+  uses a three-state string — so it could not express the distinction the
+  `input_required` spec was written to record: absent and "false" are
+  different claims.
+- **`required` and `invalid` were genuinely absent**, so the invoice form's
+  red ring and its "That address is missing an @." reached a person and
+  reached nobody else.
+
+All three now use the DOM's own three states through element, node,
+`fromTree`, `toJson` and the DOM mirror. Two bugs surfaced on the way:
+
+- `setAttr(el, "aria-readonly", node.readonly ? "true" : null)` was correct
+  while the field was a boolean and became wrong the moment it became a
+  string — `"false"` is truthy, so a field that had been asked and answered
+  *no* would have been mirrored as *yes*. Caused by this change, caught by
+  the gate written before it.
+- `aria-pressed` was only ever derived from `checked`, so a control that set
+  `pressed` honestly got nothing out of the mirror.
+
+And one bug from P1b that only this gate could find: `fieldOwning` mapped
+*every* descendant of a field's box to the field, so clicking the password's
+eye — a button living inside the password's box — focused the field instead
+of toggling it. A descendant with a role of its own is its own target.
+
+Gates: `ui:semantics:check` (11 assertions on the tree) and six more in
+`page-check.mjs` reading the real mirror attributes a screen reader walks,
+including the toggle flipping when clicked.
+
+### P5b — `PasswordCtl` and `OtpCtl`
 
 The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal
 toggle whose position does not depend on the value — the demo has now done

@@ -106,6 +106,11 @@ SUITES=(
   ui:form:check
   ui:profile:check
   ui:dashboard:check
+  # What a reader is TOLD about a form field, on the element path — the one
+  # every demo uses. required, invalid and readonly in the DOM's own three
+  # states, and a password toggle that reports pressed rather than spelling
+  # its state into its name.
+  ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
   # said so and had never been checked. It is true, and now it is pinned.

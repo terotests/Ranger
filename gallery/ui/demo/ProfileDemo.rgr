@@ -672,6 +672,16 @@ class ProfileDemo {
             if (box.id == c.tid) {
                 def inner:EVGElement (ProfileDemo.byId(box target))
                 if (inner.id == target) {
+                    ; A CONTROL of its own is not part of the field, even
+                    ; though it sits inside its box. The password's eye is a
+                    ; button living in the password's box: mapping every
+                    ; descendant to the field made clicking the eye focus the
+                    ; field instead of toggling it, which is the bug this rule
+                    ; introduced and the reason a role check belongs here.
+                    ; A glyph run and a caret have no role; a button does.
+                    if ((strlen inner.role) > 0) {
+                        return target
+                    }
                     return c.tid
                 }
             }
