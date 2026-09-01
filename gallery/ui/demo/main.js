@@ -26,14 +26,14 @@
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -349,6 +349,13 @@ let lastEventcalHover = "";
 const message = new MessageDemo();
 message.init(MESSAGE_CSS);
 let lastMessageHover = "";
+
+// A stepper, a progress bar and a number field on one panel. They are together
+// because the INTERACTION is the thing worth showing: filling the field
+// completes the step, which moves the bar and enables Next.
+const controls = new ControlsDemo();
+controls.init(CONTROLS_CSS);
+let lastControlsHover = "";
 let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
@@ -789,6 +796,42 @@ const DEMOS = {
       setPressed: (id) => message.setPressed(id),
       root: () => null,
     }),
+  },
+
+  controls: {
+    height: () => controls.heightPx(),
+    list: () => controls.displayListJson(),
+    hit: (x, y) => controls.hitId(x, y),
+    a11y: (gen, focus) => controls.a11yJson(gen, focus),
+    press: (id) => controls.press(id),
+    hover: (id) => {
+      if (id === lastControlsHover) return false;
+      lastControlsHover = id;
+      controls.setHover(id);
+      return true;
+    },
+    key: (k) => controls.key(k),
+    // `keyWith` is the door this page already has for a demo that reads
+    // modifiers — `key` is only ever called with one argument, so a handler
+    // taking an event would silently never see Shift. And Shift is where the
+    // LARGE STEP lives, the least guessable thing the number field measured:
+    // wiring it through `key` would have left it unreachable on the page while
+    // every demo assertion still passed, because those call the controller
+    // directly. That is the text field's dropped coordinate exactly.
+    keyWith: (k, shift) => (shift ? controls.keyWithShift(k) : controls.key(k)),
+    host: () => ({
+      tick: (dt) => controls.tick(dt),
+      busy: () => controls.busyNow(),
+      setHover: (id) => {
+        if (id === lastControlsHover) return false;
+        lastControlsHover = id;
+        controls.setHover(id);
+        return true;
+      },
+      setPressed: (id) => controls.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
   },
 
   timeline: {
@@ -1515,7 +1558,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "profile", "dashboard", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

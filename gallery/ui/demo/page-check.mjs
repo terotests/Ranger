@@ -103,7 +103,7 @@ const names = await page.evaluate(() =>
 // fourteenth demo arrived — a number in an assertion is a second place to
 // remember something, and it is the place nobody remembers.
 const EXPECTED = ["menubar", "toolbar", "sortable", "table", "tree", "timeline",
-  "resizable", "form", "calendar", "filters", "eventcal", "message", "profile", "dashboard", "dropdown", "dialog", "motion"];
+  "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"];
 ok("the switcher offers every demo",
   EXPECTED.every((n) => names.includes(n)) && names.length === EXPECTED.length,
   names.join(","));
@@ -542,6 +542,63 @@ console.log("--- the filter bar filters, in a browser ---");
       .join("|");
   });
   ok("and a reader is told the count, as a status", spoken === "1 of 6 tasks", spoken);
+}
+
+console.log("--- the controls demo, and the modifier the page nearly dropped ---");
+{
+  // The large step lives on SHIFT and is the least guessable thing the number
+  // field measured. This page has two doors for keys — `key(k)` with one
+  // argument, and `keyWith(k, shift, ctrl)` — and a handler on the wrong one
+  // sees no modifier at all while every Node-side assertion still passes,
+  // because those call the controller directly. That is the text field's
+  // dropped coordinate exactly, so it is checked HERE, through a real keypress.
+  await page.click('#demos input[value="controls"]');
+  await page.waitForTimeout(250);
+
+  const shown = () =>
+    page.evaluate(() => JSON.parse(window.__lastList || '{"cmds":[]}').cmds
+      .filter((c) => typeof c.text === "string").map((c) => c.text));
+  const clickText = async (needle) => {
+    const at = await page.evaluate((n) => {
+      const c = JSON.parse(window.__lastList || "null");
+      const k = c && c.cmds.find((x) => x.text === n);
+      return k ? { x: k.x + k.w / 2, y: k.y + k.h / 2 } : null;
+    }, needle);
+    if (!at) return false;
+    const r = await page.evaluate(() => {
+      const b = document.querySelector("#stage canvas").getBoundingClientRect();
+      return { x: b.x, y: b.y };
+    });
+    await page.mouse.click(r.x + at.x, r.y + at.y);
+    await page.waitForTimeout(120);
+    return true;
+  };
+
+  ok("the stepper is drawn", (await shown()).includes("Checkout"), (await shown()).join("/"));
+  ok("and the bar starts empty", (await shown()).includes("0 of 4 steps done"), (await shown()).join("/"));
+
+  // Two clicks on + : empty lands on the base, then one step.
+  ok("the + button is on the page", await clickText("+"));
+  await clickText("+");
+  const afterTwo = await shown();
+  ok("two presses give 1", afterTwo.includes("1"), afterTwo.join("/"));
+  ok("and the step completed", afterTwo.includes("1 of 4 steps done"), afterTwo.join("/"));
+
+  // Now the modifier, through a real keypress on the page.
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.up("Shift");
+  await page.waitForTimeout(150);
+  const afterShift = await shown();
+  ok("Shift+ArrowUp reaches the field and jumps by ten", afterShift.includes("11"),
+    afterShift.join("/"));
+
+  // And the plain arrow still moves by one, so the modifier is being READ
+  // rather than always assumed.
+  await page.keyboard.press("ArrowUp");
+  await page.waitForTimeout(150);
+  ok("a plain ArrowUp still moves by one", (await shown()).includes("12"),
+    (await shown()).join("/"));
 }
 
 console.log("--- the window follows the pointer ---");
