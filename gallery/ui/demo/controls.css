@@ -1,0 +1,300 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * A stepper, a progress bar and a number field, as an EVG stylesheet.
+ *
+ * No GEOMETRY that a controller owns is in here. The progress fill's width is
+ * ProgressCtl's rounded percentage, written inline by ControlsDemo.rgr; a rule
+ * here that sized it would be a second, unmeasured answer competing with the
+ * measured one.
+ *
+ * Class-first, one token per selector, no descendant selectors — which is why
+ * a completed step's NUMERAL carries `cx-dottxt-complete` rather than
+ * inheriting a colour from the circle around it. White-on-white is what you
+ * get for assuming it can.
+ */
+
+.cx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: #ffffff;
+  padding: 24px;
+  width: 900px;
+  height: 460px;
+}
+
+.cx-title {
+  font-size: 18px;
+  color: #0a0a0a;
+  height: 24px;
+}
+
+/* --- the stepper strip -------------------------------------------------- */
+
+.cx-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+}
+
+.cx-step {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The rail between two steps. Grows, so the strip spans its width however
+ * many steps there are. */
+.cx-rail {
+  height: 2px;
+  background-color: #e4e4e7;
+  flex-grow: 1;
+}
+
+.cx-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.cx-dot-current {
+  background-color: #0a0a0a;
+  border-color: #0a0a0a;
+}
+
+.cx-dot-complete {
+  background-color: #16a34a;
+  border-color: #16a34a;
+}
+
+/* An unreachable step is not merely pale — the cursor says so too, because a
+ * circle that looks clickable and is not is the worst of the three states. */
+.cx-dot-upcoming {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-dot-disabled {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-dottxt {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.cx-dottxt-current {
+  color: #ffffff;
+}
+
+.cx-dottxt-complete {
+  color: #ffffff;
+}
+
+.cx-dottxt-upcoming {
+  color: #a1a1aa;
+}
+
+.cx-dottxt-disabled {
+  color: #d4d4d8;
+}
+
+.cx-steplbl {
+  font-size: 13px;
+  color: #71717a;
+}
+
+.cx-steplbl-current {
+  color: #0a0a0a;
+}
+
+.cx-steplbl-complete {
+  color: #16a34a;
+}
+
+.cx-steplbl-upcoming {
+  color: #a1a1aa;
+}
+
+.cx-steplbl-disabled {
+  color: #d4d4d8;
+}
+
+/* --- the progress bar ---------------------------------------------------- */
+
+.cx-bar {
+  width: 852px;
+  height: 8px;
+  border-radius: 4px;
+  background-color: #f4f4f5;
+  overflow: hidden;
+}
+
+.cx-barfill {
+  height: 8px;
+  border-radius: 4px;
+  background-color: #16a34a;
+  transition: width 220ms ease-out;
+}
+
+.cx-bartxt {
+  font-size: 12px;
+  color: #71717a;
+  height: 16px;
+}
+
+/* --- the number field ---------------------------------------------------- */
+
+.cx-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 10px;
+  padding: 16px;
+  width: 320px;
+}
+
+.cx-panellbl {
+  font-size: 13px;
+  color: #0a0a0a;
+  height: 18px;
+}
+
+.cx-numrow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0px;
+  height: 34px;
+}
+
+.cx-numbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.cx-numbtn:hover {
+  background-color: #f4f4f5;
+}
+
+/* MEASURED: the buttons go disabled AT the bound. Base UI writes
+ * aria-disabled="false" when they are enabled, which is why the probe that
+ * read `hasAttribute` called every one of them disabled. */
+.cx-numbtn-off {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-numbtntxt {
+  font-size: 15px;
+  color: #0a0a0a;
+}
+
+.cx-numbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  height: 34px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  background-color: #ffffff;
+  cursor: text;
+}
+
+.cx-numbox:focus {
+  border-color: #0a0a0a;
+}
+
+.cx-numtxt {
+  font-size: 14px;
+  color: #0a0a0a;
+}
+
+.cx-numhint {
+  font-size: 11px;
+  color: #a1a1aa;
+  height: 15px;
+}
+
+/* --- back and next -------------------------------------------------------- */
+
+.cx-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  height: 34px;
+}
+
+.cx-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.cx-btn:hover {
+  background-color: #f4f4f5;
+}
+
+.cx-btn-primary {
+  background-color: #0a0a0a;
+  border-color: #0a0a0a;
+}
+
+/* Next while the step is not done. The gate is the whole point of a linear
+ * stepper, so it has to be visible rather than only refused on click. */
+.cx-btn-off {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-btntxt {
+  font-size: 13px;
+  color: #0a0a0a;
+}
+
+/* The primary button's LABEL needs its own token for the reason the step
+ * numerals do: there are no descendant selectors, so black-on-black is exactly
+ * what a label inheriting nothing from a dark button gets. Caught by reading
+ * this file back rather than by looking at the picture. */
+.cx-btntxt-primary {
+  color: #ffffff;
+}
+
+.cx-btntxt-off {
+  color: #a1a1aa;
+}
+
+.cx-note {
+  font-size: 12px;
+  color: #a1a1aa;
+  height: 16px;
+}
