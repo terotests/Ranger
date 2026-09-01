@@ -24,6 +24,7 @@ Import "RadioGroupCtl.rgr"
 Import "TabsCtl.rgr"
 Import "AccordionCtl.rgr"
 Import "CalendarCtl.rgr"
+Import "ScrollerCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
@@ -175,6 +176,15 @@ class UiHost {
 
     fn addAccordion:AccordionCtl (tid:string name:string) {
         def c (new AccordionCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addScroller:ScrollerCtl (tid:string name:string) {
+        def c (new ScrollerCtl())
         c.tid = tid
         c.name = name
         c.build()

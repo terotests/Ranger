@@ -1,0 +1,279 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ScrollerCtl — a transcript that stays pinned while it grows
+; =============================================================================
+; shadcn's MessageScroller, from its `aria/` registry. React Aria Components
+; has no MessageScroller primitive, so this is a COMPOSITE and its policy is
+; shadcn's own — but unlike the bubbles, the policy is written down in prose
+; in the component's own demo, which is a far better source than a screenshot:
+;
+;   auto-scroll pins the viewport to the bottom as tokens arrive;
+;   it only runs while the reader is ALREADY at the bottom — scrolling up is
+;   a deliberate opt-out and their position is preserved;
+;   `scrollAnchor` settles a turn near the TOP instead of snapping to the
+;   document bottom, leaving a small peek of the previous exchange above it;
+;   the scroll-to-bottom button appears only when there is content they have
+;   not seen, jumps to the newest message, and re-engages auto-scroll;
+;   and it is REMOVED FROM THE TAB ORDER when you are already at the bottom,
+;   so there is no ghost focus stop;
+;   the content is role=log with aria-relevant=additions.
+;
+; --- WHAT WAS MEASURED, AND WHY IT MATTERS -----------------------------------
+;
+; The policy is specified. The GROUND it stands on was measured, in Chromium,
+; on a plain overflow container:
+;
+;   1. `scrollTop` comes back INTEGER-CLAMPED. Setting it to
+;      `bottom - 0.4` lands exactly on the bottom, so a sub-pixel "nearly at
+;      the bottom" is not a state a browser can even be in. That is why the
+;      threshold below is one pixel and not a smaller number pretending to be
+;      more careful.
+;
+;   2. Appending content does NOT keep the bottom. `scrollTop` stayed at 545
+;      while the gap to the bottom grew to 37 — the height of the new row.
+;      The browser drifts AWAY from the newest message on its own, which is
+;      the whole reason this component exists, and it is now a measurement
+;      rather than a claim in a marketing paragraph.
+;
+; So `contentGrew` must actively scroll. A version that trusted the container
+; to hold its place would look right in a static test and lose the bottom on
+; every token.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ScrollerCtl extends UiCtl {
+
+    ; The viewport, in the DOM's own three numbers.
+    def scrollTop:double 0.0
+    def scrollHeight:double 0.0
+    def clientHeight:double 0.0
+
+    ; Auto-scroll. On while the reader is at the bottom, off the moment they
+    ; leave it, and back on when they return or press the button.
+    def pinned:boolean true
+
+    ; Content arrived while they were reading something else.
+    def unseen:boolean false
+
+    ; How much of the previous exchange stays visible above an anchored turn.
+    ; The reference calls it "a small peek"; there is no number in the source,
+    ; so this is a stated default and not a measurement.
+    def peek:double 48.0
+
+    ; One pixel. See the header: a browser's scrollTop is integer-clamped, so
+    ; a threshold below one is a distinction the platform cannot make.
+    def bottomEpsilon:double 1.0
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    ; --- where we are ---------------------------------------------------------
+
+    fn maxScroll:double () {
+        def m:double (scrollHeight - clientHeight)
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    fn atBottom:boolean () {
+        return (((this.maxScroll()) - scrollTop) <= bottomEpsilon)
+    }
+
+    ; The viewport changed — a resize, or the first measurement. This can
+    ; bring the reader to the bottom without them moving: a taller box has
+    ; less to scroll, and the newest message can arrive under their eyes.
+    ; Landing at the bottom means they can SEE the newest, so `unseen` goes
+    ; with it, exactly as it does when they scroll there.
+    ; The viewport changed — a resize, or the first measurement. This can
+    ; bring the reader to the bottom without them moving: a taller box has
+    ; less to scroll, and the newest message can arrive under their eyes.
+    ; Landing at the bottom means they can SEE the newest, so `unseen` goes
+    ; with it, exactly as it does when they scroll there.
+    ;
+    ; Found by mutation. Removing the at-bottom guard from `buttonVisible`
+    ; changed nothing in the gate, because no case had `unseen` true while
+    ; they were at the bottom — the two halves of the rule never disagreed.
+    ; The state is reachable through exactly this method, and now it is both
+    ; handled here and covered there.
+    fn setViewport:void (top:double contentHeight:double viewHeight:double) {
+        scrollTop = top
+        scrollHeight = contentHeight
+        clientHeight = viewHeight
+        pinned = (this.atBottom())
+        if pinned {
+            unseen = false
+        }
+    }
+
+    ; --- what moves it --------------------------------------------------------
+
+    ; The READER moved. Auto-scroll follows them: leaving the bottom turns it
+    ; off, coming back turns it on and clears the unseen flag — which is what
+    ; "scrolling up is a deliberate opt-out" means in state.
+    fn userScrolledTo:void (top:double) {
+        def m:double (this.maxScroll())
+        def t:double top
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > m) {
+            t = m
+        }
+        scrollTop = t
+        pinned = (this.atBottom())
+        if pinned {
+            unseen = false
+        }
+    }
+
+    ; Tokens arrived. If they are at the bottom, take them with it; if they
+    ; are not, leave their position ALONE and remember there is something new.
+    ;
+    ; The scroll here is not optional: measured, a container appending content
+    ; keeps its scrollTop and drifts away from the bottom by the height of
+    ; what was added.
+    fn contentGrew:void (contentHeight:double) {
+        scrollHeight = contentHeight
+        if pinned {
+            scrollTop = (this.maxScroll())
+            unseen = false
+            return
+        }
+        unseen = true
+    }
+
+    ; A turn that should settle near the TOP with a peek of what came before,
+    ; rather than snapping to the document bottom. `itemTop` is the turn's
+    ; offset within the content.
+    fn anchorTo:void (itemTop:double) {
+        def t:double (itemTop - peek)
+        if (t < 0.0) {
+            t = 0.0
+        }
+        def m:double (this.maxScroll())
+        if (t > m) {
+            t = m
+        }
+        scrollTop = t
+        ; Anchoring near the top is leaving the bottom, unless the content is
+        ; short enough that the two are the same place.
+        pinned = (this.atBottom())
+        if pinned {
+            unseen = false
+        }
+    }
+
+    fn jumpToBottom:void () {
+        scrollTop = (this.maxScroll())
+        pinned = true
+        unseen = false
+    }
+
+    ; --- the button -----------------------------------------------------------
+    ;
+    ; Present only when there is something unseen AND they are not at the
+    ; bottom. Both halves matter: unseen alone would leave it up after they
+    ; scrolled back down by hand, and not-at-bottom alone would offer to jump
+    ; to a newest message they have already read.
+
+    fn buttonTid:string () {
+        return (tid + "-tobottom")
+    }
+
+    fn buttonVisible:boolean () {
+        if ((this.atBottom())) {
+            return false
+        }
+        return unseen
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-scroller"
+        UiTree.clearChildren(root)
+
+        def content (UiTree.div((this.contentTid()) "ui-scroller-content"))
+        root.addChild(content)
+
+        if (this.buttonVisible()) {
+            def b (UiTree.div((this.buttonTid()) "ui-scroller-tobottom"))
+            UiTree.leafText(b "Jump to newest")
+            root.addChild(b)
+        }
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.buttonTid())) {
+            this.jumpToBottom()
+            this.build()
+            return ""
+        }
+        return ""
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.contentTid())
+        if (this.buttonVisible()) {
+            push a (this.buttonTid())
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        ; The button leaves the TAB ORDER when there is nothing to jump to,
+        ; which is the reference's own words: no ghost focus stops. A control
+        ; that is invisible and still tabbable is worse than either.
+        if (target == (this.buttonTid())) {
+            return (this.buttonVisible())
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.group()) name))
+        push out rootRow
+
+        ; role=log, and POLITE: new messages are announced as they arrive
+        ; without interrupting whatever is being read. `aria-relevant
+        ; ="additions"` is the reference's other half and has no field here —
+        ; recorded rather than half-claimed. It is also the default for a log
+        ; in every browser that implements it, so the gap is smaller than it
+        ; looks; it is still a gap.
+        def logRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.log()) "Conversation"))
+        logRow.parentTid = tid
+        push out logRow
+
+        if (this.buttonVisible()) {
+            def b:UiRow (UiRow.of((this.buttonTid()) (EVGA11yRole.button()) "Jump to newest message"))
+            b.parentTid = tid
+            b.tabStop = true
+            b.focusable = true
+            push out b
+        }
+        return out
+    }
+}

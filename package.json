@@ -608,6 +608,7 @@
     "evg:textbox:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/textbox_check.mjs",
     "evg:scroll:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/scroll_check.mjs",
     "ui:message:check": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MessageDemo.rgr -d=./gallery/ui/bin -o=MessageDemo.cjs && node gallery/ui/demo/message-check.mjs",
+    "ui:scroller:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/scroller_check.mjs",
     "ui:semantics:check": "npm run ui:demo:build --silent && node gallery/ui/demo/semantics-check.mjs",
     "ui:offset:check": "node gallery/ui/tests/offset-check.mjs",
     "ui:offset:js": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/tests/OffsetProbe.rgr -d=./gallery/ui/bin -o=OffsetProbe.js -nodecli && node ./gallery/ui/bin/OffsetProbe.js",

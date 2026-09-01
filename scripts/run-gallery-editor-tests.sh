@@ -119,6 +119,11 @@ SUITES=(
   # from real bugs: a transcript missing from the accessible tree entirely, a
   # bubble sized to a floating-point tie, and an emoji measured as two halves.
   ui:message:check
+  # The scroller's policy: pinned to the bottom while streaming, but only
+  # while the reader is already there. The POLICY is shadcn's; the ground it
+  # stands on was measured — a browser's scrollTop is integer-clamped, and a
+  # container that gains content does NOT keep its bottom.
+  ui:scroller:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
