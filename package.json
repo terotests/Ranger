@@ -769,6 +769,12 @@
     "ui:sortable:png": "npm run ui:demo:build && DEMO=sortable node gallery/ui/demo/render.mjs gallery/ui/demo/sortable.png",
     "ui:toolbar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs && DEMO=toolbar node gallery/ui/demo/render.mjs",
     "ui:demo:web": "npm run ui:web",
+    "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RealTrainerDemo.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
+    "rt:check": "npm run rt:build --silent && node gallery/realtrainer/web/loader-check.mjs",
+    "rt:page": "npm run rt:build --silent && node gallery/realtrainer/web/build.mjs",
+    "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs",
+    "rt:shots": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs --png gallery/realtrainer/web/shots/realtrainer.png",
+    "rt:web": "npm run rt:page --silent && node gallery/realtrainer/web/serve.mjs",
     "evg:icons:dump": "mkdir -p tmp/icons/trace && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/tools/icon_trace_dump.rgr -d=./gallery/evg/bin -o=icon_trace_dump.js -nodecli && node ./gallery/evg/bin/icon_trace_dump.js"
   },
   "repository": {

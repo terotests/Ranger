@@ -1,0 +1,1325 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * RealTrainer — the stylesheet for all three scenes, and for the library's
+ * controls.
+ *
+ * Two things here are not in any other gallery sheet, and both are the reason
+ * this demo exists:
+ *
+ *   `background: linear-gradient(...)` on an element, which reaches the GPU as
+ *   a two-stop fill rather than as a flat colour — see the note in
+ *   `EVGDisplayList.applyGradient`.
+ *
+ *   A one-cell GRID used to stack twelve boxes on top of each other, which is
+ *   how the ring is built without absolute positioning: EVG has no
+ *   `position: absolute`, and grid placement is the layout that lets two
+ *   children share a rectangle.
+ *
+ * The `ui-*` rules at the bottom are this app's theme for gallery/ui's
+ * CONTROLLERS. They are the same components the conformance harness measures
+ * against Radix; a controller writes class names and never a colour, so
+ * dressing one for a dark product is a stylesheet and not a fork.
+ * `gallery/ui/theme/base.css` is the library's own pale default and is not
+ * loaded here — an app brings its own.
+ */
+
+/* --- the page ------------------------------------------------------------- */
+
+.rt-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background-color: #0a0d12;
+  width: 980px;
+  height: 760px;
+}
+
+/* --- scene one: the loader ------------------------------------------------ */
+
+.rt-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  width: 470px;
+  height: 380px;
+  padding: 28px;
+  border-radius: 22px;
+  border-width: 1px;
+  border-color: #1b3b5f;
+  background: linear-gradient(180deg, #16324f, #0a1626);
+}
+
+/* THE RING. One grid cell, twelve blades in it.
+ *
+ * Every blade is the same box in the same place; what differs is the angle it
+ * is turned through and how bright it is. The pivot is 54px BELOW the blade's
+ * own top edge — the middle of the 120px cell — which is what `transform-origin`
+ * being a length rather than a percentage buys: a box may turn about a point
+ * that is nowhere inside it.
+ *
+ * The container is turned too, once per frame by the app, and the two
+ * rotations compose in `EVGDisplayList` — a parent's rotation is applied to
+ * every command its subtree emitted, about the parent's own origin. So the
+ * blades hold their arrangement and the arrangement spins. */
+.rt-ring {
+  display: grid;
+  grid-template-columns: 120px;
+  grid-template-rows: 120px;
+  width: 120px;
+  height: 120px;
+}
+
+.rt-blade {
+  grid-column: 1;
+  grid-row: 1;
+  width: 8px;
+  height: 26px;
+  margin-left: 56px;
+  margin-top: 6px;
+  border-radius: 4px;
+  transform-origin: 4px 54px;
+  background: linear-gradient(180deg, #7dd3fc, #1d4ed8);
+}
+
+.rt-blade-0  { transform: rotate(0deg);   opacity: 1.00; }
+.rt-blade-1  { transform: rotate(30deg);  opacity: 0.90; }
+.rt-blade-2  { transform: rotate(60deg);  opacity: 0.80; }
+.rt-blade-3  { transform: rotate(90deg);  opacity: 0.70; }
+.rt-blade-4  { transform: rotate(120deg); opacity: 0.61; }
+.rt-blade-5  { transform: rotate(150deg); opacity: 0.53; }
+.rt-blade-6  { transform: rotate(180deg); opacity: 0.45; }
+.rt-blade-7  { transform: rotate(210deg); opacity: 0.38; }
+.rt-blade-8  { transform: rotate(240deg); opacity: 0.32; }
+.rt-blade-9  { transform: rotate(270deg); opacity: 0.26; }
+.rt-blade-10 { transform: rotate(300deg); opacity: 0.21; }
+.rt-blade-11 { transform: rotate(330deg); opacity: 0.16; }
+
+.rt-word {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0px;
+  height: 42px;
+}
+
+/* THE TWO HALVES OF THE WORDMARK, AND WHY THEY CARRY A WIDTH.
+ *
+ * A run's width is whatever the text engine measures, and in a browser there
+ * is no font FILE to measure — the estimating measurer answers instead, and at
+ * 34px bold it is about ten pixels short. That is invisible on a 13px label
+ * and it is REAL runs on top of each other here, which is what "REALTRAINER"
+ * looked like before: the L under the T.
+ *
+ * So the two boxes state their widths, measured off Arial bold 34px in
+ * Chromium, and the layout stops depending on an estimate. One colour per run
+ * is the reason there are two boxes at all: a text command carries one fill. */
+.rt-word-a {
+  color: #7dd3fc;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 34px;
+  width: 91px;
+  height: 42px;
+}
+
+.rt-word-b {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 34px;
+  width: 152px;
+  height: 42px;
+}
+
+.rt-tag {
+  color: #7c9ec4;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}
+
+/* The bar itself is `ProgressCtl` — see `.ui-progress` at the bottom. */
+
+.rt-caption {
+  color: #cbd5e1;
+  font-family: Arial;
+  font-size: 17px;
+  height: 22px;
+}
+
+.rt-pct {
+  color: #64748b;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+/* --- scene two: the sign-in page ------------------------------------------ */
+
+/* Width stated for the reason the wordmark's halves are — see the note there.
+ * Without it the heading is centred by an estimate and the panel under it by
+ * a real box, and the two disagree by about fifteen pixels. */
+.rt-brand {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 30px;
+  width: 213px;
+  height: 38px;
+}
+
+.rt-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 18px;
+  width: 560px;
+  padding: 26px;
+  border-radius: 16px;
+  border-width: 1px;
+  border-color: #1e2a3a;
+  background: linear-gradient(180deg, #16202c, #111923);
+}
+
+.rt-feat {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
+  height: 62px;
+}
+
+.rt-badge {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  background-color: #202b39;
+}
+
+.rt-icon {
+  width: 20px;
+  height: 20px;
+  fill: #cbd5e1;
+}
+
+.rt-feat-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.rt-feat-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+}
+
+.rt-strong {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 15px;
+  height: 20px;
+}
+
+.rt-rest {
+  color: #cbd5e1;
+  font-family: Arial;
+  font-size: 15px;
+  height: 20px;
+}
+
+.rt-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background-color: #0b1119;
+  height: 24px;
+}
+
+.rt-chip-text {
+  color: #93c5fd;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-note {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+/* The button, and the one element on the page with states. `:hover` and
+ * `:active` are the stylesheet's, driven by the flags the app sets from the
+ * real hit test — no controller and no handler in between. */
+.rt-google {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 508px;
+  height: 52px;
+  border-radius: 10px;
+  border-width: 1px;
+  border-color: #24344a;
+  background-color: #0c141f;
+  cursor: pointer;
+  transition: background-color 160ms ease-out;
+}
+
+.rt-google:hover { background-color: #16233a; }
+.rt-google:active { background-color: #1d2f4d; }
+
+.rt-gmark {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background-color: #ffffff;
+}
+
+.rt-gmark-text {
+  color: #ea4335;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 16px;
+  height: 20px;
+}
+
+.rt-google-text {
+  color: #ffffff;
+  font-family: Arial;
+  font-size: 17px;
+  height: 22px;
+}
+
+.rt-foot {
+  color: #64748b;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}
+
+
+/* =========================================================================
+ * scene three: the dashboard
+ * ========================================================================= */
+
+/* The page is a row now, and it fills rather than centres: a dashboard that
+ * floats in the middle of a window is a card, not an application. */
+.rt-page-dash {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0px;
+  background-color: #0b0f15;
+}
+
+.rt-app {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 980px;
+  height: 760px;
+}
+
+.rt-rail {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  width: 64px;
+  height: 760px;
+  padding: 16px 0;
+  background-color: #0d131c;
+}
+
+.rt-rail-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background-color: #172130;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.rt-rail-btn:hover  { background-color: #24344a; }
+.rt-rail-btn:active { background-color: #2f4463; }
+
+.rt-rail-icon {
+  width: 20px;
+  height: 20px;
+  fill: #93a7c4;
+}
+
+.rt-main {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 14px;
+  width: 916px;
+  height: 760px;
+  padding: 20px 24px;
+}
+
+.rt-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+}
+
+.rt-title {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 22px;
+  height: 30px;
+}
+
+/* One flexible box between two things that want to be at opposite ends. It is
+ * `flex: 1` and nothing else — the whole of what a spacer is. */
+.rt-spacer { flex: 1; }
+
+.rt-col {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.rt-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.rt-dash {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 820px;
+}
+
+.rt-section {
+  color: #8ba1bd;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-plan {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 7px;
+  width: 820px;
+  padding: 16px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: #1d2836;
+  background: linear-gradient(180deg, #16202c, #10171f);
+}
+
+.rt-plan-name {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 16px;
+  height: 22px;
+}
+
+.rt-plan-desc {
+  color: #9fb0c8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-plan-when {
+  color: #64748b;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}
+
+/* The one warm thing on the page, and a second direction for a gradient: this
+ * one runs ACROSS the box where every other one runs down it. */
+.rt-notice {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: 820px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: #7c2d12;
+  background: linear-gradient(90deg, #7c2d12, #2a1408);
+}
+
+.rt-notice-head {
+  color: #fdba74;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 15px;
+  height: 20px;
+}
+
+.rt-notice-text {
+  color: #e2c9b4;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-goals-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 820px;
+  height: 30px;
+}
+
+.rt-table {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 820px;
+}
+
+.rt-thead {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 820px;
+  height: 34px;
+  border-radius: 8px;
+  background-color: #131c26;
+}
+
+/* A header is a BUTTON in everything but name — three clicks cycle the sort —
+ * so it answers the pointer like one. */
+.rt-th {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.rt-th:hover  { background-color: #1d2937; }
+.rt-th:active { background-color: #26374a; }
+.rt-th-goal { width: 600px; }
+.rt-th-kind { width: 220px; }
+
+.rt-th-text {
+  color: #94a8c4;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}
+
+.rt-tbody {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 820px;
+}
+
+.rt-tr {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 820px;
+  height: 44px;
+  padding: 0 14px;
+}
+
+.rt-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #fb923c, #ea580c);
+}
+
+.rt-td {
+  color: #e2e8f0;
+  font-family: Arial;
+  font-size: 14px;
+  height: 20px;
+}
+
+.rt-td-dim {
+  color: #7c8da3;
+  font-family: Arial;
+  font-size: 12px;
+  height: 18px;
+}
+
+/* --- the calendar: the one place this app needs a grid ------------------- */
+
+.rt-cal {
+  display: grid;
+  grid-template-columns: repeat(7, 108px);
+  grid-template-rows: 22px 64px 64px 64px 64px;
+  row-gap: 8px;
+  column-gap: 8px;
+  width: 820px;
+}
+
+.rt-cal-head {
+  color: #64748b;
+  font-family: Arial;
+  font-size: 12px;
+  height: 18px;
+}
+
+.rt-cal-day {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: 108px;
+  height: 64px;
+  padding: 8px;
+  border-radius: 10px;
+  border-width: 1px;
+  border-color: #1b2532;
+  background-color: #101821;
+}
+
+.rt-cal-day-on {
+  border-color: #1e4976;
+  background: linear-gradient(180deg, #14304f, #0e1c2c);
+}
+
+.rt-cal-num {
+  color: #8fa3bd;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}
+
+.rt-cal-mark {
+  width: 34px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #38bdf8, #2563eb);
+}
+
+/* =========================================================================
+ * gallery/ui's controllers, dressed for this app
+ * =========================================================================
+ * Every class below is written by a CONTROLLER — `ui-progress` by ProgressCtl,
+ * `ui-tab-state-active` by TabsCtl, and so on. None of them appears in this
+ * app's Ranger source: the controller says what state it is in and the sheet
+ * says what that looks like, which is the whole bargain gallery/ui makes.
+ */
+
+.ui-progress {
+  width: 320px;
+  height: 14px;
+  border-radius: 7px;
+  background-color: #0d2038;
+}
+
+.ui-progress-indicator {
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #38bdf8, #2563eb);
+}
+
+/* A finished bar is a different colour, and it is the CONTROLLER that decides
+ * when: `value >= maxValue` is its own arithmetic, published as a state. */
+.ui-progress-indicator-state-complete {
+  background: linear-gradient(90deg, #4ade80, #16a34a);
+}
+
+.ui-checkbox {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 34px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-color: #24344a;
+  background-color: #0d1622;
+  color: #9fb0c8;
+  font-family: Arial;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.ui-checkbox:hover { background-color: #16233a; }
+.ui-checkbox-state-checked {
+  border-color: #2563eb;
+  background-color: #16335c;
+  color: #dbeafe;
+}
+
+.ui-collapsible {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.ui-collapsible-trigger {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 30px;
+  color: #7dd3fc;
+  font-family: Arial;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ui-collapsible-trigger-state-open { color: #bae6fd; }
+
+.ui-collapsible-content {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 508px;
+  padding: 12px;
+  border-radius: 8px;
+  background-color: #0b1119;
+}
+
+.ui-collapsible-body {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.ui-tabs {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 14px;
+}
+
+.ui-tablist {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+}
+
+/* THE BASE RULE DECLARES THE GRADIENT TOO, AND THAT IS NOT DECORATION.
+ *
+ * A class that goes away does not undo what it wrote: the cascade writes the
+ * properties the CURRENT set of classes asks for and never the ones a class
+ * that has just left used to ask for. So a state rule may only override a
+ * property its base rule also sets — and `background-color` is a DIFFERENT
+ * property from `background`. With the active rule alone carrying a gradient,
+ * the tab you clicked away from kept it and two tabs looked active at once.
+ *
+ * The same rule of thumb governs `.ui-accordion-trigger` below. */
+.ui-tab {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 34px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #131c26, #131c26);
+  color: #9fb0c8;
+  font-family: Arial;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 160ms ease-out;
+}
+
+.ui-tab:hover { background: linear-gradient(180deg, #1d2937, #1d2937); }
+.ui-tab-state-active {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+}
+/* A state rule wins wherever it is written, so `.ui-tab:hover` beats the class
+ * that says which tab is on and the chosen tab went grey under the pointer.
+ * The selector that fixes it is one class token and a pseudo, which is exactly
+ * what EVGStyleSheet matches — and it has to come after the rule it outranks,
+ * because equal-strength rules are applied in the order they are written. */
+.ui-tab-state-active:hover {
+  background: linear-gradient(180deg, #3b82f6, #2563eb);
+}
+
+.ui-tabpanel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 820px;
+}
+
+.ui-tabpanel-body { height: 0px; }
+
+.ui-toggle {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 30px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-color: #24344a;
+  background-color: #0d1622;
+  color: #8ba1bd;
+  font-family: Arial;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.ui-toggle:hover { background-color: #16233a; }
+.ui-toggle-state-on {
+  border-color: #2563eb;
+  background-color: #16335c;
+  color: #dbeafe;
+}
+
+.ui-accordion {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 820px;
+}
+
+.ui-accordion-item {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0px;
+  width: 820px;
+}
+
+.ui-accordion-trigger {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 820px;
+  height: 46px;
+  padding: 13px 16px;
+  border-radius: 10px;
+  border-width: 1px;
+  border-color: #1d2836;
+  background: linear-gradient(180deg, #131c26, #131c26);
+  color: #e2e8f0;
+  font-family: Arial;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 160ms ease-out;
+}
+
+.ui-accordion-trigger:hover { background: linear-gradient(180deg, #1d2937, #1d2937); }
+.ui-accordion-trigger-state-open {
+  background: linear-gradient(180deg, #1b2b41, #14202f);
+  color: #ffffff;
+}
+.ui-accordion-trigger-state-open:hover {
+  background: linear-gradient(180deg, #24384f, #1a2839);
+}
+
+.ui-accordion-content {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 820px;
+  padding: 12px 16px;
+}
+
+.ui-accordion-body {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+/* =========================================================================
+ * scene four: one training session
+ * ========================================================================= */
+
+.rt-main-work { gap: 12px; }
+
+.rt-work-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 868px;
+  height: 34px;
+}
+
+.rt-work-name {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 20px;
+  height: 28px;
+}
+
+.rt-work-line {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  width: 868px;
+  height: 26px;
+}
+
+.rt-work-sub {
+  color: #8ba1bd;
+  font-family: Arial;
+  font-size: 13px;
+  width: 200px;
+  height: 18px;
+}
+
+.rt-quit {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 190px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.rt-quit:hover { background-color: #1d2937; }
+
+.rt-quit-text {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+/* The exercise card. Warm rather than blue, because it is the thing being
+ * done rather than a thing being read. */
+.rt-move {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 16px;
+  width: 868px;
+  padding: 18px;
+  border-radius: 14px;
+  border-width: 1px;
+  border-color: #33240f;
+  background: linear-gradient(180deg, #1c1508, #120e07);
+}
+
+.rt-move-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 832px;
+  height: 26px;
+}
+
+.rt-move-name {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 17px;
+  height: 24px;
+}
+
+.rt-move-plan {
+  color: #c2a582;
+  font-family: Arial;
+  font-size: 14px;
+  height: 20px;
+}
+
+/* Three steppers on one row, with a multiplication sign between them. */
+.rt-steps {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 832px;
+  height: 76px;
+}
+
+.rt-step {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.rt-step-cap {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}
+
+.rt-step-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+}
+
+.rt-step-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: #24303f;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.rt-step-btn:hover  { background-color: #32425a; }
+.rt-step-btn:active { background-color: #3f5878; }
+
+.rt-step-btn-text {
+  color: #e2e8f0;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 18px;
+  height: 22px;
+}
+
+.rt-step-val {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 20px;
+  width: 62px;
+  height: 26px;
+  text-align: center;
+}
+
+.rt-times {
+  color: #64748b;
+  font-family: Arial;
+  font-size: 16px;
+  height: 22px;
+}
+
+.rt-rest-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 832px;
+  height: 40px;
+}
+
+.rt-rest-cap {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 832px;
+  height: 52px;
+}
+
+.rt-start {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 410px;
+  height: 48px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fb8a1e, #ea580c);
+  cursor: pointer;
+}
+
+.rt-start:hover  { background: linear-gradient(180deg, #ffa040, #f97316); }
+.rt-start:active { background: linear-gradient(180deg, #ea580c, #c2410c); }
+
+.rt-start-text {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 16px;
+  height: 22px;
+}
+
+.rt-done {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 410px;
+  height: 48px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #22c55e, #16a34a);
+  cursor: pointer;
+}
+
+.rt-done:hover  { background: linear-gradient(180deg, #4ade80, #22c55e); }
+.rt-done:active { background: linear-gradient(180deg, #16a34a, #15803d); }
+
+.rt-done-text {
+  color: #06210f;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 16px;
+  height: 22px;
+}
+
+/* --- the dial ------------------------------------------------------------
+ *
+ * The loader's ring at a larger size: one grid cell, sixty ticks stacked in
+ * it, each turned about a point 98px below its own top edge. The angles are
+ * the app's — sixty rules that differ by a number would be sixty rules — and
+ * the only thing said here is what a tick looks like, lit and unlit. */
+
+.rt-timer {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 18px;
+  width: 868px;
+  padding: 10px;
+}
+
+.rt-dial {
+  display: grid;
+  grid-template-columns: 220px;
+  grid-template-rows: 220px;
+  width: 220px;
+  height: 220px;
+}
+
+/* Both rules speak `background`, for the reason `.ui-tab` does: a class that
+ * goes away does not undo what it wrote, so a tick that stopped being lit
+ * would keep the gradient and the dial would fill up and never empty. That is
+ * exactly what it did before this line said `background`. */
+.rt-tick {
+  grid-column: 1;
+  grid-row: 1;
+  width: 6px;
+  height: 18px;
+  margin-left: 107px;
+  margin-top: 8px;
+  border-radius: 3px;
+  transform-origin: 3px 102px;
+  background: linear-gradient(180deg, #232c38, #232c38);
+}
+
+.rt-tick-on {
+  background: linear-gradient(180deg, #fb923c, #ea580c);
+}
+
+.rt-dial-mid {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 220px;
+  height: 220px;
+}
+
+.rt-dial-num {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 54px;
+  height: 66px;
+}
+
+.rt-dial-cap {
+  color: #94a3b8;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+/* The class is written as "rt-actions rt-timer-actions", and it has to be:
+ * EVGStyleSheet matches one class token, so a rule cannot inherit another —
+ * naming only the second one left the row with no `flex-direction` and the
+ * three buttons came out stacked. */
+.rt-timer-actions {
+  justify-content: center;
+  gap: 14px;
+  width: 500px;
+}
+
+.rt-done-narrow { width: 200px; }
+
+.rt-round {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background-color: #24303f;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.rt-round:hover  { background-color: #32425a; }
+.rt-round:active { background-color: #3f5878; }
+
+.rt-round-text {
+  color: #e2e8f0;
+  font-family: Arial;
+  font-size: 18px;
+  height: 22px;
+}
+
+/* The session's own progress, and the second `ProgressCtl` in the app: the
+ * loader counts a percentage, this one counts two exercises. Same controller
+ * and the same class names — so the two cannot be told apart by a selector,
+ * because EVGStyleSheet matches ONE class token and `.a .b` is not something
+ * it has.
+ *
+ * What it does have is THEMES: `applyTree(root, theme)` scopes a rule to a
+ * name, and a scene is exactly the scope this needs. The session passes
+ * "session" and gets a thinner, warmer bar; every other scene passes "" and
+ * gets the rule above. */
+.theme-session .ui-progress {
+  width: 240px;
+  height: 8px;
+  border-radius: 4px;
+  background-color: #241a0d;
+}
+
+.theme-session .ui-progress-indicator {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #fb923c, #ea580c);
+}
+
+/* --- the rest picker, which is a RadioGroupCtl --------------------------- */
+
+.ui-radiogroup {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* THE LABEL IS THE BOX'S OWN TEXT, not a child of it — `RadioGroupCtl` writes
+ * it with `leafText`. So `justify-content` has nothing to centre: flex places
+ * CHILDREN, and a run of text the element carries itself is placed by
+ * `text-align` and by the padding above it. Every control below that shows a
+ * word this way is spaced the same, on purpose. */
+.ui-radio {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  text-align: center;
+  width: 62px;
+  height: 32px;
+  padding: 7px 0;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #202b39, #202b39);
+  color: #cbd5e1;
+  font-family: Arial;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+
+.ui-radio:hover { background: linear-gradient(180deg, #2c3a4d, #2c3a4d); }
+.ui-radio-state-checked {
+  background: linear-gradient(180deg, #fb8a1e, #ea580c);
+  color: #ffffff;
+}
+.ui-radio-state-checked:hover {
+  background: linear-gradient(180deg, #ffa040, #f97316);
+}

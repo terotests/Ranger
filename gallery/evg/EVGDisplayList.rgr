@@ -841,6 +841,104 @@ class EVGDisplayList {
         }
     }
 
+    ; --- the background gradient -------------------------------------------
+    ;
+    ; TWO SHAPES AND NO MORE: down the box and across it. That is what `gd`
+    ; can say, and what every backend reading this list implements — the GL
+    ; shader mixes along one axis of the quad and the software canvas does the
+    ; same. So a linear gradient is snapped to the nearer axis and its stops
+    ; are swapped when it points the other way, which is exact for the four
+    ; right angles and an approximation for everything between them.
+    ;
+    ; A RADIAL gradient is not a direction at all, so it is not turned into
+    ; one: the box keeps whatever flat colour it had, and a viewer sees a
+    ; missing effect rather than a wrong one.
+    ;
+    ; Two stops, because the command carries two. A gradient authored with
+    ; more keeps its first and its last, and the ones between are dropped —
+    ; recorded here rather than hidden, since the alternative is a list format
+    ; change every backend would have to follow.
+    sfn normAngle:double (a:double) {
+        def v:double a
+        while (v < 0.0) {
+            v = (v + 360.0)
+        }
+        while (v >= 360.0) {
+            v = (v - 360.0)
+        }
+        return v
+    }
+
+    sfn hasLinearGradient:boolean (el:EVGElement) {
+        ; The RGU1 pair — `gradient-from` / `gradient-to` / `gradient-dir` — is
+        ; already this list's own vocabulary: a direction and two colours, with
+        ; nothing to interpret.
+        if el.gradientSet {
+            return true
+        }
+        def g:EVGGradient el.gradient
+        if (g.isSet == false) {
+            return false
+        }
+        if (g.isLinear == false) {
+            return false
+        }
+        return ((g.getStopCount()) > 1)
+    }
+
+    sfn applyGradient:void (c:EVGDrawCmd el:EVGElement) {
+        if el.gradientSet {
+            def a0:EVGColor el.gradientFrom
+            def b0:EVGColor el.gradientTo
+            c.hasGrad = true
+            c.gradDir = el.gradientDir
+            c.r = (a0.red())
+            c.g = (a0.green())
+            c.b = (a0.blue())
+            c.a = (a0.alpha())
+            c.r2 = (b0.red())
+            c.g2 = (b0.green())
+            c.b2 = (b0.blue())
+            c.a2 = (b0.alpha())
+            return
+        }
+        def g:EVGGradient el.gradient
+        def ang:double (EVGDisplayList.normAngle(g.angle))
+        ; CSS reads the angle as the direction the gradient TRAVELS, with 0 to
+        ; the top and 90 to the right; the list reads a start corner. So the
+        ; two directions that run up or left are the same axis with the stops
+        ; the other way round.
+        def dir:int 0
+        def swap:boolean false
+        if ((ang >= 45.0) && (ang < 135.0)) {
+            dir = 1
+        }
+        if ((ang >= 225.0) && (ang < 315.0)) {
+            dir = 1
+            swap = true
+        }
+        if ((ang < 45.0) || (ang >= 315.0)) {
+            swap = true
+        }
+        def from:EVGColor (g.getStartColor())
+        def to:EVGColor (g.getEndColor())
+        if swap {
+            def tmp:EVGColor from
+            from = to
+            to = tmp
+        }
+        c.hasGrad = true
+        c.gradDir = dir
+        c.r = (from.red())
+        c.g = (from.green())
+        c.b = (from.blue())
+        c.a = (from.alpha())
+        c.r2 = (to.red())
+        c.g2 = (to.green())
+        c.b2 = (to.blue())
+        c.a2 = (to.alpha())
+    }
+
     fn walk:void (el:EVGElement) {
         ; Where this element's own output begins, so `opacity` can scale
         ; exactly what it and its children add — nested fades then multiply as
@@ -921,31 +1019,51 @@ class EVGDisplayList {
         ; softens the page and tints it not at all is an ordinary thing to want
         ; — and gating the emit on a colour dropped that case entirely.
         def painted:boolean false
+        def bgSet:boolean false
+        def bg:EVGColor (new EVGColor())
         if el.backgroundColor {
-            def bg:EVGColor (unwrap el.backgroundColor)
-            if bg.isSet {
-                def c (new EVGDrawCmd())
-                c.kind = 0
-                c.x = x
-                c.y = y
-                c.w = w
-                c.h = h
-                c.radius = radius
-                c.perCorner = perCorner
-                if perCorner {
-                    c.radius = rTL
-                    c.radiusTR = rTR
-                    c.radiusBR = rBR
-                    c.radiusBL = rBL
-                }
+            def b0:EVGColor (unwrap el.backgroundColor)
+            if b0.isSet {
+                bg = b0
+                bgSet = true
+            }
+        }
+        ; A gradient is a background too, and until now it was the one kind
+        ; that never arrived: `hasGrad` has been on the command, in the JSON
+        ; and in the GL shader all along, and nothing wrote one from an
+        ; ELEMENT. So `background: linear-gradient(...)` with no
+        ; `background-color` beside it emitted no rectangle at all, and with
+        ; one it was painted flat.
+        def gradOk:boolean (EVGDisplayList.hasLinearGradient(el))
+        if (bgSet || gradOk) {
+            def c (new EVGDrawCmd())
+            c.kind = 0
+            c.x = x
+            c.y = y
+            c.w = w
+            c.h = h
+            c.radius = radius
+            c.perCorner = perCorner
+            if perCorner {
+                c.radius = rTL
+                c.radiusTR = rTR
+                c.radiusBR = rBR
+                c.radiusBL = rBL
+            }
+            if bgSet {
                 c.r = (bg.red())
                 c.g = (bg.green())
                 c.b = (bg.blue())
                 c.a = (bg.alpha())
-                c.backdropBlur = el.backdropBlur
-                push cmds c
-                painted = true
             }
+            ; The gradient outranks the flat colour, the way `background-image`
+            ; is painted over `background-color` in a browser.
+            if gradOk {
+                EVGDisplayList.applyGradient(c el)
+            }
+            c.backdropBlur = el.backdropBlur
+            push cmds c
+            painted = true
         }
         if (painted == false) {
             if (el.backdropBlur > 0.0) {
