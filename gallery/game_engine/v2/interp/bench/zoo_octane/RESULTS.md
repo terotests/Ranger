@@ -177,7 +177,7 @@ would narrow if those were added.
 
 ---
 
-## Six-engine matrix (2026-08-07)
+## Six-engine matrix (remeasured 2026-08-08 on `9e1edf89`)
 
 Every engine runs the SAME prepared suite bodies. External engines
 (`node` / `qjs` / `duk`) take the raw zoo files; the Ranger targets
@@ -186,54 +186,96 @@ Every engine runs the SAME prepared suite bodies. External engines
 `python3 bench_matrix.py` (writes `matrix-results.json`) and render with
 `python3 matrix_report.py`.
 
+Host: Intel Xeon cloud agent, Node v22.14, QuickJS 2024-01-13, Duktape 2.7.0,
+`g++ -O3 -march=native`, `rustc -C opt-level=3`. Raw JSON:
+[`matrix-results.json`](./matrix-results.json).
+
 ### Octane score (higher is better)
 
 | Suite | Node (V8) | QuickJS | Duktape | Ranger es6 | Ranger C++ -O3 | Ranger Rust -O3 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| richards | 36940 | 669 | 281 | 21.7 | 21.7 | 21.7 |
-| deltablue | 61761 | 691 | 328 | 40.6 | 40.6 | 40.6 |
-| splay | 10300 | 1617 | 1172 | 136 | 136† | 136 |
-| regexp | 6994 | 220 | 157 | 27.9 | FAIL | FAIL |
-| crypto | 41046 | 929 | 347 | FAIL | FAIL | FAIL |
-| raytrace | 57719 | 981 | 629 | FAIL | FAIL | FAIL |
-| navier-stokes | 39248 | 1623 | 1373 | FAIL | FAIL | FAIL |
-| earley-boyer | 66591 | 1530 | 684 | FAIL | FAIL | FAIL |
+| richards | 52960 | 920 | 400 | **59** | 0.5† | **59** |
+| deltablue | 125472 | 956 | 483 | **110** | 1† | **110** |
+| splay | 17250 | 2591 | 2188 | **370** | 3† | **370** |
+| regexp | 10728 | 353 | 278 | **75.8** | FAIL | **27.9** |
+| crypto | 60773 | 1361 | 540 | FAIL | FAIL | FAIL |
+| raytrace | 111664 | 1473 | 993 | FAIL | FAIL | FAIL |
+| navier-stokes | 56689 | 2384 | 2172 | FAIL | FAIL | FAIL |
+| earley-boyer | 103765 | 2228 | 1089 | FAIL | FAIL | FAIL |
 
-† C++ splay's score flips between 3 and 136 from run to run on this
-container without any code change — the engine's coarse live clock
-quantizes the harness's timing windows. A fixed-work splay kernel puts
-the C++ target at the same wall time across the phase-5/6 builds, so
-read this row as "runs and verifies", not as a stable throughput.
+† C++ Octane *scores* are quantized by the coarse `liveClock` on this host
+(0.5 / 1 / 3) even though **wall time matches Rust/es6** (richards ~4.3 s vs
+es6 4.2 s / rust 5.5 s). Read C++ throughput from the wall-time table or the
+microbench below, not from these Octane score cells.
 
-Four suites (richards, deltablue, splay, and — on es6 — regexp) produce a
-valid score on the Ranger engine. The other four fail the SAME way on every
-Ranger target, which locates them in the engine's semantics, not a target's
-lowering: crypto returns a wrong digest, raytrace renders the scene
-incorrectly, navier-stokes fails its checksum, and earley-boyer trips the
-engine's TS parser on the Scheme-compiled source (leading-zero numeric keys
-in strict mode). `regexp` is the one target-specific split — see below.
+| Ratio on Richards (reported score) | |
+| --- | ---: |
+| QuickJS / Ranger es6·Rust | **15.6×** |
+| Duktape / Ranger es6·Rust | **6.8×** |
+| Node / Ranger es6·Rust | **897×** |
+| Ranger % of zoo V8 (37102) | **0.16%** |
 
-earley-boyer fails cleanly and fast on every target now — ~0.2 s on es6,
-~3 s on the natives (the parser tokenizes the 210 KB file quickly since the
-O(1) `at` cache, reports the syntax errors, and the script is rejected rather
-than run). Two earlier failure modes are gone: the ~60 s tokenizer hang (the
-O(n²) `at`) and the native ~15 GB allocation blow-up from evaluating the
-malformed post-recovery AST (a syntax-error script now throws instead of
-running — the rule `eval`/`Function` already followed).
+### Wall time of the run (suite driver included)
+
+| Suite | Node (V8) | QuickJS | Duktape | Ranger es6 | Ranger C++ -O3 | Ranger Rust -O3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| richards | 2.0s | 2.0s | 2.0s | 4.2s | 4.3s | 5.5s |
+| deltablue | 2.0s | 2.0s | 2.0s | 5.6s | 4.4s | 5.4s |
+| splay | 2.1s | 2.5s | 2.4s | 6.2s | 5.7s | 6.3s |
+| regexp | 2.1s | 5.4s | 6.9s | 32.8s | 1.8s‡ | 89.5s |
+
+‡ C++ regexp exits early with checksum FAIL.
+
+### Peak RSS (per-child `ru_maxrss`)
+
+| Suite | Node (V8) | QuickJS | Duktape | Ranger es6 | Ranger C++ -O3 | Ranger Rust -O3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| richards | 57 MB | 10 MB | 10 MB | 87 MB | **13 MB** | **12 MB** |
+| deltablue | 86 MB | 10 MB | 10 MB | 132 MB | 56 MB | 57 MB |
+| splay | 470 MB | 169 MB | 129 MB | 870 MB | 485 MB | 523 MB |
+| regexp | 86 MB | 10 MB | 10 MB | 224 MB | 29 MB | 32 MB |
+
+Native RSS on Richards is now in the QuickJS class (~12–13 MB). Earlier
+builds retained cycles into multi-GB; that is fixed on this master tip.
+
+### Compatibility
+
+Four suites produce a valid score on Ranger: richards, deltablue, splay, and
+regexp (es6 + Rust; C++ regexp still checksum-fails). crypto (`Unknown type:
+this`), raytrace (incorrect scene), navier-stokes (checksum), and earley-boyer
+(parser rejects Scheme-compiled octal/leading-zero keys) fail the same way on
+every Ranger target — engine semantics, not a lowering bug.
 
 ### Binary size (stripped, this machine)
 
 | | stripped |
 | --- | ---: |
-| Duktape | 511 KB |
-| QuickJS | 1.03 MB |
-| Ranger C++ `octane_runner` (`-O3`) | 1.87 MB |
-| Ranger Rust `octane_runner` (`-O3`) | 2.78 MB |
+| Duktape | **514 KB** |
+| QuickJS | **1.03 MB** |
+| Ranger C++ `octane_runner` (`-O3`) | **1.85 MB** (~1.8× QJS) |
+| Ranger Rust `octane_runner` (`-O3`) | **2.87 MB** |
 
 The Ranger binaries carry the whole engine — the TypeScript lexer/parser, the
-regex engine, `Date`, JSON, the value model — not just an interpreter loop, so
-they land above QuickJS's hand-written C VM. The `-Os` C++ build comes in at
-~1.0 MB, QuickJS's size class, for ~2.7× the run time.
+regex engine, `Date`, JSON, the value model — not just an interpreter loop.
+
+### Microbench vs QuickJS (same tip)
+
+`node …/native/vs_quickjs.cjs` on this build — ms/run, lower is faster:
+
+| case | raw Node | raw QuickJS | eng/ES6 | eng/C++ | ES6/QJS | C++/QJS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| loop | 0.270 | 0.365 | 2.10 | 1.59 | 5.8× | 4.4× |
+| fib | 0.227 | 0.409 | 3.04 | 4.95 | 7.4× | 12× |
+| strcat | 0.243 | 6.172 | 0.53 | 1.54 | **0.1×** | **0.3×** |
+| array | 0.685 | 1.320 | 4.13 | 4.73 | 3.1× | 3.6× |
+| object | 1.144 | 2.137 | 10.6 | 7.75 | 5.0× | 3.6× |
+| method | 1.127 | 2.430 | 12.2 | 14.3 | 5.0× | 5.9× |
+| regex | 1.028 | 3.719 | 27.8 | 29.7 | 7.5× | 8.0× |
+| **geomean** | 0.541 | 1.570 | 4.70 | 5.68 | **3.0×** | **3.6×** |
+
+C++/QuickJS geomean is now **~3.6×** (was ~12× after #541, ~63× before the E4
+work). `strcat` / in-place append beats qjs; Octane Richards remains the
+object-graph story (~16× behind QJS on the reported es6/Rust score).
 
 ## Bytecode tier, phase 5: unboxed number slots (2026-08-08)
 

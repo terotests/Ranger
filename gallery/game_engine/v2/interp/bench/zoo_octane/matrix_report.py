@@ -27,7 +27,21 @@ def main():
             v = f"{v:g}"
         else:
             errs = r.get("errors") or {}
-            v = "FAIL" if errs else r["status"]
+            out = r.get("out") or ""
+            # Suites that abort without an "Name: …" error line still fail.
+            if errs or any(
+                x in out
+                for x in (
+                    "Unknown type:",
+                    "Parse error:",
+                    "checksum",
+                    "incorrectly",
+                    "Error:",
+                )
+            ):
+                v = "FAIL"
+            else:
+                v = r["status"]
         return (v, f"{r['wall_ms']/1000:.1f}s", rss(r))
 
     def rss(r):
