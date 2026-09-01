@@ -3,6 +3,7 @@ package fi.ranger.ui.desktop
 import fi.ranger.evg.AwtEvgSurface
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.RecordingSurface
+import fi.ranger.rgr.EVGElement
 import fi.ranger.rgr.UiAndroid
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -45,14 +46,43 @@ object CheckDashboard {
     private var passed = 0
     private var failed = 0
 
-    private fun ok(what: String, cond: Boolean) {
+    private fun ok(what: String, cond: Boolean, detail: String = "") {
         if (cond) {
             passed++
             println("  PASS $what")
         } else {
             failed++
-            println("  FAIL $what")
+            println("  FAIL $what" + if (detail.isEmpty()) "" else "  ($detail)")
         }
+    }
+
+    /**
+     * An element's laid-out box, by test id. The demo's own `findEl` over the
+     * demo's own tree — the facade holds neither, and a check that measured
+     * the picture instead would be asserting pixels rather than layout.
+     */
+    private fun boxOf(app: UiAndroid, id: String): EVGElement? {
+        val root = app.app.root ?: return null
+        val el = app.app.findEl(root, id)
+        return if (el.id.isEmpty()) null else el
+    }
+
+    private fun heightOf(app: UiAndroid, id: String): Double = boxOf(app, id)?.calculatedHeight ?: -1.0
+
+    /** What inside this element is drawn past its bottom edge, if anything. */
+    private fun overflowing(app: UiAndroid, id: String): String {
+        val box = boxOf(app, id) ?: return "no such element: $id"
+        val bottom = box.calculatedY + box.calculatedHeight
+        val out = StringBuilder()
+        fun walk(el: EVGElement) {
+            for (k in el.children) {
+                val kb = k.calculatedY + k.calculatedHeight
+                if (kb > bottom + 0.5) out.append("${k.className} ends ${"%.0f".format(kb)} past ${"%.0f".format(bottom)}; ")
+                walk(k)
+            }
+        }
+        walk(box)
+        return out.toString()
     }
 
     /** Doubles that came out of the same arithmetic twice, not out of a spec. */
@@ -182,6 +212,38 @@ object CheckDashboard {
         ok("End goes to the bottom", app.key("End") && near(app.scrollTop(), app.maxScroll(), 1.0))
         app.key("Home")
 
+        println("--- a screen taller than the page ---")
+        // A tablet in PORTRAIT: 800dp wide scales the page by 0.6, so the
+        // screen is worth 2137 page pixels — more than the dashboard's own
+        // content and more than the 1420 the stylesheet used to state as the
+        // height of the page, the sidebar and the hairline. That constant was
+        // the page's height before it scrolled, and it looked full only
+        // because every viewport it had been shown in was shorter than it. On
+        // this one the sidebar stopped two thirds of the way down and the rest
+        // of the screen was the host's own background.
+        val tall = UiAndroid()
+        tall.start(800.0, 1280.0, css.readText())
+        tall.frame()
+        ok("the viewport is taller than the page's content", tall.pageHeight() > 2000.0)
+        ok(
+            "the page fills it",
+            near(heightOf(tall, "page"), tall.pageHeight(), 1.0),
+            "${heightOf(tall, "page")} vs ${tall.pageHeight()}",
+        )
+        ok(
+            "and so does the sidebar",
+            near(heightOf(tall, "db-side"), tall.pageHeight(), 1.0),
+            "${heightOf(tall, "db-side")} vs ${tall.pageHeight()}",
+        )
+        // The account row rides the bottom edge, wherever that edge is:
+        // `.db-side-body` is `flex: 1` and this is the check that it still is.
+        val user = boxOf(tall, "db-user")
+        ok(
+            "the account row is at the bottom of it",
+            user != null && tall.pageHeight() - (user.calculatedY + user.calculatedHeight) < 24.0,
+        )
+        paint(tall, out, "dashboard-portrait.png")
+
         println("--- a phone, and a rotation ---")
         val phone = UiAndroid()
         phone.start(411.0, 823.0, css.readText())
@@ -193,6 +255,13 @@ object CheckDashboard {
         phone.resize(823.0, 411.0)
         ok("a rotation re-fits it", near(phone.scale() * phone.pageWidth(), 823.0))
         ok("and it still draws after that", phone.frame().cmds.size > 200)
+        // The SHORTEST viewport in this run — a phone on its side is 667 page
+        // pixels tall — and the one the sidebar's height now follows. It used
+        // to be a constant taller than any of them, so nothing in the column
+        // could overflow it; now the column is the viewport and the check has
+        // to say that the brand, the links and the account row still fit.
+        val over = overflowing(phone, "db-side")
+        ok("and the sidebar's own rows fit in the shortest screen here", over.isEmpty(), over)
 
         println()
         println("$passed checks, $failed failed")

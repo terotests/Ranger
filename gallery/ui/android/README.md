@@ -136,9 +136,10 @@ The presses are found by hit-testing the screen the way the app does, not by
 calling `press(id)` — the coordinate conversion is exactly what this port adds
 and therefore what is worth checking.
 
-41 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
-`tmp/ui-android/dashboard.png` (tablet) and `dashboard-phone.png` (a 411×823
-phone) so the result is something to look at rather than a number.
+46 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
+`tmp/ui-android/dashboard.png` (a landscape tablet), `dashboard-portrait.png`
+(the same tablet turned) and `dashboard-phone.png` (a 411×823 phone), so the
+result is something to look at rather than a number.
 
 `ui:android:typecheck` covers most of what is left: `MainActivity` and
 `DashboardView` against `gallery/evg/android/androidstubs/`, which declares the
@@ -155,6 +156,24 @@ The demo is **1336 pixels wide and that number is load-bearing**: the chart's
 comment above `pageW` says so. So a phone does not get a narrower dashboard, it
 gets the same one at a smaller scale — `fitScale = screenW / 1336`, and the
 canvas is scaled by it.
+
+### A screen taller than the page
+
+The first thing the emulator found. The page, the sidebar and the hairline
+between them all stated `height: 1420px` in the stylesheet — the height this
+page was *before* it scrolled, kept because every window it had been shown in
+was shorter than that and a column taller than the window looks full.
+
+A tablet in portrait is not shorter than that. 800dp of width scales the page by
+0.6, so 1280dp of height is 2137 page pixels: the sidebar stopped two thirds of
+the way down, and below it was the host's own background. The fix is the rule
+the scroll box was already following — the height is `pageH`, set inline from
+the one field that knows what the viewport is, and the stylesheet no longer
+names a number that only one viewport made true.
+
+The account row rides the bottom edge either way, because `.db-side-body` is
+`flex: 1`. In the browser demo, where the viewport is 900, that row is now *on*
+the page instead of 470 pixels below it.
 
 The other half is the one that is easy to get wrong. `pageH` is a **viewport**:
 the sidebar stands still and the content scrolls under it, and the demo clamps
@@ -230,7 +249,8 @@ Verified, off-device, on this repository's own demo:
   four cards, the chart with its axes and labels, the tab strip, the table with
   its badges and its checkbox column, and the scrollbar indicator.
 * The viewport arithmetic, the presses, the scrolling, the keys and the
-  pinch/pan hold. 41 checks.
+  pinch/pan hold, and a screen taller than the page's content still gets a
+  full-height sidebar with its account row on the bottom edge. 46 checks.
 * `MainActivity` and `DashboardView` type-check against the platform stubs.
 
 Not verified here: the APK build, and whether Skia draws what the surface asks

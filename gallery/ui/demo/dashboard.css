@@ -57,7 +57,9 @@
   flex-wrap: nowrap;
   background-color: #fafafa;
   width: 1336px;
-  height: 1420px;
+  /* NO HEIGHT. It is the viewport, set inline from `pageH` — the same field
+   * the scroll box's height comes from — because a host is free to be any
+   * height and a constant here is only ever true of one of them. */
 }
 
 /* THE SCROLL CONTAINER. `overflow: hidden` with a definite height, which in
@@ -72,6 +74,9 @@
 
 /* --- the sidebar --------------------------------------------------------- */
 
+/* NO HEIGHT here either: the sidebar is as tall as the viewport, set inline
+ * with the page's. `.db-side-body` is `flex: 1`, so the account row rides the
+ * bottom edge wherever that edge is. */
 .db-side {
   display: flex;
   flex-direction: column;
@@ -79,7 +84,6 @@
   background-color: #ffffff;
   padding: 8px;
   width: 255px;
-  height: 1420px;
 }
 
 /* A hairline, and it is an ELEMENT rather than `border-right` on the sidebar,
@@ -91,7 +95,6 @@
 .db-side-edge {
   background-color: #e4e4e7;
   width: 1px;
-  height: 1420px;
 }
 
 /* AUTO HEIGHT, deliberately. This is the content inside the scroll box, and
@@ -147,7 +150,7 @@
  * bottom edge. A `flex: 1` spacer between the links and the footer looks like
  * the same thing and is not: the grow pass counts an auto-height sibling as
  * zero, so the spacer is handed the nav's height a second time and the footer
- * ends up 416 pixels past the bottom of a 1420-pixel column. See the task
+ * ends up 416 pixels past the bottom of the column. See the task
  * about column flex-grow; here there is nothing to work around, because a
  * scroll box that takes the slack is the honest markup anyway. */
 .db-side-body {
