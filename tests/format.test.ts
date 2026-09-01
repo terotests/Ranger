@@ -54,6 +54,8 @@ function have(tool: string, args: string[] = ["--version"]): boolean {
 }
 
 const CHAINS = "tests/fixtures/format_chains.rgr";
+// the C++ runtime map is written only for a program that uses a hash
+const HASHES = "tests/fixtures/hash_map.rgr";
 const KEYWORDS = "tests/fixtures/format_keywords.rgr";
 const LONGCHAIN = "tests/fixtures/format_longchain.rgr";
 const STRESS = "tests/fixtures/format_stress.rgr";
@@ -391,13 +393,18 @@ describe("output formatter: emitted shapes (phase 5)", () => {
     // rg_ordered_map is literal text in the C++ writer, not codegen: four of
     // its bodies were a whole statement sequence on one line, up to 186
     // characters. Nothing generates them, so nothing but this reformats them.
-    const cpp = compile(CHAINS, "cpp", "cpp", "helper");
+    //
+    // The map is now written only for a program that reaches for one, so the
+    // hash fixture is what carries it here; the chains fixture no longer does.
+    const cpp = compile(HASHES, "cpp", "cpp", "helper");
     expect(cpp).toMatch(/V& at\(const K& k\) \{\n\s+int32_t s = slot_\(k\);/);
     expect(cpp).not.toMatch(/at\(const K& k\) \{ int32_t s/);
     const bin = path.join(OUT, "helper.bin");
     execFileSync("g++", ["-std=c++17", "-O0", "-o", bin,
                          path.join(OUT, "helper.cpp")]);
-    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("3");
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe(
+      "Alice score: 100\nBob exists\nKeys: 3\nDone"
+    );
   }, 240000);
 });
 
