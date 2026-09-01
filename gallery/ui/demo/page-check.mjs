@@ -559,5 +559,13 @@ console.log("--- the surface ripples where it was touched ---");
 await browser.close();
 server.close();
 console.log("");
-if (failed > 0) { console.log(`RESULT FAIL — ${failed} problem(s)`); process.exit(1); }
-console.log("RESULT OK — the page loads and every demo draws");
+// `failed=N` is the marker the aggregate runner greps for, and every other
+// suite prints it. This one printed only prose, so the runner reported
+// "no pass marker in output" on a run whose own last line said RESULT OK —
+// a suite that cannot be told apart from a broken one is not in CI, whatever
+// the list says.
+if (failed > 0) {
+  console.log(`RESULT FAIL — failed=${failed}`);
+  process.exit(1);
+}
+console.log("RESULT OK — the page loads and every demo draws, failed=0");
