@@ -269,8 +269,14 @@ class DialogDemo {
         return false
     }
 
+    ; MOVE, AND SAY SO. `beginDrag` and `endDrag` both rebuild; this one did
+    ; not, and the window's x and y live on the controller while the tree is
+    ; built from them. So the picture kept the position it was built with and
+    ; the window did not budge until the release rebuilt it — a drag that ends
+    ; in a jump rather than one you can steer.
     fn dragBy:void (dx:double dy:double) {
         window.dragBy(dx dy)
+        root = (this.page())
     }
 
     fn endDrag:void () {
@@ -385,6 +391,15 @@ class DialogDemo {
         def r:EVGElement (unwrap root)
         def hit (new EVGHitTest())
         return (hit.idAt(r px py))
+    }
+
+    ; What the pointer should look like here. The stylesheet says it — the
+    ; title bar carries `cursor: move` — and the page only has to ask.
+    fn cursorAt:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.cursorAt(r px py))
     }
 
     fn a11yJson:string (generation:int focusId:string) {

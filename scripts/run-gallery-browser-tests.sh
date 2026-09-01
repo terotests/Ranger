@@ -22,6 +22,11 @@ cd "$(dirname "$0")/.."
 SUITES=(
   # The page itself: does it load, and does every demo draw?
   ui:demo:page
+  # One frame, looked at as pixels: a surface effect must draw OVER the page
+  # and not instead of it. The page check cannot see this — the frame it would
+  # have to catch is the first rippling one, and it is gone before a live page
+  # can be photographed.
+  ui:demo:frame
   # The two sides of the conformance harness, and axe over both trees.
   ui:conformance
   ui:a11y

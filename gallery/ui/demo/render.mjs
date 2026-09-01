@@ -60,6 +60,23 @@ const DEMOS = {
       if (nav) d.press("db-nav-" + nav);
       const py = process.env.DASH_PAGE_SCROLL;
       if (py) d.scrollTo(Number(py));
+      // "x,y,seconds" — a ripple frozen at an age, so the effect can be looked
+      // at rather than caught mid-flight.
+      // "x,y,t;x,y,t;..." — several drops, each frozen at its own age, so the
+      // interference can be looked at rather than caught mid-flight.
+      const rp = process.env.DASH_RIPPLE;
+      if (rp) {
+        const drops = rp.split(";").map((g) => g.split(",").map(Number));
+        // Oldest first: place it, age everything, place the next.
+        const byAge = drops.slice().sort((a, b) => b[2] - a[2]);
+        let now = byAge[0][2];
+        for (const [x, y, t] of byAge) {
+          d.tick((now - t) * 1000);
+          now = t;
+          d.ripple(x, y);
+        }
+        d.tick(now * 1000);
+      }
       return d.displayListJson();
     },
     errors: (M, css) => {
@@ -160,6 +177,27 @@ const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, 
 await document.fonts.ready;
 await Promise.all(doc.list.cmds.filter((x) => x.text).map((x) => document.fonts.load(\`\${x.size}px "\${x.font}"\`)));
 window.__stats = renderDisplayList(gl, doc, { dpr });
+// COVERAGE, counted off the finished frame. This is one frame and it is the
+// FIRST one, which is the only frame a surface effect can ruin: the effect's
+// target is made once and reused, so a mistake made while making it shows here
+// and is invisible for the rest of the session.
+//
+// What it counts is OPAQUE pixels, and the reason it is opacity rather than
+// something that sounds more like a picture is that the failure being watched
+// for leaves the canvas TRANSPARENT, not blank. A page whose draws were
+// dropped shows the white of the HTML behind it, which photographs as a
+// perfectly reasonable white page — counting dark pixels on it happily found
+// half a million of them and called the frame healthy. Alpha does not lie: a
+// page that paints its own background covers every pixel, and the broken frame
+// covered one in eight.
+{
+  const px = new Uint8Array(c.width * c.height * 4);
+  gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  let covered = 0;
+  for (let i = 3; i < px.length; i += 4) if (px[i] > 128) covered += 1;
+  window.__stats.covered = covered;
+  window.__stats.pixels = px.length / 4;
+}
 window.__done = true;
 </script>`;
 // Served over HTTP, not opened from disk: Chromium refuses to load an ES

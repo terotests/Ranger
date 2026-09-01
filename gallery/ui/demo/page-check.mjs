@@ -107,6 +107,179 @@ for (const n of names) {
     [...new Set(problems)].join("; ") || "canvas width " + drew);
 }
 
+console.log("--- the keyboard reaches the demo ---");
+{
+  // Reported: the Profile page's inputs did not respond to the keyboard. They
+  // worked in Node — press then keyWith inserts — and the page dropped every
+  // key, because the keydown handler bailed on any `HTMLInputElement` and the
+  // only inputs here are the sidebar's own radios. Choosing a demo left focus
+  // on the radio that chose it. So the check is end to end: click the field
+  // the way a person does, type, and look at what the page drew.
+  await page.click('#demos input[value="profile"]');
+  await page.waitForTimeout(250);
+  const rect = await page.evaluate(() => {
+    const el = document.querySelector('[data-a11y-id="pf-name"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  ok("the Full Name field is on the page", !!rect);
+  const drawn = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return (l.cmds || []).filter((c) => c.text).map((c) => c.text).find((t) => t.startsWith("Noa"));
+  });
+  const before = await drawn();
+  await page.mouse.click(rect.x, rect.y);
+  await page.waitForTimeout(120);
+  const focusedTag = await page.evaluate(() => document.activeElement.tagName);
+  ok("clicking the picture puts the focus on it", focusedTag === "CANVAS", focusedTag);
+  await page.keyboard.type("XY");
+  await page.waitForTimeout(200);
+  const after = await drawn();
+  ok("and typing reaches the field", after === before + "XY", before + " -> " + after);
+}
+
+console.log("--- the window follows the pointer ---");
+{
+  // Reported: the window only jumped at the end of a drag. `dragBy` moved the
+  // controller and was the only one of the three gesture methods that did not
+  // rebuild the tree, so the painted position stayed where it was built until
+  // the release rebuilt it.
+  await page.click('#demos input[value="dialog"]');
+  await page.waitForTimeout(300);
+  const box = await (await page.$("#stage canvas")).boundingBox();
+  const at = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const c = (l.cmds || []).find((x) => Math.abs(x.w - 300) < 2 && Math.abs(x.h - 194) < 2);
+    return c ? [c.x, c.y] : null;
+  });
+  await page.mouse.move(box.x + 700, box.y + 45);
+  await page.waitForTimeout(120);
+  const cursor = await page.evaluate(() => document.querySelector("#stage canvas").style.cursor);
+  ok("the title bar says it can be moved", cursor === "move", cursor);
+
+  const start = await at();
+  await page.mouse.down();
+  const seen = [];
+  for (const d of [20, 40, 60]) {
+    await page.mouse.move(box.x + 700 + d, box.y + 45);
+    await page.waitForTimeout(60);
+    seen.push((await at())[0]);
+  }
+  await page.mouse.up();
+  // EVERY step moves it, not just the last: three distinct positions, each
+  // one further along than the one before.
+  ok("it moves at every step of the drag",
+    seen.length === 3 && seen[0] > start[0] && seen[1] > seen[0] && seen[2] > seen[1],
+    `${start[0]} -> ${seen.join(" -> ")}`);
+}
+
+console.log("--- the title bar is rounded only at the top ---");
+{
+  // `border-radius: 11px 11px 0 0` — the declaration that makes a strip sit
+  // flush against what is under it, and which could not be written at all
+  // while a box had one radius.
+  const rc = await page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const c = (l.cmds || []).find((x) => Math.abs(x.w - 298) < 2 && Math.abs(x.h - 40) < 2);
+    return c ? c.rc : null;
+  });
+  ok("the bar carries four corners", Array.isArray(rc), JSON.stringify(rc));
+  ok("rounded at the top, square at the bottom",
+    rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
+}
+
+console.log("--- the surface ripples where it was touched ---");
+{
+  // `evg-surface-effect: ripple` is an EVG EXTENSION, not CSS: there is no
+  // browser property to measure it against, so what is checked is that the
+  // declaration reaches the display list, that a touch becomes its origin,
+  // that the age advances, and that the renderer took the second pass.
+  await page.click('#demos input[value="dashboard"]');
+  await page.waitForTimeout(400);
+  const effect = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return l.effect || null;
+  });
+  const at = await effect();
+  ok("the sheet's effect reaches the list", at && at.kind === "ripple",
+    JSON.stringify(at));
+  ok("and it is at rest until something touches it",
+    at && at.drops.length === 0, JSON.stringify(at && at.drops));
+
+  const box = await (await page.$("#stage canvas")).boundingBox();
+  await page.mouse.click(box.x + 700, box.y + 430);
+  await page.waitForTimeout(150);
+  const live = await effect();
+  ok("a click becomes the ripple's origin",
+    live && live.drops.length >= 1 &&
+      Math.abs(live.drops[0][0] - 700) < 3 && Math.abs(live.drops[0][1] - 430) < 3,
+    JSON.stringify(live && live.drops[0]));
+  ok("and its clock starts", live && live.drops[0][2] >= 0,
+    String(live && live.drops[0][2]));
+
+  // MANY AT ONCE, which is the difference between an effect and a surface:
+  // a tap somewhere else ADDS a source, it does not move the one that is
+  // there. What is asserted per tap is its PLACE — that a click anywhere on
+  // the page lands a drop under the pointer, which is the part only a real
+  // browser with a real hit test can prove.
+  //
+  // NOT that all three coexist. That is a fact about a wall clock this test
+  // does not own: in this container a rippling frame can take over a second,
+  // and a machine busy with something else will retire the first drop before
+  // the third click happens. It failed exactly that way once, with both gates
+  // running at the same time, and passed three for three on a quiet machine —
+  // which is a flake, not a check. The shape of the set — three coexisting,
+  // three distinct ages, oldest first — is asserted in `dashboard-check.mjs`,
+  // where the clock is the test's, for the same reason the wake is.
+  const newest = (fx) => fx && fx.drops.length ? fx.drops[fx.drops.length - 1] : null;
+  for (const [cx, cy] of [[420, 330], [900, 520]]) {
+    await page.mouse.click(box.x + cx, box.y + cy);
+    await page.waitForTimeout(90);
+    const d = newest(await effect());
+    ok(`a touch at ${cx},${cy} lands there`,
+      d && Math.abs(d[0] - cx) < 3 && Math.abs(d[1] - cy) < 3, JSON.stringify(d));
+  }
+  // Not even "at least two are still in flight". On this machine that is
+  // sometimes 1: the frames are slow enough that a drop can be born, live and
+  // retire between two clicks 90ms apart. Whatever IS in flight still has to
+  // be well formed, which is what the two below say.
+  const many = await effect();
+  ok("each with an age of its own",
+    many && new Set(many.drops.map((d) => d[2])).size === many.drops.length,
+    JSON.stringify(many && many.drops.map((d) => d[2])));
+  // Oldest first, which is the order the ring buffer retires them in.
+  ok("oldest first",
+    many && many.drops.every((d, i) => i === 0 || d[2] <= many.drops[i - 1][2]),
+    JSON.stringify(many && many.drops.map((d) => d[2])));
+
+  // A dragged finger leaves a WAKE. What is asserted here is only that a drag
+  // makes drops at all: this container draws with SwiftShader on the CPU, and
+  // a rippling frame can take over two seconds, so one `tick` ages everything
+  // added before it past its lifetime and the wake is thinned out by the
+  // machine rather than by the code. The wake's real shape — eight of them, a
+  // step apart, oldest retired — is checked in `dashboard-check.mjs`, where
+  // the clock is the test's and not the renderer's.
+  await page.mouse.move(box.x + 300, box.y + 600);
+  await page.mouse.down();
+  for (let x = 300; x <= 620; x += 40) {
+    await page.mouse.move(box.x + x, box.y + 600);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(80);
+  const wake = await effect();
+  ok("a drag leaves drops behind it", wake && wake.drops.length >= 1,
+    String(wake && wake.drops.length));
+  ok("and never more than the shader can hold", wake && wake.drops.length <= 8,
+    String(wake && wake.drops.length));
+
+  // The second pass really ran: `rippled` is the renderer saying it drew the
+  // page into a texture and put it on the screen through the shader.
+  const stats = await page.evaluate(() => window.__lastStats || null);
+  if (stats) ok("the renderer took the post-pass", stats.rippled === 1, JSON.stringify(stats.rippled));
+  else console.log("  (the page does not publish renderer stats; skipped)");
+}
+
 await browser.close();
 server.close();
 console.log("");

@@ -77,7 +77,8 @@ in vec2 aCorner;          // unit quad, 0..1
 in vec4 aRect;            // x, y, w, h in page pixels
 in vec4 aColor;           // rgba, 0..1
 in vec4 aColor2;          // far gradient stop, rgba 0..1
-in vec3 aShape;           // radius, thickness (0 = fill), mode
+in vec3 aShape;           // radius (top-left), thickness (0 = fill), mode
+in vec4 aRadii;           // the four corners: TL, TR, BR, BL
 in float aGrad;           // 0 = flat, 1 = down the box, 2 = across it
 in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
 in float aRot;            // radians
@@ -89,7 +90,7 @@ out float vGrad;
 out vec2 vT;              // 0..1 along the box, for the gradient
 out vec2 vLocal;          // position within the rect, in pixels
 out vec2 vHalf;
-out float vRadius;
+out vec4 vRadii;
 out float vThickness;
 out float vMode;
 out vec2 vUV;
@@ -122,7 +123,7 @@ void main() {
   vT = aCorner;
   vHalf = aRect.zw * 0.5;
   vLocal = (aCorner - 0.5) * aRect.zw;
-  vRadius = aShape.x;
+  vRadii = aRadii;
   vThickness = aShape.y;
   vMode = aShape.z;
   vUV = mix(aUV.xy, aUV.zw, aCorner);
@@ -136,7 +137,7 @@ in float vGrad;
 in vec2 vT;
 in vec2 vLocal;
 in vec2 vHalf;
-in float vRadius;
+in vec4 vRadii;
 in float vThickness;
 in float vMode;
 in vec2 vUV;
@@ -144,9 +145,15 @@ uniform sampler2D uAtlas;
 uniform sampler2D uImage;
 out vec4 outColor;
 
-float sdRoundedBox(vec2 p, vec2 b, float r) {
-  vec2 q = abs(p) - b + r;
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+// Four corners, picked by the quadrant the fragment is in. The radii arrive
+// as (TL, TR, BR, BL) -- the order border-radius writes them in -- and one
+// choice per axis narrows them to the corner that matters here. No backticks
+// in this comment: the whole shader is a JS template literal.
+float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
+  vec2 tb = (p.x > 0.0) ? vec2(r.y, r.z) : vec2(r.x, r.w); // right : left
+  float rr = (p.y > 0.0) ? tb.y : tb.x;                     // bottom : top
+  vec2 q = abs(p) - b + rr;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rr;
 }
 
 // The rounded-box coverage of this fragment, 0..1.
@@ -156,7 +163,11 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
 // across the page background. Clamping keeps the edge one pixel soft no matter
 // how big the quad is.
 float boxCoverage(out float d) {
-  float r = min(vRadius, min(vHalf.x, vHalf.y));
+  // The clamp stays per corner: the display list already applies the CSS
+  // scale-down, so this only catches a caller that hands over a radius no box
+  // could hold.
+  float lim = min(vHalf.x, vHalf.y);
+  vec4 r = min(vRadii, vec4(lim));
   d = sdRoundedBox(vLocal, vHalf, r);
   float aa = clamp(fwidth(d), 0.35, 1.5);
   return smoothstep(aa, -aa, d);
@@ -801,6 +812,196 @@ export function blurReach(sigma) {
 // fraction of it. The two cancel out along any axis where the picture happens
 // to be uniform — which is why a scene with a horizontal band through it saw
 // nothing wrong, twice.
+// ---------------------------------------------------------------------------
+// evg-surface-effect: ripple
+// ---------------------------------------------------------------------------
+//
+// A post-process over the finished surface: render the page to a texture, then
+// draw that texture across the screen with a fragment shader that bends the
+// sample position in a ring travelling out from where somebody touched it.
+//
+// The whole point is that the shader knows NOTHING about Ranger. It gets a
+// picture, a centre and an age. Everything on the page bends together — text,
+// card edges, the chart's own paths — because by the time this runs they are
+// all the same pixels, which is the most direct demonstration this gallery has
+// that a dashboard that looks like the DOM is not DOM pixels.
+//
+// This is an EVG EXTENSION and says so in its name: `evg-surface-effect` is
+// not a CSS property and nothing here should ever be measured against a
+// browser looking for a divergence, because there is nothing to diverge from.
+const RIPPLE_VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vUV;
+void main() {
+  vUV = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+const RIPPLE_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uRes;        // page pixels
+// Up to this many touches at once. Eight is not a limit anybody reaches by
+// tapping; it is what a FINGER DRAGGED across the surface fills in a third of
+// a second, and the oldest is retired to make room.
+#define MAX_DROPS 8
+uniform vec3 uDrops[MAX_DROPS];  // x, y in page pixels; z is seconds since
+uniform int uCount;
+uniform float uSpeed;     // px per second the ring travels
+uniform float uWidth;     // the envelope's sigma, px
+uniform float uStrength;  // displacement at the crest, px
+uniform float uDecay;     // per second
+uniform float uHi;        // how much the crest lightens
+// One touch sends a TRAIN of rings from the same point, a stagger apart.
+#define MAX_RINGS 5
+uniform int uRings;
+uniform float uStagger;   // seconds between one wavefront and the next
+uniform float uFalloff;   // what each ring behind the front is worth
+uniform float uShine;     // how strong the glint is
+uniform float uGloss;     // Blinn-Phong exponent: how tight it is
+uniform float uBump;      // what turns the height field into a slope
+uniform vec3 uLight;      // where the light is, not necessarily normalised
+in vec2 vUV;
+out vec4 outColor;
+
+void main() {
+  vec2 p = vUV * uRes;
+
+  // SUM the drops. This is the whole of the interference: two rings that
+  // cross reinforce where their crests meet and cancel where a crest meets a
+  // trough, and nothing here implements that — it is what adding waves does.
+  //
+  // The displacement is summed as a VECTOR, not as a scalar amplitude, so two
+  // rings arriving from opposite sides push the surface in opposite
+  // directions and the pixel between them stays where it was.
+  vec2 push = vec2(0.0);
+  float crest = 0.0;
+  float energy = 0.0;
+  for (int i = 0; i < MAX_DROPS; i++) {
+    if (i >= uCount) break;
+    vec3 drop = uDrops[i];
+    vec2 delta = p - drop.xy;
+    float d = length(delta);
+    vec2 dir = delta / max(d, 0.001);
+
+    // The TRAIN. A drop on water does not make one ring, it makes several
+    // from the same point a moment apart, each fainter than the one in front:
+    // an expanding target rather than a circle. They cost no state — the
+    // rings of one touch differ only in when they started, so the k-th is
+    // simply this touch aged by k staggers, and one that has not started yet
+    // has a negative age and is skipped.
+    float amp = 1.0;
+    for (int k = 0; k < MAX_RINGS; k++) {
+      if (k >= uRings) break;
+      float t = drop.z - float(k) * uStagger;
+      if (t <= 0.0) break;
+      float radius = t * uSpeed;
+      // A Gaussian ring: the wave only exists near the front, so the rest of
+      // the page is sampled exactly where it was drawn and stays sharp.
+      float env = exp(-pow((d - radius) / uWidth, 2.0));
+      float fade = env * exp(-t * uDecay) * amp;
+      float wave = sin((d - radius) * 0.16) * fade;
+      push += dir * wave;
+      crest += wave;
+      // The ENVELOPE, kept apart from the signal. It is the ring's amplitude
+      // with the oscillation divided out, so unlike the wave itself it does
+      // not pass through zero twice per wavelength.
+      energy += fade;
+      amp *= uFalloff;
+    }
+  }
+
+  float wave = crest;
+  vec2 offset = push * uStrength / uRes;
+
+  // A whisper of chromatic aberration along the crest. The numbers are 1.08
+  // and 0.92 rather than anything bolder for a reason: past about a tenth the
+  // dashboard stops looking like water and starts looking like a filter.
+  float r = texture(uSrc, vUV + offset * 1.08).r;
+  float g = texture(uSrc, vUV + offset).g;
+  float b = texture(uSrc, vUV + offset * 0.92).b;
+  float a = texture(uSrc, vUV + offset).a;
+
+  // ---- THE SURFACE'S OWN NORMAL, AND A LIGHT ON IT ----------------------
+  //
+  // The wave sum is a HEIGHT FIELD: the rings added up. Its gradient is the
+  // slope, and the slope is the normal — so nothing has to be computed or
+  // stored to light this surface that the displacement did not already need.
+  //
+  // The gradient is taken in SCREEN SPACE with dFdx/dFdy rather than by
+  // differentiating the sum by hand. Two reasons: the analytic derivative of
+  // a Gaussian times a sine, summed over every ring of every drop, is a
+  // second expression that has to be kept in step with the first one forever
+  // — and this one is exact for whatever the first one happens to be. The
+  // loops above branch only on uniforms, so every fragment in a quad takes
+  // the same path and the derivative is well defined.
+  vec2 grad = vec2(dFdx(wave), dFdy(wave)) * uBump;
+  vec3 N = normalize(vec3(-grad, 1.0));
+
+  // Blinn-Phong. The eye looks straight down at a flat page, so V is +Z and
+  // the half vector is the light plus that.
+  vec3 L = normalize(uLight);
+  vec3 V = vec3(0.0, 0.0, 1.0);
+  vec3 H = normalize(L + V);
+  float spec = pow(max(dot(N, H), 0.0), uGloss) * uShine;
+
+  // The specular lives on the FLANK of a wave and not on its top — that is
+  // the whole difference from the ambient term beside it, and it is why the
+  // glint slides along the ring as the ring travels rather than sitting on
+  // it.
+  //
+  // It is faded out where there is no ring, so a page whose ripples have died
+  // carries no shine. That fade is taken from the ENVELOPE and not from the
+  // wave: the wave crosses zero twice per wavelength, and fading by it would
+  // cut a dark seam straight through the middle of every glint.
+  float alive = clamp(energy * 3.0, 0.0, 1.0);
+
+  vec3 col = vec3(r, g, b) + wave * uHi + spec * alive;
+  outColor = vec4(col, a);
+}`;
+
+// One target, kept and resized only when the canvas is. Same shape as the blur
+// targets above and for the same reason: a frame that allocates a texture is a
+// frame that stutters.
+const RIPPLE_TARGET = new WeakMap();
+
+function rippleTargetFor(gl, w, h) {
+  let t = RIPPLE_TARGET.get(gl);
+  if (!t) { t = { w: 0, h: 0, tex: null, fbo: null, depth: null, complete: false }; RIPPLE_TARGET.set(gl, t); }
+  if (t.w === w && t.h === h && t.tex) return t;
+  if (t.tex) gl.deleteTexture(t.tex);
+  if (t.fbo) gl.deleteFramebuffer(t.fbo);
+  t.tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t.tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  // A displaced sample near the edge must repeat the edge, not read black —
+  // otherwise the ring draws a dark rim as it reaches the sides of the page.
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  t.fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.tex, 0);
+  // A STENCIL BUFFER, and it is not optional. Path fills are stencil-then-
+  // cover, so a target without one cannot fill a path — and the chart on the
+  // page that wanted this effect is nothing but path fills. Leaving it off did
+  // not draw a chart with no bars in it, which is what the missing-stencil
+  // branch is written to do: it made every frame take half a SECOND, because
+  // the driver fell off its fast path and back into software for a stencil
+  // buffer that was not there. 7ms a frame became 540.
+  if (t.depth) gl.deleteRenderbuffer(t.depth);
+  t.depth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, t.depth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, t.depth);
+  t.complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  t.w = w; t.h = h;
+  return t;
+}
+
 const BLUR_TARGETS = new WeakMap();
 
 function blurTargetsFor(gl, w, h) {
@@ -856,6 +1057,14 @@ function programsFor(gl) {
   if (!gl.getProgramParameter(blurProg, gl.LINK_STATUS)) {
     throw new Error("link blur: " + gl.getProgramInfoLog(blurProg));
   }
+  const rippleProg = gl.createProgram();
+  gl.attachShader(rippleProg, compile(gl, gl.VERTEX_SHADER, RIPPLE_VERT));
+  gl.attachShader(rippleProg, compile(gl, gl.FRAGMENT_SHADER, RIPPLE_FRAG));
+  gl.linkProgram(rippleProg);
+  if (!gl.getProgramParameter(rippleProg, gl.LINK_STATUS)) {
+    throw new Error("link ripple: " + gl.getProgramInfoLog(rippleProg));
+  }
+
   const backdropProg = gl.createProgram();
   gl.attachShader(backdropProg, compile(gl, gl.VERTEX_SHADER, BACKDROP_VERT));
   gl.attachShader(backdropProg, compile(gl, gl.FRAGMENT_SHADER, BACKDROP_FRAG));
@@ -888,6 +1097,24 @@ function programsFor(gl) {
     blurStep: gl.getUniformLocation(blurProg, "uStep"),
     blurWidth: gl.getUniformLocation(blurProg, "uWidth"),
     blurOffset: gl.getUniformLocation(blurProg, "uOffset"),
+    rippleProg,
+    ripplePosLoc: gl.getAttribLocation(rippleProg, "aPos"),
+    rippleSrc: gl.getUniformLocation(rippleProg, "uSrc"),
+    rippleRes: gl.getUniformLocation(rippleProg, "uRes"),
+    rippleDrops: gl.getUniformLocation(rippleProg, "uDrops"),
+    rippleCount: gl.getUniformLocation(rippleProg, "uCount"),
+    rippleSpeed: gl.getUniformLocation(rippleProg, "uSpeed"),
+    rippleWidth: gl.getUniformLocation(rippleProg, "uWidth"),
+    rippleStrength: gl.getUniformLocation(rippleProg, "uStrength"),
+    rippleDecay: gl.getUniformLocation(rippleProg, "uDecay"),
+    rippleHi: gl.getUniformLocation(rippleProg, "uHi"),
+    rippleRings: gl.getUniformLocation(rippleProg, "uRings"),
+    rippleStagger: gl.getUniformLocation(rippleProg, "uStagger"),
+    rippleFalloff: gl.getUniformLocation(rippleProg, "uFalloff"),
+    rippleShine: gl.getUniformLocation(rippleProg, "uShine"),
+    rippleGloss: gl.getUniformLocation(rippleProg, "uGloss"),
+    rippleBump: gl.getUniformLocation(rippleProg, "uBump"),
+    rippleLight: gl.getUniformLocation(rippleProg, "uLight"),
     backdropProg,
     backdropPosLoc: gl.getAttribLocation(backdropProg, "aPos"),
     backdropUVLoc: gl.getAttribLocation(backdropProg, "aUV"),
@@ -925,7 +1152,14 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
   // ends the run before it and forms one of its own.
-  const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [];
+  const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [], radii = [];
+  // `rc` is on a command only when its four corners differ; a box with one
+  // radius still carries a single `r`, so nothing that reads this list had to
+  // change to keep working.
+  const pushRadii = (c) => {
+    if (c.rc) radii.push(c.rc[0], c.rc[1], c.rc[2], c.rc[3]);
+    else { const r = c.r || 0; radii.push(r, r, r, r); }
+  };
   // Three floats per command, not two: a pivot at (0, 0) is a legal place to
   // turn about, so "is there one" cannot be read off the coordinates.
   const origins = [];
@@ -1013,6 +1247,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(u0, v0, u1, v1);
       shapes.push(c.r || 0, 0, MODE.IMAGE);
+      pushRadii(c);
       rots.push(((c.rot || 0) * Math.PI) / 180);
       origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
       colors.push(1, 1, 1, 1);
@@ -1046,10 +1281,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
       rects.push(c.x - s.pad, c.y + halfLeading + s.faceAsc - (s.pad + s.asc), s.w, s.h);
       uvs.push(s.u0, s.v0, s.u1, s.v1);
       shapes.push(0, 0, s.colored ? MODE.COLORTEXT : MODE.TEXT);
+      radii.push(0, 0, 0, 0);
     } else {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(0, 0, 0, 0);
       shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);
+      pushRadii(c);
     }
     rots.push(((c.rot || 0) * Math.PI) / 180);
     origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
@@ -1117,6 +1354,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
     { name: "aColor2", data: colors2, size: 4 },
     { name: "aGrad", data: grads, size: 1 },
     { name: "aShape", data: shapes, size: 3 },
+    { name: "aRadii", data: radii, size: 4 },
     { name: "aUV", data: uvs, size: 4 },
     { name: "aRot", data: rots, size: 1 },
     { name: "aOrigin", data: origins, size: 3 },
@@ -1141,6 +1379,35 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.uniform2f(built.uPage, doc.width, doc.height);
   gl.uniform1i(built.uAtlas, 0);
   gl.uniform1i(built.uImage, 1);
+
+  // A LIVE SURFACE EFFECT redirects the whole frame into a texture first. It
+  // is live only while it is still moving: an effect declared in the sheet but
+  // with no touch behind it (`t` below zero) costs a comparison and nothing
+  // else, which is what lets a page carry the declaration all the time.
+  const fx = doc.list.effect;
+  // Live while ANY drop still has something left in it. The application
+  // retires them, so in practice this is "are there any"; the decay test
+  // stays as the renderer's own guard against being asked to draw nothing.
+  const rippling = !!fx && fx.kind === "ripple" && fx.drops && fx.drops.length > 0 &&
+    fx.drops.some((d) => Math.exp(-d[2] * fx.decay) > 0.004);
+  let target = rippling
+    ? rippleTargetFor(gl, gl.canvas.width, gl.canvas.height)
+    : null;
+  // An incomplete target draws the page without the effect rather than
+  // drawing nothing, which is the same choice the missing-stencil branch
+  // makes about path fills: say what could not be done, do the rest.
+  if (target && !target.complete) target = null;
+  if (target) gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+
+  // THE ATLAS IS BOUND HERE, AFTER THE TARGET, AND THE ORDER IS THE WHOLE
+  // POINT. Creating the target's texture leaves it bound to the active unit,
+  // which is this one — so binding the atlas first meant the frame drew with
+  // the render target itself in the sampler the glyphs and images read. A
+  // texture sampled while it is attached to the framebuffer being drawn into
+  // is a feedback loop, and the spec says the result is undefined: this
+  // driver dropped every textured draw. The page came out with its paths on
+  // it and NOTHING else — no card, no letter — which reads as "the effect
+  // broke the renderer" and is really one line of state in the wrong order.
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, atlas);
 
@@ -1304,7 +1571,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // And back onto the page, clipped to the element's rounded box. The quad
     // is the BOX, not the grown region, so the padding's only job was to keep
     // the edges honest.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    //
+    // Back onto THE FRAME'S OWN TARGET, which is the screen only when no
+    // surface effect is running: a dialog on a rippling page would otherwise
+    // put its softened backdrop straight on the canvas, under everything the
+    // post-pass is about to draw over it.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.enable(gl.BLEND);
     gl.useProgram(built.backdropProg);
@@ -1357,6 +1629,62 @@ export function renderDisplayList(gl, doc, opts = {}) {
   }
   applyClip(null);
 
+  // The second pass. Everything above drew into a texture; this puts it on the
+  // screen through the ripple. One fullscreen quad, no blending — the texture
+  // already holds the finished surface and compositing it again would darken
+  // its own edges against itself.
+  if (target) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.disable(gl.BLEND);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(built.rippleProg);
+    const quad = gl.createBuffer();
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(built.ripplePosLoc);
+    gl.vertexAttribPointer(built.ripplePosLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, target.tex);
+    gl.uniform1i(built.rippleSrc, 0);
+    // In PAGE pixels, which is the space the drop was recorded in — the
+    // texture is in device pixels and the shader never has to know.
+    gl.uniform2f(built.rippleRes, doc.width, doc.height);
+    // Flattened to (x, y, age) triples, oldest first — the order is the
+    // application's and the shader does not care, because addition does not.
+    const drops = new Float32Array(24);
+    const n = Math.min(8, fx.drops.length);
+    for (let i = 0; i < n; i++) {
+      drops[i * 3] = fx.drops[i][0];
+      drops[i * 3 + 1] = fx.drops[i][1];
+      drops[i * 3 + 2] = fx.drops[i][2];
+    }
+    gl.uniform3fv(built.rippleDrops, drops);
+    gl.uniform1i(built.rippleCount, n);
+    gl.uniform1f(built.rippleSpeed, fx.speed);
+    gl.uniform1f(built.rippleWidth, fx.width);
+    gl.uniform1f(built.rippleStrength, fx.strength);
+    gl.uniform1f(built.rippleDecay, fx.decay);
+    gl.uniform1f(built.rippleHi, fx.highlight);
+    gl.uniform1i(built.rippleRings, Math.max(1, Math.min(5, Math.round(fx.rings || 1))));
+    gl.uniform1f(built.rippleStagger, fx.stagger || 0);
+    gl.uniform1f(built.rippleFalloff, fx.falloff || 0);
+    gl.uniform1f(built.rippleShine, fx.shine || 0);
+    // Never zero: pow(x, 0) is 1 everywhere and the whole page turns white.
+    gl.uniform1f(built.rippleGloss, Math.max(1, fx.gloss || 1));
+    gl.uniform1f(built.rippleBump, fx.bump || 0);
+    const L = fx.light || [0, 0, 1];
+    gl.uniform3f(built.rippleLight, L[0], L[1], L[2]);
+    // One triangle covering the screen, not two: no seam down the diagonal
+    // for `fwidth` to trip over, and three vertices instead of six.
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.deleteBuffer(quad);
+    gl.enable(gl.BLEND);
+  }
+
   return {
     drawn: count, textRuns: slots.size, images: drawnImages, missingImages,
     runs: runs.length, paths,
@@ -1370,5 +1698,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // passes, so this is the number to look at when a frame with a dialog on
     // it costs more than one without.
     backdrops,
+    // Whether this frame went through a surface effect. 0 on every frame of
+    // every page that is not rippling, which is nearly all of them.
+    rippled: target ? 1 : 0,
   };
 }

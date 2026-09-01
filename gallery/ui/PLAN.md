@@ -2505,7 +2505,226 @@ The first version of the check passed while the bundle 404'd: a canvas is born
 300x150, and "something was drawn" was reading an element's default. It asks
 whether the PAGE sized it now.
 
-**Still to come**: the reference's horizontal scroll is not wanted — it scrolls
+## Three things wrong with a window you can drag
+
+**It only jumped at the end.** `DialogDemo.dragBy` moved the controller and was
+the only one of `beginDrag`/`dragBy`/`endDrag` that did not rebuild the tree —
+the window's x and y live on the controller and the tree is built from them, so
+the picture kept the position it was built with until the release rebuilt it. A
+drag that ends in a jump rather than one you can steer, and one line.
+
+**The title bar was rounded on all four corners**, because a box in EVG had ONE
+radius. `border-radius: 11px 11px 0 0` — the declaration that makes a strip sit
+flush against what is under it — could not be written at all. Four numbers is
+the easy part; the two rules needed measuring, and `oracle/radius.json` records
+them:
+
+- the shorthand's fill-in order, where two values are a DIAGONAL pair (TL+BR,
+  TR+BL) and not the vertical/horizontal pair every other box shorthand uses;
+- the scale-down: when two radii on one side overrun it, ALL FOUR shrink by the
+  same factor — the smallest ratio over the four sides. Clamping per corner is
+  the classic wrong answer and comes out lopsided. 80px corners on a 100x40 box
+  are drawn at 40, and 60/20 on a 50x200 box at 37.5 and 12.5.
+
+Asking the browser turned up two more, both in the code the change did not
+touch. **A percentage resolved against the PARENT**: `border-radius: 50%` on a
+200x100 box inside an 800x600 page came out 300, and only the WebGL shader's
+own clamp made it look right — PDF and the rasteriser drew what they were told.
+And **the single number every backend reads was the AUTHORED one**, not the
+scaled one, for the same reason. Both are re-resolved where the box's own width
+is finally a number.
+
+The command carries `rc` only when the corners differ, so a box with one radius
+still emits one `r` and nothing that reads the list had to change. The painter
+takes a `vec4` and picks the corner by quadrant.
+
+**And the bar did not say it could be dragged.** `cursor` is a real inherited
+property in EVG now — a title bar declares `cursor: move` once and the words on
+it answer the same, which is what makes "what is the cursor here" a question
+about one element rather than a walk up a tree that has no parent links.
+`EVGHitTest.cursorAt` is the only new call, and unlike `idAt` it does not skip
+unnamed elements: the label inside the bar is exactly what the pointer is over.
+
+## The page swallowed every key once you picked a demo
+
+Reported separately: the Profile page's inputs did not respond to the keyboard.
+They worked in Node — press, then `keyWith`, and the text changes. The page
+dropped every key, because the keydown handler bailed on any
+`HTMLInputElement`, and the only inputs on the page are the sidebar's own
+radios and checkboxes. Choosing a demo left focus on the radio that chose it,
+and a demo that never sees a key is indistinguishable from one that ignores the
+keyboard.
+
+Fixed at the root rather than by widening the guard: the canvas takes focus on
+pointerdown — the thing you click should have it — with `tabIndex = -1`, so the
+tab order still belongs to the accessibility mirror, which is what a reader
+actually walks. The guard now names the elements that consume text.
+
+All four are in `demo/page-check.mjs`, which is the gate that exists because a
+bundle that builds is not a page that works.
+
+## A ripple, and the point it makes
+
+`evg-surface-effect: ripple`, and the `evg-ripple-*` numbers under it. The
+prefix is not decoration: these are EVG EXTENSIONS and not CSS, so nothing in
+the gallery should ever measure them against a browser and find a divergence —
+there is nothing to diverge from. Everything else in the sheet is CSS and is
+measured; these are ours, and they say so in their names.
+
+The page is drawn into a texture, then put on the screen as one fullscreen
+triangle whose fragment shader bends the sample position in a Gaussian ring
+travelling out from wherever the surface was touched. **The shader knows
+nothing about Ranger.** It gets a picture, a centre and an age. Text, card
+edges and the chart's own paths all bend together because by then they are the
+same pixels — which is the most direct demonstration this gallery has that a
+dashboard that looks like the DOM is not DOM pixels but a surface a GPU drew.
+
+The click that works a control is the click that starts it. The button never
+learns that anything happened.
+
+Three things it took to make it cheap rather than merely correct:
+
+- **The age is stamped at paint time, not built into the tree.** Advancing a
+  clock by rebuilding would make the cheapest effect on the page the most
+  expensive thing on it: not one box moves and not one word re-wraps between
+  two frames of a ripple. 300ms a frame became 15.
+- **An effect declared but not in flight costs one comparison.** `t` below zero
+  is the resting state, which is what lets a page carry the declaration all the
+  time.
+- **The offscreen target needs a stencil buffer.** Path fills are
+  stencil-then-cover and the chart is nothing but path fills. Leaving it off did
+  not draw a chart with no bars in it — the renderer has a branch that says so —
+  it silently cost half a second a frame.
+
+**And an honest number.** In this container Chromium runs on SwiftShader, which
+rasterises on the CPU: the post-pass costs about 540ms at 2672x1800 and 166ms at
+a quarter of the pixels. It scales with pixel count exactly as software
+rasterisation does, and on a GPU a four-tap fullscreen pass is well under a
+millisecond. The measurement is recorded rather than optimised away, because
+the thing to fix would be the container and not the shader.
+
+### Many drops, and interference for free
+
+Up to eight touches in flight at once, summed. **Interference is not something
+the shader implements** — two rings that cross reinforce where their crests
+meet and cancel where a crest meets a trough, because that is what adding waves
+does. The displacement is summed as a VECTOR rather than as a scalar amplitude,
+so two rings arriving from opposite sides push the surface in opposite
+directions and the pixel between them stays where it was.
+
+A dragged finger leaves a WAKE: one source every 26 pixels, not one ring that
+follows the pointer — a wake is a row of sources, and a source that moves has
+no history. The eighth drop retires the first, which is also the one that has
+faded most.
+
+Because the rings interfere, the numbers can stay quiet and the effect still
+reads. What was raised was the HIGHLIGHT rather than the displacement, and for
+a reason worth writing down: displacement only shows on edges, and most of this
+page is flat. The highlight shades flat ground, so it is what makes a ring
+visible across the middle of a chart's fill.
+
+**The wake is checked in Node and not in the browser.** In this container a
+rippling frame can take over two seconds, so one `tick` ages every drop added
+before it past its lifetime and the wake is thinned out by the machine rather
+than by the code. The page check asserts only that a drag makes drops; the
+shape of the wake — eight of them, evenly spaced, oldest retired — is asserted
+where the clock belongs to the test.
+
+### One touch, a train of rings
+
+A drop on water does not make a circle. It makes an expanding TARGET: several
+wavefronts leaving the same point a moment apart, each fainter than the one in
+front. `evg-ripple-rings: 3`, `evg-ripple-stagger` and
+`evg-ripple-ring-falloff` say so, and the shader draws them.
+
+**They cost no state at all.** The rings of one touch differ only in when they
+started, so the k-th is that touch aged by k staggers — worked out from the one
+age the shader already has. A ring whose start is still in the future has a
+negative age and has not been born yet, which is also what makes the first
+moments of a touch look right: one ring out, the second just appearing behind
+it.
+
+So the two multiplications are separate and compose. A touch is a train of
+rings; several touches are several trains; and all of it is summed, so a
+wavefront from one touch interferes with a wavefront from another exactly as it
+does with the one in front of it.
+
+### A light on the wave, and why the ring was matte
+
+Reported: the ring was still very matte, and it was. Its only brightening was
+the highlight term, which adds the wave's HEIGHT to the colour — and height is
+not a shading model. A term that depends on how high the surface is rather than
+on which way it faces is an AMBIENT term, and an ambient term is what matte
+means. What makes water look wet is a specular, and a specular needs the
+NORMAL.
+
+The normal was already there and cost nothing to find. The rings sum to a
+height field; its screen-space gradient is the slope, and the slope is the
+normal:
+
+    vec2 grad = vec2(dFdx(wave), dFdy(wave)) * uBump;
+    vec3 N = normalize(vec3(-grad, 1.0));
+
+Taken with `dFdx`/`dFdy` rather than by differentiating the sum by hand, for two
+reasons. The analytic derivative of a Gaussian times a sine, summed over every
+ring of every drop, is a second expression that would have to be kept in step
+with the first one forever — and this one is exact for whatever the first one
+happens to be. The loops branch only on uniforms, so every fragment in a quad
+takes the same path and the derivative is well defined.
+
+Then Blinn-Phong, with the eye looking straight down at a flat page. Four
+numbers say it in the sheet: `evg-ripple-shine`, `evg-ripple-gloss`,
+`evg-ripple-bump` and `evg-ripple-light`.
+
+Two of them decide whether it reads at all, and both fail by turning back into
+the ambient term they replaced. A light on the VIEWING AXIS puts the same glint
+on every part of a ring at once, so it must be off it — the default is over the
+viewer's left shoulder, where this gallery already pretends its light is. And
+`bump` at zero leaves the normal straight up everywhere, which makes the
+specular a constant. Both are asserted, and both were proven by mutation.
+
+`gloss` has a working range with a wall at each end: under about 8 the glint is
+a wash over the whole ring, and past about 200 the surviving band is thinner
+than a pixel and the arc breaks into separate crawling specks. 120 is where the
+glint is an arc that slides along the ring as the ring travels.
+
+### The frame the effect ate
+
+The bug that this cost most to find, and the check that now stands where it
+was. Making the effect's target left its own texture bound to texture unit 0 —
+the unit the glyph atlas lives on — so the first rippling frame drew every
+letter, card and image while SAMPLING THE SURFACE IT WAS DRAWING INTO. A
+feedback loop is undefined by the spec; this driver dropped the draws. The page
+came back with its chart and its icons on it and nothing else.
+
+Every check passed on that frame. The effect was declared, the touch became its
+origin, the age advanced, the renderer reported taking the post-pass — all
+true, and all true of a blank page. **Nothing was looking at the pixels.**
+
+It also hid in the one place a person would look. The target is made once and
+reused, so only the FIRST rippling frame is wrong; on the live page that frame
+is gone in milliseconds and every frame after it is right. Which is why the
+gate is `demo/ripple-frame-check.mjs` and not the page check: the single-frame
+render harness draws exactly that frame and nothing else.
+
+**And it counts opacity, not ink.** The first version of the check counted dark
+pixels and PASSED on the broken frame. A page whose draws were dropped is
+TRANSPARENT, the white of the HTML behind it photographs as a perfectly
+reasonable white page, and the chart that did survive carried half a million
+dark pixels — more than the healthy frame had. What is missing from such a
+frame is not ink, it is coverage: the dashboard paints its own background, so a
+whole frame of it is opaque, and the broken one covered one pixel in eight.
+
+The same mistake had a quieter twin beside it: a blurred backdrop put itself
+back on the default framebuffer by name, so a dialog on a rippling page would
+have dropped its softened backdrop straight onto the canvas, under everything
+the post-pass was about to draw over it. It goes back to the frame's own target
+now.
+
+**Still to come**: a height-field version, which would let the waves reflect off
+the cards rather than pass through them, and needs a simulation texture with a
+wave equation per pixel rather than analytic rings. And the reference's
+horizontal scroll is not wanted — it scrolls
 because its sidebar takes the width, and this table is sized to its card
 instead, so there is no scroll container and nothing to get wrong. Nor does the
 sidebar collapse to icons; that is a width this page does not have. And the

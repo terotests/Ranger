@@ -229,6 +229,105 @@ class EVGElement {
     def lineBreak:boolean false
     def overflow:string "visible"
 
+    ; `cursor`, and it INHERITS, like the CSS property it is: a title bar says
+    ; `cursor: move` once and the words on it do not have to say it again.
+    ; Empty means nobody has said anything, which is what makes inheriting
+    ; distinguishable from an author writing `default` on purpose.
+    def cursor:string ""
+
+    ; --- A SURFACE EFFECT ------------------------------------------------------
+    ;
+    ; `evg-surface-effect: ripple`, and the family of `evg-ripple-*` numbers
+    ; under it. The `evg-` prefix is not decoration: this is an EVG EXTENSION
+    ; and not a CSS property, so nothing in the gallery should ever measure it
+    ; against a browser and find a divergence — there is nothing to diverge
+    ; from. Every other property in this file is CSS and is measured; these are
+    ; ours, and they say so in their names.
+    ;
+    ; The effect belongs to a SURFACE, not to a box. It names a post-process
+    ; over everything that was drawn: the display list carries it beside the
+    ; commands rather than as one of them, and a backend that has never heard
+    ; of it draws the page and ignores the field.
+    def surfaceEffect:string ""
+    ; How fast the ring travels, in pixels a second.
+    def rippleSpeed:double 220.0
+    ; How wide the ring is — the Gaussian envelope's sigma, in pixels.
+    def rippleWidth:double 28.0
+    ; How far the surface is pushed at the crest, in pixels.
+    def rippleStrength:double 7.0
+    ; How fast the whole thing dies away, per second.
+    def rippleDecay:double 1.8
+    ; How much the crest lightens. Small: this is the difference between water
+    ; and a filter somebody put on a video.
+    def rippleHighlight:double 0.08
+
+    ; --- how many rings ONE touch sends -----------------------------------------
+    ;
+    ; A drop on water does not make one ring. It makes a TRAIN of them, born at
+    ; the same point a moment apart and travelling out together, each fainter
+    ; than the one in front: the shape is a single expanding target rather than
+    ; a single circle.
+    ;
+    ; This costs no state at all. The rings of one touch differ only in when
+    ; they started, and that is the touch's age minus a multiple of the stagger
+    ; — so the shader works them out from the one age it already has, and a
+    ; ring whose start is still in the future simply has not been born yet.
+    def rippleRings:double 3.0
+    ; Seconds between one wavefront and the next.
+    def rippleStagger:double 0.09
+    ; What each ring behind the front is worth. Below about a half the train
+    ; reads as one ring with a smudge behind it.
+    def rippleFalloff:double 0.62
+
+    ; --- and what makes it look WET ---------------------------------------------
+    ;
+    ; A brightness proportional to the wave's height is an AMBIENT term: every
+    ; part of a crest lights up by the same amount however it is tilted, which
+    ; is exactly what a matte surface does. Water is not matte. What makes it
+    ; read as water is a SPECULAR: a highlight that depends on the angle
+    ; between the light, the eye and the surface's own normal, so it lives on
+    ; the FLANK of a wave rather than on its top and slides along as the wave
+    ; moves.
+    ;
+    ; The normal comes from the height field the rings already sum to — its
+    ; screen-space gradient is the slope, and the slope is the normal. Nothing
+    ; new has to be computed or stored.
+    ;
+    ; How strong the glint is. 0 turns it off and leaves the ambient term.
+    def rippleShine:double 0.45
+    ; The Blinn-Phong exponent: how TIGHT the glint is. Low is a broad sheen
+    ; like wet stone, high is a sharp point like a bead of water. Past about
+    ; 200 the glint stops being an arc along the ring and breaks into
+    ; separate specks, because the surviving band gets narrower than a pixel.
+    def rippleGloss:double 120.0
+    ; How much the wave's height tilts the normal. This is the one number with
+    ; no physical meaning — the height field is in arbitrary units, so this is
+    ; what turns it into a slope.
+    def rippleBump:double 70.0
+    ; Where the light is. The default is over the viewer's left shoulder,
+    ; which is where every UI in this gallery already pretends its light is.
+    def rippleLightX:double -0.45
+    def rippleLightY:double -0.65
+    def rippleLightZ:double 0.62
+
+    ; --- and the state it needs, which is not styling ---------------------------
+    ;
+    ; Where the surface was touched and how long ago — for EVERY touch still in
+    ; flight, not just the last one. Set by the APPLICATION, like `scrollTop`:
+    ; a stylesheet has no business owning where somebody clicked.
+    ;
+    ; Three parallel arrays rather than an array of triples, because that is
+    ; what goes into a `vec3` uniform array without a copy at the other end.
+    ; Empty means nothing is in flight.
+    ;
+    ; MANY of them, and that is the whole difference between an effect and a
+    ; surface: two rings that cross ADD, so the crests reinforce where they
+    ; meet and cancel a quarter-wavelength away. Interference is not something
+    ; the shader implements — it is what summing waves does.
+    def rippleXs:[double]
+    def rippleYs:[double]
+    def rippleAges:[double]
+
     ; --- SCROLLING ------------------------------------------------------------
     ;
     ; How far the content inside this element is pushed up and left. Set by the
@@ -1145,6 +1244,12 @@ class EVGElement {
         if (emojiColor.isSet == false) {
             emojiColor = parentEl.emojiColor
         }
+        ; And so does `cursor`. This is what makes "what is the cursor here" a
+        ; question about ONE element rather than a walk up a tree that has no
+        ; parent links.
+        if ((strlen cursor) == 0) {
+            cursor = parentEl.cursor
+        }
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
         this.applyOwnFontSize()
@@ -1803,6 +1908,36 @@ class EVGElement {
 
     ; A width starts with a digit or a dot; anything else in the shorthand that
     ; is not a style keyword is the colour — `#abc`, `rgb(...)` or a name.
+    ; A bare number, with a `px` or other unit allowed and ignored: these are
+    ; EVG's own properties and they are all in page pixels or in per-second,
+    ; so there is no unit to resolve — `28` and `28px` mean the same thing and
+    ; both are things somebody will write.
+    sfn numberOr:double (value:string fallback:double) {
+        def digits:string ""
+        def i:int 0
+        while (i < (strlen value)) {
+            ; `charAt` gives a CODEPOINT, not a one-character string, so the
+            ; comparison is against numbers: 48..57 are the digits, 46 is the
+            ; point and 45 the minus.
+            def code:int (charAt value i)
+            def keep:boolean ((code >= 48) && (code <= 57))
+            if (code == 46) { keep = true }
+            if (code == 45) { keep = true }
+            if keep {
+                digits = (digits + (substring value i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen digits) == 0) {
+            return fallback
+        }
+        def v@(optional):double (to_double digits)
+        if v {
+            return (unwrap v)
+        }
+        return fallback
+    }
+
     sfn looksLikeColor:boolean (tok:string) {
         if ((strlen tok) == 0) {
             return false
@@ -2003,6 +2138,25 @@ class EVGElement {
         isInline = other.isInline
         lineBreak = other.lineBreak
         overflow = other.overflow
+        cursor = other.cursor
+        surfaceEffect = other.surfaceEffect
+        rippleSpeed = other.rippleSpeed
+        rippleWidth = other.rippleWidth
+        rippleStrength = other.rippleStrength
+        rippleDecay = other.rippleDecay
+        rippleHighlight = other.rippleHighlight
+        rippleRings = other.rippleRings
+        rippleStagger = other.rippleStagger
+        rippleFalloff = other.rippleFalloff
+        rippleShine = other.rippleShine
+        rippleGloss = other.rippleGloss
+        rippleBump = other.rippleBump
+        rippleLightX = other.rippleLightX
+        rippleLightY = other.rippleLightY
+        rippleLightZ = other.rippleLightZ
+        rippleXs = other.rippleXs
+        rippleYs = other.rippleYs
+        rippleAges = other.rippleAges
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth
@@ -2468,8 +2622,40 @@ class EVGElement {
             box.borderColor = (EVGColor.parse(value))
             return
         }
+        ; ONE TO FOUR VALUES, clockwise from the top left. The fill-in rules
+        ; are the shorthand's own and are not the ones `padding` uses: two
+        ; values are (TL+BR, TR+BL) — a DIAGONAL pair — where two paddings are
+        ; vertical and horizontal. Three are (TL, TR+BL, BR). Measured against
+        ; a browser in `oracle/radius.json` rather than recalled.
         if ((name == "border-radius") || (name == "borderRadius")) {
-            box.borderRadius = (EVGUnit.parse(value))
+            def parts:[string] (EVGElement.splitWords(value))
+            def n:int (array_length parts)
+            if (n < 2) {
+                box.borderRadius = (EVGUnit.parse(value))
+                box.borderRadiusTL = (EVGUnit.unset())
+                box.borderRadiusTR = (EVGUnit.unset())
+                box.borderRadiusBR = (EVGUnit.unset())
+                box.borderRadiusBL = (EVGUnit.unset())
+                return
+            }
+            def tl:string (itemAt parts 0)
+            def tr:string (itemAt parts 1)
+            def br:string tl
+            def bl:string tr
+            if (n > 2) {
+                br = (itemAt parts 2)
+            }
+            if (n > 3) {
+                bl = (itemAt parts 3)
+            }
+            box.borderRadiusTL = (EVGUnit.parse(tl))
+            box.borderRadiusTR = (EVGUnit.parse(tr))
+            box.borderRadiusBR = (EVGUnit.parse(br))
+            box.borderRadiusBL = (EVGUnit.parse(bl))
+            ; The uniform value stays the FIRST corner, because every backend
+            ; but the WebGL painter still reads one number and the top left is
+            ; the one the shorthand names first.
+            box.borderRadius = (EVGUnit.parse(tl))
             return
         }
 
@@ -2591,6 +2777,77 @@ class EVGElement {
         }
         if (name == "overflow") {
             overflow = value
+            return
+        }
+        if (name == "cursor") {
+            cursor = value
+            return
+        }
+        ; The EVG effect family. Prefixed, because these are EXTENSIONS and not
+        ; CSS: a reader who meets `evg-ripple-speed` should not go looking for
+        ; it in a specification.
+        if (name == "evg-surface-effect") {
+            surfaceEffect = value
+            return
+        }
+        if (name == "evg-ripple-speed") {
+            rippleSpeed = (EVGElement.numberOr(value rippleSpeed))
+            return
+        }
+        if (name == "evg-ripple-width") {
+            rippleWidth = (EVGElement.numberOr(value rippleWidth))
+            return
+        }
+        if (name == "evg-ripple-strength") {
+            rippleStrength = (EVGElement.numberOr(value rippleStrength))
+            return
+        }
+        if (name == "evg-ripple-decay") {
+            rippleDecay = (EVGElement.numberOr(value rippleDecay))
+            return
+        }
+        if (name == "evg-ripple-highlight") {
+            rippleHighlight = (EVGElement.numberOr(value rippleHighlight))
+            return
+        }
+        if (name == "evg-ripple-rings") {
+            rippleRings = (EVGElement.numberOr(value rippleRings))
+            return
+        }
+        if (name == "evg-ripple-stagger") {
+            rippleStagger = (EVGElement.numberOr(value rippleStagger))
+            return
+        }
+        if (name == "evg-ripple-ring-falloff") {
+            rippleFalloff = (EVGElement.numberOr(value rippleFalloff))
+            return
+        }
+        if (name == "evg-ripple-shine") {
+            rippleShine = (EVGElement.numberOr(value rippleShine))
+            return
+        }
+        if (name == "evg-ripple-gloss") {
+            rippleGloss = (EVGElement.numberOr(value rippleGloss))
+            return
+        }
+        if (name == "evg-ripple-bump") {
+            rippleBump = (EVGElement.numberOr(value rippleBump))
+            return
+        }
+        ; Three numbers, and they do not have to be normalised — the shader
+        ; does that, because a direction somebody typed is a direction and not
+        ; a unit vector.
+        if (name == "evg-ripple-light") {
+            def lp:[string] (EVGElement.splitWords(value))
+            if ((array_length lp) > 0) {
+                rippleLightX = (EVGElement.numberOr((itemAt lp 0) rippleLightX))
+            }
+            if ((array_length lp) > 1) {
+                rippleLightY = (EVGElement.numberOr((itemAt lp 1) rippleLightY))
+            }
+            if ((array_length lp) > 2) {
+                rippleLightZ = (EVGElement.numberOr((itemAt lp 2) rippleLightZ))
+            }
             return
         }
         ; The scroll POSITION is settable, because a demo restoring where it

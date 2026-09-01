@@ -49,6 +49,7 @@ SUITES=(
   evg:scroll:check
   evg:tags:check
   evg:textbox:check
+  evg:radius:check
   ui:sortable:motion
   ui:table:check
   ui:virtual:check

@@ -146,6 +146,30 @@ class EVGHitTest {
         return ""
     }
 
+    ; What the pointer should look like here.
+    ;
+    ; The topmost element under the point, whatever its id — unlike `idAt` this
+    ; does NOT skip the unnamed ones, because a label inside a title bar is
+    ; exactly the thing the pointer is usually over and it has no id of its
+    ; own. It does not need one: `cursor` inherits, so by the time the layout
+    ; is done the label is carrying its bar's answer.
+    ;
+    ; Empty means nobody said, and the caller decides what that means.
+    fn cursorAt:string (root:EVGElement px:double py:double) {
+        def list:[EVGElement] (this.paintOrderAt(root px py))
+        def i:int ((array_length list) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt list i)
+            if ((strlen el.cursor) > 0) {
+                if (EVGHitTest.containsPoint(el px py)) {
+                    return el.cursor
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
     ; Same scan, for a caller that wants the class list — a hover highlight asks
     ; "is this a row?" and does not care which row.
     fn classAt:string (root:EVGElement px:double py:double) {

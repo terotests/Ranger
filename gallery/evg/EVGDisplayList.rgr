@@ -47,7 +47,15 @@ class EVGDrawCmd {
     def y:double 0.0
     def w:double 0.0
     def h:double 0.0
+    ; The TOP-LEFT radius, and — when `perCorner` is set — the other three.
+    ; One number is what every backend but the WebGL painter reads, and it is
+    ; what a box with one radius has always emitted, so nothing that consumes
+    ; this had to change to keep working.
     def radius:double 0.0
+    def perCorner:boolean false
+    def radiusTR:double 0.0
+    def radiusBR:double 0.0
+    def radiusBL:double 0.0
     def thickness:double 0.0
     ; Colour, pre-resolved to 0-255 + alpha 0-1 so a backend needs no EVGColor.
     def r:int 0
@@ -311,6 +319,31 @@ class EVGDisplayList {
         c.b = (col.blue())
         c.a = (col.alpha())
         push cmds c
+    }
+
+    ; One side's contribution to the box-wide scale factor: the smaller of what
+    ; we have and this side's length over the two radii that share it. A side
+    ; whose radii are zero contributes nothing, which is why the guard is on
+    ; the SUM and not on the side.
+    ; A radius in pixels, re-resolving a percentage against the box's OWN size.
+    ; `already` is what the box worked out from its parent, which is right for
+    ; every unit but a percentage.
+    sfn radiusPx:double (isPct:boolean pct:double already:double own:double) {
+        if isPct {
+            return ((pct / 100.0) * own)
+        }
+        return already
+    }
+
+    sfn sideFactor:double (soFar:double side:double sum:double) {
+        if (sum <= 0.0) {
+            return soFar
+        }
+        def f:double (side / sum)
+        if (f < soFar) {
+            return f
+        }
+        return soFar
     }
 
     fn addClip:void (x:double y:double w:double h:double) {
@@ -647,6 +680,14 @@ class EVGDisplayList {
     fn build:void (root:EVGElement) {
         clear cmds
         clear deferredOverlays
+        effectKind = ""
+        def noX:[double]
+        def noY:[double]
+        def noT:[double]
+        effectXs = noX
+        effectYs = noY
+        effectAges = noT
+        this.readEffect(root)
         this.walk(root)
         def i:int 0
         while (i < (array_length deferredOverlays)) {
@@ -817,6 +858,59 @@ class EVGDisplayList {
         def h:double el.calculatedHeight
 
         def radius:double el.box.borderRadiusPx
+        ; THE FOUR CORNERS, and the scale-down that makes them legal.
+        ;
+        ; CSS: if two radii on one side add up to more than that side, EVERY
+        ; radius on the box is multiplied by the same factor — the smallest
+        ; ratio over the four sides. Per-corner clamping is the classic wrong
+        ; answer and it comes out lopsided. Measured: 80px corners on a 100x40
+        ; box are drawn at 40, a factor of 0.5 applied to all four, and 60/20
+        ; on a 50x200 box become 37.5 and 12.5.
+        ;
+        ; It is done here and not in the box because it needs the DRAWN width
+        ; and height, which nothing knows until the layout has finished.
+        ; A PERCENTAGE IS AGAINST THIS BOX, not its parent. The box resolves
+        ; units when only the parent's dimensions are known, so it had nothing
+        ; else to use — `border-radius: 50%` on a 200x100 box inside a
+        ; 800x600 page came out 300, which the shader then clamped to 50 and
+        ; the PDF and raster backends did not. Re-resolved here against `w`,
+        ; where the box's own width is finally a number. Circular corners, so
+        ; one base: the browser would make an ellipse of it, and that is
+        ; recorded as a divergence rather than approximated.
+        def bx:EVGBox el.box
+        def uTL:EVGUnit bx.borderRadiusTL
+        def uTR:EVGUnit bx.borderRadiusTR
+        def uBR:EVGUnit bx.borderRadiusBR
+        def uBL:EVGUnit bx.borderRadiusBL
+        def uAll:EVGUnit bx.borderRadius
+        def rTL:double (EVGDisplayList.radiusPx((uTL.isSet && (uTL.isPercent())) uTL.value bx.borderRadiusTLPx w))
+        def rTR:double (EVGDisplayList.radiusPx((uTR.isSet && (uTR.isPercent())) uTR.value bx.borderRadiusTRPx w))
+        def rBR:double (EVGDisplayList.radiusPx((uBR.isSet && (uBR.isPercent())) uBR.value bx.borderRadiusBRPx w))
+        def rBL:double (EVGDisplayList.radiusPx((uBL.isSet && (uBL.isPercent())) uBL.value bx.borderRadiusBLPx w))
+        if ((bx.hasPerCornerRadius()) == false) {
+            def uni:double (EVGDisplayList.radiusPx((uAll.isSet && (uAll.isPercent())) uAll.value bx.borderRadiusPx w))
+            rTL = uni
+            rTR = uni
+            rBR = uni
+            rBL = uni
+        }
+        def f:double 1.0
+        f = (EVGDisplayList.sideFactor(f w (rTL + rTR)))
+        f = (EVGDisplayList.sideFactor(f h (rTR + rBR)))
+        f = (EVGDisplayList.sideFactor(f w (rBL + rBR)))
+        f = (EVGDisplayList.sideFactor(f h (rTL + rBL)))
+        if (f < 1.0) {
+            rTL = (rTL * f)
+            rTR = (rTR * f)
+            rBR = (rBR * f)
+            rBL = (rBL * f)
+        }
+        ; And the single number every other backend reads is the SCALED one.
+        ; It used to be the authored value: an 80-pixel radius on a 100-pixel
+        ; box went out as 80, and only the WebGL shader's own clamp made it
+        ; look right — PDF and the rasteriser drew what they were told.
+        radius = rTL
+        def perCorner:boolean (el.box.hasPerCornerRadius())
 
         ; Background
         ;
@@ -837,6 +931,13 @@ class EVGDisplayList {
                 c.w = w
                 c.h = h
                 c.radius = radius
+                c.perCorner = perCorner
+                if perCorner {
+                    c.radius = rTL
+                    c.radiusTR = rTR
+                    c.radiusBR = rBR
+                    c.radiusBL = rBL
+                }
                 c.r = (bg.red())
                 c.g = (bg.green())
                 c.b = (bg.blue())
@@ -855,6 +956,13 @@ class EVGDisplayList {
                 cb.w = w
                 cb.h = h
                 cb.radius = radius
+                cb.perCorner = perCorner
+                if perCorner {
+                    cb.radius = rTL
+                    cb.radiusTR = rTR
+                    cb.radiusBR = rBR
+                    cb.radiusBL = rBL
+                }
                 ; Fully transparent: the rectangle exists to carry the filter,
                 ; and a backend that cannot filter draws nothing, which is
                 ; exactly right.
@@ -879,6 +987,13 @@ class EVGDisplayList {
             c2.w = w
             c2.h = h
             c2.radius = radius
+            c2.perCorner = perCorner
+            if perCorner {
+                c2.radius = rTL
+                c2.radiusTR = rTR
+                c2.radiusBR = rBR
+                c2.radiusBL = rBL
+            }
             c2.thickness = bw
             c2.r = (bc.red())
             c2.g = (bc.green())
@@ -903,6 +1018,13 @@ class EVGDisplayList {
             c3.w = w
             c3.h = h
             c3.radius = radius
+            c3.perCorner = perCorner
+            if perCorner {
+                c3.radius = rTL
+                c3.radiusTR = rTR
+                c3.radiusBR = rBR
+                c3.radiusBL = rBL
+            }
             c3.src = el.src
             push cmds c3
         }
@@ -1204,8 +1326,98 @@ class EVGDisplayList {
         return at
     }
 
+    ; The surface's post-process, written beside the commands and not as one of
+    ; them, because it applies to everything that was drawn rather than to a
+    ; rectangle in paint order. A backend that has never heard of it draws the
+    ; page and ignores the field, which is the whole reason it is here and not
+    ; in the command stream.
+    def effectKind:string ""
+    ; Every drop still in flight: x, y and how long ago, in step.
+    def effectXs:[double]
+    def effectYs:[double]
+    def effectAges:[double]
+    def effectSpeed:double 0.0
+    def effectWidth:double 0.0
+    def effectStrength:double 0.0
+    def effectDecay:double 0.0
+    def effectHighlight:double 0.0
+    def effectRings:double 1.0
+    def effectStagger:double 0.0
+    def effectFalloff:double 0.0
+    def effectShine:double 0.0
+    def effectGloss:double 1.0
+    def effectBump:double 0.0
+    def effectLightX:double 0.0
+    def effectLightY:double 0.0
+    def effectLightZ:double 1.0
+
+    ; Pick the effect up off the tree. The first element that names one wins:
+    ; a surface has one post-process, and two would be a question about order
+    ; that nobody asked.
+    fn readEffect:void (el:EVGElement) {
+        if ((strlen effectKind) > 0) {
+            return
+        }
+        if ((strlen el.surfaceEffect) > 0) {
+            effectKind = el.surfaceEffect
+            effectXs = el.rippleXs
+            effectYs = el.rippleYs
+            effectAges = el.rippleAges
+            effectSpeed = el.rippleSpeed
+            effectWidth = el.rippleWidth
+            effectStrength = el.rippleStrength
+            effectDecay = el.rippleDecay
+            effectHighlight = el.rippleHighlight
+            effectRings = el.rippleRings
+            effectStagger = el.rippleStagger
+            effectFalloff = el.rippleFalloff
+            effectShine = el.rippleShine
+            effectGloss = el.rippleGloss
+            effectBump = el.rippleBump
+            effectLightX = el.rippleLightX
+            effectLightY = el.rippleLightY
+            effectLightZ = el.rippleLightZ
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.readEffect((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
     fn toJson:string () {
-        def out:string "{\"cmds\":["
+        def out:string "{"
+        if ((strlen effectKind) > 0) {
+            out = (out + "\"effect\":{\"kind\":\"" + effectKind + "\"")
+            out = (out + ",\"drops\":[")
+            def di:int 0
+            while (di < (array_length effectAges)) {
+                if (di > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "[" + (EVGDisplayList.num((itemAt effectXs di))))
+                out = (out + "," + (EVGDisplayList.num((itemAt effectYs di))))
+                out = (out + "," + (EVGDisplayList.num((itemAt effectAges di))) + "]")
+                di = (di + 1)
+            }
+            out = (out + "]")
+            out = (out + ",\"speed\":" + (EVGDisplayList.num(effectSpeed)))
+            out = (out + ",\"width\":" + (EVGDisplayList.num(effectWidth)))
+            out = (out + ",\"strength\":" + (EVGDisplayList.num(effectStrength)))
+            out = (out + ",\"decay\":" + (EVGDisplayList.num(effectDecay)))
+            out = (out + ",\"highlight\":" + (EVGDisplayList.num(effectHighlight)))
+            out = (out + ",\"rings\":" + (EVGDisplayList.num(effectRings)))
+            out = (out + ",\"stagger\":" + (EVGDisplayList.num(effectStagger)))
+            out = (out + ",\"falloff\":" + (EVGDisplayList.num(effectFalloff)))
+            out = (out + ",\"shine\":" + (EVGDisplayList.num(effectShine)))
+            out = (out + ",\"gloss\":" + (EVGDisplayList.num(effectGloss)))
+            out = (out + ",\"bump\":" + (EVGDisplayList.num(effectBump)))
+            out = (out + ",\"light\":[" + (EVGDisplayList.num(effectLightX)) + "," +
+                (EVGDisplayList.num(effectLightY)) + "," +
+                (EVGDisplayList.num(effectLightZ)) + "]")
+            out = (out + "},")
+        }
+        out = (out + "\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds i)
@@ -1217,6 +1429,12 @@ class EVGDisplayList {
             out = out + ",\"y\":" + (EVGDisplayList.num(c.y))
             out = out + ",\"w\":" + (EVGDisplayList.num(c.w))
             out = out + ",\"h\":" + (EVGDisplayList.num(c.h))
+            if c.perCorner {
+                out = out + ",\"rc\":[" + (EVGDisplayList.num(c.radius)) + "," +
+                    (EVGDisplayList.num(c.radiusTR)) + "," +
+                    (EVGDisplayList.num(c.radiusBR)) + "," +
+                    (EVGDisplayList.num(c.radiusBL)) + "]"
+            }
             if (c.radius > 0.0) {
                 out = out + ",\"r\":" + (EVGDisplayList.num(c.radius))
             }

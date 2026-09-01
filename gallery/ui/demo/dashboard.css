@@ -13,6 +13,45 @@
  * reference is wider than its content for exactly the same reason, which is
  * why it scrolls sideways. */
 .db-page {
+  /* AN EVG EXTENSION, not CSS — the `evg-` prefix says so, and nothing in the
+   * gallery measures these against a browser because there is nothing to
+   * measure against. The effect is a post-process over the finished surface:
+   * the page is drawn into a texture and then put on the screen through a
+   * shader that bends the sample position in a ring around wherever it was
+   * touched. Text, card edges and the chart's own paths all bend together,
+   * because by then they are the same pixels — which is the most direct
+   * demonstration here that a dashboard that looks like the DOM is not DOM
+   * pixels but a surface the GPU drew.
+   *
+   * MANY drops at once, and they interfere: two rings that cross reinforce
+   * where their crests meet and cancel where a crest meets a trough. That is
+   * not something the shader implements, it is what summing waves does — and
+   * it is why the numbers below can stay quiet and the effect still reads.
+   * Strength past about ten pixels and highlight past about a tenth stop
+   * looking like water and start looking like a filter on a video. */
+  evg-surface-effect: ripple;
+  evg-ripple-speed: 220;
+  evg-ripple-width: 24px;
+  evg-ripple-strength: 11px;
+  evg-ripple-decay: 1.6;
+  evg-ripple-highlight: 0.16;
+  /* ONE TOUCH, THREE RINGS. A drop on water does not make a circle, it makes
+   * an expanding target: several wavefronts leaving the same point a moment
+   * apart, each fainter than the one in front. They cost nothing to add —
+   * the rings of one touch differ only in when they started. */
+  evg-ripple-rings: 3;
+  evg-ripple-stagger: 0.10;
+  evg-ripple-ring-falloff: 0.62;
+  /* AND WHAT MAKES IT LOOK WET. The highlight above is an ambient term: every
+   * part of a crest lights up by the same amount however it is tilted, which
+   * is what a matte surface does. A specular depends on the angle between the
+   * light, the eye and the surface's own normal, so it lives on the FLANK of
+   * a wave and slides along the ring as the ring travels. The normal comes
+   * from the height field the rings already sum to. */
+  evg-ripple-shine: 0.45;
+  evg-ripple-gloss: 120;
+  evg-ripple-bump: 70;
+  evg-ripple-light: -0.45 -0.65 0.62;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
