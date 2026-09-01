@@ -866,3 +866,12 @@ list, so phase 3's rule declines it. Not done, and not pretended otherwise.
 and runs the reformatted helper, and a map-heavy conformance program still
 produces its committed output byte for byte through `at` and `find`. Two new
 cases in `tests/format.test.ts`, 36 in total.
+
+### Verified, phase 5
+
+`scripts/suite_matrix.sh` over all 82 files: **72 pass, 5 fail, 9 excluded**,
+and `scripts/suite_baseline_diff.sh` re-ran every one of the five against a
+copy of the pre-work compiler — **regressions=0, pre-existing=5**. The self-host
+reaches a fixpoint, `-format=none` is byte-identical to the baseline on nine
+targets (Python and C++ differ by the two deliberate emission fixes named in
+`scripts/fmt_parity.sh`), and 45 program/target pairs run identically both ways.
