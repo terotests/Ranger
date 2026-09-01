@@ -2678,12 +2678,35 @@ class RangerApiPackageWriter  {
     wr.out("],", true);
     wr.out("\"build\": {", true);
     wr.indent(1);
-    wr.out("\"content\": [ { \"files\": [ \"api/**.yml\", \"api/index.md\" ] } ],", true);
+    wr.out("\"content\": [", true);
+    wr.indent(1);
+    wr.out("{ \"files\": [ \"api/**.yml\", \"api/**.md\" ] },", true);
+    wr.out("{ \"files\": [ \"index.md\", \"toc.yml\" ] }", true);
+    wr.indent(-1);
+    wr.out("],", true);
     wr.out("\"dest\": \"_site\"", true);
     wr.indent(-1);
     wr.out("}", true);
     wr.indent(-1);
     wr.out("}", true);
+    this.writeDocFxHome(model, ctx, name, orig_wr);
+  };
+  writeDocFxHome (model, ctx, name, orig_wr) {
+    const descr = this.settingOr(ctx, "description", model.description);
+    const index = orig_wr.getFileWriter(".", "index.md");
+    index.out("# " + name, true);
+    index.out("", true);
+    if ( descr.length > 0 ) {
+      index.out(descr, true);
+      index.out("", true);
+    }
+    index.out("Generated from Ranger declarations. Every member below carries the", true);
+    index.out("documentation written on the Ranger source it was compiled from.", true);
+    index.out("", true);
+    index.out("- [API reference](api/)", true);
+    const toc = orig_wr.getFileWriter(".", "toc.yml");
+    toc.out("- name: API reference", true);
+    toc.out("  href: api/", true);
   };
   swiftModuleName (raw) {
     const parts = raw.split(".");
