@@ -18,6 +18,7 @@ Import "PptxEdit.rgr"
 Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
 Import "PptxChrome.rgr"
+Import "PptxStripView.rgr"
 Import "../../office/assets/OfficeAsset.rgr"
 Import "PptxA11y.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
@@ -240,10 +241,16 @@ class PptxApp {
     ; one that never guessed.
     def uiRtlChosen:boolean false
     def toolbar:PptxToolbar (new PptxToolbar)
-    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    ; The strip's own view, which draws the chrome around the shared icons in
+    ; the gallery's shapes. `EVGToolbar` still owns the items, the tabs, the
+    ; layout and the hit testing; the spreadsheet and the document keep the
+    ; view they have.
+    def toolbarView:EVGToolbarView (new PptxStripView)
     def windows:EVGWindowManager (new EVGWindowManager)
     def commands:GridCommandTable (new GridCommandTable)
-    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    def theme:EVGToolbarTheme (PptxStripView.modernTheme())
+    ; The five bands the strip's theme does not cover. See PptxChromeTheme.
+    def skin:PptxChromeTheme (new PptxChromeTheme)
     def toolbarH:int 30
     def statusH:int 22
     def status:string ""
@@ -2054,7 +2061,7 @@ class PptxApp {
             return (this.buildShowFrame())
         }
         def framed:EVGDisplayList (new EVGDisplayList)
-        framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
+        framed.addRect(0.0 0.0 (to_double W) (to_double H) skin.desk)
         ; Where the panel has scrolled itself to is settled every frame, panel
         ; drawn or not: the slide the reader is on has to be in view by the
         ; time anyone asks where the thumbnails are, and a host drawing the
@@ -4380,7 +4387,7 @@ class PptxApp {
             def bandX:double ((mx * sc) + ox)
             def bandY:double ((my * sc) + oy)
             dl.addRect(bandX bandY (mw * sc) (mh * sc) (EVGColor.rgba(90 140 230 0.15)))
-            dl.addFrame(bandX bandY (mw * sc) (mh * sc) 1.0 (EVGColor.rgb(90 140 230)))
+            dl.addFrame(bandX bandY (mw * sc) (mh * sc) 1.0 skin.accent)
         }
         def sel:[PptxShape] (editor.selectedShapes())
         if ((array_length sel) == 0) {
@@ -5454,7 +5461,7 @@ class PptxApp {
             return
         }
         def onTop:boolean (this.panelOnTop())
-        def bandBg:EVGColor (EVGColor.rgb(32 36 47))
+        def bandBg:EVGColor skin.panel
         def top:double (to_double toolbarH)
         if onTop {
             dl.addRect(0.0 top (to_double W) (to_double panelH) bandBg)
@@ -5499,7 +5506,7 @@ class PptxApp {
                 dl.addClipEnd()
                 def border:EVGColor theme.line
                 if (i == index) {
-                    border = (EVGColor.rgb(90 140 230))
+                    border = skin.accent
                     dl.addFrame((to_double (tx - 2)) (to_double (ty - 2)) (to_double (tw + 4)) (to_double (th + 4)) 2.0 border)
                 } {
                     dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
@@ -5526,7 +5533,7 @@ class PptxApp {
                         ; is worse than one not drawn.
                         if (onTop == false) {
                             def secName:string (editor.sectionNameAt(sec))
-                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(176 192 230)))
+                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 skin.dim)
                         }
                     }
                 }
@@ -5568,7 +5575,10 @@ class PptxApp {
     ; value the reader is meant to READ stays brighter still — those are
     ; written where they are drawn.
     sfn panelLabel:EVGColor () {
-        return (EVGColor.rgb(166 176 196))
+        ; A static, so it cannot reach the palette on the instance. The value
+        ; is the palette's `dim` and has to be kept in step with it by hand,
+        ; which is a small debt and the only one this recolour left.
+        return (EVGColor.rgb(113 113 122))
     }
 
     sfn panelFaint:EVGColor () {
@@ -5953,8 +5963,8 @@ class PptxApp {
         def w:int (this.panelWidth())
         def half:double (to_double (idiv w 2))
         def top:double (to_double toolbarH)
-        def on:EVGColor (EVGColor.rgb(46 52 66))
-        def off:EVGColor (EVGColor.rgb(32 36 47))
+        def on:EVGColor skin.panelAlt
+        def off:EVGColor skin.panel
         def slidesBg:EVGColor on
         def outlineBg:EVGColor off
         if (this.outlineOn()) {
@@ -5967,13 +5977,13 @@ class PptxApp {
         def slidesInk:EVGColor (PptxApp.panelLabel())
         def outlineInk:EVGColor (PptxApp.panelLabel())
         if (this.outlineOn()) {
-            outlineInk = (EVGColor.rgb(238 242 250))
+            outlineInk = skin.ink
             ; The tab that is on is underlined, because two panels of the same
             ; grey with one word each is not a control anybody can read.
-            dl.addRect(half (to_double ((toolbarH + h) - 2)) ((to_double w) - half) 2.0 (EVGColor.rgb(90 140 230)))
+            dl.addRect(half (to_double ((toolbarH + h) - 2)) ((to_double w) - half) 2.0 skin.accent)
         } {
-            slidesInk = (EVGColor.rgb(238 242 250))
-            dl.addRect(0.0 (to_double ((toolbarH + h) - 2)) half 2.0 (EVGColor.rgb(90 140 230)))
+            slidesInk = skin.ink
+            dl.addRect(0.0 (to_double ((toolbarH + h) - 2)) half 2.0 skin.accent)
         }
         toolbarView.pushText(dl "Slides" 10.0 (top + 6.0) 11.0 slidesInk)
         toolbarView.pushText(dl "Outline" (half + 8.0) (top + 6.0) 11.0 outlineInk)
@@ -5983,7 +5993,7 @@ class PptxApp {
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)
         def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
-        dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
+        dl.addRect(0.0 top (to_double w) height skin.panel)
         dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
         this.paintLeftTabs(dl)
         this.rebuildOutline()
@@ -6012,15 +6022,15 @@ class PptxApp {
                 def owner:int (itemAt outlineOwner i)
                 def chosen:boolean (editor.isSelected(owner))
                 if chosen {
-                    dl.addRect(0.0 fy (to_double (w - 1)) (to_double rowH) (EVGColor.rgb(52 66 96)))
+                    dl.addRect(0.0 fy (to_double (w - 1)) (to_double rowH) skin.selected)
                 }
                 def depth:int (itemAt outlineDepth i)
                 def x:double (8.0 + ((to_double depth) * 10.0))
-                def ink:EVGColor (EVGColor.rgb(214 221 236))
+                def ink:EVGColor skin.dim
                 if chosen {
-                    ink = (EVGColor.rgb(240 244 252))
+                    ink = skin.ink
                 }
-                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 (EVGColor.rgb(146 176 236)))
+                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 skin.dim)
                 ; The note is set hard right and the name is cut to what is
                 ; left of the row. A column 150 pixels wide has room for one
                 ; of them at full length and not for two, and a name written
@@ -6178,7 +6188,7 @@ class PptxApp {
             return
         }
         def r:PptxEditRect (this.propsRect())
-        dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(32 36 47)))
+        dl.addRect(r.x r.y r.w r.h skin.panel)
         dl.addRect(r.x r.y 1.0 r.h theme.line)
         def x:double (r.x + 12.0)
         def y:double (r.y + 10.0)
@@ -6187,7 +6197,7 @@ class PptxApp {
         ; Nothing selected is worth saying out loud. A panel of dead controls
         ; reads as a broken panel; a panel that says why is a panel.
         if ((editor.selectionCount()) == 0) {
-            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 (EVGColor.rgb(226 232 244)))
+            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 skin.ink)
             toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (PptxApp.panelFaint()))
             toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (PptxApp.panelFaint()))
             return
@@ -6229,7 +6239,7 @@ class PptxApp {
     ; numbers under it are not the document's own.
     fn propsIdentity:double (dl:EVGDisplayList shape:PptxShape x:double y:double w:double) {
         def name:string (PptxApp.outlineLabel(shape))
-        toolbarView.pushText(dl name x y 12.0 (EVGColor.rgb(238 242 250)))
+        toolbarView.pushText(dl name x y 12.0 skin.ink)
         def kind:string (PptxApp.outlineKindName(shape))
         if shape.isPlaceholder {
             kind = (kind + (" · " + shape.phType))
@@ -6256,7 +6266,7 @@ class PptxApp {
             ; the answer the moment the shape is moved — see PptxWriter.
             if ((strlen shape.sheetXfrmSig) > 0) {
                 if ((shape.xfrmSignature()) == shape.sheetXfrmSig) {
-                    toolbarView.pushText(dl "Size from the layout" x out 10.0 (EVGColor.rgb(146 176 236)))
+                    toolbarView.pushText(dl "Size from the layout" x out 10.0 skin.dim)
                     out = (out + 14.0)
                 }
             }
@@ -6286,20 +6296,20 @@ class PptxApp {
     ; move by one point instead of both jumping to the first one's.
     fn propsNumberRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:double cmd:string step:double) {
         toolbarView.pushText(dl label x (y + 3.0) 11.0 (PptxApp.panelLabel()))
-        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 skin.ink)
         def bw:double 18.0
         def plusX:double ((x + w) - bw)
         def minusX:double ((plusX - bw) - 3.0)
         def down:string ("-" + (PptxApp.numText(step)))
         def up:string (PptxApp.numText(step))
         def deltaCmd:string ("geom.d" + (substring cmd 5 (strlen cmd)))
-        dl.addRect(minusX y bw 16.0 (EVGColor.rgb(46 52 66)))
+        dl.addRect(minusX y bw 16.0 skin.panelAlt)
         dl.addFrame(minusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
-        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 skin.ink)
         this.addPropHit((to_int minusX) (to_int y) (to_int bw) 16 deltaCmd down)
-        dl.addRect(plusX y bw 16.0 (EVGColor.rgb(46 52 66)))
+        dl.addRect(plusX y bw 16.0 skin.panelAlt)
         dl.addFrame(plusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
-        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 skin.ink)
         this.addPropHit((to_int plusX) (to_int y) (to_int bw) 16 deltaCmd up)
         return (y + 20.0)
     }
@@ -6363,7 +6373,7 @@ class PptxApp {
             ; can see where they are in the palette rather than only where
             ; they might go.
             if (hex == now) {
-                dl.addFrame((sx - 1.0) (sy - 1.0) (cell - 1.0) (cell - 1.0) 2.0 (EVGColor.rgb(90 140 230)))
+                dl.addFrame((sx - 1.0) (sy - 1.0) (cell - 1.0) (cell - 1.0) 2.0 skin.accent)
             } {
                 dl.addFrame(sx sy (cell - 3.0) (cell - 3.0) 1.0 (EVGColor.rgb(70 78 96)))
             }
@@ -6397,7 +6407,7 @@ class PptxApp {
             if ((fabs (now - pt)) < 0.01) {
                 on = true
             }
-            def bg:EVGColor (EVGColor.rgb(46 52 66))
+            def bg:EVGColor skin.panelAlt
             if on {
                 bg = (EVGColor.rgb(60 90 150))
             }
@@ -6545,7 +6555,7 @@ class PptxApp {
         def i:int 0
         while (i < (array_length lines)) {
             if (y < ((r.y + r.h) - 4.0)) {
-                toolbarView.pushText(dl (itemAt lines i) (r.x + 10.0) y 12.0 (EVGColor.rgb(40 44 58)))
+                toolbarView.pushText(dl (itemAt lines i) (r.x + 10.0) y 12.0 skin.ink)
                 y = (y + 16.0)
             }
             i = (i + 1)
@@ -6596,7 +6606,7 @@ class PptxApp {
                 ; second of the two places the notes are drawn, and it was raw
                 ; for the same reason.
                 def nshown:string (OfficeText.forDisplayDir(piece npara.rtl))
-                toolbarView.pushText(dl nshown line.x line.y line.size (EVGColor.rgb(40 44 58)))
+                toolbarView.pushText(dl nshown line.x line.y line.size skin.ink)
             }
             li = (li + 1)
         }
