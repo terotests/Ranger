@@ -95,6 +95,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An element's gradient never reached the display list.** `hasGrad`, the
+  `gd`/`c2` fields of `toJson` and the WebGL shader's two-stop mix have all
+  been there for a long time, and nothing ever wrote one from an *element*: the
+  walk in `EVGDisplayList` read `backgroundColor` and no more. So
+  `background: linear-gradient(…)` came out flat when there was a
+  `background-color` beside it, and emitted no rectangle at all when there was
+  not — a box that simply did not appear. `applyGradient` is the walk that was
+  missing. Two directions and two stops is what the list can carry, so an angle
+  is snapped to the nearer axis and the stops are swapped when it points the
+  other way (exact for the four right angles); a radial gradient is left flat
+  rather than turned into a lie about its shape, and the RGU1
+  `gradient-from`/`gradient-to`/`gradient-dir` trio is passed through as it
+  stands. `EVGJsonTest` now covers the walk as well as the serializer, which is
+  the half it could not see.
+
 - **The Rust backend hoists a self call the argument only *contains*.** One
   written directly as an argument — `this.dist(this.near(x))` — was already
   lifted into a local, because both calls borrow `self` and Rust allows only

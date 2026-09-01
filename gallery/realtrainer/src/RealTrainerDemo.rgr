@@ -1,0 +1,1428 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RealTrainerDemo — a three-scene app on the GPU
+; =============================================================================
+; A loading screen, the page it hands over to, and the dashboard behind that.
+; Every scene is an EVG tree painted by the WebGL painter in `gallery/evg/gl`,
+; and the controls on the last two are `gallery/ui`'s own components — the
+; ones the conformance harness measures against Radix — rather than boxes
+; drawn to look like them.
+;
+; --- WHAT IS THE LIBRARY'S AND WHAT IS THIS APP'S -----------------------------
+;
+;   ProgressCtl     the loading bar. It owns the value, the percentage
+;                   arithmetic and the `progressbar` row a reader is given.
+;   CheckboxCtl     "muista minut", with Radix's tri-state machine behind it
+;   CollapsibleCtl  the tips the sign-in page hides until they are asked for
+;   TabsCtl         the dashboard's three sections, with its roving focus
+;   TableCtl        the goals table's sorting — three clicks per column, and
+;                   the third is back to the order the data arrived in
+;   ToggleCtl       the filter above that table
+;   AccordionCtl    the training plans, one open at a time
+;
+; A controller owns a subtree and mutates it in place; the app parents that
+; subtree wherever it wants and the STYLESHEET decides what it looks like.
+; Nothing here re-implements a control, and nothing here names a colour twice:
+; the `ui-*` classes are themed once, in `web/realtrainer.css`, in this app's
+; own dark palette rather than the library's pale default.
+;
+; What is this app's own is layout — flex rows, flex columns, one CSS grid for
+; the calendar — and the two things that make it look like a product rather
+; than a control gallery: the cards, and the loader's ring.
+;
+; --- THE CLOCK IS IN HERE, NOT IN THE PAGE ------------------------------------
+;
+; `tick(dtMs)` is the whole animation: it advances an elapsed-time counter, and
+; the progress, the ring's angle and the scene change are read off that one
+; number. The browser host hands over the REAL time between two frames and
+; paints what comes back, which is what lets the headless check drive the same
+; app with a made-up clock and assert on the same picture. An app whose
+; animation lives in its JavaScript host has two versions of itself.
+;
+; --- WHY THE TREE IS KEPT AND NOT REBUILT -------------------------------------
+;
+; Per-frame values — the ring's angle, the bar's value, the caption — are
+; written onto the elements that are already there. A rebuild per frame would
+; work for the bar and would break the button: `transition` is a memory an
+; ELEMENT holds, and a tree rebuilt sixty times a second has a different
+; element in every position with nothing to remember. Same reason `MotionDemo`
+; keeps its tree. A press does not rebuild either — it asks the controller to
+; rebuild ITS subtree, which is the whole point of a controller that mutates.
+;
+; The SCENE change does rebuild, because that genuinely is a different page.
+;
+; --- THE RING -----------------------------------------------------------------
+;
+; Twelve blades stacked in one grid cell, each turned about a point 54px below
+; its own top edge — the middle of the cell. EVG has no `position: absolute`,
+; and a one-cell grid is the layout that lets children share a rectangle.
+; That is the arrangement; the motion is the CONTAINER's rotation, set once per
+; frame, which `EVGDisplayList` composes onto every command the subtree
+; emitted. Twelve commands, one angle, no per-blade arithmetic on the host.
+;
+; --- WHAT IS NOT HERE ---------------------------------------------------------
+;
+; No account, no network and no credentials: the button moves to the next
+; scene. This is a rendering demo, and a sign-in flow that pretended to be real
+; would be the wrong kind of convincing.
+; =============================================================================
+
+Import "../../ui/src/PresentationCtl.rgr"
+Import "../../ui/src/CheckboxCtl.rgr"
+Import "../../ui/src/CollapsibleCtl.rgr"
+Import "../../ui/src/TabsCtl.rgr"
+Import "../../ui/src/TableCtl.rgr"
+Import "../../ui/src/ToggleCtl.rgr"
+Import "../../ui/src/AccordionCtl.rgr"
+Import "../../ui/src/RadioGroupCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Rt {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "rt-page"))
+    tag Col      EVGElement (props (className "rt-col"))
+    tag Row      EVGElement (props (className "rt-row"))
+
+    ; --- scene one: the loader -----------------------------------------------
+    tag Card     EVGElement (props (className "rt-card") (role "region") (a11yLabel "RealTrainer"))
+    tag Ring     EVGElement (props (className "rt-ring") (id "rt-ring") (role "img") (a11yLabel "Ladataan"))
+    tag Blade    EVGElement (props (className "rt-blade") (a11yHidden true))
+    tag Word     EVGElement (props (className "rt-word"))
+    tag WordA    EVGElement (props (className "rt-word-a") (elementType 1))
+    tag WordB    EVGElement (props (className "rt-word-b") (elementType 1))
+    tag Tagline  EVGElement (props (className "rt-tag") (elementType 1))
+    tag Caption  EVGElement (props (className "rt-caption") (id "rt-caption") (elementType 1))
+    tag Pct      EVGElement (props (className "rt-pct") (id "rt-pct") (elementType 1))
+
+    ; --- scene two: the sign-in page -----------------------------------------
+    tag Brand    EVGElement (props (className "rt-brand") (id "rt-brand") (elementType 1) (role "heading") (a11yLevel 1))
+    tag Panel    EVGElement (props (className "rt-panel") (role "region") (a11yLabel "Kirjautuminen"))
+    tag Feats    EVGElement (props (className "rt-feats") (id "rt-feats") (role "list") (a11yLabel "Mitä sovellus osaa"))
+    tag Feat     EVGElement (props (className "rt-feat") (role "listitem"))
+    tag Badge    EVGElement (props (className "rt-badge") (a11yHidden true))
+    tag Icon     EVGElement (props (className "rt-icon") (tagName "path"))
+    tag FeatText EVGElement (props (className "rt-feat-text"))
+    tag FeatHead EVGElement (props (className "rt-feat-head"))
+    tag Strong   EVGElement (props (className "rt-strong") (elementType 1))
+    tag Rest     EVGElement (props (className "rt-rest") (elementType 1))
+    tag Chip     EVGElement (props (className "rt-chip"))
+    tag ChipText EVGElement (props (className "rt-chip-text") (elementType 1))
+    tag Note     EVGElement (props (className "rt-note") (elementType 1))
+    tag Google   EVGElement (props (className "rt-google") (id "rt-google") (role "button")
+                                   (a11yLabel "Jatka Googlella") (a11yFocusable true))
+    tag GMark    EVGElement (props (className "rt-gmark") (a11yHidden true))
+    tag GMarkTx  EVGElement (props (className "rt-gmark-text") (elementType 1))
+    tag GoogleTx EVGElement (props (className "rt-google-text") (elementType 1))
+    tag Foot     EVGElement (props (className "rt-foot") (elementType 1))
+
+    ; --- scene three: the dashboard ------------------------------------------
+    tag App      EVGElement (props (className "rt-app"))
+    tag Rail     EVGElement (props (className "rt-rail") (id "rt-rail") (role "navigation") (a11yLabel "Osiot"))
+    tag RailBtn  EVGElement (props (className "rt-rail-btn") (role "button") (a11yFocusable true))
+    tag Main     EVGElement (props (className "rt-main"))
+    tag Top      EVGElement (props (className "rt-top"))
+    tag Title    EVGElement (props (className "rt-title") (id "rt-title") (elementType 1) (role "heading") (a11yLevel 1))
+    tag Spacer   EVGElement (props (className "rt-spacer"))
+    ; A heading needs an id of its own: an element without one is named by its
+    ; PATH, and two headings that hang off the same named ancestor at the same
+    ; index are then the same node as far as a reader is concerned — which the
+    ; a11y lint says out loud.
+    tag Section  EVGElement (props (className "rt-section") (elementType 1) (role "heading") (a11yLevel 2))
+    tag PlanCard EVGElement (props (className "rt-plan"))
+    tag PlanName EVGElement (props (className "rt-plan-name") (elementType 1))
+    tag PlanDesc EVGElement (props (className "rt-plan-desc") (elementType 1))
+    tag PlanWhen EVGElement (props (className "rt-plan-when") (elementType 1))
+    tag Notice   EVGElement (props (className "rt-notice") (id "rt-notice") (role "status"))
+    tag NoticeHd EVGElement (props (className "rt-notice-head") (elementType 1))
+    tag NoticeTx EVGElement (props (className "rt-notice-text") (elementType 1))
+    tag Table    EVGElement (props (className "rt-table") (role "table") (a11yLabel "Tavoitteet"))
+    tag HeadRow  EVGElement (props (className "rt-thead") (role "row"))
+    tag Th       EVGElement (props (className "rt-th") (role "columnheader") (a11yFocusable true))
+    tag ThText   EVGElement (props (className "rt-th-text") (elementType 1))
+    tag Body     EVGElement (props (className "rt-tbody") (id "rt-goals-body") (role "rowgroup"))
+    tag Tr       EVGElement (props (className "rt-tr") (role "row"))
+    tag Td       EVGElement (props (className "rt-td") (role "cell") (elementType 1))
+    tag TdDim    EVGElement (props (className "rt-td-dim") (role "cell") (elementType 1))
+    tag Dot      EVGElement (props (className "rt-dot") (a11yHidden true))
+    tag Cal      EVGElement (props (className "rt-cal") (id "rt-cal") (role "grid") (a11yLabel "Harjoituskalenteri"))
+    tag CalHead  EVGElement (props (className "rt-cal-head") (elementType 1) (role "columnheader"))
+    tag CalDay   EVGElement (props (className "rt-cal-day") (role "gridcell"))
+    tag CalNum   EVGElement (props (className "rt-cal-num") (elementType 1))
+    tag CalMark  EVGElement (props (className "rt-cal-mark") (a11yHidden true))
+
+    ; --- scene four: one training session ------------------------------------
+    tag WorkTop  EVGElement (props (className "rt-work-top"))
+    tag WorkName EVGElement (props (className "rt-work-name") (elementType 1) (role "heading") (a11yLevel 1))
+    tag WorkSub  EVGElement (props (className "rt-work-sub") (id "rt-work-sub") (elementType 1))
+    tag Quit     EVGElement (props (className "rt-quit") (id "rt-quit") (role "button")
+                                   (a11yLabel "Keskeytä harjoitus") (a11yFocusable true))
+    tag QuitTx   EVGElement (props (className "rt-quit-text") (elementType 1))
+    tag Move     EVGElement (props (className "rt-move"))
+    tag MoveHead EVGElement (props (className "rt-move-head"))
+    tag MoveName EVGElement (props (className "rt-move-name") (elementType 1))
+    tag MovePlan EVGElement (props (className "rt-move-plan") (id "rt-move-plan") (elementType 1))
+    tag Steps    EVGElement (props (className "rt-steps"))
+    tag Step     EVGElement (props (className "rt-step"))
+    tag StepCap  EVGElement (props (className "rt-step-cap") (elementType 1))
+    tag StepRow  EVGElement (props (className "rt-step-row"))
+    tag StepBtn  EVGElement (props (className "rt-step-btn") (role "button") (a11yFocusable true))
+    tag StepBtnTx EVGElement (props (className "rt-step-btn-text") (elementType 1) (a11yHidden true))
+    tag StepVal  EVGElement (props (className "rt-step-val") (elementType 1))
+    tag Times    EVGElement (props (className "rt-times") (elementType 1) (a11yHidden true))
+    tag RestRow  EVGElement (props (className "rt-rest-row"))
+    tag RestCap  EVGElement (props (className "rt-rest-cap") (elementType 1))
+    tag Actions  EVGElement (props (className "rt-actions"))
+    tag Start    EVGElement (props (className "rt-start") (id "rt-start") (role "button")
+                                   (a11yLabel "Aloita sarjat") (a11yFocusable true))
+    tag StartTx  EVGElement (props (className "rt-start-text") (elementType 1))
+    tag DoneBtn  EVGElement (props (className "rt-done") (id "rt-done") (role "button")
+                                   (a11yLabel "Merkitse liike tehdyksi") (a11yFocusable true))
+    tag DoneTx   EVGElement (props (className "rt-done-text") (elementType 1))
+
+    ; The countdown. Sixty ticks around one grid cell, and the number in the
+    ; middle of the same cell — the ring's own arrangement, with the dial's
+    ; centre where the blades already pivot.
+    tag Dial     EVGElement (props (className "rt-dial") (id "rt-dial") (role "timer") (a11yLabel "Sarjan ajastin"))
+    tag Tick     EVGElement (props (className "rt-tick") (a11yHidden true))
+    tag DialMid  EVGElement (props (className "rt-dial-mid"))
+    tag DialNum  EVGElement (props (className "rt-dial-num") (id "rt-dial-num") (elementType 1))
+    tag DialCap  EVGElement (props (className "rt-dial-cap") (id "rt-dial-cap") (elementType 1))
+    tag Round    EVGElement (props (className "rt-round") (role "button") (a11yFocusable true))
+    tag RoundTx  EVGElement (props (className "rt-round-text") (elementType 1) (a11yHidden true))
+}
+
+class RealTrainerDemo {
+
+    ; --- the timings, in one place -------------------------------------------
+    ;
+    ; The bar fills in `fillMs`, the finished bar is looked at for `holdMs`, and
+    ; the ring turns at `spinDegPerSec`. A demo whose durations are scattered
+    ; through the code is a demo nobody re-times.
+    def fillMs:double 2600.0
+    def holdMs:double 700.0
+    def spinDegPerSec:double 220.0
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def transitions:EVGTransition (new EVGTransition())
+
+    ; --- the library's controls ----------------------------------------------
+    def bar:ProgressCtl (new ProgressCtl())
+    def remember:CheckboxCtl (new CheckboxCtl())
+    def tips:CollapsibleCtl (new CollapsibleCtl())
+    def tabs:TabsCtl (new TabsCtl())
+    def goals:TableCtl (new TableCtl())
+    def sportOnly:ToggleCtl (new ToggleCtl())
+    def plans:AccordionCtl (new AccordionCtl())
+    def rest:RadioGroupCtl (new RadioGroupCtl())
+    def session:ProgressCtl (new ProgressCtl())
+
+    ; --- the training session's own state -------------------------------------
+    ;
+    ; Four numbers and two flags. The steppers write the numbers, the timer
+    ; reads one of them, and the display tree is built from them — there is no
+    ; second copy of any of it anywhere.
+    def sets:int 3
+    def reps:int 5
+    def weight:int 40
+    def doneMoves:int 0
+    def timerOn:boolean false
+    def timerRunning:boolean false
+    def timerLeftMs:double 0.0
+    def timerFullMs:double 60000.0
+
+    ; "loading", "signin", "dashboard" or "session".
+    def scene:string "loading"
+    def elapsedMs:double 0.0
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 980.0
+    def pageH:double 760.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        this.setupControls()
+        this.rebuild()
+    }
+
+    ; Every controller's fixed configuration, once. What CHANGES about them —
+    ; the bar's value, which tab is on, which plan is open — is their own state
+    ; and is not touched here.
+    fn setupControls:void () {
+        bar.tid = "rt-bar"
+        bar.name = "Lataus"
+        bar.maxValue = 100
+        bar.value = 0
+
+        remember.tid = "rt-remember"
+        remember.name = "Muista minut tällä laitteella"
+
+        tips.tid = "rt-tips"
+        tips.name = "Lisää vinkkejä käyttöön"
+        tips.triggerTid = "rt-tips-trigger"
+        tips.contentTid = "rt-tips-content"
+        tips.contentText = "Sanele treeni heti sen jälkeen — muisti on silloin tarkin. Kuvaa lautanen, älä laske kaloreita."
+
+        tabs.tid = "rt-tabs"
+        tabs.name = "Osiot"
+        tabs.addItem("dash" "Dashboard" "" false)
+        tabs.addItem("cal" "Kalenteri" "" false)
+        tabs.addItem("drills" "Harjoitteet" "" false)
+        tabs.value = "dash"
+        tabs.rovingValue = "dash"
+
+        ; Two columns and four rows, and the sorting is the controller's: a
+        ; third click on the same header is the order the data arrived in,
+        ; which a two-way toggle cannot reach.
+        goals.tid = "rt-goals"
+        goals.name = "Tavoitteet"
+        goals.addColumn("goal" "Tavoite" false true)
+        goals.addColumn("kind" "Tyyppi" false true)
+        goals.addRecord("throw" ([] _:string ("Heittoharjoittelu" "Sport")))
+        goals.addRecord("strength" ([] _:string ("Voimaharjoittelu" "Strength-Type")))
+        goals.addRecord("speed" ([] _:string ("Nopeus ja loikat" "Training-Type")))
+        goals.addRecord("endure" ([] _:string ("Kestävyys ja huolto" "Custom")))
+        goals.pageSize = 4
+
+        sportOnly.tid = "rt-sportonly"
+        sportOnly.name = "Vain lajiharjoittelu"
+
+        plans.tid = "rt-plans"
+        plans.name = "Kaikki suunnitelmat"
+        plans.addItem("y2526" "Kuulantyöntäjän vuosisuunnitelma 2025-2026"
+            "Kaksi kilpailukautta, painotus voiman eri osa-alueissa: hypertrofia, hybridi, maksimi, räjähtävyys." false)
+        plans.addItem("sm26" "M50 Kuulantyöntö SM 2026 — kuntoutus ja valmistautuminen"
+            "Kevyempi jakso olkapään kuntoutuksen ympärillä, tekniikka pidetään yllä matalalla kuormalla." false)
+        plans.openValue = "y2526"
+
+        ; The rest between sets. A RADIO GROUP and not a row of toggles, and
+        ; the difference is the one `DashboardDemo` measured: clicking the
+        ; chosen item of a toggle group deselects it, and a rest picker with no
+        ; rest picked is a timer with nothing to count.
+        rest.tid = "rt-rest"
+        rest.name = "Tauko"
+        rest.addItem("30" "30s" false)
+        rest.addItem("60" "60s" false)
+        rest.addItem("90" "90s" false)
+        rest.addItem("120" "120s" false)
+        rest.value = "60"
+
+        session.tid = "rt-session"
+        session.name = "Harjoituksen eteneminen"
+        session.maxValue = 2
+        session.value = 0
+    }
+
+    ; The chosen rest, in milliseconds. The controller holds a STRING, because
+    ; that is what a radio value is; the arithmetic is this app's.
+    fn restMs:double () {
+        if (rest.value == "30") {
+            return 30000.0
+        }
+        if (rest.value == "90") {
+            return 90000.0
+        }
+        if (rest.value == "120") {
+            return 120000.0
+        }
+        return 60000.0
+    }
+
+    ; --- what a controller MEANS, put where a reader will find it --------------
+    ;
+    ; gallery/ui's controllers publish their semantics as `rows()` — one UiRow
+    ; per test id, in ARIA terms — because that is what the conformance harness
+    ; diffs against Radix. `EVGA11yFromTree` reads the ELEMENT tree instead. So
+    ; a controller dropped into an app's tree paints perfectly and says nothing
+    ; at all, which is the one thing a canvas app cannot afford: the pixels are
+    ; already unreadable.
+    ;
+    ; This copies one onto the other, by id. It is the app's job and not the
+    ; library's: a controller cannot know it is being used inside a tree that
+    ; someone will walk.
+    fn adopt:void (host:EVGElement rows:[UiRow]) {
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            def found@(optional):EVGElement (RealTrainerDemo.byId(host row.tid))
+            if found {
+                def el:EVGElement (unwrap found)
+                if (row.role > 0) {
+                    el.role = (EVGA11yRole.ariaName(row.role))
+                }
+                if ((strlen row.name) > 0) {
+                    el.a11yLabel = row.name
+                }
+                el.a11yExpanded = row.expanded
+                el.a11yChecked = row.checked
+                el.a11ySelected = row.selected
+                el.a11yPressed = row.pressed
+                el.a11ySorted = row.sorted
+                el.a11yDisabled = row.disabled
+                el.a11yLevel = row.level
+                el.a11ySetSize = row.setSize
+                el.a11yPosInSet = row.setPos
+                el.a11yOrientation = row.orientation
+                el.a11yCurrent = row.current
+                el.a11yRoleDescription = row.roleDescription
+                el.a11yHasPopup = row.hasPopup
+                el.a11yHasRange = row.hasRange
+                el.a11yValueMin = row.valueMin
+                el.a11yValueMax = row.valueMax
+                el.a11yHasValue = row.hasValueNow
+                el.a11yValueNow = row.valueNow
+                if (row.focusable) {
+                    el.a11yFocusable = true
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Build a controller's subtree and say what it means, in that order —
+    ; `build()` replaces the elements the last `adopt` wrote to.
+    fn dress:void (ctl:UiCtl) {
+        ctl.build()
+        this.adopt((unwrap ctl.rootEl) (ctl.rows()))
+    }
+
+    ; --- scene one: the loader ------------------------------------------------
+
+    sfn ring:EVGElement () {
+        def ring (tree Rt (Ring))
+        def i:int 0
+        while (i < 12) {
+            def blade (tree Rt (Blade (props (className ("rt-blade rt-blade-" + (to_string i))))))
+            ring.addChild(blade)
+            i = (i + 1)
+        }
+        return ring
+    }
+
+    fn loader:EVGElement () {
+        this.dress(bar)
+        def card (tree Rt
+            (Card (props (id "rt-card"))
+                (child (RealTrainerDemo.ring()))
+                (Word
+                    (WordA "REAL")
+                    (WordB "TRAINER"))
+                (Tagline "MAXIMUM EFFORT!")))
+        card.addChild((unwrap bar.rootEl))
+        return (tree Rt
+            (Page (props (id "rt-page"))
+                (child card)
+                (Caption "Ladataan...")
+                (Pct "0 %")))
+    }
+
+    ; --- scene two: the sign-in page ------------------------------------------
+
+    ; The three things the real page opens with, as three rows: a badge, a
+    ; sentence whose first words are the verb, and an example in a chip.
+    sfn feature:EVGElement (rowId:string icon:string strong:string rest:string example:string) {
+        def glyph (tree Rt (Icon))
+        glyph.svgSource = icon
+        def badge (tree Rt (Badge))
+        badge.addChild(glyph)
+        return (tree Rt
+            (Feat (props (id rowId))
+                (child badge)
+                (FeatText
+                    (FeatHead
+                        (Strong strong)
+                        (Rest rest))
+                    (Chip
+                        (ChipText example)))))
+    }
+
+    ; --- the icons ------------------------------------------------------------
+    ;
+    ; Hand-drawn in the shape lucide's files have — 24x24, `currentColor` so the
+    ; stylesheet owns the colour — and small enough to read: a keyboard is a
+    ; rounded box with keys, a microphone a capsule on a stand, a camera a body
+    ; with a lens. Not traced from anything.
+    sfn svgOpen:string () {
+        return "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor'>"
+    }
+
+    sfn iconKeyboard:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M3 6h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm1 2v8h16V8H4z'/>" +
+            "<path d='M6 10h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h2v2h-2zM7 13h10v2H7z'/></svg>")
+    }
+
+    sfn iconMic:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z'/>" +
+            "<path d='M6 11h2a4 4 0 0 0 8 0h2a6 6 0 0 1-5 5.9V19h3v2H8v-2h3v-2.1A6 6 0 0 1 6 11z'/></svg>")
+    }
+
+    sfn iconCamera:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M9 4h6l1.5 2H21a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4.5L9 4zm-5 4v10h16V8h-4.6l-1.5-2h-3.8L8.6 8H4z'/>" +
+            "<path d='M12 9.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zm0 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z'/></svg>")
+    }
+
+    fn signin:EVGElement () {
+        def feats (tree Rt (Feats))
+        feats.addChild((RealTrainerDemo.feature(
+            "rt-feat-type" (RealTrainerDemo.iconKeyboard())
+            "Käytä" "luonnollista kieltä" "Aamulenkki 5km. Aamupala: puuroa ja kahvia.")))
+        feats.addChild((RealTrainerDemo.feature(
+            "rt-feat-voice" (RealTrainerDemo.iconMic())
+            "Sanele," "kirjoita tai kuvaa" "Kuntosali 45min. Lounas: kanasalaatti.")))
+        feats.addChild((RealTrainerDemo.feature(
+            "rt-feat-photo" (RealTrainerDemo.iconCamera())
+            "Kuvaa" "ruoka-annos tai treeniloki" "AI tulkitsee kuvan ja täydentää päiväkirjan.")))
+
+        this.dress(remember)
+        this.dress(tips)
+
+        def panel (tree Rt
+            (Panel (props (id "rt-panel"))
+                (child feats)
+                (Note "Aloituksessa saat 1 000 000 credittiä koekäyttöön.")
+                (Note "Tämän jälkeen voit ostaa lisää: 4,95 € / 1 000 000 credittiä.")))
+        panel.addChild((unwrap remember.rootEl))
+        panel.addChild((tree Rt
+            (Google
+                (GMark
+                    (GMarkTx "G"))
+                (GoogleTx "Jatka Googlella"))))
+        panel.addChild((unwrap tips.rootEl))
+        return (tree Rt
+            (Page (props (id "rt-page"))
+                (Brand "REALTRAINER")
+                (child panel)
+                (Foot "Kirjautumalla hyväksyt käyttöehdot ja tietosuojakäytännön.")))
+    }
+
+    ; --- scene three: the dashboard -------------------------------------------
+
+    sfn iconHome:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3l9-8z'/></svg>")
+    }
+
+    sfn iconCalendar:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M7 2v2h10V2h2v2h2a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h2V2h2zM4 9v11h16V9H4z'/>" +
+            "<path d='M6 11h4v4H6zm6 0h4v4h-4z'/></svg>")
+    }
+
+    sfn iconBook:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M4 3h11a3 3 0 0 1 3 3v15H7a3 3 0 0 1-3-3V3zm2 2v13a1 1 0 0 0 1 1h9V6a1 1 0 0 0-1-1H6z'/>" +
+            "<path d='M8 8h6v2H8zm0 4h6v2H8z'/></svg>")
+    }
+
+    sfn iconExit:string () {
+        return ((RealTrainerDemo.svgOpen()) +
+            "<path d='M5 3h7v2H6v14h6v2H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z'/>" +
+            "<path d='M15.6 7.4L20.2 12l-4.6 4.6-1.4-1.4 2.2-2.2H9v-2h7.4l-2.2-2.2 1.4-1.4z'/></svg>")
+    }
+
+    ; The rail's buttons carry ARTWORK and a name, and the two are not the same
+    ; thing: the glyph is `aria-hidden`, so a reader hears "Etusivu" and never
+    ; hears a shape described.
+    sfn railButton:EVGElement (btnId:string icon:string label:string) {
+        def glyph (tree Rt (Icon (props (className "rt-rail-icon"))))
+        glyph.svgSource = icon
+        def btn (tree Rt (RailBtn (props (id btnId) (a11yLabel label))))
+        btn.addChild(glyph)
+        return btn
+    }
+
+    fn rail:EVGElement () {
+        def rail (tree Rt (Rail))
+        rail.addChild((RealTrainerDemo.railButton("rt-rail-home" (RealTrainerDemo.iconHome()) "Etusivu")))
+        rail.addChild((RealTrainerDemo.railButton("rt-rail-plan" (RealTrainerDemo.iconCalendar()) "Suunnitelmat")))
+        rail.addChild((RealTrainerDemo.railButton("rt-rail-log" (RealTrainerDemo.iconBook()) "Päiväkirja")))
+        rail.addChild((RealTrainerDemo.railButton("rt-rail-train" (RealTrainerDemo.iconMic()) "Aloita treeni")))
+        rail.addChild((RealTrainerDemo.railButton("rt-rail-out" (RealTrainerDemo.iconExit()) "Kirjaudu ulos")))
+        return rail
+    }
+
+    ; The goals table. `TableCtl` owns the sort — which column, which way, and
+    ; the third click that puts the rows back the way they came — and this
+    ; builds the boxes for whatever order it hands over.
+    fn goalsTable:EVGElement () {
+        def head (tree Rt (HeadRow (props (id (goals.headRowTid())))))
+        def i:int 0
+        while (i < (array_length goals.columns)) {
+            def col:UiColumn (itemAt goals.columns i)
+            def label:string col.label
+            ; `aria-sort` as EVGA11yTree spells it: 1 is NONE, 2 ascending,
+            ; 3 descending — and 0 is "this is not a sortable header at all".
+            ; Read as 0/1/2 both columns wore an arrow at once, which is a
+            ; table claiming to be sorted two ways.
+            def state:int (goals.sortStateOf(col.key))
+            if (state == 2) {
+                label = (label + "   ↑")
+            }
+            if (state == 3) {
+                label = (label + "   ↓")
+            }
+            def th (tree Rt
+                (Th (props (id (goals.colTid(col.key))) (a11yLabel col.label)
+                           (className ("rt-th rt-th-" + col.key)))
+                    (ThText label)))
+            th.a11ySorted = state
+            head.addChild(th)
+            i = (i + 1)
+        }
+        def body (tree Rt (Body))
+        def rows:[UiRecord] (goals.sortedRecords())
+        def j:int 0
+        while (j < (array_length rows)) {
+            def rec:UiRecord (itemAt rows j)
+            def kind:string (itemAt rec.cells 1)
+            def show:boolean true
+            ; The toggle above the table is a FILTER and not a sort: it hides
+            ; rows rather than moving them, so the sort the controller has
+            ; arrived at still holds for what is left.
+            if sportOnly.on {
+                if (kind != "Sport") {
+                    show = false
+                }
+            }
+            if show {
+                def what:string (itemAt rec.cells 0)
+                def row (tree Rt
+                    (Tr (props (id (goals.rowTid(rec.key))))
+                        (Dot)
+                        (Td (props (id (goals.cellTid(rec.key "goal")))) what)
+                        (Spacer)
+                        (TdDim (props (id (goals.cellTid(rec.key "kind")))) kind)))
+                body.addChild(row)
+            }
+            j = (j + 1)
+        }
+        return (tree Rt
+            (Table (props (id "rt-goals"))
+                (child head)
+                (child body)))
+    }
+
+    ; Thirty days, seven across — one CSS grid, and the only thing this app
+    ; needs one for. A flex row that wraps would place the same boxes and would
+    ; not keep a column above a column.
+    sfn calendar:EVGElement () {
+        def cal (tree Rt (Cal))
+        def names:[string] ([] _:string ("ma" "ti" "ke" "to" "pe" "la" "su"))
+        def i:int 0
+        while (i < 7) {
+            def dayName:string (itemAt names i)
+            cal.addChild((tree Rt (CalHead (props (id ("rt-cal-h-" + dayName))) dayName)))
+            i = (i + 1)
+        }
+        ; Which days carry a session. Three a week, and the pattern is the one
+        ; the plan above says: heavy, light, throw.
+        def day:int 1
+        while (day <= 28) {
+            def cls:string "rt-cal-day"
+            def rest:int (day - (7 * (idiv day 7)))
+            def marked:boolean false
+            if (rest == 1) {
+                marked = true
+            }
+            if (rest == 3) {
+                marked = true
+            }
+            if (rest == 6) {
+                marked = true
+            }
+            if marked {
+                cls = "rt-cal-day rt-cal-day-on"
+            }
+            def dayNum:string (to_string day)
+            def cell (tree Rt
+                (CalDay (props (id ("rt-cal-d-" + dayNum)) (className cls)
+                               (a11yLabel (dayNum + ". päivä")))
+                    (CalNum dayNum)))
+            if marked {
+                cell.addChild((tree Rt (CalMark)))
+            }
+            cal.addChild(cell)
+            day = (day + 1)
+        }
+        return cal
+    }
+
+    fn dashPanel:EVGElement () {
+        this.dress(sportOnly)
+        def col (tree Rt
+            (Col (props (className "rt-dash"))
+                (Section (props (id "rt-h-plan")) "Aktiivinen suunnitelma")
+                (PlanCard
+                    (PlanName "Kuulantyöntäjän vuosisuunnitelma 2025-2026")
+                    (PlanDesc "Kokeneen kuulantyöntäjän vuosisuunnitelma, joka painottaa voiman eri osa-alueiden kehittämistä ja lajikohtaista nopeutta.")
+                    (PlanWhen "Aloitettu: 1.10.2025"))
+                (Notice
+                    (NoticeHd "Seuraava jakso alkaa huomenna!")
+                    (NoticeTx "Ulkokilpailukausi 2 — tavoite: pääkilpailut ja kauden huipennus"))))
+        def head (tree Rt (Row (props (className "rt-goals-head"))))
+        head.addChild((tree Rt (Section (props (id "rt-h-goals")) "Tavoitteet")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((unwrap sportOnly.rootEl))
+        col.addChild(head)
+        col.addChild((this.goalsTable()))
+        return col
+    }
+
+    fn drillsPanel:EVGElement () {
+        this.dress(plans)
+        def col (tree Rt (Col (props (className "rt-dash"))))
+        col.addChild((tree Rt (Section (props (id "rt-h-plans")) "Kaikki suunnitelmat")))
+        col.addChild((unwrap plans.rootEl))
+        return col
+    }
+
+    fn calPanel:EVGElement () {
+        def col (tree Rt (Col (props (className "rt-dash"))))
+        col.addChild((tree Rt (Section (props (id "rt-h-cal")) "Lokakuu")))
+        col.addChild((RealTrainerDemo.calendar()))
+        return col
+    }
+
+    ; The panel belongs to `TabsCtl`, and what is IN it belongs to the app.
+    ; `build()` puts an empty body label in each panel and this fills the one
+    ; that is showing — the same bargain `WindowCtl` makes with its `bodyEl`:
+    ; the controller owns the chrome and the states, the caller owns the
+    ; content.
+    fn fillActivePanel:void () {
+        def i:int 0
+        while (i < (array_length tabs.items)) {
+            def it:UiItem (itemAt tabs.items i)
+            if (it.value == tabs.value) {
+                def panel:EVGElement (unwrap it.contentEl)
+                if (it.value == "cal") {
+                    panel.addChild((this.calPanel()))
+                }
+                if (it.value == "drills") {
+                    panel.addChild((this.drillsPanel()))
+                }
+                if (it.value == "dash") {
+                    panel.addChild((this.dashPanel()))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn dashboard:EVGElement () {
+        this.dress(tabs)
+        this.fillActivePanel()
+        def main (tree Rt
+            (Main
+                (Top
+                    (Title "Dashboard")
+                    (Spacer)
+                    (Note "Tero — 95 %"))))
+        main.addChild((unwrap tabs.rootEl))
+        return (tree Rt
+            (Page (props (id "rt-page") (className "rt-page rt-page-dash"))
+                (App
+                    (child (this.rail()))
+                    (child main))))
+    }
+
+    ; --- scene four: one training session -------------------------------------
+    ;
+    ; The screen a person is actually on while training: what to do, how much
+    ; of it, and a clock. Everything on it is flex — three steppers on a row,
+    ; two buttons that share a line — except the dial, which is the ring again
+    ; at a larger size and with a different thing to say.
+
+    sfn stepper:EVGElement (capId:string cap:string value:string) {
+        return (tree Rt
+            (Step
+                (StepCap cap)
+                (StepRow
+                    (StepBtn (props (id (capId + "-down")) (a11yLabel (cap + " vähemmän")))
+                        (StepBtnTx "−"))
+                    (StepVal (props (id (capId + "-value"))) value)
+                    (StepBtn (props (id (capId + "-up")) (a11yLabel (cap + " enemmän")))
+                        (StepBtnTx "+")))))
+    }
+
+    fn planLine:string () {
+        return ((((((to_string sets) + " × ") + (to_string reps)) + " @ ") + (to_string weight)) + "kg")
+    }
+
+    fn moveCard:EVGElement () {
+        this.dress(rest)
+        def steps (tree Rt (Steps))
+        steps.addChild((RealTrainerDemo.stepper("rt-sets" "Sarjat" (to_string sets))))
+        steps.addChild((tree Rt (Times "×")))
+        steps.addChild((RealTrainerDemo.stepper("rt-reps" "Toistot" (to_string reps))))
+        steps.addChild((tree Rt (Times "×")))
+        steps.addChild((RealTrainerDemo.stepper("rt-weight" "Paino" ((to_string weight) + "kg"))))
+
+        def restRow (tree Rt (RestRow))
+        restRow.addChild((tree Rt (RestCap "Tauko:")))
+        restRow.addChild((unwrap rest.rootEl))
+
+        def card (tree Rt
+            (Move (props (id "rt-move"))
+                (MoveHead
+                    (MoveName "1. Rinnalleveto")
+                    (Spacer)
+                    (MovePlan (this.planLine())))
+                (child steps)
+                (child restRow)
+                (Actions
+                    (Start
+                        (StartTx "▷  Aloita sarjat"))
+                    (DoneBtn
+                        (DoneTx "✓  Valmis")))))
+        return card
+    }
+
+    ; The dial: sixty ticks and a number, stacked in one grid cell. How many
+    ; ticks are lit is arithmetic on the time left, done in `writeFrame` — the
+    ; tree here says only that there are sixty of them.
+    ; THE OTHER WAY TO ARRANGE A RING, and the loader has the first one.
+    ;
+    ; The loader's twelve blades are turned by the STYLESHEET — twelve classes,
+    ; twelve angles, written out. Sixty of those would be sixty rules that say
+    ; the same thing with a different number in it, so the dial's angles are
+    ; computed here and written inline. Both are the same layout underneath: a
+    ; one-cell grid, and a pivot below each tick's own box.
+    sfn dial:EVGElement () {
+        def dial (tree Rt (Dial))
+        def i:int 0
+        while (i < 60) {
+            def tick (tree Rt (Tick))
+            tick.setAttribute("transform" (("rotate(" + (to_string (6 * i))) + "deg)"))
+            tick.markInline("transform")
+            dial.addChild(tick)
+            i = (i + 1)
+        }
+        dial.addChild((tree Rt
+            (DialMid
+                (DialNum "60")
+                (DialCap "Sarja 1 / 3"))))
+        return dial
+    }
+
+    fn timerPanel:EVGElement () {
+        def col (tree Rt (Col (props (className "rt-timer"))))
+        col.addChild((tree Rt (WorkName "Rinnalleveto")))
+        col.addChild((RealTrainerDemo.dial()))
+        col.addChild((tree Rt
+            (Actions (props (className "rt-actions rt-timer-actions"))
+                (Round (props (id "rt-pause") (a11yLabel "Pysäytä ajastin"))
+                    (RoundTx "⏸"))
+                (Round (props (id "rt-reset") (a11yLabel "Nollaa ajastin"))
+                    (RoundTx "↺"))
+                (DoneBtn (props (id "rt-timer-done") (className "rt-done rt-done-narrow")
+                                (a11yLabel "Sarja tehty"))
+                    (DoneTx "✓  Valmis")))))
+        return col
+    }
+
+    fn workout:EVGElement () {
+        session.value = doneMoves
+        this.dress(session)
+        def main (tree Rt (Main (props (className "rt-main rt-main-work"))))
+        def top (tree Rt
+            (WorkTop
+                (WorkName "Kevyt salitreeni")
+                (Spacer)
+                (Quit
+                    (QuitTx "✕  Keskeytä harjoitus"))))
+        main.addChild(top)
+        def sub (tree Rt
+            (Row (props (className "rt-work-line"))
+                (WorkSub ((to_string doneMoves) + " / 2 liikettä tehty"))))
+        sub.addChild((unwrap session.rootEl))
+        main.addChild(sub)
+        if timerOn {
+            main.addChild((this.timerPanel()))
+        } {
+            main.addChild((this.moveCard()))
+        }
+        return (tree Rt
+            (Page (props (id "rt-page") (className "rt-page rt-page-dash"))
+                (App
+                    (child (this.rail()))
+                    (child main))))
+    }
+
+    fn rebuild:void () {
+        if (scene == "signin") {
+            root = (this.signin())
+        }
+        if (scene == "dashboard") {
+            root = (this.dashboard())
+        }
+        if (scene == "session") {
+            root = (this.workout())
+        }
+        if (scene == "loading") {
+            root = (this.loader())
+        }
+        this.writeFrame()
+    }
+
+    ; --- the clock ------------------------------------------------------------
+
+    fn progress:double () {
+        if (scene != "loading") {
+            return 1.0
+        }
+        def p:double (elapsedMs / fillMs)
+        if (p > 1.0) {
+            return 1.0
+        }
+        return p
+    }
+
+    fn spinDeg:double () {
+        def turns:double ((elapsedMs * spinDegPerSec) / 1000.0)
+        while (turns >= 360.0) {
+            turns = (turns - 360.0)
+        }
+        return turns
+    }
+
+    ; One frame of time. Always true on the loader: a loading screen that idles
+    ; is a frozen one, and this one stops by changing scene rather than by
+    ; running out of things to move.
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        if (scene == "session") {
+            if timerRunning {
+                timerLeftMs = (timerLeftMs - dtMs)
+                if (timerLeftMs <= 0.0) {
+                    timerLeftMs = 0.0
+                    timerRunning = false
+                }
+                this.writeDial()
+                return true
+            }
+            return (t.busy(r))
+        }
+        if (scene != "loading") {
+            ; Nothing on the later scenes moves by itself; a hover does, and
+            ; the transition engine is what says whether one is in flight.
+            return (t.busy(r))
+        }
+        elapsedMs = (elapsedMs + dtMs)
+        if (elapsedMs >= (fillMs + holdMs)) {
+            this.setScene("signin")
+            return true
+        }
+        this.writeFrame()
+        return true
+    }
+
+    fn setScene:void (name:string) {
+        if (name == scene) {
+            return
+        }
+        scene = name
+        elapsedMs = 0.0
+        hovered = ""
+        pressed = ""
+        this.rebuild()
+    }
+
+    fn sceneName:string () {
+        return scene
+    }
+
+    ; The scene, as a THEME. `EVGStyleSheet` matches one class token per
+    ; selector, so two `ProgressCtl`s in one app cannot be told apart by where
+    ; they sit — `.a .b` is not a selector it has. A theme is: the session
+    ; scene asks for "session" and the rules scoped to it apply, and every
+    ; other scene asks for "" and they do not.
+    fn themeName:string () {
+        if (scene == "session") {
+            return "session"
+        }
+        return ""
+    }
+
+    ; --- what changes every frame ---------------------------------------------
+    ;
+    ; The bar's value goes to the CONTROLLER, which owns the percentage and the
+    ; number a reader is given; the ring's angle is written onto the element,
+    ; marked inline so the cascade leaves it alone — without that the
+    ; stylesheet would put the rotation back to 0 on the next pass, which is a
+    ; ring that never turns.
+    fn writeFrame:void () {
+        if (scene != "loading") {
+            return
+        }
+        def r:EVGElement (unwrap root)
+        def p:double (this.progress())
+        bar.value = (to_int ((p * 100.0) + 0.5))
+        this.dress(bar)
+        def ring@(optional):EVGElement (RealTrainerDemo.byId(r "rt-ring"))
+        if ring {
+            def g:EVGElement (unwrap ring)
+            g.setAttribute("transform" (("rotate(" + (to_string (this.spinDeg()))) + "deg)"))
+            g.markInline("transform")
+        }
+        def pct@(optional):EVGElement (RealTrainerDemo.byId(r "rt-pct"))
+        if pct {
+            def e:EVGElement (unwrap pct)
+            e.textContent = ((to_string bar.value) + " %")
+        }
+        def cap@(optional):EVGElement (RealTrainerDemo.byId(r "rt-caption"))
+        if cap {
+            def c:EVGElement (unwrap cap)
+            c.textContent = (RealTrainerDemo.captionAt(p))
+        }
+    }
+
+    ; The dial, per frame. Sixty ticks, and the lit ones are however many
+    ; sixtieths of the rest are still to run — the arithmetic is here and the
+    ; ticks themselves know nothing, which is what makes them sixty copies of
+    ; one rule in the stylesheet instead of sixty rules.
+    fn writeDial:void () {
+        def r:EVGElement (unwrap root)
+        def left:double 0.0
+        if (timerFullMs > 0.0) {
+            left = (timerLeftMs / timerFullMs)
+        }
+        def lit:int (to_int ((left * 60.0) + 0.999))
+        def d@(optional):EVGElement (RealTrainerDemo.byId(r "rt-dial"))
+        if d {
+            def dial:EVGElement (unwrap d)
+            def i:int 0
+            while (i < (array_length dial.children)) {
+                def tick:EVGElement (itemAt dial.children i)
+                if (i < 60) {
+                    def cls:string "rt-tick"
+                    if (i < lit) {
+                        cls = "rt-tick rt-tick-on"
+                    }
+                    tick.className = cls
+                }
+                i = (i + 1)
+            }
+        }
+        def n@(optional):EVGElement (RealTrainerDemo.byId(r "rt-dial-num"))
+        if n {
+            def num:EVGElement (unwrap n)
+            num.textContent = (to_string (to_int ((timerLeftMs / 1000.0) + 0.999)))
+        }
+        def c@(optional):EVGElement (RealTrainerDemo.byId(r "rt-dial-cap"))
+        if c {
+            def cap:EVGElement (unwrap c)
+            if timerRunning {
+                cap.textContent = "Sarja 1 / 3"
+            } {
+                if (timerLeftMs <= 0.0) {
+                    cap.textContent = "Tauko ohi — jatka!"
+                } {
+                    cap.textContent = "Tauko pysäytetty"
+                }
+            }
+        }
+    }
+
+    ; What a loading screen says while it waits. Three lines rather than one,
+    ; because a caption that never changes is a caption nobody reads twice —
+    ; and because the app it is copied from names what it is doing.
+    sfn captionAt:string (p:double) {
+        if (p >= 1.0) {
+            return "Valmista!"
+        }
+        if (p >= 0.62) {
+            return "Käyn läpi harjoitustietoja..."
+        }
+        if (p >= 0.3) {
+            return "Haen suunnitelmaa..."
+        }
+        return "Ladataan..."
+    }
+
+    ; Is this one of the ids a controller answers for?
+    sfn owns:boolean (tids:[string] id:string) {
+        def i:int 0
+        while (i < (array_length tids)) {
+            if ((itemAt tids i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn byId@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def selfHit@(optional):EVGElement el
+            return selfHit
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            def found@(optional):EVGElement (RealTrainerDemo.byId(kid id))
+            if found {
+                return found
+            }
+            i = (i + 1)
+        }
+        def __missing@(optional):EVGElement
+        return __missing
+    }
+
+    ; --- the pointer ----------------------------------------------------------
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    ; A press, routed to whoever owns that id. Returns whether anything changed,
+    ; so the host knows whether to paint.
+    ;
+    ; The controllers are asked FIRST and by name, because they answer for their
+    ; own ids and nothing else: `activate` on a target that is not theirs
+    ; returns without doing anything, which is what makes this a list rather
+    ; than a decision.
+    fn press:boolean (id:string) {
+        if (id == "") {
+            return false
+        }
+        if (scene == "signin") {
+            if (id == "rt-google") {
+                this.setScene("dashboard")
+                return true
+            }
+            def before:string ((remember.stateWord()) + (tips.stateWord()))
+            remember.activate(id)
+            tips.activate(id)
+            if (((remember.stateWord()) + (tips.stateWord())) != before) {
+                this.dress(remember)
+                this.dress(tips)
+                return true
+            }
+            return false
+        }
+        if (scene == "dashboard") {
+            if (id == "rt-rail-out") {
+                this.setScene("loading")
+                return true
+            }
+            if (id == "rt-rail-train") {
+                this.setScene("session")
+                return true
+            }
+            ; A TAB PRESS ALWAYS REFILLS, EVEN WHEN IT CHANGES NOTHING.
+            ;
+            ; `activate` calls the controller's own `build()`, which clears
+            ; every panel — that is what a controller that owns its subtree
+            ; does. So pressing the tab that is ALREADY on emptied the
+            ; dashboard: the value had not changed, this refilled nothing, and
+            ; the page went blank under a tab strip that looked right.
+            ;
+            ; The rule that falls out: a press that reached a controller is a
+            ; press that rebuilt it, and anything the app put inside has to go
+            ; back afterwards.
+            if (RealTrainerDemo.owns((tabs.tids()) id)) {
+                tabs.activate(id)
+                this.dress(tabs)
+                this.fillActivePanel()
+                return true
+            }
+            def wasOpen:string plans.openValue
+            plans.activate(id)
+            if (plans.openValue != wasOpen) {
+                this.dress(plans)
+                return true
+            }
+            if (id == sportOnly.tid) {
+                sportOnly.activate(id)
+                this.refreshDash()
+                return true
+            }
+            def i:int 0
+            while (i < (array_length goals.columns)) {
+                def col:UiColumn (itemAt goals.columns i)
+                if (id == (goals.colTid(col.key))) {
+                    goals.toggleSort(col.key)
+                    this.refreshDash()
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (scene == "session") {
+            return (this.pressSession(id))
+        }
+        ; On the loader there is nothing to press but the loader itself, and a
+        ; press there is worth something: it skips the wait.
+        elapsedMs = (fillMs + holdMs)
+        return true
+    }
+
+    ; The session screen's own presses. Steppers write numbers, the radio group
+    ; answers for the rest chips, and the two big buttons move between the card
+    ; and the dial.
+    fn pressSession:boolean (id:string) {
+        if (id == "rt-quit") {
+            this.setScene("dashboard")
+            return true
+        }
+        if (id == "rt-start") {
+            timerOn = true
+            timerFullMs = (this.restMs())
+            timerLeftMs = timerFullMs
+            timerRunning = true
+            this.rebuild()
+            this.writeDial()
+            return true
+        }
+        if (id == "rt-pause") {
+            timerRunning = (timerRunning == false)
+            this.writeDial()
+            return true
+        }
+        if (id == "rt-reset") {
+            timerLeftMs = timerFullMs
+            timerRunning = true
+            this.writeDial()
+            return true
+        }
+        if (id == "rt-timer-done") {
+            timerOn = false
+            timerRunning = false
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-done") {
+            if (doneMoves < 2) {
+                doneMoves = (doneMoves + 1)
+            }
+            this.rebuild()
+            return true
+        }
+        ; The steppers. Every one of them is the same three lines with a
+        ; different field, and the clamps are what a stepper is FOR: a set
+        ; count of zero and a negative weight are not states this screen can
+        ; reach.
+        if (id == "rt-sets-down") {
+            if (sets > 1) {
+                sets = (sets - 1)
+            }
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-sets-up") {
+            if (sets < 10) {
+                sets = (sets + 1)
+            }
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-reps-down") {
+            if (reps > 1) {
+                reps = (reps - 1)
+            }
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-reps-up") {
+            if (reps < 30) {
+                reps = (reps + 1)
+            }
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-weight-down") {
+            if (weight > 5) {
+                weight = (weight - 5)
+            }
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-weight-up") {
+            if (weight < 200) {
+                weight = (weight + 5)
+            }
+            this.rebuild()
+            return true
+        }
+        def was:string rest.value
+        rest.activate(id)
+        if (rest.value != was) {
+            this.dress(rest)
+            return true
+        }
+        return false
+    }
+
+    ; The dashboard panel, rebuilt in place. Only the tab's own content is
+    ; replaced — the tab strip, its roving focus and every other controller's
+    ; state are where they were.
+    fn refreshDash:void () {
+        def i:int 0
+        while (i < (array_length tabs.items)) {
+            def it:UiItem (itemAt tabs.items i)
+            if (it.value == tabs.value) {
+                def panel:EVGElement (unwrap it.contentEl)
+                clear panel.children
+            }
+            i = (i + 1)
+        }
+        this.fillActivePanel()
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            this.markStates(kid)
+            i = (i + 1)
+        }
+    }
+
+    ; --- the three questions a host asks --------------------------------------
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r (this.themeName()))
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        ; No `layoutClean()` shortcut, and deliberately: the ring's rotation and
+        ; the bar's width are written straight onto elements, so the sheet does
+        ; not know anything moved and would report the frame clean. The page is
+        ; a hundred elements.
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            lay.layout(r)
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "RealTrainer" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "RealTrainer" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn widthPx:double () {
+        return pageW
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    ; A flat dump of the tree, so a test can assert on the shape with no
+    ; browser and no picture.
+    sfn describe:string (el:EVGElement depth:int) {
+        def pad:string ""
+        def i:int 0
+        while (i < depth) {
+            pad = pad + "  "
+            i = (i + 1)
+        }
+        def line:string (pad + el.className)
+        if ((strlen el.textContent) > 0) {
+            line = ((line + " ") + el.textContent)
+        }
+        def out:string (line + "\n")
+        def j:int 0
+        while (j < (array_length el.children)) {
+            out = out + (RealTrainerDemo.describe((itemAt el.children j) (depth + 1)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn main:void () {
+        def app (new RealTrainerDemo())
+        app.setupControls()
+        print "--- the loader ---"
+        print (RealTrainerDemo.describe((app.loader()) 0))
+        print "--- the sign-in page ---"
+        print (RealTrainerDemo.describe((app.signin()) 0))
+        print "--- the dashboard ---"
+        print (RealTrainerDemo.describe((app.dashboard()) 0))
+    }
+}
