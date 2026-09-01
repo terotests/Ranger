@@ -21572,9 +21572,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       recv.sourceMapsEnabled = wr.sourceMapsEnabled;
       recv.sourceMapBuilder = wr.sourceMapBuilder;
       recv.lineNumber = wr.lineNumber;
+      recv.suppress_expr_parens = wr.suppress_expr_parens;
+      recv.current_op_no_parens = wr.current_op_no_parens;
+      recv.in_format_args = wr.in_format_args;
       ctx.setInExpr();
       await this.WalkNode(obj, ctx, recv);
       ctx.unsetInExpr();
+      wr.suppress_expr_parens = recv.suppress_expr_parens;
+      wr.current_op_no_parens = recv.current_op_no_parens;
+      wr.in_format_args = recv.in_format_args;
       const recvCode = recv.getCode();
       if ( this.receiverNeedsParens(recvCode) ) {
         wr.out(("(" + recvCode) + ")", false);
