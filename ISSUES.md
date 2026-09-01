@@ -20,6 +20,7 @@
 - Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 - Issue #76 (fixed): a Ranger name that is a keyword of the target was emitted verbatim and the file did not parse. Not a Go defect but a family of them: **JavaScript was worst at 41 of 46 keywords and had no `reserved_words` block at all**, C++ had 25 missing behind 56 existing entries, Go 20 of 25, Rust 2. Found by `scripts/reserved_probe.py`, which asks each target's own parser about every keyword; Dart, Kotlin, Swift and C# report UNCHECKED where no parser is installed (September 2026)
+- Issue #77 (fixed): `npm test` ran 1 of its 83 test files. `es-conformance-targets.test.ts` compiles a 45,000-line interpreter to five targets, which starves the vitest reporter under `singleFork` exactly as the config's own comment predicts; the run ends with `Timeout calling "onTaskUpdate"` and the remaining 82 files never run. The summary reads `Test Files 1 failed (83)` — a suite with one failure, not a suite that stopped. Fixed by adding the file to the exclude list it was already documented as belonging to (September 2026)
 
 ### Still Open
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
@@ -2626,6 +2627,66 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #77: `npm test` ran one of its eighty-three test files
+
+**Status:** fixed. Found while trying to verify the formatter change
+([`PLAN_FORMAT.md`](PLAN_FORMAT.md)), which is the only reason it was found at
+all — the summary line does not look like a failure.
+
+### What it looked like
+
+```
+ Test Files  1 failed (83)
+      Tests  5 failed | 1 passed (6)
+     Errors  1 error
+```
+
+Read quickly, that is a suite of 83 files with one failing. It is not. Six
+tests ran in total; 82 files never started. The `Errors 1 error` line is the
+whole story:
+
+```
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+```
+
+### Cause
+
+`tests/vitest.config.ts` already carries the explanation, written for three
+other files:
+
+> each shells out to compilers for a minute or more, and a single file that
+> long starves the reporter under singleFork — the run then stops with
+> `Timeout calling "onTaskUpdate"` and the files after it never run
+
+`es-conformance-targets.test.ts` is worse than any of them: it compiles a
+45,000-line interpreter plus a 2,138-probe corpus once per target, builds two
+native binaries and evaluates 2,138 pieces of JavaScript in each. Its own
+config, `tests/vitest.esconformance.config.ts`, says so in as many words —
+*"Out of the default run for the same reason as vitest.tsengine.config.ts"* —
+and gives it a 3,600,000ms timeout against the default config's 30,000.
+
+But nothing ever added it to the default config's `exclude` list. The intent
+was written down twice and never acted on once.
+
+### Effect
+
+Every `npm test` since the file landed has reported on `es-conformance-targets`
+and nothing else. Its five failures were also an artifact in part: under the
+default 30-second `testTimeout` the Go and C++ legs cannot finish a build, so
+they time out where their own config would let them run.
+
+### Fix
+
+One line in the exclude list, plus the comment saying why. `npm run
+test:esconformance` runs it under the config built for it.
+
+### Worth noting
+
+A suite that stops early is indistinguishable from a suite that passes, if the
+only thing read is the exit code — and it is nearly indistinguishable from a
+suite with one failure, if the only thing read is the summary. The signal that
+gives it away is the file count not matching the test count.
 
 ## Issue #76: A Ranger name that is a keyword of the target emits a file the target cannot parse
 
