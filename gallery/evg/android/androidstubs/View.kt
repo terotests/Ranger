@@ -87,6 +87,7 @@ class ScaleGestureDetector(context: Context, listener: OnScaleGestureListener) {
     val scaleFactor: Float = 1f
     val focusX: Float = 0f
     val focusY: Float = 0f
+    var isQuickScaleEnabled: Boolean = true
     fun onTouchEvent(event: MotionEvent): Boolean = false
 }
 

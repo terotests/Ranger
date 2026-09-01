@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import android.util.AttributeSet
+import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -51,6 +52,13 @@ class DashboardView @JvmOverloads constructor(
     var css: String = ""
 
     private val density = resources.displayMetrics.density
+
+    /**
+     * Print where a press landed and what it was turned into. On until the
+     * coordinate spaces have been watched on a real screen for a while; it is
+     * one line per press and nothing reads it but a person.
+     */
+    private val logTouches = true
     private var started = false
 
     // The page has no pictures — every icon in the sidebar is a real vector
@@ -114,7 +122,19 @@ class DashboardView @JvmOverloads constructor(
                 return true
             }
         },
-    )
+    ).apply {
+        // ONE FINGER MUST NEVER ZOOM. `ScaleGestureDetector` turns QUICK SCALE
+        // on by default: a double tap followed by a drag zooms, with one
+        // finger, and it is enabled unless a host says otherwise. This page's
+        // double tap already means "back to the whole width", so the two
+        // gestures are the same movement with different endings — and a tap
+        // that drifts a few pixels before it lifts is the beginning of one.
+        //
+        // Left on, a page ends up zoomed by 1.4 with nobody having pinched
+        // anything, and the whole document is then drawn wider than the screen
+        // and cropped on the right, which is what it looked like.
+        isQuickScaleEnabled = false
+    }
 
     /**
      * The detectors **observe**; they never swallow.
@@ -238,6 +258,7 @@ class DashboardView @JvmOverloads constructor(
                 // scrolling surface behaves.
                 flingDpPerSec = 0f
                 requestFocus()
+                if (logTouches) logTouch(event, x, y)
                 app.pressAt(x, y)
                 // The SURFACE reacts too, wherever the finger landed and
                 // whatever it hit. The control never learns that anything
@@ -289,6 +310,33 @@ class DashboardView @JvmOverloads constructor(
         if (name.isEmpty()) return super.onKeyDown(keyCode, event)
         if (app.key(name)) changed()
         return true
+    }
+
+    /**
+     * One line per press, and it is here because a screenshot cannot say which
+     * of these numbers is the wrong one.
+     *
+     * Every coordinate on this page is one of four spaces — the event's
+     * physical pixels, the density-independent ones the facade is told about,
+     * the page's own, and the device pixels the ripple's shader is asked about
+     * — and a host that mixes two of them draws a page that looks right and
+     * answers a finger somewhere else. The transform that drew the frame is
+     * printed beside the transform that read the touch, so a disagreement
+     * between them is visible rather than inferred.
+     *
+     *   adb logcat -s EvgTouch      (or `npm run ui:android:run -- --logcat`)
+     */
+    private fun logTouch(event: MotionEvent, x: Double, y: Double) {
+        val s = density * app.scale()
+        Log.d(
+            TAG,
+            "down ev=(${event.x}, ${event.y})px view=${width}x${height}px density=$density" +
+                " fit=${app.scale() / app.zoom()} zoom=${app.zoom()} scale=${app.scale()}" +
+                " panX=${app.panX()} dp=($x, $y)" +
+                " page=(${app.toPageX(x)}, ${app.toPageY(y)})" +
+                " backToPx=(${(app.toPageX(x) - app.panX()) * s}, ${app.toPageY(y) * s})" +
+                " hit=${app.hitAt(x, y)}",
+        )
     }
 
     /**
@@ -363,6 +411,10 @@ class DashboardView @JvmOverloads constructor(
             (density * app.scale()).toFloat(),
             app.panX().toFloat(),
         )
+    }
+
+    private companion object {
+        const val TAG = "EvgTouch"
     }
 
     init {
