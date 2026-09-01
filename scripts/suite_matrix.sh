@@ -21,11 +21,22 @@ for f in $(ls tests/*.test.ts | sort); do
       printf '%s\tEXCLUDED\t0\n' "$base" >> "$OUT"; skip=$((skip+1)); continue ;;
   esac
   start=$(date +%s)
-  if timeout 900 npx vitest run --config tests/vitest.config.ts "$base" \
-       > "tmp/suite-matrix-$base.log" 2>&1; then
-    v=PASS; pass=$((pass+1))
-  else
+  timeout 900 npx vitest run --config tests/vitest.config.ts "$base" \
+    > "tmp/suite-matrix-$base.log" 2>&1
+  # The exit code alone is not the verdict. A file whose tests ALL pass still
+  # exits non-zero when the reporter times out (`Timeout calling
+  # "onTaskUpdate"`), and compiler-selfhost and game-runner did exactly that:
+  # 16 and 19 tests passed, both reported as failures. Read the summary line
+  # instead, and fall back to the exit code only when there is no summary --
+  # which is what a crash or a 900s timeout looks like.
+  if grep -aq "Tests .*failed" "tmp/suite-matrix-$base.log"; then
     v=FAIL; fail=$((fail+1))
+  elif grep -aq "Tests .* passed" "tmp/suite-matrix-$base.log"; then
+    v=PASS; pass=$((pass+1))
+    grep -aq 'Timeout calling "onTaskUpdate"' "tmp/suite-matrix-$base.log" \
+      && v="PASS (reporter timed out)"
+  else
+    v=NO-RESULT; fail=$((fail+1))
   fi
   printf '%s\t%s\t%s\n' "$base" "$v" "$(( $(date +%s) - start ))" >> "$OUT"
   printf '%-44s %s\n' "$base" "$v"
