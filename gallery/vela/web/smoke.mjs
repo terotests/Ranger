@@ -61,8 +61,14 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(CARS));
     return;
   }
-  const file = path.join(DIST, name === '/' ? 'index.html' : name);
+  let file = path.join(DIST, name === '/' ? 'index.html' : name);
   if (!file.startsWith(DIST) || !fs.existsSync(file)) { res.writeHead(404); res.end('no'); return; }
+  // `/api/` is a directory. Reading one raises EISDIR, which reads as a crash
+  // rather than as "this server does not do directory indexes".
+  if (fs.statSync(file).isDirectory()) {
+    file = path.join(file, 'index.html');
+    if (!fs.existsSync(file)) { res.writeHead(404); res.end('no'); return; }
+  }
   const type = file.endsWith('.js') ? 'text/javascript'
     : file.endsWith('.ttf') ? 'font/ttf'
     : file.endsWith('.json') ? 'application/json'
@@ -248,6 +254,37 @@ async function render(spec) {
   const note = await page.locator('#pdfNote').textContent();
   check('Ranger writes the chart as a PDF', !!pdf && pdf.bytes > 1000, note);
   await page.click('#tab-svg');
+}
+
+// ---- the chart API pages ---------------------------------------------------
+// Three tabs, one API, and each panel has to carry the documentation comment
+// its own ecosystem reads. A panel that came out empty -- an extractor that
+// stopped matching after a writer changed its output shape -- looks exactly
+// like a working page until somebody clicks that tab.
+{
+  await page.goto(base + '/api/', { waitUntil: 'load' });
+  const tabs = await page.locator('.tab').count();
+  check('the API page offers three languages', tabs === 3, `${tabs} tab(s)`);
+
+  for (const [lang, marker] of [['javascript', '@returns {'],
+                                ['python', 'Args:'],
+                                ['kotlin', '@return ']]) {
+    await page.click(`.tab[data-lang="${lang}"]`);
+    const cards = await page.locator(`.panel[data-lang="${lang}"] article.m`).count();
+    const text = await page.locator(`.panel[data-lang="${lang}"]`).innerText();
+    check(`${lang}: every documented member is on the page`,
+          cards === 129, `${cards} member cards`);
+    check(`${lang}: the comment is the one this ecosystem reads`,
+          text.includes(marker), `looking for ${JSON.stringify(marker)}`);
+  }
+
+  // The example bodies are Ranger functions compiled for each target, so the
+  // JavaScript panel must show JavaScript rather than Ranger or Kotlin.
+  await page.click('.tab[data-lang="javascript"]');
+  const js = await page.locator('.panel[data-lang="javascript"]').innerText();
+  check('the compiled example reads as the target language',
+        js.includes('const data = VlDataset.create();'),
+        'expected the JavaScript form of the dataset example');
 }
 
 await browser.close();

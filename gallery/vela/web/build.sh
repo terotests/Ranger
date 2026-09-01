@@ -82,6 +82,22 @@ node --input-type=module -e "
   }
 " || exit 1
 
+# ---- the chart API, one page per language --------------------------------
+# The compiler's own -apidoc pipeline, run for three targets, rendered into one
+# page with a tab each. It needs no documentation.js, pdoc or Dokka: those are
+# the right tools to POINT AT this output (PLAN_API_DOCS.md 7.3 makes "the
+# target's own tool reads it with no Ranger plugin" the test that it is real),
+# and the wrong ones to build a page with here, because three of them means
+# three toolchains in the Pages job and a deploy that fails when one is absent.
+node "$WEB/build-api-docs.mjs" --out "$OUT/api" || {
+  echo "FAILED to build the chart API pages" >&2
+  exit 1
+}
+test -s "$OUT/api/index.html" || {
+  echo "the API build reported no failure but wrote no $OUT/api/index.html" >&2
+  exit 1
+}
+
 cp "$WEB/index.html" "$OUT/index.html"
 # The GPU viewer, and the faces it draws text with. Both are fetched by the
 # page at run time, so both have to sit beside it.
