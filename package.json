@@ -221,6 +221,7 @@
     "pptx:api:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxApiTest.rgr ./gallery/pptx/bin PptxApiTest.js",
     "css:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/css/tests/CssCoreTest.rgr -d=./gallery/css/bin -o=CssCoreTest.js -nodecli && node ./gallery/css/bin/CssCoreTest.js",
     "pptx:css:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxCssTest.rgr ./gallery/pptx/bin PptxCssTest.js",
+    "pptx:chrome:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxChromeTest.rgr ./gallery/pptx/bin PptxChromeTest.js",
     "pptx:evg:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxFromEvgTest.rgr ./gallery/pptx/bin PptxFromEvgTest.js",
     "pptx:vega:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxVegaTest.rgr ./gallery/pptx/bin PptxVegaTest.js",
     "pptx:api:render:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxRenderApiTest.rgr ./gallery/pptx/bin PptxRenderApiTest.js",

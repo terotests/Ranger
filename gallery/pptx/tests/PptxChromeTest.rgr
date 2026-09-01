@@ -1,0 +1,290 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxChromeTest — the layout computes what the arithmetic computed
+; ==============================================================================
+;
+; `PptxChrome` lays the editor's shell out with `EVGLayout` instead of working
+; the boxes out by subtraction. The whole value of that change depends on one
+; thing being true first: THE NUMBERS DO NOT MOVE.
+;
+; So this is not a test of a new feature. It is a test that a new mechanism
+; produces exactly what the old one produced — the panel width, the properties
+; width, the notes height, and the rect the slide sits in — at four window
+; sizes and both pointer kinds, including every breakpoint the sheet declares.
+; Only once that holds can the panels be filled with the gallery's controllers
+; without a picture moving underneath them, and `pptx:editor:shots` is the
+; second half of the proof.
+;
+; The rules being reproduced are worth stating, because two of them are not
+; obvious from the picture:
+;
+;   THE PROPERTIES BAND DISAPPEARS below 820px, and the slide re-centres in
+;   what is left rather than in the whole window.
+;
+;   THE PANEL BECOMES A STRIP across the top on a phone. A width of zero and a
+;   height turns the column into a band — a breakpoint changing orientation
+;   without the stylesheet needing a word for it.
+;
+;   A COARSE POINTER makes the strip taller independently of width, because a
+;   laptop with a touchscreen is wide and coarse at once.
+;
+;   npm run pptx:chrome:test
+; ==============================================================================
+
+Import "../src/PptxChrome.rgr"
+Import "../src/PptxApp.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+
+class ChromeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eq:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.51) {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print (("  FAIL  " + name + " — got " + (to_string got))
+                + " want " + (to_string want))
+        }
+    }
+
+    ; The shell at a size, with the sheet the app would have.
+    fn at:PptxChrome (w:int h:int coarse:boolean) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse((PptxChrome.shellCss()))
+        def c (new PptxChrome())
+        c.toolbarH = 62
+        c.statusH = 22
+        c.layout(sheet w h coarse)
+        return c
+    }
+
+    fn run:void () {
+        print "=== the shell, laid out ==="
+        this.testDesktop()
+        this.testTiles()
+        this.testTablet()
+        this.testNarrow()
+        this.testPhone()
+        this.testCoarse()
+        this.testBandsOff()
+        this.testAgainstTheApp()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+
+    ; The numbers the arithmetic produces on a desktop, written out longhand so
+    ; that this test says what it is reproducing rather than pointing at the
+    ; code that produces it. Panel 150, properties 168, notes 92, strip 62,
+    ; status 22, in a 1100x760 window — which is the size the snapshots use.
+    fn testDesktop:void () {
+        print "-- 1100x760, a desktop"
+        def c (this.at(1100 760 false))
+        this.eq("the strip is as tall as it asked to be" c.toolbarRect.h 62.0)
+        this.eq("and as wide as the window" c.toolbarRect.w 1100.0)
+        this.eq("the panel is 150 wide" c.panelRect.w 150.0)
+        this.eq("and starts under the strip" c.panelRect.y 62.0)
+        this.eq("the properties band is 168 wide" c.propsRect.w 168.0)
+        this.eq("and is hard right" (c.propsRect.x + c.propsRect.w) 1100.0)
+        this.eq("the notes are 92 tall" c.notesRect.h 92.0)
+        this.eq("the status line is 22 tall" c.statusRect.h 22.0)
+        this.eq("and sits on the bottom" (c.statusRect.y + c.statusRect.h) 760.0)
+
+        ; The stage: what is left between the two bands, above the notes.
+        this.eq("the stage starts where the panel ends" c.stageRect.x 150.0)
+        this.eq("and stops where the properties band starts"
+            (c.stageRect.x + c.stageRect.w) (1100.0 - 168.0))
+        this.eq("it starts under the strip" c.stageRect.y 62.0)
+        ; 760 - 62 - 22 - 92 = 584
+        this.eq("and stops where the notes start" c.stageRect.h 584.0)
+
+        ; The notes run between the two bands, not under them — the thing
+        ; `notesRect` spells as two subtractions.
+        this.eq("the notes start where the panel ends" c.notesRect.x 150.0)
+        this.eq("and stop where the properties band starts"
+            (c.notesRect.x + c.notesRect.w) (1100.0 - 168.0))
+        this.eq("and sit directly above the status line"
+            (c.notesRect.y + c.notesRect.h) (760.0 - 22.0))
+    }
+
+    ; NO GAPS AND NO OVERLAPS. Six rects that each look right can still leave a
+    ; seam between two of them, and a seam is a stripe of the wrong colour down
+    ; the window. The bands tile their column and the row tiles the middle.
+    fn testTiles:void () {
+        print "-- the regions tile the window"
+        def c (this.at(1100 760 false))
+        this.eq("strip, middle and status fill the height"
+            ((c.toolbarRect.h + c.stageRect.h + c.notesRect.h) + c.statusRect.h)
+            760.0)
+        this.eq("panel, stage and properties fill the width"
+            ((c.panelRect.w + c.stageRect.w) + c.propsRect.w) 1100.0)
+        this.ok("the panel runs from the strip to the status line"
+            (((c.panelRect.y + c.panelRect.h) - (760.0 - 22.0)) < 0.51))
+        this.ok("and so does the properties band"
+            (((c.propsRect.y + c.propsRect.h) - (760.0 - 22.0)) < 0.51))
+    }
+
+    fn testTablet:void () {
+        print "-- 880x700, a tablet: the panel narrows"
+        def c (this.at(880 700 false))
+        this.eq("the panel is 96 wide" c.panelRect.w 96.0)
+        this.eq("the properties band is still there" c.propsRect.w 168.0)
+        this.eq("and the stage takes what is left"
+            c.stageRect.w ((880.0 - 96.0) - 168.0))
+    }
+
+    ; The rule `propsWidth` spells as `if (W < 820) { return 0 }`.
+    fn testNarrow:void () {
+        print "-- 800x700: the properties band goes"
+        def c (this.at(800 700 false))
+        this.eq("the properties band is gone" c.propsRect.w 0.0)
+        this.eq("the panel is still a column" c.panelRect.w 96.0)
+        this.eq("and the stage takes the whole of the rest"
+            c.stageRect.w (800.0 - 96.0))
+        this.eq("the notes reach the right edge"
+            (c.notesRect.x + c.notesRect.w) 800.0)
+    }
+
+    ; A width of zero and a height turns the column into a strip.
+    fn testPhone:void () {
+        print "-- 600x800, a phone: the panel goes across the top"
+        def c (this.at(600 800 false))
+        this.ok("the panel is a strip" (c.panelOnTop()))
+        this.eq("as wide as the window" c.panelRect.w 600.0)
+        this.eq("76 tall" c.panelRect.h 76.0)
+        this.eq("directly under the strip" c.panelRect.y 62.0)
+        this.eq("panelWidth is zero, because it takes none"
+            (to_double (c.panelWidth())) 0.0)
+        this.eq("and panelHeight is what it takes instead"
+            (to_double (c.panelHeight())) 76.0)
+        this.eq("the notes are gone" c.notesRect.h 0.0)
+        this.eq("the stage starts at the left edge" c.stageRect.x 0.0)
+        this.eq("and under the panel" c.stageRect.y (62.0 + 76.0))
+        ; 800 - 62 - 76 - 22 = 640
+        this.eq("and takes everything left" c.stageRect.h 640.0)
+    }
+
+    ; Width says nothing about the pointer.
+    fn testCoarse:void () {
+        print "-- 1100x760 with a finger"
+        def fine (this.at(1100 760 false))
+        def touch (this.at(1100 760 true))
+        this.eq("the panel is unchanged" touch.panelRect.w fine.panelRect.w)
+        this.eq("and so is the properties band" touch.propsRect.w fine.propsRect.w)
+        ; The strip's height is the app's to set — what is checked here is that
+        ; a coarse pointer did not disturb the layout around it.
+        this.eq("the stage is the same shape" touch.stageRect.h fine.stageRect.h)
+    }
+
+    ; The sheet knows how wide a band is; the app knows whether there is one.
+    fn testBandsOff:void () {
+        print "-- bands the app has switched off take no room"
+        def sheet (new EVGStyleSheet())
+        sheet.parse((PptxChrome.shellCss()))
+        def c (new PptxChrome())
+        c.toolbarH = 62
+        c.statusH = 22
+        c.panelOn = false
+        c.propsOn = false
+        c.notesOn = false
+        c.layout(sheet 1100 760 false)
+        this.eq("no panel" c.panelRect.w 0.0)
+        this.eq("no properties band" c.propsRect.w 0.0)
+        this.eq("no notes" c.notesRect.h 0.0)
+        this.eq("the stage starts at the left edge" c.stageRect.x 0.0)
+        this.eq("and is the whole width" c.stageRect.w 1100.0)
+        ; 760 - 62 - 22
+        this.eq("and everything between the strip and the status line"
+            c.stageRect.h 676.0)
+    }
+
+    ; AND THE POINT OF ALL OF IT: the same numbers the app works out by hand.
+    ;
+    ; Everything above compares the layout against figures written into this
+    ; file, which proves it is self-consistent and nothing more. What makes P0
+    ; worth doing is that the layout agrees with `panelWidth`, `propsWidth`,
+    ; `notesHeight` and `notesRect` — the arithmetic that has been drawing this
+    ; editor all along. If it does, the arithmetic can go and no picture moves.
+    ;
+    ; The strip's height is the one number that does not come from either: the
+    ; band is as tall as the page showing on it needs and only the strip knows
+    ; that, so the app is asked and the shell is told.
+    fn testAgainstTheApp:void () {
+        print "-- the same numbers the app computes by hand"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+
+        def sizes:[int] ([] _:int ( 1280 800 1100 760 880 700 800 700 600 800 ))
+        def i:int 0
+        while (i < (array_length sizes)) {
+            def w:int (itemAt sizes i)
+            def h:int (itemAt sizes (i + 1))
+            app.resize(w h)
+
+            def sheet (new EVGStyleSheet())
+            sheet.parse((PptxChrome.shellCss()))
+            def c (new PptxChrome())
+            c.toolbarH = app.toolbarH
+            c.statusH = app.statusH
+            c.notesOn = app.notesVisible
+            c.panelOn = app.panelVisible
+            c.propsOn = app.propsVisible
+            c.layout(sheet w h false)
+
+            def at:string ((" at " + (to_string w)) + "x" + (to_string h))
+            this.eq(("the panel is the width the app uses" + at)
+                (to_double (c.panelWidth())) (to_double (app.panelWidth())))
+            this.eq(("the panel is the height the app uses" + at)
+                (to_double (c.panelHeight())) (to_double (app.panelHeight())))
+            this.eq(("the properties band is the app\'s width" + at)
+                (to_double (c.propsWidth())) (to_double (app.propsWidth())))
+            this.eq(("the notes are the app\'s height" + at)
+                (to_double (c.notesHeight())) (to_double (app.notesHeight())))
+
+            ; The notes band, which the app spells as two subtractions.
+            def nr:PptxEditRect (app.notesRect())
+            if ((app.notesHeight()) > 0) {
+                this.eq(("the notes start where the app puts them" + at)
+                    c.notesRect.x nr.x)
+                this.eq(("and are as wide" + at) c.notesRect.w nr.w)
+                this.eq(("and as high up" + at) c.notesRect.y nr.y)
+            }
+
+            ; The properties band.
+            def pr:PptxEditRect (app.propsRect())
+            if ((app.propsWidth()) > 0) {
+                this.eq(("the properties band is where the app puts it" + at)
+                    c.propsRect.x pr.x)
+                this.eq(("and as tall" + at) c.propsRect.h pr.h)
+            }
+            i = (i + 2)
+        }
+    }
+
+    sfn m@(main):void () {
+        def t (new ChromeCheck())
+        t.run()
+    }
+}
