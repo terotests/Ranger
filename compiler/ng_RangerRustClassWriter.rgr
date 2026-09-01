@@ -9038,11 +9038,7 @@ class RangerRustClassWriter {
   fn CreatePropertyGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def obj:CodeNode (node.getSecond())
     def prop:CodeNode (node.getThird())
-    wr.out("(" false)
-    ctx.setInExpr()
-    this.WalkNode(obj ctx wr)
-    ctx.unsetInExpr()
-    wr.out(")" false)
+    this.writeCallReceiver(obj ctx wr)
     def pgType:string obj.eval_type_name
     if ((strlen pgType) == 0) {
       pgType = obj.type_name

@@ -933,10 +933,12 @@ class RangerAppWriterContext {
     ; one call, one local: two calls through the same handle in one expression
     ; are two live borrows of the same cell in Rust
     def twLang:string (this.getTargetLangName())
-    if ((twLang == "csharp") || (twLang == "dart")) {
+    if ((twLang == "csharp") || (twLang == "dart") || (twLang == "es6")) {
       if (input_word == "null") {
         return "_null"
       }
+    }
+    if ((twLang == "csharp") || (twLang == "dart")) {
       if (input_word == "true") {
         return "_true"
       }

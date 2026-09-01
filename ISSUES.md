@@ -19,9 +19,9 @@
 - Issue #59: Go `clear` operator - Fixed with `[:0]` slice reset
 - Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
+- Issue #76 (fixed): a Ranger name that is a keyword of the target was emitted verbatim and the file did not parse. Not a Go defect but a family of them: **JavaScript was worst at 41 of 46 keywords and had no `reserved_words` block at all**, C++ had 25 missing behind 56 existing entries, Go 20 of 25, Rust 2. Found by `scripts/reserved_probe.py`, which asks each target's own parser about every keyword; Dart, Kotlin, Swift and C# report UNCHECKED where no parser is installed (September 2026)
 
 ### Still Open
-- Issue #76: a Ranger local named after a Go keyword (`go`, `chan`, `select`, `defer`, …) is emitted verbatim and the Go output does not parse. The `reserved_words` block in `Lang.rgr` lists two Go keywords out of 25; `gallery/vela` has been emitting unparseable Go because one of its locals is called `go` (August 2026)
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
@@ -2627,9 +2627,11 @@ Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
 
-## Issue #76: A Ranger local named after a Go keyword emits Go that does not parse
+## Issue #76: A Ranger name that is a keyword of the target emits a file the target cannot parse
 
-**Status:** open. Found while measuring formatter output for
+**Status:** fixed for every target whose parser is installed here (JavaScript,
+C++, Go, Rust, Python). Dart, Kotlin, Swift and C# are UNCHECKED, not clean.
+Found while measuring formatter output for
 [`PLAN_FORMAT.md`](PLAN_FORMAT.md).
 
 ### Reproduction
@@ -2698,18 +2700,48 @@ local has existed. Nothing caught it because the Go path is only exercised by
 programs that avoid the name, and the compiler itself reports success — the
 failure is in a file nobody compiles.
 
+### It was not a Go defect
+
+The Go list being 2 entries long suggested the tables had been filled in as
+errors were hit rather than from any language's keyword list. So rather than
+hand-listing Go's 25, `scripts/reserved_probe.py` was written to ask the
+question of every target: for each keyword of the language it compiles a Ranger
+program naming a local, a parameter, a property and a method after it, and
+hands the output to that target's own parser.
+
+| Target | Broken | Of | Note |
+| --- | --- | --- | --- |
+| **JavaScript** | **41** | 46 | there was no `es6` block at all |
+| C++ | 25 | 85 | behind 56 existing entries |
+| Go | 20 | 25 | the one this issue was filed for |
+| Rust | 2 | 41 | `crate` and `super` — the writer spells every other keyword `r#kw`, and those two cannot be raw identifiers |
+| Python | 0 | 37 | 100 entries; the one table that was complete |
+| Dart, Kotlin, Swift 6, C# | ? | 230 | **UNCHECKED — no parser installed** |
+
+JavaScript is the compiler's own primary target, and `def new:int 1` emitted
+`const new = 1`. It had been broken longer than Go and by more.
+
 ### Fix
 
-Complete the Go entry in the `reserved_words` block. It is a data change, not a
-code change. It alters emitted identifiers for any program that uses one of the
-names, so it wants the conformance suite and a golden review, which is why
-[`PLAN_FORMAT.md`](PLAN_FORMAT.md) lists it as phase 0 rather than folding it
-into the formatting work.
+Data, in the `reserved_words` block of `compiler/Lang.rgr`, plus one code
+change: `null` cannot be listed there at all — the Ranger parser reads it as a
+literal rather than a name, so the `word transform` pair does not parse — and
+it is renamed for JavaScript in `transformWord`, beside the C# and Dart cases
+already there for the same reason.
 
-The same audit is worth doing for every target: the Go list being 2 entries long
-suggests the others were filled in as errors were hit rather than from the
-language's keyword list. The `swift3` block has 4 entries (`operator`, `static`,
-`init`, `guard`) and Swift has far more keywords than that.
+The blast radius was measurable exactly, because the compiler self-hosts to
+JavaScript: rebuilding it with the new `es6` block changed **4 lines**, all of
+them the source edit itself. The compiler's own sources use none of the 40
+names. `scripts/fmt_parity.sh` confirms the same for `gallery/invaders` and
+`gallery/vela` across eleven targets.
+
+### What is still open
+
+The four unchecked targets. The probe reports them as UNCHECKED on every run
+rather than passing them, so the gap is visible rather than assumed closed;
+running it where a Dart, Kotlin, Swift or C# toolchain exists would close it.
+That matters most for Dart and C#, whose blocks (60 and 74 entries) are large
+enough to look finished and were built the same way as the Go one.
 
 ## Issue #75: A trailing block on a `class` is taken for the class body, so the real body is never analysed
 

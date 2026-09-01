@@ -24,6 +24,308 @@ class RangerGenericClassWriter {
   def compiler:LiveCompiler
   def compFlags:[string:boolean]
 
+  ; -1 not yet read, 0 -format=none, 1 the formatter is on. Read once: the
+  ; question is asked at every call site and getCompilerSetting walks the
+  ; whole context chain to answer it.
+  def fmtMode:int (0 - 1)
+
+  ; ---------------------------------------------------------------------------
+  ; PARENTHESES AROUND A CALL RECEIVER (PLAN_FORMAT.md S4)
+  ;
+  ; `CreateCallExpression` and `CreatePropertyGet` used to wrap every receiver
+  ; unconditionally, with no precedence test of any kind. That one decision is
+  ; where `((_data.row()).str("region", "North")).num("sales", 120.0)` comes
+  ; from, and it is not something the ecosystem can clean up afterwards:
+  ; prettier reprints from its own AST and drops them, but rustfmt and
+  ; dart format are whitespace formatters that keep every paren node they are
+  ; handed, and NO formatter of any kind reformats a doc comment -- which is
+  ; where the generated API reference shows these to readers.
+  ;
+  ; The question is asked of the EMITTED TEXT rather than of the node, because
+  ; what a receiver turns into is the target writer's business: Rust appends
+  ; `.borrow()`, C++ writes `->`, a register expression becomes a temporary
+  ; name. A node-shape rule would have to know all of that, sixteen writers
+  ; deep. A text rule does not: a postfix expression -- a name, a path, a call,
+  ; an index, and any chain of those -- binds tighter than `.` in every target
+  ; language, so it never needs the pair, and anything else keeps it.
+  ;
+  ; The default is therefore to KEEP the parentheses. Only a shape proven not
+  ; to need them loses them.
+  ; ---------------------------------------------------------------------------
+
+  fn formatterEnabled:boolean (ctx:RangerAppWriterContext) {
+    if (fmtMode >= 0) {
+      return (fmtMode == 1)
+    }
+    def setting:string (ctx.getCompilerSetting("format"))
+    if (setting == "none") {
+      fmtMode = 0
+      return false
+    }
+    fmtMode = 1
+    return true
+  }
+
+  fn isIdentStartChar:boolean (c:int) {
+    if ((c >= 97) && (c <= 122)) {
+      return true
+    }
+    if ((c >= 65) && (c <= 90)) {
+      return true
+    }
+    if (c == 95) {
+      return true
+    }
+    if (c == 36) {
+      return true
+    }
+    return false
+  }
+
+  ; Characters a postfix expression may carry OUTSIDE any bracket: the name
+  ; itself, `.` and `::` for member access, `->` for C++, `#` for a Rust raw
+  ; identifier, `!` for a Rust macro or a Swift force-unwrap. A space, an
+  ; operator, a comma or a `?` means this is not one -- `new X()`, `await x`,
+  ; `a + b` and `x?` all stop here and keep their parentheses.
+  fn isPostfixTopChar:boolean (s:string i:int c:int n:int) {
+    if (this.isIdentStartChar(c)) {
+      return true
+    }
+    if ((c >= 48) && (c <= 57)) {
+      return true
+    }
+    if (c == 46) {
+      return true
+    }
+    if (c == 35) {
+      return true
+    }
+    if (c == 33) {
+      return true
+    }
+    if (c == 58) {
+      def prevOk:boolean false
+      if (i > 0) {
+        def pc:int (charAt s (i - 1))
+        if (pc == 58) {
+          prevOk = true
+        }
+      }
+      if (i < (n - 1)) {
+        def nc:int (charAt s (i + 1))
+        if (nc == 58) {
+          prevOk = true
+        }
+      }
+      return prevOk
+    }
+    if (c == 45) {
+      if (i < (n - 1)) {
+        def nc2:int (charAt s (i + 1))
+        if (nc2 == 62) {
+          return true
+        }
+      }
+      return false
+    }
+    if (c == 62) {
+      if (i > 0) {
+        def pc2:int (charAt s (i - 1))
+        if (pc2 == 45) {
+          return true
+        }
+      }
+      return false
+    }
+    return false
+  }
+
+  ; A name, a path, a call, an index, or any chain of those -- and nothing
+  ; else. String and character literals are stepped over whole, so a paren
+  ; inside one cannot make an expression that needs the pair look as though
+  ; it does not: `f("(")+g(")")` balances by accident and its `+` would
+  ; otherwise be read as sitting inside a bracket.
+  fn isPostfixExpression:boolean (s:string) {
+    def n:int (strlen s)
+    if (n == 0) {
+      return false
+    }
+    def firstC:int (charAt s 0)
+    if (false == (this.isIdentStartChar(firstC))) {
+      return false
+    }
+    def depth:int 0
+    def i:int 0
+    while (i < n) {
+      def c:int (charAt s i)
+      if ((c == 34) || (c == 39)) {
+        def quote:int c
+        i = i + 1
+        while (i < n) {
+          def qc:int (charAt s i)
+          if (qc == 92) {
+            i = i + 2
+          } {
+            if (qc == quote) {
+              break _
+            }
+            i = i + 1
+          }
+        }
+        if (i >= n) {
+          return false
+        }
+        i = i + 1
+      } {
+        if ((c == 40) || (c == 91)) {
+          depth = depth + 1
+          i = i + 1
+        } {
+          if ((c == 41) || (c == 93)) {
+            depth = depth - 1
+            if (depth < 0) {
+              return false
+            }
+            i = i + 1
+          } {
+            if (depth == 0) {
+              def okc:boolean (this.isPostfixTopChar(s i c n))
+              if (false == okc) {
+                return false
+              }
+            }
+            i = i + 1
+          }
+        }
+      }
+    }
+    if (depth != 0) {
+      return false
+    }
+    return true
+  }
+
+  ; The receiver already carries an outer pair of its own -- `(a + b)` walked
+  ; out of a suppressed operator. Wrapping it again is where the second half
+  ; of `((this.arr[k])).asString()` comes from.
+  fn isWrappedInParens:boolean (s:string) {
+    def n:int (strlen s)
+    if (n < 2) {
+      return false
+    }
+    if ((charAt s 0) != 40) {
+      return false
+    }
+    def depth:int 0
+    def i:int 0
+    while (i < n) {
+      def c:int (charAt s i)
+      if ((c == 34) || (c == 39)) {
+        def quote:int c
+        i = i + 1
+        while (i < n) {
+          def qc:int (charAt s i)
+          if (qc == 92) {
+            i = i + 2
+          } {
+            if (qc == quote) {
+              break _
+            }
+            i = i + 1
+          }
+        }
+        if (i >= n) {
+          return false
+        }
+        i = i + 1
+      } {
+        if (c == 40) {
+          depth = depth + 1
+          i = i + 1
+        } {
+          if (c == 41) {
+            depth = depth - 1
+            if (depth == 0) {
+              if (i == (n - 1)) {
+                return true
+              }
+              return false
+            }
+            i = i + 1
+          } {
+            i = i + 1
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  fn receiverNeedsParens:boolean (s:string) {
+    if ((strlen s) == 0) {
+      return false
+    }
+    if (this.isPostfixExpression(s)) {
+      return false
+    }
+    if (this.isWrappedInParens(s)) {
+      return false
+    }
+    return true
+  }
+
+  ; Walk a call receiver into a writer of its own, then decide from what came
+  ; out whether it has to be wrapped, and write it back as one string.
+  ;
+  ; `-format=none` restores the unconditional pair, so every target can be
+  ; compiled both ways from one compiler and the two outputs diffed.
+  ;
+  ; Once rather than twice: walking a node a second time runs its side effects
+  ; a second time -- registers, hoisted temporaries and imports among them.
+  ;
+  ; A detached writer rather than `wr.fork()`, which is what this first tried:
+  ; a CodeWriter buffers the line it is building in `currentLine` and only
+  ; flushes it into a slice at a newline, so a fork taken mid-line splices its
+  ; slice AHEAD of everything the parent has buffered. `res["fs"] = ` had not
+  ; reached a slice yet, and the receiver landed in front of it:
+  ; `(this.filesystem)        res["fs"] = .toDictionary();`. fork() is safe
+  ; only at a line boundary, which is why the imports are its only other use.
+  ;
+  ; The source-map columns recorded inside the receiver are relative to the
+  ; receiver rather than to the line, because the detached writer starts its
+  ; own `currentLine`. Seeding it with the parent's would fix that, but taking
+  ; the seed back off needs `substring` against a `strlen`, and those two count
+  ; different units on the C++ build -- characters and bytes -- which would
+  ; break the self-hosted C++ compiler on any line holding a multi-byte
+  ; character. Every existing `fork()` already has the same property, and the
+  ; source-map suite checks structure rather than columns, so this takes the
+  ; portable side of that trade.
+  fn writeCallReceiver:void (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (false == (this.formatterEnabled(ctx))) {
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      return
+    }
+    def recv:CodeWriter (new CodeWriter)
+    recv.parent = wr
+    recv.indentAmount = 0
+    recv.sourceMapsEnabled = wr.sourceMapsEnabled
+    recv.sourceMapBuilder = wr.sourceMapBuilder
+    recv.lineNumber = wr.lineNumber
+    ctx.setInExpr()
+    this.WalkNode( obj ctx recv)
+    ctx.unsetInExpr()
+    def recvCode:string (recv.getCode())
+    if (this.receiverNeedsParens(recvCode)) {
+      wr.out(("(" + recvCode + ")") false)
+    } {
+      wr.out(recvCode false)
+    }
+  }
+
   ; ---------------------------------------------------------------------------
   ; UNION INTERFACES (PLAN_SHAPES.md S5)
   ;
@@ -509,11 +811,8 @@ class RangerGenericClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")." false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out("." false)
       def methodName method.vref
       if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
         methodName = node.fnDesc.compiledName
@@ -580,11 +879,8 @@ class RangerGenericClassWriter {
     ; property access...
       def obj:CodeNode (node.getSecond())
       def prop:CodeNode (node.getThird())
-      wr.out('(' false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(').' false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out('.' false)
       this.WalkNode(prop ctx wr)
   }
 

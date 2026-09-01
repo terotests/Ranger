@@ -579,6 +579,7 @@ class tester {
       'operatordoc'  'write operator documention into .md file'
       'apidoc'  'write the API documentation artifacts into this subdirectory'
       'apiformat'  'which API artifacts to write: json, markdown, report (default json,markdown)'
+      'format'  'Output formatting: "ranger" (the default) drops parentheses a target does not need; "none" emits exactly what the writers emit'
       'csnamespace'  'C# namespace for the generated types'
       'ktpackage'  'Kotlin package for the generated types'
     ))
@@ -889,6 +890,19 @@ class tester {
       def s:string ""
       print "allowed languages: " + (join allowed_languages " ")     
       return res
+    }
+
+    ; A typo in -format must not silently turn the formatter on: "-format=non"
+    ; is not "none", and reading it as "anything that is not none" would leave
+    ; the caller believing they had switched it off.
+    def fmtOpt@(optional) (params.getParam("format"))
+    if (!null? fmtOpt) {
+      def fmtName:string (unwrap fmtOpt)
+      if ((fmtName != "none") && (fmtName != "ranger")) {
+        print "Invalid -format value : " + fmtName
+        print "allowed values: none ranger"
+        return res
+      }
     }
 
     ; set the language

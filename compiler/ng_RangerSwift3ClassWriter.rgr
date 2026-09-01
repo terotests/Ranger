@@ -482,11 +482,8 @@ class RangerSwift3ClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")." false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out("." false)
       wr.out(method.vref false)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)

@@ -551,11 +551,7 @@ class RangerKotlinClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")" false)
+      this.writeCallReceiver(obj ctx wr)
       if (this.receiverIsNullable(obj)) {
         wr.out("!!" false)
       }

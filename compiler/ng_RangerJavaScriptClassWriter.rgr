@@ -185,11 +185,7 @@ class RangerJavaScriptClassWriter {
         }
       }
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")" false)
+      this.writeCallReceiver(obj ctx wr)
       if(target_typescript) {
         if(this.isOptionalReference(obj)) {
           wr.out("!." false)

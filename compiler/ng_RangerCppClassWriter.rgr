@@ -941,11 +941,8 @@ class RangerCppClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")->" false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out("->" false)
       wr.out(method.vref false)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
@@ -1136,11 +1133,8 @@ class RangerCppClassWriter {
     ; property access...
       def obj:CodeNode (node.getSecond())
       def prop:CodeNode (node.getThird())
-      wr.out('(' false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(')->' false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out('->' false)
       this.WalkNode(prop ctx wr)
   }
 

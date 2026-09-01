@@ -340,9 +340,13 @@ class RangerPythonClassWriter {
   fn CreatePropertyGet(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def obj:CodeNode (node.getSecond())
     def prop:CodeNode (node.getThird())
-    ctx.setInExpr()
-    this.WalkNode( obj ctx wr)
-    ctx.unsetInExpr()
+    if (this.formatterEnabled(ctx)) {
+      this.writeCallReceiver(obj ctx wr)
+    } {
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+    }
     wr.out('.' false)
     wr.out(prop.vref false)
   }
@@ -656,9 +660,16 @@ class RangerPythonClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
+      ; Python is the one writer that wrapped NO receiver at all, so
+      ; `-format=none` has to keep emitting none of them -- the flag means
+      ; "what this compiler emitted before", not "what the others emit".
+      if (this.formatterEnabled(ctx)) {
+        this.writeCallReceiver(obj ctx wr)
+      } {
+        ctx.setInExpr()
+        this.WalkNode( obj ctx wr)
+        ctx.unsetInExpr()
+      }
       wr.out("." false)
       wr.out(method.vref false)
       wr.out("(" false)

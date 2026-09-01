@@ -101,10 +101,9 @@ confused with either.
 
 ---
 
-## 4. A is one unconditional line
+## 4. A is one unconditional decision, copied into every writer
 
-`RangerGenericClassWriter.CreateCallExpression`
-(`compiler/ng_RangerGenericClassWriter.rgr:511`) writes:
+`RangerGenericClassWriter.CreateCallExpression` writes:
 
 ```ranger
 wr.out("(" false)
@@ -115,9 +114,17 @@ wr.out(")." false)
 ```
 
 The receiver is wrapped **unconditionally**, with no precedence test at all.
-That single site produces `(this).find(id)`, `(t).find("root")` and every
-`((a.b()).c()).d()` in the table above. On the measured file it accounts for 34
-of the JavaScript output's parentheses and 36 of Dart's.
+That decision produces `(this).find(id)`, `(t).find("root")` and every
+`((a.b()).c()).d()` in the table above.
+
+This plan first said "one unconditional line", which was wrong and worth
+correcting, because it changes the size of the work: the generic writer is the
+fallback for five targets, and the other eleven override
+`CreateCallExpression` and `CreatePropertyGet` with their own copy of the same
+five lines. There are **thirteen** such sites, differing only in what they
+write after the closing paren -- `.` on most, `->` on C++ and PHP, `!.` when
+TypeScript sees an optional. Two are not copies: Swift 6 already tests its
+receiver with `isSimpleClassCallReceiver`, and Python wrapped nothing at all.
 
 ### 4.1 The rule
 
@@ -141,6 +148,27 @@ a receiver needs parentheses only when it is one of a short list:
 So the predicate is mostly shared, with a small per-target table. It belongs on
 `RangerGenericClassWriter` with per-writer overrides, next to the existing
 `suppress_expr_parens` machinery rather than replacing it.
+
+**What was built instead, and why.** The table above classifies a NODE. The
+implementation classifies the emitted TEXT, because what a receiver turns into
+is the target writer's business and not something a node-shape rule can know:
+Rust appends `.borrow()`, C++ writes `->`, a register expression becomes a
+temporary name, and `WriteVRef` is overridden in sixteen writers. Asking the
+question of the text needs none of that — a name, a path, a call, an index and
+any chain of those is a postfix expression in every one of these languages, and
+binds tighter than `.` in all of them.
+
+`writeCallReceiver` walks the receiver into a writer of its own, reads what came
+out, and wraps only if the text is neither a postfix expression nor already a
+single parenthesised group. Once, not twice: walking a node a second time runs
+its side effects a second time.
+
+The rule is a whitelist, so the default is to KEEP the pair. `(new NBox()).get()`
+keeps its parentheses because `new NBox()` has a space in it, and a cast, a
+ternary and an `await` stop at the same test. That is deliberately blunter than
+the table above — a target where `new X().m()` is legal keeps a pair it does not
+need — and it is the shape of conservatism this change wanted: a receiver loses
+its parentheses only when it is proven not to need them.
 
 ### 4.2 The second source
 
@@ -296,16 +324,17 @@ Two more gates, because a formatter cannot tell right from wrong:
 
 ## 8. Phases
 
-**Phase 0 — the Go keyword collision.** `var go bool` is a syntax error and
-nothing downstream of it can be measured. It is not formatting work, but it
-blocks the Go half of this plan's own verification, so it goes first.
+**Phase 0 — the Go keyword collision. DONE, and it was not a Go problem.**
+`var go bool` is a syntax error and nothing downstream of it can be measured.
+Asking the same question of every target found JavaScript in a worse state
+(41 of 46 keywords, no block at all) and C++ close behind. §10.1.
 
-**Phase 1 — the receiver.** The predicate of §4.1 at the one site in
-`CreateCallExpression`, plus per-target overrides. Measured effect on the
-sample: 36 parentheses gone on Dart, 40 on Go, 22 on Rust, 34 on JavaScript
-that prettier would otherwise have to remove — and the doc examples of
+**Phase 1 — the receiver. DONE for nine targets, not for Rust and Swift 6.**
+`writeCallReceiver` at thirteen sites across eleven writers, deciding from the
+emitted text rather than the node. JavaScript 34 → 1, C++ 32 → 1, Dart 36 → 4,
+Kotlin 34 → 2, C# 36 → 3, Go 40 → 8 — and the doc examples of
 `PLAN_API_DOCS.md` §18 stop reading like Lisp, which no formatter would ever
-have fixed. Smallest change in the plan and the largest visible win.
+have fixed. Rust and Swift 6 are phase 1b, for the reasons in §10.2.
 
 **Phase 2 — a precedence model for expressions.** Replace the ad-hoc
 `suppress_expr_parens` flag with parent/child binding powers. Removes the
@@ -348,3 +377,155 @@ the same rule the documentation tests follow.
 **Width is a preference and preferences start arguments.** The defaults above
 are each ecosystem's own default, not a Ranger opinion. Anything else belongs in
 the `format { }` block.
+
+---
+
+## 10. What shipped: phases 0 and 1
+
+### 10.1 Phase 0 — reserved words
+
+The Go defect turned out not to be a Go defect. `scripts/reserved_probe.py`
+asks the question the tables were never asked: for every keyword of a target
+language, it compiles a Ranger program that names a local, a parameter, a
+property and a method after it, and hands the result to that target's own
+parser. A keyword Ranger itself cannot spell (`return`, `this`, `true`) is
+reported separately from one Ranger spells fine and the target then rejects —
+only the second is a defect. A target whose parser is not installed is reported
+as UNCHECKED and never as a pass, because a silent skip reads as "no
+collisions", which is how the Go table stayed at 2 entries.
+
+| Target | Keywords broken before | After |
+| --- | --- | --- |
+| **JavaScript** | **41 of 46** — there was no `es6` block at all | 0 |
+| C++ | 25, despite 56 existing entries | 0 |
+| Go | 20 of 25 | 0 |
+| Rust | 2 (`crate`, `super` — the writer spells the rest `r#kw`, and those two cannot be raw identifiers) | 0 |
+| Python | 0 of 37 | 0 |
+| Dart, Kotlin, Swift, C# | **unchecked — no parser installed here** | unchecked |
+
+JavaScript was worse than Go and had gone unnoticed for longer: `def new:int 1`
+emitted `const new = 1`. The compiler self-hosts to JavaScript, so the fix's
+blast radius was measurable exactly — rebuilding the compiler with the new
+`es6` block changed **4 lines**, all of them the source edit itself. The
+compiler's own sources use none of the 40 names.
+
+`null` cannot be listed in a `reserved_words` block: the Ranger parser reads it
+as a literal rather than a name, so the pair does not parse. It is renamed for
+JavaScript in `transformWord`, beside the C# and Dart cases already there for
+the same reason.
+
+The four unchecked targets are not claimed to be clean. They are targets whose
+compiler is not installed in this environment, and the probe says so on every
+run rather than quietly passing.
+
+### 10.2 Phase 1 — the receiver
+
+`writeCallReceiver` on `RangerGenericClassWriter`, called from thirteen sites
+across eleven writers. Measured on `gallery/vela/src/VlChart.rgr`, redundant
+parenthesised receivers, comments and string bodies stripped:
+
+| Target | `-format=none` | `-format=ranger` |
+| --- | --- | --- |
+| JavaScript | 35 | **1** |
+| Go | 41 | **8** |
+| C++ | 35 | **1** |
+| Dart | 39 | **6** |
+| Kotlin | 37 | **4** |
+| C# | 37 | **3** |
+| Python | 1 | 1 |
+| Rust | 18 | 18 — *not done, see below* |
+| Swift 6 | 34 | 34 — *not done, see below* |
+
+(`python3 scripts/fmt_measure.py --self-check` checks the counter against known
+cases before any of these numbers are believed. It has already been wrong once:
+a regex anchored on an identifier head counted `((a.b()).c()).d()` as one
+redundant pair rather than two, because a parenthesised group is also a legal
+head. The `-format=none` column above is a point or two higher than the first
+version of this section for that reason.)
+
+**Rust and Swift 6 are deliberately not in this phase.** Rust's
+`CreateCallExpression` is not a copy of the shared block: it has several
+receiver paths that append `.borrow()` or `.borrow_mut()` depending on the
+sharing analysis, and changing it is its own piece of work. Swift 6 already
+tests its receiver with `isSimpleClassCallReceiver`, and replacing a working
+predicate with a different one, on a target whose compiler is not installed
+here, buys nothing. Both are phase 1b. Rust's `CreatePropertyGet`, which *is* a
+copy of the shared block, was done.
+
+The generic writer's own copy serves C#, Java 7, Scala, LLVM and Zig — none of
+which can be executed here, which is why the parity check below matters more
+for them than the paren count does.
+
+### 10.3 How it was verified
+
+Four gates, and the order is the order of how much each one catches.
+
+**The self-host.** The compiler is ~40k lines of Ranger that it compiles with
+itself. It reached a fixpoint: gen2 == gen3, and `node --check` reads the
+result. An earlier attempt did not, and the way it failed is worth recording —
+`wr.fork()` splices a slice at the fork point, but a `CodeWriter` buffers the
+line it is building in `currentLine` and only flushes at a newline, so a fork
+taken mid-line lands **ahead** of everything the parent had buffered:
+
+```js
+(        (this.filesystem))        res["filesystem"] = .toDictionary();
+```
+
+`fork()` is safe only at a line boundary, which is why the imports were its only
+other use. The implementation uses a detached writer whose content is written
+back as one string.
+
+**`-format=none` is byte-for-byte identical to the previous compiler.**
+`scripts/fmt_parity.sh` compiles the same sources with both compilers on eleven
+targets and compares bytes. All identical (Java 7 fails to compile both
+programs, before and after alike). This is the check that catches a change
+nobody thought to test, and it is the one that caught a Swift visibility
+regression the test suite missed during the documentation work.
+
+**Execution, both ways, from one compiler.** `scripts/fmt_runcheck.sh` compiles
+every conformance program with `-format=none` and `-format=ranger`, builds and
+runs both, and compares the outputs to each other and to the committed
+expectation: 45 program/target pairs across JavaScript, Python, Go, C++ and
+Rust, all agreeing. `gallery/invaders` builds and runs identically both ways on
+JavaScript, Python, C++ and Rust; its Go build fails on a Windows-only syscall
+in both modes alike.
+
+**`tests/format.test.ts`**, 12 cases: the chain shape, the absence of
+`(x).`, `-format=none` restoring the old text exactly, the conservative case
+(`(new NBox2()).get()` keeps its parentheses), and a keyword fixture whose
+output is handed to `node --check`, `gofmt -e`, `python3` and `g++` and then
+run.
+
+**What is NOT verified by execution, and should be read as such.** Dart,
+Kotlin, C#, Swift, Java, Scala and PHP have no toolchain on this machine, so
+for those targets the claim is only that the paren count fell and that
+`-format=none` reproduces the previous bytes exactly. Nothing here has run
+their output. Three things carry the risk in the meantime: the predicate is a
+whitelist that keeps the pair unless the text is provably postfix, the same
+predicate is what JavaScript, Go, C++, Python and Rust were verified on, and
+`-format=none` is a one-flag way back to the previous output if a target turns
+out to disagree.
+
+**A failure already in the suite was established rather than assumed.**
+`es-conformance-targets.test.ts` fails five of its six cases, and the first
+reading was that the change had caused it. Running the same file against a copy
+of the previous compiler produced the *same five failures*, down to the probe
+name: the es6 oracle case, a Rust `uni-lastindexof` difference that
+`KNOWN_TARGET_GAPS` does not record, and Go and C++ hitting the 30-second test
+timeout while building on this machine. None of them are this change, and none
+of them are fixed by it. The habit worth keeping is the one that produced that
+answer: when a suite fails, run it against the baseline before believing the
+diff caused it.
+
+### 10.4 What the measurement says about the rest of the plan
+
+Nothing about the whitespace numbers moved, and nothing should have: `changed
+lines` is unchanged on every target, because phase 1 removes characters the
+ecosystem formatter was going to reprint anyway. The value of phase 1 is
+entirely in the places no formatter reaches — the doc comments of
+`PLAN_API_DOCS.md` §18, and every target that has no reprinting formatter at
+all.
+
+Phase 2 remains the larger correctness win: `(xs[i]).get()` still has one pair,
+because the operator path wraps its own result independently of the receiver
+decision. Phase 1 stopped that becoming `((xs[i])).get()`; it did not remove it.
