@@ -255,6 +255,48 @@ into one undo and the page undoes per keystroke. Coalescing is the browser's
 business; the gate asserts that undo reverses typing and gets back to the
 start, which is the claim being made.
 
+### P3 — Android text bridge — **blocked, and not faked**
+
+There is nothing to attach it to. Searched the whole repository: no
+`InputConnection`, no `EditText`, no `showSoftInput`, no `InputMethodManager`
+anywhere; no native host consumes `InputCtl` or `UiHost`; and no
+`DashboardView` exists under that name. The Android EVG host that does exist
+is `gallery/pptx/android/` — a pptx viewer with gestures, commands and a
+handful of named keys, with no text entry at all.
+
+An `InputConnection` for a host that renders no text field would be a bridge
+to nowhere, and untestable here besides: there is no Android CI in this repo,
+so it would be Kotlin nothing runs. Left blocked on a host with a field,
+rather than written and called done.
+
+### P4 — Unicode: half solved, half measured — **partly done**
+
+The WEB half fell out of P2: the browser owns grapheme deletion, and the gate
+proves it (one Backspace over a ZWJ family removes eleven code units).
+
+The other half was an untested claim in `InputCtl` — that a C++ backend counts
+bytes — and it is now measured. `ui:offset:check` compiles one probe to both
+backends and diffs them:
+
+| string | JS `strlen` | C++ `strlen` |
+|---|---|---|
+| `abc` | 3 | 3 |
+| `héllo` | 5 | **6** |
+| `aä` | 2 | **3** |
+| `a🙂b` | 4 | **6** |
+
+`charAt` returns UTF-16 code units on JS (surrogate halves included) and raw
+UTF-8 bytes on C++. The expectations in the gate are computed from the
+definitions — `s.length` and `Buffer.byteLength` — so there is no transcribed
+table to drift.
+
+The divergence bites at exactly two seams, which is narrower and more useful
+than "non-ASCII breaks": `selStart`/`selEnd` are pinned to UTF-16 by the DOM,
+and `caretXAt(i)` measures `substring(0, i)`, which on C++ can cut a
+multi-byte character in half. A conversion layer is deliberately NOT written:
+it would be untested code for a host that does not exist. The gate is there so
+that the day one does, this is a known quantity.
+
 ### P5 — `PasswordCtl` and `OtpCtl`
 
 The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal

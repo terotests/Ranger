@@ -106,6 +106,10 @@ SUITES=(
   ui:form:check
   ui:profile:check
   ui:dashboard:check
+  # What a string index MEANS, compiled to both backends and diffed. JS counts
+  # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
+  # said so and had never been checked. It is true, and now it is pinned.
+  ui:offset:check
   # THE PAGE ITSELF, in a real browser. This was missing, and its absence is
   # exactly why three wiring defects survived: click-to-caret worked in the
   # controller and in the demo's API while `main.js` dropped the coordinate,

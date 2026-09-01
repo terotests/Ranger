@@ -24,10 +24,33 @@
 ;
 ; INDEXES ARE UTF-16 CODE UNITS, because that is what `selectionStart` counts
 ; and parity is the point. On the JS backend `charAt` and `substring` agree
-; with that; on the C++ backend they count BYTES, so a non-ASCII value would
-; index differently there. Stated rather than solved: the conformance harness
-; runs on JS, and a byte-indexed caret is a real divergence for whoever takes
-; the native backend past ASCII.
+; with that; on the C++ backend they count BYTES.
+;
+; That used to be an assertion in this comment and is now a measurement —
+; `ui:offset:check` compiles the same source to both backends and diffs them:
+;
+;   strlen   "abc" 3 / 3     "héllo" 5 / 6     "aä" 2 / 3     "a<emoji>b" 4 / 6
+;   charAt   JS gives UTF-16 units, surrogate halves and all;
+;            C++ gives raw UTF-8 bytes.
+;
+; Within ONE backend the indices are self-consistent, so most of this class is
+; fine either way. The divergence bites at exactly two seams, and it is worth
+; naming them rather than saying "non-ASCII breaks":
+;
+;   `selStart`/`selEnd` are pinned to UTF-16 by the DOM and by the harness
+;   that compares against a real <input>; on a native host they would mean
+;   bytes and the same number would name a different place.
+;
+;   `caretXAt(i)` measures `substring(0 i)`. On C++, `caret - 1` after a
+;   Backspace can land INSIDE a multi-byte character — measured:
+;   `substring(0 2)` of "aä" is "a" plus one orphaned continuation byte — and
+;   the width of a broken string is not the width of anything.
+;
+; Stated rather than solved, deliberately. The web host's backend is
+; JavaScript, which is already UTF-16, and since the text bridge landed the
+; browser owns grapheme deletion anyway; a conversion layer here would be
+; untested code for a host that does not exist yet. The gate is so that the
+; day one does, this is a known quantity rather than a comment somebody wrote.
 ;
 ; Parity contract (see conformance/SPEC.md):
 ;   root      role textbox, named by its label, the tab stop, and where value,
