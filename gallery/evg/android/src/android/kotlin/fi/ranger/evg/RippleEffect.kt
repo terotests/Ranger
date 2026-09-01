@@ -208,6 +208,18 @@ half4 main(float2 fragCoord) {
     float2 p = float2(fragCoord.x / uScale + uPanX, fragCoord.y / uScale);
     float4 w = waveAt(p);
 
+    // NOTHING HAPPENING HERE, AND THAT IS MOST OF THE SCREEN.
+    //
+    // A ring is a thin annulus travelling across a page that is otherwise
+    // exactly what was drawn. Answering those pixels immediately skips the two
+    // extra wave sums the glint's gradient costs and the three extra texture
+    // reads the aberration costs — the difference between an effect that costs
+    // a ring and one that costs a screen, which on a software-rendered emulator
+    // is the difference between an effect and a hang.
+    if (w.w < 0.0015 && abs(w.z) < 0.0015) {
+        return uContent.eval(fragCoord);
+    }
+
     // Back to device pixels to sample with.
     float2 offset = w.xy * uStrength * uScale;
 

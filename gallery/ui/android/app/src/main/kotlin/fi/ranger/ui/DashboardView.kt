@@ -100,6 +100,13 @@ class DashboardView @JvmOverloads constructor(
     private val ripple = RippleEffect(this)
     private var rippleNanos = 0L
     private var rippleQueued = false
+    private var slowRippleFrames = 0
+
+    /**
+     * Off once this device has shown it cannot keep up, and off when a person
+     * says so from the menu. The page is what matters; the ring is what is nice.
+     */
+    var rippleAffordable = true
 
     // --- the fling ------------------------------------------------------------
     // Android's `OverScroller` would do this, and would also mean an AndroidX
@@ -363,7 +370,7 @@ class DashboardView @JvmOverloads constructor(
     // and the layout, the chart and the painter are not asked again.
 
     private fun startRipple() {
-        if (!ripple.available) return
+        if (!ripple.available || !rippleAffordable) return
         if (rippleQueued) return
         rippleQueued = true
         rippleNanos = 0L
@@ -375,24 +382,42 @@ class DashboardView @JvmOverloads constructor(
     private val rippleTick: Runnable = Runnable {
         rippleQueued = false
         val now = System.nanoTime()
-        val dt = if (rippleNanos == 0L) 0.0 else (now - rippleNanos) / 1_000_000.0
+        val dt = if (rippleNanos == 0L) 16.0 else (now - rippleNanos) / 1_000_000.0
         rippleNanos = now
-        // A frame that arrived after a second away — the app was backgrounded —
-        // would age every touch out of existence in one step. Ageing it by
-        // nothing instead lets the next frame do it properly.
-        val busy = if (dt > 0.0 && dt < 250.0) app.tick(dt) else app.busy()
+        // However late this frame is, `tick` clamps it and time moves: a host
+        // that decided for itself which frames were too strange to count left
+        // the page busy forever. That rule is in the facade now, where it is
+        // checked.
+        val busy = app.tick(dt)
+
+        // AND THE EFFECT PAYS FOR ITSELF OR STOPS. The interval between these
+        // callbacks is what the whole pipeline managed, shader included; a
+        // handful in a row over 60ms means this device cannot afford the ring,
+        // and a page that is drawn late is worse than a page that does not
+        // ripple.
+        if (dt > 60.0) slowRippleFrames++ else slowRippleFrames = 0
+        if (slowRippleFrames >= 6) {
+            rippleAffordable = false
+            Log.w(TAG, "ripple is costing more than the page on this device — off")
+        }
+
         syncRipple()
-        if (busy) {
+        if (busy && rippleAffordable) {
             rippleQueued = true
             postOnAnimation(rippleTick)
         } else {
             rippleNanos = 0L
+            slowRippleFrames = 0
             ripple.clear()
         }
     }
 
     private fun syncRipple() {
         if (!ripple.available) return
+        if (!rippleAffordable) {
+            ripple.clear()
+            return
+        }
         val n = app.dropCount()
         if (n <= 0) {
             ripple.clear()
