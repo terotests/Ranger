@@ -193,6 +193,54 @@ class PptxSeamTest {
         c.eqInt("and nothing shows through along the bottom either" down 0)
 
         print ""
+        print "=== the same geometry, through two primitives, paints the same ==="
+        ; THE PROPERTY UNDER ALL OF THE ABOVE, and the one whose absence made
+        ; the seam inevitable rather than unlucky.
+        ;
+        ; A renderer that rasterises a rectangle one way and a polygon another
+        ; cannot make them meet; it can only be patched at each place they are
+        ; seen not to. Both now use the same rule — a pixel belongs to a shape
+        ; when its CENTRE does — so the identical rectangle drawn either way
+        ; paints the identical pixels, and anything built from the two tiles.
+        ;
+        ; `fillPolygon` used to take `to_int` of each scanline crossing and
+        ; include both ends, which paints every pixel the span TOUCHES: the
+        ; span below came out eleven pixels through the polygon and nine
+        ; through the rectangle.
+        def poly (new EVGDisplayList())
+        def quad:[double] ([] _:double ( 10.6 4.0  20.4 4.0  20.4 12.0  10.6 12.0 ))
+        poly.addPolygon(quad (EVGColor.rgb(200 40 40)))
+        def pv (PptxSeamTest.render(poly 30 16))
+        def rect (new EVGDisplayList())
+        rect.addRect(10.6 4.0 9.8 8.0 (EVGColor.rgb(200 40 40)))
+        def rv (PptxSeamTest.render(rect 30 16))
+        def same:int 0
+        def differ:int 0
+        def px:int 0
+        while (px < 30) {
+            def pOn:boolean ((PptxSeamTest.isBackdrop(pv px 8)) == false)
+            def rOn:boolean ((PptxSeamTest.isBackdrop(rv px 8)) == false)
+            if (pOn == rOn) {
+                same = (same + 1)
+            } {
+                differ = (differ + 1)
+            }
+            px = (px + 1)
+        }
+        c.eqInt("no column is painted by one primitive and not the other" differ 0)
+        c.eqInt("and all thirty agree" same 30)
+        ; Nine, not eleven: the pixels whose centres lie in [10.6, 20.4).
+        def wide:int 0
+        def qx:int 0
+        while (qx < 30) {
+            if ((PptxSeamTest.isBackdrop(pv qx 8)) == false) {
+                wide = (wide + 1)
+            }
+            qx = (qx + 1)
+        }
+        c.eqInt("a span of 9.8 covers nine pixels, not eleven" wide 9)
+
+        print ""
         print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"
