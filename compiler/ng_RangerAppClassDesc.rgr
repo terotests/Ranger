@@ -140,6 +140,33 @@ class RangerAppClassDesc {
   fn doesInherit:boolean () {
     return is_inherited
   }    
+  ; True when every member of this class is a doc example, so removing the
+  ; examples leaves an empty shell. A class gathering examples together is the
+  ; normal way to write them, and an empty `class VlChartExamples {}` in the
+  ; output is not "removed from the compiled output".
+  fn isDocExampleOnly:boolean () {
+    def anyMember:boolean false
+    for variables v:RangerAppParamDesc vi {
+      return false
+    }
+    for methods m:RangerAppFunctionDesc mi {
+      if (m.is_doc_example == false) {
+        return false
+      }
+      anyMember = true
+    }
+    for static_methods m:RangerAppFunctionDesc si {
+      if (m.is_doc_example == false) {
+        return false
+      }
+      anyMember = true
+    }
+    if has_constructor {
+      return false
+    }
+    return anyMember
+  }
+
   fn isNormalClass:boolean () {
     def special ( is_operator_class || is_trait || is_system || is_generic_instance || is_system_union || is_union )
     return (special == false)

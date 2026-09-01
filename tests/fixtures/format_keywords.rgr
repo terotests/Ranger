@@ -1,0 +1,23 @@
+; A local, a parameter, a property and a method named after a keyword of some
+; target language. Every one of these used to be emitted verbatim on at least
+; one target, producing a file that target could not parse (ISSUES.md #76).
+class KwBox {
+  def go:int 3
+  def var:string "v"
+  fn select:int (case:int) {
+    def switch:int (case + go)
+    def const:int (switch + 1)
+    return const
+  }
+  fn interface:string () {
+    return var
+  }
+}
+class KwMain {
+  sfn main:void () {
+    def b:KwBox (new KwBox())
+    def n:int (b.select(4))
+    def s:string (b.interface())
+    print ("" + n + " " + s + " " + b.go)
+  }
+}

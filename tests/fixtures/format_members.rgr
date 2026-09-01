@@ -1,0 +1,26 @@
+; JavaScript reserves its keywords only where a NAME may stand. A binding
+; must be renamed -- `const null = 1` and `function f(null)` are syntax
+; errors -- but a MEMBER must not: `obj.null`, `this.default = 1` and
+; `static function() {}` are all legal, and renaming them changes the API a
+; caller already spells. `EvHandle.null()` is called by three test suites and
+; by every JavaScript consumer of the engine module, and one table applied to
+; both positions renamed it out from under them (ISSUES.md #82).
+class MemKw {
+  def class:int 1
+  def default:int 2
+  fn function:int (function:int) {
+    def new:int function
+    def var:int (new + this.class)
+    return (var + this.default)
+  }
+  fn delete:int () {
+    return (this.function(3))
+  }
+}
+class MemMain {
+  sfn main:void () {
+    def m:MemKw (new MemKw())
+    def r:int (m.delete())
+    print ("" + r + " " + m.class + " " + m.default)
+  }
+}

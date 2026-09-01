@@ -84,6 +84,7 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
 - [`PLAN_FORMATS.md`](PLAN_FORMATS.md) — the architecture for reading more than three file formats: the layer stack, the internal models, and the phased roadmap after DOCX/XLSX/PPTX. Phase 1 is `.odp` beside `.pptx`, run as the experiment that proves or disproves the shared scene
+- [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md) — the design for `doc { … }` declarations: API metadata attached to a Ranger declaration that never restates what the compiler already knows, the `no doc` / `doc` / `doc public` visibility rule, a canonical **ApiIR** that names a logical module and no namespace, and the outputs built from it — native doc comments and annotations per target (XML doc, TSDoc, DocC, KDoc, rustdoc, Javadoc, dartdoc, Doxygen, docstrings), and the language × platform split that separates C# from Unity and Dart from Flutter
 - [`CHANGELOG.md`](CHANGELOG.md) - version history
 - [`AGENTS.md`](AGENTS.md) — git/PR rules and Ranger gotchas for AI agents; links the [FAQ](https://terotests.github.io/Ranger/docs/faq/)
 - `ai/` — short offline notes for assistants (`README.md`, `QUICKREF.md`, `GRAMMAR.md`, `INTROSPECTION.md`); prefer the docs site when online
@@ -397,7 +398,14 @@ Options: -<option>=<value>
   -o=<value>             output file, default is "output.<language>"
   -classdoc=<value>      write class documentation .md file
   -operatordoc=<value>   write operator documention into .md file
+  -apidoc=<value>        write the API documentation artifacts into this subdirectory
+  -apiformat=<value>     which API artifacts to write: json, markdown, report (default json,markdown)
+  -csnamespace=<value>   C# namespace for the generated types
+  -ktpackage=<value>     Kotlin package for the generated types
 Flags: -<flag>
+  -apipackage    Write the packaging the target ecosystem expects (package.json for npm, .csproj and docfx.json for NuGet)
+  -apistrict     An undocumented public declaration or parameter is an error, not a warning
+  -keep-examples Emit the functions named by `example`. They are type checked either way; by default they are left out
   -forever       Leave the main program into eternal loop (Go, Swift)
   -allowti       Allow type inference at target lang (creates slightly smaller code)
   -plugins-only  ignore built-in language output and use only plugins
@@ -742,6 +750,126 @@ Hello.SomeStaticFn()   ; calling a static function of a class
 [Program structure](https://terotests.github.io/Ranger/docs/language/structure/)
 covers `class`, `record`, `systemclass`, `Import`, `Extend` and `Enum` in one
 table, and explains how blocks are passed to operators.
+
+## API documentation: the `doc { }` tail
+
+A declaration can carry a `doc { … }` block as its **tail**, after the body. The
+signature stays clean and the documentation is visibly an attachment to the
+declaration rather than a part of the program. It is compiler metadata, not a
+comment: `;` still documents the implementation, `doc` documents the interface.
+
+```
+class EVGA11yTree {
+    def focusId:string "" doc {
+        public
+        description "The identifier of the currently focused node."
+    }
+
+    fn find:EVGA11yNode ( id:string ) {
+        ...
+    } doc {
+        public
+        description "Finds an accessibility node by its stable identifier."
+        param id "The stable accessibility identifier."
+        returns "The matching node."
+        since "1.2"
+        see EVGA11yNode
+    }
+
+    fn rebuildIndex:void () {
+    } doc {
+        description "Rebuilds the lookup index. Not part of the public API."
+    }
+} doc {
+    public
+    description "A platform independent accessibility tree."
+}
+```
+
+**The block never restates what the compiler already knows.** There is no
+`param x int` and no `returns void`: the types come from the signature, and a
+`param` line that carries a type is a compile error. What the doc block carries
+is what no analysis can recover — prose, audience, version history and
+cross-references.
+
+**Documentation is the API declaration.** There is no `export fn` keyword:
+
+```
+no doc block            -> internal, undocumented
+doc { … }               -> documented, internal
+doc { public … }        -> exported public API
+```
+
+An undocumented function has no spelling for `public`. The block is checked
+against the signature it documents, which is the point of it being structured:
+a `param` that names no parameter, a `param` documented twice, a `returns` on a
+void function and a public member of an internal class are all compile errors.
+
+Entries: `public`, `internal`, `description`, `param`, `returns`, `throws`,
+`since`, `deprecated { since use description }`, `see`, `example`, `category`,
+`experimental`, `platform`, and `target <name> { … }` for markup that only one
+language has.
+
+**`example` names a function, not a string.** The sample is compiled and type
+checked with the rest of the program, rendered into each target's doc comment
+in *that target's* syntax — `const g = new Greeter()` on JavaScript,
+`g.greet(name : "world")` on Swift — and then left out of the emitted code.
+`-keep-examples` puts it back.
+
+```ranger
+fn greet:string ( name:string ) {
+    ...
+} doc {
+    public
+    description "Builds a greeting for a name."
+    example greetExample
+}
+
+class GreeterExamples {
+    sfn greetExample:void () {
+        def g:Greeter (new Greeter())
+        print (g.greet("world"))
+    }
+}
+```
+
+The compiler writes the documentation into the generated code in the target's
+own form and, with `-apidoc=<dir>`, a target-independent `api.json`, a Markdown
+reference and an `api.txt` report of the public surface. `-apipackage` adds the
+packaging the ecosystem expects:
+
+```bash
+# an npm package documentation.js renders with no configuration
+rgrc -es6 a11y.rgr -d=out -o=index.js -nodemodule \
+  -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0 -license=MIT
+
+# a NuGet project whose XML documentation DocFX reads
+rgrc -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
+  -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
+
+# a pub package `dart doc` renders. The layout matters: dart doc reads lib/
+# and skips lib/src/, so `public` decides what the documentation shows.
+rgrc -l=dart a11y.rgr -d=pkg/lib/src -o=evg_a11y_impl.dart \
+  -apidoc=docs -apipackage -name=evg_a11y -version=1.2.0
+```
+
+Six targets carry the documentation into the generated code today:
+
+| Target | Comment form | Packaging | Doc tool |
+| --- | --- | --- | --- |
+| JavaScript | JSDoc (`@param {string} id`, `@public` / `@private`) | `package.json` | documentation.js |
+| C# | XML docs (`<summary>`, `<param>`, `<seealso cref>`, `[System.Obsolete]`) | `.csproj`, `docfx.json` | DocFX, Sandcastle |
+| Kotlin | KDoc (`@param`, `@return`, `@see`, `@Deprecated(… ReplaceWith)`) | `build.gradle.kts` | Dokka |
+| Swift | DocC (`- Parameter`, `- Returns`, `> Since:`, `@available`) | `Package.swift`, `.docc` catalog | DocC |
+| Python | Google docstrings (`Args:`, `Returns:`, `.. versionadded::`) | `pyproject.toml`, `__all__` | pdoc, Sphinx |
+| Dart | dartdoc (`/// [id] …`, `[Symbol]`, `@Deprecated`) | `pubspec.yaml`, generated `export … show` | `dart doc` |
+
+Each also gets a namespace, package or export surface from the doc blocks. On
+Dart and Python `public` writes the export list itself — a barrel file and
+`__all__` are exactly the kind of list that rots when a person maintains it. A
+class with no doc block is not opted into the API model and compiles exactly as
+it did before. Design and the remaining targets:
+[`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
 
 ## Types
 

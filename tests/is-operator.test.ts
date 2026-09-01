@@ -105,8 +105,11 @@ describe("the `is` kind test", () => {
     it("Rust: one matches! per case of the group, or-ed", () => {
       const gen = getGeneratedRustCode(FIXTURE);
       expect(gen.success).toBe(true);
+      // The pair each `matches!` used to carry is gone: a macro call is a
+      // postfix expression and never needs one (PLAN_FORMAT.md phase 2).
+      // What matters here is the disjunction, not the parentheses.
       expect(gen.code).toContain(
-        "(matches!(v, union_Val::Val_Nul(..))) || (matches!(v, union_Val::Val_Num(..)))"
+        "matches!(v, union_Val::Val_Nul(..)) || matches!(v, union_Val::Val_Num(..))"
       );
       // the group must never reach a writer as a tag of its own
       expect(gen.code).not.toContain("union_Val::union_Val_Prim");
@@ -115,7 +118,10 @@ describe("the `is` kind test", () => {
     it("Kotlin: one `is` per case of the group, or-ed", () => {
       const gen = getGeneratedKotlinCode(FIXTURE);
       expect(gen.success).toBe(true);
-      expect(gen.code).toContain("((v is Val_Nul)) || ((v is Val_Num))");
+      // was `((v is Val_Nul)) || ((v is Val_Num))`; phase 2 removed the
+      // doubled pair. Kotlin needs the inner one -- `is` binds looser than
+      // `||` there -- and it is still written.
+      expect(gen.code).toContain("(v is Val_Nul) || (v is Val_Num)");
     });
 
     it("Swift: one `if case` per case of the group, or-ed", () => {

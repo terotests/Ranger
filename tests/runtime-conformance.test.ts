@@ -3049,6 +3049,13 @@ function buildEngineModuleIfNeeded(): void {
     path.join(migrateSrc, "EvalValue.rgr"),
     path.join(migrateSrc, "EvHandle.rgr"),
     path.join(migrateSrc, "EvValueBridge.rgr"),
+    // The COMPILER is a dependency too. Without these two the module is judged
+    // up to date after any compiler change, and this suite then measures the
+    // engine built by the PREVIOUS compiler -- which is how a reserved-word
+    // rename that broke EvHandle.null() passed here and failed in CI, where
+    // the module is always built fresh.
+    path.join(ROOT_DIR, "bin", "output.js"),
+    path.join(ROOT_DIR, "compiler", "Lang.rgr"),
   ];
   const modMtime = fs.existsSync(ENGINE_MODULE)
     ? fs.statSync(ENGINE_MODULE).mtimeMs

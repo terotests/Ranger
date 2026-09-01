@@ -1,0 +1,11 @@
+class Restated {
+  fn foo:void ( x:int ) {
+  } doc {
+    public
+    description "Restates a type the compiler already knows."
+    param x int "The input number."
+  }
+}
+sfn main:void () {
+  print "ok"
+}

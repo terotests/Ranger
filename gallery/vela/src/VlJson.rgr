@@ -226,18 +226,36 @@ class VlJson {
     sfn nullValue:VlJson () {
         def v:VlJson (new VlJson)
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds the JSON null value."
+        returns "A null value."
     }
     sfn boolValue:VlJson (value:boolean) {
         def v:VlJson (new VlJson)
         v.kind = 1
         v.b = value
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds a JSON boolean."
+        param value "The boolean."
+        returns "A boolean value."
     }
     sfn numberValue:VlJson (value:double) {
         def v:VlJson (new VlJson)
         v.kind = 2
         v.num = value
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds a JSON number that prints with a fraction, so 5 comes back as `5.0`."
+        param value "The number."
+        returns "A number value."
+        see intValue
     }
     sfn intValue:VlJson (value:int) {
         def v:VlJson (new VlJson)
@@ -245,22 +263,48 @@ class VlJson {
         v.num = (to_double value)
         v.isInt = true
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds a JSON number that prints without a fraction, so 5 stays `5`.
+
+JSON has one number type; the text does not. A count written with this prints
+as a count."
+        param value "The whole number."
+        returns "A number value that remembers it was written as an integer."
+        see numberValue
     }
     sfn stringValue:VlJson (value:string) {
         def v:VlJson (new VlJson)
         v.kind = 3
         v.str = value
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds a JSON string."
+        param value "The text."
+        returns "A string value."
     }
     sfn arrayValue:VlJson () {
         def v:VlJson (new VlJson)
         v.kind = 4
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds an empty JSON array."
+        returns "An array value with no elements."
     }
     sfn objectValue:VlJson () {
         def v:VlJson (new VlJson)
         v.kind = 5
         return v
+    } doc {
+        public
+        category "Values"
+        description "Builds an empty JSON object."
+        returns "An object value with no members."
     }
 
     ; --- number text ----------------------------------------------------------
@@ -539,6 +583,20 @@ class VlJson {
         }
         return "9"
     }
+} doc {
+    public
+    category "Values"
+    description "A JSON value: null, a boolean, a number, text, an array or an object.
+
+This is the value model the whole of Vela exchanges — a specification arrives
+as one, the chart API emits one, and the runtime reads one. It is pure Ranger
+with no host JSON, so the same tree is built on every target, which is what
+makes a scene comparison against the reference implementation mean anything.
+
+Two things it carries that a plain JSON model does not: object keys keep the
+order they were written in, so a re-serialised specification is stable; and a
+number remembers whether it was written as an integer, so `5` does not come
+back as `5.0`."
 }
 
 class VlJsonParser {

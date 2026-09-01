@@ -1,0 +1,32 @@
+; A property whose name is a keyword of the target, read through `(expr).field`.
+;
+; The declaration is renamed -- `def async` becomes `self._async` on Python --
+; but the READ used to emit the source spelling, so the file did not parse.
+; The TS engine writes exactly this shape and had never once built for Python
+; because of it (ISSUES.md #80).
+class PnNode {
+  def async:boolean true
+  def plain:int 7
+}
+class PnHolder {
+  def n:PnNode (new PnNode())
+  fn nodeOf:PnNode () {
+    return n
+  }
+}
+class PnMain {
+  sfn main:void () {
+    def h:PnHolder (new PnHolder())
+    def viaDirect:int 0
+    def d:PnNode (h.nodeOf())
+    if d.async {
+      viaDirect = 1
+    }
+    def viaCall:int 0
+    if ((h.nodeOf()).async) {
+      viaCall = 1
+    }
+    def p:int ((h.nodeOf()).plain)
+    print ("" + viaDirect + " " + viaCall + " " + p)
+  }
+}

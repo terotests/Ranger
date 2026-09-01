@@ -1,0 +1,345 @@
+; SPDX-License-Identifier: MIT
+
+; Structured API documentation metadata, attached to a declaration by a
+; `doc { … }` tail. See PLAN_API_DOCS.md.
+;
+; The block never restates what the compiler already knows: no types, no
+; parameter lists of its own, no namespaces. It carries prose, audience,
+; version history and cross references, and nothing else.
+
+class RangerDocParam {
+  def name:string ""
+  def text:string ""
+  def node:CodeNode
+}
+
+class RangerDocDeprecation {
+  def since:string ""
+  def use:string ""
+  def description:string ""
+}
+
+class RangerDocBlock {
+  def is_public:boolean false
+  def is_internal:boolean false
+  def is_experimental:boolean false
+  def description:string ""
+  def params:[RangerDocParam]
+  def returns:string ""
+  def throws:[string]
+  def since:string ""
+  def is_deprecated:boolean false
+  def deprecation:RangerDocDeprecation
+  def see:[string]
+  ; `example "…"` — a literal, which nothing checks
+  def examples:[string]
+  ; `example someFunction` — the NAME of a Ranger function. Resolved to a real
+  ; declaration, type-checked with the rest of the program, and rendered into
+  ; the doc comment as the target's own compiled source. PLAN_API_DOCS.md §18.
+  def exampleRefs:[string]
+  def category:string ""
+  def platform:string ""
+  ; verbatim attributes, valid only inside a `target` view
+  def attrs:[string]
+  ; target name -> override view. An override holds only the entries it
+  ; restates; everything else is read from the portable block.
+  def targets:[string:RangerDocBlock]
+  def targetNames:[string]
+  def node:CodeNode
+
+  fn hasParamDoc:boolean (n:string) {
+    for params p:RangerDocParam i {
+      if (p.name == n) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn paramText:string (n:string) {
+    for params p:RangerDocParam i {
+      if (p.name == n) {
+        return p.text
+      }
+    }
+    return ""
+  }
+
+  fn hasTargetView:boolean (name:string) {
+    for targetNames tn:string i {
+      if (tn == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; The block as the named target sees it: the portable entries, with any
+  ; entry the target restated replacing it. Callers get one object and never
+  ; have to remember to consult the override.
+  fn viewFor:RangerDocBlock (name:string) {
+    if ((this.hasTargetView(name)) == false) {
+      return this
+    }
+    def ov:RangerDocBlock (get targets name)
+    def merged:RangerDocBlock (new RangerDocBlock)
+    merged.is_public = is_public
+    merged.is_internal = is_internal
+    merged.is_experimental = is_experimental
+    merged.description = description
+    merged.returns = returns
+    merged.since = since
+    merged.is_deprecated = is_deprecated
+    merged.deprecation = deprecation
+    merged.category = category
+    merged.platform = platform
+    merged.node = node
+    for params p:RangerDocParam i {
+      push merged.params p
+    }
+    for throws t:string i {
+      push merged.throws t
+    }
+    for see s:string i {
+      push merged.see s
+    }
+    for examples e:string i {
+      push merged.examples e
+    }
+    for exampleRefs r:string i {
+      push merged.exampleRefs r
+    }
+    for ov.attrs a:string i {
+      push merged.attrs a
+    }
+    if ((strlen ov.description) > 0) {
+      merged.description = ov.description
+    }
+    if ((strlen ov.returns) > 0) {
+      merged.returns = ov.returns
+    }
+    for ov.params p:RangerDocParam i {
+      push merged.params p
+    }
+    return merged
+  }
+}
+
+; Reads a parsed `doc { … }` block node into a RangerDocBlock.
+;
+; Inside a block node the parser starts a new expression at every word, so
+; every entry arrives as one expression child whose first vref is the entry
+; name. That is the whole grammar.
+class RangerDocReader {
+
+  fn wordAt:string (node:CodeNode idx:int) {
+    if (idx >= (node.chlen())) {
+      return ""
+    }
+    def ch:CodeNode (at node.children idx)
+    if (ch.value_type == RangerNodeType.String) {
+      return ch.string_value
+    }
+    return ch.vref
+  }
+
+  ; Everything from startIndex on, joined with a space. Lets an entry be
+  ; written as several strings on one line without the author quoting the
+  ; join.
+  fn textFrom:string (node:CodeNode startIndex:int) {
+    def out:string ""
+    def i:int startIndex
+    def cnt:int (node.chlen())
+    while (i < cnt) {
+      def piece:string (this.wordAt(node i))
+      if ((strlen piece) > 0) {
+        if ((strlen out) > 0) {
+          out = out + " "
+        }
+        out = out + piece
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  fn blockArgOf:CodeNode (node:CodeNode) {
+    def cnt:int (node.chlen())
+    def i:int 1
+    while (i < cnt) {
+      def ch:CodeNode (at node.children i)
+      if (ch.is_block_node) {
+        return ch
+      }
+      i = i + 1
+    }
+    return (at node.children 0)
+  }
+
+  fn hasBlockArg:boolean (node:CodeNode) {
+    def cnt:int (node.chlen())
+    def i:int 1
+    while (i < cnt) {
+      def ch:CodeNode (at node.children i)
+      if (ch.is_block_node) {
+        return true
+      }
+      i = i + 1
+    }
+    return false
+  }
+
+  fn readDeprecation:RangerDocDeprecation (blockNode:CodeNode ctx:RangerAppWriterContext) {
+    def dep:RangerDocDeprecation (new RangerDocDeprecation)
+    for blockNode.children item:CodeNode i {
+      def cmd:string (item.getVRefAt(0))
+      switch cmd {
+        case "since" {
+          dep.since = (this.textFrom(item 1))
+        }
+        case "use" {
+          dep.use = (this.textFrom(item 1))
+        }
+        case "description" {
+          dep.description = (this.textFrom(item 1))
+        }
+        default {
+          ctx.addError(item ("Unknown entry `" + cmd + "` in a deprecated block. Expected since, use or description."))
+        }
+      }
+    }
+    return dep
+  }
+
+  ; Reads one doc block. `allowTargets` is false inside a `target` view, so a
+  ; target block cannot nest another one.
+  fn fill:void (doc:RangerDocBlock blockNode:CodeNode ctx:RangerAppWriterContext allowTargets:boolean) {
+    for blockNode.children item:CodeNode i {
+      def cmd:string (item.getVRefAt(0))
+      def argc:int (item.chlen())
+      switch cmd {
+        case "public" {
+          doc.is_public = true
+        }
+        case "internal" {
+          doc.is_internal = true
+        }
+        case "experimental" {
+          doc.is_experimental = true
+        }
+        case "description" {
+          def txt:string (this.textFrom(item 1))
+          if ((strlen doc.description) > 0) {
+            doc.description = doc.description + "\n\n" + txt
+          } {
+            doc.description = txt
+          }
+        }
+        case "param" {
+          if (argc < 2) {
+            ctx.addError(item "param needs a parameter name")
+          } {
+            def p:RangerDocParam (new RangerDocParam)
+            p.name = (this.wordAt(item 1))
+            p.node = item
+            ; `param x int "…"` — a restated type. The compiler already knows
+            ; it, and a restated type is a type that will disagree with the
+            ; signature. PLAN_API_DOCS.md §3.
+            def third:CodeNode
+            if (argc > 2) {
+              third = (at item.children 2)
+              if (third.value_type != RangerNodeType.String) {
+                ctx.addError(item ("param `" + p.name + "` restates a type. The compiler already knows it: write `param " + p.name + " \"…\"`."))
+              }
+            }
+            p.text = (this.textFrom(item 2))
+            push doc.params p
+          }
+        }
+        case "returns" {
+          doc.returns = (this.textFrom(item 1))
+        }
+        case "throws" {
+          push doc.throws (this.textFrom(item 1))
+        }
+        case "since" {
+          doc.since = (this.textFrom(item 1))
+        }
+        case "see" {
+          push doc.see (this.textFrom(item 1))
+        }
+        case "example" {
+          ; `example "…"` is a literal; `example name` names a function. The
+          ; two are told apart by the node, not by looking at the text: a
+          ; literal that happens to be one word is still a literal.
+          def first:CodeNode
+          if (argc > 1) {
+            first = (at item.children 1)
+            if (first.value_type == RangerNodeType.String) {
+              push doc.examples (this.textFrom(item 1))
+            } {
+              push doc.exampleRefs first.vref
+            }
+          } {
+            ctx.addError(item "example needs either a string or the name of a function")
+          }
+        }
+        case "category" {
+          doc.category = (this.textFrom(item 1))
+        }
+        case "platform" {
+          doc.platform = (this.textFrom(item 1))
+        }
+        case "attr" {
+          push doc.attrs (this.textFrom(item 1))
+        }
+        case "deprecated" {
+          doc.is_deprecated = true
+          if (this.hasBlockArg(item)) {
+            def depBlock:CodeNode (this.blockArgOf(item))
+            doc.deprecation = (this.readDeprecation(depBlock ctx))
+          } {
+            def dep:RangerDocDeprecation (new RangerDocDeprecation)
+            dep.description = (this.textFrom(item 1))
+            doc.deprecation = dep
+          }
+        }
+        case "target" {
+          if (allowTargets == false) {
+            ctx.addError(item "a target block can not contain another target block")
+          } {
+            if (argc < 3) {
+              ctx.addError(item "target needs a target name and a block")
+            } {
+              def tname:string (this.wordAt(item 1))
+              def tBlock:CodeNode (this.blockArgOf(item))
+              def view:RangerDocBlock (new RangerDocBlock)
+              view.node = tBlock
+              this.fill(view tBlock ctx false)
+              if (view.is_public || view.is_internal) {
+                ctx.addError(item ("visibility is portable and can not be restated for target `" + tname + "`"))
+              }
+              if (view.is_deprecated) {
+                ctx.addError(item ("deprecation is portable and can not be restated for target `" + tname + "`"))
+              }
+              set doc.targets tname view
+              push doc.targetNames tname
+            }
+          }
+        }
+        default {
+          if ((strlen cmd) > 0) {
+            ctx.addError(item ("Unknown documentation entry `" + cmd + "`"))
+          }
+        }
+      }
+    }
+  }
+
+  fn read:RangerDocBlock (blockNode:CodeNode ctx:RangerAppWriterContext) {
+    def doc:RangerDocBlock (new RangerDocBlock)
+    doc.node = blockNode
+    this.fill(doc blockNode ctx true)
+    return doc
+  }
+}
