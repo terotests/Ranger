@@ -586,7 +586,7 @@ class EVGToolbarView {
             cx = (t.x + (idiv t.w 2))
             cy = ((t.y + 4) + (idiv (glyphSize) 2))
         }
-        def ink:EVGColor theme.ink
+        def ink:EVGColor theme.glyphInk
         def dim:EVGColor theme.dim
         def k:int t.icon
 

@@ -40,7 +40,7 @@
 ; and for the thing you are on, `#27272a` / `#09090b` / `#71717a` for the three
 ; text weights.
 ;
-;   npm run pptx:strip:test
+;   npm run pptx:web:test   (the strip is hit-tested by the browser selftests)
 ; ==============================================================================
 
 Import "../../evg/EVGElement.rgr"
@@ -69,6 +69,11 @@ treefactory Strip {
 class PptxStripUi {
     ; The two rows. Named here as well as in the sheet because the app asks how
     ; tall the band is before there is a tree to measure.
+    ; THE BAND MUST NOT GROW. Padding and gap are what the strip was short of,
+    ; not height: the chrome sits above the slide and every pixel it takes is a
+    ; pixel of the page. Taking it from 74 to 80 pushed the thumbnails and the
+    ; slide down far enough that four of the browser's click tests missed what
+    ; they were aiming at, which is the same thing a reader would have found.
     def tabsH:int 34
     def rowH:int 40
 
@@ -100,7 +105,7 @@ class PptxStripUi {
               ; The tab row. A row of nav rows, which is what it is.
               + " .ps-tabs { display: flex; flex-direction: row;"
               + " flex-wrap: nowrap; align-items: center; height: 34px;"
-              + " padding: 0 6px; gap: 2px }"
+              + " padding: 0 10px; gap: 4px }"
               + " .ps-tab { display: flex; flex-direction: row;"
               + " flex-wrap: nowrap; align-items: center; justify-content: center;"
               ; `width: fit-content`, and it is not optional: ToolbarDemo
@@ -115,23 +120,41 @@ class PptxStripUi {
               + " .ps-tab-on { background-color: #f4f4f5; color: #09090b;"
               + " font-weight: 500 }"
               ; The button band.
+              ; TEN OF PADDING AND FOUR OF GAP, which is what the reference
+              ; toolbar has and what this did not. A band with six of padding
+              ; and two of gap reads as buttons crammed against an edge: the
+              ; air between the targets is what makes them look like targets.
               + " .ps-band { display: flex; flex-direction: row;"
               + " flex-wrap: nowrap; align-items: center; height: 40px;"
-              + " padding: 0 6px; gap: 2px }"
+              + " padding: 0 10px; gap: 4px }"
+              ; The reference's button is 40 by 38 for a glyph a third that
+              ; size. The picture is not the button; the room around it is.
               + " .ps-btn { display: flex; flex-direction: row;"
               + " flex-wrap: nowrap; align-items: center; justify-content: center;"
-              + " border-radius: 8px; height: 32px; width: 32px }"
+              + " border-radius: 8px; height: 34px; width: 38px }"
               + " .ps-btn:hover { background-color: #f4f4f5 }"
               + " .ps-btn-on { background-color: #e4e4e7 }"
               ; A button that shows a word beside its picture is wider, and the
               ; width is the label's — `fit-content`, not a guess.
-              + " .ps-btn-wide { width: fit-content; padding: 0 8px; gap: 6px }"
+              ; FOUR, not eight. The glyph is centred by the painter at half
+              ; an icon width from the button's left EDGE, which is inside this
+              ; padding — so the picture sits a little left of the slot the
+              ; tree made for it and the word needs to come back the same
+              ; amount to sit beside it rather than away from it. Aligning the
+              ; two properly wants the painter to be handed the slot's box
+              ; instead of working the position out itself, and that is a
+              ; change to the shared view rather than to this sheet.
+              + " .ps-btn-wide { width: fit-content; padding: 0 10px; gap: 4px }"
               + " .ps-label { color: #27272a; font-size: 13px;"
               + " width: fit-content }"
               ; The rule between two groups. Shorter than the row and in the
               ; hairline grey, so it separates without dividing.
-              + " .ps-sep { width: 1px; height: 20px;"
-              + " margin-left: 6px; margin-right: 6px;"
+              ; A SEPARATOR NEEDS AIR MORE THAN IT NEEDS INK. The reference
+              ; gives its 1px rule ten pixels either side and draws it in a
+              ; tint rather than a line colour; six pixels either side reads as
+              ; a button with a hairline stuck to it.
+              + " .ps-sep { width: 1px; height: 24px;"
+              + " margin-left: 10px; margin-right: 10px;"
               + " background-color: #e4e4e7 }"
               ; And one rule under the whole band, where it meets the page.
               + " .ps-bar-rule { height: 1px; background-color: #e4e4e7 }")
@@ -217,8 +240,11 @@ class PptxStripUi {
                 ; were written up for.
                 if (it.icon > 0) {
                     def slot (tree Strip (Label (props (className "ps-icon"))))
-                    slot.width = (EVGUnit.px(20.0))
-                    slot.height = (EVGUnit.px(20.0))
+                    ; The same eighteen the view draws at, so the word beside
+                    ; it starts one gap away from the picture rather than one
+                    ; gap away from a box the picture rattles around in.
+                    slot.width = (EVGUnit.px(18.0))
+                    slot.height = (EVGUnit.px(18.0))
                     b.addChild(slot)
                 }
                 if wide {

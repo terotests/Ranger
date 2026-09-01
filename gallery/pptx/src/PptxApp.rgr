@@ -2148,7 +2148,7 @@ class PptxApp {
             if (bit.w > 0) {
                 if (bit.isSeparator == false) {
                     if (bit.icon > 0) {
-                        toolbarView.paintToolIcon(framed bit 20)
+                        toolbarView.paintToolIcon(framed bit 18)
                     }
                 }
             }

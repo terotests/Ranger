@@ -518,8 +518,15 @@ class EVGToolbarTest {
         c.eqInt("a sheet with nothing to say changes nothing" styled.iconW 44)
 
         ; And the desktop strip really was the desktop strip to begin with.
-        c.eqInt("the built-in chip width is the desktop one" wasIcon 30)
-        c.eqInt("as is the row height" wasRow 34)
+        ; THIRTY-FOUR AND FORTY, which is what `EVGToolbar` declares. These two
+        ; read 30 and 34 for months after the strip grew its buttons to hold a
+        ; 24-pixel glyph, so the only assertions here that pin the BUILT-IN
+        ; numbers were pinning numbers nothing had used since — a red gate,
+        ; which protects nothing. The 30 in the sheet above is the sheet's own
+        ; and is unrelated: that is the point of the section, that a stylesheet
+        ; can ask for a smaller chip than the strip ships with.
+        c.eqInt("the built-in chip width is the desktop one" wasIcon 34)
+        c.eqInt("as is the row height" wasRow 40)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

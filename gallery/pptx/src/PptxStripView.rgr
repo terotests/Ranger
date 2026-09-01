@@ -37,7 +37,7 @@
 ; surfaces, one accent — and they are set on the theme rather than written into
 ; the drawing, so a host that wants its own can still have it.
 ;
-;   npm run pptx:strip:test
+;   npm run pptx:web:test   (the strip is hit-tested by the browser selftests)
 ; ==============================================================================
 
 Import "../../evg/EVGToolbarView.rgr"
@@ -95,6 +95,12 @@ class PptxStripView extends EVGToolbarView {
     def pillRadius:double 8.0
 
     Constructor () {
+        ; EIGHTEEN, not twenty-four. The base view draws on a 24 grid, which
+        ; was chosen when the strip's buttons were 30 wide and the picture WAS
+        ; the button; in a 38-wide button with ten pixels of air around it a
+        ; 24px glyph reads as a stamp. The dashboard's icons are 16 in a 32
+        ; row, and this is that ratio in a slightly larger button.
+        glyphSize = 18
     }
 
     ; The gallery's palette, on the shared theme object. Written here and not
@@ -110,6 +116,10 @@ class PptxStripView extends EVGToolbarView {
         ; `.db-nav-text` and `.db-nav-text-dim`, to the number.
         t.ink = (EVGColor.rgb(39 39 42))
         t.dim = (EVGColor.rgb(113 113 122))
+        ; `.db-nav-icon`, which is a step lighter than the text beside it. The
+        ; strip's icons were being drawn in the text ink and came out as heavy
+        ; black stamps — the single loudest thing on a near-white band.
+        t.glyphInk = (EVGColor.rgb(82 82 91))
         ; A filled shape inside an icon. Mid zinc, so it reads as part of the
         ; drawing rather than as a smudge.
         t.glyph = (EVGColor.rgb(161 161 170))
