@@ -19,6 +19,20 @@ SUITES=(
   pptx:editor:test
   pptx:text:test
   pptx:scene:check
+  # The editor's shell and the strip that sits on top of it. These five ran
+  # only when somebody remembered to run them, which meant the 84 assertions
+  # holding the chrome's layout to the arithmetic it replaced were never a
+  # gate at all — and `pptx:chrome:test` was added by the same work it was
+  # meant to protect. Wired in here rather than anywhere else precisely
+  # because of the note at the top of this file: run by hand through npm, a
+  # `[FAIL]` from the compiler exits 0 and the stale build passes. That is not
+  # hypothetical either; it happened while the icons were being converted, and
+  # a suite reported ALL PASS against a build that had not compiled.
+  pptx:chrome:test
+  pptx:frame:test
+  pptx:css:test
+  pptx:a11y:test
+  pptx:editor:host:test
   docx_viewer:test
   docx_viewer:app:test
   datagrid:test
@@ -37,6 +51,11 @@ SUITES=(
   office:rtl:editors:test
   ui:test
   evg:trace:test
+  # The toolbar's model, its metrics, and every outline in the icon catalogue.
+  # The catalogue check is the one that earns its place: it walks all four
+  # layers of all eighty icons and asserts each parses and stays on the
+  # 24-grid, and it failed the first time it was run.
+  evg:toolbar:test
   evg:overlay:test
   evg:style:test
   evg:timing:test
