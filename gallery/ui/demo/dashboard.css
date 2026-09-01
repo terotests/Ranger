@@ -42,6 +42,16 @@
   evg-ripple-rings: 3;
   evg-ripple-stagger: 0.10;
   evg-ripple-ring-falloff: 0.62;
+  /* AND WHAT MAKES IT LOOK WET. The highlight above is an ambient term: every
+   * part of a crest lights up by the same amount however it is tilted, which
+   * is what a matte surface does. A specular depends on the angle between the
+   * light, the eye and the surface's own normal, so it lives on the FLANK of
+   * a wave and slides along the ring as the ring travels. The normal comes
+   * from the height field the rings already sum to. */
+  evg-ripple-shine: 0.45;
+  evg-ripple-gloss: 120;
+  evg-ripple-bump: 70;
+  evg-ripple-light: -0.45 -0.65 0.62;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;

@@ -279,6 +279,37 @@ class EVGElement {
     ; reads as one ring with a smudge behind it.
     def rippleFalloff:double 0.62
 
+    ; --- and what makes it look WET ---------------------------------------------
+    ;
+    ; A brightness proportional to the wave's height is an AMBIENT term: every
+    ; part of a crest lights up by the same amount however it is tilted, which
+    ; is exactly what a matte surface does. Water is not matte. What makes it
+    ; read as water is a SPECULAR: a highlight that depends on the angle
+    ; between the light, the eye and the surface's own normal, so it lives on
+    ; the FLANK of a wave rather than on its top and slides along as the wave
+    ; moves.
+    ;
+    ; The normal comes from the height field the rings already sum to — its
+    ; screen-space gradient is the slope, and the slope is the normal. Nothing
+    ; new has to be computed or stored.
+    ;
+    ; How strong the glint is. 0 turns it off and leaves the ambient term.
+    def rippleShine:double 0.45
+    ; The Blinn-Phong exponent: how TIGHT the glint is. Low is a broad sheen
+    ; like wet stone, high is a sharp point like a bead of water. Past about
+    ; 200 the glint stops being an arc along the ring and breaks into
+    ; separate specks, because the surviving band gets narrower than a pixel.
+    def rippleGloss:double 120.0
+    ; How much the wave's height tilts the normal. This is the one number with
+    ; no physical meaning — the height field is in arbitrary units, so this is
+    ; what turns it into a slope.
+    def rippleBump:double 70.0
+    ; Where the light is. The default is over the viewer's left shoulder,
+    ; which is where every UI in this gallery already pretends its light is.
+    def rippleLightX:double -0.45
+    def rippleLightY:double -0.65
+    def rippleLightZ:double 0.62
+
     ; --- and the state it needs, which is not styling ---------------------------
     ;
     ; Where the surface was touched and how long ago — for EVERY touch still in
@@ -2117,6 +2148,12 @@ class EVGElement {
         rippleRings = other.rippleRings
         rippleStagger = other.rippleStagger
         rippleFalloff = other.rippleFalloff
+        rippleShine = other.rippleShine
+        rippleGloss = other.rippleGloss
+        rippleBump = other.rippleBump
+        rippleLightX = other.rippleLightX
+        rippleLightY = other.rippleLightY
+        rippleLightZ = other.rippleLightZ
         rippleXs = other.rippleXs
         rippleYs = other.rippleYs
         rippleAges = other.rippleAges
@@ -2783,6 +2820,34 @@ class EVGElement {
         }
         if (name == "evg-ripple-ring-falloff") {
             rippleFalloff = (EVGElement.numberOr(value rippleFalloff))
+            return
+        }
+        if (name == "evg-ripple-shine") {
+            rippleShine = (EVGElement.numberOr(value rippleShine))
+            return
+        }
+        if (name == "evg-ripple-gloss") {
+            rippleGloss = (EVGElement.numberOr(value rippleGloss))
+            return
+        }
+        if (name == "evg-ripple-bump") {
+            rippleBump = (EVGElement.numberOr(value rippleBump))
+            return
+        }
+        ; Three numbers, and they do not have to be normalised — the shader
+        ; does that, because a direction somebody typed is a direction and not
+        ; a unit vector.
+        if (name == "evg-ripple-light") {
+            def lp:[string] (EVGElement.splitWords(value))
+            if ((array_length lp) > 0) {
+                rippleLightX = (EVGElement.numberOr((itemAt lp 0) rippleLightX))
+            }
+            if ((array_length lp) > 1) {
+                rippleLightY = (EVGElement.numberOr((itemAt lp 1) rippleLightY))
+            }
+            if ((array_length lp) > 2) {
+                rippleLightZ = (EVGElement.numberOr((itemAt lp 2) rippleLightZ))
+            }
             return
         }
         ; The scroll POSITION is settable, because a demo restoring where it

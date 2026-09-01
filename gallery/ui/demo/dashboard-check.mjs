@@ -852,6 +852,38 @@ console.log("--- the surface's drops, and the wake a drag leaves ---");
   // The shader holds five; asking for more would silently draw fewer.
   ok("no more rings than the shader holds", fx0.rings <= 5, String(fx0.rings));
 
+  // A LIGHT ON THE WAVE. Reported: the ring was matte. It was, and not by
+  // accident — the only brightening it had was the highlight term, which adds
+  // the wave's HEIGHT to the colour. Height is not a shading model: a term
+  // that depends on how high the surface is and not on which way it faces is
+  // an ambient one, and an ambient term is what matte means. What makes water
+  // look wet is a specular, and a specular needs the NORMAL.
+  //
+  // The height field is already there — it is the rings summed — so its
+  // screen-space gradient is the slope and the slope is the normal. Nothing
+  // new is computed or stored; these four numbers are all the sheet has to
+  // say to light it.
+  ok("the surface has a specular on it", fx0.shine > 0, String(fx0.shine));
+  // Blinn-Phong's exponent. Under about 8 the glint is a wash over the whole
+  // ring and is indistinguishable from the ambient term it was meant to
+  // replace; past about 200 the surviving band is thinner than a pixel and the
+  // arc breaks into separate specks that crawl.
+  ok("and it is tight enough to read as a glint",
+    fx0.gloss >= 8 && fx0.gloss <= 200, String(fx0.gloss));
+  // The height field is in arbitrary units, so this is what turns it into a
+  // slope. At 0 the normal is straight up everywhere and the specular is a
+  // constant — matte again, by a different route.
+  ok("the height tilts the normal", fx0.bump > 0, String(fx0.bump));
+  ok("and there is a light to catch", Array.isArray(fx0.light) && fx0.light.length === 3,
+    JSON.stringify(fx0.light));
+  // OFF THE VIEWING AXIS, which is the whole point. The eye looks straight
+  // down the +Z of a flat page; a light on that axis puts the same glint on
+  // every part of a ring at once and the effect is an ambient term wearing a
+  // specular's name. Tilting it is what makes the glint sit on one side and
+  // slide around the ring as the ring travels.
+  const lateral = fx0.light && Math.hypot(fx0.light[0], fx0.light[1]);
+  ok("the light is off the viewing axis", lateral > 0.2, String(lateral));
+
   d.ripple(300, 300);
   d.tick(80);
   d.ripple(700, 400);

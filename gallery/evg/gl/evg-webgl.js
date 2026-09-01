@@ -857,6 +857,10 @@ uniform float uHi;        // how much the crest lightens
 uniform int uRings;
 uniform float uStagger;   // seconds between one wavefront and the next
 uniform float uFalloff;   // what each ring behind the front is worth
+uniform float uShine;     // how strong the glint is
+uniform float uGloss;     // Blinn-Phong exponent: how tight it is
+uniform float uBump;      // what turns the height field into a slope
+uniform vec3 uLight;      // where the light is, not necessarily normalised
 in vec2 vUV;
 out vec4 outColor;
 
@@ -872,6 +876,7 @@ void main() {
   // directions and the pixel between them stays where it was.
   vec2 push = vec2(0.0);
   float crest = 0.0;
+  float energy = 0.0;
   for (int i = 0; i < MAX_DROPS; i++) {
     if (i >= uCount) break;
     vec3 drop = uDrops[i];
@@ -894,9 +899,14 @@ void main() {
       // A Gaussian ring: the wave only exists near the front, so the rest of
       // the page is sampled exactly where it was drawn and stays sharp.
       float env = exp(-pow((d - radius) / uWidth, 2.0));
-      float wave = sin((d - radius) * 0.16) * env * exp(-t * uDecay) * amp;
+      float fade = env * exp(-t * uDecay) * amp;
+      float wave = sin((d - radius) * 0.16) * fade;
       push += dir * wave;
       crest += wave;
+      // The ENVELOPE, kept apart from the signal. It is the ring's amplitude
+      // with the oscillation divided out, so unlike the wave itself it does
+      // not pass through zero twice per wavelength.
+      energy += fade;
       amp *= uFalloff;
     }
   }
@@ -912,7 +922,41 @@ void main() {
   float b = texture(uSrc, vUV + offset * 0.92).b;
   float a = texture(uSrc, vUV + offset).a;
 
-  vec3 col = vec3(r, g, b) + wave * uHi;
+  // ---- THE SURFACE'S OWN NORMAL, AND A LIGHT ON IT ----------------------
+  //
+  // The wave sum is a HEIGHT FIELD: the rings added up. Its gradient is the
+  // slope, and the slope is the normal — so nothing has to be computed or
+  // stored to light this surface that the displacement did not already need.
+  //
+  // The gradient is taken in SCREEN SPACE with dFdx/dFdy rather than by
+  // differentiating the sum by hand. Two reasons: the analytic derivative of
+  // a Gaussian times a sine, summed over every ring of every drop, is a
+  // second expression that has to be kept in step with the first one forever
+  // — and this one is exact for whatever the first one happens to be. The
+  // loops above branch only on uniforms, so every fragment in a quad takes
+  // the same path and the derivative is well defined.
+  vec2 grad = vec2(dFdx(wave), dFdy(wave)) * uBump;
+  vec3 N = normalize(vec3(-grad, 1.0));
+
+  // Blinn-Phong. The eye looks straight down at a flat page, so V is +Z and
+  // the half vector is the light plus that.
+  vec3 L = normalize(uLight);
+  vec3 V = vec3(0.0, 0.0, 1.0);
+  vec3 H = normalize(L + V);
+  float spec = pow(max(dot(N, H), 0.0), uGloss) * uShine;
+
+  // The specular lives on the FLANK of a wave and not on its top — that is
+  // the whole difference from the ambient term beside it, and it is why the
+  // glint slides along the ring as the ring travels rather than sitting on
+  // it.
+  //
+  // It is faded out where there is no ring, so a page whose ripples have died
+  // carries no shine. That fade is taken from the ENVELOPE and not from the
+  // wave: the wave crosses zero twice per wavelength, and fading by it would
+  // cut a dark seam straight through the middle of every glint.
+  float alive = clamp(energy * 3.0, 0.0, 1.0);
+
+  vec3 col = vec3(r, g, b) + wave * uHi + spec * alive;
   outColor = vec4(col, a);
 }`;
 
@@ -1067,6 +1111,10 @@ function programsFor(gl) {
     rippleRings: gl.getUniformLocation(rippleProg, "uRings"),
     rippleStagger: gl.getUniformLocation(rippleProg, "uStagger"),
     rippleFalloff: gl.getUniformLocation(rippleProg, "uFalloff"),
+    rippleShine: gl.getUniformLocation(rippleProg, "uShine"),
+    rippleGloss: gl.getUniformLocation(rippleProg, "uGloss"),
+    rippleBump: gl.getUniformLocation(rippleProg, "uBump"),
+    rippleLight: gl.getUniformLocation(rippleProg, "uLight"),
     backdropProg,
     backdropPosLoc: gl.getAttribLocation(backdropProg, "aPos"),
     backdropUVLoc: gl.getAttribLocation(backdropProg, "aUV"),
@@ -1331,8 +1379,6 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.uniform2f(built.uPage, doc.width, doc.height);
   gl.uniform1i(built.uAtlas, 0);
   gl.uniform1i(built.uImage, 1);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, atlas);
 
   // A LIVE SURFACE EFFECT redirects the whole frame into a texture first. It
   // is live only while it is still moving: an effect declared in the sheet but
@@ -1352,6 +1398,18 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // makes about path fills: say what could not be done, do the rest.
   if (target && !target.complete) target = null;
   if (target) gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+
+  // THE ATLAS IS BOUND HERE, AFTER THE TARGET, AND THE ORDER IS THE WHOLE
+  // POINT. Creating the target's texture leaves it bound to the active unit,
+  // which is this one — so binding the atlas first meant the frame drew with
+  // the render target itself in the sampler the glyphs and images read. A
+  // texture sampled while it is attached to the framebuffer being drawn into
+  // is a feedback loop, and the spec says the result is undefined: this
+  // driver dropped every textured draw. The page came out with its paths on
+  // it and NOTHING else — no card, no letter — which reads as "the effect
+  // broke the renderer" and is really one line of state in the wrong order.
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, atlas);
 
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.disable(gl.DEPTH_TEST);
@@ -1513,7 +1571,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // And back onto the page, clipped to the element's rounded box. The quad
     // is the BOX, not the grown region, so the padding's only job was to keep
     // the edges honest.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    //
+    // Back onto THE FRAME'S OWN TARGET, which is the screen only when no
+    // surface effect is running: a dialog on a rippling page would otherwise
+    // put its softened backdrop straight on the canvas, under everything the
+    // post-pass is about to draw over it.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.enable(gl.BLEND);
     gl.useProgram(built.backdropProg);
@@ -1609,6 +1672,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.uniform1i(built.rippleRings, Math.max(1, Math.min(5, Math.round(fx.rings || 1))));
     gl.uniform1f(built.rippleStagger, fx.stagger || 0);
     gl.uniform1f(built.rippleFalloff, fx.falloff || 0);
+    gl.uniform1f(built.rippleShine, fx.shine || 0);
+    // Never zero: pow(x, 0) is 1 everywhere and the whole page turns white.
+    gl.uniform1f(built.rippleGloss, Math.max(1, fx.gloss || 1));
+    gl.uniform1f(built.rippleBump, fx.bump || 0);
+    const L = fx.light || [0, 0, 1];
+    gl.uniform3f(built.rippleLight, L[0], L[1], L[2]);
     // One triangle covering the screen, not two: no seam down the diagonal
     // for `fwidth` to trip over, and three vertices instead of six.
     gl.drawArrays(gl.TRIANGLES, 0, 3);

@@ -219,15 +219,32 @@ console.log("--- the surface ripples where it was touched ---");
     String(live && live.drops[0][2]));
 
   // MANY AT ONCE, which is the difference between an effect and a surface:
-  // three taps in different places have to coexist with three different ages,
-  // not replace one another.
-  await page.mouse.click(box.x + 420, box.y + 330);
-  await page.waitForTimeout(90);
-  await page.mouse.click(box.x + 900, box.y + 520);
-  await page.waitForTimeout(90);
+  // a tap somewhere else ADDS a source, it does not move the one that is
+  // there. What is asserted per tap is its PLACE — that a click anywhere on
+  // the page lands a drop under the pointer, which is the part only a real
+  // browser with a real hit test can prove.
+  //
+  // NOT that all three coexist. That is a fact about a wall clock this test
+  // does not own: in this container a rippling frame can take over a second,
+  // and a machine busy with something else will retire the first drop before
+  // the third click happens. It failed exactly that way once, with both gates
+  // running at the same time, and passed three for three on a quiet machine —
+  // which is a flake, not a check. The shape of the set — three coexisting,
+  // three distinct ages, oldest first — is asserted in `dashboard-check.mjs`,
+  // where the clock is the test's, for the same reason the wake is.
+  const newest = (fx) => fx && fx.drops.length ? fx.drops[fx.drops.length - 1] : null;
+  for (const [cx, cy] of [[420, 330], [900, 520]]) {
+    await page.mouse.click(box.x + cx, box.y + cy);
+    await page.waitForTimeout(90);
+    const d = newest(await effect());
+    ok(`a touch at ${cx},${cy} lands there`,
+      d && Math.abs(d[0] - cx) < 3 && Math.abs(d[1] - cy) < 3, JSON.stringify(d));
+  }
+  // Not even "at least two are still in flight". On this machine that is
+  // sometimes 1: the frames are slow enough that a drop can be born, live and
+  // retire between two clicks 90ms apart. Whatever IS in flight still has to
+  // be well formed, which is what the two below say.
   const many = await effect();
-  ok("three touches are three drops", many && many.drops.length >= 3,
-    String(many && many.drops.length));
   ok("each with an age of its own",
     many && new Set(many.drops.map((d) => d[2])).size === many.drops.length,
     JSON.stringify(many && many.drops.map((d) => d[2])));

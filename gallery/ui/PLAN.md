@@ -2649,6 +2649,78 @@ rings; several touches are several trains; and all of it is summed, so a
 wavefront from one touch interferes with a wavefront from another exactly as it
 does with the one in front of it.
 
+### A light on the wave, and why the ring was matte
+
+Reported: the ring was still very matte, and it was. Its only brightening was
+the highlight term, which adds the wave's HEIGHT to the colour — and height is
+not a shading model. A term that depends on how high the surface is rather than
+on which way it faces is an AMBIENT term, and an ambient term is what matte
+means. What makes water look wet is a specular, and a specular needs the
+NORMAL.
+
+The normal was already there and cost nothing to find. The rings sum to a
+height field; its screen-space gradient is the slope, and the slope is the
+normal:
+
+    vec2 grad = vec2(dFdx(wave), dFdy(wave)) * uBump;
+    vec3 N = normalize(vec3(-grad, 1.0));
+
+Taken with `dFdx`/`dFdy` rather than by differentiating the sum by hand, for two
+reasons. The analytic derivative of a Gaussian times a sine, summed over every
+ring of every drop, is a second expression that would have to be kept in step
+with the first one forever — and this one is exact for whatever the first one
+happens to be. The loops branch only on uniforms, so every fragment in a quad
+takes the same path and the derivative is well defined.
+
+Then Blinn-Phong, with the eye looking straight down at a flat page. Four
+numbers say it in the sheet: `evg-ripple-shine`, `evg-ripple-gloss`,
+`evg-ripple-bump` and `evg-ripple-light`.
+
+Two of them decide whether it reads at all, and both fail by turning back into
+the ambient term they replaced. A light on the VIEWING AXIS puts the same glint
+on every part of a ring at once, so it must be off it — the default is over the
+viewer's left shoulder, where this gallery already pretends its light is. And
+`bump` at zero leaves the normal straight up everywhere, which makes the
+specular a constant. Both are asserted, and both were proven by mutation.
+
+`gloss` has a working range with a wall at each end: under about 8 the glint is
+a wash over the whole ring, and past about 200 the surviving band is thinner
+than a pixel and the arc breaks into separate crawling specks. 120 is where the
+glint is an arc that slides along the ring as the ring travels.
+
+### The frame the effect ate
+
+The bug that this cost most to find, and the check that now stands where it
+was. Making the effect's target left its own texture bound to texture unit 0 —
+the unit the glyph atlas lives on — so the first rippling frame drew every
+letter, card and image while SAMPLING THE SURFACE IT WAS DRAWING INTO. A
+feedback loop is undefined by the spec; this driver dropped the draws. The page
+came back with its chart and its icons on it and nothing else.
+
+Every check passed on that frame. The effect was declared, the touch became its
+origin, the age advanced, the renderer reported taking the post-pass — all
+true, and all true of a blank page. **Nothing was looking at the pixels.**
+
+It also hid in the one place a person would look. The target is made once and
+reused, so only the FIRST rippling frame is wrong; on the live page that frame
+is gone in milliseconds and every frame after it is right. Which is why the
+gate is `demo/ripple-frame-check.mjs` and not the page check: the single-frame
+render harness draws exactly that frame and nothing else.
+
+**And it counts opacity, not ink.** The first version of the check counted dark
+pixels and PASSED on the broken frame. A page whose draws were dropped is
+TRANSPARENT, the white of the HTML behind it photographs as a perfectly
+reasonable white page, and the chart that did survive carried half a million
+dark pixels — more than the healthy frame had. What is missing from such a
+frame is not ink, it is coverage: the dashboard paints its own background, so a
+whole frame of it is opaque, and the broken one covered one pixel in eight.
+
+The same mistake had a quieter twin beside it: a blurred backdrop put itself
+back on the default framebuffer by name, so a dialog on a rippling page would
+have dropped its softened backdrop straight onto the canvas, under everything
+the post-pass was about to draw over it. It goes back to the frame's own target
+now.
+
 **Still to come**: a height-field version, which would let the waves reflect off
 the cards rather than pass through them, and needs a simulation texture with a
 wave equation per pixel rather than analytic rings. And the reference's

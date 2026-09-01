@@ -1344,6 +1344,12 @@ class EVGDisplayList {
     def effectRings:double 1.0
     def effectStagger:double 0.0
     def effectFalloff:double 0.0
+    def effectShine:double 0.0
+    def effectGloss:double 1.0
+    def effectBump:double 0.0
+    def effectLightX:double 0.0
+    def effectLightY:double 0.0
+    def effectLightZ:double 1.0
 
     ; Pick the effect up off the tree. The first element that names one wins:
     ; a surface has one post-process, and two would be a question about order
@@ -1365,6 +1371,12 @@ class EVGDisplayList {
             effectRings = el.rippleRings
             effectStagger = el.rippleStagger
             effectFalloff = el.rippleFalloff
+            effectShine = el.rippleShine
+            effectGloss = el.rippleGloss
+            effectBump = el.rippleBump
+            effectLightX = el.rippleLightX
+            effectLightY = el.rippleLightY
+            effectLightZ = el.rippleLightZ
         }
         def i:int 0
         while (i < (el.getChildCount())) {
@@ -1397,6 +1409,12 @@ class EVGDisplayList {
             out = (out + ",\"rings\":" + (EVGDisplayList.num(effectRings)))
             out = (out + ",\"stagger\":" + (EVGDisplayList.num(effectStagger)))
             out = (out + ",\"falloff\":" + (EVGDisplayList.num(effectFalloff)))
+            out = (out + ",\"shine\":" + (EVGDisplayList.num(effectShine)))
+            out = (out + ",\"gloss\":" + (EVGDisplayList.num(effectGloss)))
+            out = (out + ",\"bump\":" + (EVGDisplayList.num(effectBump)))
+            out = (out + ",\"light\":[" + (EVGDisplayList.num(effectLightX)) + "," +
+                (EVGDisplayList.num(effectLightY)) + "," +
+                (EVGDisplayList.num(effectLightZ)) + "]")
             out = (out + "},")
         }
         out = (out + "\"cmds\":[")
