@@ -20,14 +20,28 @@ knowledge** and **no additions to `ranger:core`**.
 
 - `RgSdlGameHost.rgr` — the driver. Two entry loops share one window/present
   path: `runLauncher()` (present the rich launcher canvas via `gfx_present`,
-  navigate on key-press *edges*, hand off the chosen game to `run`) and `run`
-  (poll input → actions → `host.frame` → present → forward rumble, honour
-  the guest launch handoff). The window is always one pane (`480×270`, 16:9);
-  present follows the guest-declared pane count (1 pane → `gfx_present`, 2+ →
-  `gfx_present_split` which scales each full-res pane into a window half).
+  navigate on key-press *edges*, hand off the chosen game to `runIn`) and
+  `runIn` (poll input → actions → `host.frame` → present → forward rumble,
+  honour the guest launch handoff). The window is always one pane (`480×270`,
+  16:9); present follows the guest-declared pane count (1 pane → `gfx_present`,
+  2+ → `gfx_present_split` which scales each full-res pane into a window half).
   `clearRgb` is a neutral framebuffer clear, not a scene sky.
-  `launcherStep`/`mapMask`/`edge`/`toRgbaBuffer` are pure host-input/present
-  seams, unit-tested headlessly.
+  `launcherStep`/`mapMask`/`edge`/`foldQuitBits`/`toRgbaBuffer` are pure
+  host-input/present seams, unit-tested headlessly.
+
+  **One window per session** (v1 parity): `runLauncher()` opens the window once
+  and closes it once. Launching a game does *not* re-create it — `runIn` /
+  `runWasmIn` present into the window that is already open and retitle it, and
+  the launcher retitles it back on the way out. (`run` / `runWasm` are the
+  standalone wrappers that own a window, for driving one game with no launcher.)
+  The earlier `gfx_close` → game → `gfx_open` dance tore the SDL window down and
+  built a new one on every transition; on macOS that stacks a second window
+  frame over the first and throws away whatever position, size, or Space the
+  user had put the window in.
+
+  Because the window is shared, closing it from the title bar during a game is a
+  quit for the whole app, not a return to the launcher: `runIn` reports it
+  (return `2`) and `runLauncher` exits.
 - `RgSdlMain.rgr` — native entry; calls `runLauncher()` (engine chrome, not a
   game — games remain `.tsx`-only).
 - `../../menu/RgLauncherUi.rgr` — the launcher screen itself (title, subtitle,
@@ -62,10 +76,19 @@ v1 game runner, the v2 host needs **no wasm3 and no libcurl** — only the
 operators it actually calls are emitted (all `SDL2/SDL.h`); GL is pulled in only
 by `gfx_sdl.rgr`'s shared prelude.
 
-A window opens on the launcher: arrows move, Space/`A` selects (Games → pick a
-game → launch), `S` goes back, Q/Esc quits. WASD + Space drives P1 in-game,
-arrows drive P2; a game's `runtime.input.player(i).rumble(...)` calls reach the
-pad through `gfx_rumble_pad`.
+A window opens on the launcher: arrows or WASD move, Space/Enter/pad `A` selects
+(Games → pick a game → launch), `S` or Q/Esc/pad `B` goes back a page, and
+Q/Esc/pad `B` on the category page quits. The launcher merges keyboard P1
+(WASD), keyboard P2 (arrows), and gamepad 0 into one navigation mask
+(`launcherNavMask`, v1 parity) — arrow keys are a *distinct* SDL source from
+WASD, so reading source 0 alone would leave the launcher deaf to both the arrows
+and every pad. Back/quit is normalised onto one bit by `foldQuitBits` (Q/Esc `8`,
+pad `B` `64`, pad Select `1024`), so a single edge covers all three.
+
+In-game, WASD + Space drives P1 and arrows drive P2, unchanged; back/quit is
+read *separately* from the play mask (v1 keeps them apart so movement never
+doubles as "exit"). A game's `runtime.input.player(i).rumble(...)` calls reach
+the pad through `gfx_rumble_pad`.
 
 ## Audio
 
@@ -82,8 +105,11 @@ Stack under `v2/audio` (`game_soundscore` + `game_audio` + `game_vocal_fx`).
 Device open notes (macOS): default `SDL_AUDIODRIVER=coreaudio`; empty
 `SDL_GetNumAudioDevices` is not fatal (open system default via `NULL`);
 frequency/channel negotiation is allowed; host adopts `gfx_audio_sample_rate()`
-and retunes `GameVocalFx` to match. `gfx_close` clears `audioReady` so a
-launcher → game → launcher relaunch reopens the device.
+and retunes `GameVocalFx` to match. The device now outlives a launcher → game →
+launcher round trip (the window is no longer torn down between them), so
+`gfx_audio_open` is a no-op on the way back in; the launcher calls
+`gfx_audio_clear` + `resetAudioDevice()` when a game exits so the next game
+starts from a silent queue and a fresh synth cursor.
 
 > The final SDL2 **link** needs SDL2 headers, which are absent in CI — so the
 > headless suite compile-checks the host, validates the Ranger→C++ codegen, and

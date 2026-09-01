@@ -64,11 +64,14 @@ class SdlHostTest {
         ; ---- launcher menu driven purely by input-mask edges ---------------
         def ui:RgLauncherUi (new RgLauncherUi)
         ui.init(480 270)
-        ; the catalog is discovered from the real v2/games folder (one Games
-        ; category with Pomppija); moving on a single category clamps, no launch
+        ; catalog: Games (Pomppija, Ylos3D WASM, Ylos3D) + Tests (Cannon 3D,
+        ; Pinball).
+        ; Right edge moves to Tests; stay on Games for the handoff checks below.
         def s0:int (sdl.launcherStep(0 32 ui))
         t.eqInt("moving selection does not launch" s0 0)
-        t.eqStr("selection stays on the Games category" (ui.selectedLabel()) "Games")
+        t.eqStr("right moves to the Tests category" (ui.selectedLabel()) "Tests")
+        def sL:int (sdl.launcherStep(0 16 ui))
+        t.eqStr("left returns to Games" (ui.selectedLabel()) "Games")
         ; action edge (4) enters the Games category (page 1), no launch yet
         def s2:int (sdl.launcherStep(0 4 ui))
         t.eqInt("entering a category is not a launch" s2 0)
@@ -92,6 +95,45 @@ class SdlHostTest {
         def s4:int (sdl.launcherStep(0 2 ui))
         t.eqInt("back is not a launch" s4 0)
         t.eqInt("back to the category page" (ui.currentPage()) 0)
+        ; quit edge (8 / Q) on categories quits the launcher (return 2)
+        def sQ:int (sdl.launcherStep(0 8 ui))
+        t.eqInt("Q on categories quits the launcher" sQ 2)
+        ; re-enter Games; Q on the games page acts as back (not quit)
+        def _re:int (sdl.launcherStep(0 4 ui))
+        t.eqInt("re-entered games page" (ui.currentPage()) 1)
+        def sQb:int (sdl.launcherStep(0 8 ui))
+        t.eqInt("Q on games page is back, not quit" sQb 0)
+        t.eqInt("Q returned to categories" (ui.currentPage()) 0)
+        ; mapMask exposes quit/back so guests can poll them
+        sdl.mapMask(0 8)
+        t.ok("quit bit maps to quit action" (inp.isDown(0 "quit")))
+        t.ok("quit bit maps to back action" (inp.isDown(0 "back")))
+        sdl.mapMask(0 0)
+        t.no("quit released" (inp.isDown(0 "quit")))
+
+        ; ---- back/quit is one logical edge, whatever produced it -------------
+        ; The launcher reads WASD + arrows + gamepad 0 merged, so the physical
+        ; back/quit controls (Q/Esc = 8, pad B = 64, pad Select = 1024) have to
+        ; collapse onto bit 8 before the edge is taken — otherwise "B takaisin"
+        ; is a hint with nothing behind it.
+        t.eqInt("Q already is the quit bit" (sdl.foldQuitBits(8)) 8)
+        t.eqInt("pad B folds into quit" (bit_and (sdl.foldQuitBits(64)) 8) 8)
+        t.eqInt("pad Select folds into quit" (bit_and (sdl.foldQuitBits(1024)) 8) 8)
+        t.eqInt("nothing pressed folds to nothing" (sdl.foldQuitBits(0)) 0)
+        t.eqInt("movement bits are untouched" (sdl.foldQuitBits(32)) 32)
+        ; a pad B press drives the launcher exactly like Q
+        def sB:int (sdl.launcherStep(0 (sdl.foldQuitBits(64)) ui))
+        t.eqInt("pad B on categories quits the launcher" sB 2)
+        def _reB:int (sdl.launcherStep(0 4 ui))
+        t.eqInt("re-entered games page for the pad test" (ui.currentPage()) 1)
+        def sBb:int (sdl.launcherStep(0 (sdl.foldQuitBits(1024)) ui))
+        t.eqInt("pad Select on games page is back" sBb 0)
+        t.eqInt("pad Select returned to categories" (ui.currentPage()) 0)
+        ; Holding the SAME control across the game -> launcher handoff must not
+        ; read as a fresh press: with the released-then-pressed edge already
+        ; consumed, a still-held mask produces no second edge.
+        def sHeld:int (sdl.launcherStep(8 8 ui))
+        t.eqInt("a held quit key is not a new edge" sHeld 0)
 
         ; ---- host music pump: a guest's music.play(score) is synthesised ----
         ; The bridge records the score (rgcore_music_play); the host owns the

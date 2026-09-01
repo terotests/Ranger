@@ -93,6 +93,11 @@ class RgSdlGameHost {
         def jump:boolean (((bit_and m 1) != 0) || ((bit_and m 4) != 0))
         this.host.bridge.input.setAction(player "jump" jump)
         this.host.bridge.input.setAction(player "action" ((bit_and m 4) != 0))
+        ; Q / Esc (bit 8) — host also exits the game loop on a rising edge; map
+        ; the logical actions so guests that poll "back"/"quit" see them too.
+        def quitHeld:boolean ((bit_and m 8) != 0)
+        this.host.bridge.input.setAction(player "back" quitHeld)
+        this.host.bridge.input.setAction(player "quit" quitHeld)
     }
 
     ; Forward newly-recorded haptic commands (bridge.input records what the guest
@@ -216,15 +221,64 @@ class RgSdlGameHost {
         return (isSet && (wasSet == false))
     }
 
+    ; Menu navigation mask: keyboard P1 WASD (src 0) + arrow keys (src 1) +
+    ; gamepad 0 (src 2), OR'd. The arrow keys are a DISTINCT SDL source from
+    ; WASD, so they have to be merged explicitly — reading src 0 alone leaves the
+    ; launcher deaf to the arrow keys and to every gamepad, while the footer hint
+    ; advertises both. (v1 launcherNavMask, game_sdl_runner.rgr.)
+    fn launcherNavMask:int () {
+        def kb1:int (gfx_input_source_mask 0)
+        def kb2:int (gfx_input_source_mask 1)
+        def pad:int (gfx_input_source_mask 2)
+        return (bit_or (bit_or kb1 kb2) pad)
+    }
+
+    ; Fold the gamepad's B (64) and Select (1024) into the logical quit bit (8),
+    ; so back/quit is ONE edge regardless of which physical control produced it
+    ; (v1 gameMenuBackHeld reads exactly these three). PURE bit config — testable.
+    fn foldQuitBits:int (m:int) {
+        def out:int m
+        if ((bit_and m 64) != 0) { out = (bit_or out 8) }
+        if ((bit_and m 1024) != 0) { out = (bit_or out 8) }
+        return out
+    }
+
+    ; The launcher's whole physical read: navigation sources merged, back/quit
+    ; normalised onto bit 8.
+    fn launcherMask:int () {
+        def nav:int (this.launcherNavMask())
+        return (this.foldQuitBits(nav))
+    }
+
+    ; In-game back/quit, read SEPARATELY from the play mask (v1 keeps these apart
+    ; so that e.g. LEFT never doubles as "exit"): keyboard P1 Q/Esc, or gamepad 0
+    ; B / Select. Returned as a mask so the same edge() drives it.
+    fn gameQuitMask:int () {
+        def kb:int (bit_and (gfx_input_source_mask 0) 8)
+        def pad:int (bit_and (gfx_input_source_mask 2) 1088)
+        def both:int (bit_or kb pad)
+        return (this.foldQuitBits(both))
+    }
+
     ; Advance the launcher menu one step from an input-mask edge transition:
-    ;   left(16)/right(32) edge -> moveSelection ; down(2) edge -> back ;
+    ;   left(16)/right(32) edge -> moveSelection ;
+    ;   down(2) or quit(8) edge on games page -> back ;
+    ;   quit(8) edge on categories -> return 2 (quit the launcher) ;
     ;   action(4) edge -> activate. Returns 1 when an ENTRY was activated (the
-    ;   caller reads ui.selectedDir()/selectedFile() and hands off), else 0.
-    ; This is the launcher's whole input contract — no gfx, no game, testable.
+    ;   caller reads ui.selectedDir()/selectedFile() and hands off), else 0
+    ;   (or 2 to quit). This is the launcher's whole input contract — no gfx,
+    ;   no game, testable.
     fn launcherStep:int (prev:int cur:int ui:RgLauncherUi) {
         if (this.edge(prev cur 16)) { ui.moveSelection(0 - 1) }
         if (this.edge(prev cur 32)) { ui.moveSelection(1) }
         if (this.edge(prev cur 2))  { ui.back() }
+        if (this.edge(prev cur 8)) {
+            if ((ui.currentPage()) == 1) {
+                ui.back()
+            } {
+                return 2
+            }
+        }
         if (this.edge(prev cur 4)) {
             def r:int (ui.activate())
             if (r == 1) { return 1 }
@@ -233,11 +287,20 @@ class RgSdlGameHost {
     }
 
     ; Open a window on the rich launcher screen (engine chrome), navigate it, and
-    ; hand off to the chosen game through the SAME generic run() the tests use.
+    ; hand off to the chosen game through the SAME generic runIn() the tests use.
     ; Single-surface present (gfx_present) of the launcher's SoftCanvas RGBA — the
     ; launcher is not split. Window is one pane (paneW×paneH, 16:9), matching the
     ; headless launcher tests and the in-game display aspect. Native-only loop
     ; (gfx_* stub to no-ops under es6).
+    ;
+    ; ONE WINDOW for the whole session (v1 parity, game_sdl_runner.run): the
+    ; window is opened once here and closed once on the way out; launching a game
+    ; only swaps what is presented into it and retitles it. The launcher used to
+    ; gfx_close before handing off and gfx_open again on the way back, which tore
+    ; down and re-created the SDL window (and SDL_Quit/SDL_Init with it) four
+    ; times per launch — on macOS that surfaces as a second window frame stacked
+    ; over the first, and any window position / size / space the user had chosen
+    ; is lost on every transition.
     fn runLauncher:int () {
         def lw:int this.paneW
         def lh:int this.paneH
@@ -248,30 +311,46 @@ class RgSdlGameHost {
         def go:boolean true
         while go {
             gfx_input_poll
-            def m:int (gfx_input_source_mask 0)
+            def m:int (this.launcherMask())
             def launch:int (this.launcherStep(prev m ui))
             prev = m
-            if (launch == 1) {
-                def d:string (ui.selectedDir())
-                def f:string (ui.selectedFile())
-                def eng:string (ui.selectedEngine())
-                gfx_close
-                this.resetAudioDevice()
-                ; wasm games run through the compiled loop, tsx through the
-                ; interpreted one — both drive the same bridge/presenter.
-                def _g:int 0
-                if (eng == "wasm") { _g = (this.runWasm(d f)) } { _g = (this.run(d f)) }
-                ; back from the game: reopen the launcher and resume on categories
-                gfx_clear_should_close
-                this.resetAudioDevice()
-                if ((gfx_open "Ranger" lw lh) == 0) { return 1 }
-                ui.back()
-                prev = 0
+            if (launch == 2) {
+                go = false
             } {
-                ui.render()
-                gfx_present (ui.raw()) lw lh
-                gfx_delay 16
-                if (gfx_should_close) { go = false }
+                if (launch == 1) {
+                    def d:string (ui.selectedDir())
+                    def f:string (ui.selectedFile())
+                    def eng:string (ui.selectedEngine())
+                    this.resetAudioDevice()
+                    ; wasm games run through the compiled loop, tsx through the
+                    ; interpreted one — both drive the same bridge/presenter, and
+                    ; both present into the launcher's window.
+                    def g:int 0
+                    if (eng == "wasm") { g = (this.runWasmIn(d f)) } { g = (this.runIn(d f)) }
+                    ; The guest closed the shared window (title bar / Cmd-Q): that
+                    ; is a quit for the whole app, not a return to the launcher.
+                    if (g == 2) {
+                        go = false
+                    } {
+                        gfx_audio_clear
+                        this.resetAudioDevice()
+                        gfx_clear_should_close
+                        gfx_set_title "Ranger"
+                        ui.back()
+                        ; Reseed the edge state from the LIVE mask instead of 0:
+                        ; the key that ended the game (Q) is still physically down
+                        ; for another ~100 ms, and a 0 baseline reads that as a
+                        ; fresh press — which on the category page quits the whole
+                        ; launcher. (v1 syncInputEdges, game_sdl_runner.rgr.)
+                        gfx_input_poll
+                        prev = (this.launcherMask())
+                    }
+                } {
+                    ui.render()
+                    gfx_present (ui.raw()) lw lh
+                    gfx_delay 16
+                    if (gfx_should_close) { go = false }
+                }
             }
         }
         gfx_close
@@ -296,54 +375,93 @@ class RgSdlGameHost {
         gfx_present_split (fbL.toRgbaBuffer()) (fbR.toRgbaBuffer()) this.paneW this.paneH
     }
 
-    ; Open a window and run a COMPILED (wasm32) game to window close. The wasm
-    ; sibling of run(): the guest is a folder with a wasm module (engine=wasm),
-    ; loaded + framed through RgWasmGameHost, presented through the SAME presenter.
-    ; wasm_* are backed by wasm3 on the SDL/native build. Self-contained so the
-    ; interpreted run() path is untouched.
-    fn runWasm:int (dir:string moduleFile:string) {
+    ; Run a COMPILED (wasm32) game in the CALLER'S window. The wasm sibling of
+    ; runIn(): the guest is a folder with a wasm module (engine=wasm), loaded +
+    ; framed through RgWasmGameHost, presented through the SAME presenter. wasm_*
+    ; are backed by wasm3 on the SDL/native build. Self-contained so the
+    ; interpreted runIn() path is untouched. Same return codes as runIn():
+    ; 0 = load failed, 1 = player left the game, 2 = the window was closed.
+    fn runWasmIn:int (dir:string moduleFile:string) {
         if ((this.wasmHost.load(dir moduleFile)) == false) {
             return 0
         }
+        gfx_set_title ("Ranger v2 (wasm) — " + moduleFile)
+        def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def closed:boolean false
+        def go:boolean true
+        ; Seed from the live mask: the action key that launched this game may
+        ; still be held, and Q/B must not read as pressed before it is released.
+        gfx_input_poll
+        def prev:int (this.gameQuitMask())
+        while go {
+            gfx_input_poll
+            def q:int (this.gameQuitMask())
+            ; Q / Esc / pad B / pad Select rising edge leaves the game
+            if (this.edge(prev q 8)) { go = false }
+            prev = q
+            this.wasmHost.frame(33.333)
+            this.presentBridge(this.wasmHost.bridge fbL fbR)
+            gfx_delay 16
+            if (gfx_should_close) {
+                closed = true
+                go = false
+            }
+        }
+        if (closed) { return 2 }
+        return 1
+    }
+
+    ; Open a window and run a COMPILED (wasm32) game standalone (no launcher).
+    ; Owns the window; the launcher uses runWasmIn() instead so the session keeps
+    ; a single window.
+    fn runWasm:int (dir:string moduleFile:string) {
         def title:string ("Ranger v2 (wasm) — " + moduleFile)
         if ((gfx_open title this.paneW this.paneH) == 0) {
             return 0
         }
-        def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
-        def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
-        def go:boolean true
-        while go {
-            gfx_input_poll
-            this.wasmHost.frame(33.333)
-            this.presentBridge(this.wasmHost.bridge fbL fbR)
-            gfx_delay 16
-            if (gfx_should_close) { go = false }
-        }
+        def r:int (this.runWasmIn(dir moduleFile))
         gfx_close
-        return 1
+        return r
     }
 
-    ; Open a window and run the game loop until the window closes. Generic: the
-    ; game is a folder of .tsx (dir/file). Honours the guest launch(path) request
-    ; generically (menu -> game) via the same RgGameHost handoff the tests use.
-    ; Display is always one pane size (paneW×paneH, 16:9). Split-screen games
-    ; still rasterise full-res panes; gfx_present_split GPU-scales each into a
-    ; window half (same as v1) — do not open a 2×-wide window.
-    fn run:int (dir:string file:string) {
+    ; Run the game loop in the CALLER'S window (no gfx_open / gfx_close here).
+    ; Generic: the game is a folder of .tsx (dir/file). Honours the guest
+    ; launch(path) request generically (menu -> game) via the same RgGameHost
+    ; handoff the tests use. Display is always one pane size (paneW×paneH, 16:9).
+    ; Split-screen games still rasterise full-res panes; gfx_present_split
+    ; GPU-scales each into a window half (same as v1) — do not open a 2×-wide
+    ; window.
+    ;
+    ; Returns 0 when the game failed to load, 1 when the player left it (Q / Esc /
+    ; pad B|Select) and the caller should resume, 2 when the WINDOW was closed —
+    ; the window is shared with the launcher, so that means "quit the app", not
+    ; "go back one screen".
+    fn runIn:int (dir:string file:string) {
         if ((this.host.load(dir file)) == false) {
             return 0
         }
-        def title:string ("Ranger v2 — " + file)
-        if ((gfx_open title this.paneW this.paneH) == 0) {
-            return 0
-        }
+        gfx_set_title ("Ranger v2 — " + file)
         this.initAudio()
         def fbL:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
         def fbR:RgFramebuffer (RgFramebuffer.create(this.paneW this.paneH))
+        def closed:boolean false
         def go:boolean true
+        ; Seed from the live mask: the action key that launched this game may
+        ; still be held, and Q/B must not read as pressed before it is released.
+        gfx_input_poll
+        def prev:int (this.gameQuitMask())
         while go {
             gfx_input_poll
-            this.mapMask(0 (gfx_input_source_mask 0))
+            def m0:int (gfx_input_source_mask 0)
+            ; Q / Esc / pad B / pad Select rising edge leaves the game and returns
+            ; to the launcher (v1 gameMenuBackHeld parity). Read separately from
+            ; the play mask so movement never doubles as "exit". Window-close
+            ; still works, and means quit.
+            def q:int (this.gameQuitMask())
+            if (this.edge(prev q 8)) { go = false }
+            prev = q
+            this.mapMask(0 m0)
             this.mapMask(1 (gfx_input_source_mask 1))
             this.host.frame(33.333)
             this.forwardRumble()
@@ -358,10 +476,26 @@ class RgSdlGameHost {
             }
             this.present(fbL fbR)
             gfx_delay 16
-            if (gfx_should_close) { go = false }
+            if (gfx_should_close) {
+                closed = true
+                go = false
+            }
         }
+        if (closed) { return 2 }
+        return 1
+    }
+
+    ; Open a window and run an interpreted (.tsx) game standalone (no launcher).
+    ; Owns the window; the launcher uses runIn() instead so the session keeps a
+    ; single window.
+    fn run:int (dir:string file:string) {
+        def title:string ("Ranger v2 — " + file)
+        if ((gfx_open title this.paneW this.paneH) == 0) {
+            return 0
+        }
+        def r:int (this.runIn(dir file))
         gfx_close
         this.resetAudioDevice()
-        return 1
+        return r
     }
 }
