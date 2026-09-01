@@ -31,10 +31,39 @@ class GqlParser {
     def depth:int 0
     ; Nested lists / selection sets / types. A 50 000-deep `[` chain is not a
     ; document, it is a DoS, and on C++/Rust/Swift it is a segfault.
+    ; parseWith may raise maxDepth, but never past depthCeiling: Node dies
+    ; around 5000 frames, and native stacks are smaller.
     def maxDepth:int 256
-    def maxTokens:int 100000
+    def maxTokens:int 1000000
 
     Constructor () {
+    }
+
+    sfn defaultDepth:int () {
+        return 256
+    }
+
+    ; Hard cap. Node survives ~4000 frames and dies at 5000; 2048 leaves
+    ; margin on JS and on the C++/Rust/Swift stacks this library targets.
+    sfn depthCeiling:int () {
+        return 2048
+    }
+
+    sfn defaultTokens:int () {
+        return 1000000
+    }
+
+    fn clampLimits:void () {
+        def cap:int (GqlParser.depthCeiling())
+        if (maxDepth < 1) {
+            maxDepth = 1
+        }
+        if (maxDepth > cap) {
+            maxDepth = cap
+        }
+        if (maxTokens < 1) {
+            maxTokens = 1
+        }
     }
 
     fn descend:boolean () {
@@ -155,6 +184,7 @@ class GqlParser {
     }
 
     fn parse:GqlNode (src:string) {
+        this.clampLimits()
         def tk:GqlTokenizer (new GqlTokenizer)
         tk.maxTokens = maxTokens
         tokens = (tk.tokenize(src))

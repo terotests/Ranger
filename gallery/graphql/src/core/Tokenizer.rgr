@@ -22,7 +22,7 @@ class GqlTokenizer {
     ; graphql-js has maxTokens for the same reason: a document that is only
     ; punctuation can be huge without being nested, and the host should say
     ; no rather than allocate until it dies.
-    def maxTokens:int 100000
+    def maxTokens:int 1000000
     def curLine:int 1
     def curCol:int 1
 

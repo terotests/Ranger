@@ -562,9 +562,14 @@ class GraphQLTest {
         print "== depth and token limits =="
         def shallow:GqlParseResult (Gql.parse((GraphQLTest.nestLists(8))))
         c.ok("an 8-deep list parses" (shallow.okResult()))
-        def deep:GqlParseResult (Gql.parseWith((GraphQLTest.nestLists(300)) 16 100000))
+        def deep:GqlParseResult (Gql.parseWith((GraphQLTest.nestLists(300)) 16 (GqlParser.defaultTokens())))
         c.ok("a 300-deep list is an error, not a crash" ((deep.okResult()) == false))
         c.has("the error names the nesting" deep.error "nested too deeply")
+        def asked:int 50000
+        def clamped:GqlParseResult (Gql.parseWith((GraphQLTest.nestLists(3000)) asked (GqlParser.defaultTokens())))
+        c.ok("parseWith cannot raise depth past the ceiling" ((clamped.okResult()) == false))
+        c.has("the ceiling still reports nesting" clamped.error "nested too deeply")
+        c.eqInt("the ceiling is 2048" (GqlParser.depthCeiling()) 2048)
         def many:string "{ "
         def mi:int 0
         while (mi < 40) {

@@ -80,9 +80,12 @@ string helpers still exist, but they return `""` in both cases.
 tree to the first, because whitespace and commas are not part of the language.
 A `"""` inside a block string is written back as `\"""`.
 
-`Gql.parseWith(src maxDepth maxTokens)` caps nesting (default 256) and
-token count (default 100 000). A document that is only `[` characters is
-not a query, and on native targets it is a segfault rather than an
+`Gql.parseWith(src maxDepth maxTokens)` caps nesting and token count.
+Defaults are 256 deep and 1 000 000 tokens — enough for GitHub-sized
+SDL. Raise **tokens** when a schema does not fit; leave depth alone.
+`parseWith` clamps depth to 2048 so a caller cannot put the stack back
+into the 50 000-deep `[` crash. A document that is only `[` characters
+is not a query, and on native targets it is a segfault rather than an
 exception.
 
 ## Files

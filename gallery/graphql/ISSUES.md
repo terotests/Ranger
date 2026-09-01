@@ -1,26 +1,43 @@
 # GraphQL gallery — notes
 
-## Ranger: bind a call before reading a field
+## Ranger: you can call a method on a call result, but you cannot read a field
 
-`((node.childNamed("id")).typeText())` and `(node.varNamed("input")).kind`
-do not compile. The compiler cannot see `.kind` / `.typeText` on a
-parenthesized method result (the same gotcha as ISSUES.md #65 in the
-repo root). Bind first:
+The compiler accepts a method on a parenthesized call:
 
 ```ranger
-def idField:GqlNode (node.childNamed("id"))
-def text:string (idField.typeText())
+def text:string ((node.childNamed("id")).typeText())
 ```
 
-The first test commit had to rewrite about ten of these. They are not
-off-by-ones — they are this rule.
+It rejects a **field** on that same shape (the repo-root gotcha, ISSUES.md #65):
+
+```ranger
+; does not compile
+(node.varNamed("input")).kind
+```
+
+Bind first, then read the field:
+
+```ranger
+def inputVar:GqlNode (node.varNamed("input"))
+def k:int inputVar.kind
+```
+
+`typeText()`, `implementsText()`, `isKind()` are methods — they do not need a
+temp. About half of the first test commit's rewrites were this rule applied
+too widely.
 
 ## Depth and token limits
 
 `Gql.parse` refuses documents nested more than 256 lists / selection
-sets / list types, and documents with more than 100 000 tokens.
-`Gql.parseWith` sets both. Without a cap a 50 000-deep `[` chain
-overflows the JS stack; on C++ / Rust / Swift it is a segfault.
+sets / list types. `parseWith` may raise that, but `clampLimits` never
+lets it past 2048: Node dies around 5000 frames, and the C++ / Rust /
+Swift stacks this library targets are smaller. Raise **tokens**, not
+depth, when a real schema does not fit.
+
+The default token cap is 1 000 000. 100 000 rejected GitHub-sized SDL
+(~1 MB); a million covers that and typical Shopify schemas. A document
+that is only `[` characters is still a DoS — that is what the depth
+ceiling is for.
 
 ## Shapes (later)
 
@@ -37,5 +54,7 @@ A first cut that would pay off without rewriting the whole AST:
 Definitions and selections can stay as classes. Parent pointers stay
 absent either way — that argument is about ownership, not about shapes.
 
-`GqlKind` constants are what the parser and the tests use today. Do not
-reintroduce raw `kind = 42`.
+`GqlKind` constants are what the parser, printer, tests and the GqlNode
+walkers (`typeText`, `valueText`, `collectPaths`, `findOp`) use today.
+`kindName` is the number → name table and keeps the integers. Do not
+reintroduce raw `kind == 42` in a walker.

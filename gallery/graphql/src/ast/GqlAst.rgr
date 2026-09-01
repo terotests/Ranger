@@ -376,7 +376,7 @@ class GqlNode {
         def i:int 0
         while (i < (array_length children)) {
             def ch:GqlNode (itemAt children i)
-            if (ch.kind == 2) {
+            if (ch.kind == (GqlKind.operation())) {
                 if (ch.name == want) {
                     return ch
                 }
@@ -390,7 +390,7 @@ class GqlNode {
         def i:int 0
         while (i < (array_length children)) {
             def ch:GqlNode (itemAt children i)
-            if (ch.kind == 2) {
+            if (ch.kind == (GqlKind.operation())) {
                 if (ch.text == opType) {
                     return ch
                 }
@@ -402,26 +402,26 @@ class GqlNode {
 
     ; GraphQL type text: ID!  [Invoice]  [[String!]!]!
     fn typeText:string () {
-        if (kind == 20) {
+        if (kind == (GqlKind.namedType())) {
             return name
         }
-        if (kind == 21) {
+        if (kind == (GqlKind.listType())) {
             def inner:GqlNode (this.childAt(0))
             return ("[" + (inner.typeText()) + "]")
         }
-        if (kind == 22) {
+        if (kind == (GqlKind.nonNullType())) {
             def inner2:GqlNode (this.childAt(0))
             return ((inner2.typeText()) + "!")
         }
         if ((array_length children) > 0) {
             def first:GqlNode (this.childAt(0))
-            if (first.kind == 20) {
+            if (first.kind == (GqlKind.namedType())) {
                 return (first.typeText())
             }
-            if (first.kind == 21) {
+            if (first.kind == (GqlKind.listType())) {
                 return (first.typeText())
             }
-            if (first.kind == 22) {
+            if (first.kind == (GqlKind.nonNullType())) {
                 return (first.typeText())
             }
         }
@@ -433,16 +433,16 @@ class GqlNode {
     }
 
     fn valueText:string () {
-        if (kind == 30) {
+        if (kind == (GqlKind.variable())) {
             return ("$" + name)
         }
-        if (kind == 35) {
+        if (kind == (GqlKind.nullVal())) {
             return "null"
         }
-        if (kind == 34) {
+        if (kind == (GqlKind.boolVal())) {
             return text
         }
-        if (kind == 37) {
+        if (kind == (GqlKind.listVal())) {
             def out:string "["
             def i:int 0
             while (i < (array_length children)) {
@@ -455,7 +455,7 @@ class GqlNode {
             }
             return (out + "]")
         }
-        if (kind == 38) {
+        if (kind == (GqlKind.objectVal())) {
             def out2:string "{"
             def j:int 0
             while (j < (array_length children)) {
@@ -620,7 +620,7 @@ class GqlNode {
     }
 
     fn collectPaths:void (prefix:string lines:[string]) {
-        if (kind == 1) {
+        if (kind == (GqlKind.document())) {
             def i:int 0
             while (i < (array_length children)) {
                 def ch:GqlNode (itemAt children i)
@@ -629,7 +629,7 @@ class GqlNode {
             }
             return
         }
-        if (kind == 2) {
+        if (kind == (GqlKind.operation())) {
             def head:string text
             if ((strlen name) > 0) {
                 head = name
@@ -642,7 +642,7 @@ class GqlNode {
             }
             return
         }
-        if (kind == 3) {
+        if (kind == (GqlKind.fragmentDef())) {
             def fhead:string ("fragment " + name)
             def k:int 0
             while (k < (array_length children)) {
@@ -652,7 +652,7 @@ class GqlNode {
             }
             return
         }
-        if (kind == 10) {
+        if (kind == (GqlKind.fieldSel())) {
             def label:string name
             if ((strlen alias) > 0) {
                 label = (alias + ":" + name)
@@ -670,7 +670,7 @@ class GqlNode {
             }
             return
         }
-        if (kind == 12) {
+        if (kind == (GqlKind.inlineFragment())) {
             def p:int 0
             while (p < (array_length children)) {
                 def ik:GqlNode (itemAt children p)
@@ -679,7 +679,7 @@ class GqlNode {
             }
             return
         }
-        if (kind == 11) {
+        if (kind == (GqlKind.fragmentSpread())) {
             def spread:string ("..." + name)
             if ((strlen prefix) > 0) {
                 spread = (prefix + "." + spread)
