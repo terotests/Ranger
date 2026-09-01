@@ -38,6 +38,7 @@ port does not fork a line of any of them.
 | `app/…/DashboardView.kt` | The `View`: units, touch, gestures, the fling |
 | `desktop/…/CheckDashboard.kt` | The page through the shared painter, and every input rule |
 | `scripts/` | Ranger→Kotlin, the stylesheet, APK, emulator, and the two off-device checks |
+| `package.json` | The same scripts under short names, so `npm run run` works from in here |
 
 The painter, the surface interface, the `android.graphics` backend, the Java2D
 twin and the platform stubs are **not** here: they are
@@ -74,6 +75,21 @@ the usual Android Studio locations, and uses a device that is already online in
 preference to booting one. **A tablet profile in landscape is what this wants**
 (`Pixel Tablet`, API 34): the page is 1336 wide, so 1280dp of landscape tablet
 is very nearly 1:1 and the dashboard is the size it is in a browser.
+
+This directory is also a package of its own, so the same thing from in here is
+`npm run run` — or `npm start`, which is the same script — and from anywhere
+else it is `npm run --prefix gallery/ui/android run`. Arguments go through after
+a `--` exactly as above. The scripts find the repository root themselves, so it
+does not matter which directory you are standing in.
+
+| From `gallery/ui/android` | From the repository root |
+| --- | --- |
+| `npm run run` / `npm start` | `npm run ui:android:run` |
+| `npm run build` | `npm run ui:android` |
+| `npm run build:ranger` | `npm run ui:android:ranger` |
+| `npm run assets` | `npm run ui:android:assets` |
+| `npm run verify` | `npm run ui:android:verify` |
+| `npm run typecheck` | `npm run ui:android:typecheck` |
 
 By hand, the same two steps are:
 
