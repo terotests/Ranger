@@ -1,0 +1,29 @@
+; A chain long enough that no target's default width holds it, and a call with
+; enough arguments that the same is true of its argument list. Both are the
+; shapes PLAN_FORMAT.md S5 breaks, and both have to still run afterwards.
+class LcRow {
+  def cells:[string]
+  fn str:LcRow (k:string v:string) {
+    push cells (k + "=" + v)
+    return this
+  }
+  fn num:LcRow (k:string v:double) {
+    push cells (k + "=" + v)
+    return this
+  }
+  fn count:int () {
+    return (array_length cells)
+  }
+}
+class LcMain {
+  sfn wide:string (alpha:string beta:string gamma:string delta:string epsilon:string) {
+    return (((((alpha + "|") + beta) + "|") + gamma) + "|") + delta + "|" + epsilon
+  }
+  sfn main:void () {
+    def r:LcRow (new LcRow())
+    r.str("region" "North").str("category" "Hardware").str("quarter" "Q3").num("sales" 120.0).num("margin" 0.42).num("units" 3100.0)
+    def n:int (r.count())
+    def s:string (LcMain.wide("first-argument-value" "second-argument-value" "third-argument-value" "fourth-argument-value" "fifth"))
+    print ("" + n + " " + s)
+  }
+}

@@ -577,6 +577,12 @@ class tester {
       'o'  'output file, default is "output.<language>"'
       'classdoc'  'write class documentation .md file'
       'operatordoc'  'write operator documention into .md file'
+      'apidoc'  'write the API documentation artifacts into this subdirectory'
+      'apiformat'  'which API artifacts to write: json, markdown, report (default json,markdown)'
+      'format'  'Output formatting: "ranger" (the default) drops parentheses a target does not need and breaks a long method chain onto one line per call; "none" emits exactly what the writers emit'
+      'width'  'Line width the formatter aims at, when -format is not none. Defaults to the target ecosystem\'s own: 80 on JavaScript, Dart and C++, 100 elsewhere'
+      'csnamespace'  'C# namespace for the generated types'
+      'ktpackage'  'Kotlin package for the generated types'
     ))
 
     def valid_flags:[string] ([] _:string
@@ -589,6 +595,10 @@ class tester {
       'plugins-only' 'ignore built-in language output and use only plugins'
       'plugins' '(node compiler only) run specified npm plugins -plugins="plugin1,plugin2"'
       'strict' 'Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.'
+      'apistrict' 'An undocumented public declaration or parameter is an error, not a warning'
+      'apipackage' 'Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet'
+      'keep-examples' 'Emit the functions named by `example` into the output. They are type checked either way; by default they are left out'
+      'docstyle-none' 'Do not write documentation comments into the generated code'
       'strict-ownership' 'Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)'
       'rust-shared-classes' 'Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)'
       'rust-value-classes' 'Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission'
@@ -883,6 +893,35 @@ class tester {
       return res
     }
 
+    ; A typo in -format must not silently turn the formatter on: "-format=non"
+    ; is not "none", and reading it as "anything that is not none" would leave
+    ; the caller believing they had switched it off.
+    def fmtOpt@(optional) (params.getParam("format"))
+    if (!null? fmtOpt) {
+      def fmtName:string (unwrap fmtOpt)
+      if ((fmtName != "none") && (fmtName != "ranger")) {
+        print "Invalid -format value : " + fmtName
+        print "allowed values: none ranger"
+        ; `native` is a real step, it is just not a compiler flag: Ranger has
+        ; no subprocess primitive, and giving the compiler one would mean
+        ; implementing process execution for eleven targets so that a cosmetic
+        ; pass could run a program off PATH. It lives outside instead, where
+        ; it is also easier to not run.
+        if (fmtName == "native") {
+          print ""
+          print "`native` is a separate step rather than a flag. Compile as usual,"
+          print "then run the target's own formatter over the output:"
+          print ""
+          print "    npm run format:native -- <output directory>"
+          print ""
+          print "It is optional in every direction: a formatter that is not installed"
+          print "is reported and skipped, and one that fails leaves the file exactly"
+          print "as Ranger wrote it."
+        }
+        return res
+      }
+    }
+
     ; set the language
     set appCtx.compilerSettings "l" the_lang
 
@@ -993,6 +1032,23 @@ class tester {
     if (appCtx.hasCompilerFlag("sourcemap")) {
       fileSystem.enableSourceMaps()
     }
+    ; PLAN_FORMAT.md phase 3: break long method chains on the finished text.
+    ; -1 is "on, at the target's own default width"; -width= overrides it.
+    def fmtSetting:string (appCtx.getCompilerSetting("format"))
+    if (fmtSetting != "none") {
+      fileSystem.formatWidth = (0 - 1)
+      def widthOpt@(optional) (params.getParam("width"))
+      if (!null? widthOpt) {
+        def widthStr:string (unwrap widthOpt)
+        def widthOpt2@(optional):int (to_int widthStr)
+        if (!null? widthOpt2) {
+          def widthNum:int (unwrap widthOpt2)
+          if (widthNum > 0) {
+            fileSystem.formatWidth = widthNum
+          }
+        }
+      }
+    }
     
     def file (fileSystem.getFile("." the_target)) 
     def wr (file.getWriter())
@@ -1091,6 +1147,13 @@ class tester {
 
       flowParser.StartWalk (node appCtx (unwrap wr))
       flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
+
+      ; The API model is built here, after the whole program is analysed and
+      ; before anything is written: the language writers read docBlock off the
+      ; descriptors, and the doc validation has to report with the rest of the
+      ; analysis errors rather than after code generation.
+      def apiBuilder:RangerApiBuilder (new RangerApiBuilder)
+      def apiModel:RangerApiModel (apiBuilder.build(appCtx))
 
       ; Check for errors after analysis phase
       if ( ( array_length appCtx.compilerErrors ) > 0 ) {
@@ -1217,6 +1280,13 @@ class tester {
         }
 
         wr = contentFork
+
+        ; Every doc example is rendered in the target's own syntax before a
+        ; single class is written, because the doc comment that quotes one is
+        ; usually emitted before the example itself would have been.
+        for apiBuilder.exampleFns exFn:RangerAppFunctionDesc exIdx {
+          exFn.docExampleText = (lcc.langWriter.renderDocExample(exFn appCtx (unwrap wr)))
+        }
 
         def handledClasses:[string:boolean]
 
@@ -1398,6 +1468,17 @@ class tester {
         if( appCtx.hasCompilerSetting('operatordoc') ) {
           def gen (new RangerDocGenerator)
           gen.createOperatorDoc( root appCtx (unwrap wr) )
+        }
+        if( appCtx.hasCompilerSetting('apidoc') ) {
+          def apiGen (new RangerApiArtifactWriter)
+          apiGen.writeAll( apiModel appCtx (unwrap wr) )
+        }
+        if( appCtx.hasCompilerFlag('apipackage') ) {
+          def pkgGen (new RangerApiPackageWriter)
+          pkgGen.writeAll( apiModel appCtx (unwrap wr) node )
+        }
+        for apiModel.warnings warnMsg:string warnIdx {
+          print (cli.warning(("api docs: " + warnMsg)))
         }
       
         cli.step(5 "Writing output")

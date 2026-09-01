@@ -528,11 +528,7 @@ class RangerDartClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")" false)
+      this.writeCallReceiver(obj ctx wr)
       if (this.receiverIsNullable(obj)) {
         wr.out("!" false)
       }
@@ -715,6 +711,10 @@ class RangerDartClassWriter {
 
     this.writeDartUnionInterfaces(ctx wr)
     wr.out("" true)
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeDartDocForClass((unwrap cl) ctx wr)
+    }
     wr.out(("class " + cl.name) false)
     def dartUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ((array_length cl.extends_classes) > 0) {
@@ -750,6 +750,10 @@ class RangerDartClassWriter {
     for cl.variables pvar:RangerAppParamDesc i {
       if pvar.is_static {
         continue _
+      }
+      if pvar.has_doc {
+        def fDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        fDocWr.writeDartDocForField(pvar wr)
       }
       this.writeVarDef((unwrap pvar.node) ctx wr)
     }
@@ -854,7 +858,16 @@ class RangerDartClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
+      if variant.is_doc_example {
+        if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+          continue _
+        }
+      }
       wr.out("" true)
+      if variant.has_doc {
+        def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        sDocWr.writeDartDocForMethod(variant ctx wr)
+      }
       wr.out("static " false)
       this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
       wr.out(" " false)
@@ -879,6 +892,11 @@ class RangerDartClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
         wr.out("" true)
         def shouldOverride:boolean false
         if (variant.nameNode.hasFlag("override")) {
@@ -886,6 +904,10 @@ class RangerDartClassWriter {
         }
         if (has declaredFunction variant.name) {
           shouldOverride = true
+        }
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeDartDocForMethod(variant ctx wr)
         }
         if shouldOverride {
           wr.out("@override" true)

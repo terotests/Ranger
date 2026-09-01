@@ -1149,17 +1149,18 @@ class RangerGolangClassWriter {
         }
       }
       
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode(obj ctx wr)
-      ctx.unsetInExpr()
-      
       if needs_unwrap {
+        ; the type assertion needs the receiver delimited whatever its shape
+        wr.out("(" false)
+        ctx.setInExpr()
+        this.WalkNode(obj ctx wr)
+        ctx.unsetInExpr()
         wr.out(").value.(*" false)
         wr.out(obj_type_name false)
         wr.out(")." false)
       } {
-        wr.out(")." false)
+        this.writeCallReceiver(obj ctx wr)
+        wr.out("." false)
       }
       
       wr.out(method.vref false)
@@ -1221,7 +1222,7 @@ class RangerGolangClassWriter {
           }
         }
         if b_can_skip {
-          wr.out((("/** unused:  " + p.compiledName) + "*/") true)
+          wr.out((("/* unused:  " + p.compiledName) + "*/") true)
           b_not_used = true
           return
         }
@@ -1363,7 +1364,7 @@ class RangerGolangClassWriter {
         wr.out((" _ = " + p.compiledName) false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
 

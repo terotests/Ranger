@@ -2563,6 +2563,65 @@ actually walks. The guard now names the elements that consume text.
 All four are in `demo/page-check.mjs`, which is the gate that exists because a
 bundle that builds is not a page that works.
 
+## Where an overflow belongs
+
+Reported: drag the resizable demo's divider far enough and the breadcrumb
+inside the left panel wrote itself straight across the divider and into the
+panel beside it.
+
+Two bugs, at two levels, and the interesting part is that the obvious one is
+not the fix.
+
+**A browser was asked first**, because the intuition here is wrong. The
+guess was that EVG shrinks a flex item further than a browser would, and
+that stopping it would keep the content inside. Half right:
+
+    flex item, min-width:auto (default)      box 159px in a 120px row, spills 39px
+    flex item, min-width:0                   box 80px, content overflows the box
+    flex item, min-width:0, overflow:hidden  box 80px, content clipped, nothing spills
+
+`min-width: auto` does not prevent the overflow. It MOVES it: the item keeps
+its min-content width and the box hangs out of the row instead of the text
+hanging out of the box. Only the third row leaves nothing sticking out.
+
+### The panel clips, and that is the CSS answer
+
+So the demo's fix is `min-width: 0` and `overflow: hidden` on the panel —
+which is also what react-resizable-panels puts there. The trail already
+collapses as the panel narrows, but collapsing has a floor: at some width
+even "Home / ../ Breadcrumb One" is wider than the panel, and what a box
+does with content bigger than itself is decided by `overflow` and nothing
+else. The panel declared none.
+
+The gate walks the CLIP STACK the way the renderer does — `k=4` pushes a
+rectangle, `k=5` pops one — and asserts every crumb is inside a clip that
+stops at the panel's edge. It also asserts that at this width some of the
+trail really does reach past that clip, because without that the check would
+pass on any stylesheet at all.
+
+### And the engine gap beside it
+
+Separately, and it is real: EVG clamped a shrinking flex item only against a
+`min-width` the sheet had DECLARED. CSS gives every flex item an automatic
+minimum — `min-width: auto` resolves to its min-content size — which is why
+a real row refuses to squash a word to nothing. EVG already had the
+min-content pass; this wires it into the shrink clamp.
+
+The second half of the rule is what keeps the panel above working: the
+automatic minimum applies only while the item is NOT a clipping box.
+`overflow: hidden` puts it back to zero. Implementing the first half without
+the second would have fixed the engine and broken the panel in the same
+commit — the oracle records both, and inverting that one condition fails
+eight assertions in both directions.
+
+**A divergence, recorded rather than papered over.** EVG has no
+`white-space` property at all; the only `nowrap` it knows is `flex-wrap`. In
+a browser a nowrap line's min-content size is the whole line, because
+nothing in it may break — 137.28 against the 70.81 of its longest word. EVG
+answers with the longest word. The oracle keeps that row so the browser's
+answer is written down, and the check skips it and says why. Nothing in the
+gallery declares `white-space` today, so it is a gap rather than a fault.
+
 ## A ripple, and the point it makes
 
 `evg-surface-effect: ripple`, and the `evg-ripple-*` numbers under it. The

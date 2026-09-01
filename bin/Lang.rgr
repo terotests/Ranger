@@ -75,6 +75,54 @@ language {
             self _self
             func _func
         }
+        ; JavaScript had NO block here, and 41 of its 46 keywords came back
+        ; from `scripts/reserved_probe.py` as parse errors -- `def new:int 1`
+        ; emitted `const new = 1`. `null` cannot be listed: the Ranger parser
+        ; reads it as a literal rather than a name, so the pair does not parse;
+        ; it is renamed for this target in `transformWord` instead, beside the
+        ; C# and Dart cases that are there for the same reason.
+        es6 {
+            break _break
+            case _case
+            catch _catch
+            class _class
+            const _const
+            continue _continue
+            debugger _debugger
+            default _default
+            delete _delete
+            do _do
+            else _else
+            enum _enum
+            export _export
+            extends _extends
+            finally _finally
+            for _for
+            function _function
+            if _if
+            implements _implements
+            import _import
+            in _in
+            instanceof _instanceof
+            interface _interface
+            let _let
+            new _new
+            package _package
+            private _private
+            protected _protected
+            public _public
+            static _static
+            super _super
+            switch _switch
+            throw _throw
+            try _try
+            typeof _typeof
+            var _var
+            void _void
+            while _while
+            with _with
+            yield _yield
+        }
         cpp {
             operator _operator
             static _static
@@ -132,10 +180,62 @@ language {
             catch _catch
             this _this
             operator_new _operator_new
+            alignas _alignas
+            alignof _alignof
+            asm _asm
+            break _break
+            const_cast _const_cast
+            constexpr _constexpr
+            continue _continue
+            decltype _decltype
+            do _do
+            dynamic_cast _dynamic_cast
+            else _else
+            export _export
+            for _for
+            if _if
+            noexcept _noexcept
+            nullptr _nullptr
+            reinterpret_cast _reinterpret_cast
+            sizeof _sizeof
+            static_assert _static_assert
+            static_cast _static_cast
+            thread_local _thread_local
+            typeid _typeid
+            using _using
+            wchar_t _wchar_t
+            while _while
         }
+        ; Go's 25 keywords, less `func` and `map` (in `*`) and `return`,
+        ; which Ranger itself will not accept as a name. This block held 2 of
+        ; them until `scripts/reserved_probe.py` asked gofmt about each one in
+        ; turn and 20 came back as parse errors -- `def go:boolean true` had
+        ; been emitting `var go bool = true` for as long as it existed, and
+        ; nothing noticed because the compiler reports success and the file
+        ; that does not parse is one nobody compiles (ISSUES.md #76).
         go {
             type _type
             range _range
+            break _break
+            case _case
+            chan _chan
+            const _const
+            continue _continue
+            default _default
+            defer _defer
+            else _else
+            fallthrough _fallthrough
+            for _for
+            go _go
+            goto _goto
+            if _if
+            import _import
+            interface _interface
+            package _package
+            select _select
+            struct _struct
+            switch _switch
+            var _var
         }
         kotlin {
             object _object
@@ -238,6 +338,11 @@ language {
             with _with
             yield _yield
         }
+        ; The Rust writer spells any keyword as a raw identifier, so most of
+        ; the language's keywords need no entry here. Four cannot be raw ones
+        ; at all -- `r#crate`, `r#super`, `r#self` and `r#Self` are rejected by
+        ; rustc -- so those are the ones that have to be renamed instead.
+        ; `self` is already renamed for every target further up.
         rust {
             type r#type
             static r#static
@@ -245,6 +350,9 @@ language {
             union r#union
             bool r#bool
             impl r#impl
+            crate _crate
+            super _super
+            Self _Self
         }
         swift3 {
             operator _operator

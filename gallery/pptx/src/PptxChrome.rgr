@@ -1,0 +1,323 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxChrome — the editor's shell, laid out rather than computed
+; ==============================================================================
+;
+; The editor's chrome is a holy-grail layout: a strip across the top, a status
+; line across the bottom, a panel of thumbnails down one side, a properties
+; band down the other, a notes band above the status line, and the slide in
+; what is left.
+;
+; It has always been spelled as SUBTRACTION. `slideOriginX` centres the page
+; between two panel widths by hand; `notesRect` takes the panel off one side
+; and the properties band off the other; `buildFrame` paints eight regions at
+; coordinates it works out as it goes. Meanwhile `setChromeCss` has been
+; parsing a real stylesheet all along — `.slide-panel { width: 150px }`, media
+; queries for a tablet, a phone and a coarse pointer — and `applyChrome` reads
+; THREE NUMBERS out of the result and throws the rest away. The stylesheet is
+; being used as a configuration file rather than as a layout.
+;
+; This lays it out instead. The same sheet, the same classes, the same
+; breakpoints — but the boxes come from `EVGLayout`, which is the engine the
+; gallery's thirty components are built on and the one measured against a
+; browser.
+;
+; WHAT IT DELIBERATELY DOES NOT DO YET: change a single number. Every rect here
+; is asserted equal to what the arithmetic produces, at four window sizes and
+; both pointer kinds, in `PptxChromeTest.rgr`. A layout that reproduces the
+; hand-written arithmetic exactly is one that can replace it without a picture
+; moving — and `pptx:editor:shots` is the proof, since those PNGs have to come
+; out identical. Everything the palette brings comes after that, on top of a
+; shell that is known to be the same shell.
+;
+; The stage is a HOLE. Nothing is drawn into it here: the layout says where the
+; slide goes and the slide's own display list is offset into it, the way the
+; dashboard demo drops a chart into the rect of its chart box.
+;
+;   npm run pptx:chrome:test
+; ==============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "PptxEdit.rgr"
+
+class PptxChrome {
+    ; The window, and what the sheet was told about the pointer.
+    def W:int 0
+    def H:int 0
+    def coarse:boolean false
+
+    ; The six regions, in window pixels. `stage` is the hole.
+    ; Given a value where they are DECLARED, not in the constructor: a field
+    ; that only gets one there reads as optional to a caller, and a caller that
+    ; has to unwrap a rectangle is a caller that will forget to.
+    def toolbarRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def panelRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def propsRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def notesRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def statusRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+    def stageRect:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
+
+    ; The root of the laid-out tree, kept so a caller can walk it — the panel
+    ; and the properties band are filled with controllers in later phases and
+    ; they need somewhere to hang.
+    def root@(optional):EVGElement
+
+    ; What the strip asked for. The band is as tall as the page showing on it
+    ; needs and only the strip knows that, so it is told rather than guessed —
+    ; the same contract `buildFrame` already has with `toolbar.heightFor`.
+    def toolbarH:int 62
+    def statusH:int 22
+
+    ; Whether each band is there at all. These are the app's, not the sheet's:
+    ; a reader can turn the notes off, and a deck with no properties to show
+    ; has no band. The sheet decides SIZE; these decide EXISTENCE.
+    def panelOn:boolean true
+    def propsOn:boolean true
+    def notesOn:boolean true
+
+    Constructor () {
+    }
+
+    ; The shell, as a stylesheet.
+    ;
+    ; This is the app's `defaultChromeCss` with the layout it always implied
+    ; written down: the three declarations it used to read numbers out of are
+    ; still here and still say the same thing, and the rest is the arrangement
+    ; that used to live in the arithmetic.
+    ;
+    ; THE ORDER OF THE COLUMN MATTERS AND IS NOT THE ORDER OF THE PICTURE. The
+    ; notes band sits between the stage and the status line but only across the
+    ; middle — the panel runs past it on one side and the properties band on
+    ; the other — so the row holding the three bands is the one that stretches,
+    ; and the notes live INSIDE its middle column rather than beside it.
+    ; THE ARRANGEMENT, which is always underneath. This is the part no caller
+    ; has ever been able to state and none is expected to: how the six regions
+    ; are stacked and nested. It is parsed before a host's own sheet so that a
+    ; host writing `.slide-panel { width: 210px }` gets a 210px panel without
+    ; having to restate a layout it does not know about.
+    ;
+    ; The properties band is HERE and not in the sizes below, and that is
+    ; deliberate: its width and its breakpoint were hard-coded fields in the
+    ; app — `def propsW:int 168` and `if (W < 820) { return 0 }` — so no host
+    ; has ever been able to change them, and moving them into the part a host
+    ; replaces would quietly take a band away from every host that has its own
+    ; stylesheet.
+    sfn structureCss:string () {
+        return (".pptx-chrome { display: flex; flex-direction: column;"
+              + " flex-wrap: nowrap; align-items: stretch }"
+              + " .pptx-middle { display: flex; flex-direction: row;"
+              + " flex-wrap: nowrap; align-items: stretch; flex: 1 }"
+              ; The stage and the notes, stacked, in what the two bands leave.
+              ; `min-width: 0` because this column is the one that gives way
+              ; when the window narrows, and a flex item's automatic minimum
+              ; would otherwise stop it at the width of its own content.
+              + " .pptx-centre { display: flex; flex-direction: column;"
+              + " flex-wrap: nowrap; align-items: stretch; flex: 1;"
+              + " min-width: 0 }"
+              + " .pptx-stage { flex: 1; min-height: 0 }"
+              + " .pptx-props { width: 168px }"
+              ; The band goes before the panel does — it is the widest thing on
+              ; the screen that the reader did not ask for.
+              + " @media (max-width: 819px) { .pptx-props { width: 0px } }")
+    }
+
+    ; THE SIZES, which are the app's defaults and which a host REPLACES rather
+    ; than adds to. `setChromeCss` does not lay these underneath a host's sheet,
+    ; and the reason is a bug this cost: the phone breakpoint below gives the
+    ; panel a HEIGHT, a height turns the panel into a strip, and a host that
+    ; asked only for `width: 210px` would have got a strip on a phone it never
+    ; asked for — its width overridden in one dimension and ignored in the
+    ; other. A host that states its own chrome states all of it.
+    sfn sizesCss:string () {
+        return (" .toolbar { height: 34px; padding-left: 5px }"
+              + " .toolbar-tabs { height: 28px }"
+              + " .toolbar-button { width: 30px; height: 54px }"
+              + " .slide-panel { width: 150px }"
+              + " .notes { height: 92px }"
+              ; A tablet: the list of slides is worth less than the slide.
+              + " @media (max-width: 900px) { .slide-panel { width: 96px } }"
+              ; A phone: the notes are the first thing to go — they are the
+              ; least useful thing on a small screen and the most expensive,
+              ; because they cost height, which is what a phone has least of.
+              ; And the deck goes ACROSS THE TOP: a phone is narrow and tall,
+              ; so a column down the side spends the dimension there is least
+              ; of, and it is the dimension the slide itself needs. A width of
+              ; zero and a height turns the column into a strip.
+              + " @media (max-width: 640px) { .slide-panel { width: 0px;"
+              + " height: 76px } .notes { height: 0px } }"
+              ; A thumb is not a mouse. 44px is what WCAG 2.2 asks for, and
+              ; nothing about a window's WIDTH says which is on it — a laptop
+              ; with a touchscreen is wide and coarse at the same time.
+              + " @media (pointer: coarse) { .toolbar { height: 48px;"
+              + " padding-left: 8px } .toolbar-button { width: 44px;"
+              + " height: 66px } }")
+    }
+
+    ; Both, which is what the app uses when no host has said otherwise.
+    sfn shellCss:string () {
+        return ((PptxChrome.structureCss()) + (PptxChrome.sizesCss()))
+    }
+
+    ; Lay the shell out at a window size and read the boxes off it.
+    ;
+    ; `sheet` is the app's own — the one `setChromeCss` filled — so a host that
+    ; hands in a stylesheet still gets its numbers used. The shell rules are
+    ; parsed underneath it when it has none of its own.
+    fn layout:void (sheet:EVGStyleSheet w:int h:int coarsePointer:boolean) {
+        W = w
+        H = h
+        coarse = coarsePointer
+        sheet.setViewport((to_double w) (to_double h) coarsePointer)
+
+        ; ASK THE SHEET ABOUT THE PANEL BEFORE BUILDING THE TREE. A panel with
+        ; a height is a strip across the top rather than a column down the
+        ; side, and that changes where in the tree it goes — which is a
+        ; question that has to be answered while there is still no tree. The
+        ; app has always probed the sheet this way for its three numbers; this
+        ; probes it for one boolean.
+        def probe (EVGElement.createDiv())
+        probe.className = "slide-panel"
+        sheet.applyTree(probe "")
+        def onTop:boolean false
+        if panelOn {
+            if (probe.height.isPixels()) {
+                if (probe.height.pixels > 0.0) {
+                    onTop = true
+                }
+            }
+        }
+
+        def page (EVGElement.createDiv())
+        page.className = "pptx-chrome"
+        page.width = (EVGUnit.px((to_double w)))
+        page.height = (EVGUnit.px((to_double h)))
+
+        ; The strip. Its height is the strip's own business — a band with a big
+        ; button on it is taller than one without — so it is set here from what
+        ; the app measured rather than read from the sheet.
+        def bar (EVGElement.createDiv())
+        bar.className = "pptx-toolbar"
+        bar.height = (EVGUnit.px((to_double toolbarH)))
+        page.addChild(bar)
+
+        ; THE PANEL IS A COLUMN OR A STRIP, and the sheet decided which above.
+        ; A strip goes in the page's column, between the bar and the row; a
+        ; column goes inside the row, before the stage.
+        def panel (EVGElement.createDiv())
+        panel.className = "slide-panel"
+        if onTop {
+            page.addChild(panel)
+        }
+
+        def middle (EVGElement.createDiv())
+        middle.className = "pptx-middle"
+        page.addChild(middle)
+
+        def centre (EVGElement.createDiv())
+        centre.className = "pptx-centre"
+        def stage (EVGElement.createDiv())
+        stage.className = "pptx-stage"
+        def notes (EVGElement.createDiv())
+        notes.className = "notes"
+        def props (EVGElement.createDiv())
+        props.className = "pptx-props"
+
+        centre.addChild(stage)
+        centre.addChild(notes)
+        if (onTop == false) {
+            middle.addChild(panel)
+        }
+        middle.addChild(centre)
+        middle.addChild(props)
+
+        def status (EVGElement.createDiv())
+        status.className = "pptx-status"
+        status.height = (EVGUnit.px((to_double statusH)))
+        page.addChild(status)
+
+        sheet.applyTree(page "")
+
+        ; A band the app has switched off takes no room. Said here rather than
+        ; in the sheet because it is not a question about the window: the sheet
+        ; knows how WIDE a properties band is, and the app knows whether there
+        ; is one.
+        if (panelOn == false) {
+            panel.width = (EVGUnit.px(0.0))
+            panel.height = (EVGUnit.unset())
+        }
+        if (propsOn == false) {
+            props.width = (EVGUnit.px(0.0))
+        }
+        if (notesOn == false) {
+            notes.height = (EVGUnit.px(0.0))
+        }
+
+        ; A strip runs the whole way across, so it takes no width of its own.
+        if onTop {
+            panel.width = (EVGUnit.unset())
+        }
+
+        def lay (new EVGLayout())
+        lay.setPageSize((to_double w) (to_double h))
+        lay.layout(page)
+
+        root = page
+        toolbarRect = (PptxChrome.rectOf(bar))
+        panelRect = (PptxChrome.rectOf(panel))
+        propsRect = (PptxChrome.rectOf(props))
+        notesRect = (PptxChrome.rectOf(notes))
+        statusRect = (PptxChrome.rectOf(status))
+        stageRect = (PptxChrome.rectOf(stage))
+        if (panelOn == false) {
+            panelRect = (PptxEditRect.of(0.0 0.0 0.0 0.0))
+        }
+        if (propsOn == false) {
+            propsRect = (PptxEditRect.of(((to_double w)) toolbarRect.h 0.0 0.0))
+        }
+        if (notesOn == false) {
+            notesRect = (PptxEditRect.of(notesRect.x notesRect.y notesRect.w 0.0))
+        }
+    }
+
+    sfn rectOf:PptxEditRect (el:EVGElement) {
+        return (PptxEditRect.of(el.calculatedX el.calculatedY
+            el.calculatedWidth el.calculatedHeight))
+    }
+
+    ; Is the panel a strip across the top rather than a column down the side?
+    ; The app asks this to decide which way the thumbnails run.
+    fn panelOnTop:boolean () {
+        if (panelOn == false) {
+            return false
+        }
+        return (panelRect.h > 0.0) && (panelRect.y < (toolbarRect.h + 1.0)) &&
+            (panelRect.w > ((to_double W) - 1.0))
+    }
+
+    ; The two numbers the rest of the app still asks for by name, so that the
+    ; call sites do not all have to change at once.
+    fn panelWidth:int () {
+        if (this.panelOnTop()) {
+            return 0
+        }
+        return (to_int panelRect.w)
+    }
+
+    fn panelHeight:int () {
+        if (this.panelOnTop()) {
+            return (to_int panelRect.h)
+        }
+        return 0
+    }
+
+    fn propsWidth:int () {
+        return (to_int propsRect.w)
+    }
+
+    fn notesHeight:int () {
+        return (to_int notesRect.h)
+    }
+}

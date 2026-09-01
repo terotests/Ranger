@@ -193,7 +193,7 @@ class RangerJavaScriptClassWriter {
       def p:RangerAppParamDesc nn.paramDesc
       def remove_unused:boolean (ctx.hasCompilerFlag("remove-unused-class-vars"))
       if ((p.ref_cnt == 0) && (remove_unused || (p.is_class_variable == false))) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       wr.out(("this." + p.compiledName) false)
       if ((array_length node.children) > 2) {
@@ -216,7 +216,7 @@ class RangerJavaScriptClassWriter {
       }
       wr.out(";" false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       wr.newline()
     }
@@ -227,7 +227,7 @@ class RangerJavaScriptClassWriter {
       def p:RangerAppParamDesc nn.paramDesc
       def opt_js:boolean (ctx.hasCompilerFlag("optimize-js"))
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       wr.out(("var " + p.compiledName) false)
       if ((array_length node.children) > 2) {
@@ -245,7 +245,7 @@ class RangerJavaScriptClassWriter {
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ " true)

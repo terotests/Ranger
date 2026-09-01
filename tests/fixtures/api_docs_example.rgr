@@ -1,0 +1,39 @@
+; An `example` entry names a real function. It is compiled and type checked
+; with the rest of the program, rendered into each target's doc comment in
+; that target's own syntax, and left out of the emitted code.
+class Greeter {
+  def prefix:string "Hello" doc {
+    public
+    description "What every greeting starts with."
+  }
+
+  fn greet:string ( name:string ) {
+    return (prefix + ", " + name)
+  } doc {
+    public
+    description "Builds a greeting for a name."
+    param name "Who to greet."
+    returns "The greeting."
+    example greetExample
+  }
+} doc {
+  public
+  description "Makes greetings."
+}
+
+class GreeterExamples {
+  sfn greetExample:void () {
+    def g:Greeter (new Greeter())
+    def out:string (g.greet("world"))
+    print out
+  }
+}
+
+; A top-level `sfn` attaches to the last declared class, so `main` would land
+; inside GreeterExamples and keep it from being removed. It gets its own.
+class App {
+  sfn main:void () {
+    def g:Greeter (new Greeter())
+    print (g.greet("Ranger"))
+  }
+}

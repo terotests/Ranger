@@ -79,7 +79,7 @@ describe("C++ Code Generation", () => {
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // the call must be emitted as a live statement, not commented out
       expect(result.code).toContain("->bump()");
-      expect(result.code).not.toMatch(/\/\*\* unused:[^\n]*bump\(\)/);
+      expect(result.code).not.toMatch(/\/\* unused:[^\n]*bump\(\)/);
     });
 
     it("should still elide a genuinely unused pure-expression local", () => {
@@ -88,7 +88,11 @@ describe("C++ Code Generation", () => {
       );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // deadPure = 2 + 3 has no side effects -> safe to comment out
-      expect(result.code).toMatch(/\/\*\* unused:[^\n]*2 \+ 3/);
+      expect(result.code).toMatch(/\/\* unused:[^\n]*2 \+ 3/);
+      // …as a PLAIN block comment. `/**` is a doc comment, and Doxygen (and
+      // every other doc tool) attaches one to whatever declaration follows it.
+      // PLAN_API_DOCS.md §17.3.
+      expect(result.code).not.toContain("/** unused:");
     });
   });
 
