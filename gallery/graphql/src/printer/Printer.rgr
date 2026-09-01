@@ -1,0 +1,448 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; GqlPrinter - GqlNode tree back to GraphQL text.
+; ==============================================================================
+;
+; The round trip a formatter is: text → tree → text. Tests compare the second
+; tree to the first, not the two strings, because whitespace and commas are
+; Ignored. The printed form is the canonical spelling the later codegen can
+; show next to a generated Ranger class.
+; ==============================================================================
+
+Import "../ast/GqlAst.rgr"
+
+class GqlPrinter {
+    def indent:int 0
+
+    Constructor () {
+    }
+
+    fn pad:string () {
+        def out:string ""
+        def i:int 0
+        while (i < indent) {
+            out = (out + "  ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn printDoc:string (doc:GqlNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length doc.children)) {
+            if (i > 0) {
+                out = (out + (strfromcode 10) + (strfromcode 10))
+            }
+            def ch:GqlNode (itemAt doc.children i)
+            out = (out + (this.printDef(ch)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn printDef:string (n:GqlNode) {
+        if (n.kind == 2) {
+            return (this.printOperation(n))
+        }
+        if (n.kind == 3) {
+            return (this.printFragment(n))
+        }
+        if (n.kind == 40) {
+            return (this.printSchema(n))
+        }
+        if (n.kind == 41) {
+            return (this.printScalar(n))
+        }
+        if (n.kind == 42) {
+            return (this.printObject(n))
+        }
+        if (n.kind == 43) {
+            return (this.printInterface(n))
+        }
+        if (n.kind == 44) {
+            return (this.printUnion(n))
+        }
+        if (n.kind == 45) {
+            return (this.printEnum(n))
+        }
+        if (n.kind == 46) {
+            return (this.printInput(n))
+        }
+        if (n.kind == 47) {
+            return (this.printDirectiveDef(n))
+        }
+        return ""
+    }
+
+    fn printDesc:string (n:GqlNode) {
+        if ((strlen n.description) == 0) {
+            return ""
+        }
+        return ((this.quoteString(n.description n.isBlock)) + (strfromcode 10))
+    }
+
+    fn quoteString:string (s:string isBlock:boolean) {
+        if isBlock {
+            return ("\"\"\"" + (strfromcode 10) + s + (strfromcode 10) + "\"\"\"")
+        }
+        def out:string "\""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 10) {
+                out = (out + "\\n")
+            } {
+                if (c == 13) {
+                    out = (out + "\\r")
+                } {
+                    if (c == 9) {
+                        out = (out + "\\t")
+                    } {
+                        if (c == 34) {
+                            out = (out + "\\\"")
+                        } {
+                            if (c == 92) {
+                                out = (out + "\\\\")
+                            } {
+                                out = (out + (strfromcode c))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    fn printOperation:string (n:GqlNode) {
+        def out:string n.text
+        if ((strlen n.name) > 0) {
+            out = (out + " " + n.name)
+        }
+        if ((array_length n.vars) > 0) {
+            out = (out + "(")
+            def i:int 0
+            while (i < (array_length n.vars)) {
+                if (i > 0) {
+                    out = (out + ", ")
+                }
+                def v:GqlNode (itemAt n.vars i)
+                out = (out + (this.printVarDef(v)))
+                i = (i + 1)
+            }
+            out = (out + ")")
+        }
+        out = (out + (this.printDirs(n)))
+        out = (out + " " + (this.printSet(n)))
+        return out
+    }
+
+    fn printVarDef:string (v:GqlNode) {
+        def t:GqlNode (v.childAt(0))
+        def out:string ("$" + v.name + ": " + (t.typeText()))
+        if ((array_length v.children) > 1) {
+            def d:GqlNode (v.childAt(1))
+            out = (out + " = " + (this.printValue(d)))
+        }
+        out = (out + (this.printDirs(v)))
+        return out
+    }
+
+    fn printFragment:string (n:GqlNode) {
+        def out:string ("fragment " + n.name + " on " + n.typeCondition)
+        out = (out + (this.printDirs(n)))
+        out = (out + " " + (this.printSet(n)))
+        return out
+    }
+
+    fn printSet:string (n:GqlNode) {
+        def out:string ("{" + (strfromcode 10))
+        indent = (indent + 1)
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def ch:GqlNode (itemAt n.children i)
+            out = (out + (this.pad()) + (this.printSel(ch)) + (strfromcode 10))
+            i = (i + 1)
+        }
+        indent = (indent - 1)
+        out = (out + (this.pad()) + "}")
+        return out
+    }
+
+    fn printSel:string (n:GqlNode) {
+        if (n.kind == 11) {
+            return ("..." + n.name + (this.printDirs(n)))
+        }
+        if (n.kind == 12) {
+            def out:string "..."
+            if ((strlen n.typeCondition) > 0) {
+                out = (out + " on " + n.typeCondition)
+            }
+            out = (out + (this.printDirs(n)))
+            out = (out + " " + (this.printSet(n)))
+            return out
+        }
+        def out2:string ""
+        if ((strlen n.alias) > 0) {
+            out2 = (n.alias + ": ")
+        }
+        out2 = (out2 + n.name)
+        if ((array_length n.args) > 0) {
+            out2 = (out2 + (this.printArgs(n)))
+        }
+        out2 = (out2 + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out2 = (out2 + " " + (this.printSet(n)))
+        }
+        return out2
+    }
+
+    fn printArgs:string (n:GqlNode) {
+        def out:string "("
+        def i:int 0
+        while (i < (array_length n.args)) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            def a:GqlNode (itemAt n.args i)
+            if (a.kind == 51) {
+                out = (out + (this.printInputValue(a)))
+            } {
+                def v:GqlNode (a.firstValue())
+                out = (out + a.name + ": " + (this.printValue(v)))
+            }
+            i = (i + 1)
+        }
+        return (out + ")")
+    }
+
+    fn printDirs:string (n:GqlNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length n.directives)) {
+            def d:GqlNode (itemAt n.directives i)
+            out = (out + " @" + d.name)
+            if ((array_length d.args) > 0) {
+                out = (out + (this.printArgs(d)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn printValue:string (n:GqlNode) {
+        if (n.kind == 30) {
+            return ("$" + n.name)
+        }
+        if (n.kind == 33) {
+            return (this.quoteString(n.text n.isBlock))
+        }
+        if (n.kind == 37) {
+            def out:string "["
+            def i:int 0
+            while (i < (array_length n.children)) {
+                if (i > 0) {
+                    out = (out + ", ")
+                }
+                def ch:GqlNode (itemAt n.children i)
+                out = (out + (this.printValue(ch)))
+                i = (i + 1)
+            }
+            return (out + "]")
+        }
+        if (n.kind == 38) {
+            def out2:string "{"
+            def j:int 0
+            while (j < (array_length n.children)) {
+                if (j > 0) {
+                    out2 = (out2 + ", ")
+                }
+                def f:GqlNode (itemAt n.children j)
+                def fv:GqlNode (f.firstValue())
+                out2 = (out2 + f.name + ": " + (this.printValue(fv)))
+                j = (j + 1)
+            }
+            return (out2 + "}")
+        }
+        return n.text
+    }
+
+    fn printSchema:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        out = (out + "schema")
+        out = (out + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out = (out + " {" + (strfromcode 10))
+            indent = (indent + 1)
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def r:GqlNode (itemAt n.children i)
+                out = (out + (this.pad()) + r.name + ": " + r.text + (strfromcode 10))
+                i = (i + 1)
+            }
+            indent = (indent - 1)
+            out = (out + "}")
+        }
+        return out
+    }
+
+    fn printScalar:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        return (out + "scalar " + n.name + (this.printDirs(n)))
+    }
+
+    fn printObject:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        out = (out + "type " + n.name)
+        if ((array_length n.implementsTypes) > 0) {
+            out = (out + " implements " + (n.implementsText()))
+        }
+        out = (out + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out = (out + " " + (this.printFieldDefs(n)))
+        }
+        return out
+    }
+
+    fn printInterface:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        out = (out + "interface " + n.name)
+        if ((array_length n.implementsTypes) > 0) {
+            out = (out + " implements " + (n.implementsText()))
+        }
+        out = (out + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out = (out + " " + (this.printFieldDefs(n)))
+        }
+        return out
+    }
+
+    fn printFieldDefs:string (n:GqlNode) {
+        def out:string ("{" + (strfromcode 10))
+        indent = (indent + 1)
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def f:GqlNode (itemAt n.children i)
+            if ((strlen f.description) > 0) {
+                out = (out + (this.pad()) + (this.quoteString(f.description f.isBlock)) + (strfromcode 10))
+            }
+            out = (out + (this.pad()) + f.name)
+            if ((array_length f.args) > 0) {
+                out = (out + (this.printArgs(f)))
+            }
+            out = (out + ": " + (f.typeText()) + (this.printDirs(f)) + (strfromcode 10))
+            i = (i + 1)
+        }
+        indent = (indent - 1)
+        out = (out + (this.pad()) + "}")
+        return out
+    }
+
+    fn printInputValue:string (v:GqlNode) {
+        def out:string (v.name + ": " + (v.typeText()))
+        if ((array_length v.children) > 1) {
+            def d:GqlNode (v.childAt(1))
+            out = (out + " = " + (this.printValue(d)))
+        }
+        out = (out + (this.printDirs(v)))
+        return out
+    }
+
+    fn printUnion:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        out = (out + "union " + n.name + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out = (out + " = ")
+            def i:int 0
+            while (i < (array_length n.children)) {
+                if (i > 0) {
+                    out = (out + " | ")
+                }
+                def m:GqlNode (itemAt n.children i)
+                out = (out + m.name)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    fn printEnum:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        out = (out + "enum " + n.name + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out = (out + " {" + (strfromcode 10))
+            indent = (indent + 1)
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def ev:GqlNode (itemAt n.children i)
+                if ((strlen ev.description) > 0) {
+                    out = (out + (this.pad()) + (this.quoteString(ev.description false)) + (strfromcode 10))
+                }
+                out = (out + (this.pad()) + ev.name + (this.printDirs(ev)) + (strfromcode 10))
+                i = (i + 1)
+            }
+            indent = (indent - 1)
+            out = (out + "}")
+        }
+        return out
+    }
+
+    fn printInput:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        if n.isExtension {
+            out = (out + "extend ")
+        }
+        out = (out + "input " + n.name + (this.printDirs(n)))
+        if ((array_length n.children) > 0) {
+            out = (out + " {" + (strfromcode 10))
+            indent = (indent + 1)
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def f:GqlNode (itemAt n.children i)
+                if ((strlen f.description) > 0) {
+                    out = (out + (this.pad()) + (this.quoteString(f.description false)) + (strfromcode 10))
+                }
+                out = (out + (this.pad()) + (this.printInputValue(f)) + (strfromcode 10))
+                i = (i + 1)
+            }
+            indent = (indent - 1)
+            out = (out + "}")
+        }
+        return out
+    }
+
+    fn printDirectiveDef:string (n:GqlNode) {
+        def out:string (this.printDesc(n))
+        out = (out + "directive @" + n.name)
+        if ((array_length n.args) > 0) {
+            out = (out + (this.printArgs(n)))
+        }
+        if n.repeatable {
+            out = (out + " repeatable")
+        }
+        out = (out + " on " + (n.locationsText()))
+        return out
+    }
+}

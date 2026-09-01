@@ -1,0 +1,141 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; Gql - the façade: parse, format, inspect.
+; ==============================================================================
+;
+;     def r (Gql.parse("{ currentUser { id name } }"))
+;     def paths (Gql.fieldPaths("{ currentUser { id name } }"))
+;     def fields (Gql.typeFields(sdl "Invoice"))
+;
+; Everything else in this project is reachable from here. Nothing here does
+; work of its own: it wires a tokenizer to a parser to a printer.
+;
+; This is Ranger's *language* layer for GraphQL — the northbound API toward
+; application data. It is not a host bridge. Pointer events, IME, clipboard
+; and the canvas stay on the other side of the runtime.
+; ==============================================================================
+
+Import "core/Parser.rgr"
+Import "printer/Printer.rgr"
+Import "ast/GqlAst.rgr"
+
+class GqlParseResult {
+    def document:GqlNode (new GqlNode)
+    def error:string ""
+    def commentCount:int 0
+
+    Constructor () {
+    }
+
+    fn okResult:boolean () {
+        if ((strlen error) > 0) {
+            return false
+        }
+        return (document.kind == 1)
+    }
+
+    fn toJson:string () {
+        return (document.toJson())
+    }
+}
+
+class Gql {
+    sfn parse:GqlParseResult (src:string) {
+        def parser:GqlParser (new GqlParser)
+        def result:GqlParseResult (new GqlParseResult)
+        result.document = (parser.parse(src))
+        result.error = parser.error
+        result.commentCount = parser.commentCount
+        return result
+    }
+
+    sfn format:string (src:string) {
+        def result:GqlParseResult (Gql.parse(src))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        def pr:GqlPrinter (new GqlPrinter)
+        return (pr.printDoc(result.document))
+    }
+
+    sfn fieldPaths:string (src:string) {
+        def result:GqlParseResult (Gql.parse(src))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        return (result.document.fieldPaths())
+    }
+
+    ; Type names defined in an SDL document, one per line, in source order.
+    sfn typeNames:string (sdl:string) {
+        def result:GqlParseResult (Gql.parse(sdl))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        def doc:GqlNode result.document
+        while (i < (array_length doc.children)) {
+            def ch:GqlNode (itemAt doc.children i)
+            if ((strlen ch.name) > 0) {
+                if (ch.kind >= 41) {
+                    if (ch.kind <= 47) {
+                        if ((strlen out) > 0) {
+                            out = (out + (strfromcode 10))
+                        }
+                        out = (out + ch.name)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Field list of one named type: `id: ID!` / `number: String!` per line.
+    ; This is the shape ranger-graphql-gen will turn into a Ranger class.
+    sfn typeFields:string (sdl:string typeName:string) {
+        def result:GqlParseResult (Gql.parse(sdl))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        def doc:GqlNode result.document
+        def t:GqlNode (doc.childNamed(typeName))
+        if (t.kind == 0) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (array_length t.children)) {
+            def f:GqlNode (itemAt t.children i)
+            if ((strlen out) > 0) {
+                out = (out + (strfromcode 10))
+            }
+            if (t.kind == 45) {
+                out = (out + f.name)
+            } {
+                if (t.kind == 44) {
+                    out = (out + f.name)
+                } {
+                    out = (out + f.name + ": " + (f.typeText()))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn opType:string (src:string) {
+        def result:GqlParseResult (Gql.parse(src))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        def doc:GqlNode result.document
+        def op:GqlNode (doc.childAt(0))
+        if (op.kind != 2) {
+            return ""
+        }
+        return op.text
+    }
+}

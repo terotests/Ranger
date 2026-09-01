@@ -334,6 +334,7 @@
     "rangerdbviewer:web": "bash gallery/rangerdbviewer/web/standalone/build.sh",
     "rangerdbviewer:web:serve": "bash gallery/rangerdbviewer/web/standalone/build.sh && python3 -m http.server -d gallery/rangerdbviewer/web/standalone/dist 8080",
     "rangerdbviewer:web:test": "bash gallery/rangerdbviewer/web/standalone/build.sh && node gallery/rangerdbviewer/web/standalone/smoke.mjs",
+    "graphql:test": "bash scripts/rgr-suite.sh ./gallery/graphql/tests/GraphQLTest.rgr ./gallery/graphql/bin GraphQLTest.js",
     "rangersql:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangersql/tests/RangerSqlTest.rgr -d=./gallery/rangersql/bin -o=RangerSqlTest.js -nodecli && node ./gallery/rangersql/bin/RangerSqlTest.js",
     "rangersql:identity": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangersql/tests/IdentityTest.rgr -d=./gallery/rangersql/bin -o=IdentityTest.js -nodecli && node ./gallery/rangersql/bin/IdentityTest.js",
     "rangersql:oracle": "npm run rangersql:identity && python3 gallery/rangersql/tools/sqlglot_oracle.py",
