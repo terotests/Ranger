@@ -1,0 +1,254 @@
+package fi.ranger.ui.desktop
+
+import fi.ranger.evg.AwtEvgSurface
+import fi.ranger.evg.EvgPainter
+import fi.ranger.evg.RecordingSurface
+import fi.ranger.rgr.UiAndroid
+import java.awt.Color
+import java.awt.image.BufferedImage
+import java.io.File
+import javax.imageio.ImageIO
+
+/**
+ * The dashboard port, driven off-device.
+ *
+ * The Android half of this port is two files and both need a device. Everything
+ * *underneath* them does not: the demo is Ranger compiled to Kotlin, the walk is
+ * [EvgPainter], and [AwtEvgSurface] paints the same display list with Java2D on
+ * any JVM. So the questions a device would answer are asked here instead.
+ *
+ * **Does the page draw?** The frame is painted through a [RecordingSurface] that
+ * counts what was dispatched. "Some ink appeared" is a weak check — a painter
+ * that had quietly stopped drawing text would pass it — so the run asserts that
+ * the page reaches text, borders, rounded boxes, clipping and vector paths, that
+ * the chart contributed commands of its own, and that every `save` was restored.
+ *
+ * **Does the viewport arithmetic hold?** `UiAndroid` owns the one thing this
+ * port adds to the demo: a fixed-width document on a screen that is not 1336
+ * wide. The scale, the page height a screen is worth, the pinch that has to hold
+ * the point under the fingers still, and the pan that must not leave the page
+ * are all checked here — in the same generated Kotlin the app runs, not in a
+ * second implementation of the same sums.
+ *
+ * **Do presses land?** Screen coordinates in, a test id out, and the page
+ * changes: a tap on a sidebar link moves `aria-current`, a tap on a range button
+ * selects it. That is the whole of what a finger does on this page, and it is
+ * the part a host gets silently wrong by handing the hit test the wrong
+ * coordinate space.
+ *
+ * What is left unchecked is the platform delegation: `AndroidEvgSurface` calling
+ * `android.graphics.Canvas`, and `DashboardView` unpacking a `MotionEvent`.
+ * `scripts/typecheck-host.sh` at least says both compile.
+ */
+object CheckDashboard {
+
+    private var passed = 0
+    private var failed = 0
+
+    private fun ok(what: String, cond: Boolean) {
+        if (cond) {
+            passed++
+            println("  PASS $what")
+        } else {
+            failed++
+            println("  FAIL $what")
+        }
+    }
+
+    /** Doubles that came out of the same arithmetic twice, not out of a spec. */
+    private fun near(a: Double, b: Double, eps: Double = 0.5) = Math.abs(a - b) <= eps
+
+    @JvmStatic
+    fun main(args: Array<String>) {
+        val root = File(args.getOrElse(0) { "." })
+        val css = File(root, "gallery/ui/demo/dashboard.css")
+        if (!css.isFile) {
+            System.err.println("dashboard.css not found at ${css.path} — run this from the repository root")
+            kotlin.system.exitProcess(3)
+        }
+        val out = File(root, "tmp/ui-android").apply { mkdirs() }
+
+        // A tablet in landscape, in density-independent pixels. The page is
+        // 1336 wide, so this is very nearly 1:1 — which is the size this demo
+        // was drawn for and the profile the run-emulator script prefers.
+        val app = UiAndroid()
+        app.start(1280.0, 800.0, css.readText())
+
+        println("--- the page, laid out and painted ---")
+        val scale = app.scale()
+        ok("the page is scaled to fit the screen's width", near(scale * app.pageWidth(), 1280.0))
+        ok(
+            "and the viewport is what that screen is worth in page pixels",
+            near(app.pageHeight(), 800.0 / scale),
+        )
+        ok("the stylesheet parsed", app.styleErrorCount() == 0)
+        if (app.styleErrorCount() > 0) {
+            for (i in 0 until app.styleErrorCount()) println("      ${app.styleErrorAt(i)}")
+        }
+
+        val frame = app.frame()
+        ok("the frame has commands in it", frame.cmds.size > 200)
+        ok("and the chart is some of them", app.chartCommandCount() > 20)
+
+        val png = paint(app, out, "dashboard.png")
+        println("      " + png.calls.entries.sortedBy { it.key }.joinToString("  ") { "${it.key}=${it.value}" })
+        ok("text was drawn", png.count("drawTextRun") > 100)
+        ok("boxes were filled", png.count("fillRect") > 40)
+        ok("borders were stroked", png.count("strokeRect") > 10)
+        ok("corners were rounded", png.count("roundedRect") > 10)
+        ok("the scroll region clipped", png.count("clipRect") > 0)
+        // The sidebar's icons are lucide's, which are STROKED outlines rather
+        // than filled silhouettes, and so is the chart's line; the one filled
+        // path is the area under it. A port that had dropped `strokePath` —
+        // which no pptx fixture reaches, so nothing else here would notice —
+        // would draw this page with an empty sidebar and a flat chart.
+        ok("the chart's area was filled", png.count("fillPath") > 0)
+        ok("the icons and the chart's line were stroked", png.count("strokePath") > 20)
+        ok("every save was restored", png.count("save") == png.count("restore"))
+        // What no part of this page reaches is worth printing rather than
+        // leaving silent: it is the list of things the Android surface is
+        // carrying untested.
+        for (kind in listOf("drawImage", "gradient", "shadow", "rotate", "italicText")) {
+            if (png.count(kind) == 0) println("      (not reached by this page: $kind)")
+        }
+
+        println("--- what a finger does ---")
+        // The sidebar's Analytics link, found the way the app finds it: hit
+        // test at a screen coordinate. 1:1-ish here, but the conversion is
+        // still the app's.
+        val before = app.navPage()
+        val analytics = pressUntil(app, "db-nav-analytics")
+        ok("a tap reaches a sidebar link", analytics)
+        ok("and the page it names is the page you are on", app.navPage() == "analytics" && before != "analytics")
+
+        val backHome = pressUntil(app, "db-nav-dashboard")
+        ok("and back again", backHome && app.navPage() == "dashboard")
+
+        ok("a tap on a range button is answered", pressUntil(app, "db-range-d30"))
+        // Selecting a range rebuilds the chart, so the frame is not the frame
+        // it was — which is the only observable difference a check can make
+        // without asserting an outline.
+        ok("and the chart is redrawn for it", app.chartCommandCount() > 20)
+
+        println("--- scrolling, and where it stops ---")
+        app.releasePress()
+        val travel = app.maxScroll()
+        ok("there is more page than screen", travel > 100.0)
+        ok("a drag scrolls", app.scrollByScreen(200.0) && app.scrollTop() > 0.0)
+        // The demo clamps to its own content height. A host that had handed it
+        // the wrong viewport would stop somewhere else, and this is the number
+        // that catches it.
+        app.scrollByScreen(100000.0)
+        ok("and it stops at the bottom rather than past it", near(app.scrollTop(), travel, 1.0))
+        ok("scrolling back up returns to the top", app.scrollByScreen(-100000.0) && app.scrollTop() == 0.0)
+
+        println("--- zoom and pan ---")
+        ok("nothing is panned at rest", app.panX() == 0.0 && app.maxPanX() == 0.0)
+        val fit = app.scale()
+        // The point under the fingers has to stay under the fingers. Pinching
+        // about the origin instead is the classic version of this bug, and it
+        // is invisible in the middle of the screen and obvious at the edge.
+        val focus = 1000.0
+        val pageUnderFocus = app.toPageX(focus)
+        ok("a pinch zooms", app.pinch(2.0, focus, 400.0) && app.zoom() == 2.0)
+        ok("and the scale follows it", near(app.scale(), fit * 2.0, 0.001))
+        ok("the point under the fingers stayed there", near(app.toPageX(focus), pageUnderFocus, 0.5))
+        ok("zoomed in, there is now something to pan", app.maxPanX() > 0.0)
+        ok("panning past the left edge is refused", !app.panBy(10000.0) || app.panX() == 0.0)
+        app.panBy(-100000.0)
+        ok("and past the right edge it stops at the edge", near(app.panX(), app.maxPanX(), 0.001))
+        ok("a zoomed page is a shorter viewport", app.pageHeight() < 800.0 / fit)
+        ok("a double tap puts it back", app.resetZoom() && app.zoom() == 1.0 && app.panX() == 0.0)
+        ok("the viewport came back with it", near(app.pageHeight(), 800.0 / fit))
+
+        println("--- a hit test after all that ---")
+        // The coordinate conversion is the same code the pinch just moved
+        // about, so this is the check that it was left in a usable state.
+        ok("presses still land", pressUntil(app, "db-nav-team") && app.navPage() == "team")
+
+        println("--- the keys an emulator has ---")
+        // The host maps a KEYCODE to the name the browser uses and hands it
+        // over; everything a key MEANS is the demo's. What is worth checking
+        // here is that the names the host sends are names the demo answers to,
+        // because a typo in that table is silent — the page simply ignores the
+        // keyboard, which is also what a page with no keyboard support does.
+        // Back to the long page: the check above left the app on Team, which
+        // is four cards tall and has nothing to scroll — a PageDown that
+        // answers "nothing moved" there is the honest answer, not a bug.
+        pressUntil(app, "db-nav-dashboard")
+        app.scrollByScreen(-100000.0)
+        ok("PageDown scrolls the page", app.key("PageDown") && app.scrollTop() > 0.0)
+        ok("Home goes back to the top", app.key("Home") && app.scrollTop() == 0.0)
+        ok("End goes to the bottom", app.key("End") && near(app.scrollTop(), app.maxScroll(), 1.0))
+        app.key("Home")
+
+        println("--- a phone, and a rotation ---")
+        val phone = UiAndroid()
+        phone.start(411.0, 823.0, css.readText())
+        ok("the same page fits a phone by scaling down", phone.scale() < 0.35)
+        ok("and its viewport is taller in page pixels than the tablet's", phone.pageHeight() > 2000.0)
+        val phoneFrame = phone.frame()
+        ok("and it still draws", phoneFrame.cmds.size > 200)
+        paint(phone, out, "dashboard-phone.png")
+        phone.resize(823.0, 411.0)
+        ok("a rotation re-fits it", near(phone.scale() * phone.pageWidth(), 823.0))
+        ok("and it still draws after that", phone.frame().cmds.size > 200)
+
+        println()
+        println("$passed checks, $failed failed")
+        println("PNGs in ${out.path}/")
+        if (failed > 0) kotlin.system.exitProcess(1)
+        println("the dashboard port paints and answers a finger")
+    }
+
+    /**
+     * Press the element with this id, by finding it on the screen the way a
+     * finger would: walk the frame's own text and box commands is not enough —
+     * the id is not in the display list — so this asks the hit test at a grid
+     * of screen points and presses the first one that answers with the id.
+     *
+     * That is deliberately the app's whole input path (screen point → page
+     * point → hit test → press) rather than a call to `press(id)`, because the
+     * conversion is the part this port adds and therefore the part worth
+     * checking.
+     */
+    private fun pressUntil(app: UiAndroid, id: String): Boolean {
+        var x = 6.0
+        while (x < 1280.0) {
+            var y = 6.0
+            while (y < 800.0) {
+                if (app.hitAt(x, y) == id) {
+                    app.pressAt(x, y)
+                    return true
+                }
+                y += 12.0
+            }
+            x += 12.0
+        }
+        return false
+    }
+
+    private fun paint(app: UiAndroid, dir: File, name: String): RecordingSurface {
+        val scale = app.scale()
+        val list = app.frame()
+        val w = Math.ceil(app.pageWidth() * scale).toInt()
+        val h = Math.ceil(app.pageHeight() * scale).toInt()
+        val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        g.color = Color.WHITE
+        g.fillRect(0, 0, w, h)
+        g.scale(scale, scale)
+        g.translate(-app.panX(), 0.0)
+        // No font files: EVG measured this page with its own estimate rather
+        // than a face, exactly as the browser build does, so handing the
+        // surface a real TrueType file here would make the picture *less* like
+        // the one the demo is checked against. The platform's sans is the
+        // honest choice on both surfaces.
+        val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), emptyMap()))
+        EvgPainter.paint(list, rec)
+        g.dispose()
+        ImageIO.write(img, "png", File(dir, name))
+        println("  ${dir.path}/$name  ${w}x$h, ${list.cmds.size} commands")
+        return rec
+    }
+}

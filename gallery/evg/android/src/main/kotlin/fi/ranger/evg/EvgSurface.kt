@@ -1,4 +1,4 @@
-package fi.ranger.pptx.evg
+package fi.ranger.evg
 
 /**
  * Everything a backend has to be able to draw, and nothing else.

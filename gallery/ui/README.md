@@ -86,6 +86,24 @@ event, both sides handle it), but the pointer has to be *mirrored* between two
 independent hosts, and a mirrored click is a simulation of a click. Treat what
 you see here as a lead and confirm it with `npm run ui:report`.
 
+## Trying it on Android
+
+```bash
+npm run ui:android:verify   # paint the dashboard through the port's own painter
+npm run ui:android:run      # …or build the APK and put it on an emulator
+```
+
+[`android/`](android/README.md) is the **dashboard demo as an Android app** —
+the same `DashboardDemo.rgr`, compiled to Kotlin and painted with
+`android.graphics.Canvas` through the backend the pptx port already had
+([`gallery/evg/android`](../evg/android/README.md)). The port is a facade that
+owns the viewport arithmetic and one `View`; nothing about the page is written
+twice.
+
+The verify run needs `kotlinc` and a JDK and no Android at all — it renders the
+page with Java2D and drives the presses, the scrolling, the keys and the pinch.
+Only the APK needs an SDK.
+
 ## How much of Radix is missing
 
 ```bash
@@ -273,6 +291,7 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
 | `conformance/` | The catalogue, specs, both adapters, the diff, the scorecard, the inventory and the audit |
 | `web/` | The browser playground (`npm run ui:web`) |
+| `android/` | The dashboard demo as an Android app (`npm run ui:android:run`) |
 | `theme/base.css` | The class-first theme |
 
 ## Related
@@ -281,5 +300,6 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 - [`gallery/evg/EVGWindow.rgr`](../evg/EVGWindow.rgr) — the controller shape this follows
 - [`gallery/css/CssCore.rgr`](../css/CssCore.rgr) — selector specificity, for the theme work
 - [`gallery/game_engine/ui/`](../game_engine/ui/) — focus and keyboard, still SoftCanvas-bound
+- [`gallery/evg/android/`](../evg/android/README.md) — the Android/JVM display-list backend the dashboard port draws through
 
 Roadmap: [`PLAN.md`](PLAN.md).

@@ -11,11 +11,12 @@ gallery/evg/*.rgr               layout, display list — all Ranger
       │
       │  node bin/output.js -l=kotlin       (scripts/build-ranger.sh)
       ▼
-generated/pptx_android.kt       ~66k lines, one file, package fi.ranger.pptx.rgr
+generated/pptx_android.kt       ~91k lines, one file, package fi.ranger.rgr
       │
       │  PptxAndroid.frame() : EVGDisplayList
       ▼
-EvgPainter (common/)            one walk, eight command kinds
+EvgPainter                      one walk, eight command kinds
+   (gallery/evg/android)
       │
       ├── AndroidEvgSurface     android.graphics.Canvas      ← the app
       └── AwtEvgSurface         java.awt.Graphics2D          ← the test
@@ -31,18 +32,26 @@ this port does not fork a line of any of them.
 | Path | What it is |
 | --- | --- |
 | `ranger/pptx_android.rgr` | The host facade — the only Ranger written for Android |
-| `common/…/EvgSurface.kt` | The eight things a backend has to draw |
-| `common/…/EvgPainter.kt` | The walk: display list → surface calls. Shared |
-| `common/…/TouchRouter.kt` | What a finger means. Shared, and driven by the checks |
-| `app/…/AndroidEvgSurface.kt` | `android.graphics` implementation of the surface |
+| `common/…/TouchRouter.kt` | What a finger means. Driven by the checks |
 | `app/…/SlideView.kt` | The `View`: units, touch, gestures, the show's clock |
 | `app/…/MainActivity.kt` | Assets, the file picker, Back, the menu |
-| `desktop/…/AwtEvgSurface.kt` | The same surface on Java2D, so the port is testable |
 | `desktop/…/RenderDeck.kt` | Deck → PNGs, off-device |
 | `desktop/…/CheckPort.kt` | The corpus through the painter, and every touch rule |
-| `desktop/…/RecordingSurface.kt` | Counts what the painter dispatched, so coverage is a number |
-| `desktop/androidstubs/` | Platform declarations so the host type-checks without an SDK |
 | `scripts/` | Ranger→Kotlin, assets, APK, emulator, and the two off-device checks |
+
+The painter, the surface interface, the two backends, the recording surface and
+the platform stubs are **not** here. They were, until a second port wanted them:
+they are [`gallery/evg/android`](../../evg/android/README.md) now, compiled into
+this app's build from there.
+
+| Path (in `gallery/evg/android`) | What it is |
+| --- | --- |
+| `src/main/…/EvgSurface.kt` | The eight things a backend has to draw |
+| `src/main/…/EvgPainter.kt` | The walk: display list → surface calls |
+| `src/main/…/RecordingSurface.kt` | Counts what the painter dispatched, so coverage is a number |
+| `src/android/…/AndroidEvgSurface.kt` | `android.graphics` implementation of the surface |
+| `src/awt/…/AwtEvgSurface.kt` | The same surface on Java2D, so the port is testable |
+| `androidstubs/` | Platform declarations so the host type-checks without an SDK |
 
 ## Build and run
 
@@ -121,14 +130,15 @@ It is not a substitute for running the app, but what is left unchecked is only
 the platform delegation: `AndroidEvgSurface` calling `android.graphics.Canvas`,
 and `SlideView` unpacking a `MotionEvent`.
 
-`pptx:android:typecheck` covers most of what is left. `desktop/androidstubs/`
-declares the platform members the host calls, with the signatures the SDK gives
-them, which is enough for `kotlinc` to say whether `AndroidEvgSurface`,
-`SlideView` and `MainActivity` are well-formed, whether their overrides match,
-and whether they call anything that does not exist. It is not evidence that the
-app *draws* correctly — a stub cannot draw — but an unchecked file is where a
-typo lives for a month, and it found one on the first run: a KDoc line
-containing `src/` followed by a wildcard opened a **nested** block comment
+`pptx:android:typecheck` covers most of what is left.
+`gallery/evg/android/androidstubs/` declares the platform members the host
+calls, with the signatures the SDK gives them, which is enough for `kotlinc` to
+say whether `AndroidEvgSurface`, `SlideView` and `MainActivity` are well-formed,
+whether their overrides match, and whether they call anything that does not
+exist. It is not evidence that the app *draws* correctly — a stub cannot draw —
+but an unchecked file is where a typo lives for a month, and it found one on the
+first run: a KDoc line containing `src/` followed by a wildcard opened a
+**nested** block comment
 (Kotlin's nest, unlike Java's), which the parser then closed sixty lines later
 inside a string literal, taking half the class with it.
 
@@ -275,7 +285,7 @@ Verified, off-device, on this repository's fixtures:
 
 * `ranger/pptx_android.rgr` and the whole `gallery/pptx` + `gallery/evg` tree
   compile to Kotlin, and **`kotlinc` accepts the result with zero errors**
-  (66k lines, one file).
+  (91k lines, one file).
 * The compiled viewer opens real `.pptx` packages on a JVM — ZIP, OOXML, theme
   and placeholder resolution, JPEG and PNG decoding, TrueType metrics, EVG
   layout — and answers with a display list per slide.
@@ -321,11 +331,19 @@ Known gaps, in rough order of how much they would be missed:
 
 The spreadsheet ([`gallery/datagrid`](../../datagrid/README.md)) and the
 document viewer ([`gallery/docx_viewer`](../../docx_viewer/README.md)) present
-through the same `EVGDisplayList`, so **`common/` and the two surfaces are
+through the same `EVGDisplayList`, so **the painter and the two surfaces are
 already the whole of their Android port** — what is left is a facade like
 `ranger/pptx_android.rgr` and a `View`. The deck went first because a viewer is
 what a tablet is for, and because its input model (turn the page) is the one
 that does not need a keyboard.
+
+That claim has since been tested rather than asserted:
+[`gallery/ui/android`](../../ui/android/README.md) puts the `gallery/ui`
+dashboard on a device, and it is a facade and a `View` — the painter and both
+surfaces moved to [`gallery/evg/android`](../../evg/android/README.md) unchanged
+and are now shared rather than copied. The one thing that had to be agreed is
+the package the generated Kotlin goes into: `fi.ranger.rgr` for every port, so
+the painter has one import line to name.
 
 ## Related
 

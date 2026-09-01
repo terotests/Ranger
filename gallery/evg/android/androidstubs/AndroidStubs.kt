@@ -77,7 +77,14 @@ class Path {
 
 class Typeface {
     companion object {
+        val DEFAULT: Typeface = Typeface()
+        val DEFAULT_BOLD: Typeface = Typeface()
+        const val NORMAL = 0
+        const val BOLD = 1
+        const val ITALIC = 2
+        const val BOLD_ITALIC = 3
         fun createFromFile(path: java.io.File): Typeface = Typeface()
+        fun create(family: Typeface?, style: Int): Typeface = Typeface()
     }
 }
 

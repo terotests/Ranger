@@ -1,4 +1,4 @@
-package fi.ranger.pptx
+package fi.ranger.evg
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -12,9 +12,6 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import fi.ranger.pptx.evg.EvgGradient
-import fi.ranger.pptx.evg.EvgShadow
-import fi.ranger.pptx.evg.EvgSurface
 
 /**
  * The display list, painted with `android.graphics.Canvas`.
