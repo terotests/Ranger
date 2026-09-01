@@ -936,3 +936,57 @@ machine, and the one that would have **masked every defect this work found**.
 reserved-word collisions and the precedence error instead of letting them
 surface as parse and build failures. A formatter is a poor oracle for
 correctness precisely because it is good at making things look fine.
+
+---
+
+## 10.9 The ComponentEngine suites, with the formatter on
+
+The strongest semantic check available in this repository, and the one that
+matters most for a change that rewrites expressions: the ES conformance corpus
+is 2,138 probes run through a ~45,000-line interpreter, compiled to five
+targets. It is run under its own config (`npm run test:esconformance`); the
+default config's 30-second timeout cannot build the Go and C++ legs at all.
+
+### The headline
+
+**All 2,066 answered probes are byte-identical between the pre-formatter
+compiler and the formatted one**, while the two JavaScript builds differ by
+7,796 lines of text (62,574 → 63,302 lines). Every parenthesis removed, every
+chain broken, every argument list expanded — and not one probe answer moved.
+
+**Go and C++ both pass**, probe by probe against the es6 build: 2,138 probes
+each, no differences outside `KNOWN_TARGET_GAPS`.
+
+### The three failures, all pre-existing
+
+| Leg | Failure | Same on the pre-work compiler? |
+| --- | --- | --- |
+| es6 oracle | 72 probes `missing` — the engine answers 2,066 of 2,138 | **yes**, 2138/2066/2064/2/72 identical |
+| rust | 1 difference, `uni-lastindexof` | **yes**, identical |
+| python | `SyntaxError` — the build does not run at all | **yes**, identical |
+
+Of the 2,066 answered, 2,064 agree with Node and the 2 that differ are both
+documented gaps. There are no unexpected differences on any target.
+
+### `npm run test:tsengine`
+
+7 passed, 2 failed, 3 skipped. Both failures are pre-existing, verified by
+compiling the same engine with a copy of the previous compiler: 14 `.async`,
+22 `.clear` and 1 `DateTime.UtcNow` in both outputs, and both builds fail
+identically (Python `SyntaxError`, C# 4 errors either way).
+
+### What this found that is not the formatter's
+
+**The TS engine has never built for Python**, and nothing said so. The engine
+emits `fnV.functionNodeOf().async`, and `async` is a Python keyword. The
+property IS renamed at its declaration — `self._async = False` — and read
+correctly almost everywhere as `member._async`; this one shape is not.
+
+The first guess was that Python's `CreatePropertyGet` writes `prop.vref` where
+the generic and C++ writers walk the node, so the rename never reaches it.
+That guess was WRONG and the change was reverted: walking the node emits the
+same text, byte for byte, because the property node carries no descriptor to
+be renamed from. The real defect is further back — a property read off a call
+result is not resolved to the class member at all. A direct reproduction
+(`(PropMain.mk()).async`) does not even compile: *"Undefined variable .async"*.
+Filed rather than guessed at again.
