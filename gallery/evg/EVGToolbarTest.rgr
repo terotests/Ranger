@@ -546,8 +546,18 @@ class EVGToolbarTest {
         def seen:int 0
         def ik:int 1
         while (ik < 120) {
-            def d:string (ToolIconPath.dataFor(ik))
-            if ((strlen d) > 0) {
+            ; ALL FOUR LAYERS, not just the ink one. Three of these icons
+            ; have no ink layer at all, so a check that only walked `dataFor`
+            ; would have declared the catalogue clean while never looking at
+            ; the only string those icons have.
+            def lay:int 0
+            while (lay < 4) {
+                def d:string ""
+                if (lay == 0) { d = (ToolIconPath.dataFor(ik)) }
+                if (lay == 1) { d = (ToolIconPath.tintFor(ik)) }
+                if (lay == 2) { d = (ToolIconPath.frameFor(ik)) }
+                if (lay == 3) { d = (ToolIconPath.accentFor(ik)) }
+                if ((strlen d) > 0) {
                 seen = (seen + 1)
                 def pp (new SVGPathParser())
                 pp.parse(d)
@@ -560,10 +570,12 @@ class EVGToolbarTest {
                 if (bb.minY < -0.01) { off = (off + 1) }
                 if (bb.maxX > 24.01) { off = (off + 1) }
                 if (bb.maxY > 24.01) { off = (off + 1) }
+                }
+                lay = (lay + 1)
             }
             ik = (ik + 1)
         }
-        c.ok("the catalogue has outlines in it" (seen > 50))
+        c.ok("the catalogue has outlines in it" (seen > 70))
         c.eqInt("every outline parses" bad 0)
         c.eqInt("and every one of them stays on the 24-grid" off 0)
 

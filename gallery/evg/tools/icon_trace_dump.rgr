@@ -133,12 +133,19 @@ class IconTraceDump {
         ; tone is one this tool should not be used on, and the report says
         ; which those are by counting the tones before they are flattened.
         view.theme.bg = (EVGColor.rgb(255 255 255))
+        ; EACH TONE ITS OWN COLOUR, and none of them the colour they will be
+        ; drawn in. Several of these drawings are deliberately two-tone — a
+        ; faint cell frame with dark bars inside it — and flattening them to
+        ; one silhouette would lose the thing that tells a border icon which
+        ; border it means. Painting each tone in a flag colour lets the layers
+        ; be separated from the bitmap afterwards and traced one at a time.
         view.theme.ink = (EVGColor.rgb(0 0 0))
         view.theme.glyphInk = (EVGColor.rgb(0 0 0))
-        view.theme.glyph = (EVGColor.rgb(0 0 0))
-        view.theme.line = (EVGColor.rgb(0 0 0))
-        view.theme.accent = (EVGColor.rgb(0 0 0))
-        view.theme.dim = (EVGColor.rgb(0 0 0))
+        view.theme.glyph = (EVGColor.rgb(255 0 0))
+        view.theme.line = (EVGColor.rgb(0 200 0))
+        view.theme.accent = (EVGColor.rgb(0 0 255))
+        view.theme.dim = (EVGColor.rgb(255 0 255))
+        view.theme.link = (EVGColor.rgb(0 200 200))
         ; TWENTY-FOUR, so the path icons draw on the same grid the rectangle
         ; drawings are stuck on. Everything is scaled once, afterwards.
         view.glyphSize = 24
@@ -179,22 +186,37 @@ class IconTraceDump {
         print "=== icons with no outline, rendered for tracing ==="
         print ("grid 24 x " + (to_string (IconTraceDump.scale())) + " = "
              + (to_string (24 * (IconTraceDump.scale()))) + "px")
-        IconTraceDump.one((ToolIcon.alignLeft()) "alignLeft")
-        IconTraceDump.one((ToolIcon.alignCenter()) "alignCenter")
-        IconTraceDump.one((ToolIcon.alignRight()) "alignRight")
-        IconTraceDump.one((ToolIcon.textJustify()) "textJustify")
-        IconTraceDump.one((ToolIcon.arrangeLeft()) "arrangeLeft")
-        IconTraceDump.one((ToolIcon.arrangeCenter()) "arrangeCenter")
-        IconTraceDump.one((ToolIcon.arrangeRight()) "arrangeRight")
-        IconTraceDump.one((ToolIcon.bulletList()) "bulletList")
-        IconTraceDump.one((ToolIcon.numberList()) "numberList")
-        IconTraceDump.one((ToolIcon.outlineList()) "outlineList")
-        IconTraceDump.one((ToolIcon.indentMore()) "indentMore")
-        IconTraceDump.one((ToolIcon.indentLess()) "indentLess")
-        IconTraceDump.one((ToolIcon.undo()) "undo")
-        IconTraceDump.one((ToolIcon.redo()) "redo")
-        IconTraceDump.one((ToolIcon.fill()) "fill")
-        IconTraceDump.one((ToolIcon.paint()) "paint")
+        ; NOT `cond` or `deleteRow` either, and the splitter is what said so
+        ; rather than anybody's judgement: it counts painted pixels matching
+        ; none of the four flag tones and refuses the icon when they are more
+        ; than a fiftieth of the picture. `cond` is a traffic light — 68% of it
+        ; is a red, an amber and a green that ink, tint, frame and accent have
+        ; no slot for — and `deleteRow` carries a red minus. Traced anyway they
+        ; would have come back as the shapes the scheme understands with the
+        ; colour silently dropped, which is worse than not converting them.
+        ;
+        ; NOT `validate`, `caret` or `none`. The first paints a tick in a
+        ; literal green — a semantic colour, and this scheme has an ink, a
+        ; tint, a faint frame and an accent but no "correct". The other two
+        ; draw nothing at all. Tracing cannot invent any of that.
+        ;
+        ; The ones a letter would not say better. `bold`, `italic`, `percent`
+        ; and the rest of the typed icons are left alone on purpose: a letter
+        ; is the clearest icon there is where one exists, and tracing "B" would
+        ; turn a font into a polygon for nothing.
+        IconTraceDump.one((ToolIcon.borderAll()) "borderAll")
+        IconTraceDump.one((ToolIcon.borderOut()) "borderOut")
+        IconTraceDump.one((ToolIcon.borderNone()) "borderNone")
+        IconTraceDump.one((ToolIcon.borderMore()) "borderMore")
+        IconTraceDump.one((ToolIcon.valignTop()) "valignTop")
+        IconTraceDump.one((ToolIcon.valignMid()) "valignMid")
+        IconTraceDump.one((ToolIcon.valignBot()) "valignBot")
+        IconTraceDump.one((ToolIcon.insertRow()) "insertRow")
+        IconTraceDump.one((ToolIcon.insertCol()) "insertCol")
+        IconTraceDump.one((ToolIcon.merge()) "merge")
+        IconTraceDump.one((ToolIcon.freeze()) "freeze")
+        IconTraceDump.one((ToolIcon.wrapCell()) "wrapCell")
+        IconTraceDump.one((ToolIcon.link()) "link")
         print "done"
     }
 }

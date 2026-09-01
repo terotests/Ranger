@@ -594,7 +594,28 @@ class EVGToolbarView {
         ; converting an icon is a matter of giving it a path rather than of
         ; deleting the rectangles that used to draw it.
         def d:string (ToolIconPath.dataFor(k))
-        if ((strlen d) > 0) {
+        ; The other three tones. Asked for HERE and not inside the branch,
+        ; because an icon can have no ink layer at all — "no border" is a
+        ; ghost outline and nothing else, "freeze" is one accent mark — and
+        ; keying the whole branch on `dataFor` alone would send those two back
+        ; to the rectangle drawings while every icon around them had moved.
+        def frame:string (ToolIconPath.frameFor(k))
+        def tint:string (ToolIconPath.tintFor(k))
+        def acc:string (ToolIconPath.accentFor(k))
+        def anyLayer:boolean false
+        if ((strlen d) > 0) { anyLayer = true }
+        if ((strlen frame) > 0) { anyLayer = true }
+        if ((strlen tint) > 0) { anyLayer = true }
+        if ((strlen acc) > 0) { anyLayer = true }
+        if anyLayer {
+            ; Faintest first, so the ink lands on top of the surface it is
+            ; drawn on rather than under it.
+            if ((strlen frame) > 0) {
+                this.pushIconPath(dl frame cx cy glyphSize theme.line)
+            }
+            if ((strlen tint) > 0) {
+                this.pushIconPath(dl tint cx cy glyphSize theme.glyph)
+            }
             def tone:EVGColor ink
             if (k == (ToolIcon.link())) {
                 tone = theme.link
@@ -605,7 +626,13 @@ class EVGToolbarView {
             if (k == (ToolIcon.shapeEllipse())) {
                 tone = theme.accent
             }
-            this.pushIconPath(dl d cx cy glyphSize tone)
+            if ((strlen d) > 0) {
+                this.pushIconPath(dl d cx cy glyphSize tone)
+            }
+            ; And the coloured mark last, over everything.
+            if ((strlen acc) > 0) {
+                this.pushIconPath(dl acc cx cy glyphSize theme.accent)
+            }
             ; The hole, knocked back out in the strip's own background. A
             ; pressed or hot button paints its own fill first, so the punch has
             ; to use THAT colour or it leaves a pale scar on the highlight.
