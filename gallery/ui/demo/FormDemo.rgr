@@ -351,6 +351,62 @@ class FormDemo {
         return a
     }
 
+    ; Where a field's box is on the page, and where a caret index falls
+    ; inside it. Both exist so a check can click at a stated place and say what
+    ; it expected — a test that computed these itself would be asserting its
+    ; own arithmetic rather than the demo's.
+    ; The element with this id, anywhere under the root. EVGElement has no
+    ; lookup of its own and the hit test walks paint order rather than the
+    ; tree, so this is a plain recursive search — three lines, and it keeps the
+    ; measurement in the demo where a check can ask for it.
+    ; NOT AN OPTIONAL. It hands back the element it was given when nothing
+    ; matches, so a caller tests `found.id == tid` rather than threading an
+    ; optional through three call sites — Ranger's optionals are `null?` and
+    ; `unwrap`, and a search that cannot fail reads better than one that can.
+    sfn byId:EVGElement (el:EVGElement tid:string) {
+        if (el.id == tid) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (FormDemo.byId((el.getChild(i)) tid))
+            if (kid.id == tid) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+    fn boxXOf:double (tid:string) {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def el:EVGElement (FormDemo.byId(r tid))
+        if (el.id != tid) {
+            return 0.0
+        }
+        return (el.calculatedX)
+    }
+
+    fn boxWidthOf:double (tid:string) {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def el:EVGElement (FormDemo.byId(r tid))
+        if (el.id != tid) {
+            return 0.0
+        }
+        return (el.calculatedWidth)
+    }
+
+    fn caretXOf:double (tid:string index:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return 0.0
+        }
+        def eng:EVGTextEngine (this.engine())
+        return (c.caretXAt(eng index))
+    }
+
     fn inputFor:InputCtl (tid:string) {
         def i:int 0
         def all:[InputCtl] (this.inputs())
@@ -601,6 +657,22 @@ class FormDemo {
             eyeLabel = "Hide password"
         }
         def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) "👁"))
+        ; PINNED TO THE RIGHT EDGE, and positioned the way the caret is.
+        ;
+        ; It used to be appended straight after the text in a row, so it moved
+        ; with every character typed — an affordance that walks away from where
+        ; you last saw it, and the only thing in the form whose position
+        ; depended on the value beside it.
+        ;
+        ; The obvious fix is a spacer with `width: fill` between the two, and
+        ; that is what this was until the containment check caught it
+        ; overflowing its box by fifty pixels. It is the bug already written
+        ; down as "a spacer eats its space twice": `fill` in a row with these
+        ; siblings resolves against the parent rather than the remainder. So
+        ; not a spacer — absolute, from the same measurement the caret uses,
+        ; which is a route already proven in this file.
+        eye.position = "absolute"
+        eye.left = (EVGUnit.px((halfTextW - 6.0)))
         ; The NAME carries the state, not `aria-pressed`. The plan calls for a
         ; toggle button, and EVGElement has no aria-pressed to set from a
         ; demo-built tree — so rather than half-claim it, this uses the other
@@ -804,6 +876,65 @@ class FormDemo {
             return true
         }
         return false
+    }
+
+    ; A press that knows WHERE in the field it landed, so the caret goes
+    ; there.
+    ;
+    ; `press` takes an element id and nothing else, which is enough to focus a
+    ; field and not enough to put a caret in it: clicking anywhere in a text
+    ; box left the caret wherever it had been. `InputCtl.indexAtX` has been
+    ; able to answer "which character is under this x" since the field was
+    ; written — it was simply never asked, and until the advance table went in
+    ; it would have answered with the estimate and landed on the wrong
+    ; character anyway.
+    ;
+    ; `px` is in page coordinates; the field's own box is what the index is
+    ; measured from, so the box's left edge and its padding come off first.
+    fn pressAt:boolean (target:string px:double) {
+        def took:boolean (this.press(target))
+        if (took == false) {
+            return false
+        }
+        ; `inputFor` hands back a blank field rather than nothing when the id
+        ; is not one, so the tid is what says whether this is really a field.
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return true
+        }
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def box:EVGElement (FormDemo.byId(r target))
+        if (box.id != target) {
+            return true
+        }
+        def inner:double ((px - (box.calculatedX)) - 10.0)
+        def eng:EVGTextEngine (this.engine())
+        def idx:int (c.indexAtX(eng (inner + (c.scrollX))))
+        c.moveTo(idx false)
+        this.rebuild()
+        return true
+    }
+
+    ; Extending a selection by dragging, which is the same answer with the
+    ; anchor left alone.
+    fn dragTo:boolean (target:string px:double) {
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return false
+        }
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def box:EVGElement (FormDemo.byId(r target))
+        if (box.id != target) {
+            return false
+        }
+        def inner:double ((px - (box.calculatedX)) - 10.0)
+        def eng:EVGTextEngine (this.engine())
+        def idx:int (c.indexAtX(eng (inner + (c.scrollX))))
+        c.moveTo(idx true)
+        this.rebuild()
+        return true
     }
 
     fn setHover:void (id:string) { hovered = id }

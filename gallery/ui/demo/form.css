@@ -264,3 +264,7 @@
  * low next to a circle. Letting the line box set the height makes the two
  * agree, because then the box IS the text. */
 .fm-radio-label { height: auto; }
+
+/* The eye is placed from the right edge by measurement, not by flow — see the
+ * note in FormDemo where it is positioned. */
+.fm-eye { position: absolute; }

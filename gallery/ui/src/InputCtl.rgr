@@ -182,6 +182,69 @@ class InputCtl extends UiCtl {
     ; none. Every edit goes through here — Backspace and Delete included, by
     ; first making a one-character selection — so there is one place where a
     ; value is spliced and one place where the caret lands afterwards.
+    ; --- what this kind of field will take ------------------------------------
+    ;
+    ; `kind` was set on three of the demo's fields and read in exactly one
+    ; place: to decide whether to draw dots instead of letters. So a field
+    ; declared `number` accepted "hello" — the kind described how the value is
+    ; SHOWN and had no bearing on what it could hold, which is half of what the
+    ; word means on a real input.
+    ;
+    ; The filter is per character and deliberately narrow. A number field takes
+    ; digits, a leading minus, and one decimal separator — dot or comma,
+    ; because a European keyboard offers the comma and a person typing an
+    ; amount will use it. It does NOT try to parse: "1..2" and "--3" are
+    ; refused character by character, but "1.2.3" typed out of order is the
+    ; caller's business to validate, and validation is a different job from
+    ; keeping letters out of a numeric box.
+    ;
+    ; Everything that is not a `number` accepts everything, including
+    ; `password`: a password with a digits-only rule would be a worse password.
+    fn acceptsChar:boolean (ch:string) {
+        if (kind != "number") {
+            return true
+        }
+        if ((strlen ch) != 1) {
+            return true
+        }
+        def c:int (charAt ch 0)
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        ; A minus, but only at the very front and only once.
+        if (c == 45) {
+            if ((this.selStart()) > 0) {
+                return false
+            }
+            return ((indexOf value "-") < 0)
+        }
+        ; One separator, in either spelling.
+        if ((c == 46) || (c == 44)) {
+            if ((indexOf value ".") >= 0) {
+                return false
+            }
+            return ((indexOf value ",") < 0)
+        }
+        return false
+    }
+
+    ; The part of a string this field will take, character by character.
+    fn filterText:string (t:string) {
+        if (kind != "number") {
+            return t
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def ch:string (substring t i (i + 1))
+            if (this.acceptsChar(ch)) {
+                out = (out + ch)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn insertText:void (t:string) {
         if disabled {
             return
@@ -193,7 +256,7 @@ class InputCtl extends UiCtl {
         def e:int (this.selEnd())
         def head:string (substring value 0 s)
         def tail:string (substring value e (strlen value))
-        def add:string t
+        def add:string (this.filterText(t))
         ; `maxlength` counts the WHOLE value, not the insertion, so a paste
         ; into a nearly-full field is truncated to what still fits rather than
         ; rejected outright — which is what the platform does.
