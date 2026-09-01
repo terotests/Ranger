@@ -17,7 +17,22 @@
 ; read a stale `el.borderRadius` that nothing wrote. A sixth backend (GL,
 ; WebGL, SDL2) should not be a sixth copy.
 ;
-; So: walk once, emit commands, and let a backend consume them. A command is
+; So: walk once, emit commands, and let a backend consume them.
+;
+; Two backends consume this today and neither walks a tree: `gl/evg-webgl.js`
+; and `html/evg-html.js`. The second one is worth knowing about from here,
+; because it says something about the shape of this list rather than about the
+; DOM: SVG has a native answer for seven of the eight kinds, and the two it
+; answers BETTER than the GPU does are PATH (rings and a fill rule, no stencil)
+; and the CLIP STACK (nested clip paths intersect by construction, where a
+; scissor is one rectangle that has to be intersected by hand). The two are
+; checked against each other pixel for pixel — see
+; gallery/pptx/web/html/parity.mjs.
+;
+; What neither of them can do is keep an element's IDENTITY, because a command
+; below carries none: an `id` here is the one field that would let a DOM
+; backend patch nodes instead of rebuilding them, and let a transition, a focus
+; ring or a native <input> attach to something that survives a frame. A command is
 ; deliberately dumb — absolute pixels, resolved colours, no tree, no units —
 ; because that is what a GPU backend wants: quads it can batch, glyph runs it
 ; can look up in an atlas, and clip rectangles it can push and pop.

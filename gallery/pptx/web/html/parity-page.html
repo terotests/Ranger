@@ -1,0 +1,367 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>painter parity</title></head>
+<body><pre id="out">running…</pre>
+<script src="./pptx_web.js"></script>
+<script type="module">
+import { renderDisplayList as gl, loadImages as glImages, setFontFallback as glFallback } from "./gl/evg-webgl.js";
+import { renderDisplayList as dom, loadImages as domImages, setFontFallback as domFallback, clearFontMetrics } from "./html/evg-html.js";
+
+const out = document.getElementById("out");
+const say = (s) => { out.textContent += "\n" + s; };
+
+const FONTS = [
+  ["Open Sans", "OpenSans-Regular.ttf", { family: "Open Sans", weight: "400", style: "normal" }],
+  [null, "OpenSans-Bold.ttf", { family: "Open Sans", weight: "700", style: "normal" }],
+  [null, "OpenSans-Italic.ttf", { family: "Open Sans", weight: "400", style: "italic" }],
+  [null, "OpenSans-BoldItalic.ttf", { family: "Open Sans", weight: "700", style: "italic" }],
+  [null, "NotoEmoji-Regular.ttf", { family: "Noto Emoji", weight: "400", style: "normal" }],
+  [null, "NotoSans-Regular.ttf", { family: "Noto Sans", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Regular.ttf", { family: "El Messiri", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Bold.ttf", { family: "El Messiri", weight: "700", style: "normal" }],
+];
+
+const b64 = (buf) => {
+  let s = "";
+  const v = new Uint8Array(buf);
+  for (let i = 0; i < v.length; i += 0x8000) s += String.fromCharCode.apply(null, v.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+/**
+ * A picture to put in an IMAGE command.
+ *
+ * The first version of this was four quadrants, and it could not tell
+ * object-fit: cover from a stretch AT ALL: a centred crop and a squash both
+ * leave the quadrant boundary in the middle of the box, so the two produce the
+ * same picture and the mutation that swapped them moved the number by zero.
+ *
+ * Eight stripes instead. A crop of the middle 75% shows six of them and a
+ * squash shows all eight, at different places — so the boundaries move, which
+ * is what makes the difference visible. The top half is darkened so a VERTICAL
+ * crop is observable too, and the corner mark makes a mirror unmistakable
+ * rather than merely plausible.
+ */
+function swatch() {
+  const c = document.createElement("canvas");
+  c.width = 160; c.height = 80;
+  const x = c.getContext("2d");
+  const hues = ["#e11d48", "#f97316", "#eab308", "#22c55e", "#0ea5e9", "#6366f1", "#a855f7", "#0f172a"];
+  for (let i = 0; i < 8; i += 1) {
+    x.fillStyle = hues[i];
+    x.fillRect(i * 20, 0, 20, 80);
+  }
+  x.fillStyle = "rgba(0,0,0,0.45)";
+  x.fillRect(0, 0, 160, 40);
+  x.fillStyle = "#ffffff";
+  x.fillRect(4, 4, 22, 12);
+  return c.toDataURL("image/png");
+}
+
+/**
+ * Every command kind and every flag, laid out by hand.
+ *
+ * Written as a grid of independent cells rather than as a picture, because the
+ * point is coverage: a cell that only one painter draws is a cell of solid
+ * disagreement, which is loud in the number.
+ */
+function featureScene(img) {
+  const c = [];
+  const push = (o) => c.push(Object.assign({ c: [30, 41, 59, 1] }, o));
+  push({ k: 0, x: 0, y: 0, w: 900, h: 560, c: [255, 255, 255, 1] });
+
+  // RECT: plain, one radius, four different radii, translucent.
+  push({ k: 0, x: 20, y: 20, w: 120, h: 80, c: [37, 99, 235, 1] });
+  push({ k: 0, x: 160, y: 20, w: 120, h: 80, r: 18, c: [217, 70, 239, 1] });
+  push({ k: 0, x: 300, y: 20, w: 120, h: 80, rc: [0, 26, 0, 26], c: [5, 150, 105, 1] });
+  push({ k: 0, x: 440, y: 20, w: 120, h: 80, r: 8, c: [239, 68, 68, 0.45] });
+
+  // RECT with a two-stop gradient, both directions the list can carry.
+  push({ k: 0, x: 580, y: 20, w: 120, h: 80, gd: 0, c: [15, 23, 42, 1], c2: [248, 250, 252, 1] });
+  push({ k: 0, x: 720, y: 20, w: 120, h: 80, gd: 1, r: 12, c: [190, 24, 93, 1], c2: [251, 191, 36, 1] });
+
+  // BORDER: thin, thick, rounded, per-corner.
+  push({ k: 1, x: 20, y: 130, w: 120, h: 80, t: 1, c: [30, 41, 59, 1] });
+  push({ k: 1, x: 160, y: 130, w: 120, h: 80, t: 9, c: [30, 41, 59, 1] });
+  push({ k: 1, x: 300, y: 130, w: 120, h: 80, t: 5, r: 20, c: [37, 99, 235, 1] });
+  push({ k: 1, x: 440, y: 130, w: 120, h: 80, t: 4, rc: [24, 0, 24, 0], c: [5, 150, 105, 1] });
+
+  // IMAGE: as given, cropped to a squarer box, rounded, and mirrored.
+  push({ k: 2, x: 580, y: 130, w: 120, h: 80, src: img });
+  push({ k: 2, x: 720, y: 130, w: 60, h: 80, src: img });
+  push({ k: 2, x: 800, y: 130, w: 60, h: 80, src: img, r: 14, fx: true });
+
+  // TEXT: weights, slant, sizes, and a line box taller than the face — which
+  // is where the half-leading term shows up at all.
+  push({ k: 3, x: 20, y: 240, w: 300, h: 34, text: "Regular 22px", font: "Open Sans", size: 22, c: [15, 23, 42, 1] });
+  push({ k: 3, x: 20, y: 280, w: 300, h: 34, text: "Bold 22px", font: "Open Sans", size: 22, weight: "700", c: [15, 23, 42, 1] });
+  // The italic sample is LONG on purpose. A slant is a shear, so the further a
+  // glyph is from the baseline the further it moves — but two renderings of the
+  // same short word overlap almost entirely once the difference mask is eroded,
+  // and the mutation that stopped writing `font-style` came in at 0.078%, under
+  // budget. A full line at a larger size is the same defect made measurable.
+  push({ k: 3, x: 20, y: 318, w: 560, h: 40, text: "Italic — the quick brown fox jumps", font: "Open Sans", size: 28, italic: true, c: [15, 23, 42, 1] });
+  push({ k: 3, x: 20, y: 360, w: 300, h: 60, text: "tall line box", font: "Open Sans", size: 22, c: [15, 23, 42, 1] });
+  // LEADING spaces, not trailing ones. The first version of this line had them
+  // on the end, where they shift nothing and no renderer can be caught
+  // collapsing them; on the front they are an indent, and a painter that lets
+  // the markup swallow them starts the line flush.
+  push({ k: 3, x: 20, y: 425, w: 300, h: 30, text: "      indented by six spaces", font: "Open Sans", size: 20, c: [71, 85, 105, 1] });
+  push({ k: 3, x: 20, y: 460, w: 300, h: 30, text: "   and by three", font: "Open Sans", size: 20, weight: "700", c: [71, 85, 105, 1] });
+  push({ k: 3, x: 20, y: 500, w: 300, h: 22, text: "small 11px", font: "Open Sans", size: 11, c: [71, 85, 105, 1] });
+
+  // PATH: a filled triangle, and a ring with a hole — even-odd, which is the
+  // one place a fill rule is observable.
+  push({ k: 6, x: 340, y: 240, w: 120, h: 120, c: [37, 99, 235, 1],
+         pts: [340, 360, 400, 240, 460, 360], ends: [6] });
+  push({ k: 6, x: 480, y: 240, w: 120, h: 120, c: [5, 150, 105, 1], eo: 1,
+         pts: [480, 240, 600, 240, 600, 360, 480, 360,
+               510, 270, 570, 270, 570, 330, 510, 330],
+         ends: [8, 16] });
+
+  // STROKE: an open polyline.
+  push({ k: 7, x: 620, y: 240, w: 220, h: 120, t: 6, c: [190, 24, 93, 1],
+         pts: [620, 350, 660, 260, 700, 340, 740, 250, 780, 330, 830, 260], ends: [12] });
+
+  // Rotation: about the box's own centre, and about a given origin. The two
+  // are indistinguishable unless the origin is really read.
+  push({ k: 0, x: 620, y: 390, w: 100, h: 50, rot: 25, c: [37, 99, 235, 1] });
+  push({ k: 0, x: 760, y: 390, w: 100, h: 50, rot: 25, rox: 760, roy: 390, c: [217, 119, 6, 1] });
+  push({ k: 3, x: 620, y: 470, w: 200, h: 30, rot: -12, text: "turned text", font: "Open Sans", size: 20, c: [15, 23, 42, 1] });
+
+  // Clipping, nested: the inner clip must INTERSECT the outer one, so the bar
+  // is cut twice. The inner rectangle deliberately HANGS OUT to the right of
+  // the outer one — the first version of this fixture nested one wholly inside
+  // the other, where the intersection IS the inner clip and a backend that
+  // replaces instead of intersecting draws exactly the same picture. The
+  // mutation that removed nesting passed, and there was nothing wrong with the
+  // check: there was nothing in the scene to catch.
+  push({ k: 4, x: 340, y: 400, w: 200, h: 120 });
+  push({ k: 0, x: 340, y: 400, w: 200, h: 120, c: [226, 232, 240, 1] });
+  push({ k: 4, x: 400, y: 430, w: 300, h: 60 });
+  push({ k: 0, x: 300, y: 380, w: 400, h: 200, c: [239, 68, 68, 1] });
+  push({ k: 5 });
+  push({ k: 3, x: 350, y: 495, w: 180, h: 22, text: "clipped twice", font: "Open Sans", size: 14, c: [15, 23, 42, 1] });
+  push({ k: 5 });
+  // …and past the pop, to prove the clip really ended.
+  push({ k: 0, x: 340, y: 530, w: 200, h: 14, c: [15, 23, 42, 1] });
+
+  // Per-corner radii, big enough to MEASURE. The row of small samples above
+  // shows the feature, and the eroded difference of two 26px corner arcs is a
+  // sliver — the mutation that ignored `rc` entirely came in at 0.141%, under
+  // a budget it should not have been near. Two 70px quarter-circles are an
+  // area, and a painter that drops them is off by all of it.
+  push({ k: 0, x: 620, y: 520, w: 160, h: 40, rc: [40, 0, 40, 0], c: [37, 99, 235, 1] });
+  push({ k: 0, x: 800, y: 500, w: 80, h: 60, rc: [0, 60, 0, 0], c: [5, 150, 105, 1] });
+
+  return { width: 900, height: 560, list: { cmds: c } };
+}
+
+async function main() {
+  const web = new PptxWeb();
+  web.start(1000, 600);
+  const faces = [];
+  for (const [family, file] of FONTS) {
+    const ab = await (await fetch("./fonts/" + file)).arrayBuffer();
+    ab._view = new DataView(ab);
+    faces.push(ab);
+    if (family) web.addFont(family, ab); else web.addFace(ab);
+  }
+  await Promise.all(FONTS.map(async ([, , css], i) => {
+    if (!css) return;
+    const f = new FontFace(css.family, faces[i], { weight: css.weight, style: css.style });
+    await f.load();
+    document.fonts.add(f);
+  }));
+  const stack = [...new Set(FONTS.map(([, , c]) => c && c.family).filter(Boolean))];
+  glFallback(stack);
+  domFallback(stack);
+  await document.fonts.ready;
+  clearFontMetrics();
+
+  // The faces again, as CSS the SVG can carry with it — see the file header.
+  const faceCss = FONTS.map(([, , css], i) => css
+    ? '@font-face{font-family:"' + css.family + '";font-weight:' + css.weight +
+      ';font-style:' + css.style + ';src:url(data:font/ttf;base64,' + b64(faces[i]) + ') format("truetype")}'
+    : "").join("");
+
+  const scenes = [];
+  const features = featureScene(swatch());
+  scenes.push({ name: "features", doc: features });
+  if (location.search.indexOf("bench") >= 0) {
+    // A frame the size of a chart-heavy slide. The display list's own header
+    // measures one at 10 084 commands, and that is the case where "rebuild
+    // every node every frame" either holds up or does not — 37 commands
+    // answers nothing. Tiled rather than scaled, so the commands are spread
+    // over the surface instead of stacked in one corner where the browser can
+    // cull them.
+    const big = [];
+    for (let ty = 0; ty < 16; ty += 1) {
+      for (let tx = 0; tx < 16; tx += 1) {
+        for (const c of features.list.cmds) {
+          if (c.k === 4 || c.k === 5) continue;      // no clip stack in the tiling
+          const o = Object.assign({}, c);
+          o.x = (c.x || 0) / 16 + tx * 56;
+          o.y = (c.y || 0) / 16 + ty * 35;
+          o.w = (c.w || 0) / 16;
+          o.h = (c.h || 0) / 16;
+          if (c.size) o.size = c.size / 4;
+          if (c.pts) o.pts = c.pts.map((v, i) => (i % 2 ? v / 16 + ty * 35 : v / 16 + tx * 56));
+          big.push(o);
+        }
+      }
+    }
+    scenes.push({ name: "stress", doc: { width: 900, height: 560, list: { cmds: big } } });
+  }
+
+  try { web.loadPresets(await (await fetch("./presets.txt")).text()); } catch (e) { /* the hand table will do */ }
+  const deck = await (await fetch("./deck.pptx")).arrayBuffer();
+  deck._view = new DataView(deck);
+  if (web.openDeck(deck, "deck.pptx")) {
+    const n = web.slideCount() | 0;
+    for (let i = 0; i < n; i += 1) {
+      const doc = JSON.parse(web.slideScene(i, 960));
+      if (doc.width && doc.height) scenes.push({ name: "slide " + (i + 1), doc });
+    }
+  } else {
+    say("could not open the deck");
+  }
+
+  const results = [];
+  for (const { name, doc } of scenes) {
+    const w = Math.round(doc.width), h = Math.round(doc.height);
+
+    // A — the GPU.
+    const a = document.createElement("canvas");
+    a.width = w; a.height = h;
+    const ctx = a.getContext("webgl2", { alpha: false, antialias: true, stencil: true, preserveDrawingBuffer: true });
+    if (!ctx) { say("no WebGL 2"); return; }
+    ctx.viewport(0, 0, w, h);
+    ctx.clearColor(1, 1, 1, 1);
+    ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT | ctx.STENCIL_BUFFER_BIT);
+    gl(ctx, doc, { dpr: 1, images: await glImages(doc, { base: "" }) });
+
+    // B — the DOM, rasterised through an <img> so the two are comparable.
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    dom(svg, doc, { images: await domImages(doc, { base: "" }) });
+    svg.insertAdjacentHTML("afterbegin", "<style>" + faceCss + "</style>");
+    const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg.outerHTML);
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = res;
+      img.onerror = () => rej(new Error("the SVG did not load as an image"));
+      img.src = url;
+    });
+    const b = document.createElement("canvas");
+    b.width = w; b.height = h;
+    const bc = b.getContext("2d");
+    bc.fillStyle = "#fff";
+    bc.fillRect(0, 0, w, h);
+    bc.drawImage(img, 0, 0, w, h);
+
+    const pa = readGl(ctx, w, h);
+    const pb = bc.getImageData(0, 0, w, h).data;
+    const pct = differenceArea(pa, pb, w, h);
+    if (location.search.indexOf("debug") >= 0) {
+      const dump = document.createElement("canvas");
+      dump.width = w; dump.height = h;
+      const dc = dump.getContext("2d");
+      dc.putImageData(new ImageData(new Uint8ClampedArray(pa), w, h), 0, 0);
+      for (const [suffix, data] of [["gl", dump.toDataURL("image/png")], ["dom", b.toDataURL("image/png")]]) {
+        await fetch("/save", { method: "POST", body: JSON.stringify({ name: name + "-" + suffix, png: data }) });
+      }
+    }
+    if (location.search.indexOf("bench") >= 0) {
+      // Twenty repaints of a frame that is already correct. The DOM painter
+      // rebuilds every node every time — that is the cost of a seam with no
+      // element identity in it, and it is worth a number rather than a shrug.
+      const reps = 20;
+      // The images are resolved ONCE. Inside the loop it would be an async hop
+      // and a Map rebuild per repetition, and the bench would be measuring
+      // those — the same mistake in both halves, which hides rather than
+      // cancels.
+      const domImgs = await domImages(doc, { base: "" });
+      const glImgs = await glImages(doc, { base: "" });
+      // Attached to the document, because a detached <svg> is never laid out
+      // and the whole cost of handing the browser ten thousand elements would
+      // sit outside the measurement. `getBoundingClientRect` after each frame
+      // is what forces the layout to actually happen; paint is still the
+      // compositor's and is not counted on either side.
+      const bench = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      bench.setAttribute("style", "position:absolute;left:-99999px;top:0");
+      document.body.appendChild(bench);
+      const t0 = performance.now();
+      for (let r = 0; r < reps; r += 1) { dom(bench, doc, { images: domImgs }); bench.getBoundingClientRect(); }
+      const domMs = (performance.now() - t0) / reps;
+      const benchNodes = bench.getElementsByTagName("*").length;
+      bench.remove();
+      const t1 = performance.now();
+      for (let r = 0; r < reps; r += 1) {
+        ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT | ctx.STENCIL_BUFFER_BIT);
+        gl(ctx, doc, { dpr: 1, images: glImgs });
+      }
+      const glMs = (performance.now() - t1) / reps;
+      await fetch("/report", { method: "POST", body: JSON.stringify({
+        name, cmds: doc.list.cmds.length, dom: domMs, gl: glMs,
+        nodes: benchNodes }) });
+    }
+    results.push({ name, w, h, cmds: doc.list.cmds.length, pct });
+    say(name.padEnd(10) + " :: " + w + "x" + h + " :: " + String(doc.list.cmds.length).padStart(4) +
+        " cmds :: " + pct.toFixed(3) + "% differ");
+  }
+  window.__parity = results;
+  say("PARITY " + JSON.stringify(results));
+}
+
+/**
+ * How much of the frame the two painters disagree about, as a percentage.
+ *
+ * Counting differing pixels is the obvious measure and it measures the wrong
+ * thing. A signed distance field and a browser rasteriser put slightly
+ * different coverage on every edge in the picture, so the count is dominated by
+ * one-pixel fringes along shapes that are in exactly the right place — and it
+ * grows with how much TEXT a scene has, which made adding two lines to the
+ * fixture move the floor by more than a broken border did.
+ *
+ * So the mask is ERODED first: a differing pixel counts only if at least three
+ * of its four neighbours differ as well. A fringe along an edge is one pixel
+ * wide, so its pixels have two such neighbours at most and drop out; a shape in
+ * the wrong place, a missing glyph or a colour that is not the colour is an
+ * AREA, and its interior survives untouched.
+ *
+ * Measured: it takes the feature sheet's floor from 0.286% to 0.019% and leaves
+ * every mutation this file has been tested against above 0.3% — which is the
+ * difference between a budget with a factor of one in hand and one with a
+ * factor of fifteen.
+ */
+function differenceArea(pa, pb, w, h) {
+  const diff = new Uint8Array(w * h);
+  for (let p = 0; p < w * h; p += 1) {
+    const o = p * 4;
+    if (Math.abs(pa[o] - pb[o]) > 60 || Math.abs(pa[o + 1] - pb[o + 1]) > 60 || Math.abs(pa[o + 2] - pb[o + 2]) > 60) diff[p] = 1;
+  }
+  let bad = 0;
+  for (let y = 1; y < h - 1; y += 1) {
+    for (let x = 1; x < w - 1; x += 1) {
+      const p = y * w + x;
+      if (!diff[p]) continue;
+      const around = diff[p - 1] + diff[p + 1] + diff[p - w] + diff[p + w];
+      if (around >= 3) bad += 1;
+    }
+  }
+  return (100 * bad) / (w * h);
+}
+
+/** WebGL reads bottom-up; flip it so the two buffers are the same picture. */
+function readGl(ctx, w, h) {
+  const raw = new Uint8Array(w * h * 4);
+  ctx.readPixels(0, 0, w, h, ctx.RGBA, ctx.UNSIGNED_BYTE, raw);
+  const flipped = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y += 1) {
+    flipped.set(raw.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+  }
+  return flipped;
+}
+
+main().catch((e) => { say("ERROR " + ((e && e.stack) || e)); });
+</script></body></html>
