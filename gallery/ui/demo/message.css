@@ -1,0 +1,194 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * shadcn's Message, Bubble and Marker, as an EVG stylesheet.
+ *
+ * SPECIFIED, NOT MEASURED — see the header of MessageDemo.rgr. Base UI has no
+ * message, bubble or marker primitive and ui.shadcn.com is refused by the
+ * proxy, so every number here is read off one screenshot rather than diffed
+ * against a reference. That is a weaker claim than the rest of this directory
+ * makes and it is written down rather than implied.
+ *
+ * Class-first: every class is one MessageDemo.rgr writes. EVGStyleSheet
+ * matches one class token per selector and has no descendant selectors, so a
+ * variant is its own token on the same element — which is why the bubble TEXT
+ * carries `ms-bubble-text-muted` rather than inheriting a colour from the
+ * bubble the way CSS would.
+ */
+
+.ms-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  background-color: #ffffff;
+  padding: 28px;
+  width: 900px;
+  height: 620px;
+}
+
+/* `role="log"` on the thread: new messages are announced as they arrive. The
+ * reference puts it on MessageScrollerContent; a static transcript has the
+ * same claim to make. */
+.ms-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 420px;
+}
+
+/* One message. `align-items: flex-start` so the avatar sits level with the
+ * TOP of the bubble — centred against a two-bubble group it would float in
+ * the middle of the pair and stop reading as the sender of the first one. */
+.ms-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 12px;
+  width: 420px;
+}
+
+/* The far side. `justify-content: flex-end` is what pushes the whole message
+ * across; the content column's own alignment then puts the footer under the
+ * bubble's right edge rather than the column's left. */
+.ms-row-end {
+  justify-content: flex-end;
+}
+
+.ms-avatar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background-color: #e4e4e7;
+}
+
+.ms-avatar-text {
+  color: #52525b;
+  font-size: 13px;
+  font-weight: bold;
+  width: 38px;
+  height: 18px;
+  text-align: center;
+}
+
+.ms-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 300px;
+}
+
+.ms-content-end {
+  align-items: flex-end;
+}
+
+/* Two bubbles from one person. A tighter gap than between messages, which is
+ * the whole of what the grouping says: same speaker, no new turn. The
+ * screenshot's adjacent corners are still fully rounded, so nothing here
+ * tightens a radius — a thing not seen is a thing not built. */
+.ms-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 300px;
+}
+
+.ms-group-end {
+  align-items: flex-end;
+}
+
+/* A pill. The radius is half the height so the ends are semicircles at any
+ * width; a fixed 24px would go square-ish the moment a bubble wrapped. */
+.ms-bubble {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 20px;
+  height: 48px;
+  border-radius: 24px;
+  background-color: #2b3ce8;
+}
+
+.ms-bubble-muted {
+  background-color: #f4f4f5;
+}
+
+.ms-bubble-text {
+  color: #ffffff;
+  font-size: 16px;
+  height: 22px;
+}
+
+/* Its own token, because there are no descendant selectors: "the text inside
+ * a muted bubble" is not something a rule here can say. */
+.ms-bubble-text-muted {
+  color: #18181b;
+}
+
+/* A reaction, sitting ON the bubble's bottom edge — half in, half out, which
+ * is what makes it read as attached to THAT bubble rather than floating
+ * between two. Positioned absolutely from the demo for the same reason the
+ * invoice form's eye is: a spacer with `width: fill` in this row resolves
+ * against the parent and overflows. */
+.ms-react {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  border: 2px solid #ffffff;
+  background-color: #f4f4f5;
+}
+
+.ms-react-text {
+  color: #3f3f46;
+  font-size: 13px;
+  width: 26px;
+  height: 18px;
+  text-align: center;
+}
+
+.ms-footer {
+  color: #71717a;
+  font-size: 13px;
+  height: 18px;
+  width: 300px;
+  text-align: right;
+}
+
+/* The marker. A live region and the only behaviour in the component, so it is
+ * deliberately plain: no box, no icon, one line. */
+.ms-marker {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 420px;
+  height: 22px;
+}
+
+.ms-marker-who {
+  color: #18181b;
+  font-size: 16px;
+  font-weight: bold;
+  width: 56px;
+  height: 22px;
+}
+
+.ms-marker-text {
+  color: #a1a1aa;
+  font-size: 16px;
+  width: 200px;
+  height: 22px;
+}

@@ -1,0 +1,367 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MessageDemo — shadcn's Message, Bubble and Marker
+; =============================================================================
+; A chat transcript: avatars, bubbles that sit left or right, two bubbles from
+; the same person grouped together, a reaction pinned to a bubble's edge, a
+; "Delivered" footer, and a live "Oliver is typing…" marker.
+;
+; --- THE ORACLE PROBLEM, STATED RATHER THAN PAPERED OVER ----------------------
+;
+; There is no headless library under this one. shadcn's `base/` registry is
+; Base UI, and Base UI's primitives are: accordion, alert-dialog, autocomplete,
+; avatar, button, checkbox, checkbox-group, collapsible, combobox,
+; context-menu, dialog, field, fieldset, form, input, menu, menubar, meter,
+; navigation-menu, number-field, popover, preview-card, progress, radio,
+; radio-group, scroll-area, select, separator, slider, switch, tabs, toast,
+; toggle, toggle-group, toolbar, tooltip. No message, no bubble, no marker.
+; And ui.shadcn.com is refused by the proxy, so its documentation cannot be
+; read either.
+;
+; So this is the Timeline situation again, and it is written down for the same
+; reason: what follows is SPECIFIED from the component source and one
+; screenshot, not MEASURED. Read off them:
+;
+;   a message is an avatar and a content column, and `align="end"` puts the
+;   avatar on the right and pushes the column away from the left margin;
+;   the sender's bubbles are filled and the other side's are muted;
+;   a BubbleGroup is two bubbles from one person with a tighter gap;
+;   a reaction sits ON the bubble's bottom edge, half in and half out;
+;   the footer is one line under the bubble, on the bubble's own side;
+;   and the marker is a `role="status"` line, which is a live region — the
+;   one part of this that is a behaviour rather than a picture.
+;
+; What the screenshot does NOT show, and is therefore not built rather than
+; guessed: what happens when a bubble is wider than the column, whether the
+; group's adjacent corners tighten (both bubbles look fully rounded), and any
+; timestamp or delivery state other than the single word "Delivered".
+;
+; --- WHY THERE IS NO MessageCtl ----------------------------------------------
+;
+; Because there is nothing to control. A transcript is a list of records; the
+; only interactive thing on the page is a reaction, and the reference's is a
+; `<span>`. `TreeCtl` exists because arrows and drop targets are hard; putting
+; a list of messages behind a controller would be ceremony.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+treefactory Msg {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "ms-page"))
+    tag Thread    EVGElement (props (className "ms-thread") (role "log") (a11yLabel "Conversation"))
+    tag Row       EVGElement (props (className "ms-row"))
+    tag RowEnd    EVGElement (props (className "ms-row ms-row-end"))
+    tag Avatar    EVGElement (props (className "ms-avatar"))
+    tag AvatarTx  EVGElement (props (className "ms-avatar-text") (elementType 1))
+    tag Content   EVGElement (props (className "ms-content"))
+    tag ContentE  EVGElement (props (className "ms-content ms-content-end"))
+    tag Group     EVGElement (props (className "ms-group"))
+    tag GroupE    EVGElement (props (className "ms-group ms-group-end"))
+    tag Bubble    EVGElement (props (className "ms-bubble"))
+    tag BubbleM   EVGElement (props (className "ms-bubble ms-bubble-muted"))
+    tag BubbleTx  EVGElement (props (className "ms-bubble-text") (elementType 1))
+    tag BubbleTxM EVGElement (props (className "ms-bubble-text ms-bubble-text-muted") (elementType 1))
+    tag React     EVGElement (props (className "ms-react"))
+    tag ReactTx   EVGElement (props (className "ms-react-text") (elementType 1) (a11yHidden true))
+    tag Footer    EVGElement (props (className "ms-footer") (elementType 1))
+    ; `role="status"` is the reference's own, and it is the only behaviour in
+    ; the component: a polite live region, so "Oliver is typing…" is announced
+    ; without interrupting whatever is being read.
+    tag Marker    EVGElement (props (className "ms-marker") (role "status"))
+    tag MarkerTx  EVGElement (props (className "ms-marker-text") (elementType 1))
+    tag MarkerWho EVGElement (props (className "ms-marker-who") (elementType 1))
+}
+
+class MessageDemo {
+
+    ; A measurer that owns no tree, for sizing a bubble to its own text.
+    def measurer:EVGLayout (new EVGLayout())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 900.0
+    def pageH:double 620.0
+
+    Constructor () {
+    }
+
+    ; The font the SHEET draws bubble text in. Stated once and handed to the
+    ; measurer, because a bubble measured at one size and drawn at another is
+    ; the mistake this codebase has now made twice — with the font family in
+    ; the breadcrumb and with the size in the invoice form.
+    def bubbleFont:string "system-ui"
+    def bubbleSize:double 16.0
+    ; 12px of padding either side, and the widest a bubble may get before its
+    ; text has to wrap. Both are the stylesheet's numbers, repeated here for
+    ; the arithmetic — which `messageWidths` in the check keeps honest.
+    def bubblePadX:double 20.0
+    def bubbleMaxW:double 300.0
+
+    fn engine:EVGTextEngine () {
+        return (measurer.getTextEngine())
+    }
+
+    ; How wide a bubble has to be to hold its text on one line, clamped.
+    ;
+    ; A bubble that is not sized to its text is not a bubble: in EVG a row
+    ; child with no width takes the WHOLE row, so every message would be a
+    ; full-width band and the alignment that makes a transcript readable would
+    ; be gone. There is no shrink-to-fit to lean on, so the text is measured
+    ; and the box is set — the same route the invoice form's caret takes.
+    fn bubbleWidth:double (text:string) {
+        def eng:EVGTextEngine (this.engine())
+        def m:EVGTextMetrics (eng.measureRun(text bubbleFont bubbleSize))
+        def w:double (m.width + (bubblePadX * 2.0))
+        if (w > bubbleMaxW) {
+            return bubbleMaxW
+        }
+        return w
+    }
+
+    ; Exposed so the gate can say WHICH string outgrew the column rather than
+    ; discovering it as a clipped picture.
+    fn textWidthOf:double (text:string) {
+        def eng:EVGTextEngine (this.engine())
+        def m:EVGTextMetrics (eng.measureRun(text bubbleFont bubbleSize))
+        return m.width
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        root = (this.page())
+    }
+
+    ; --- the pieces -----------------------------------------------------------
+
+    ; One bubble. `mine` picks the filled variant over the muted one; the text
+    ; needs its own class because EVGStyleSheet has no descendant selectors, so
+    ; white-on-blue cannot be inherited from the bubble the way CSS would do it.
+    fn bubble:EVGElement (id:string text:string mine:boolean) {
+        def w:double (this.bubbleWidth(text))
+        def inner:double (w - (bubblePadX * 2.0))
+        if mine {
+            def b (tree Msg (Bubble (props (id id)) (BubbleTx text)))
+            b.width = (EVGUnit.px(w))
+            (b.getChild(0)).width = (EVGUnit.px(inner))
+            return b
+        }
+        def b2 (tree Msg (BubbleM (props (id id)) (BubbleTxM text)))
+        b2.width = (EVGUnit.px(w))
+        (b2.getChild(0)).width = (EVGUnit.px(inner))
+        return b2
+    }
+
+    fn avatar:EVGElement (id:string initials:string) {
+        ; The reference uses a photograph with initials as the fallback. There
+        ; is no photograph here, so this is the fallback path — which is the
+        ; one that has to work anyway, and the one a reader gets either way.
+        return (tree Msg (Avatar (props (id id) (a11yHidden true)) (AvatarTx initials)))
+    }
+
+    ; A message: avatar and content, in the order the side dictates.
+    fn message:EVGElement (id:string initials:string mine:boolean) {
+        if mine {
+            def r (tree Msg (RowEnd (props (id id))))
+            r.addChild((tree Msg (ContentE (props (id (id + "-content"))))))
+            r.addChild((this.avatar((id + "-avatar") initials)))
+            return r
+        }
+        def r (tree Msg (Row (props (id id))))
+        r.addChild((this.avatar((id + "-avatar") initials)))
+        r.addChild((tree Msg (Content (props (id (id + "-content"))))))
+        return r
+    }
+
+    fn contentOf:EVGElement (row:EVGElement mine:boolean) {
+        if mine {
+            return (row.getChild(0))
+        }
+        return (row.getChild(1))
+    }
+
+    fn page:EVGElement () {
+        def page (tree Msg (Page))
+        def thread (tree Msg (Thread (props (id "ms-thread"))))
+
+        def m1 (this.message("ms-m1" "ME" true))
+        (this.contentOf(m1 true)).addChild((this.bubble("ms-b1" "Deploying to prod real quick." true)))
+        thread.addChild(m1)
+
+        def m2 (this.message("ms-m2" "R" false))
+        (this.contentOf(m2 false)).addChild((this.bubble("ms-b2" "It's 4:55 PM. On a Friday." false)))
+        thread.addChild(m2)
+
+        def m3 (this.message("ms-m3" "ME" true))
+        def c3:EVGElement (this.contentOf(m3 true))
+        c3.addChild((this.bubble("ms-b3" "It's a one-line change." true)))
+        ; The footer is a sibling of the bubble, not a part of it: it sits
+        ; under the bubble and on the bubble's own side.
+        c3.addChild((tree Msg (Footer (props (id "ms-b3-footer")) "Delivered")))
+        thread.addChild(m3)
+
+        ; Two bubbles from one person. The group is what makes the second one
+        ; read as a continuation rather than a new turn — and it is why the
+        ; avatar appears once.
+        def m4 (this.message("ms-m4" "R" false))
+        def g4 (tree Msg (Group (props (id "ms-g4"))))
+        g4.addChild((this.bubble("ms-b4" "It's always a one-line change." false)))
+        def b5:EVGElement (this.bubble("ms-b5" "Alright, let me take a look." false))
+        ; The reaction is pinned to the bubble's bottom edge, half in and half
+        ; out, so it reads as attached to that bubble and not to the next one.
+        def react (tree Msg (React (props (id "ms-b5-react") (a11yLabel "Reactions: thumbs up")) (ReactTx "+1")))
+        react.position = "absolute"
+        react.left = (EVGUnit.px(210.0))
+        react.top = (EVGUnit.px(30.0))
+        b5.addChild(react)
+        g4.addChild(b5)
+        (this.contentOf(m4 false)).addChild(g4)
+        thread.addChild(m4)
+
+        page.addChild(thread)
+
+        ; The marker. A live region, and the only behaviour in the component.
+        def marker (tree Msg (Marker (props (id "ms-marker"))))
+        marker.addChild((tree Msg (MarkerWho "Oliver")))
+        marker.addChild((tree Msg (MarkerTx " is typing...")))
+        page.addChild(marker)
+        return page
+    }
+
+    ; --- events ---------------------------------------------------------------
+    ; Nothing here is interactive. A press is answered so the page's contract
+    ; is satisfied and refused so nothing pretends to happen.
+
+    fn press:boolean (target:string) {
+        return false
+    }
+
+    fn key:boolean (k:string) {
+        return false
+    }
+
+    fn setHover:void (id:string) { hovered = id }
+    fn setPressed:void (id:string) { pressed = id }
+    fn setFocus:void (id:string) { focused = id }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Message demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Message demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}
