@@ -269,7 +269,7 @@ class TableDemo {
     ; not, so it only sets a flag — which is the whole difference between a
     ; demo that can animate and one that cannot.
     fn press:boolean (target:string) {
-        def changed:boolean (model.press(target))
+        def changed:boolean (model.pressTid(target))
         if changed {
             root = (this.page())
         }

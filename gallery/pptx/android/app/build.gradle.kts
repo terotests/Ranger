@@ -17,7 +17,7 @@ android {
 
     buildTypes {
         release {
-            // The viewer is one generated file of ~66k lines and thousands of
+            // The viewer is one generated file of ~91k lines and thousands of
             // small classes. R8 has no trouble with it, but nothing here is
             // reflective and nothing is stripped by default, so shrinking is
             // left off until there is a reason: a mis-shrunk parser fails as a
@@ -38,9 +38,13 @@ android {
 
     sourceSets["main"].java.srcDirs(
         "src/main/kotlin",
-        // The painter and the surface interface, shared with the desktop
-        // verifier so the walk is written once and can be tested off-device.
+        // This port's own input rules, shared with the desktop checks.
         "../common/src/main/kotlin",
+        // The display-list painter, the surface interface and the
+        // `android.graphics` backend. Not this port's: `gallery/evg/android` is
+        // EVG's Android/JVM backend and the ui port compiles the same files.
+        "../../../evg/android/src/main/kotlin",
+        "../../../evg/android/src/android/kotlin",
         // The viewer itself: Ranger compiled to Kotlin by
         // `scripts/build-ranger.sh`. Generated, not checked in.
         "../generated",

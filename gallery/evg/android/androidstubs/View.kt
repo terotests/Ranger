@@ -18,8 +18,13 @@ open class View(context: Context, attrs: AttributeSet? = null) {
     val height: Int = 0
     val resources: android.content.res.Resources = context.resources
 
+    var isFocusable: Boolean = false
+    var isFocusableInTouchMode: Boolean = false
+
     fun setLayerType(layerType: Int, paint: android.graphics.Paint?) {}
     open fun invalidate() {}
+    open fun requestFocus(): Boolean = false
+    open fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = false
     open fun postInvalidateOnAnimation() {}
     protected open fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {}
     protected open fun onDraw(canvas: Canvas) {}
@@ -37,6 +42,23 @@ class MotionEvent {
     val x: Float = 0f
     val y: Float = 0f
     val actionMasked: Int = 0
+}
+
+class KeyEvent {
+    companion object {
+        const val KEYCODE_DPAD_UP = 19
+        const val KEYCODE_DPAD_DOWN = 20
+        const val KEYCODE_DPAD_LEFT = 21
+        const val KEYCODE_DPAD_RIGHT = 22
+        const val KEYCODE_PAGE_UP = 92
+        const val KEYCODE_PAGE_DOWN = 93
+        const val KEYCODE_MOVE_HOME = 122
+        const val KEYCODE_MOVE_END = 123
+        const val KEYCODE_ENTER = 66
+        const val KEYCODE_SPACE = 62
+    }
+
+    val keyCode: Int = 0
 }
 
 class GestureDetector(context: Context, listener: OnGestureListener) {

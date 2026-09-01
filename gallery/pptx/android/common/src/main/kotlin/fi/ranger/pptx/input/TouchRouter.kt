@@ -1,6 +1,6 @@
 package fi.ranger.pptx.input
 
-import fi.ranger.pptx.rgr.PptxAndroid
+import fi.ranger.rgr.PptxAndroid
 
 /**
  * What a finger means, decided away from Android.

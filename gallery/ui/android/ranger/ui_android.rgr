@@ -1,0 +1,312 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; ui_android.rgr — the dashboard demo, on Android, with no JSON in the middle.
+; ==============================================================================
+;
+; `gallery/ui/demo/DashboardDemo.rgr` is a page: a sidebar, four cards, a Vela
+; chart, a virtualised table and a scroll container, built out of EVG
+; controllers and painted from an `EVGDisplayList`. The browser host asks it for
+; `displayListJson()` because a page has to parse something anyway. Kotlin does
+; not: the demo and the host are objects in one JVM, so this facade hands the
+; painter `display()` itself — no serialise, no parse, and the gradients and
+; shadows `toJson` does not carry survive to the surface.
+;
+; What is written here and nowhere else is the VIEWPORT. The demo is a document
+; 1336 pixels wide — that number is load-bearing, the chart's 994 and every
+; measured axis label under it are derived from it — so a phone does not get a
+; narrower dashboard, it gets the same one at a smaller scale. This facade owns
+; the arithmetic of that: how much the host has to scale by to fit its screen,
+; and what page height a screen of that many pixels is worth. The demo's own
+; scroll container does the rest, because it already knew how.
+;
+; Everything else is the same DashboardDemo the browser, the gates and the
+; screenshot runner drive. No dashboard, table or chart knowledge lives here.
+; ==============================================================================
+
+Import "../../demo/DashboardDemo.rgr"
+
+class UiAndroid {
+    def app:DashboardDemo (new DashboardDemo)
+    def started:boolean false
+
+    ; The screen, in device-independent pixels, and what the page has to be
+    ; scaled by to fit its width into it.
+    def screenW:double 0.0
+    def screenH:double 0.0
+    def fitScale:double 1.0
+    ; What the reader has zoomed in by on top of the fit. 1 is the whole width.
+    def zoomValue:double 1.0
+    ; How far right the page is panned, in PAGE pixels. Only ever non-zero
+    ; while zoomed in, and clamped so the page cannot be dragged off the edge.
+    def panXValue:double 0.0
+
+    Constructor () {
+    }
+
+    ; --- lifecycle ------------------------------------------------------------
+
+    ; `css` is the demo's own stylesheet, read out of the APK's assets. It is
+    ; the same file the browser build styles the tree from — not a copy of it,
+    ; the file — so the two cannot drift.
+    fn start:void (w:double h:double css:string) {
+        screenW = w
+        screenH = h
+        this.refit()
+        app.init(css)
+        started = true
+    }
+
+    ; A rotation, a split screen, the keyboard opening. The page keeps its
+    ; width, its scroll offset and every bit of its state; only the viewport
+    ; the scroll container is told about changes.
+    fn resize:void (w:double h:double) {
+        screenW = w
+        screenH = h
+        this.refit()
+        if started {
+            app.rebuild()
+        }
+    }
+
+    ; The one piece of arithmetic this file exists for.
+    ;
+    ; The page is a fixed-width document, so the scale is a ratio of widths —
+    ; and the page's HEIGHT is then whatever the screen is worth at that scale.
+    ; Getting that second half wrong is what makes a ported page scroll to a
+    ; stop halfway down the screen: the demo clamps the scroll to its own
+    ; `pageH`, and a `pageH` that is not the viewport is a clamp against a
+    ; viewport nobody has.
+    fn refit:void () {
+        if (screenW > 0.0) {
+            fitScale = (screenW / (app.widthPx()))
+        }
+        def s:double (this.scale())
+        if (s > 0.0) {
+            app.pageH = (screenH / s)
+        }
+        this.clampPan()
+    }
+
+    ; Page pixels to screen pixels. The host scales its canvas by this and
+    ; leaves the display list alone — text then rasterises at the panel's real
+    ; resolution instead of being blown up from a bitmap made at some other
+    ; size, which is the same trick the WebGL host plays with `dpr`.
+    fn scale:double () {
+        return (fitScale * zoomValue)
+    }
+
+    fn zoom:double () {
+        return zoomValue
+    }
+
+    fn panX:double () {
+        return panXValue
+    }
+
+    ; How much of the page is off the left edge at the current zoom. Zero when
+    ; the whole width fits, which is the resting state.
+    fn maxPanX:double () {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return 0.0
+        }
+        def visible:double (screenW / s)
+        def over:double ((app.widthPx()) - visible)
+        if (over < 0.0) {
+            return 0.0
+        }
+        return over
+    }
+
+    fn clampPan:void () {
+        def limit:double (this.maxPanX())
+        if (panXValue > limit) {
+            panXValue = limit
+        }
+        if (panXValue < 0.0) {
+            panXValue = 0.0
+        }
+    }
+
+    ; A pinch. The factor is relative — what the fingers did since the last
+    ; report — and the point under them is held still, which is the whole of
+    ; what a reader expects a pinch to do and the part a naive implementation
+    ; gets wrong by scaling about the origin instead.
+    fn pinch:boolean (factor:double focusX:double focusY:double) {
+        def before:double zoomValue
+        def next:double (zoomValue * factor)
+        if (next < 1.0) {
+            next = 1.0
+        }
+        if (next > 4.0) {
+            next = 4.0
+        }
+        if (next == before) {
+            return false
+        }
+        ; The page point under the fingers, before and after.
+        def pageX:double (this.toPageX(focusX))
+        zoomValue = next
+        this.refit()
+        panXValue = (pageX - (focusX / (this.scale())))
+        this.clampPan()
+        if started {
+            app.rebuild()
+        }
+        return true
+    }
+
+    ; Back to the whole width. What a double tap means.
+    fn resetZoom:boolean () {
+        if ((zoomValue == 1.0) && (panXValue == 0.0)) {
+            return false
+        }
+        zoomValue = 1.0
+        panXValue = 0.0
+        this.refit()
+        if started {
+            app.rebuild()
+        }
+        return true
+    }
+
+    ; Sideways, and only ever inside the page. `dx` is in SCREEN pixels because
+    ; it comes from a finger; everything below it is page pixels.
+    fn panBy:boolean (dx:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return false
+        }
+        def before:double panXValue
+        panXValue = (panXValue - (dx / s))
+        this.clampPan()
+        return (panXValue != before)
+    }
+
+    ; --- screen to page -------------------------------------------------------
+
+    fn toPageX:double (x:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return x
+        }
+        return ((x / s) + panXValue)
+    }
+
+    fn toPageY:double (y:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return y
+        }
+        return (y / s)
+    }
+
+    ; --- the frame ------------------------------------------------------------
+
+    ; The display list itself, laid out and with the chart already in it.
+    fn frame:EVGDisplayList () {
+        return (app.display())
+    }
+
+    fn pageWidth:double () {
+        return (app.widthPx())
+    }
+
+    fn pageHeight:double () {
+        return (app.heightPx())
+    }
+
+    ; --- input ----------------------------------------------------------------
+    ;
+    ; SCREEN coordinates in, because that is what a `MotionEvent` carries. The
+    ; conversion is here rather than in the host so that the host has one rule
+    ; to follow — hand it the numbers the platform gave you — and so the two
+    ; halves cannot disagree about where the page is.
+
+    ; The CACHED hit test, not `hitId`. The demo's own one repaints the page
+    ; before answering, chart and all, which is the right trade for a browser
+    ; calling it once per click and the wrong one for a touchscreen: every
+    ; `ACTION_DOWN` would re-run the Vega runtime for geometry the hit test
+    ; cannot reach anyway, because the chart is not in the element tree.
+    fn hitAt:string (x:double y:double) {
+        return (app.hitIdCached((this.toPageX(x)) (this.toPageY(y))))
+    }
+
+    ; A finger down: what it landed on is pressed, and what it landed on is
+    ; worked. Both, because the pressed CLASS is what the stylesheet reads and
+    ; the press is what the controller acts on.
+    fn pressAt:boolean (x:double y:double) {
+        def id:string (this.hitAt(x y))
+        app.setPressed(id)
+        app.press(id)
+        return true
+    }
+
+    ; A finger up. Nothing is activated here — the press already did that —
+    ; but the pressed flag has to go, or the last thing touched stays lit.
+    fn releasePress:boolean () {
+        app.setPressed("")
+        return true
+    }
+
+    fn hoverAt:boolean (x:double y:double) {
+        app.setHover((this.hitAt(x y)))
+        return true
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+    ;
+    ; The demo's own scroll container, in page pixels. A drag reports SCREEN
+    ; pixels, so a zoomed-in page scrolls by less document than the finger
+    ; travelled — which is what zoom means.
+
+    fn scrollByScreen:boolean (dy:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return false
+        }
+        return (app.scrollBy((dy / s)))
+    }
+
+    fn scrollTop:double () {
+        return app.scrollY
+    }
+
+    fn maxScroll:double () {
+        return (app.maxScroll())
+    }
+
+    ; --- the keyboard ---------------------------------------------------------
+    ; A tablet with a keyboard, or a hardware key on a phone. The demo already
+    ; knows what every key means; the host only has to name them the way the
+    ; browser does.
+    fn key:boolean (name:string) {
+        return (app.key(name))
+    }
+
+    ; --- what the page says ---------------------------------------------------
+
+    fn navPage:string () {
+        return app.navPage
+    }
+
+    fn commandCount:int () {
+        def dl:EVGDisplayList (this.frame())
+        return (array_length dl.cmds)
+    }
+
+    ; How many of those commands are the chart's. The check's way of asking
+    ; whether Vela ran at all, without asserting a particular outline.
+    fn chartCommandCount:int () {
+        return (app.chartCommandCount())
+    }
+
+    fn styleErrorCount:int () {
+        return (app.styleErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        return (app.styleErrorAt(i))
+    }
+}

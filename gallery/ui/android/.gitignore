@@ -1,0 +1,13 @@
+# The page, compiled from Ranger. 46k lines of generated Kotlin, rebuilt by
+# scripts/build-ranger.sh — a checked-in copy is the one way this port can
+# drift from the source everything else runs.
+generated/*.kt
+
+# A copy of a stylesheet that already lives in this repository.
+app/src/main/assets/
+
+# Gradle
+.gradle/
+build/
+app/build/
+local.properties

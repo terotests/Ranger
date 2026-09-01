@@ -1,8 +1,5 @@
-package fi.ranger.pptx.desktop
+package fi.ranger.evg
 
-import fi.ranger.pptx.evg.EvgGradient
-import fi.ranger.pptx.evg.EvgShadow
-import fi.ranger.pptx.evg.EvgSurface
 
 /**
  * A surface that counts what it was asked to draw, and then draws it.

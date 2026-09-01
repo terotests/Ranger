@@ -1,7 +1,7 @@
-package fi.ranger.pptx.evg
+package fi.ranger.evg
 
-import fi.ranger.pptx.rgr.EVGDisplayList
-import fi.ranger.pptx.rgr.EVGDrawCmd
+import fi.ranger.rgr.EVGDisplayList
+import fi.ranger.rgr.EVGDrawCmd
 
 /**
  * The walk: an `EVGDisplayList` in, calls on an [EvgSurface] out.

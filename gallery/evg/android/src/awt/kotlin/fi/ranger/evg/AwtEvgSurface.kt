@@ -1,8 +1,5 @@
-package fi.ranger.pptx.desktop
+package fi.ranger.evg
 
-import fi.ranger.pptx.evg.EvgGradient
-import fi.ranger.pptx.evg.EvgShadow
-import fi.ranger.pptx.evg.EvgSurface
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
@@ -25,13 +22,14 @@ import javax.imageio.ImageIO
  * This exists so the port can be *checked*. An `android.graphics.Canvas`
  * painter can only be run on a device or an emulator, and neither is available
  * where this repository's tests run; Java2D is in every JDK. Both surfaces
- * implement the same interface and are driven by the same [fi.ranger.pptx.evg.EvgPainter],
- * so a deck that renders correctly here is evidence about the walk, the
- * geometry, the colours, the clip stack and the text placement — everything
- * except the last page of platform delegation.
+ * implement the same interface and are driven by the same [EvgPainter], so a
+ * page that renders correctly here is evidence about the walk, the geometry,
+ * the colours, the clip stack and the text placement — everything except the
+ * last page of platform delegation.
  *
  * It is also a usable desktop host in its own right: `RenderDeck` turns a
- * `.pptx` into PNGs with it.
+ * `.pptx` into PNGs with it, and `CheckDashboard` does the same for the ui
+ * gallery's dashboard.
  */
 class AwtEvgSurface(
     private val g: Graphics2D,
