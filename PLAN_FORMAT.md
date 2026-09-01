@@ -506,6 +506,26 @@ predicate is what JavaScript, Go, C++, Python and Rust were verified on, and
 `-format=none` is a one-flag way back to the previous output if a target turns
 out to disagree.
 
+**The whole suite, read one file at a time, and every failure checked against
+the baseline.** `npm test` cannot be read: it stops early and the summary looks
+like a suite with a few failures rather than a suite that stopped (ISSUES.md
+#77). `scripts/suite_matrix.sh` runs one vitest invocation per file, which
+cannot starve, and `scripts/suite_baseline_diff.sh` re-runs the failing ones
+against a copy of the previous compiler. Result over 82 files: five with
+failing tests — `codegen-rust`, `compiler-ownership`, `engine-imports`,
+`ranger-engine`, `ts-to-ranger-native` — and **all five fail on the pre-change
+compiler too. Zero regressions.**
+
+**One bug this change did introduce, which none of the gates caught.**
+`writeCallReceiver` walks into a detached `CodeWriter`, and three flags live on
+the WRITER and are read during that walk: `in_format_args`,
+`suppress_expr_parens`, `current_op_no_parens`. The previous code shared them
+by walking into `wr` itself; a fresh writer starts all three false, so a
+receiver inside a Rust `format!` argument lost `in_format_args`. It needs a
+receiver inside a format argument to show, which no fixture and no conformance
+program has. It was found by reading the suite output, not by running any gate
+— worth recording, because the gates below are otherwise easy to over-trust.
+
 **A failure already in the suite was established rather than assumed.**
 `es-conformance-targets.test.ts` fails five of its six cases, and the first
 reading was that the change had caused it. Running the same file against a copy
