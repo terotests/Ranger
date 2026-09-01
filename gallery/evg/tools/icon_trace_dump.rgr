@@ -1,0 +1,200 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; icon_trace_dump.rgr — every rectangle-stack icon, rendered big, one PNG each
+; ==============================================================================
+;
+; The strip's icons come in two kinds. Thirty-nine of them are outlines in
+; `EVGToolbarIcons.rgr` — one `d` string on a 24-grid, which the tree can hold
+; and the layout can put in a box. The other fifty are DRAWINGS: a stack of
+; `pushRect` calls inside `EVGToolbarView`, executed at paint time. Those
+; cannot go in a tree, cannot be handed to a host, and cannot be styled; they
+; are code where the rest of the strip is now data.
+;
+; They can be converted, and the repository already has the tool: the bitmap
+; tracer in `EvgBitmapTracer.rgr`. Traced on flat, hard-edged artwork it is not
+; an approximation — a four-bar align icon at 32x comes back as four rings of
+; eight points whose coordinates divide by 32 to exactly the bars that went in.
+; So the pipeline is: draw the icon big, trace the bitmap, divide by the scale.
+;
+; WHY BIG, AND WHY THROUGH THE REAL PAINTER. The tracer follows the boundary
+; between ink and paper, so the boundary has to be the drawing's, not the
+; sampling grid's. Rendered at 24 pixels a two-pixel bar is two pixels and its
+; traced outline is a staircase of its own antialiasing; at 32x the same bar is
+; 64 pixels across with hard edges, and dividing back down lands on the grid.
+; And the painter is `EVGToolbarView`'s own, so what gets traced is what the
+; strip actually draws rather than a redrawing of it.
+;
+; The icons are painted into an `EVGDisplayList` and this rasterises that list
+; itself — four command kinds, thirty lines — rather than reaching for one of
+; the app renderers, which all carry a window's worth of chrome with them.
+;
+;   npm run evg:icons:dump          then  evg:icons:trace
+; ==============================================================================
+
+Import "../EVGToolbarView.rgr"
+Import "../EVGToolbar.rgr"
+Import "../EVGDisplayList.rgr"
+Import "../../game_engine/framebuffer.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class IconTraceDump {
+
+    ; The 24-grid, times this. 32 keeps every authored coordinate on a whole
+    ; pixel and keeps the PNG small enough to trace in a moment.
+    sfn scale:int () {
+        return 32
+    }
+
+    ; --- the rasteriser -------------------------------------------------------
+    ;
+    ; Only the kinds an icon actually uses. A command the icons never emit is
+    ; not handled, and that is deliberate: a silent fallback would trace a
+    ; picture with a piece missing and nothing would say so. `report` counts
+    ; what it did not know, and the caller refuses to write the file.
+    ; SCALED HERE, not by the painter. Only the path icons honour `glyphSize`
+    ; — `pushIconPath` divides by 24 and multiplies back up. The rectangle
+    ; drawings do not: they are written with literal 24-grid offsets (`cx - 8`,
+    ; `16.0`, `2.0`), so they come out 24 pixels across whatever size they are
+    ; asked for. That is worth writing down, because it is the second half of
+    ; why these need converting: they are not merely code instead of data, they
+    ; are code that only works at one size.
+    ;
+    ; So the list is painted on the 24-grid and every coordinate is multiplied
+    ; on the way to the canvas. A rectangle scales exactly, a ring scales
+    ; exactly, and the boundary the tracer follows is the drawing's rather than
+    ; the sampling grid's.
+    sfn paint:int (ctx:UIContext dl:EVGDisplayList s:int) {
+        def unknown:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+            def f:double (to_double s)
+            ; The EDGES are scaled, not the origin and the size — the two round
+            ; to different pixels otherwise and a bar comes out a pixel short of
+            ; the one beside it.
+            def x0:int (to_int ((c.x * f) + 0.5))
+            def y0:int (to_int ((c.y * f) + 0.5))
+            def x1:int (to_int (((c.x + c.w) * f) + 0.5))
+            def y1:int (to_int (((c.y + c.h) * f) + 0.5))
+            if (c.kind == 0) {
+                if (c.radius > 0.5) {
+                    ctx.fillRoundRect(x0 y0 (x1 - x0) (y1 - y0) (to_int (c.radius * f)) col)
+                } {
+                    ctx.fillRect(x0 y0 (x1 - x0) (y1 - y0) col)
+                }
+            } {
+                if (c.kind == 1) {
+                    def th:int (to_int ((c.thickness * f) + 0.5))
+                    if (th < 1) {
+                        th = 1
+                    }
+                    ctx.strokeRect(x0 y0 (x1 - x0) (y1 - y0) th col)
+                } {
+                    if (c.kind == 6) {
+                        def pts:[double]
+                        def j:int 0
+                        while (j < (array_length c.pts)) {
+                            push pts ((itemAt c.pts j) * f)
+                            j = (j + 1)
+                        }
+                        ctx.fillPolygonRings(pts c.ringEnds c.r c.g c.b (to_int (c.a * 255.0)))
+                    } {
+                        ; Text — the letter icons (B, I, U, $, %) — and
+                        ; anything else. Those stay as text by design, so an
+                        ; icon that draws one is skipped rather than traced.
+                        unknown = (unknown + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return unknown
+    }
+
+    ; --- one icon -------------------------------------------------------------
+    ;
+    ; Returns the number of commands the rasteriser did not recognise, so the
+    ; caller can leave that icon alone instead of writing half a picture.
+    sfn one:int (kind:int name:string) {
+        def s:int (IconTraceDump.scale())
+        def box:int (24 * s)
+        def cv:SoftCanvas (new SoftCanvas)
+        cv.init(box box)
+        def view:EVGToolbarView (new EVGToolbarView)
+        view.ctx.attach(cv)
+        ; ONE COLOUR, and white paper. The tracer separates by colour, and the
+        ; fallback drawings use three — ink for the shape, `glyph` for a filled
+        ; body, `line` for a faint frame. Flattening them to one ink here is
+        ; what makes the output a silhouette; an icon that NEEDS its second
+        ; tone is one this tool should not be used on, and the report says
+        ; which those are by counting the tones before they are flattened.
+        view.theme.bg = (EVGColor.rgb(255 255 255))
+        view.theme.ink = (EVGColor.rgb(0 0 0))
+        view.theme.glyphInk = (EVGColor.rgb(0 0 0))
+        view.theme.glyph = (EVGColor.rgb(0 0 0))
+        view.theme.line = (EVGColor.rgb(0 0 0))
+        view.theme.accent = (EVGColor.rgb(0 0 0))
+        view.theme.dim = (EVGColor.rgb(0 0 0))
+        ; TWENTY-FOUR, so the path icons draw on the same grid the rectangle
+        ; drawings are stuck on. Everything is scaled once, afterwards.
+        view.glyphSize = 24
+        ; White paper first: the canvas starts transparent and a traced
+        ; transparent background is a ring around the whole picture.
+        def paper:EVGDisplayList (new EVGDisplayList)
+        paper.addRect(0.0 0.0 24.0 24.0 (EVGColor.rgb(255 255 255)))
+        IconTraceDump.paint(view.ctx paper s)
+
+        def t:ToolItem (new ToolItem)
+        t.x = 0
+        t.y = 0
+        t.w = 24
+        t.h = 24
+        t.icon = kind
+        def dl:EVGDisplayList (new EVGDisplayList)
+        view.paintToolIcon(dl t 24)
+        def unknown:int (IconTraceDump.paint(view.ctx dl s))
+        if ((array_length dl.cmds) == 0) {
+            print ("SKIP " + name + " — the painter drew nothing")
+            return -1
+        }
+        if (unknown > 0) {
+            print ("SKIP " + name + " — " + (to_string unknown) + " command(s) this cannot rasterise")
+            return unknown
+        }
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = box
+        rb.height = box
+        rb.pixels = (cv.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "tmp/icons/trace" (name + ".png"))
+        print ("wrote tmp/icons/trace/" + name + ".png  (" + (to_string (array_length dl.cmds)) + " commands)")
+        return 0
+    }
+
+    sfn main:void () {
+        print "=== icons with no outline, rendered for tracing ==="
+        print ("grid 24 x " + (to_string (IconTraceDump.scale())) + " = "
+             + (to_string (24 * (IconTraceDump.scale()))) + "px")
+        IconTraceDump.one((ToolIcon.alignLeft()) "alignLeft")
+        IconTraceDump.one((ToolIcon.alignCenter()) "alignCenter")
+        IconTraceDump.one((ToolIcon.alignRight()) "alignRight")
+        IconTraceDump.one((ToolIcon.textJustify()) "textJustify")
+        IconTraceDump.one((ToolIcon.arrangeLeft()) "arrangeLeft")
+        IconTraceDump.one((ToolIcon.arrangeCenter()) "arrangeCenter")
+        IconTraceDump.one((ToolIcon.arrangeRight()) "arrangeRight")
+        IconTraceDump.one((ToolIcon.bulletList()) "bulletList")
+        IconTraceDump.one((ToolIcon.numberList()) "numberList")
+        IconTraceDump.one((ToolIcon.outlineList()) "outlineList")
+        IconTraceDump.one((ToolIcon.indentMore()) "indentMore")
+        IconTraceDump.one((ToolIcon.indentLess()) "indentLess")
+        IconTraceDump.one((ToolIcon.undo()) "undo")
+        IconTraceDump.one((ToolIcon.redo()) "redo")
+        IconTraceDump.one((ToolIcon.fill()) "fill")
+        IconTraceDump.one((ToolIcon.paint()) "paint")
+        print "done"
+    }
+}
