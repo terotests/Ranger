@@ -46,6 +46,13 @@ class EVGToolbarTheme {
     def line:EVGColor (EVGColor.rgb(210 216 224))
     def ink:EVGColor (EVGColor.rgb(30 36 48))
     def dim:EVGColor (EVGColor.rgb(80 92 110))
+    ; THE LINE AN ICON IS DRAWN IN, which is not the colour a word is written
+    ; in even though it was for years. Every toolbar worth copying draws its
+    ; glyphs a step lighter than its text — the Radix reference this gallery
+    ; measures against uses a muted purple against near-black type, and the
+    ; dashboard uses `#52525b` against `#27272a`. Defaulted to `ink` so the
+    ; spreadsheet and the document are exactly where they were.
+    def glyphInk:EVGColor (EVGColor.rgb(30 36 48))
     ; The body of a filled icon shape — a row bar, a column bar, a cell block.
     ;
     ; This exists because `line` was being used for it, and `line` is the

@@ -724,6 +724,40 @@ class EVGLayout {
                                 if (clampedW < c.minWidth.pixels) {
                                     clampedW = c.minWidth.pixels
                                 }
+                            } {
+                                ; THE AUTOMATIC MINIMUM SIZE. A flex item's
+                                ; `min-width` computes to `auto`, and `auto` on
+                                ; a flex item is not zero — it is the item's
+                                ; min-content size. Without this a row squashes
+                                ; its items to whatever share is left, which no
+                                ; browser does; measured in `flexmin.json`,
+                                ; where a nowrap line of words in a row too
+                                ; narrow for it keeps its full 137.28 rather
+                                ; than taking the 80 on offer.
+                                ;
+                                ; IT DOES NOT MAKE THE CONTENT FIT, and that is
+                                ; worth saying because the name suggests it
+                                ; does. The item stops shrinking and then hangs
+                                ; out of the row instead — 17.28 past it, in
+                                ; that same row. Keeping what will not fit
+                                ; inside a box is `overflow`'s job and nothing
+                                ; else's.
+                                ;
+                                ; Which is the other half of the rule: the
+                                ; automatic minimum applies only while the item
+                                ; is NOT a clipping box. Give it `overflow:
+                                ; hidden` and the minimum is zero again and the
+                                ; item shrinks freely — the oracle records 80
+                                ; for exactly the row that keeps 137.28 without
+                                ; it. A resizable panel depends on this: it
+                                ; clips, so it must still shrink to whatever
+                                ; the splitter asks of it.
+                                if (c.clipsContent() == false) {
+                                    def autoMin:double (this.minIntrinsicWidthOf(c))
+                                    if (clampedW < autoMin) {
+                                        clampedW = autoMin
+                                    }
+                                }
                             }
                             if c.maxWidth.isSet {
                                 if (clampedW > c.maxWidth.pixels) {

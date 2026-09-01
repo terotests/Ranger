@@ -1,0 +1,337 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxStripUi — the editor's strip, built the way the showcase builds one
+; ==============================================================================
+;
+; The previous attempt at modernising the strip restyled the hand-painted view:
+; a subclass that drew rounded rectangles instead of square ones. It looked
+; better and it was the wrong move, because it left the strip outside
+; everything the gallery's components have — CSS layout, hover and press as
+; states rather than as branches in a painter, a stylesheet a host can replace,
+; and an accessible tree.
+;
+; This is the strip as `ToolbarDemo` builds one: a `treefactory` whose tags
+; carry the class AND the role, a stylesheet beside it, `EVGLayout` for the
+; boxes and `EVGDisplayList` for the pixels. `EVGA11yFromTree` reads the roles
+; off the same tree the painter walks, so the strip has an accessible tree for
+; the first time — the hand-painted one published nothing, and a screen reader
+; met a canvas.
+;
+; WHAT IT DOES NOT TOUCH, and this is what makes it safe:
+;
+;   THE MODEL. `EVGToolbar` still owns the items, the tabs, the commands and
+;   the hot index. This reads that model and builds boxes from it.
+;
+;   THE HIT TESTING. `toolbar.hit` and `toolbar.hitTab` answer from the x/y/w/h
+;   stored on each item, and those are written back here from what the layout
+;   computed. The tree becomes the layout engine and the geometry contract is
+;   unchanged, so every click, drag and keyboard path keeps working without
+;   knowing anything happened.
+;
+;   THE ICONS. They are procedural — stacks of rectangles in `EVGToolbarView`,
+;   not path data — so they cannot go in a tree yet. They are drawn into the
+;   boxes the layout computed, which is the same hybrid the dashboard uses for
+;   its chart: the tree says where, something else says what. Turning them into
+;   SVG paths the way the dashboard's sidebar icons are is the next step and a
+;   separate one.
+;
+; The look is `dashboard.css`, to the number: 8px radius, `#f4f4f5` for hover
+; and for the thing you are on, `#27272a` / `#09090b` / `#71717a` for the three
+; text weights.
+;
+;   npm run pptx:web:test   (the strip is hit-tested by the browser selftests)
+; ==============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGToolbar.rgr"
+
+; The tags, each carrying what it looks like and what it MEANS. One
+; declaration, two readers: the painter walks it for pixels and
+; `EVGA11yFromTree` walks it for the accessible tree.
+treefactory Strip {
+    child addChild
+    text  textContent
+
+    tag Bar    EVGElement (props (className "ps-bar"))
+    tag Tabs   EVGElement (props (className "ps-tabs") (role "tablist") (a11yLabel "Ribbon"))
+    tag Tab    EVGElement (props (className "ps-tab") (elementType 1) (role "tab") (a11yFocusable true))
+    tag Band   EVGElement (props (className "ps-band") (role "toolbar") (a11yLabel "Slide tools"))
+    tag Btn    EVGElement (props (className "ps-btn") (elementType 1) (role "button") (a11yFocusable true))
+    tag Sep    EVGElement (props (className "ps-sep") (role "separator"))
+    tag Label  EVGElement (props (className "ps-label") (elementType 1))
+}
+
+class PptxStripUi {
+    ; The two rows. Named here as well as in the sheet because the app asks how
+    ; tall the band is before there is a tree to measure.
+    ; THE BAND MUST NOT GROW. Padding and gap are what the strip was short of,
+    ; not height: the chrome sits above the slide and every pixel it takes is a
+    ; pixel of the page. Taking it from 74 to 80 pushed the thumbnails and the
+    ; slide down far enough that four of the browser's click tests missed what
+    ; they were aiming at, which is the same thing a reader would have found.
+    def tabsH:int 34
+    def rowH:int 40
+
+    ; The laid-out tree, kept so the app can paint it and read an a11y tree off
+    ; it without building it twice.
+    def root@(optional):EVGElement
+
+    ; ITS OWN SHEET, parsed once. Handing it the chrome's was the mistake that
+    ; produced a strip stacked down the left-hand edge: that sheet knows
+    ; `.slide-panel` and `.pptx-stage` and has never heard of `.ps-bar`, so
+    ; every box fell back to a default block and a row of tabs became a column
+    ; of them. A component brings its own stylesheet.
+    def sheet:EVGStyleSheet (new EVGStyleSheet())
+    def parsed:boolean false
+
+    Constructor () {
+    }
+
+    fn heightFor:int (w:int) {
+        return (tabsH + rowH)
+    }
+
+    ; `dashboard.css`, applied to a strip. Every number in here is one of that
+    ; file's: the radius, the two greys, the three text colours, the 8px gap.
+    sfn css:string () {
+        return (".ps-bar { display: flex; flex-direction: column;"
+              + " flex-wrap: nowrap; align-items: stretch;"
+              + " background-color: #ffffff }"
+              ; The tab row. A row of nav rows, which is what it is.
+              + " .ps-tabs { display: flex; flex-direction: row;"
+              + " flex-wrap: nowrap; align-items: center; height: 34px;"
+              + " padding: 0 10px; gap: 4px }"
+              + " .ps-tab { display: flex; flex-direction: row;"
+              + " flex-wrap: nowrap; align-items: center; justify-content: center;"
+              ; `width: fit-content`, and it is not optional: ToolbarDemo
+              ; wrote up the gap it walked into, which is that a row child with
+              ; no width takes the parent's FULL width. The first tab would be
+              ; the whole strip and the other four would be off the end of it.
+              + " border-radius: 8px; padding: 0 10px; height: 26px;"
+              + " width: fit-content; color: #71717a; font-size: 13px }"
+              + " .ps-tab:hover { background-color: #f4f4f5 }"
+              ; `.db-nav-on` and `.db-nav-text-on`: the fill says which, the
+              ; weight says it again for anyone who cannot see the fill.
+              + " .ps-tab-on { background-color: #f4f4f5; color: #09090b;"
+              + " font-weight: 500 }"
+              ; The button band.
+              ; TEN OF PADDING AND FOUR OF GAP, which is what the reference
+              ; toolbar has and what this did not. A band with six of padding
+              ; and two of gap reads as buttons crammed against an edge: the
+              ; air between the targets is what makes them look like targets.
+              + " .ps-band { display: flex; flex-direction: row;"
+              + " flex-wrap: nowrap; align-items: center; height: 40px;"
+              + " padding: 0 10px; gap: 4px }"
+              ; The reference's button is 40 by 38 for a glyph a third that
+              ; size. The picture is not the button; the room around it is.
+              + " .ps-btn { display: flex; flex-direction: row;"
+              + " flex-wrap: nowrap; align-items: center; justify-content: center;"
+              + " border-radius: 8px; height: 34px; width: 38px }"
+              + " .ps-btn:hover { background-color: #f4f4f5 }"
+              + " .ps-btn-on { background-color: #e4e4e7 }"
+              ; A button that shows a word beside its picture is wider, and the
+              ; width is the label's — `fit-content`, not a guess.
+              ; FOUR, not eight. The glyph is centred by the painter at half
+              ; an icon width from the button's left EDGE, which is inside this
+              ; padding — so the picture sits a little left of the slot the
+              ; tree made for it and the word needs to come back the same
+              ; amount to sit beside it rather than away from it. Aligning the
+              ; two properly wants the painter to be handed the slot's box
+              ; instead of working the position out itself, and that is a
+              ; change to the shared view rather than to this sheet.
+              + " .ps-btn-wide { width: fit-content; padding: 0 10px; gap: 4px }"
+              + " .ps-label { color: #27272a; font-size: 13px;"
+              + " width: fit-content }"
+              ; The rule between two groups. Shorter than the row and in the
+              ; hairline grey, so it separates without dividing.
+              ; A SEPARATOR NEEDS AIR MORE THAN IT NEEDS INK. The reference
+              ; gives its 1px rule ten pixels either side and draws it in a
+              ; tint rather than a line colour; six pixels either side reads as
+              ; a button with a hairline stuck to it.
+              + " .ps-sep { width: 1px; height: 24px;"
+              + " margin-left: 10px; margin-right: 10px;"
+              + " background-color: #e4e4e7 }"
+              ; And one rule under the whole band, where it meets the page.
+              + " .ps-bar-rule { height: 1px; background-color: #e4e4e7 }")
+    }
+
+    ; Build the tree from the toolbar's model.
+    fn build:EVGElement (bar:EVGToolbar) {
+        def bare (tree Strip (Bar))
+        def tabs (tree Strip (Tabs))
+        def i:int 0
+        while (i < (bar.tabCount())) {
+            def t:ToolTab (bar.tabAt(i))
+            def cls:string "ps-tab"
+            if (i == bar.activeTab) {
+                cls = "ps-tab ps-tab-on"
+            }
+            def el (tree Strip (Tab (props (className cls) (id ("ps-tab-" + (to_string i)))
+                (a11yLabel t.name)) t.name))
+            tabs.addChild(el)
+            i = (i + 1)
+        }
+        bare.addChild(tabs)
+
+        def band (tree Strip (Band))
+        def j:int 0
+        while (j < (bar.count())) {
+            def it:ToolItem (bar.at(j))
+            ; ONLY THE PAGE THAT IS SHOWING. The model holds every tab's
+            ; buttons in one list and `itemOnActiveTab` says which belong to
+            ; the page in front of you. Building all of them put five tabs'
+            ; worth of boxes in one row: they wrapped down the window, and a
+            ; pointer over the status line came back as button thirty.
+            ; AN ITEM UNDER A DROPDOWN IS NOT ON THE BAND. `menuOwner` names
+            ; the button it hangs beneath, and it is drawn in the list that
+            ; opens rather than in the row — the font chooser's faces were
+            ; standing in the strip beside the chooser itself, each with its
+            ; own icon, because a row lays out every child it is given.
+            if (it.menuOwner >= 0) {
+                it.x = 0
+                it.y = 0
+                it.w = 0
+                it.h = 0
+                j = (j + 1)
+                continue
+            }
+            if ((bar.itemOnActiveTab(j)) == false) {
+                it.x = 0
+                it.y = 0
+                it.w = 0
+                it.h = 0
+                j = (j + 1)
+                continue
+            }
+            if it.isSeparator {
+                band.addChild((tree Strip (Sep)))
+            } {
+                def cls:string "ps-btn"
+                if it.pressed {
+                    cls = "ps-btn ps-btn-on"
+                }
+                ; A word beside the picture — Save, Print — or a value, like
+                ; the font name. Either way the box is as wide as it needs.
+                def wide:boolean false
+                if (it.textW > 0) {
+                    wide = true
+                }
+                if it.showLabel {
+                    wide = true
+                }
+                if wide {
+                    cls = (cls + " ps-btn-wide")
+                }
+                def name:string it.label
+                if ((strlen name) == 0) {
+                    name = it.command
+                }
+                def b (tree Strip (Btn (props (className cls)
+                    (id ("ps-btn-" + (to_string j))) (a11yLabel name))))
+                ; THE PICTURE IS A HOLE. The icon is drawn into this box
+                ; afterwards, so the box has to be there and empty — an icon
+                ; that is a text glyph would be measured as text and centred on
+                ; a baseline, which is the bug the dashboard's sidebar icons
+                ; were written up for.
+                if (it.icon > 0) {
+                    def slot (tree Strip (Label (props (className "ps-icon"))))
+                    ; The same eighteen the view draws at, so the word beside
+                    ; it starts one gap away from the picture rather than one
+                    ; gap away from a box the picture rattles around in.
+                    slot.width = (EVGUnit.px(18.0))
+                    slot.height = (EVGUnit.px(18.0))
+                    b.addChild(slot)
+                }
+                if wide {
+                    def lab:string it.label
+                    if ((strlen lab) > 0) {
+                        b.addChild((tree Strip (Label lab)))
+                    }
+                }
+                band.addChild(b)
+            }
+            j = (j + 1)
+        }
+        bare.addChild(band)
+        return bare
+    }
+
+    ; Lay it out at the band's box, then WRITE THE BOXES BACK onto the model.
+    ;
+    ; That last step is what keeps every other path working: `toolbar.hit` and
+    ; `toolbar.hitTab` answer out of these numbers, and so do the tooltip, the
+    ; dropdown's anchor and the icon drawing. The tree is the layout engine
+    ; now; the geometry contract it fills in is the one that was always there.
+    fn layout:void (bar:EVGToolbar x0:int y0:int w:int) {
+        if (parsed == false) {
+            sheet.parse((PptxStripUi.css()))
+            parsed = true
+        }
+        def el:EVGElement (this.build(bar))
+        el.width = (EVGUnit.px((to_double w)))
+        el.height = (EVGUnit.px((to_double (this.heightFor(w)))))
+        sheet.applyTree(el "")
+        def lay (new EVGLayout())
+        lay.setPageSize((to_double w) (to_double (this.heightFor(w))))
+        lay.layout(el)
+        PptxStripUi.offsetTree(el (to_double x0) (to_double y0))
+        root = el
+
+        ; The tabs, in the order they were built.
+        def tabsEl:EVGElement (el.getChild(0))
+        def i:int 0
+        while (i < (bar.tabCount())) {
+            if (i < (tabsEl.getChildCount())) {
+                def te:EVGElement (tabsEl.getChild(i))
+                def t:ToolTab (bar.tabAt(i))
+                t.x = (to_int te.calculatedX)
+                t.y = (to_int te.calculatedY)
+                t.w = (to_int te.calculatedWidth)
+                t.h = (to_int te.calculatedHeight)
+            }
+            i = (i + 1)
+        }
+        ; The band holds only the active page's boxes, so the walk counts its
+        ; own way through and the items off the page keep the zeroes `build`
+        ; gave them.
+        def bandEl:EVGElement (el.getChild(1))
+        def slot:int 0
+        def j:int 0
+        while (j < (bar.count())) {
+            def onBand:boolean (bar.itemOnActiveTab(j))
+            def bit:ToolItem (bar.at(j))
+            if (bit.menuOwner >= 0) {
+                onBand = false
+            }
+            if onBand {
+                if (slot < (bandEl.getChildCount())) {
+                    def be:EVGElement (bandEl.getChild(slot))
+                    def it:ToolItem (bar.at(j))
+                    it.x = (to_int be.calculatedX)
+                    it.y = (to_int be.calculatedY)
+                    it.w = (to_int be.calculatedWidth)
+                    it.h = (to_int be.calculatedHeight)
+                }
+                slot = (slot + 1)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; The layout puts the tree at the origin; the band sits under the window's
+    ; top-left corner or wherever the shell put it.
+    sfn offsetTree:void (el:EVGElement dx:double dy:double) {
+        el.calculatedX = (el.calculatedX + dx)
+        el.calculatedY = (el.calculatedY + dy)
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            PptxStripUi.offsetTree((el.getChild(i)) dx dy)
+            i = (i + 1)
+        }
+    }
+}

@@ -185,7 +185,12 @@ class PptxFrameTest {
         ; what it always meant — the button draws from the shared catalogue
         ; rather than from a picture the deck viewer keeps to itself.
         c.eqInt("drawn with the shared next-slide icon" nt.icon (ToolIcon.navNext()))
-        c.ok("the strip is as tall as it needs" (app.toolbarH == (app.toolbar.heightFor(960))))
+        ; THE HEIGHT COMES FROM THE COMPONENT NOW. `EVGToolbar.heightFor` was
+        ; the authority while the strip was painted by hand; the strip is a
+        ; laid-out tree, so its stylesheet decides how tall it is and the app
+        ; asks the tree. The assertion is the same one — the band is as tall as
+        ; what draws it says — pointed at whoever that now is.
+        c.ok("the strip is as tall as it needs" (app.toolbarH == (app.stripUi.heightFor(960))))
         ; And the slide is given the room that is left, not the whole window —
         ; the strip and the status line above and below it, the notes strip
         ; under it, the deck down one side and the properties panel down the
