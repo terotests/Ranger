@@ -1,0 +1,613 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; EventCalCtl — a week of events, laid out the way a real calendar lays them out
+; =============================================================================
+; The request was ReUI's event calendar. reui.io is refused by the egress
+; proxy, exactly as ui.shadcn.com is, so ReUI's own surface was never read and
+; nothing here claims it. What IS here is the part every event calendar has to
+; decide and where implementations quietly differ — where overlapping events go
+; — measured from a rendered @schedule-x/calendar and captured in
+; `conformance/oracle/eventcal.json`. `eventcal_check.mjs` gates it.
+;
+; --- THE ANSWER IS NOT THE OBVIOUS ONE ---------------------------------------
+;
+; Asked to lay out three overlapping events, almost every hand-written calendar
+; gives them a third of the width each. The measurement says otherwise:
+;
+;     column 0    left 0%        width 100%      z 0
+;     column 1    left 33.33%    width 66.67%    z 1
+;     column 2    left 66.67%    width 33.33%    z 2
+;
+; Every event runs to the RIGHT EDGE, and later columns overlay earlier ones.
+; `left = column / total`, `width = (total - column) / total`. Measured with
+; THREE events, because two are 50/50 under either rule and would have proved
+; nothing at all.
+;
+; --- FOUR MORE THINGS THE MEASUREMENT SAID -----------------------------------
+;
+;   ONE TOTAL PER BATCH. The divisor is the widest point of the whole connected
+;   run of overlaps, not each event's own concurrency count, so the columns
+;   line up down the batch instead of drawing a ragged edge. That makes this
+;   two passes and not one: columns are assigned first, and the total is only
+;   known when the batch closes.
+;
+;   COLUMNS ARE REUSED. An event starting exactly when another ends takes that
+;   one's column rather than a new one. The test is `end > start` STRICTLY —
+;   touching is not overlapping. A calendar using `>=` opens a fourth column
+;   and squeezes the morning to a quarter width for no reason a person can see.
+;
+;   A MIDNIGHT CROSSING IS PROMOTED, not split. A 23:00–01:00 event does not
+;   appear in the time grid at all; it is drawn in the all-day band as a
+;   two-day span. The plausible guess is two boxes, and the plausible guess is
+;   wrong.
+;
+;   THE ALL-DAY BAND USES A DIFFERENT OVERLAP TEST. Bands stack by first fit
+;   over INCLUSIVE date ranges: 11–12 and 12–14 collide because they share the
+;   12th. So there are two overlap rules in one component, and using either one
+;   twice is wrong in one place — the sort of thing that looks perfect in a
+;   screenshot of a week with no collisions in it.
+;
+; Geometry is a fraction of the whole 24-hour day: 09:00–10:00 is top 0.375 and
+; height 0.041666…, which is 9/24 and 1/24. Nothing here is in pixels, so the
+; same numbers hold at any height.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "UiDate.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; One event. Times are minutes from midnight of `startDay`, and days are the
+; day numbers UiDate already speaks — the same representation CalendarCtl's
+; cursor uses, so "which week is this in" is arithmetic rather than a parse.
+;
+; `allDay` is a property of the EVENT, not a range check: a one-day all-day
+; event and a 00:00–24:00 timed event are different things to a reader.
+class CalEvent {
+    def id:string ""
+    def title:string ""
+    def startDay:int 0
+    def endDay:int 0
+    def startMin:int 0
+    def endMin:int 0
+    def allDay:boolean false
+
+    ; --- filled in by the layout, not by the caller ------------------------
+    def column:int 0
+    def total:int 1
+    def lane:int 0
+
+    Constructor () {
+    }
+}
+
+class EventCalCtl extends UiCtl {
+    def events:[CalEvent]
+    ; The first day of the displayed week, as a day number.
+    def weekStart:int 0
+    ; "week", "day" or "month".
+    def view:string "week"
+    ; Which event has focus, "" for none.
+    def activeId:string ""
+
+    Constructor () {
+        def none:[CalEvent]
+        events = none
+    }
+
+    ; --- building -----------------------------------------------------------
+
+    fn addTimed:CalEvent (id:string title:string day:int startMin:int endMin:int) {
+        def e:CalEvent (new CalEvent ())
+        e.id = id
+        e.title = title
+        e.startDay = day
+        e.endDay = day
+        e.startMin = startMin
+        e.endMin = endMin
+        push events e
+        return e
+    }
+
+    ; A timed event given an end on a LATER day. Kept separate from `addTimed`
+    ; so the promotion rule below has something to promote — a caller cannot
+    ; accidentally express a midnight crossing as a same-day event with an end
+    ; before its start.
+    fn addSpanning:CalEvent (id:string title:string day:int startMin:int endDay:int endMin:int) {
+        def e:CalEvent (this.addTimed(id title day startMin endMin))
+        e.endDay = endDay
+        return e
+    }
+
+    fn addAllDay:CalEvent (id:string title:string startDay:int endDay:int) {
+        def e:CalEvent (new CalEvent ())
+        e.id = id
+        e.title = title
+        e.startDay = startDay
+        e.endDay = endDay
+        e.allDay = true
+        push events e
+        return e
+    }
+
+    fn event:CalEvent (id:string) {
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:CalEvent (itemAt events i)
+            if (e.id == id) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new CalEvent ())
+    }
+
+    ; A stable sort by start, into a NEW array — Ranger has no in-place array
+    ; write, and TableCtl already learnt what rebuilding one per swap costs.
+    ; Selection rather than merge because a day holds a handful of events, not
+    ; a hundred thousand rows.
+    ;
+    ; STABLE, and the tie is load-bearing: the two 09:00 events in the capture
+    ; take columns 0 and 1 in the order they were declared. So insertion order
+    ; is the tiebreak here, which is what the reference does and what a person
+    ; editing a fixture expects — not an id comparison, which would reorder the
+    ; layout when somebody renamed an event.
+    ; Ranger has no in-place array write, so this ranks rather than swaps: an
+    ; element's position is the number of elements that sort before it, and a
+    ; tie is broken by the earlier index — which is what makes it stable.
+    sfn sortByStart:[CalEvent] (src:[CalEvent] byMinute:boolean) {
+        def n:int (array_length src)
+        def ranks:[int]
+        def i:int 0
+        while (i < n) {
+            def a:CalEvent (itemAt src i)
+            def ka:int a.startDay
+            if byMinute {
+                ka = a.startMin
+            }
+            def before:int 0
+            def j:int 0
+            while (j < n) {
+                if (j != i) {
+                    def b:CalEvent (itemAt src j)
+                    def kb:int b.startDay
+                    if byMinute {
+                        kb = b.startMin
+                    }
+                    if (kb < ka) {
+                        before = (before + 1)
+                    } {
+                        if ((kb == ka) && (j < i)) {
+                            before = (before + 1)
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            push ranks before
+            i = (i + 1)
+        }
+        def out:[CalEvent]
+        def pos:int 0
+        while (pos < n) {
+            def k:int 0
+            while (k < n) {
+                if ((itemAt ranks k) == pos) {
+                    push out (itemAt src k)
+                }
+                k = (k + 1)
+            }
+            pos = (pos + 1)
+        }
+        return out
+    }
+
+    ; --- which band an event belongs in --------------------------------------
+    ;
+    ; MEASURED: a timed event whose end falls on a later day is drawn in the
+    ; all-day band as a multi-day span, not split into two boxes at midnight.
+
+    sfn inAllDayBand:boolean (e:CalEvent) {
+        if e.allDay {
+            return true
+        }
+        return (e.endDay > e.startDay)
+    }
+
+    ; --- the time grid -------------------------------------------------------
+    ;
+    ; Fractions of the whole 24-hour day. 1440 minutes, and no rounding: the
+    ; measurement is 4.16667% for an hour and that is 1/24 written out.
+
+    sfn dayFraction:double (minutes:int) {
+        return ((to_double minutes) / 1440.0)
+    }
+
+    fn topOf:double (id:string) {
+        def e:CalEvent (this.event(id))
+        return (EventCalCtl.dayFraction(e.startMin))
+    }
+
+    fn heightOf:double (id:string) {
+        def e:CalEvent (this.event(id))
+        return (EventCalCtl.dayFraction(e.endMin - e.startMin))
+    }
+
+    ; --- overlap, twice, because it is two different rules -------------------
+
+    ; The time grid: strict. Touching is not overlapping, which is what lets a
+    ; 10:00 event reuse the column a 09:00–10:00 event just released.
+    ;
+    ; Written symmetrically, though the layout only ever calls it with the
+    ; later-starting event first: given sorted input the FIRST test can never
+    ; be the operative one, so mutating that line alone leaves the gate green.
+    ; It is kept because a caller that does not sort would need it, and noted
+    ; because "the mutation survived" here means the branch is unreachable, not
+    ; that the rule is untested — mutating both lines fails ten assertions.
+    sfn timedOverlap:boolean (a:CalEvent b:CalEvent) {
+        if (a.startDay != b.startDay) {
+            return false
+        }
+        if (a.endMin <= b.startMin) {
+            return false
+        }
+        if (b.endMin <= a.startMin) {
+            return false
+        }
+        return true
+    }
+
+    ; The all-day band: INCLUSIVE. 11–12 and 12–14 collide because they share
+    ; the 12th. Symmetric for the same reason, and unreachable on the same
+    ; side, as the timed test above.
+    sfn dayOverlap:boolean (a:CalEvent b:CalEvent) {
+        if (a.endDay < b.startDay) {
+            return false
+        }
+        if (b.endDay < a.startDay) {
+            return false
+        }
+        return true
+    }
+
+    ; --- laying out one day's timed events -----------------------------------
+    ;
+    ; Two passes, because the divisor is not known until the batch closes.
+    ;
+    ; Pass one walks the day's events in start order and gives each the LOWEST
+    ; column not held by an event it overlaps that has already been placed.
+    ; A run of overlapping events is a batch; the batch ends at the first event
+    ; that overlaps nothing still open.
+    ;
+    ; Pass two hands every event in the batch the same total: the highest
+    ; column used in it, plus one.
+
+    fn timedOn:[CalEvent] (day:int) {
+        def out:[CalEvent]
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:CalEvent (itemAt events i)
+            if (!(EventCalCtl.inAllDayBand(e))) {
+                if (e.startDay == day) {
+                    push out e
+                }
+            }
+            i = (i + 1)
+        }
+        return (EventCalCtl.sortByStart(out true))
+    }
+
+    fn layoutDay:void (day:int) {
+        def day_events:[CalEvent] (this.timedOn(day))
+        def n:int (array_length day_events)
+        ; Where the current batch started, and the highest column it has used.
+        def batchStart:int 0
+        def maxCol:int 0
+        def i:int 0
+        while (i < n) {
+            def cur:CalEvent (itemAt day_events i)
+            ; Does this event overlap anything already in the batch? If not,
+            ; the batch is finished and this event opens a new one.
+            def touches:boolean false
+            def j:int batchStart
+            while (j < i) {
+                def other:CalEvent (itemAt day_events j)
+                if (EventCalCtl.timedOverlap(cur other)) {
+                    touches = true
+                }
+                j = (j + 1)
+            }
+            if touches {
+            } {
+                EventCalCtl.closeBatch(day_events batchStart i maxCol)
+                batchStart = i
+                maxCol = 0
+            }
+            ; First fit against the events in this batch it actually overlaps.
+            def col:int 0
+            def searching:boolean true
+            while searching {
+                def taken:boolean false
+                def m:int batchStart
+                while (m < i) {
+                    def other:CalEvent (itemAt day_events m)
+                    if (EventCalCtl.timedOverlap(cur other)) {
+                        if (other.column == col) {
+                            taken = true
+                        }
+                    }
+                    m = (m + 1)
+                }
+                if taken {
+                    col = (col + 1)
+                } {
+                    searching = false
+                }
+            }
+            cur.column = col
+            if (col > maxCol) {
+                maxCol = col
+            }
+            i = (i + 1)
+        }
+        ; And the last batch, which no later event closed. Through the SAME
+        ; function as every other close — it used to be a second copy of the
+        ; loop, and the two could have drifted apart without any test noticing,
+        ; because the only batch with a middle column in it was the last one.
+        EventCalCtl.closeBatch(day_events batchStart n maxCol)
+    }
+
+    ; Everyone in a batch gets the same divisor: the widest point of the batch.
+    ; Not each event's own column count — that gives the same answer for the
+    ; first and last columns and differs only in the middle, which is exactly
+    ; the case a small fixture is likely to miss.
+    sfn closeBatch:void (list:[CalEvent] from:int to:int maxCol:int) {
+        def k:int from
+        while (k < to) {
+            def done:CalEvent (itemAt list k)
+            done.total = (maxCol + 1)
+            k = (k + 1)
+        }
+    }
+
+    ; MEASURED: left = column / total, width = (total - column) / total.
+    ; Every event reaches the right edge; later columns overlay earlier ones.
+    fn leftOf:double (id:string) {
+        def e:CalEvent (this.event(id))
+        return ((to_double e.column) / (to_double e.total))
+    }
+
+    fn widthOf:double (id:string) {
+        def e:CalEvent (this.event(id))
+        return ((to_double (e.total - e.column)) / (to_double e.total))
+    }
+
+    ; z-index IS the column, which is what makes the overlay legible: the
+    ; narrowest box is on top.
+    fn zOf:int (id:string) {
+        def e:CalEvent (this.event(id))
+        return e.column
+    }
+
+    ; --- the all-day band ----------------------------------------------------
+    ;
+    ; First fit into lanes over INCLUSIVE ranges. Lane 1 is the first, matching
+    ; the capture's `grid-row`, which is 1-based.
+
+    fn bandEvents:[CalEvent] () {
+        def out:[CalEvent]
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:CalEvent (itemAt events i)
+            if (EventCalCtl.inAllDayBand(e)) {
+                push out e
+            }
+            i = (i + 1)
+        }
+        return (EventCalCtl.sortByStart(out false))
+    }
+
+    fn layoutBand:void () {
+        def band:[CalEvent] (this.bandEvents())
+        def i:int 0
+        while (i < (array_length band)) {
+            def cur:CalEvent (itemAt band i)
+            def lane:int 1
+            def searching:boolean true
+            while searching {
+                def taken:boolean false
+                def j:int 0
+                while (j < i) {
+                    def other:CalEvent (itemAt band j)
+                    if (other.lane == lane) {
+                        if (EventCalCtl.dayOverlap(cur other)) {
+                            taken = true
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if taken {
+                    lane = (lane + 1)
+                } {
+                    searching = false
+                }
+            }
+            cur.lane = lane
+            i = (i + 1)
+        }
+    }
+
+    ; How many day columns a band covers. Inclusive, so a band from the 12th to
+    ; the 14th is three days and not two.
+    fn daysOf:string (id:string) {
+        def e:CalEvent (this.event(id))
+        return (to_string ((e.endDay - e.startDay) + 1))
+    }
+
+    fn laneOf:int (id:string) {
+        def e:CalEvent (this.event(id))
+        return e.lane
+    }
+
+    ; Lay out everything the current week shows. One entry point, because the
+    ; two halves have to be run together — an event promoted into the band must
+    ; not also be given a column in the grid.
+    fn layout:void () {
+        def d:int 0
+        while (d < 7) {
+            this.layoutDay((weekStart + d))
+            d = (d + 1)
+        }
+        this.layoutBand()
+    }
+
+    ; --- navigation ----------------------------------------------------------
+
+    fn setView:void (v:string) {
+        if (v == "day") { view = "day" }
+        if (v == "week") { view = "week" }
+        if (v == "month") { view = "month" }
+    }
+
+    ; One step forward or back, in the unit the current view shows. A week view
+    ; moves seven days and a day view one — the same key, a different distance,
+    ; which is the whole reason the view is state rather than a render option.
+    fn step:void (delta:int) {
+        if (view == "day") {
+            weekStart = (weekStart + delta)
+            return
+        }
+        if (view == "month") {
+            def ymd:[int]
+            UiDate.fromDays(weekStart ymd)
+            def year:int (itemAt ymd 0)
+            def month:int ((itemAt ymd 1) + delta)
+            while (month > 12) {
+                month = (month - 12)
+                year = (year + 1)
+            }
+            while (month < 1) {
+                month = (month + 12)
+                year = (year - 1)
+            }
+            ; Clamped to the month's length, so stepping from the 31st into a
+            ; short month lands on its last day instead of spilling forward.
+            def day:int (itemAt ymd 2)
+            def len:int (UiDate.daysInMonth(year month))
+            if (day > len) {
+                day = len
+            }
+            weekStart = (UiDate.toDays(year month day))
+            return
+        }
+        weekStart = (weekStart + (delta * 7))
+    }
+
+    ; UiDate speaks year/month/day, so a day number is unpacked first. Kept in
+    ; one place rather than at each call site.
+    sfn labelOfDay:string (days:int) {
+        def ymd:[int]
+        UiDate.fromDays(days ymd)
+        return (UiDate.longLabel((itemAt ymd 0) (itemAt ymd 1) (itemAt ymd 2)))
+    }
+
+    fn label:string () {
+        if (view == "day") {
+            return (EventCalCtl.labelOfDay(weekStart))
+        }
+        if (view == "month") {
+            def ymd:[int]
+            UiDate.fromDays(weekStart ymd)
+            return (UiDate.monthLabel((itemAt ymd 0) (itemAt ymd 1)))
+        }
+        return ((EventCalCtl.labelOfDay(weekStart)) + " – " + (EventCalCtl.labelOfDay((weekStart + 6))))
+    }
+
+    ; --- the reported rows ---------------------------------------------------
+    ;
+    ; A calendar of events is a LIST of them, not a grid. The grid is how it is
+    ; drawn; what a reader needs is "eleven events this week" and, on each,
+    ; when it is — which is why the time is in the NAME and not left to the
+    ; visual position, the only place a sighted person reads it from.
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def root:UiRow (new UiRow ())
+        root.tid = "eventcal"
+        root.role = (EVGA11yRole.region())
+        root.name = (this.label())
+        push out root
+
+        def band:UiRow (new UiRow ())
+        band.tid = "allday"
+        band.parentTid = "eventcal"
+        band.role = (EVGA11yRole.list())
+        band.name = "All day"
+        push out band
+
+        def grid:UiRow (new UiRow ())
+        grid.tid = "timegrid"
+        grid.parentTid = "eventcal"
+        grid.role = (EVGA11yRole.list())
+        grid.name = "Events"
+        push out grid
+
+        def bandItems:[CalEvent] (this.bandEvents())
+        def i:int 0
+        while (i < (array_length bandItems)) {
+            def e:CalEvent (itemAt bandItems i)
+            def r:UiRow (new UiRow ())
+            r.tid = e.id
+            r.parentTid = "allday"
+            r.role = (EVGA11yRole.listItem())
+            r.name = e.title + ", all day, " + (this.daysOf(e.id)) + " days"
+            r.focusable = true
+            r.tabStop = (activeId == e.id)
+            r.setPos = (i + 1)
+            r.setSize = (array_length bandItems)
+            push out r
+            i = (i + 1)
+        }
+
+        def d:int 0
+        def seen:int 0
+        while (d < 7) {
+            def dayItems:[CalEvent] (this.timedOn((weekStart + d)))
+            def j:int 0
+            while (j < (array_length dayItems)) {
+                def e:CalEvent (itemAt dayItems j)
+                def r:UiRow (new UiRow ())
+                r.tid = e.id
+                r.parentTid = "timegrid"
+                r.role = (EVGA11yRole.listItem())
+                r.name = e.title + ", " + (UiDate.dayAbbr((UiDate.weekday((weekStart + d))))) + " " + (EventCalCtl.clock(e.startMin)) + " to " + (EventCalCtl.clock(e.endMin))
+                r.focusable = true
+                r.tabStop = (activeId == e.id)
+                push out r
+                seen = (seen + 1)
+                j = (j + 1)
+            }
+            d = (d + 1)
+        }
+        return out
+    }
+
+    ; 24-hour, zero-padded. Not localised: the capture is not a localisation
+    ; oracle and inventing one here would be a claim with nothing behind it.
+    sfn clock:string (minutes:int) {
+        def h:int (idiv minutes 60)
+        def m:int (minutes - (h * 60))
+        def hs:string (to_string h)
+        if (h < 10) {
+            hs = "0" + hs
+        }
+        def ms:string (to_string m)
+        if (m < 10) {
+            ms = "0" + ms
+        }
+        return hs + ":" + ms
+    }
+}

@@ -38,6 +38,7 @@
     "@radix-ui/react-toggle-group": "^1.1.19",
     "@radix-ui/react-toolbar": "^1.1.19",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@schedule-x/calendar": "^4.7.0",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/virtual-core": "^3.17.8",
     "axe-core": "^4.13.0",
@@ -45,7 +46,8 @@
     "react": "18.3.1",
     "react-day-picker": "^10.0.1",
     "react-dom": "18.3.1",
-    "react-resizable-panels": "^4.12.3"
+    "react-resizable-panels": "^4.12.3",
+    "temporal-polyfill": "^1.0.4"
   },
   "devDependencies": {
     "esbuild": "0.25.0",

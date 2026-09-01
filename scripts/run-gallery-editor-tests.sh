@@ -137,6 +137,12 @@ SUITES=(
   # specified: `columnFilters` is a flat AND and cannot hold a combinator at
   # all.
   ui:filters:check
+  # The event calendar's LAYOUT. reui.io is blocked by the proxy exactly as
+  # ui.shadcn.com is, so ReUI's surface was never read and none of this claims
+  # it — what is measured is where a real calendar puts overlapping events,
+  # and the answer is not the obvious one: three overlapping events are 100%,
+  # 66.67% and 33.33% wide, overlaid, not a third each.
+  ui:eventcal:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
