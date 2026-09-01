@@ -865,7 +865,14 @@ in vec2 vUV;
 out vec4 outColor;
 
 void main() {
-  vec2 p = vUV * uRes;
+  // PAGE PIXELS, y DOWN. vUV comes off the fullscreen triangle as a GL texture
+  // coordinate, whose origin is the BOTTOM left; a drop's x and y are page
+  // coordinates, whose origin is the top left. Reading one as the other put
+  // every ring at uRes.y minus where it was touched — a click near the top of
+  // the dashboard rippled near the bottom of it. Everything below this line is
+  // in page space, and the two places that hand a vector back to GL flip it
+  // back.
+  vec2 p = vec2(vUV.x, 1.0 - vUV.y) * uRes;
 
   // SUM the drops. This is the whole of the interference: two rings that
   // cross reinforce where their crests meet and cancel where a crest meets a
@@ -912,7 +919,9 @@ void main() {
   }
 
   float wave = crest;
-  vec2 offset = push * uStrength / uRes;
+  // Back into UV space to sample with: page y runs down and the texture's runs
+  // up, so the displacement's y is negated on its way out.
+  vec2 offset = vec2(push.x, -push.y) * uStrength / uRes;
 
   // A whisper of chromatic aberration along the crest. The numbers are 1.08
   // and 0.92 rather than anything bolder for a reason: past about a tenth the
@@ -935,7 +944,13 @@ void main() {
   // — and this one is exact for whatever the first one happens to be. The
   // loops above branch only on uniforms, so every fragment in a quad takes
   // the same path and the derivative is well defined.
-  vec2 grad = vec2(dFdx(wave), dFdy(wave)) * uBump;
+  //
+  // dFdy differentiates against WINDOW y, which runs up, while the height
+  // field and the light are both in page space, which runs down — so the y
+  // component is negated. Get this wrong and the light silently moves to the
+  // other side of the page: the glint still looks like a glint, on the wrong
+  // edge of every wave.
+  vec2 grad = vec2(dFdx(wave), -dFdy(wave)) * uBump;
   vec3 N = normalize(vec3(-grad, 1.0));
 
   // Blinn-Phong. The eye looks straight down at a flat page, so V is +Z and
