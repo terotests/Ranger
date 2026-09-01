@@ -23,6 +23,7 @@ Import "CheckboxCtl.rgr"
 Import "RadioGroupCtl.rgr"
 Import "TabsCtl.rgr"
 Import "AccordionCtl.rgr"
+Import "CalendarCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
@@ -174,6 +175,15 @@ class UiHost {
 
     fn addAccordion:AccordionCtl (tid:string name:string) {
         def c (new AccordionCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addCalendar:CalendarCtl (tid:string name:string) {
+        def c (new CalendarCtl())
         c.tid = tid
         c.name = name
         c.build()

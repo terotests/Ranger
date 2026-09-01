@@ -89,6 +89,15 @@ SUITES=(
   ui:tree:checkbox
   ui:timeline:check
   ui:resize:check
+  # The calendar, against react-day-picker: the arithmetic and the keyboard
+  # offline, then the same behaviours against the library's own recorded
+  # answers. Home and End are week-relative and the Page keys clamp the day
+  # number — both would have been written the obvious wrong way round.
+  ui:calendar:test
+  ui:calendar:check
+  # And the drawn half: seven columns that line up, a chosen day whose number
+  # is legible against its fill, and cells the pointer can actually reach.
+  ui:calendar:demo
   ui:form:check
   ui:profile:check
   ui:dashboard:check

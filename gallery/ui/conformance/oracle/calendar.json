@@ -1124,6 +1124,50 @@
     "selected": "2026-04-26",
     "$comment": "showOutsideDays renders the neighbours' days. Clicking one selects that date; whether the displayed month follows is the interesting half."
   },
+  "selectedCell": {
+    "cell": {
+      "day": "2026-05-20",
+      "text": "20",
+      "outside": false,
+      "selected": true,
+      "today": false,
+      "disabled": false,
+      "role": "gridcell",
+      "tabindex": "0",
+      "label": "Wednesday, May 20th, 2026, selected",
+      "ariaSelected": null,
+      "ariaDisabled": null,
+      "buttonDisabled": false
+    },
+    "todayCell": {
+      "day": "2026-05-14",
+      "text": "14",
+      "outside": false,
+      "selected": false,
+      "today": true,
+      "disabled": false,
+      "role": "gridcell",
+      "tabindex": "-1",
+      "label": "Today, Thursday, May 14th, 2026",
+      "ariaSelected": null,
+      "ariaDisabled": null,
+      "buttonDisabled": false
+    },
+    "othersAriaSelected": [
+      null
+    ],
+    "$comment": "What a selected day carries, and what every other day carries. If the unselected days say nothing at all rather than aria-selected=false, a reader counts differently and the Ranger side must match."
+  },
+  "enterOnSelected": {
+    "tabbable": [
+      "2026-05-14"
+    ],
+    "focused": "2026-05-20",
+    "focusedTag": "rdp-day_button",
+    "caption": "May 2026",
+    "selected": null,
+    "$comment": "Does the keyboard toggle the way the pointer does?"
+  },
   "nav": [
     {
       "after": "start",

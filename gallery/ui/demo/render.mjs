@@ -102,6 +102,26 @@ const DEMOS = {
     },
   },
 
+  calendar: {
+    module: "gallery/ui/bin/CalendarDemo.cjs",
+    css: "calendar.css",
+    height: 520,
+    list: (M, css) => {
+      const d = new M.CalendarDemo();
+      d.init(css);
+      // A day is chosen, because the picture is meant to show what a chosen
+      // day looks like — and a black-on-black number is exactly the failure a
+      // snapshot of the empty state would not catch.
+      d.press("cal-2026-05-20");
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.CalendarDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
   form: {
     module: "gallery/ui/bin/FormDemo.cjs",
     css: "form.css",

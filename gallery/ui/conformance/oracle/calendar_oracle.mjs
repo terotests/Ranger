@@ -299,6 +299,37 @@ async function capture(page) {
       "date; whether the displayed month follows is the interesting half.",
   };
 
+  // The grid was read at rest, when nothing was selected — so nothing in it
+  // shows what a chosen day looks like to a reader. Read it again with one.
+  await reset(page);
+  await clickDay("2026-05-20");
+  const withSel = await readGrid(page);
+  const selCell = withSel.weeks.flat().find((c) => c.day === "2026-05-20");
+  const todayCell = withSel.weeks.flat().find((c) => c.day === "2026-05-14");
+  out.selectedCell = {
+    cell: selCell,
+    todayCell: todayCell,
+    othersAriaSelected: [
+      ...new Set(withSel.weeks.flat().filter((c) => c.day !== "2026-05-20").map((c) => c.ariaSelected)),
+    ],
+    $comment:
+      "What a selected day carries, and what every other day carries. If the " +
+      "unselected days say nothing at all rather than aria-selected=false, a " +
+      "reader counts differently and the Ranger side must match.",
+  };
+
+  // Enter on the day that is ALREADY selected. Clicking it toggles; whether
+  // the keyboard agrees is a separate question and was assumed once.
+  await reset(page);
+  await clickDay("2026-05-20");
+  await focusDay(page, "2026-05-20");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(120);
+  out.enterOnSelected = {
+    ...(await readFocus(page)),
+    $comment: "Does the keyboard toggle the way the pointer does?",
+  };
+
   // --- 5. the navigation buttons
   await reset(page);
   const nav = [{ after: "start", caption: (await readFocus(page)).caption }];

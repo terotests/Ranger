@@ -25,14 +25,14 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -320,6 +320,12 @@ let lastFormHover = "";
 const profile = new ProfileDemo();
 profile.init(PROFILE_CSS);
 let lastProfileHover = "";
+// The calendar. `CalendarCtl` answers every key and every click here — the
+// same controller `ui:calendar:check` runs against react-day-picker — so this
+// demo owns the look and not one rule of the month arithmetic.
+const calendar = new CalendarDemo();
+calendar.init(CALENDAR_CSS);
+let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
 let lastDashHover = "";
@@ -620,6 +626,34 @@ const DEMOS = {
       setPressed: (id) => dashboard.setPressed(id),
       root: () => null,
     }),
+  },
+
+  calendar: {
+    height: () => calendar.heightPx(),
+    list: () => calendar.displayListJson(),
+    hit: (x, y) => calendar.hitId(x, y),
+    a11y: (gen, focus) => calendar.a11yJson(gen, focus),
+    press: (id) => calendar.press(id),
+    hover: (id) => {
+      if (id === lastCalendarHover) return false;
+      lastCalendarHover = id;
+      calendar.setHover(id);
+      return true;
+    },
+    key: (k) => calendar.key(k),
+    host: () => ({
+      tick: (dt) => calendar.tick(dt),
+      busy: () => calendar.busyNow(),
+      setHover: (id) => {
+        if (id === lastCalendarHover) return false;
+        lastCalendarHover = id;
+        calendar.setHover(id);
+        return true;
+      },
+      setPressed: (id) => calendar.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
   },
 
   timeline: {
@@ -1330,7 +1364,7 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "profile", "dashboard", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "profile", "dashboard", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;

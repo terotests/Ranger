@@ -1,0 +1,392 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CalendarDemo — a date field, and the calendar that fills it in
+; =============================================================================
+; The reference is shadcn's Calendar, which is react-day-picker with a class
+; map over it, used exactly as its documentation shows it:
+;
+;   <Calendar mode="single" selected={date} onSelect={setDate}
+;             className="rounded-lg border" />
+;
+; So the calendar here is always on the page rather than inside a popover —
+; that snippet is the always-visible one, and a popover would be answering a
+; question nobody asked.
+;
+; THE STATE IS NOT REBUILT HERE. `CalendarCtl` owns the grid arithmetic, the
+; roving tab stop, the eight keys and the toggling selection, and it is
+; measured against react-day-picker in `conformance/oracle/calendar_check.mjs`
+; — 108 behaviours, plus two recorded divergences. Writing the month
+; arithmetic again for a demo would be writing an untested second copy of the
+; only part of a calendar that is hard, and a calendar with two date
+; arithmetics disagrees with itself one month in twelve.
+;
+; So this file is the other half: the controller decides what is true, the
+; tree literal decides what it looks like.
+;
+; THE FIELD ABOVE THE GRID is the reason this demo exists rather than a bare
+; calendar. A calendar is an INPUT, and an input has to say what it holds: the
+; field shows the chosen date, shows a placeholder when there is none, and is
+; the thing a form would actually read. Clearing the selection — clicking the
+; chosen day again, which is what the reference does — has to be visible
+; somewhere, and an empty field is where.
+;
+; TODAY IS PINNED to the oracle's day. A demo whose picture changes overnight
+; cannot be snapshotted, and today is drawn differently from every other day.
+; =============================================================================
+
+Import "../src/CalendarCtl.rgr"
+Import "../src/UiDate.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Cal {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "cd-page"))
+    tag Field     EVGElement (props (className "cd-field"))
+    tag FieldLbl  EVGElement (props (className "cd-field-label") (elementType 1))
+    tag Box       EVGElement (props (className "cd-box") (role "textbox"))
+    tag BoxText   EVGElement (props (className "cd-box-text") (elementType 1))
+    tag BoxHint   EVGElement (props (className "cd-box-hint") (elementType 1))
+    tag Card      EVGElement (props (className "cd-card"))
+    tag Nav       EVGElement (props (className "cd-nav") (role "navigation") (a11yLabel "Navigation bar"))
+    tag NavBtn    EVGElement (props (className "cd-navbtn") (role "button"))
+    tag NavGlyph  EVGElement (props (className "cd-navglyph") (elementType 1) (a11yHidden true))
+    tag Caption   EVGElement (props (className "cd-caption") (role "status") (elementType 1))
+    tag Spacer    EVGElement (props (className "cd-spacer"))
+    tag Grid      EVGElement (props (className "cd-grid") (role "grid"))
+    tag HeadRow   EVGElement (props (className "cd-headrow"))
+    ; The weekday strip is decoration: every day already carries its weekday in
+    ; its own label, so a column header would say "Wednesday" twice per cell.
+    ; The reference marks its <thead> aria-hidden for the same reason.
+    tag Weekday   EVGElement (props (className "cd-weekday") (elementType 1) (a11yHidden true))
+    tag Week      EVGElement (props (className "cd-week") (role "row"))
+    tag Day       EVGElement (props (className "cd-day") (role "gridcell"))
+    tag DayNum    EVGElement (props (className "cd-daynum") (elementType 1) (a11yHidden true))
+    tag Note      EVGElement (props (className "cd-note") (elementType 1))
+}
+
+class CalendarDemo {
+
+    def model:CalendarCtl (new CalendarCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 900.0
+    def pageH:double 520.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "cal"
+        model.name = "Date"
+        model.setMonth(2026 5)
+        model.setToday(2026 5 14)
+        model.build()
+
+        root = (this.page())
+    }
+
+    ; --- what the field says -------------------------------------------------
+
+    ; "Wednesday, May 20th, 2026" if a day is chosen. The long form rather than
+    ; an ISO string because this is the human-facing half; the ISO string is
+    ; what `CalendarCtl` addresses cells by, and the two are not the same job.
+    fn fieldText:string () {
+        if (model.hasSelection == false) {
+            return ""
+        }
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(model.selectedDay p)
+        return (UiDate.longLabel((itemAt p 0) (itemAt p 1) (itemAt p 2)))
+    }
+
+    ; --- the look ------------------------------------------------------------
+
+    ; The classes a day carries. Order matters to the cascade and not to the
+    ; meaning: `EVGStyleSheet` matches one token per selector, so a variant is
+    ; its own token on the same element rather than a compound rule.
+    fn dayClass:string (day:int) {
+        def cls:string "cd-day"
+        if (model.isOutside(day)) {
+            cls = (cls + " cd-day-outside")
+        }
+        if (model.isDisabledDay(day)) {
+            cls = (cls + " cd-day-disabled")
+        }
+        if model.hasToday {
+            if (day == model.todayDay) {
+                cls = (cls + " cd-day-today")
+            }
+        }
+        if model.hasSelection {
+            if (day == model.selectedDay) {
+                cls = (cls + " cd-day-selected")
+            }
+        }
+        return cls
+    }
+
+    ; The day NUMBER's classes. It needs its own, because EVGStyleSheet has no
+    ; descendant selectors: the number cannot inherit "I am inside a selected
+    ; day" from its parent, and a white-on-white or black-on-black day is what
+    ; you get for assuming it can.
+    fn numClass:string (day:int) {
+        def cls:string "cd-daynum"
+        if (model.isOutside(day)) {
+            cls = (cls + " cd-daynum-outside")
+        }
+        if model.hasSelection {
+            if (day == model.selectedDay) {
+                cls = (cls + " cd-daynum-selected")
+            }
+        }
+        return cls
+    }
+
+    fn page:EVGElement () {
+        def page (tree Cal (Page))
+
+        def field (tree Cal (Field (FieldLbl "Date")))
+        def chosen:string (this.fieldText())
+        def box (tree Cal (Box (props (id "cd-box") (a11yLabel "Date"))))
+        if (chosen == "") {
+            ; A placeholder is not a value and must not read as one: it is
+            ; drawn pale, and the box's accessible name stays "Date" so a
+            ; reader is never told the hint is the answer.
+            box.addChild((tree Cal (BoxHint "Pick a day")))
+        } {
+            box.addChild((tree Cal (BoxText chosen)))
+        }
+        field.addChild(box)
+        page.addChild(field)
+
+        def card (tree Cal (Card))
+        def nav (tree Cal
+            (Nav
+                ; ASCII, deliberately. The measurer's advance table covers
+                ; codes 32-126 and the atlas is built from the same range, so
+                ; a typographic chevron draws as an empty box — measured, in
+                ; the first render of this page. The button's accessible name
+                ; carries the meaning; the glyph is decoration.
+                (NavBtn (props (id "cal-prev") (a11yLabel "Go to the Previous Month"))
+                    (NavGlyph "<"))
+                (Caption (props (id "cal-caption")) (model.monthLabel()))
+                (NavBtn (props (id "cal-next") (a11yLabel "Go to the Next Month"))
+                    (NavGlyph ">"))))
+        card.addChild(nav)
+
+        def grid (tree Cal
+            (Grid (props (id "cal-grid") (a11yLabel (model.monthLabel())))))
+
+        def head (tree Cal (HeadRow))
+        def c:int 0
+        while (c < 7) {
+            head.addChild((tree Cal (Weekday (UiDate.dayAbbr(c)))))
+            c = (c + 1)
+        }
+        grid.addChild(head)
+
+        def start:int (model.gridStart())
+        def weeks:int (model.weekCount())
+        def r:int 0
+        while (r < weeks) {
+            def week (tree Cal (Week))
+            def i:int 0
+            while (i < 7) {
+                def day:int ((start + (r * 7)) + i)
+                def p:[int] ([] _:int ( 0 0 0 ))
+                UiDate.fromDays(day p)
+                ; The label is the CONTROLLER's, affixes and all — "Today, "
+                ; and ", selected" are how the reference announces state, and
+                ; a second opinion about it here would be a second source of
+                ; truth for what a reader hears.
+                def cell (tree Cal
+                    (Day (props (id (model.dayTid(day)))
+                                (className (this.dayClass(day)))
+                                (a11yLabel (model.dayLabel(day))))
+                        (DayNum (props (className (this.numClass(day))))
+                                ("" + (itemAt p 2)))))
+                week.addChild(cell)
+                i = (i + 1)
+            }
+            grid.addChild(week)
+            r = (r + 1)
+        }
+        card.addChild(grid)
+        page.addChild(card)
+
+        def note:string ("Arrow keys move a day, Home and End move within the week, "
+            + "PageUp and PageDown move a month. Enter chooses; Enter on the "
+            + "chosen day clears it.")
+        page.addChild((tree Cal (Note note)))
+        return page
+    }
+
+    ; --- events --------------------------------------------------------------
+
+    fn press:boolean (target:string) {
+        model.activate(target)
+        focused = target
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        ; A key belongs to the day that has focus. Nothing else on this page
+        ; takes one, so an unfocused page arms the resting day rather than
+        ; swallowing the press — otherwise the first arrow key does nothing
+        ; and the second one works, which reads as a dropped keystroke.
+        def target:string focused
+        if (target == "") {
+            target = (model.dayTid((model.currentFocusDay())))
+        }
+        def landed:string (model.keyDown(target k))
+        if (landed != "") {
+            focused = landed
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    ; A press or a key changes the DATA, so the tree is rebuilt rather than
+    ; reconciled. The kept layout survives: a freshly built tree has no element
+    ; the sheet has ever written to, so it reports itself layout-dirty on the
+    ; first pass and lays out without being asked to — see `laidOut`.
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Calendar demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Calendar demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}

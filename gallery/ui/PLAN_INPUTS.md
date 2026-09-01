@@ -104,6 +104,43 @@ Still needed: `rgbToHsv`, which has **no browser oracle** because CSS has no
 HSV notation. Asserted by round-trip identity and anchor values, and labelled
 as arithmetic.
 
+### P4b — `CalendarCtl` — **done**
+
+Not on the original list, because Radix has no calendar and the inventory
+therefore could not see the hole. shadcn's Calendar is `react-day-picker` with
+a class map over it, so that is the oracle, and the whole point of an oracle is
+that it contradicts you: three of the rules here are not what a careful person
+would write.
+
+- Home and End move within the displayed **week**, not the month. From Friday
+  the 1st, Home is the previous month's 26th and the caption follows.
+- PageUp and PageDown carry the day number and clamp it to the target month's
+  length. The 31st of May pages up to the 30th of April.
+- The tab stop at rest is **today**, not the 1st.
+- A disabled day **stops** an arrow key rather than being stepped over.
+- `mode="single"` **toggles**: choosing the chosen day clears it.
+
+Two behaviours are recorded as divergences rather than copied, and the parity
+counter scores them as divergences rather than as passes:
+
+- The reference's roving tabindex follows the first click but not the second,
+  and jumps to the 1st of the new month when focus crosses a boundary. Under
+  WAI-ARIA's grid pattern the tabbable cell is the one that will receive focus;
+  here it demonstrably is not. Ours stays with focus.
+- The reference emits no `aria-selected` at all — it appends ", selected" to
+  the day's label instead, and prefixes "Today, ". Both affixes are copied
+  exactly, and `aria-selected` is added on top.
+
+Gates: `ui:calendar:test` (125 assertions, offline, seven mutations tried and
+all seven caught), `ui:calendar:check` (108/108 against the library's own
+recorded answers, plus the two divergences), `ui:calendar:demo` (the drawn
+half), and a state in `ui:demo:a11y` so axe sees the grid.
+
+The date arithmetic is `UiDate.rgr` and not `datagrid/src/DateSerial.rgr`:
+that one deliberately carries Excel's 1900 leap-year bug, and a calendar you
+pick a date in must not have a phantom day in it. Noted there as a refactor to
+do if a third caller ever appears.
+
 ### P5 — `PasswordCtl` and `OtpCtl`
 
 The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal

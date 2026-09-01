@@ -234,6 +234,37 @@
             so the picture says the same thing.
           </p>
         </section>
+        <section data-for="calendar">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click a day, then click it again.</strong> A single-select
+            calendar <em>toggles</em> &mdash; choosing the chosen day clears it
+            &mdash; and the field above empties to show that it did. Measured
+            against react-day-picker, which is what shadcn&rsquo;s Calendar
+            wraps; guessing here gives you a date you cannot un-set.
+          </p>
+          <p class="hint">
+            <strong>Home and End move within the week, not the month.</strong>
+            From Friday the 1st, Home is April&rsquo;s 26th &mdash; an outside
+            day &mdash; and the caption follows it. That one row of the capture
+            is the reason this component has an oracle at all: &ldquo;Home goes
+            to the 1st&rdquo; is the obvious implementation and it is wrong.
+          </p>
+          <p class="hint">
+            <strong>PageUp from the 31st</strong> lands on the 30th of April,
+            because April has no 31st. The page keys carry the day number and
+            clamp it; subtracting thirty-one days agrees here by luck and
+            disagrees in most other months.
+          </p>
+          <p class="hint">
+            The tab stop at rest is <em>today</em>, not the first of the month
+            &mdash; also measured, and also not what this was first written as.
+            Two behaviours are deliberately <em>not</em> copied: the
+            reference&rsquo;s roving tabindex loses track of focus, and it emits
+            no <code>aria-selected</code>. Both are recorded as divergences and
+            counted as such rather than quietly scored as parity.
+          </p>
+        </section>
         <section data-for="timeline">
           <h2>what to try</h2>
           <p class="hint">
