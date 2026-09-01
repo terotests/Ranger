@@ -567,6 +567,105 @@ class RangerSourceFormat {
         return false
     }
 
+    ; A Rust block statement written on one line:
+    ;
+    ;   { let _tmp_1 = …; let _tmp_1_r = FmtRow::add(&_tmp_1, "b"); _tmp_1_r };
+    ;
+    ; The block itself is the ownership machinery hoisting a temporary so a
+    ; RefMut does not outlive the binding it borrows from, and it is not this
+    ; pass's business to question that. Only that it arrives as one line.
+    ;
+    ; Rust is the one target this fires on, because it is the one that emits
+    ; the shape. Restricted to a line whose code IS the block -- it starts with
+    ; `{` and nothing follows the matching `}` but a semicolon -- so an
+    ; initialiser like `let x = { … };` is left alone.
+    static fn breakRustBlockLine:string (line:string ext:string) {
+        if (ext != "rs") {
+            return line
+        }
+        def limit:int (RangerSourceFormat.codeEndOf(line))
+        def ind:string (RangerSourceFormat.indentOf(line))
+        def start:int (strlen ind)
+        if (start >= limit) {
+            return line
+        }
+        if ((charAt line start) != 123) {
+            return line
+        }
+        def marks:[int]
+        def depth:int 0
+        def closeIdx:int (0 - 1)
+        def i:int start
+        while (i < limit) {
+            def c:int (charAt line i)
+            if ((c == 34) || (c == 39)) {
+                def quote:int c
+                i = i + 1
+                while (i < limit) {
+                    def qc:int (charAt line i)
+                    if (qc == 92) {
+                        i = i + 2
+                    } {
+                        if (qc == quote) {
+                            break _
+                        }
+                        i = i + 1
+                    }
+                }
+                i = i + 1
+            } {
+                if (((c == 123) || (c == 40)) || (c == 91)) {
+                    depth = depth + 1
+                    i = i + 1
+                } {
+                    if (((c == 125) || (c == 41)) || (c == 93)) {
+                        depth = depth - 1
+                        if (depth == 0) {
+                            closeIdx = i
+                            i = limit
+                        } {
+                            i = i + 1
+                        }
+                    } {
+                        if (depth == 1) {
+                            if (c == 59) {
+                                push marks i
+                            }
+                        }
+                        i = i + 1
+                    }
+                }
+            }
+        }
+        if (closeIdx < 0) {
+            return line
+        }
+        if ((array_length marks) < 2) {
+            return line
+        }
+        ; nothing but a semicolon may follow the block
+        def tail:string (trim (substring line (closeIdx + 1) limit))
+        if ((strlen tail) > 0) {
+            if (tail != ";") {
+                return line
+            }
+        }
+        def step:string (ind + "  ")
+        def res:string (ind + "{\n")
+        def prev:int (start + 1)
+        for marks sm:int si {
+            def piece:string (trim (substring line prev (sm + 1)))
+            res = res + step + piece + "\n"
+            prev = sm + 1
+        }
+        def last:string (trim (substring line prev closeIdx))
+        if ((strlen last) > 0) {
+            res = res + step + last + "\n"
+        }
+        res = res + ind + (substring line closeIdx (strlen line))
+        return res
+    }
+
     static fn formatSource:string (text:string ext:string width:int) {
         def w:int width
         if (w <= 0) {
@@ -595,6 +694,9 @@ class RangerSourceFormat {
                     def broken:string (RangerSourceFormat.breakChainLine(line ext))
                     if (broken == line) {
                         broken = (RangerSourceFormat.breakArgLine(line ext))
+                    }
+                    if (broken == line) {
+                        broken = (RangerSourceFormat.breakRustBlockLine(line ext))
                     }
                     push out broken
                     keep = false

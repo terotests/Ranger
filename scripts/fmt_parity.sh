@@ -48,10 +48,18 @@ for src in "${SRCS[@]}"; do
     fi
   done
 done
-# Python's output is EXPECTED to differ from a baseline taken before the
-# method-rename fix: `fn str` is declared as `_str` on Python, and the chained
-# call site used to write the original name, so `r.str(...)` called a method
-# that did not exist. That is a bug fix and it applies whatever -format says.
+# Two targets are EXPECTED to differ from a baseline taken before this work,
+# and both differences apply whatever -format says, because neither is a
+# formatting decision:
+#
+#   python  `fn str` is declared as `_str` there, and the chained call site
+#           used to write the original name, so `r.str(...)` called a method
+#           that did not exist (ISSUES.md #78). 20 lines.
+#   cpp     the rg_ordered_map helper is literal text in the C++ writer, and
+#           four of its method bodies were written as one line each. Gating
+#           the readability of a hand-written string on a compiler flag would
+#           mean keeping two copies of it. 44 lines, all inside the helper.
+#
 # Every other target must still be byte-identical.
 if [ $fail -eq 0 ]; then
   echo "-format=none is byte-for-byte identical to the baseline"

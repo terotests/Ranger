@@ -343,11 +343,15 @@ powers, plus a second rule for operators the table does not know. §10.6.
 width aware, applied to finished lines rather than during emission. §10.5.
 
 **Phase 4 — `-format=native`.** Run the ecosystem tool when it is present. Cheap
-once phases 1–3 mean it has little to do.
+once phases 1–3 mean it has little to do. NOT BUILT: `-format=native` is
+rejected today with `allowed values: none ranger`, which is better than a flag
+that quietly does something else. It is also the one phase whose value depends
+on what is installed on the machine, and the one that would have MASKED every
+defect this work found — `gofmt` run over the Go output from the start would
+have reformatted around the reserved-word collisions and the precedence error
+instead of letting them surface as parse and build failures.
 
-**Phase 5 — category C.** The Rust inline `{ let _tmp_1 = …; }` and the C++
-one-line function body. Codegen shape work, tracked separately; listed here only
-so it is not mistaken for formatting.
+**Phase 5 — category C. DONE, and both of its premises were wrong.** §10.7.
 
 ---
 
@@ -789,3 +793,76 @@ is not a parenthesised receiver — and a `->` separated from its `)` by a space
 is a Rust return type, `fn f(self) -> Self`, not a member access. Both are
 fixed, both are in `--self-check`, and Rust's real figure was 6 rather than 18.
 Every "before" number this plan quoted for Rust was inflated by that.
+
+---
+
+## 10.7 What shipped: phase 5, and why its premises did not survive contact
+
+§3 put two shapes in category C — "**Ranger**, in codegen — a formatter cannot
+unpick it" — and named them in §8 as phase 5: the Rust inline
+`{ let _tmp_1 = …; }` and the C++ one-line function body. Both claims turned
+out to be wrong, in different ways, and finding that out is most of what phase
+5 was.
+
+### The Rust block: a formatter CAN unpick it
+
+`rustfmt` reformats it correctly and completely:
+
+```rust
+let _tmp_1 = {
+    let _tmp_2 = FmtRow::name(&r1, "north".to_string()).clone();
+    let _tmp_2_r = FmtRow::add(&_tmp_2, "a");
+    _tmp_2_r
+}
+.clone();
+```
+
+So it was category **B**, not C. That does not make it worthless to fix — it is
+only reformatted for someone who runs `rustfmt`, and the whole argument of §2 is
+that Ranger should not depend on that. But the reason given for calling it
+codegen work was false.
+
+It is also worth being clear about what was NOT changed: the block itself is the
+ownership machinery hoisting a temporary so a `RefMut` does not outlive the
+binding it borrows from (E0597). Questioning that is not a formatting job. Only
+its arrival as one line was.
+
+Fixed where phase 3 already works — on the finished line, in
+`breakRustBlockLine`, restricted to a line whose code IS the block: it starts
+with `{` and nothing follows the matching `}` but a semicolon. An initialiser
+like `let x = { … };` is left alone.
+
+### The C++ one-line body: not codegen at all
+
+```cpp
+V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range("rg_ordered_map::at"); } return entries[(size_t)s].second; }
+```
+
+That is not generated from any Ranger program. It is a **string literal in
+`ng_RangerCppClassWriter.rgr`** — `rg_ordered_map` is a hand-written runtime
+helper the C++ writer prints verbatim, and four of its bodies (and four `find`
+overloads) were written as a whole statement sequence on one line, up to 186
+characters.
+
+So there was no codegen shape to fix. The fix is to write the literal across
+several lines, which is why it is the one change in this whole plan with no risk
+at all: the text is not parsed, transformed or reasoned about by anything.
+
+It does mean C++ output differs from a pre-work baseline by 44 lines whatever
+`-format` says — gating the readability of a hand-written string on a compiler
+flag would mean keeping two copies of it. `scripts/fmt_parity.sh` names that
+difference, and the diff is 0 lines outside the helper.
+
+### What is left of the category
+
+One shape genuinely fits the original description, and it was not named: a
+generated `typedef std::variant<…>` at 299 characters, which `clang-format`
+does reduce to 80. It is a template argument list rather than a call argument
+list, so phase 3's rule declines it. Not done, and not pretended otherwise.
+
+### Verified
+
+`rustc` builds and runs the reformatted Rust block (prints `3`); `g++` builds
+and runs the reformatted helper, and a map-heavy conformance program still
+produces its committed output byte for byte through `at` and `find`. Two new
+cases in `tests/format.test.ts`, 36 in total.

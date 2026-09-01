@@ -8824,6 +8824,92 @@ RangerSourceFormat.hasOpenString = function(line) {
   };
   return false;
 };
+RangerSourceFormat.breakRustBlockLine = function(line, ext) {
+  if ( ext != "rs" ) {
+    return line;
+  }
+  const limit = RangerSourceFormat.codeEndOf(line);
+  const ind = RangerSourceFormat.indentOf(line);
+  const start = ind.length;
+  if ( start >= limit ) {
+    return line;
+  }
+  if ( line.charCodeAt(start ) != 123 ) {
+    return line;
+  }
+  let marks = [];
+  let depth = 0;
+  let closeIdx = 0 - 1;
+  let i = start;
+  while (i < limit) {
+    const c = line.charCodeAt(i );
+    if ( c == 34 || c == 39 ) {
+      const quote = c;
+      i = i + 1;
+      while (i < limit) {
+        const qc = line.charCodeAt(i );
+        if ( qc == 92 ) {
+          i = i + 2;
+        } else {
+          if ( qc == quote ) {
+            break;
+          }
+          i = i + 1;
+        }
+      };
+      i = i + 1;
+    } else {
+      if ( (c == 123 || c == 40) || c == 91 ) {
+        depth = depth + 1;
+        i = i + 1;
+      } else {
+        if ( (c == 125 || c == 41) || c == 93 ) {
+          depth = depth - 1;
+          if ( depth == 0 ) {
+            closeIdx = i;
+            i = limit;
+          } else {
+            i = i + 1;
+          }
+        } else {
+          if ( depth == 1 ) {
+            if ( c == 59 ) {
+              marks.push(i);
+            }
+          }
+          i = i + 1;
+        }
+      }
+    }
+  };
+  if ( closeIdx < 0 ) {
+    return line;
+  }
+  if ( marks.length < 2 ) {
+    return line;
+  }
+  const tail = line.substring((closeIdx + 1), limit ).trim();
+  if ( tail.length > 0 ) {
+    if ( tail != ";" ) {
+      return line;
+    }
+  }
+  const step = ind + "  ";
+  let res = ind + "{\n";
+  let prev = start + 1;
+  for ( let si = 0; si < marks.length; si++) {
+    var sm = marks[si];
+    const piece = line.substring(prev, (sm + 1) ).trim();
+    res = ((res + step) + piece) + "\n";
+    prev = sm + 1;
+  };
+  const last = line.substring(prev, closeIdx ).trim();
+  if ( last.length > 0 ) {
+    res = ((res + step) + last) + "\n";
+  }
+  res = (res + ind) + line.substring(closeIdx, line.length );
+  return res;
+};
 RangerSourceFormat.formatSource = function(text, ext, width) {
   let w = width;
   if ( w <= 0 ) {
@@ -8850,6 +8936,9 @@ RangerSourceFormat.formatSource = function(text, ext, width) {
         let broken = RangerSourceFormat.breakChainLine(line, ext);
         if ( broken == line ) {
           broken = RangerSourceFormat.breakArgLine(line, ext);
+        }
+        if ( broken == line ) {
+          broken = RangerSourceFormat.breakRustBlockLine(line, ext);
         }
         out.push(broken);
         keep = false;
@@ -28640,10 +28729,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("        }", true);
                 wr.out("    }", true);
                 wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }", true);
-                wr.out("    iterator find(const K& k) { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-                wr.out("    const_iterator find(const K& k) const { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-                wr.out("    V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
-                wr.out("    const V& at(const K& k) const { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+                wr.out("    iterator find(const K& k) {", true);
+                wr.out("        int32_t s = slot_(k);", true);
+                wr.out("        return s == -1 ? entries.end() : entries.begin() + s;", true);
+                wr.out("    }", true);
+                wr.out("    const_iterator find(const K& k) const {", true);
+                wr.out("        int32_t s = slot_(k);", true);
+                wr.out("        return s == -1 ? entries.end() : entries.begin() + s;", true);
+                wr.out("    }", true);
+                wr.out("    V& at(const K& k) {", true);
+                wr.out("        int32_t s = slot_(k);", true);
+                wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }", true);
+                wr.out("        return entries[(size_t)s].second;", true);
+                wr.out("    }", true);
+                wr.out("    const V& at(const K& k) const {", true);
+                wr.out("        int32_t s = slot_(k);", true);
+                wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }", true);
+                wr.out("        return entries[(size_t)s].second;", true);
+                wr.out("    }", true);
                 wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a", true);
                 wr.out("    // std::string temporary. C++17 guarantees hash<string> and", true);
                 wr.out("    // hash<string_view> agree on equal character sequences. Instantiated", true);
@@ -28660,10 +28763,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("        }", true);
                 wr.out("    }", true);
                 wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }", true);
-                wr.out("    iterator find(const char* k) { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-                wr.out("    const_iterator find(const char* k) const { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-                wr.out("    V& at(const char* k) { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
-                wr.out("    const V& at(const char* k) const { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+                wr.out("    iterator find(const char* k) {", true);
+                wr.out("        int32_t s = slot_sv_(k);", true);
+                wr.out("        return s == -1 ? entries.end() : entries.begin() + s;", true);
+                wr.out("    }", true);
+                wr.out("    const_iterator find(const char* k) const {", true);
+                wr.out("        int32_t s = slot_sv_(k);", true);
+                wr.out("        return s == -1 ? entries.end() : entries.begin() + s;", true);
+                wr.out("    }", true);
+                wr.out("    V& at(const char* k) {", true);
+                wr.out("        int32_t s = slot_sv_(k);", true);
+                wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }", true);
+                wr.out("        return entries[(size_t)s].second;", true);
+                wr.out("    }", true);
+                wr.out("    const V& at(const char* k) const {", true);
+                wr.out("        int32_t s = slot_sv_(k);", true);
+                wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }", true);
+                wr.out("        return entries[(size_t)s].second;", true);
+                wr.out("    }", true);
                 wr.out("    V& operator[](const char* k) {", true);
                 wr.out("        int32_t s = slot_sv_(k);", true);
                 wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);

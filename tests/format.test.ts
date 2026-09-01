@@ -367,6 +367,38 @@ describe("output formatter: long chains and argument lists (phase 3)", () => {
   }, 120000);
 });
 
+describe("output formatter: emitted shapes (phase 5)", () => {
+  const HAS_RUSTC = have("rustc");
+
+  it.runIf(HAS_RUSTC)("writes a Rust block statement as a block", () => {
+    // The ownership machinery hoists a temporary so a RefMut does not outlive
+    // the binding it borrows from, and emits the whole block on one line:
+    //   { let _tmp_1 = …; let _tmp_1_r = FmtRow::add(&_tmp_1, "b"); _tmp_1_r };
+    // Not this pass's business to question the block, only that it arrives as
+    // one line.
+    const rs = compile(CHAINS, "rust", "rs", "blocks");
+    expect(rs).toMatch(/\n\s+\{\n\s+let _tmp_\d+ = /);
+    expect(rs).toMatch(/\n\s+_tmp_\d+_r\n\s+\};/);
+    const bin = path.join(OUT, "blocks.bin");
+    execFileSync("rustc", ["--edition", "2018", "-A", "warnings", "-o", bin,
+                           path.join(OUT, "blocks.rs")]);
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("3");
+  }, 300000);
+
+  it.runIf(HAS_GXX)("writes the C++ runtime helper's method bodies as blocks", () => {
+    // rg_ordered_map is literal text in the C++ writer, not codegen: four of
+    // its bodies were a whole statement sequence on one line, up to 186
+    // characters. Nothing generates them, so nothing but this reformats them.
+    const cpp = compile(CHAINS, "cpp", "cpp", "helper");
+    expect(cpp).toMatch(/V& at\(const K& k\) \{\n\s+int32_t s = slot_\(k\);/);
+    expect(cpp).not.toMatch(/at\(const K& k\) \{ int32_t s/);
+    const bin = path.join(OUT, "helper.bin");
+    execFileSync("g++", ["-std=c++17", "-O0", "-o", bin,
+                         path.join(OUT, "helper.cpp")]);
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("3");
+  }, 240000);
+});
+
 describe("reserved words: the target's own parser reads the output", () => {
   // A name that is a keyword of the target has to be renamed or the generated
   // file does not parse. scripts/reserved_probe.py asks this question of every
