@@ -163,7 +163,14 @@ def is_postfix_expression(s):
 def count_redundant_receiver_parens(code):
     """`(x).m()`, `(x)->m()` and every pair in `((a.b()).c()).d()` -- a paren
     group whose content is a postfix expression and which is immediately
-    followed by a member access."""
+    followed by a member access.
+
+    A GROUPING paren only. A `(` right after a name opens that call's argument
+    list, and `intToText(whole).clone()` is not a parenthesised receiver -- an
+    earlier version of this counted it as one and inflated every "before"
+    number it produced. Likewise `->` must touch the `)`: C++ writes
+    `(v)->get(k)` with no space, while a Rust signature's `(self) -> Self` is
+    a return type and not a member access at all."""
     total = 0
     stack = []
     for i, c in enumerate(code):
@@ -171,9 +178,11 @@ def count_redundant_receiver_parens(code):
             stack.append(i)
         elif c == ")" and stack:
             start = stack.pop()
+            # a call's argument list, not a group around a receiver
+            if start > 0 and (code[start - 1].isalnum()
+                              or code[start - 1] in "_$)]>"):
+                continue
             nxt = i + 1
-            while nxt < len(code) and code[nxt] in " \t":
-                nxt += 1
             arrow = code.startswith("->", nxt)
             if nxt < len(code) and (code[nxt] == "." or arrow):
                 # not a decimal point: `(1).0` is not a receiver in any target
@@ -248,7 +257,9 @@ def main():
                  ("(1).toString()", 0), ("(a)[0]", 0), ('(f(")(")).m()', 1),
                  ("(a as T).m()", 0), ("(new X()).m()", 0),
                  ("(this).find(id)", 1), ("(xs[i]).get()", 1),
-                 ("(((a).b()).c()).d()", 3), ("((a+b).c()).d()", 1)]
+                 ("(((a).b()).c()).d()", 3), ("((a+b).c()).d()", 1),
+                 ("f(whole).clone()", 0), ("fn f(self) -> Self", 0),
+                 ("a.b(x).c()", 0), ("(a.b(x)).c()", 1)]
         bad = [(t, e, count_redundant_receiver_parens(t)) for t, e in cases
                if count_redundant_receiver_parens(t) != e]
         for t, e, g in bad:

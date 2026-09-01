@@ -5446,6 +5446,7 @@ class RangerRustClassWriter {
           ; a self-call: the receiver is the already-borrowed struct
           wr.out(((this.rustThisPrefix(ctx)) + ".") false)
         } {
+        def rcvClose:string ")"
         if (exprSelfRcNeeded && obj.expression) {
           exprSelfRcTmp = (ctx.rustGetTempVar())
           wr.out((("{ let " + exprSelfRcTmp) + " = ") false)
@@ -5458,7 +5459,12 @@ class RangerRustClassWriter {
           ; the receiver binding (E0597)
           wr.out((((("; let " + exprSelfRcTmp) + "_r = (") + exprSelfRcTmp) + "") false)
         } {
-          wr.out("(" false)
+          ; PLAN_FORMAT.md phase 1b. Rust was left out of phase 1 because this
+          ; is not a copy of the shared block: the pair opened here is closed
+          ; by one of three suffixes below, and the `{ let tmp = …` branch
+          ; above opens its own. `rcvClose` carries which of the two is open,
+          ; so the predicate can drop the pair on this path without the
+          ; suffixes having to know why.
           ctx.setInExpr()
           ; the receiver is a PLACE the callee may write through:
           ; `(keep.source).set(…)` reaches `source` through `keep`'s cell,
@@ -5470,13 +5476,14 @@ class RangerRustClassWriter {
           }
           def savedPlaceMut:boolean rust_recv_place_mut
           rust_recv_place_mut = recvPlaceMut
-          this.WalkNode(obj ctx wr)
-          rust_recv_place_mut = savedPlaceMut
           ctx.unsetInExpr()
+          this.writeCallReceiver(obj ctx wr)
+          rust_recv_place_mut = savedPlaceMut
+          rcvClose = ""
         }
         if obj_is_trait_type {
           ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
-          wr.out(").borrow_mut()." false)
+          wr.out((rcvClose + ".borrow_mut().") false)
         } {
           ; an Rc<RefCell<T>> receiver borrows mutably for the call
           def obj_is_rc:boolean false
@@ -5523,12 +5530,12 @@ class RangerRustClassWriter {
               oirMut = oirFnD.rust_mut_self
             }
             if oirMut {
-              wr.out(").borrow_mut()." false)
+              wr.out((rcvClose + ".borrow_mut().") false)
             } {
-              wr.out(").borrow()." false)
+              wr.out((rcvClose + ".borrow().") false)
             }
           } {
-            wr.out(")." false)
+            wr.out((rcvClose + ".") false)
           }
         }
         }

@@ -807,6 +807,12 @@ class CodeWriter {
     ; inside a format!/println! argument slot: a Display value needs no
     ; .to_string() there
     def in_format_args:boolean false
+    ; PLAN_FORMAT.md phase 2. The binding power of the operator this expression
+    ; is being written INTO, or 0 when that is not an operator at all. An
+    ; operand that binds TIGHTER than its parent never needs parentheses in any
+    ; target here, which is the whole of the rule; 0 means "unknown", and
+    ; unknown keeps the pair.
+    def parent_binding:int 0
     def codeStr:string ""
     def currentLine:string ""
     def tabStr:string "  "

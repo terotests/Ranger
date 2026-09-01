@@ -57,6 +57,7 @@ const CHAINS = "tests/fixtures/format_chains.rgr";
 const KEYWORDS = "tests/fixtures/format_keywords.rgr";
 const LONGCHAIN = "tests/fixtures/format_longchain.rgr";
 const STRESS = "tests/fixtures/format_stress.rgr";
+const PRECEDENCE = "tests/fixtures/format_precedence.rgr";
 const STRESS_OUT = "105 aa/bb/cc/dd/eeeeeeeeeeee/ffffffffffff/gggggggggggg";
 
 const HAS_GO = have("go", ["version"]);
@@ -152,6 +153,85 @@ describe("output formatter: call-receiver parentheses", () => {
     execFileSync("g++", ["-std=c++17", "-O0", "-o", bin,
                          path.join(OUT, "chains_on.cpp")]);
     expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe("3");
+  }, 240000);
+});
+
+describe("output formatter: operator precedence (phase 2)", () => {
+  // The Ranger tree is fully parenthesised by construction, so a pair in the
+  // OUTPUT is needed only where the target would re-associate differently.
+  // The rule drops a pair only when the operand binds STRICTLY tighter, which
+  // is why it cannot change what a program means -- and why r2 and r3 below
+  // keep theirs. Every case is executed, not just read.
+  const PREC_OUT = "14 20 3 1 1 18 4";
+
+  it("drops a pair around an operand that binds tighter", () => {
+    const js = compile(PRECEDENCE, "es6", "js", "prec");
+    expect(js).toContain("const r1 = a + b * c;");
+    expect(js).toContain("const r6 = a * b + b * c;");
+  }, 120000);
+
+  it("KEEPS the pair when the operand binds looser -- it is load-bearing", () => {
+    const js = compile(PRECEDENCE, "es6", "js", "prec");
+    expect(js).toContain("const r2 = (a + b) * c;");
+  }, 120000);
+
+  it("keeps the pair at equal precedence rather than reasoning about associativity", () => {
+    const js = compile(PRECEDENCE, "es6", "js", "prec");
+    expect(js).toContain("const r3 = a - (b - c);");
+  }, 120000);
+
+  it("knows relational binds tighter than equality", () => {
+    const js = compile(PRECEDENCE, "es6", "js", "prec");
+    expect(js).toContain("b2i((a < b && b < c))");
+    expect(js).toContain("b2i((a == b || b != c))");
+  }, 120000);
+
+  it("drops a pair around something already atomic", () => {
+    // `(to_double a)` has no entry in the binding-power table, and its
+    // emitted form is just `a`. A pair around a postfix expression is never
+    // required, whatever sits outside it.
+    const js = compile(PRECEDENCE, "es6", "js", "prec");
+    expect(js).toContain("const r7 = d * 2.0;");
+  }, 120000);
+
+  it("removes the stacked pair PLAN_FORMAT.md 4.2 named", () => {
+    // `joined + ((this.arr[k])).asString()` was the worked example: a receiver
+    // wrap and an expression wrap on the same operand.
+    const js = compile(CHAINS, "es6", "js", "chains_on");
+    expect(js).not.toMatch(/\(\(this\.\w+\[\w+\]\)\)/);
+  }, 120000);
+
+  it("does not change the answer", () => {
+    compile(PRECEDENCE, "es6", "js", "prec");
+    compile(PRECEDENCE, "es6", "js", "prec_off", ["-format=none"]);
+    const run = (n: string) =>
+      execFileSync(process.execPath, [path.join(OUT, n)],
+                   { encoding: "utf-8" }).trim();
+    expect(run("prec.js")).toBe(PREC_OUT);
+    expect(run("prec_off.js")).toBe(PREC_OUT);
+  }, 120000);
+
+  it.runIf(HAS_GO)("the same answer on Go", () => {
+    compile(PRECEDENCE, "go", "go", "prec");
+    execFileSync("gofmt", ["-e", path.join(OUT, "prec.go")], { stdio: "ignore" });
+    expect(
+      execFileSync("go", ["run", "prec.go"], { cwd: OUT, encoding: "utf-8" }).trim()
+    ).toBe(PREC_OUT);
+  }, 240000);
+
+  it.runIf(HAS_PY)("the same answer on Python", () => {
+    compile(PRECEDENCE, "python", "py", "prec");
+    expect(
+      execFileSync("python3", [path.join(OUT, "prec.py")],
+                   { encoding: "utf-8" }).trim()
+    ).toBe(PREC_OUT);
+  }, 120000);
+
+  it.runIf(HAS_GXX)("the same answer built with g++", () => {
+    compile(PRECEDENCE, "cpp", "cpp", "prec");
+    const bin = path.join(OUT, "prec.bin");
+    execFileSync("g++", ["-std=c++17", "-O0", "-o", bin, path.join(OUT, "prec.cpp")]);
+    expect(execFileSync(bin, { encoding: "utf-8" }).trim()).toBe(PREC_OUT);
   }, 240000);
 });
 

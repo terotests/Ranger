@@ -683,26 +683,89 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if (cmdl_wraps && paren_suppressed) {
       cmdl_wraps = false
     }
+    def cmdlOpName:string ""
+    if ((array_length node.children) > 0) {
+      def cmdlFc0:CodeNode (node.getFirst())
+      cmdlOpName = cmdlFc0.vref
+    }
     if cmdl_wraps {
       ; an operator whose template is itself `( … )` never needs the pair
       if ((array_length node.children) > 0) {
-        def cmdlFc:CodeNode (node.getFirst())
-        if (langWriter.opWritesOwnParens(cmdlFc.vref node ctx)) {
+        if (langWriter.opWritesOwnParens(cmdlOpName node ctx)) {
           cmdl_wraps = false
         }
       }
     }
+    ; PLAN_FORMAT.md phase 2. The tree is already fully parenthesised by
+    ; construction, so a pair is needed in the OUTPUT only where the target's
+    ; precedence would re-associate differently. An operand that binds strictly
+    ; tighter than the operator it sits inside never needs one, in any target
+    ; here. Equal precedence and anything unknown keep the pair, which is why
+    ; this cannot change what a program means.
+    def cmdlMyBp:int (langWriter.bindingPowerOf(cmdlOpName))
     if cmdl_wraps {
-      wr.out('(' false)
+      if (langWriter.formatterEnabled(ctx)) {
+        def cmdlNeeds:boolean (langWriter.operandNeedsParens(cmdlMyBp wr.parent_binding))
+        if (cmdlNeeds == false) {
+          cmdl_wraps = false
+        }
+      }
+    }
+    ; Still wrapping, and the formatter is on: write the body aside and ask
+    ; what it turned out to be. An operator whose own precedence is not in the
+    ; table -- `to_double`, `unwrap`, an index read -- can still emit something
+    ; that needs no pair at all: `(to_double digit)` is just `digit`, and
+    ; `(itemAt xs i)` is `xs[i]`. A pair around a postfix expression is never
+    ; required, whatever sits outside it, so this is safe wherever it fires.
+    def cmdlBuffered:boolean false
+    if cmdl_wraps {
+      if (langWriter.formatterEnabled(ctx)) {
+        cmdlBuffered = true
+      }
     }
     def prev_op_np:boolean wr.current_op_no_parens
-    wr.current_op_no_parens = (paren_suppressed || cmdl_wraps)
-    for cmd.children c:CodeNode i {
-      this.walkCommand(c node ctx wr)
-    }
-    wr.current_op_no_parens = prev_op_np
-    if cmdl_wraps {
-      wr.out(')' false)
+    def prev_bind:int wr.parent_binding
+    if cmdlBuffered {
+      def body:CodeWriter (new CodeWriter)
+      body.parent = wr
+      body.indentAmount = 0
+      body.sourceMapsEnabled = wr.sourceMapsEnabled
+      body.sourceMapBuilder = wr.sourceMapBuilder
+      body.lineNumber = wr.lineNumber
+      body.suppress_expr_parens = wr.suppress_expr_parens
+      body.current_op_no_parens = true
+      body.in_format_args = wr.in_format_args
+      body.parent_binding = cmdlMyBp
+      wr.current_op_no_parens = true
+      wr.parent_binding = cmdlMyBp
+      for cmd.children c:CodeNode i {
+        this.walkCommand(c node ctx body)
+      }
+      wr.suppress_expr_parens = body.suppress_expr_parens
+      wr.in_format_args = body.in_format_args
+      wr.parent_binding = prev_bind
+      wr.current_op_no_parens = prev_op_np
+      def bodyCode:string (body.getCode())
+      def bodyNeeds:boolean (langWriter.receiverNeedsParens(bodyCode))
+      if bodyNeeds {
+        wr.out(("(" + bodyCode + ")") false)
+      } {
+        wr.out(bodyCode false)
+      }
+    } {
+      if cmdl_wraps {
+        wr.out('(' false)
+      }
+      wr.current_op_no_parens = (paren_suppressed || cmdl_wraps)
+      wr.parent_binding = cmdlMyBp
+      for cmd.children c:CodeNode i {
+        this.walkCommand(c node ctx wr)
+      }
+      wr.parent_binding = prev_bind
+      wr.current_op_no_parens = prev_op_np
+      if cmdl_wraps {
+        wr.out(')' false)
+      }
     }
     if ((ctx.expressionLevel()) == 0) {
       wr.line_end( (langWriter.lineEnding()) )

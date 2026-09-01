@@ -1,0 +1,35 @@
+; PLAN_FORMAT.md phase 2. The Ranger tree is already fully parenthesised by
+; construction, so a pair in the OUTPUT is needed only where the target's
+; precedence would re-associate differently. Each of these is a case where the
+; answer is known, and every one of them is printed so that a wrong answer is
+; a failing test rather than an ugly line.
+class PrecMain {
+  sfn b2i:int (v:boolean) {
+    if v {
+      return 1
+    }
+    return 0
+  }
+  sfn main:void () {
+    def a:int 2
+    def b:int 3
+    def c:int 4
+    ; tighter child: the pair goes
+    def r1:int (a + (b * c))
+    ; looser child: the pair is REQUIRED and must stay
+    def r2:int ((a + b) * c)
+    ; equal precedence: kept, because dropping it needs associativity
+    def r3:int (a - (b - c))
+    ; relational binds tighter than equality on every target here
+    def r4:int (PrecMain.b2i((a < b) && (b < c)))
+    def r5:int (PrecMain.b2i((a == b) || (b != c)))
+    def r6:int ((a * b) + (b * c))
+    ; a pair around something already atomic: `(to_double x)` is just `x`
+    def d:double (to_double a)
+    def r7:double (d * 2.0)
+    ; printed as an int: targets disagree on how a double is spelled (`4` on
+    ; JavaScript, `4.0` on Python) and that is not what this fixture is about
+    def r7i:int (to_int r7)
+    print ("" + r1 + " " + r2 + " " + r3 + " " + r4 + " " + r5 + " " + r6 + " " + r7i)
+  }
+}

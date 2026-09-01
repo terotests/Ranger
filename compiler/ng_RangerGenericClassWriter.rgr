@@ -53,6 +53,64 @@ class RangerGenericClassWriter {
   ; to need them loses them.
   ; ---------------------------------------------------------------------------
 
+  ; ---------------------------------------------------------------------------
+  ; BINDING POWERS (PLAN_FORMAT.md S4.2, phase 2)
+  ;
+  ; The Ranger tree is already fully parenthesised by construction -- the
+  ; nesting IS the precedence -- so a pair of parentheses in the output is
+  ; needed only where the TARGET's precedence would re-associate differently
+  ; from the tree. Every target here is C-family and orders these operators the
+  ; same way, so one shared table answers for all of them; a target that
+  ; disagrees overrides this method.
+  ;
+  ; The rule is one-directional on purpose: drop the pair only when the operand
+  ; binds STRICTLY TIGHTER than the operator it sits inside. Parentheses around
+  ; a tighter-binding operand are never required in any context, so the rule
+  ; cannot change what a program means. Equal precedence keeps its pair, which
+  ; leaves `(a - b) - c` alone rather than reasoning about associativity.
+  ;
+  ; Higher binds tighter. 0 is "not an operator I know", and that keeps the
+  ; pair.
+  fn bindingPowerOf:int (opName:string) {
+    if (opName == "||") { return 3 }
+    if (opName == "or") { return 3 }
+    if (opName == "&&") { return 4 }
+    if (opName == "and") { return 4 }
+    if (opName == "|") { return 5 }
+    if (opName == "^") { return 6 }
+    if (opName == "&") { return 7 }
+    if (opName == "==") { return 8 }
+    if (opName == "!=") { return 8 }
+    if (opName == "<") { return 9 }
+    if (opName == ">") { return 9 }
+    if (opName == "<=") { return 9 }
+    if (opName == ">=") { return 9 }
+    if (opName == "<<") { return 10 }
+    if (opName == ">>") { return 10 }
+    if (opName == "+") { return 11 }
+    if (opName == "-") { return 11 }
+    if (opName == "*") { return 12 }
+    if (opName == "/") { return 12 }
+    if (opName == "%") { return 12 }
+    return 0
+  }
+
+  ; Does an operand of this binding power need parentheses inside a parent of
+  ; that one? Only "strictly tighter" answers no; everything else, including
+  ; either side being unknown, answers yes.
+  fn operandNeedsParens:boolean (childBp:int parentBp:int) {
+    if (childBp <= 0) {
+      return true
+    }
+    if (parentBp <= 0) {
+      return true
+    }
+    if (childBp > parentBp) {
+      return false
+    }
+    return true
+  }
+
   fn formatterEnabled:boolean (ctx:RangerAppWriterContext) {
     if (fmtMode >= 0) {
       return (fmtMode == 1)

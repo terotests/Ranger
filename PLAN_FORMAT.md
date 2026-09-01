@@ -329,17 +329,15 @@ Two more gates, because a formatter cannot tell right from wrong:
 Asking the same question of every target found JavaScript in a worse state
 (41 of 46 keywords, no block at all) and C++ close behind. §10.1.
 
-**Phase 1 — the receiver. DONE for nine targets, not for Rust and Swift 6.**
+**Phase 1 — the receiver. DONE, all targets.**
 `writeCallReceiver` at thirteen sites across eleven writers, deciding from the
 emitted text rather than the node. JavaScript 34 → 1, C++ 32 → 1, Dart 36 → 4,
-Kotlin 34 → 2, C# 36 → 3, Go 40 → 8 — and the doc examples of
+Kotlin 37 → 4, C# 37 → 3, Go 41 → 8, Swift 34 → 1 — and the doc examples of
 `PLAN_API_DOCS.md` §18 stop reading like Lisp, which no formatter would ever
-have fixed. Rust and Swift 6 are phase 1b, for the reasons in §10.2.
+have fixed. Rust and Swift 6 followed in phase 1b (§10.2).
 
-**Phase 2 — a precedence model for expressions.** Replace the ad-hoc
-`suppress_expr_parens` flag with parent/child binding powers. Removes the
-stacked `((…))`, and removes the need for a new manual suppression at every
-future call site.
+**Phase 2 — a precedence model for expressions. DONE.** Parent/child binding
+powers, plus a second rule for operators the table does not know. §10.6.
 
 **Phase 3 — chains and argument lists. DONE.** The all-or-nothing rule of §5,
 width aware, applied to finished lines rather than during emission. §10.5.
@@ -677,3 +675,94 @@ win is not here. It is in how operator expressions are emitted, which is §5's
 category B on the targets that have a reprinting formatter (prettier takes
 JavaScript's 128 to 112 by itself) and Ranger's own problem on Go, Kotlin, C#,
 Swift and Java.
+
+---
+
+## 10.6 What shipped: phases 1b and 2
+
+### 1b — the two targets phase 1 left out
+
+**Rust.** Its `CreateCallExpression` is not a copy of the shared block: the
+pair opened there is closed by one of three suffixes — `).`, `).borrow().`,
+`).borrow_mut().` — chosen from the sharing analysis, and a second branch
+(`{ let tmp = … ; let tmp_r = (tmp`) opens its own. An `rcvClose` string now
+carries which of the two is open, so the predicate can drop the pair on the
+formatted path without the suffixes having to know why.
+
+**Swift 6.** It already had a predicate, `isSimpleClassCallReceiver`, and that
+is why it was left alone — but the predicate answers only for a receiver that
+*names a class*, so every instance call was parenthesised anyway. The shared
+one subsumes it: 34 → 1 on the sample. The old test stays on the
+`-format=none` path, because it already suppressed the pair there.
+
+### 2 — binding powers, and a second rule for what they cannot answer
+
+The Ranger tree is already fully parenthesised by construction — the nesting
+IS the precedence — so a pair in the OUTPUT is needed only where the target
+would re-associate differently from the tree.
+
+**The table.** One shared set of binding powers on `RangerGenericClassWriter`,
+because every target here is C-family and orders these operators the same way.
+The rule is deliberately one-directional: **drop the pair only when the operand
+binds STRICTLY tighter than the operator it sits inside.** Parentheses around a
+tighter-binding operand are never required in any context, so the rule cannot
+change what a program means. Equal precedence keeps its pair, which leaves
+`(a - b) - c` alone rather than reasoning about associativity, and an operator
+missing from the table keeps its pair too.
+
+```js
+a + (b * c)      ->  a + b * c          // tighter: dropped
+(a + b) * c      ->  (a + b) * c        // looser: load-bearing, kept
+a - (b - c)      ->  a - (b - c)        // equal: kept
+(a < b) && (b < c)  ->  a < b && b < c  // relational binds tighter than &&
+false == (u < s) ->  false == u < s     // and tighter than equality
+```
+
+**The second rule.** The table cannot answer for an operator that is not one:
+`(to_double digit)` emits `digit`, `(itemAt xs i)` emits `xs[i]`, and both kept
+a pair because their binding power is unknown. So when the model still says
+"wrap", the body is written into a writer of its own and the pair is dropped if
+what came out is a postfix expression or is already a single balanced group —
+the same predicate phase 1 uses on receivers, and safe for the same reason: a
+pair around a postfix expression is never required, whatever sits outside it.
+
+That is what finally removes the worked example of §4.2:
+
+```js
+joined = joined + ((this.arr[k])).asString();   // before
+joined = joined + this.arr[k].asString();       // after
+```
+
+both wraps, in one pass — and the double-wrapped ternary with it:
+
+```js
+const v = (( … ? this.members[key] : undefined ));   // before
+const v = ( … ? this.members[key] : undefined );     // after
+```
+
+### What the two phases are worth
+
+Total parentheses in the output of `gallery/vela/src/VlChart.rgr`, against the
+compiler as it stood after phase 3:
+
+| Target | Before | After | Removed |
+| --- | --- | --- | --- |
+| Swift 6 | 1268 | 1130 | **138 (10%)** |
+| Go | 1417 | 1345 | 72 (5%) |
+| JavaScript | 1144 | 1074 | 70 (6%) |
+| Python | 1031 | 961 | 70 (6%) |
+| Dart | 1105 | 1035 | 70 (6%) |
+| Kotlin | 1111 | 1046 | 65 (5%) |
+| C# | 1152 | 1091 | 61 (5%) |
+| C++ | 1958 | 1905 | 53 (2%) |
+| Rust | 1978 | 1947 | 31 (1%) |
+
+### A measurement error worth recording
+
+The receiver-paren counter in `scripts/fmt_measure.py` was over-counting, and
+Rust was where it showed: 18 of its reported pairs were not pairs at all. A
+`(` that follows a name opens that call's ARGUMENT LIST — `intToText(whole)`
+is not a parenthesised receiver — and a `->` separated from its `)` by a space
+is a Rust return type, `fn f(self) -> Self`, not a member access. Both are
+fixed, both are in `--self-check`, and Rust's real figure was 6 rather than 18.
+Every "before" number this plan quoted for Rust was inflated by that.
