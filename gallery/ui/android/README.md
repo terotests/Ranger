@@ -82,6 +82,10 @@ else it is `npm run --prefix gallery/ui/android run`. Arguments go through after
 a `--` exactly as above. The scripts find the repository root themselves, so it
 does not matter which directory you are standing in.
 
+The repository-root names work from in here too — they are aliases in the same
+file — so a command copied out of any of these READMEs runs wherever you are
+standing.
+
 | From `gallery/ui/android` | From the repository root |
 | --- | --- |
 | `npm run run` / `npm start` | `npm run ui:android:run` |
