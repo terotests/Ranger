@@ -19,6 +19,7 @@ Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
 Import "PptxChrome.rgr"
 Import "PptxStripView.rgr"
+Import "PptxStripUi.rgr"
 Import "../../office/assets/OfficeAsset.rgr"
 Import "PptxA11y.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
@@ -251,6 +252,8 @@ class PptxApp {
     def theme:EVGToolbarTheme (PptxStripView.modernTheme())
     ; The five bands the strip's theme does not cover. See PptxChromeTheme.
     def skin:PptxChromeTheme (new PptxChromeTheme)
+    ; The strip, as a component tree. See PptxStripUi.
+    def stripUi:PptxStripUi (new PptxStripUi)
     def toolbarH:int 30
     def statusH:int 22
     def status:string ""
@@ -516,7 +519,7 @@ class PptxApp {
     fn initFrame:void () {
         toolbar.build()
         toolbar.editOn = editMode
-        toolbarH = (toolbar.heightFor(W))
+        toolbarH = (stripUi.heightFor(W))
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
         view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         this.registerCommands()
@@ -1426,7 +1429,13 @@ class PptxApp {
         W = nw
         H = nh
         this.applyChrome()
-        toolbarH = (toolbar.heightFor(W))
+        toolbarH = (stripUi.heightFor(W))
+        ; AND LAY THE STRIP OUT, not only measure it. A button's box has to be
+        ; valid as soon as the window size is known: a host may click before it
+        ; has drawn anything, and the boxes are what `toolbar.hit` answers
+        ; from. The hand-painted strip laid itself out inside `paint`, which
+        ; made every click depend on a frame having been built first.
+        stripUi.layout(toolbar 0 0 W)
         ; AFTER the strip has been measured, not before: `applyChrome` laid the
         ; shell out with whatever height the last page needed, and the band is
         ; as tall as the page showing on it.
@@ -2107,7 +2116,7 @@ class PptxApp {
         ; differ — one with a big button on it is taller than one without.
         ; Settling this only on resize left the strip short after a page
         ; change, with the bottom of the button drawn over the slide.
-        toolbarH = (toolbar.heightFor(W))
+        toolbarH = (stripUi.heightFor(W))
         ; The strip has just said how tall it is for the page it is showing, so
         ; the shell is laid out against that rather than against last frame's.
         this.syncChrome()
@@ -2116,7 +2125,35 @@ class PptxApp {
         toolbar.italicOn = (this.selectionItalic())
         this.refreshFonts()
         toolbar.refresh(index (this.slideCount()))
-        toolbarView.paint(framed toolbar 0 0 W toolbarH)
+        ; THE STRIP, AS A COMPONENT. The tree is laid out by `EVGLayout`, which
+        ; also writes each button's box back onto the model — so `toolbar.hit`
+        ; and `toolbar.hitTab` answer out of the same numbers they always did
+        ; and nothing downstream knows the painter changed.
+        stripUi.layout(toolbar 0 0 W)
+        def stripEl:EVGElement (unwrap stripUi.root)
+        def stripDl (new EVGDisplayList())
+        stripDl.build(stripEl)
+        PptxApp.appendList(framed stripDl)
+        ; The icons go into the boxes the layout computed. They are stacks of
+        ; rectangles rather than path data, so they cannot live in the tree
+        ; yet — the tree says where, the old painter says what.
+        def bi:int 0
+        while (bi < (toolbar.count())) {
+            def bit:ToolItem (toolbar.at(bi))
+            ; A BOX OF ZERO WIDTH IS A BUTTON ON ANOTHER TAB. `build` zeroes
+            ; them and the old painter guarded on the same thing; without the
+            ; guard every hidden tab's icons were drawn at the origin, in a
+            ; heap under the corner of the strip, and the frame carried
+            ; fifteen icons nobody could see.
+            if (bit.w > 0) {
+                if (bit.isSeparator == false) {
+                    if (bit.icon > 0) {
+                        toolbarView.paintToolIcon(framed bit 20)
+                    }
+                }
+            }
+            bi = (bi + 1)
+        }
 
         def sy:int (H - statusH)
         framed.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
