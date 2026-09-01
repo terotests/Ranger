@@ -203,6 +203,7 @@ class EVGA11yFromTree {
             n.sorted = el.a11ySorted
             n.orientation = el.a11yOrientation
             n.current = el.a11yCurrent
+            n.value = el.a11yValue
             n.hasValueNow = el.a11yHasValue
             n.valueNow = el.a11yValueNow
             n.hasValueRange = el.a11yHasRange

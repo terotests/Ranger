@@ -607,6 +607,8 @@
     "evg:textbox:oracle": "node gallery/ui/conformance/oracle/textbox_oracle.mjs",
     "evg:textbox:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/textbox_check.mjs",
     "evg:scroll:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/scroll_check.mjs",
+    "ui:pointer:oracle": "node gallery/ui/conformance/oracle/pointer_oracle.mjs",
+    "ui:pointer:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/pointer_check.mjs",
     "ui:calendar:demo": "npm run ui:demo:build --silent && node gallery/ui/demo/calendar-check.mjs",
     "ui:calendar:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/calendar_check.mjs",
     "ui:virtual:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/virtual_check.mjs",

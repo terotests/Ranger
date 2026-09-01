@@ -318,34 +318,83 @@ class InputCtl extends UiCtl {
     ; runs of spaces and punctuation, and the diff reports `selstart` after
     ; every press. Whatever the browser does is what this has to do.
 
-    fn isSpaceAt:boolean (i:int) {
-        if (i < 0) {
-            return true
-        }
-        if (i >= (strlen value)) {
-            return true
-        }
-        def c:int (charAt value i)
-        ; space, tab, newline, carriage return
-        if (c == 32) { return true }
-        if (c == 9)  { return true }
-        if (c == 10) { return true }
-        if (c == 13) { return true }
-        return false
-    }
-
     ; Backwards: over any run of spaces, then over the word itself, landing on
     ; the word's first character.
+    ; --- words ----------------------------------------------------------------
+    ;
+    ; A browser does not split text into "space" and "not space". It puts every
+    ; character into one of THREE classes, and a word is a maximal run of one
+    ; class:
+    ;
+    ;   0  whitespace
+    ;   1  word characters — letters, digits, underscore
+    ;   2  everything else, i.e. punctuation
+    ;
+    ; Measured, in `conformance/oracle/pointer.json`, over
+    ; "alpha  beta,gamma delta":
+    ;
+    ;   Ctrl+ArrowRight from 0 stops at 5, 11, 12, 17, 23 — so it stops BEFORE
+    ;   the comma and then crosses it alone.
+    ;   Double-clicking the comma selects [11,12] — the comma by itself.
+    ;   Double-clicking a space selects the whole RUN of spaces, [5,7].
+    ;
+    ; The previous version asked only "is this a space", which makes
+    ; "beta,gamma" one word: Ctrl+ArrowRight from 5 gave 17 where Chromium
+    ; gives 11. Nothing caught it because the nine keyboard specs all use
+    ; "alpha  beta gamma", which has no punctuation in it — a corpus cannot
+    ; find a rule it contains no instance of.
+    ;
+    ; Everything at or above 128 is called a word character. That is an
+    ; approximation, not a measurement: real word breaking is UAX #29 and needs
+    ; tables. It is right for accented Latin, wrong for CJK — where a browser
+    ; breaks on script boundaries — and it is written down here rather than
+    ; discovered later.
+
+    sfn classOf:int (c:int) {
+        if (c == 32) { return 0 }
+        if (c == 9)  { return 0 }
+        if (c == 10) { return 0 }
+        if (c == 13) { return 0 }
+        if ((c >= 48) && (c <= 57)) { return 1 }
+        if ((c >= 65) && (c <= 90)) { return 1 }
+        if ((c >= 97) && (c <= 122)) { return 1 }
+        if (c == 95) { return 1 }
+        if (c >= 128) { return 1 }
+        return 2
+    }
+
+    ; The class of the character at `i`, or whitespace outside the string —
+    ; which makes both ends behave like a boundary with no special case.
+    fn classAt:int (i:int) {
+        if (i < 0) {
+            return 0
+        }
+        if (i >= (strlen value)) {
+            return 0
+        }
+        return (InputCtl.classOf((charAt value i)))
+    }
+
+    fn isSpaceAt:boolean (i:int) {
+        return ((this.classAt(i)) == 0)
+    }
+
+    ; Backwards: over any run of whitespace first, then over the run that ends
+    ; at `i`, landing on that run's start.
     fn wordLeft:int (from:int) {
         def i:int (this.clamp(from))
         while (i > 0) {
-            if ((this.isSpaceAt((i - 1))) == false) {
+            if ((this.classAt((i - 1))) != 0) {
                 break
             }
             i = (i - 1)
         }
+        if (i == 0) {
+            return 0
+        }
+        def cls:int (this.classAt((i - 1)))
         while (i > 0) {
-            if (this.isSpaceAt((i - 1))) {
+            if ((this.classAt((i - 1))) != cls) {
                 break
             }
             i = (i - 1)
@@ -353,32 +402,95 @@ class InputCtl extends UiCtl {
         return i
     }
 
-    ; Forwards: over any run of spaces FIRST, then over the word, landing on
-    ; the character after the word's last.
+    ; Forwards: over any run of whitespace FIRST, then over the run that starts
+    ; there, landing on the character after its last.
     ;
     ; Not the mirror image of `wordLeft`, and that asymmetry is measured rather
     ; than chosen. The first version skipped the word and then the spaces —
     ; landing on the NEXT word's first character, which is the rule that reads
     ; naturally and is not the one the platform implements. On
     ; "alpha  beta gamma" from 0 it gave 7 where Chromium gives 5, and from
-    ; there 12 where Chromium gives 11. Both directions land on a word's own
+    ; there 12 where Chromium gives 11. Both directions land on a run's own
     ; edge: backwards on its start, forwards on its end.
     fn wordRight:int (from:int) {
         def i:int (this.clamp(from))
         def n:int (strlen value)
         while (i < n) {
-            if ((this.isSpaceAt(i)) == false) {
+            if ((this.classAt(i)) != 0) {
                 break
             }
             i = (i + 1)
         }
+        if (i >= n) {
+            return n
+        }
+        def cls:int (this.classAt(i))
         while (i < n) {
-            if (this.isSpaceAt(i)) {
+            if ((this.classAt(i)) != cls) {
                 break
             }
             i = (i + 1)
         }
         return i
+    }
+
+    ; The run a double-click takes: the maximal run of ONE class containing
+    ; `i`. Whitespace included — double-clicking the two spaces in
+    ; "alpha  beta" selects both of them, measured.
+    ;
+    ; This is deliberately not `wordLeft(i)`..`wordRight(i)`: those two skip
+    ; over whitespace before they start, so on a space they would reach out to
+    ; the words either side and select across.
+    fn wordStartAt:int (i:int) {
+        def at:int (this.clamp(i))
+        def n:int (strlen value)
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            return 0
+        }
+        def cls:int (this.classAt(at))
+        def a:int at
+        while (a > 0) {
+            if ((this.classAt((a - 1))) != cls) {
+                break
+            }
+            a = (a - 1)
+        }
+        return a
+    }
+
+    fn wordEndAt:int (i:int) {
+        def at:int (this.clamp(i))
+        def n:int (strlen value)
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            return 0
+        }
+        def cls:int (this.classAt(at))
+        def b:int at
+        while (b < n) {
+            if ((this.classAt(b)) != cls) {
+                break
+            }
+            b = (b + 1)
+        }
+        return b
+    }
+
+    ; Double-click. The anchor goes to the run's start and the caret to its
+    ; end, so a following Shift+Arrow extends from the far end the way it does
+    ; in a browser.
+    ; No `ensureCaretVisible` here: that one needs a text engine, and a
+    ; selection rule should not have to be handed a measurer to answer a
+    ; question about indices. The caller scrolls, because the caller is the
+    ; one that already has the engine in its hand.
+    fn selectWordAt:void (i:int) {
+        anchor = (this.wordStartAt(i))
+        caret = (this.wordEndAt(i))
     }
 
     ; --- geometry -------------------------------------------------------------
@@ -434,6 +546,20 @@ class InputCtl extends UiCtl {
     ; index whose prefix still fits is found in log n measurements — then take
     ; whichever of that index and the next one is NEARER, because a click on
     ; the right half of a character puts the caret after it.
+    ; Which character a POINTER landed on, given the field's own box.
+    ;
+    ; This lives here rather than in each demo because it had been written
+    ; twice already, with the box's left inset spelled as the literal `10.0`
+    ; in both — a second source of truth for a number the stylesheet owns. A
+    ; padding change in CSS would have moved the caret away from the pointer
+    ; and nothing would have said so. The resolved border and padding are on
+    ; the element after layout, so they are read rather than remembered.
+    sfn indexAtPageX:int (eng:EVGTextEngine c:InputCtl box:EVGElement px:double) {
+        def inset:double (box.box.borderWidthPx + box.box.paddingLeftPx)
+        def inner:double ((px - (box.calculatedX)) - inset)
+        return (c.indexAtX(eng (inner + c.scrollX)))
+    }
+
     fn indexAtX:int (eng:EVGTextEngine x:double) {
         def n:int (strlen (this.glyphText()))
         if (n == 0) {

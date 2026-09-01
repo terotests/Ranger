@@ -139,6 +139,107 @@ console.log("--- the keyboard reaches the demo ---");
   ok("and typing reaches the field", after === before + "XY", before + " -> " + after);
 }
 
+console.log("--- the pointer edits the text, not just the focus ---");
+{
+  // THE BUG THIS EXISTS FOR. `FormDemo.pressAt` could put the caret under the
+  // pointer since the day it was written, and `form-check.mjs` called it and
+  // passed. The page called `press(id)` with the coordinate dropped, so on the
+  // real page every click put the caret wherever it had been. A check that
+  // calls the API cannot see that nothing calls the API — so this one clicks
+  // the canvas, types, and reads the string that got drawn.
+  //
+  // Typing is the assertion on purpose. A caret x would have to be compared
+  // against a measurement, and the measurement is the other half of the same
+  // machinery; where the character LANDS in the string is independent of it.
+  // Each of the three below starts from a RELOADED page. Switching to another
+  // demo and back does not reset anything — the demo objects are made once at
+  // module scope and keep their state — so the first version of this ran the
+  // double-click against a field the click test had already typed into and
+  // read "Ada ZXLovelace" back.
+  const freshForm = async () => {
+    await page.reload({ waitUntil: "networkidle" });
+    await page.click('#demos input[value="form"]');
+    await page.waitForTimeout(300);
+  };
+  await freshForm();
+
+  // The field's VALUE, out of the accessible tree — which is what a screen
+  // reader is told, and the only place the whole string is. Reading it off the
+  // draw commands by looking for "Lovelace" was self-defeating: selecting that
+  // word and typing over it is the behaviour under test, and it takes the
+  // needle away with it.
+  const shown = () => page.evaluate(() => {
+    const t = JSON.parse(window.__lastA11y || "{}");
+    const n = (t.nodes || []).find((x) => x.id === "fm-name");
+    return n ? n.value : undefined;
+  });
+  const box = await page.evaluate(() => {
+    const el = document.querySelector('[data-a11y-id="fm-name"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y + r.height / 2, w: r.width };
+  });
+  ok("the Full Name field is on the page", !!box);
+  const before = await shown();
+  ok("it holds the name", before === "Ada Lovelace", before);
+
+  // 40px in from the box's left edge, not a fraction of its WIDTH. The box is
+  // 370px wide and "Ada Lovelace" is 79px of it, so a third of the box is
+  // well past the end of the text — the first version of this check clicked
+  // there, got the caret at 12, and read as the very bug it was written for.
+  // The offset is in text, and the click lands around the fifth character.
+  const IN_TEXT = 40;
+  await page.mouse.click(box.x + IN_TEXT, box.y);
+  await page.waitForTimeout(120);
+  await page.keyboard.type("X");
+  await page.waitForTimeout(150);
+  const after = await shown();
+  const at = after ? after.indexOf("X") : -1;
+  ok("a click puts the caret where the pointer landed",
+    at > 0 && at < before.length, `${JSON.stringify(after)} — X at ${at}`);
+  // Said separately, because "at the end" is the exact failure and deserves
+  // to be named rather than folded into a range check.
+  ok("and not at the end of the field, which is what a dropped x looks like",
+    at !== before.length, JSON.stringify(after));
+
+  // Double-click takes the run under the pointer. Typing replaces it, so the
+  // word is gone — which is a stronger statement than "a selection exists".
+  await freshForm();
+  await page.mouse.dblclick(box.x + IN_TEXT, box.y);
+  await page.waitForTimeout(120);
+  await page.keyboard.type("Z");
+  await page.waitForTimeout(150);
+  const dbl = await shown();
+  // The click lands inside "Lovelace", so the run taken is that word.
+  ok("a double-click selects a word, and typing replaces it",
+    dbl === "Ada Z" || dbl === "Z Lovelace", JSON.stringify(dbl));
+
+  // A drag selects a range, and it keeps selecting after the pointer has left
+  // the box — which is what pointer capture is for. Ending well past the right
+  // edge should take everything from the press to the end of the text.
+  await freshForm();
+  await page.mouse.move(box.x + IN_TEXT, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.w + 400, box.y, { steps: 6 });
+  await page.waitForTimeout(80);
+  await page.mouse.up();
+  await page.keyboard.type("Q");
+  await page.waitForTimeout(150);
+  const drag = await shown();
+  ok("a drag off the right edge keeps selecting to the end",
+    typeof drag === "string" && drag.endsWith("Q") && drag.length < before.length,
+    JSON.stringify(drag));
+
+  // And the cursor says the box is text. Without this a drawn form is a
+  // picture of a form: the I-beam is how a person knows there is a caret to be
+  // had. The page picks its cursor from the accessible tree, where a field and
+  // a button both read as activatable, so this needs its own answer.
+  await page.mouse.move(box.x + IN_TEXT, box.y);
+  await page.waitForTimeout(120);
+  const cur = await page.evaluate(() => document.querySelector("#stage canvas").style.cursor);
+  ok("the pointer says the box is text", cur === "text", cur);
+}
+
 console.log("--- the window follows the pointer ---");
 {
   // Reported: the window only jumped at the end of a drag. `dragBy` moved the

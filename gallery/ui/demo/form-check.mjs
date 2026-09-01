@@ -356,7 +356,10 @@ console.log("--- what a reader gets ---");
   // this is an equality and not a tolerance.
   let wrong = 0, firstWrong = "";
   for (let i = 1; i < value.length; i++) {
-    const x = bx + 10 + d.caretXOf("fm-name", i) - 0.5;   // just inside char i
+    // Through the demo's own inverse, not `bx + 10`. That literal was the
+    // padding without the border — the same mistake `pressAt` made, so the
+    // round trip agreed with itself and the caret sat a pixel off the pointer.
+    const x = d.pageXOf("fm-name", i) - 0.5;   // just inside char i
     d.pressAt("fm-name", x);
     if (c.caret !== i) { wrong++; if (!firstWrong) firstWrong = `x for index ${i} landed on ${c.caret}`; }
   }

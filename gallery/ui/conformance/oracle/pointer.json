@@ -1,0 +1,241 @@
+{
+  "value": "alpha  beta,gamma delta",
+  "chars": 23,
+  "click": [
+    {
+      "overChar": 0,
+      "char": "a",
+      "acrossGlyph": 0.25,
+      "selStart": 0,
+      "selEnd": 0
+    },
+    {
+      "overChar": 0,
+      "char": "a",
+      "acrossGlyph": 0.75,
+      "selStart": 1,
+      "selEnd": 1
+    },
+    {
+      "overChar": 3,
+      "char": "h",
+      "acrossGlyph": 0.25,
+      "selStart": 3,
+      "selEnd": 3
+    },
+    {
+      "overChar": 3,
+      "char": "h",
+      "acrossGlyph": 0.75,
+      "selStart": 4,
+      "selEnd": 4
+    },
+    {
+      "overChar": 5,
+      "char": "<space>",
+      "acrossGlyph": 0.25,
+      "selStart": 5,
+      "selEnd": 5
+    },
+    {
+      "overChar": 5,
+      "char": "<space>",
+      "acrossGlyph": 0.75,
+      "selStart": 6,
+      "selEnd": 6
+    },
+    {
+      "overChar": 6,
+      "char": "<space>",
+      "acrossGlyph": 0.25,
+      "selStart": 6,
+      "selEnd": 6
+    },
+    {
+      "overChar": 6,
+      "char": "<space>",
+      "acrossGlyph": 0.75,
+      "selStart": 7,
+      "selEnd": 7
+    },
+    {
+      "overChar": 11,
+      "char": ",",
+      "acrossGlyph": 0.25,
+      "selStart": 11,
+      "selEnd": 11
+    },
+    {
+      "overChar": 11,
+      "char": ",",
+      "acrossGlyph": 0.75,
+      "selStart": 12,
+      "selEnd": 12
+    },
+    {
+      "overChar": 12,
+      "char": "g",
+      "acrossGlyph": 0.25,
+      "selStart": 12,
+      "selEnd": 12
+    },
+    {
+      "overChar": 12,
+      "char": "g",
+      "acrossGlyph": 0.75,
+      "selStart": 13,
+      "selEnd": 13
+    },
+    {
+      "overChar": 17,
+      "char": "<space>",
+      "acrossGlyph": 0.25,
+      "selStart": 17,
+      "selEnd": 17
+    },
+    {
+      "overChar": 17,
+      "char": "<space>",
+      "acrossGlyph": 0.75,
+      "selStart": 18,
+      "selEnd": 18
+    },
+    {
+      "overChar": 22,
+      "char": "a",
+      "acrossGlyph": 0.25,
+      "selStart": 22,
+      "selEnd": 22
+    },
+    {
+      "overChar": 22,
+      "char": "a",
+      "acrossGlyph": 0.75,
+      "selStart": 23,
+      "selEnd": 23
+    }
+  ],
+  "clickPastEnd": [
+    23,
+    23,
+    "forward"
+  ],
+  "clickBeforeStart": [
+    23,
+    23,
+    "forward"
+  ],
+  "dragMidway": [
+    2,
+    9,
+    "forward"
+  ],
+  "dragEnd": [
+    2,
+    9,
+    "forward"
+  ],
+  "dragBackwards": [
+    4,
+    12,
+    "backward"
+  ],
+  "dragOutsideRight": [
+    3,
+    23,
+    "forward"
+  ],
+  "dragOutsideLeft": [
+    0,
+    3,
+    "backward"
+  ],
+  "shiftClick": [
+    2,
+    10,
+    "forward"
+  ],
+  "doubleClick": [
+    {
+      "overChar": 2,
+      "char": "p",
+      "selStart": 0,
+      "selEnd": 5,
+      "took": "alpha"
+    },
+    {
+      "overChar": 5,
+      "char": "<space>",
+      "selStart": 5,
+      "selEnd": 7,
+      "took": "  "
+    },
+    {
+      "overChar": 6,
+      "char": "<space>",
+      "selStart": 5,
+      "selEnd": 7,
+      "took": "  "
+    },
+    {
+      "overChar": 10,
+      "char": "a",
+      "selStart": 7,
+      "selEnd": 11,
+      "took": "beta"
+    },
+    {
+      "overChar": 11,
+      "char": ",",
+      "selStart": 11,
+      "selEnd": 12,
+      "took": ","
+    },
+    {
+      "overChar": 12,
+      "char": "g",
+      "selStart": 12,
+      "selEnd": 17,
+      "took": "gamma"
+    },
+    {
+      "overChar": 16,
+      "char": "a",
+      "selStart": 12,
+      "selEnd": 17,
+      "took": "gamma"
+    },
+    {
+      "overChar": 17,
+      "char": "<space>",
+      "selStart": 17,
+      "selEnd": 18,
+      "took": " "
+    },
+    {
+      "overChar": 22,
+      "char": "a",
+      "selStart": 18,
+      "selEnd": 23,
+      "took": "delta"
+    }
+  ],
+  "wordMotion": {
+    "ctrlArrowRight": [
+      5,
+      11,
+      12,
+      17,
+      23,
+      23,
+      23,
+      23
+    ],
+    "$comment": "Where Ctrl+ArrowRight stops, from 0, eight times. If it stops at the comma the keyboard shares double-click's three-class rule; if it steps over it, word motion and word selection are different rules and wordLeft/wordRight are right as they stand."
+  },
+  "tripleClick": [
+    0,
+    23,
+    "forward"
+  ]
+}

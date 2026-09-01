@@ -98,6 +98,11 @@ SUITES=(
   # And the drawn half: seven columns that line up, a chosen day whose number
   # is legible against its fill, and cells the pointer can actually reach.
   ui:calendar:demo
+  # The pointer half of the text field, which had no gate at all — which is
+  # why it was the half that got written and never wired. The word rules are
+  # measured against a real <input>: Ctrl+Arrow stops at punctuation and a
+  # double-click takes the run of one character class.
+  ui:pointer:check
   ui:form:check
   ui:profile:check
   ui:dashboard:check

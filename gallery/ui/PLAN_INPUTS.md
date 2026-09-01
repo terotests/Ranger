@@ -141,6 +141,62 @@ that one deliberately carries Excel's 1900 leap-year bug, and a calendar you
 pick a date in must not have a phantom day in it. Noted there as a refactor to
 do if a third caller ever appears.
 
+### P1b — the pointer half — **done**
+
+Feedback, verified against the code: the pointer half of the text field had
+**no conformance spec at all**, and that is why it was the half that got
+written and never wired. Nine specs drive the keyboard against a real
+`<input>`; nothing drove a click.
+
+So it was measured first — `conformance/oracle/pointer.json`, from a real
+`<input>` over `"alpha  beta,gamma delta"` — and three things came back that
+were not what the code did:
+
+- **A click snaps to the nearer character boundary.** The first probe clicked
+  exact midpoints and got `3→4, 5→6, 6→6, 12→12` back, which reads as a rule
+  and is not one: the midpoint is the tie. Re-measured at a quarter and three
+  quarters across each glyph, the rule is clean and unanimous.
+- **Word motion stops at punctuation.** Ctrl+ArrowRight from 0 stops at
+  5, 11, 12, 17, 23 — before the comma, then across it alone. `isSpaceAt`
+  made `"beta,gamma"` one word and landed on 17. The nine keyboard specs all
+  use `"alpha  beta gamma"`, which has no punctuation in it, so a corpus
+  could not find a rule it contained no instance of.
+- **A double-click takes the run of one character CLASS**, not "a word":
+  the comma alone in `"beta,gamma"`, and the whole run of spaces on a space.
+
+`InputCtl` now classifies into whitespace / word / punctuation, and both
+Ctrl+Arrow and double-click read that one rule. `ui:pointer:check` scores
+26/26 against the capture.
+
+Three defects surfaced in the wiring, all of the same shape — something that
+worked in isolation and was never connected:
+
+1. **`main.js` dropped the coordinate.** `press: (id) => form.press(id)`, under
+   a comment that said "the reason the press carries an x". `FormDemo.pressAt`
+   worked, `form-check.mjs` called it directly and passed. A check that calls
+   the API cannot see that nothing calls the API.
+2. **Clicking a field's own letters did nothing.** The hit lands on the glyph
+   run, `fm-name-text`, not the box — so only the empty part of the box to the
+   right of the text ever focused a field. Exactly backwards, and invisible in
+   a screenshot. Hits now resolve to the owning field by containment.
+3. **The box inset was the literal `10.0`, in three places** — the controller,
+   the demo and the round-trip test — while the real inset is 11 (1px border +
+   10px padding). All three agreed with each other and none with the
+   stylesheet, so the caret sat a pixel off the pointer and the test approved.
+   One `InputCtl.indexAtPageX` now reads the resolved border and padding.
+
+Also: `EVGA11yNode` never carried a text field's VALUE. The tree said "Full
+name, text box" and stopped; the DOM mirror asked for `node.value` and the
+producer never filled it. `a11yValue` now flows from the element through
+`EVGA11yFromTree`, empty for a password, as a browser does.
+
+The gate for all of it is `page-check.mjs`, which clicks the real canvas in a
+real browser and types — because that is the only place the three wiring
+defects were visible.
+
+Still not wired, and not pretended otherwise: **Shift+click** is implemented
+and reachable but has no end-to-end gate, and **triple-click** is not bound.
+
 ### P5 — `PasswordCtl` and `OtpCtl`
 
 The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal

@@ -703,6 +703,19 @@ class EVGElement {
     ; role of their own — the same rule the HTML name calculation uses, and the
     ; reason a row of Label + Shortcut announces as one thing.
     def a11yLabel:string ""
+    ; What a text field CONTAINS, as opposed to what it is called.
+    ;
+    ; A reader that is told "Full name, text box" and not the name in it is
+    ; being told half of what is on screen — and this was missing entirely:
+    ; the tree carried the label and the role, the DOM mirror asked for
+    ; `node.value`, and nothing on this side ever set it. The conformance
+    ; trace has had the value all along through `UiRow.text`, which is the
+    ; CONTROLLER's path; a demo that draws its own tree went without.
+    ;
+    ; A password field must leave this EMPTY. `value` is the text and
+    ; `glyphText()` is the bullets, and neither belongs to a reader: a browser
+    ; exposes no value for `type=password` either.
+    def a11yValue:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
     ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
@@ -2283,6 +2296,7 @@ class EVGElement {
         transitionSpec = other.transitionSpec
         role = other.role
         a11yLabel = other.a11yLabel
+        a11yValue = other.a11yValue
         a11yRoleDescription = other.a11yRoleDescription
         a11yDescription = other.a11yDescription
         a11yHasPopup = other.a11yHasPopup
@@ -2430,6 +2444,10 @@ class EVGElement {
         if ((name == "role") || (name == "a11yRole")) {
             role = (trim value)
             return
+        }
+        if ((name == "a11yValue") || (name == "aria-valuetext")) {
+            a11yValue = value
+            return true
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value

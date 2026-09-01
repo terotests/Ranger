@@ -531,7 +531,19 @@ const DEMOS = {
     list: () => form.displayListJson(),
     hit: (x, y) => form.hitId(x, y),
     a11y: (gen, focus) => form.a11yJson(gen, focus),
-    press: (id) => form.press(id),
+    // Shift+click extends rather than collapses — measured, [2,10] from a
+    // caret at 2 and a click at 10.
+    cursorAt: (x, y) => form.cursorAt(x, y),
+    press: (id, x, y, ev) => form.beginSelection(id, x, !!(ev && ev.shiftKey)),
+    // `drag`/`drop` put the pointer under CAPTURE, which is the whole reason
+    // they are declared: without it a selection that starts inside the box
+    // and travels past its edge stops the moment `hitAt` names something
+    // else. The browser clamps instead of collapsing — [3,23] dragging right
+    // off the end — and `indexAtX` clamps the same way, so the x is passed
+    // through wherever the pointer has got to.
+    drag: (id, ev) => form.extendSelection(ev.offsetX),
+    drop: () => form.endSelection(),
+    dblclick: (id, x) => form.selectWordAt(id, x),
     hover: (id) => {
       if (id === lastFormHover) return false;
       lastFormHover = id;
@@ -564,7 +576,11 @@ const DEMOS = {
     list: () => profile.displayListJson(),
     hit: (x, y) => profile.hitId(x, y),
     a11y: (gen, focus) => profile.a11yJson(gen, focus),
-    press: (id) => profile.press(id),
+    cursorAt: (x, y) => profile.cursorAt(x, y),
+    press: (id, x, y, ev) => profile.beginSelection(id, x, !!(ev && ev.shiftKey)),
+    drag: (id, ev) => profile.extendSelection(ev.offsetX),
+    drop: () => profile.endSelection(),
+    dblclick: (id, x) => profile.selectWordAt(id, x),
     hover: (id) => {
       if (id === lastProfileHover) return false;
       lastProfileHover = id;
@@ -1230,9 +1246,17 @@ function settlePendingRow() {
 let lastTree = null;
 let mirror = null;
 
-function press(x, y) {
+// The point, not just the id.
+//
+// This function used to hand the demo `hitAt(x, y)` and throw the coordinates
+// away, which is fine for a button and is exactly wrong for a text field: a
+// click has to land on a CHARACTER, and only the x knows which. `FormDemo`
+// had been able to answer that since the field was written, the offline check
+// called it directly and passed, and the page never asked. Every other demo's
+// `press` takes one argument and ignores the extras.
+function press(x, y, ev) {
   const id = hitAt(x, y);
-  if (demo().press(id)) paint();
+  if (demo().press(id, x, y, ev)) paint();
 }
 
 function paint() {
@@ -1281,7 +1305,14 @@ function paint() {
     // knows the frame changed; it keeps its elements by id, which is why a
     // reader's cursor survives a repaint.
     generation += 1;
-    const tree = JSON.parse(d.a11y(generation, state.focus));
+    const treeJson = d.a11y(generation, state.focus);
+    // Alongside `__lastList`, and for the same reason: something driving this
+    // page from outside needs the VALUE of a field, and only the accessible
+    // tree carries it. Scraping the draw commands for a known string works
+    // right up until the thing under test removes that string — which is
+    // exactly what selecting a word and typing over it does.
+    window.__lastA11y = treeJson;
+    const tree = JSON.parse(treeJson);
     tree.byId = new Map(tree.nodes.map((n) => [n.id, n]));
     lastTree = tree;
     mirror.update(tree);
@@ -1492,14 +1523,14 @@ canvas.addEventListener("pointerdown", (ev) => {
     // puts down. Nothing happens on a press that never travels.
     grabPointer = { x: ev.offsetX, y: ev.offsetY };
     grabCursor = d.cursorAt ? d.cursorAt(ev.offsetX, ev.offsetY) : "";
-    held = d.press(hitAt(ev.offsetX, ev.offsetY));
+    held = d.press(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY, ev);
     if (held) {
       canvas.setPointerCapture(ev.pointerId);
       paint();
     }
     return;
   }
-  press(ev.offsetX, ev.offsetY);
+  press(ev.offsetX, ev.offsetY, ev);
 });
 canvas.addEventListener("pointermove", (ev) => {
   const d = demo();
@@ -1532,6 +1563,19 @@ canvas.addEventListener("pointermove", (ev) => {
     // A hover starts a transition, and a transition needs frames.
     if (d.animated) animate();
   }
+});
+// Double-click, from the browser's own event rather than a click count of our
+// own: it owns the interval and the slop radius, and re-deriving either turns
+// a slow double-click into two carets.
+//
+// A `pointerdown` cannot answer this — measured, its `detail` is 0 here while
+// `click` and `dblclick` carry 1 and 2. (And `preventDefault()` on the
+// pointerdown does NOT suppress them, which was the reason given for reading
+// the count instead; that reason was wrong.)
+canvas.addEventListener("dblclick", (ev) => {
+  const d = demo();
+  if (!d.dblclick) return;
+  if (d.dblclick(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY)) paint();
 });
 canvas.addEventListener("pointerup", () => {
   const d = demo();

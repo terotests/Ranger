@@ -456,6 +456,18 @@ class FormDemo {
         ; The Field's two strings, handed over: the label names it and the hint
         ; — or the error, never both — describes it.
         box.a11yDescription = (f.describedText())
+        ; What the field CONTAINS, as opposed to what it is called. A reader
+        ; told "Full name, text box" and not the name in it has been given
+        ; half the screen. Nothing set this before: the tree carried the label
+        ; and the role, the DOM mirror asked for `node.value`, and the
+        ; producer never filled it in.
+        ;
+        ; Empty for a password, deliberately: `value` is the text,
+        ; `glyphText()` is the bullets, and a browser exposes neither for
+        ; `type=password`.
+        if (c.kind != "password") {
+            box.a11yValue = c.value
+        }
         box.a11yFocusable = (c.disabled == false)
         box.a11yDisabled = c.disabled
         ; `required` and `invalid` are NOT published here, and that is a limit
@@ -878,20 +890,87 @@ class FormDemo {
         return false
     }
 
-    ; A press that knows WHERE in the field it landed, so the caret goes
-    ; there.
+    ; --- the pointer, which is half of a text field ---------------------------
     ;
     ; `press` takes an element id and nothing else, which is enough to focus a
     ; field and not enough to put a caret in it: clicking anywhere in a text
     ; box left the caret wherever it had been. `InputCtl.indexAtX` has been
     ; able to answer "which character is under this x" since the field was
-    ; written — it was simply never asked, and until the advance table went in
-    ; it would have answered with the estimate and landed on the wrong
-    ; character anyway.
+    ; written — it was simply never asked.
     ;
-    ; `px` is in page coordinates; the field's own box is what the index is
-    ; measured from, so the box's left edge and its padding come off first.
-    fn pressAt:boolean (target:string px:double) {
+    ; It STILL was not asked from the page. These methods existed and
+    ; `form-check.mjs` called them directly, so the gate was green while
+    ; `main.js` passed `press(id)` with the coordinate dropped on the floor.
+    ; A check that calls the API cannot see that nothing calls the API; the
+    ; end-to-end gate for this now lives in `page-check.mjs`, which clicks the
+    ; canvas the way a person does.
+    ;
+    ; The rules are measured, in `conformance/oracle/pointer.json`:
+    ; a click snaps to the NEARER character boundary, a drag keeps its anchor
+    ; (including backwards), a drag that leaves the box clamps rather than
+    ; collapsing, and a double-click takes the run of one character class.
+
+    ; The field a selection drag started in. The pointer wanders — out of the
+    ; box, off the canvas — and `hitAt` then names something else or nothing,
+    ; so the drag has to remember its own field or the selection dies the
+    ; moment the pointer crosses the border.
+    def dragField:string ""
+
+    fn fieldBoxOf:EVGElement (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        return (FormDemo.byId(r target))
+    }
+
+
+    ; Which field an element BELONGS to.
+    ;
+    ; A click on the letters themselves hits `fm-name-text`, not `fm-name`:
+    ; the glyph run is a child of the box and it is what is under the pointer
+    ; wherever there is text. So `press("fm-name-text")` found no field, and
+    ; clicking a field's own characters did nothing at all — only the empty
+    ; part of the box to the right of the text focused it. Which is precisely
+    ; backwards, and invisible in a screenshot.
+    ;
+    ; Resolved by containment rather than by name: an id prefix test would
+    ; also match a second field called `fm-name-2`, and this is the sort of
+    ; rule that is only ever wrong once someone adds one.
+    fn fieldOwning:string (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == target) {
+                return target
+            }
+            def box:EVGElement (FormDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def inner:EVGElement (FormDemo.byId(box target))
+                if (inner.id == target) {
+                    return c.tid
+                }
+            }
+            i = (i + 1)
+        }
+        return target
+    }
+
+    fn indexAt:int (target:string px:double) {
+        def c:InputCtl (this.inputFor(target))
+        def box:EVGElement (this.fieldBoxOf(target))
+        if (box.id != target) {
+            return -1
+        }
+        return (InputCtl.indexAtPageX((this.engine()) c box px))
+    }
+
+    ; A press inside a field. `extend` is Shift+click, which keeps the anchor
+    ; where it was and moves only the caret — measured as [2,10] from a caret
+    ; at 2 and a click at 10.
+    fn beginSelection:boolean (rawTarget:string px:double extend:boolean) {
+        def target:string (this.fieldOwning(rawTarget))
         def took:boolean (this.press(target))
         if (took == false) {
             return false
@@ -900,41 +979,140 @@ class FormDemo {
         ; is not one, so the tid is what says whether this is really a field.
         def c:InputCtl (this.inputFor(target))
         if (c.tid != target) {
+            dragField = ""
             return true
         }
-        def lay:EVGLayout (this.laidOutOnce())
-        def r:EVGElement (unwrap root)
-        def box:EVGElement (FormDemo.byId(r target))
-        if (box.id != target) {
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            dragField = ""
             return true
         }
-        def inner:double ((px - (box.calculatedX)) - 10.0)
-        def eng:EVGTextEngine (this.engine())
-        def idx:int (c.indexAtX(eng (inner + (c.scrollX))))
-        c.moveTo(idx false)
+        c.moveTo(idx extend)
+        dragField = target
         this.rebuild()
         return true
     }
 
-    ; Extending a selection by dragging, which is the same answer with the
-    ; anchor left alone.
-    fn dragTo:boolean (target:string px:double) {
+    ; The pointer moved with the button down. The x may be well outside the
+    ; box; `indexAtX` clamps at both ends, which is what makes a drag off the
+    ; edge keep selecting to it instead of collapsing.
+    fn extendSelection:boolean (px:double) {
+        if (dragField == "") {
+            return false
+        }
+        def c:InputCtl (this.inputFor(dragField))
+        if (c.tid != dragField) {
+            return false
+        }
+        def idx:int (this.indexAt(dragField px))
+        if (idx < 0) {
+            return false
+        }
+        if (idx == c.caret) {
+            return false
+        }
+        c.moveTo(idx true)
+        this.rebuild()
+        return true
+    }
+
+    fn endSelection:boolean () {
+        if (dragField == "") {
+            return false
+        }
+        dragField = ""
+        return false
+    }
+
+    ; Double-click. The run under the pointer, by character class — so a word
+    ; on a letter, the comma alone in "beta,gamma", and the whole run of
+    ; spaces on a space.
+    fn selectWordAt:boolean (rawTarget:string px:double) {
+        def target:string (this.fieldOwning(rawTarget))
         def c:InputCtl (this.inputFor(target))
         if (c.tid != target) {
             return false
         }
-        def lay:EVGLayout (this.laidOutOnce())
-        def r:EVGElement (unwrap root)
-        def box:EVGElement (FormDemo.byId(r target))
-        if (box.id != target) {
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
             return false
         }
-        def inner:double ((px - (box.calculatedX)) - 10.0)
-        def eng:EVGTextEngine (this.engine())
-        def idx:int (c.indexAtX(eng (inner + (c.scrollX))))
-        c.moveTo(idx true)
+        ; The click has already snapped to a BOUNDARY, and a boundary is
+        ; between two characters. Double-clicking the right half of "a" and
+        ; the left half of "b" must take the same run, so the index is pulled
+        ; back onto the character the pointer is actually over.
+        def at:int idx
+        if (at >= (strlen c.value)) {
+            at = ((strlen c.value) - 1)
+        }
+        c.selectWordAt(at)
         this.rebuild()
         return true
+    }
+
+    ; The PAGE x of a caret index — the inverse of `indexAt`, through the same
+    ; inset. It exists so no caller has to know what the inset is: the offline
+    ; check used to spell it `bx + 10`, which is the padding without the
+    ; border, and it agreed with a `pressAt` that made the identical mistake.
+    ; Two wrongs matching is what a round-trip test through one constant buys
+    ; you; the real inset is 11 and the caret was a pixel off the pointer for
+    ; as long as both said 10.
+    fn pageXOf:double (target:string index:int) {
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return 0.0
+        }
+        def box:EVGElement (this.fieldBoxOf(target))
+        if (box.id != target) {
+            return 0.0
+        }
+        def inset:double (box.box.borderWidthPx + box.box.paddingLeftPx)
+        def eng:EVGTextEngine (this.engine())
+        return ((((box.calculatedX) + inset) + (c.caretXAt(eng index))) - c.scrollX)
+    }
+
+    ; Kept for the offline check, which drives the demo directly.
+    fn pressAt:boolean (target:string px:double) {
+        return (this.beginSelection(target px false))
+    }
+
+    fn dragTo:boolean (target:string px:double) {
+        dragField = target
+        return (this.extendSelection(px))
+    }
+
+
+    ; What the pointer should look like. A canvas UI has no `cursor: text` for
+    ; free — the page picks the cursor from the accessible tree, where a field
+    ; and a button are both "activatable" and would both say `pointer`. So the
+    ; field boxes are tested directly.
+    ;
+    ; It matters more than it sounds: an I-beam is how a person knows a
+    ; rectangle is text they can put a caret in, and without one a drawn form
+    ; reads as a picture of a form.
+    fn cursorAt:string (px:double py:double) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            def box:EVGElement (FormDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def x0:double (box.calculatedX)
+                def y0:double (box.calculatedY)
+                if ((px >= x0) && (px <= (x0 + (box.calculatedWidth)))) {
+                    if ((py >= y0) && (py <= (y0 + (box.calculatedHeight)))) {
+                        if (c.disabled) {
+                            return "default"
+                        }
+                        return "text"
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     fn setHover:void (id:string) { hovered = id }
