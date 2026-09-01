@@ -145,6 +145,13 @@ class UiRow {
     ; This is what makes a Field's hint and its error message part of the
     ; contract instead of decoration beside it.
     def description:string ""
+    ; `aria-keyshortcuts`: the key that reaches this control directly.
+    ;
+    ; A questionnaire's choices carry A, B, C — drawn as a badge in the
+    ; corner, which is decoration, and published here, which is the half that
+    ; works without eyes. Empty for a control with no shortcut, which is
+    ; almost all of them.
+    def keyShortcut:string ""
     ; `aria-rowcount` and `aria-rowindex`, 0 for a row that publishes neither.
     ;
     ; These are what a VIRTUALISED table owes a reader, and the reason they are

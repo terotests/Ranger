@@ -124,6 +124,11 @@ SUITES=(
   # stands on was measured — a browser's scrollTop is integer-clamped, and a
   # container that gains content does NOT keep its bottom.
   ui:scroller:check
+  # The questionnaire's FLOW. Base UI has no questionnaire primitive — it is a
+  # composite over field, radio-group, checkbox-group, input and progress — so
+  # the parts have oracles and the flow does not. Specified from the component
+  # source, and three of its rules are mutation-proved.
+  ui:quest:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl

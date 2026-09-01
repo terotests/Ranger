@@ -25,6 +25,7 @@ Import "TabsCtl.rgr"
 Import "AccordionCtl.rgr"
 Import "CalendarCtl.rgr"
 Import "ScrollerCtl.rgr"
+Import "QuestionnaireCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
@@ -176,6 +177,15 @@ class UiHost {
 
     fn addAccordion:AccordionCtl (tid:string name:string) {
         def c (new AccordionCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addQuestionnaire:QuestionnaireCtl (tid:string name:string) {
+        def c (new QuestionnaireCtl())
         c.tid = tid
         c.name = name
         c.build()
@@ -1385,6 +1395,7 @@ class UiHost {
             out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
             ; The text `aria-describedby` points AT, not the id it points with.
             out = out + ",\"description\":" + (UiHost.textOrNull(row.description))
+            out = out + ",\"keyshortcuts\":" + (UiHost.textOrNull(row.keyShortcut))
             ; What a virtualised table owes a reader: how many rows there ARE,
             ; and where this one really sits. Absent rather than zero, because
             ; a table that is not virtualised publishes neither.

@@ -1,0 +1,594 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; QuestionnaireCtl — one question at a time, with a required gate
+; =============================================================================
+; shadcn's Questionnaire, from the `base/` registry. Base UI has NO
+; questionnaire primitive — its list is accordion, alert-dialog, autocomplete,
+; avatar, button, checkbox, checkbox-group, collapsible, combobox,
+; context-menu, dialog, field, fieldset, form, input, menu, menubar, meter,
+; navigation-menu, number-field, popover, preview-card, progress, radio,
+; radio-group, scroll-area, select, separator, slider, switch, tabs, toast,
+; toggle, toggle-group, toolbar, tooltip — so this is a composite over field,
+; fieldset, form, radio-group, checkbox-group, input and progress.
+;
+; Which splits the work cleanly, and the split is worth stating because it is
+; the difference between what is measured and what is asserted:
+;
+;   THE PARTS have oracles. Single choice is a radio group, multiple choice is
+;   a checkbox group, the free-text answer is an input, and all three are
+;   already measured against Radix in this kit. Nothing about them is
+;   re-decided here.
+;
+;   THE FLOW does not. One item at a time, Previous/Skip/Next/Submit, the
+;   required gate, the letter shortcuts and "Question 1 of 3" are shadcn's own
+;   composition, read off the component source and one screenshot. Specified,
+;   not measured, and labelled so.
+;
+; --- WHAT THE SOURCE SAYS, ITEM BY ITEM --------------------------------------
+;
+;   `defaultItem="direction"` — the questionnaire opens on a named item, not
+;   necessarily the first.
+;   `shortcuts="letters"` — A, B, C label the choices and select them.
+;   `required: true` on an item — Next is refused until it is answered, and
+;   the error slot is where that is said.
+;   `required: false` — Skip is offered.
+;   `multiple: true` — the choices become a checkbox group; `formData.getAll`
+;   in the demo's submit handler confirms it collects a LIST.
+;   an `input` beside the choices — a free-text answer that counts as an
+;   answer for the required gate. The demo's submit reads one value for
+;   `direction`, so choosing a card and typing are the same slot.
+;
+; --- WHAT IT DOES NOT SAY, AND IS THEREFORE NOT BUILT ------------------------
+;
+; Whether Skip records "skipped" or leaves the answer empty; whether Previous
+; from the first item wraps; what the shortcut letters do past Z; and whether
+; an answered required item can be un-answered. Left out rather than invented.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class QChoice {
+    def value:string ""
+    def label:string ""
+    def description:string ""
+    def chosen:boolean false
+
+    Constructor () {
+    }
+}
+
+class QItem {
+    def name:string ""
+    def title:string ""
+    def description:string ""
+    def required:boolean false
+    def multiple:boolean false
+    ; The free-text answer, when the item offers one.
+    def hasInput:boolean false
+    def inputLabel:string ""
+    def inputPlaceholder:string ""
+    def inputText:string ""
+    def choices:[QChoice]
+    ; Set once Next has been refused, so the error appears on the attempt and
+    ; not while the reader is still reading the question.
+    def touched:boolean false
+
+    Constructor () {
+        def empty:[QChoice]
+        choices = empty
+    }
+}
+
+class QuestionnaireCtl extends UiCtl {
+
+    def items:[QItem]
+    def index:int 0
+    def submitted:boolean false
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def empty:[QItem]
+        items = empty
+    }
+
+    ; --- building it ----------------------------------------------------------
+
+    fn addItem:QItem (itemName:string title:string description:string required:boolean multiple:boolean) {
+        def it (new QItem())
+        it.name = itemName
+        it.title = title
+        it.description = description
+        it.required = required
+        it.multiple = multiple
+        push items it
+        return it
+    }
+
+    fn addChoice:void (itemName:string value:string label:string description:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:QItem (itemAt items i)
+            if (it.name == itemName) {
+                def c (new QChoice())
+                c.value = value
+                c.label = label
+                c.description = description
+                push it.choices c
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn addInput:void (itemName:string label:string placeholder:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:QItem (itemAt items i)
+            if (it.name == itemName) {
+                it.hasInput = true
+                it.inputLabel = label
+                it.inputPlaceholder = placeholder
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; `defaultItem`: the questionnaire opens on a NAMED item rather than on
+    ; the first one, which is what the reference's prop says and is not the
+    ; same thing as index 0.
+    fn setDefaultItem:void (itemName:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:QItem (itemAt items i)
+            if (it.name == itemName) {
+                index = i
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- where we are ---------------------------------------------------------
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn current:QItem () {
+        if ((array_length items) == 0) {
+            return (new QItem())
+        }
+        return (itemAt items index)
+    }
+
+    ; "Question 1 of 3" — one-based, because it is read by a person.
+    fn progressText:string () {
+        return ((("Question " + (to_string (index + 1))) + " of ") + (to_string (this.count())))
+    }
+
+    fn isLast:boolean () {
+        return (index == ((this.count()) - 1))
+    }
+
+    fn isFirst:boolean () {
+        return (index == 0)
+    }
+
+    ; --- answers --------------------------------------------------------------
+
+    fn isAnswered:boolean () {
+        def it:QItem (this.current())
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            if c.chosen {
+                return true
+            }
+            i = (i + 1)
+        }
+        ; Typing counts. The reference's submit handler reads ONE value for an
+        ; item that has both cards and a text box, so the two are the same
+        ; slot and either fills it.
+        if it.hasInput {
+            if ((strlen it.inputText) > 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn choose:void (value:string) {
+        def it:QItem (this.current())
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            if (c.value == value) {
+                if it.multiple {
+                    ; A checkbox group: each one is its own yes or no.
+                    c.chosen = (c.chosen == false)
+                } {
+                    c.chosen = true
+                }
+            } {
+                ; Single choice is a RADIO group, so choosing one clears the
+                ; rest. Multiple choice leaves them alone, which is the whole
+                ; difference between the two.
+                if (it.multiple == false) {
+                    c.chosen = false
+                }
+            }
+            i = (i + 1)
+        }
+        ; Answering clears a refusal: the error was about an empty item and
+        ; the item is no longer empty.
+        if (this.isAnswered()) {
+            it.touched = false
+        }
+    }
+
+    fn typeInto:void (text:string) {
+        def it:QItem (this.current())
+        if (it.hasInput == false) {
+            return
+        }
+        it.inputText = text
+        if (this.isAnswered()) {
+            it.touched = false
+        }
+    }
+
+    ; The letter shortcuts. A is the first choice, B the second. Past Z there
+    ; is nothing — the reference does not say what happens and a 27th choice
+    ; is a different problem than this one.
+    fn valueForLetter:string (letter:string) {
+        def it:QItem (this.current())
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            if ((QuestionnaireCtl.letterFor(i)) == letter) {
+                return c.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn letterFor:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i > 25) {
+            return ""
+        }
+        ; A table, because there is no code-to-string builtin here. Twenty-six
+        ; letters is the whole alphabet and a 27th choice is a different
+        ; problem than this one — the reference does not say what it does
+        ; either, so nothing is invented for it.
+        def letters:[string] ([] _:string (
+            "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M"
+            "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z"
+        ))
+        return (itemAt letters i)
+    }
+
+    ; --- moving between them --------------------------------------------------
+
+    ; The GATE. Next is refused on a required item with no answer, and the
+    ; refusal is what turns the error on — so the message appears when they
+    ; try to leave, not while they are still reading.
+    fn canAdvance:boolean () {
+        def it:QItem (this.current())
+        if (it.required == false) {
+            return true
+        }
+        return (this.isAnswered())
+    }
+
+    fn errorText:string () {
+        def it:QItem (this.current())
+        if (it.touched == false) {
+            return ""
+        }
+        if (this.isAnswered()) {
+            return ""
+        }
+        return "Choose an option to continue."
+    }
+
+    fn next:boolean () {
+        def it:QItem (this.current())
+        if ((this.canAdvance()) == false) {
+            it.touched = true
+            return false
+        }
+        if (this.isLast()) {
+            submitted = true
+            return true
+        }
+        index = (index + 1)
+        return true
+    }
+
+    ; Skip is offered only on an item that is not required, and it moves on
+    ; without recording anything. Whether the reference records a "skipped"
+    ; marker is not stated anywhere, so nothing is recorded.
+    fn canSkip:boolean () {
+        def it:QItem (this.current())
+        return (it.required == false)
+    }
+
+    fn skip:boolean () {
+        if ((this.canSkip()) == false) {
+            return false
+        }
+        if (this.isLast()) {
+            submitted = true
+            return true
+        }
+        index = (index + 1)
+        return true
+    }
+
+    ; Previous never validates: going back to change an answer must not be
+    ; blocked by the answer you are going back to change.
+    fn previous:boolean () {
+        if (this.isFirst()) {
+            return false
+        }
+        index = (index - 1)
+        return true
+    }
+
+    ; --- tids -----------------------------------------------------------------
+
+    fn progressTid:string () {
+        return (tid + "-progress")
+    }
+
+    ; The current item is pulled into a name before its field is read: this
+    ; parser does not take a field access on a call result, and says so with a
+    ; type error about `+` rather than about the access.
+    fn itemTid:string () {
+        def it:QItem (this.current())
+        return ((tid + "-item-") + it.name)
+    }
+
+    fn choiceTid:string (value:string) {
+        def it:QItem (this.current())
+        return ((((tid + "-") + it.name) + "-") + value)
+    }
+
+    fn inputTid:string () {
+        def it:QItem (this.current())
+        return (((tid + "-") + it.name) + "-input")
+    }
+
+    fn errorTid:string () {
+        return (tid + "-error")
+    }
+
+    fn prevTid:string () {
+        return (tid + "-prev")
+    }
+
+    fn skipTid:string () {
+        return (tid + "-skip")
+    }
+
+    fn nextTid:string () {
+        return (tid + "-next")
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-quest"
+        UiTree.clearChildren(root)
+
+        def prog (UiTree.div((this.progressTid()) "ui-quest-progress"))
+        UiTree.leafText(prog (this.progressText()))
+        root.addChild(prog)
+
+        def it:QItem (this.current())
+        def group (UiTree.div((this.itemTid()) "ui-quest-item"))
+        UiTree.leafText(group it.title)
+        root.addChild(group)
+
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            def row (UiTree.div((this.choiceTid(c.value)) "ui-quest-choice"))
+            if c.chosen {
+                UiTree.addClass(row "ui-quest-choice-on")
+            }
+            UiTree.leafText(row c.label)
+            root.addChild(row)
+            i = (i + 1)
+        }
+
+        if it.hasInput {
+            def inp (UiTree.div((this.inputTid()) "ui-quest-input"))
+            UiTree.leafText(inp it.inputText)
+            root.addChild(inp)
+        }
+
+        def err:string (this.errorText())
+        if ((strlen err) > 0) {
+            def e (UiTree.div((this.errorTid()) "ui-quest-error"))
+            UiTree.leafText(e err)
+            root.addChild(e)
+        }
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.nextTid())) {
+            this.next()
+            this.build()
+            return ""
+        }
+        if (target == (this.prevTid())) {
+            this.previous()
+            this.build()
+            return ""
+        }
+        if (target == (this.skipTid())) {
+            this.skip()
+            this.build()
+            return ""
+        }
+        def it:QItem (this.current())
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            if ((this.choiceTid(c.value)) == target) {
+                this.choose(c.value)
+                this.build()
+                return ""
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def v:string (this.valueForLetter(key))
+        if ((strlen v) > 0) {
+            this.choose(v)
+            this.build()
+            return (this.choiceTid(v))
+        }
+        return ""
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.progressTid())
+        push a (this.itemTid())
+        def it:QItem (this.current())
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            push a (this.choiceTid(c.value))
+            i = (i + 1)
+        }
+        if it.hasInput {
+            push a (this.inputTid())
+        }
+        if ((strlen (this.errorText())) > 0) {
+            push a (this.errorTid())
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        def it:QItem (this.current())
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            if ((this.choiceTid(c.value)) == target) {
+                return true
+            }
+            i = (i + 1)
+        }
+        if it.hasInput {
+            if (target == (this.inputTid())) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def it:QItem (this.current())
+
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.form()) name))
+        push out rootRow
+
+        ; The progress line is a STATUS: it changes as they move, and a reader
+        ; that is never told which question this is has lost the thread.
+        def progRow:UiRow (UiRow.of((this.progressTid()) (EVGA11yRole.status()) (this.progressText())))
+        progRow.parentTid = tid
+        push out progRow
+
+        ; Single choice is a radio group, multiple is a plain group of
+        ; checkboxes — which is what the two Base UI primitives underneath
+        ; would be, and what the demo's `getAll` for the multiple item says.
+        def groupRole:int (EVGA11yRole.radioGroup())
+        if it.multiple {
+            groupRole = (EVGA11yRole.group())
+        }
+        def groupRow:UiRow (UiRow.of((this.itemTid()) groupRole it.title))
+        groupRow.parentTid = tid
+        groupRow.description = it.description
+        if it.required {
+            groupRow.required = "true"
+        }
+        def err:string (this.errorText())
+        if ((strlen err) > 0) {
+            groupRow.invalid = "true"
+            ; The error REPLACES the description, for the reason the invoice
+            ; form gives: reading both leaves a reader to work out which one
+            ; still applies.
+            groupRow.description = err
+        }
+        push out groupRow
+
+        def i:int 0
+        while (i < (array_length it.choices)) {
+            def c:QChoice (itemAt it.choices i)
+            def role:int (EVGA11yRole.radio())
+            if it.multiple {
+                role = (EVGA11yRole.checkbox())
+            }
+            def r:UiRow (UiRow.of((this.choiceTid(c.value)) role c.label))
+            r.parentTid = (this.itemTid())
+            r.description = c.description
+            if c.chosen {
+                r.checked = (EVGA11yTri.yes())
+            } {
+                r.checked = (EVGA11yTri.no())
+            }
+            r.tabStop = true
+            r.focusable = true
+            ; The shortcut letter, as a description a reader can act on. The
+            ; badge in the picture is decoration; this is the part that works
+            ; without eyes.
+            def letter:string (QuestionnaireCtl.letterFor(i))
+            if ((strlen letter) > 0) {
+                r.keyShortcut = letter
+            }
+            push out r
+            i = (i + 1)
+        }
+
+        if it.hasInput {
+            def inRow:UiRow (UiRow.of((this.inputTid()) (EVGA11yRole.textField()) it.inputLabel))
+            inRow.parentTid = (this.itemTid())
+            inRow.placeholder = it.inputPlaceholder
+            inRow.hasText = true
+            inRow.text = it.inputText
+            inRow.tabStop = true
+            inRow.focusable = true
+            push out inRow
+        }
+        return out
+    }
+}
