@@ -217,6 +217,29 @@ console.log("the number field's own rules survive being drawn");
   eq("Shift+ArrowUp jumps by ten", (() => { e.keyWithShift("ArrowUp"); e.displayListJson(); return texts(e).includes("11"); })(), true);
 }
 
+console.log("clicking a stepper button leaves focus on the field");
+{
+  // The page gate caught this and this gate did not, so it belongs here too —
+  // a browser round trip is the expensive place to learn something a Node
+  // assertion can say. Clicking + used to move focus onto the BUTTON, so the
+  // next arrow key found focus on a button and did nothing, which reads as a
+  // dropped keystroke. A real number field's increment does not steal focus.
+  const d = fresh();
+  clickOn(d, "cx-num");
+  clickOn(d, "cx-num-inc");   // empty -> 0
+  clickOn(d, "cx-num-inc");   // 0 -> 1
+  eq("the field holds 1 after two presses", texts(d).includes("1"), true);
+  eq("and a plain ArrowUp still reaches it", d.key("ArrowUp"), true);
+  d.displayListJson();
+  eq("moving it to 2", texts(d).includes("2"), true);
+  // And the two key paths agree about WHERE a key goes: Shift is not a back
+  // door that works regardless of focus.
+  const e = fresh();
+  e.setFocus("cx-back");
+  eq("Shift+ArrowUp does not reach the field from elsewhere", e.keyWithShift("ArrowUp"), false);
+  eq("and the field is untouched", texts(e).includes("—"), true);
+}
+
 console.log("every control is reachable by the pointer");
 {
   const d = fresh();

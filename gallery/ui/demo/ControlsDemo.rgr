@@ -342,6 +342,11 @@ class ControlsDemo {
         }
         focused = target
         if (target == "cx-num-inc") {
+            ; Focus stays on the FIELD, not on the button. That is what a real
+            ; number field does — Base UI's Increment does not steal focus from
+            ; the input — and without it the next arrow key finds focus on a
+            ; button and does nothing, which reads as a dropped keystroke.
+            focused = "cx-num"
             num.increment()
             this.syncFromField()
             this.saveField()
@@ -349,6 +354,7 @@ class ControlsDemo {
             return true
         }
         if (target == "cx-num-dec") {
+            focused = "cx-num"
             num.decrement()
             this.syncFromField()
             this.saveField()
@@ -418,6 +424,21 @@ class ControlsDemo {
     ; a name and no modifiers — and Shift is where the LARGE STEP lives, which
     ; is the least guessable thing the number field measured.
     fn keyWithShift:boolean (k:string) {
+        ; Respects focus exactly as `key` does. It used to not, which made
+        ; Shift a back door into the number field from anywhere on the page —
+        ; two key paths with two different rules about where a key goes. The
+        ; page gate caught it: Shift+ArrowUp moved the field while a plain
+        ; ArrowUp right after it did nothing, because the two disagreed about
+        ; whether focus was on the field or on the + button beside it.
+        if (focused != "cx-num") {
+            if (stepper.onKey(k)) {
+                this.loadField()
+                this.syncFromField()
+                this.rebuild()
+                return true
+            }
+            return false
+        }
         if (num.onKey(k true)) {
             this.syncFromField()
             this.saveField()
