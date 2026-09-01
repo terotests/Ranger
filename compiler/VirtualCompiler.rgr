@@ -1315,6 +1315,12 @@ class tester {
           }
         }
 
+        ; Every class is written now, so a target that emits a preamble of
+        ; runtime helpers can finally see which of them the program uses. It
+        ; runs BEFORE the imports are collected, so a helper it decides to
+        ; write may still add the header/crate it needs.
+        lcc.langWriter.finalizeFile( appCtx (unwrap wr) )
+
         ; This should be changed into something like
         ; import R from 'foo/bar'
         def import_list:[string] (wr.getImports ())

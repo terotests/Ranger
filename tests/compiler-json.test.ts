@@ -223,8 +223,13 @@ describe("JSON operators", () => {
   // `use` line into the import slice, which sits ahead of the class content, so
   // a header written with the content ended up second and rustc rejected the
   // file with "an inner attribute is not permitted in this context".
+  //
+  // polyfill_dedup is the fixture that still proves it: the on_keypress polyfill
+  // brings its own `use std::io::Read;` along, well past the class content. The
+  // header's own `use` lines are no longer a witness — a program that needs
+  // neither Rc nor RefCell is now written without them.
   it("writes the Rust inner attributes ahead of every use line", () => {
-    const result = getGeneratedRustCode("tests/fixtures/hash_map.rgr");
+    const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");
     expect(result.success, `Compile failed: ${result.error}`).toBe(true);
 
     const firstUse = result.code.indexOf("use ");

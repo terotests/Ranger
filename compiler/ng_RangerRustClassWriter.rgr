@@ -97,6 +97,13 @@ class RangerRustClassWriter {
   ; ask what shape the caller is expecting
   def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
+  ; the preamble is written once, from finalizeFile
+  def rustPreambleWritten:boolean false
+  ; set while emitting: the program declares at least one local, and at least
+  ; one of those locals carries a capital. Both answers decide an allow
+  ; attribute, and neither can be read off the class descriptors.
+  def rustWroteLocalVar:boolean false
+  def rustLocalUpperName:boolean false
   ; writing the TARGET of a cell assignment: the whole collection is being
   ; replaced, so the path names the RefCell itself rather than borrowing it
   def rust_in_cell_assign:boolean false
@@ -2388,6 +2395,15 @@ class RangerRustClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
+      ; the file preamble asks, afterwards, whether the program has any local
+      ; at all — that is what unused_variables / unused_assignments cover, and
+      ; a hello world has none
+      if (p.is_class_variable == false) {
+        rustWroteLocalVar = true
+        if (this.rustNameHasUpper(p.compiledName)) {
+          rustLocalUpperName = true
+        }
+      }
       ; a nested self-call ARGUMENT inside a `let` initializer: the
       ; statement-level extraction cannot run inside the initializer, and
       ; two mutable self borrows collide (E0499/E0502) — pull the inner
@@ -7535,128 +7551,291 @@ class RangerRustClassWriter {
     wr.indent(-1)
     wr.out("}" true)
   }
-  fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-    def ucl@(optional):RangerAppClassDesc node.clDesc
-    if (null? ucl) {
+  ; --- is this a name rustc would complain about? -----------------------
+  fn rustNameHasUpper:boolean (name:string) {
+    def i:int 0
+    def cnt:int (strlen name)
+    while (i < cnt) {
+      def c:int (charAt name i)
+      if ((c >= 65) && (c <= 90)) {
+        return true
+      }
+      i = i + 1
+    }
+    return false
+  }
+  ; two capitals in a row — the shape clippy::upper_case_acronyms fires on
+  fn rustNameHasCapRun:boolean (name:string) {
+    def i:int 1
+    def cnt:int (strlen name)
+    while (i < cnt) {
+      def c:int (charAt name i)
+      def p:int (charAt name (i - 1))
+      if (((c >= 65) && (c <= 90)) && ((p >= 65) && (p <= 90))) {
+        return true
+      }
+      i = i + 1
+    }
+    return false
+  }
+  ; the generated body, asked whether it ever names a helper
+  fn rustBodyHas:boolean (body:string needle:string) {
+    return ((indexOf body needle) >= 0)
+  }
+
+  ; --- the file preamble -------------------------------------------------
+  ; The allow attributes, the std imports, the enum a closed family lowers
+  ; to, and the runtime helpers: downcast, identity, the insertion-ordered
+  ; map, the character-counting string searches.
+  ;
+  ; None of it is unconditional. This runs from finalizeFile, once every
+  ; class of the program is in the writer, so the preamble can READ the
+  ; body and write only what the body reached for. A hello world names no
+  ; helper and now gets none of them, instead of arriving under a hundred
+  ; and forty lines of prelude it never touches.
+  ;
+  ; The lines still land ahead of everything because they go into the
+  ; "before_imports" slice, created before any content: an inner attribute
+  ; (#![..]) has to precede every item in the file, and an (imp "...") from
+  ; an operator template writes a `use` line of its own ahead of the class
+  ; content.
+  fn writeRustFileHeader:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if rustPreambleWritten {
       return
     }
-    def cl:RangerAppClassDesc (unwrap ucl)
-    
-    ; Save previous class and set current class for self-referential type detection
-    def prevClass@(optional):RangerAppClassDesc (ctx.getCurrentClass())
-    ctx.setCurrentClass(cl)
-    
-    def wr:CodeWriter orig_wr
-    
-    ; Write file header with allow directives for common warnings.
-    ; The lines go into the "before_imports" slice: an inner attribute (#![..])
-    ; has to precede every item in the file, and an (imp "...") from an operator
-    ; template writes a `use` line ahead of the class content. Written here they
-    ; ended up after that line and rustc rejected the file.
-    if (fileHeaderWritten == false) {
-      def header:CodeWriter (wr.getTag("before_imports"))
+    rustPreambleWritten = true
+    def header:CodeWriter (wr.getTag("before_imports"))
+    def body:string (wr.getCode())
+    def hdrRoot:RangerAppWriterContext (ctx.getRoot())
+
+    ; --- which helpers the body names ------------------------------------
+    def unionNames:[string] (this.sealableUnionNames(ctx))
+    def hasUnions:boolean ((array_length unionNames) > 0)
+    def needsDowncast:boolean (this.rustBodyHas(body "RgAnyRef"))
+    def needsIdentical:boolean (this.rustBodyHas(body "rg_identical"))
+    def needsMap:boolean (this.rustBodyHas(body "HashMap"))
+    def needsIndexOf:boolean (this.rustBodyHas(body "rg_index_of"))
+    def needsIndexFrom:boolean (this.rustBodyHas(body "rg_index_of_from"))
+    def needsLastIndex:boolean (this.rustBodyHas(body "rg_last_index_of"))
+    ; a family with a reference case names Rc inside the enum itself
+    def unionHoldsRc:boolean false
+    for unionNames rcName:string rci {
+      def rcCl:RangerAppClassDesc (hdrRoot.findClass(rcName))
+      for rcCl.is_union_of rcM:string rcMi {
+        if (this.rustClassIsShared(rcM ctx)) {
+          unionHoldsRc = true
+        }
+      }
+    }
+    def needsRc:boolean (((this.rustBodyHas(body "Rc<")) || (this.rustBodyHas(body "Rc::"))) || unionHoldsRc)
+    if (needsDowncast || needsIdentical) {
+      needsRc = true
+    }
+    def needsRefCell:boolean ((this.rustBodyHas(body "RefCell")) || needsRc)
+
+    ; --- which warnings the program can actually trip ---------------------
+    def anyFnParams:boolean false
+    def anyManyParams:boolean false
+    def anyUpperName:boolean rustLocalUpperName
+    def anyCapRunType:boolean false
+    for hdrRoot.definedClasses acl:RangerAppClassDesc aci {
+      def aclSpecial:boolean (((((acl.is_system || acl.is_trait) || acl.is_template) || acl.is_operator_class) || acl.is_generic_instance) || acl.is_union)
+      if aclSpecial {
+        continue
+      }
+      ; only a class that reached the output can trip a lint. The context
+      ; holds every class the imported libraries declare, and a hello world
+      ; emits one of them.
+      if ((this.rustBodyHas(body ("struct " + acl.name))) == false) {
+        continue
+      }
+      if (this.rustNameHasCapRun(acl.name)) {
+        anyCapRunType = true
+      }
+      for acl.variables av:RangerAppParamDesc avi {
+        if (this.rustNameHasUpper(av.name)) {
+          anyUpperName = true
+        }
+      }
+      for acl.methods am:RangerAppFunctionDesc ami {
+        if (this.rustNameHasUpper(am.name)) {
+          anyUpperName = true
+        }
+        def amCnt:int (array_length am.params)
+        if (amCnt > 0) {
+          anyFnParams = true
+        }
+        ; clippy counts the receiver too, so seven declared parameters on a
+        ; method already make eight arguments
+        if (amCnt > 6) {
+          anyManyParams = true
+        }
+        for am.params ap:RangerAppParamDesc api {
+          if (this.rustNameHasUpper(ap.name)) {
+            anyUpperName = true
+          }
+        }
+      }
+      ; `asm` would be the natural name here — it is a C++ keyword, and the
+      ; compiler compiles itself for that target
+      for acl.static_methods astm:RangerAppFunctionDesc asmi {
+        if (this.rustNameHasUpper(astm.name)) {
+          anyUpperName = true
+        }
+        def asCnt:int (array_length astm.params)
+        if (asCnt > 0) {
+          anyFnParams = true
+        }
+        if (asCnt > 6) {
+          anyManyParams = true
+        }
+        for astm.params sp:RangerAppParamDesc spi {
+          if (this.rustNameHasUpper(sp.name)) {
+            anyUpperName = true
+          }
+        }
+      }
+    }
+    def hasIf:boolean (this.rustBodyHas(body "if "))
+    ; a redundant pair the writer put around a condition or an initializer
+    def needParens:boolean (((this.rustBodyHas(body "if (")) || (this.rustBodyHas(body "while ("))) || (this.rustBodyHas(body "return (")))
+    if (this.rustBodyHas(body " = (")) {
+      needParens = true
+    }
+    def needMut:boolean (this.rustBodyHas(body "mut "))
+    def needVars:boolean (rustWroteLocalVar || anyFnParams)
+    def needPtrArg:boolean (this.rustBodyHas(body "&Vec<"))
+    def anyClippy:boolean (((hasIf || anyManyParams) || anyCapRunType) || needPtrArg)
+
+    if needParens {
       header.out("#![allow(unused_parens)]" true)
+    }
+    if needMut {
       header.out("#![allow(unused_mut)]" true)
+    }
+    if needVars {
       header.out("#![allow(unused_variables)]" true)
+    }
+    if rustWroteLocalVar {
       header.out("#![allow(unused_assignments)]" true)
+    }
+    if anyUpperName {
       header.out("#![allow(non_snake_case)]" true)
-      header.out("#![allow(dead_code)]" true)
+    }
+    ; every class carries a generated `new` the program may never call, so
+    ; this one holds for any output
+    header.out("#![allow(dead_code)]" true)
+    if anyClippy {
       header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
       header.out("// itself - statement-level clamp chains, nested ifs, function arity and" true)
       header.out("// type names - which the transpiler must not rewrite or rename." true)
-      header.out("#![allow(clippy::manual_clamp)]" true)
-      header.out("#![allow(clippy::collapsible_if)]" true)
-      header.out("#![allow(clippy::too_many_arguments)]" true)
-      header.out("#![allow(clippy::upper_case_acronyms)]" true)
-      ; ptr_arg still fires on borrowed COLLECTION params (&Vec<T> of
-      ; non-scalar elements); borrowed strings are &str already
-      header.out("#![allow(clippy::ptr_arg)]" true)
-      header.out("" true)
+      if hasIf {
+        header.out("#![allow(clippy::manual_clamp)]" true)
+        header.out("#![allow(clippy::collapsible_if)]" true)
+      }
+      if anyManyParams {
+        header.out("#![allow(clippy::too_many_arguments)]" true)
+      }
+      if anyCapRunType {
+        header.out("#![allow(clippy::upper_case_acronyms)]" true)
+      }
+      if needPtrArg {
+        ; ptr_arg still fires on borrowed COLLECTION params (&Vec<T> of
+        ; non-scalar elements); borrowed strings are &str already
+        header.out("#![allow(clippy::ptr_arg)]" true)
+      }
+    }
+    header.out("" true)
+    if needsRc {
       header.out("use std::rc::Rc;" true)
-      ; Weak only reaches the output through a @(weak) field; without one
-      ; the use line is rustc's unused_imports warning on every file
-      def anyWeakField:boolean false
-      def hdrRoot:RangerAppWriterContext (ctx.getRoot())
-      for hdrRoot.definedClasses hcl:RangerAppClassDesc hci {
-        def hclSpecial:boolean (((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union)
-        if (hclSpecial == false) {
-          for hcl.variables hv:RangerAppParamDesc hvi {
-            def hvNN@(optional):CodeNode hv.nameNode
-            if (!null? hvNN) {
-              def hvN:CodeNode (unwrap hvNN)
-              if (hvN.hasFlag("weak")) {
-                anyWeakField = true
-              }
+    }
+    ; Weak only reaches the output through a @(weak) field; without one
+    ; the use line is rustc's unused_imports warning on every file
+    def anyWeakField:boolean false
+    for hdrRoot.definedClasses hcl:RangerAppClassDesc hci {
+      def hclSpecial:boolean (((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union)
+      if (hclSpecial == false) {
+        for hcl.variables hv:RangerAppParamDesc hvi {
+          def hvNN@(optional):CodeNode hv.nameNode
+          if (!null? hvNN) {
+            def hvN:CodeNode (unwrap hvNN)
+            if (hvN.hasFlag("weak")) {
+              anyWeakField = true
             }
           }
         }
       }
-      if anyWeakField {
-        header.out("use std::rc::Weak;" true)
-      }
+    }
+    if anyWeakField {
+      header.out("use std::rc::Weak;" true)
+    }
+    if needsRefCell {
       header.out("use std::cell::RefCell;" true)
-      ; …but `Cell` is NOT imported. A program is free to declare a class of
-      ; its own by that name, and the import made the two collide — `struct
-      ; Cell` against `use std::cell::Cell` is "the name `Cell` is defined
-      ; multiple times", and every later mention resolved to the std type
-      ; instead ("field `value` is private", "missing generics"). The interior
-      ; cell spells the std type in full at its two use sites, as the pool
-      ; header already does with UnsafeCell, so nothing is brought into scope
-      ; to be shadowed. It also drops an unused-import warning from every
-      ; generated program that has no interior cell at all.
+    }
+    ; …but `Cell` is NOT imported. A program is free to declare a class of
+    ; its own by that name, and the import made the two collide — `struct
+    ; Cell` against `use std::cell::Cell` is "the name `Cell` is defined
+    ; multiple times", and every later mention resolved to the std type
+    ; instead ("field `value` is private", "missing generics"). The interior
+    ; cell spells the std type in full at its two use sites, as the pool
+    ; header already does with UnsafeCell, so nothing is brought into scope
+    ; to be shadowed. It also drops an unused-import warning from every
+    ; generated program that has no interior cell at all.
+    if ((needsRc || needsRefCell) || anyWeakField) {
       header.out("" true)
-      ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
-      ; per member, each holding that member's cell. A `case` narrowing is then
-      ; an `if let` on the tag — no trait object, no downcast, and a closed set
-      ; the compiler can see. The enum is `Clone` because a union value passes
-      ; as a clone of the handle, exactly as the Rc did.
-      ;
-      ; `Any` is the compiler's own union of every declared class, so it is not
-      ; written: the enum would name every class in the program.
-      def unionNames:[string] (this.sealableUnionNames(ctx))
-      for unionNames uname:string uni {
-        def ucl:RangerAppClassDesc (hdrRoot.findClass(uname))
-        header.out("#[derive(Clone)]" true)
-        header.out(("pub enum " + (this.unionInterfaceName(uname)) + " {") true)
-        for ucl.is_union_of mname:string mi {
-          ; a case that holds only scalars rides INSIDE the variant — no cell,
-          ; no allocation; a reference case keeps its Rc<RefCell<T>>
-          if (this.rustClassIsShared(mname ctx)) {
-            header.out(("    " + mname + "(Rc<RefCell<" + mname + ">>),") true)
-          } {
-            header.out(("    " + mname + "(" + mname + "),") true)
-          }
+    }
+    ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
+    ; per member, each holding that member's cell. A `case` narrowing is then
+    ; an `if let` on the tag — no trait object, no downcast, and a closed set
+    ; the compiler can see. The enum is `Clone` because a union value passes
+    ; as a clone of the handle, exactly as the Rc did.
+    ;
+    ; `Any` is the compiler's own union of every declared class, so it is not
+    ; written: the enum would name every class in the program.
+    for unionNames uname:string uni {
+      def ucl:RangerAppClassDesc (hdrRoot.findClass(uname))
+      header.out("#[derive(Clone)]" true)
+      header.out(("pub enum " + (this.unionInterfaceName(uname)) + " {") true)
+      for ucl.is_union_of mname:string mi {
+        ; a case that holds only scalars rides INSIDE the variant — no cell,
+        ; no allocation; a reference case keeps its Rc<RefCell<T>>
+        if (this.rustClassIsShared(mname ctx)) {
+          header.out(("    " + mname + "(Rc<RefCell<" + mname + ">>),") true)
+        } {
+          header.out(("    " + mname + "(" + mname + "),") true)
         }
-        header.out("}" true)
       }
-      ; --- identity of a value of the family --------------------------------
-      ; `identical` asks whether two names hold the same object. On this target
-      ; that was `Rc::ptr_eq`, which an enum cannot be handed — so the operator
-      ; did not build at all for a value of a closed family. It goes through a
-      ; trait instead, so the same spelling serves both a shared class and a
-      ; family, and the answer follows the family's own split: a reference case
-      ; is the same object, a value case has no object to share (it rides
-      ; inside the tag) and answers on its content.
-      ; the trait is written for every program: `identical` on a plain shared
-      ; class goes through it too, so one spelling serves both
-      ; A Ranger `cast` from a parent-typed handle down to a subclass one.
-      ; Rust has no dynamic_pointer_cast: Rc<RefCell<dyn Trait>> and
-      ; Rc<RefCell<Concrete>> are different pointer shapes, so the conversion
-      ; checks the concrete type through Any and then rebuilds the Rc around
-      ; the same allocation — which is what Rc::<dyn Any>::downcast does in
-      ; std. Every generated trait carries RgAnyRef so the check is available
-      ; whatever the trait object is.
+      header.out("}" true)
+    }
+    ; A Ranger `cast` from a parent-typed handle down to a subclass one.
+    ; Rust has no dynamic_pointer_cast: Rc<RefCell<dyn Trait>> and
+    ; Rc<RefCell<Concrete>> are different pointer shapes, so the conversion
+    ; checks the concrete type through Any and then rebuilds the Rc around
+    ; the same allocation — which is what Rc::<dyn Any>::downcast does in
+    ; std. Every generated trait carries RgAnyRef so the check is available
+    ; whatever the trait object is.
+    if needsDowncast {
       header.out("pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }" true)
       header.out("fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {" true)
       header.out("    assert!(v.borrow().rg_as_any().is::<T>(), \"invalid downcast\");" true)
       header.out("    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;" true)
       header.out("    unsafe { Rc::from_raw(p) }" true)
       header.out("}" true)
+    }
+    ; --- identity of a value of the family --------------------------------
+    ; `identical` asks whether two names hold the same object. On this target
+    ; that was `Rc::ptr_eq`, which an enum cannot be handed — so the operator
+    ; did not build at all for a value of a closed family. It goes through a
+    ; trait instead, so the same spelling serves both a shared class and a
+    ; family, and the answer follows the family's own split: a reference case
+    ; is the same object, a value case has no object to share (it rides
+    ; inside the tag) and answers on its content.
+    if needsIdentical {
       header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
       header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {" true)
       header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
       header.out("}" true)
-      if ((array_length unionNames) > 0) {
+      if hasUnions {
         for unionNames uname:string uni2 {
           def ucl2:RangerAppClassDesc (hdrRoot.findClass(uname))
           def ename:string (this.unionInterfaceName(uname))
@@ -7680,69 +7859,71 @@ class RangerRustClassWriter {
           header.out("}" true)
         }
       }
-      if ((array_length unionNames) > 0) {
+    }
+    if (hasUnions || needsIdentical) {
         header.out("" true)
-      }
-      if (ctx.hasCompilerFlag("native-fast-alloc")) {
-        header.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
-        header.out("// allocator. Interpreter-style workloads spend a third of their time in" true)
-        header.out("// malloc/free; freed blocks park in per-size lists (32-byte classes up" true)
-        header.out("// to 1024 bytes) and are handed straight back. Memory is never returned" true)
-        header.out("// to the OS - fine for a benchmark or tool process, wrong for a daemon." true)
-        header.out("struct RgPoolAlloc;" true)
-        header.out("const RG_POOL_CLASSES: usize = 32;" true)
-        header.out("std::thread_local! {" true)
-        header.out("    static RG_POOL_HEADS: std::cell::UnsafeCell<[usize; RG_POOL_CLASSES + 1]> =" true)
-        header.out("        const { std::cell::UnsafeCell::new([0usize; RG_POOL_CLASSES + 1]) };" true)
-        header.out("}" true)
-        header.out("#[allow(unused_unsafe)]" true)
-        header.out("unsafe impl std::alloc::GlobalAlloc for RgPoolAlloc {" true)
-        header.out("    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {" true)
-        header.out("        let size = layout.size();" true)
-        header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
-        header.out("            let class = (size + 31) >> 5;" true)
-        header.out("            let took = RG_POOL_HEADS.try_with(|h| {" true)
-        header.out("                let heads = unsafe { &mut *h.get() };" true)
-        header.out("                let head = heads[class];" true)
-        header.out("                if head != 0 {" true)
-        header.out("                    heads[class] = unsafe { *(head as *mut usize) };" true)
-        header.out("                    return head as *mut u8;" true)
-        header.out("                }" true)
-        header.out("                std::ptr::null_mut()" true)
-        header.out("            });" true)
-        header.out("            if let Ok(p) = took {" true)
-        header.out("                if !p.is_null() {" true)
-        header.out("                    return p;" true)
-        header.out("                }" true)
-        header.out("            }" true)
-        header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
-        header.out("            return unsafe { std::alloc::System.alloc(l) };" true)
-        header.out("        }" true)
-        header.out("        unsafe { std::alloc::System.alloc(layout) }" true)
-        header.out("    }" true)
-        header.out("    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {" true)
-        header.out("        let size = layout.size();" true)
-        header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
-        header.out("            let class = (size + 31) >> 5;" true)
-        header.out("            let parked = RG_POOL_HEADS.try_with(|h| {" true)
-        header.out("                let heads = unsafe { &mut *h.get() };" true)
-        header.out("                unsafe { *(ptr as *mut usize) = heads[class] };" true)
-        header.out("                heads[class] = ptr as usize;" true)
-        header.out("            });" true)
-        header.out("            if parked.is_ok() {" true)
-        header.out("                return;" true)
-        header.out("            }" true)
-        header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
-        header.out("            unsafe { std::alloc::System.dealloc(ptr, l) };" true)
-        header.out("            return;" true)
-        header.out("        }" true)
-        header.out("        unsafe { std::alloc::System.dealloc(ptr, layout) }" true)
-        header.out("    }" true)
-        header.out("}" true)
-        header.out("#[global_allocator]" true)
-        header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;" true)
-        header.out("" true)
-      }
+    }
+    if (ctx.hasCompilerFlag("native-fast-alloc")) {
+      header.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
+      header.out("// allocator. Interpreter-style workloads spend a third of their time in" true)
+      header.out("// malloc/free; freed blocks park in per-size lists (32-byte classes up" true)
+      header.out("// to 1024 bytes) and are handed straight back. Memory is never returned" true)
+      header.out("// to the OS - fine for a benchmark or tool process, wrong for a daemon." true)
+      header.out("struct RgPoolAlloc;" true)
+      header.out("const RG_POOL_CLASSES: usize = 32;" true)
+      header.out("std::thread_local! {" true)
+      header.out("    static RG_POOL_HEADS: std::cell::UnsafeCell<[usize; RG_POOL_CLASSES + 1]> =" true)
+      header.out("        const { std::cell::UnsafeCell::new([0usize; RG_POOL_CLASSES + 1]) };" true)
+      header.out("}" true)
+      header.out("#[allow(unused_unsafe)]" true)
+      header.out("unsafe impl std::alloc::GlobalAlloc for RgPoolAlloc {" true)
+      header.out("    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {" true)
+      header.out("        let size = layout.size();" true)
+      header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
+      header.out("            let class = (size + 31) >> 5;" true)
+      header.out("            let took = RG_POOL_HEADS.try_with(|h| {" true)
+      header.out("                let heads = unsafe { &mut *h.get() };" true)
+      header.out("                let head = heads[class];" true)
+      header.out("                if head != 0 {" true)
+      header.out("                    heads[class] = unsafe { *(head as *mut usize) };" true)
+      header.out("                    return head as *mut u8;" true)
+      header.out("                }" true)
+      header.out("                std::ptr::null_mut()" true)
+      header.out("            });" true)
+      header.out("            if let Ok(p) = took {" true)
+      header.out("                if !p.is_null() {" true)
+      header.out("                    return p;" true)
+      header.out("                }" true)
+      header.out("            }" true)
+      header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
+      header.out("            return unsafe { std::alloc::System.alloc(l) };" true)
+      header.out("        }" true)
+      header.out("        unsafe { std::alloc::System.alloc(layout) }" true)
+      header.out("    }" true)
+      header.out("    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {" true)
+      header.out("        let size = layout.size();" true)
+      header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
+      header.out("            let class = (size + 31) >> 5;" true)
+      header.out("            let parked = RG_POOL_HEADS.try_with(|h| {" true)
+      header.out("                let heads = unsafe { &mut *h.get() };" true)
+      header.out("                unsafe { *(ptr as *mut usize) = heads[class] };" true)
+      header.out("                heads[class] = ptr as usize;" true)
+      header.out("            });" true)
+      header.out("            if parked.is_ok() {" true)
+      header.out("                return;" true)
+      header.out("            }" true)
+      header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
+      header.out("            unsafe { std::alloc::System.dealloc(ptr, l) };" true)
+      header.out("            return;" true)
+      header.out("        }" true)
+      header.out("        unsafe { std::alloc::System.dealloc(ptr, layout) }" true)
+      header.out("    }" true)
+      header.out("}" true)
+      header.out("#[global_allocator]" true)
+      header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;" true)
+      header.out("" true)
+    }
+    if needsMap {
       header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
       header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
       header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
@@ -7848,27 +8029,63 @@ class RangerRustClassWriter {
       header.out("    }" true)
       header.out("}" true)
       header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
-      ; Every other string operator on this target counts CHARACTERS:
-      ; `strlen` is chars().count(), `charAt` is chars().nth(), `substring`
-      ; skips and takes characters. `str::find` counts BYTES, so an
-      ; `indexOf` handed straight to `charAt` pointed past the character it
-      ; found the moment anything non-ASCII stood before it. An OOXML parser
-      ; reading a slide with "Hameenlinna" spelled with an umlaut in it
-      ; sliced the rest of the document one byte short per accent and
-      ; dropped every shape after the first. These three do the conversion
-      ; once, in one place.
+    }
+    ; Every other string operator on this target counts CHARACTERS:
+    ; `strlen` is chars().count(), `charAt` is chars().nth(), `substring`
+    ; skips and takes characters. `str::find` counts BYTES, so an
+    ; `indexOf` handed straight to `charAt` pointed past the character it
+    ; found the moment anything non-ASCII stood before it. An OOXML parser
+    ; reading a slide with "Hameenlinna" spelled with an umlaut in it
+    ; sliced the rest of the document one byte short per accent and
+    ; dropped every shape after the first. These three do the conversion
+    ; once, in one place.
+    if needsIndexOf {
       header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
       header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
       header.out("}" true)
+    }
+    if needsIndexFrom {
       header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
       header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
       header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
       header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
       header.out("}" true)
+    }
+    if needsLastIndex {
       header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
       header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
       header.out("}" true)
+    }
+    if (((needsDowncast || needsIdentical) || needsMap) || needsIndexOf) {
       header.out("" true)
+    }
+  }
+
+  ; the one place a target gets to look at the finished body — the Rust
+  ; preamble is written from here (see writeRustFileHeader)
+  fn finalizeFile:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.writeRustFileHeader(ctx wr)
+  }
+
+  fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def ucl@(optional):RangerAppClassDesc node.clDesc
+    if (null? ucl) {
+      return
+    }
+    def cl:RangerAppClassDesc (unwrap ucl)
+    
+    ; Save previous class and set current class for self-referential type detection
+    def prevClass@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    ctx.setCurrentClass(cl)
+    
+    def wr:CodeWriter orig_wr
+    
+    ; Once per file, before the first class is written: the whole-program
+    ; pre-passes the emission depends on. The file header itself is NOT here
+    ; — it is written from finalizeFile, after the body exists to be read
+    ; (writeRustFileHeader).
+    if (fileHeaderWritten == false) {
+      def hdrRoot:RangerAppWriterContext (ctx.getRoot())
       ; receiver-mutability pre-pass: every plain class method's
       ; &self / &mut self verdict lands on its desc BEFORE any emission,
       ; so call sites in earlier-emitted classes borrow the receiver's
@@ -8718,9 +8935,9 @@ class RangerRustClassWriter {
         ; size is ours to choose, so the entry point becomes a shim.
         wr.out("fn main() {" true)
         wr.indent(1)
-        wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)" true)
-        wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");" true)
-        wr.out("__rg_main_thread.join().expect(\"main thread panicked\");" true)
+        wr.out("std::thread::Builder::new().stack_size(512 * 1024 * 1024)" true)
+        wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\")" true)
+        wr.out("  .join().expect(\"main thread panicked\");" true)
         wr.indent(-1)
         wr.out("}" true)
         wr.out("fn __rg_main_body() {" true)

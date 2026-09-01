@@ -152,6 +152,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A Rust or C++ program now carries only the preamble it uses.** Hello World
+  on the playground opened with fourteen `#![allow(...)]` attributes, an
+  `RgAnyRef` trait and `rg_downcast`, an `RgIdentical` trait, an FxHash hasher,
+  a hundred-line insertion-ordered map and three character-counting string
+  searches: a hundred and thirty-nine lines of prelude ahead of one `println!`,
+  none of it reachable from the program. C++ opened the same way, with
+  `r_optional_union`, `typedef std::variant<...> r_union_Any`, `rg_hash_bytes`,
+  `rg_ordered_map` and `rg_arg_ref`, plus the `<variant>`, `<string_view>`,
+  `<vector>` and `<cstring>` headers they need.
+
+  The preamble was written ahead of the first class, when there was no body yet
+  to consult, so it had to assume the program used everything. Both writers now
+  emit it from a new `finalizeFile` hook the compiler calls once every class is
+  in the writer: each helper is written only if the generated body names it, and
+  each allow attribute only if the program can trip the warning it silences. The
+  lines still land at the top of the file — they go into the position tags that
+  were already created for them, and the hook runs before the imports are
+  collected so a helper can still ask for its header.
+
+  `hello.rgr` for Rust goes from 159 lines to 20, with one
+  `#![allow(dead_code)]` left: every class carries a generated `new` the program
+  may never call, which is the one warning no output escapes. For C++, 169 lines
+  to 27. `string_ops.rgr` goes 168 → 35 on Rust and `optional_values.rgr`
+  181 → 51. The whole compiler compiled for Rust is unchanged: a program that
+  big does reach for everything.
+
+  Three fixtures that did not build for C++ now do — `buffer_return_ref`,
+  `static_param_mutation` and `to_double_int`. The map block names
+  `std::string` and `std::out_of_range` and was written ahead of the `<string>`
+  include, so a program that never used a map still failed on it.
+
+- **The Rust `fn main` shim declares no local of its own.** It bound the
+  `JoinHandle` to a name and joined it on the next line; chaining the spawn and
+  the join is the same program with one fewer `let` — and whether the program
+  declares a local is now the question the unused-variable attributes are
+  decided on.
+
 - **Tarkennin is the tool the edit mode opens on**, rather than Yhdistä. It is
   the one that adds something to the picture, where the others take things away.
 

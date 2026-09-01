@@ -4,6 +4,11 @@ class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def header_created:boolean false
+  ; finalizeFile runs once; the body it read is kept here so CreateUnions,
+  ; which takes the tag writer rather than the content one, can ask the same
+  ; question of it
+  def cppFinalized:boolean false
+  def cppEmittedBody:string ""
   ; Accumulators used while scanning a buffer-returning method body to decide
   ; whether its return type can be emitted as a C++ reference (see
   ; cppBufferReturnByRef).
@@ -2002,34 +2007,42 @@ class RangerCppClassWriter {
       ; index == name
       ; item == class description
       if(item.is_union) {
+        ; a family the program never names needs no typedef — and skipping it
+        ; drops <variant> and the wrapper below with it. `Any` is the
+        ; compiler's own union of every class, so most programs skip it here.
+        if (((indexOf cppEmittedBody ("r_union_" + index)) < 0)) {
+          return
+        }
         ; The nullable form of a union, written once ahead of the typedefs so
         ; every `r_optional_union<r_union_X>` below is already declared. See
         ; getTypeString2 for why a bare variant cannot carry "absent".
         if (false == wroteOptionalUnion) {
           wroteOptionalUnion = true
-          wr.addImport("<cstddef>")
-          wr.addImport("<type_traits>")
-          wr.out("template <class T>" true)
-          wr.out("class r_optional_union {" true)
-          wr.out("  public:" true)
-          wr.out("    bool has_value = false;" true)
-          wr.out("    T value = T();" true)
-          wr.out("    r_optional_union() {}" true)
-          wr.out("    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}" true)
-          ; a CASE value assigned into an optional family slot would otherwise
-          ; need two user-defined conversions (Value_Num -> variant -> this),
-          ; and C++ allows one. Constrained so this stays a union wrapper.
-          wr.out("    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>" true)
-          wr.out("    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}" true)
-          ; converts back to the bare union, so a non-optional destination
-          ; keeps the behaviour it had before this type existed
-          wr.out("    operator T() const { return value; }" true)
-          ; `x != NULL` / `x == NULL` is how the generic optional templates in
-          ; Lang.rgr spell presence on the C++ target
-          wr.out("    bool operator!=(std::nullptr_t) const { return has_value; }" true)
-          wr.out("    bool operator==(std::nullptr_t) const { return !has_value; }" true)
-          wr.out("    explicit operator bool() const { return has_value; }" true)
-          wr.out("};" true)
+          if ((indexOf cppEmittedBody "r_optional_union") >= 0) {
+            wr.addImport("<cstddef>")
+            wr.addImport("<type_traits>")
+            wr.out("template <class T>" true)
+            wr.out("class r_optional_union {" true)
+            wr.out("  public:" true)
+            wr.out("    bool has_value = false;" true)
+            wr.out("    T value = T();" true)
+            wr.out("    r_optional_union() {}" true)
+            wr.out("    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}" true)
+            ; a CASE value assigned into an optional family slot would otherwise
+            ; need two user-defined conversions (Value_Num -> variant -> this),
+            ; and C++ allows one. Constrained so this stays a union wrapper.
+            wr.out("    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>" true)
+            wr.out("    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}" true)
+            ; converts back to the bare union, so a non-optional destination
+            ; keeps the behaviour it had before this type existed
+            wr.out("    operator T() const { return value; }" true)
+            ; `x != NULL` / `x == NULL` is how the generic optional templates in
+            ; Lang.rgr spell presence on the C++ target
+            wr.out("    bool operator!=(std::nullptr_t) const { return has_value; }" true)
+            wr.out("    bool operator==(std::nullptr_t) const { return !has_value; }" true)
+            wr.out("    explicit operator bool() const { return has_value; }" true)
+            wr.out("};" true)
+          }
         }
         ; std::variant is C++17, which is the standard the C++ output already
         ; requires. The mpark polyfill it replaces was a C++11 backport that had
@@ -2069,114 +2082,20 @@ class RangerCppClassWriter {
   }
 
 
-  fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-    this.readCppPtrFlag(ctx)
-
-    def cl:RangerAppClassDesc node.clDesc
-    def wr:CodeWriter orig_wr
-    if (null? cl) {
-      return
-    }
-
-    this.import_lib("<memory>" ctx wr)
-
-    for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
-      if(dd.is_class_variable == false ) {
-        if ( dd.set_cnt > 0 ) {
-          if( ctx.hasCompilerFlag("dont-allow-mutate")) {
-            ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
-            return
-          } 
-        }
-      }
-    }        
-
-    if( header_created == false) {
-      wr.createTag("c++Imports")
-      wr.out("" true)
-      this.writeCppSingleThreadPrelude(wr)
-      wr.out("// define classes here to avoid compiler errors" true)
-      wr.createTag("c++ClassDefs")
-      wr.out("" true)
-      wr.createTag("c++unions")
-      wr.createTag("utilities")
-      wr.out("" true)
-      if (ctx.hasCompilerFlag("native-fast-alloc")) {
-        wr.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
-        wr.out("// allocator (32-byte classes up to 1024 bytes; memory is never returned" true)
-        wr.out("// to the OS - benchmark/tool builds only)." true)
-        wr.out("#include <cstdlib>" true)
-        wr.out("#include <new>" true)
-        ; malloc_usable_size lives in <malloc.h> on glibc; Apple exposes the same
-        ; idea as malloc_size in <malloc/malloc.h>. Emit both so Apple clang and
-        ; Homebrew/Linux g++ can build -native-fast-alloc output.
-        wr.out("#if defined(__APPLE__)" true)
-        wr.out("#include <malloc/malloc.h>" true)
-        wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_size(p); }" true)
-        wr.out("#elif defined(__linux__) || defined(__GLIBC__)" true)
-        wr.out("#include <malloc.h>" true)
-        wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_usable_size(p); }" true)
-        wr.out("#elif defined(__FreeBSD__) || defined(__DragonFly__)" true)
-        wr.out("#include <malloc_np.h>" true)
-        wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_usable_size(p); }" true)
-        wr.out("#else" true)
-        wr.out("// Unknown host malloc: unsized delete will free instead of parking." true)
-        wr.out("inline size_t rg_malloc_usable_size(void* p) { (void)p; return 0; }" true)
-        wr.out("#endif" true)
-        wr.out("namespace rgpool {" true)
-        wr.out("    const size_t NCLASS = 32;" true)
-        wr.out("    thread_local void* heads[NCLASS + 1] = {};" true)
-        wr.out("    inline void* take(size_t size) {" true)
-        wr.out("        if (size == 0 || size > 1024) { return NULL; }" true)
-        wr.out("        size_t cls = (size + 31) >> 5;" true)
-        wr.out("        void* h = heads[cls];" true)
-        wr.out("        if (h) { heads[cls] = *(void**)h; return h; }" true)
-        wr.out("        // parked blocks are classified by USABLE size (>= cls<<5 here)" true)
-        wr.out("        return std::malloc(cls << 5);" true)
-        wr.out("    }" true)
-        wr.out("    inline bool park(void* p, size_t size) {" true)
-        wr.out("        if (size == 0 || size > 1024) { return false; }" true)
-        wr.out("        size_t cls = (size + 31) >> 5;" true)
-        wr.out("        *(void**)p = heads[cls];" true)
-        wr.out("        heads[cls] = p;" true)
-        wr.out("        return true;" true)
-        wr.out("    }" true)
-        wr.out("}" true)
-        wr.out("void* operator new(std::size_t n) {" true)
-        wr.out("    void* p = rgpool::take(n);" true)
-        wr.out("    if (!p) { p = std::malloc(n); }" true)
-        wr.out("    if (!p) { throw std::bad_alloc(); }" true)
-        wr.out("    return p;" true)
-        wr.out("}" true)
-        wr.out("void operator delete(void* p) noexcept {" true)
-        wr.out("    // unsized form: classify by the block's usable size so these" true)
-        wr.out("    // deletions feed the pool too - take() only needs usable >= request" true)
-        wr.out("    if (p) {" true)
-        wr.out("        size_t u = rg_malloc_usable_size(p);" true)
-        wr.out("        size_t cls = u >> 5;" true)
-        wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {" true)
-        wr.out("            *(void**)p = rgpool::heads[cls];" true)
-        wr.out("            rgpool::heads[cls] = p;" true)
-        wr.out("        } else {" true)
-        wr.out("            std::free(p);" true)
-        wr.out("        }" true)
-        wr.out("    }" true)
-        wr.out("}" true)
-        wr.out("void operator delete(void* p, std::size_t n) noexcept {" true)
-        wr.out("    (void)n;" true)
-        wr.out("    if (p) {" true)
-        wr.out("        size_t u = rg_malloc_usable_size(p);" true)
-        wr.out("        size_t cls = u >> 5;" true)
-        wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {" true)
-        wr.out("            *(void**)p = rgpool::heads[cls];" true)
-        wr.out("            rgpool::heads[cls] = p;" true)
-        wr.out("        } else {" true)
-        wr.out("            std::free(p);" true)
-        wr.out("        }" true)
-        wr.out("    }" true)
-        wr.out("}" true)
-        wr.out("" true)
-      }
+  ; --- the runtime helpers ------------------------------------------------
+  ; The insertion-ordered map, the weak-field wrapper and the forwarding
+  ; reference used by mutating call arguments. Written from finalizeFile,
+  ; once the whole program is in the writer, so each one is emitted only
+  ; if the body actually names it — a hello world names none of them and
+  ; no longer carries a hundred and thirty lines of map it never touches.
+  ; The lines still land ahead of the class definitions because they go
+  ; into the "c++helpers" slice, created in their old position.
+  fn writeCppRuntimeHelpers:void (ctx:RangerAppWriterContext outer:CodeWriter) {
+    def wr:CodeWriter (outer.getTag("c++helpers"))
+    def body:string cppEmittedBody
+    def wroteAny:boolean false
+    if ((indexOf body "rg_ordered_map") >= 0) {
+      wroteAny = true
       wr.out("#include <string_view>" true)
       ; the map stores its entries in a vector, so the header is needed even in
       ; a program that declares no array of its own
@@ -2301,10 +2220,14 @@ class RangerCppClassWriter {
       wr.out("    }" true)
       wr.out("};" true)
       wr.out("" true)
-      if (this.cppProgramHasWeakField(ctx)) {
-        this.writeCppWeakHelper(wr)
-        wr.out("" true)
-      }
+    }
+    if (this.cppProgramHasWeakField(ctx)) {
+      wroteAny = true
+      this.writeCppWeakHelper(wr)
+      wr.out("" true)
+    }
+    if ((indexOf body "rg_arg_ref") >= 0) {
+      wroteAny = true
       ; A parameter that the callee mutates is a non-const C++ reference, and a
       ; non-const reference does not bind a temporary. Ranger call sites do pass
       ; one — `this.TransformOpFn(([] opTpl) node ctx wr)` builds the array in
@@ -2313,7 +2236,133 @@ class RangerCppClassWriter {
       ; object, and materialises an rvalue for the duration of the call, which
       ; is what the JavaScript host does with the same source.
       wr.out("template <class T> inline T& rg_arg_ref(T&& v) { return v; }" true)
+    }
+    if wroteAny {
       wr.out("" true)
+    }
+  }
+
+  ; the one place the target gets to look at the finished body: the runtime
+  ; helpers and the union typedefs are written from here, so both can be
+  ; limited to what the program reached for
+  fn finalizeFile:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if cppFinalized {
+      return
+    }
+    cppFinalized = true
+    cppEmittedBody = (wr.getCode())
+    this.writeCppRuntimeHelpers(ctx wr)
+    this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
+  }
+  fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    this.readCppPtrFlag(ctx)
+
+    def cl:RangerAppClassDesc node.clDesc
+    def wr:CodeWriter orig_wr
+    if (null? cl) {
+      return
+    }
+
+    this.import_lib("<memory>" ctx wr)
+
+    for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
+      if(dd.is_class_variable == false ) {
+        if ( dd.set_cnt > 0 ) {
+          if( ctx.hasCompilerFlag("dont-allow-mutate")) {
+            ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
+            return
+          } 
+        }
+      }
+    }        
+
+    if( header_created == false) {
+      wr.createTag("c++Imports")
+      wr.out("" true)
+      this.writeCppSingleThreadPrelude(wr)
+      wr.out("// define classes here to avoid compiler errors" true)
+      wr.createTag("c++ClassDefs")
+      wr.out("" true)
+      wr.createTag("c++unions")
+      wr.createTag("utilities")
+      wr.out("" true)
+      if (ctx.hasCompilerFlag("native-fast-alloc")) {
+        wr.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
+        wr.out("// allocator (32-byte classes up to 1024 bytes; memory is never returned" true)
+        wr.out("// to the OS - benchmark/tool builds only)." true)
+        wr.out("#include <cstdlib>" true)
+        wr.out("#include <new>" true)
+        ; malloc_usable_size lives in <malloc.h> on glibc; Apple exposes the same
+        ; idea as malloc_size in <malloc/malloc.h>. Emit both so Apple clang and
+        ; Homebrew/Linux g++ can build -native-fast-alloc output.
+        wr.out("#if defined(__APPLE__)" true)
+        wr.out("#include <malloc/malloc.h>" true)
+        wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_size(p); }" true)
+        wr.out("#elif defined(__linux__) || defined(__GLIBC__)" true)
+        wr.out("#include <malloc.h>" true)
+        wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_usable_size(p); }" true)
+        wr.out("#elif defined(__FreeBSD__) || defined(__DragonFly__)" true)
+        wr.out("#include <malloc_np.h>" true)
+        wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_usable_size(p); }" true)
+        wr.out("#else" true)
+        wr.out("// Unknown host malloc: unsized delete will free instead of parking." true)
+        wr.out("inline size_t rg_malloc_usable_size(void* p) { (void)p; return 0; }" true)
+        wr.out("#endif" true)
+        wr.out("namespace rgpool {" true)
+        wr.out("    const size_t NCLASS = 32;" true)
+        wr.out("    thread_local void* heads[NCLASS + 1] = {};" true)
+        wr.out("    inline void* take(size_t size) {" true)
+        wr.out("        if (size == 0 || size > 1024) { return NULL; }" true)
+        wr.out("        size_t cls = (size + 31) >> 5;" true)
+        wr.out("        void* h = heads[cls];" true)
+        wr.out("        if (h) { heads[cls] = *(void**)h; return h; }" true)
+        wr.out("        // parked blocks are classified by USABLE size (>= cls<<5 here)" true)
+        wr.out("        return std::malloc(cls << 5);" true)
+        wr.out("    }" true)
+        wr.out("    inline bool park(void* p, size_t size) {" true)
+        wr.out("        if (size == 0 || size > 1024) { return false; }" true)
+        wr.out("        size_t cls = (size + 31) >> 5;" true)
+        wr.out("        *(void**)p = heads[cls];" true)
+        wr.out("        heads[cls] = p;" true)
+        wr.out("        return true;" true)
+        wr.out("    }" true)
+        wr.out("}" true)
+        wr.out("void* operator new(std::size_t n) {" true)
+        wr.out("    void* p = rgpool::take(n);" true)
+        wr.out("    if (!p) { p = std::malloc(n); }" true)
+        wr.out("    if (!p) { throw std::bad_alloc(); }" true)
+        wr.out("    return p;" true)
+        wr.out("}" true)
+        wr.out("void operator delete(void* p) noexcept {" true)
+        wr.out("    // unsized form: classify by the block's usable size so these" true)
+        wr.out("    // deletions feed the pool too - take() only needs usable >= request" true)
+        wr.out("    if (p) {" true)
+        wr.out("        size_t u = rg_malloc_usable_size(p);" true)
+        wr.out("        size_t cls = u >> 5;" true)
+        wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {" true)
+        wr.out("            *(void**)p = rgpool::heads[cls];" true)
+        wr.out("            rgpool::heads[cls] = p;" true)
+        wr.out("        } else {" true)
+        wr.out("            std::free(p);" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("}" true)
+        wr.out("void operator delete(void* p, std::size_t n) noexcept {" true)
+        wr.out("    (void)n;" true)
+        wr.out("    if (p) {" true)
+        wr.out("        size_t u = rg_malloc_usable_size(p);" true)
+        wr.out("        size_t cls = u >> 5;" true)
+        wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {" true)
+        wr.out("            *(void**)p = rgpool::heads[cls];" true)
+        wr.out("            rgpool::heads[cls] = p;" true)
+        wr.out("        } else {" true)
+        wr.out("            std::free(p);" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("}" true)
+        wr.out("" true)
+      }
+      wr.createTag("c++helpers")
       wr.out("// header definitions" true)
       wr.createTag("c++Header")
       wr.out("" true)
@@ -2321,8 +2370,6 @@ class RangerCppClassWriter {
       wr.out("int __g_argc;" true)
       wr.out("char **__g_argv;" true)
 
-      this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
-      
       header_created = true
     }
     def classWriter:CodeWriter (orig_wr.getTag("c++ClassDefs"))
