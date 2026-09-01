@@ -41,6 +41,25 @@ class UiAndroid {
     ; while zoomed in, and clamped so the page cannot be dragged off the edge.
     def panXValue:double 0.0
 
+    ; WHAT THE PICTURE IS OF, counted.
+    ;
+    ; A host that paints every frame from scratch cannot get this wrong, and one
+    ; that keeps the last frame can — it has to drop it exactly when the page
+    ; changes, and "exactly" means every path, including the ones added later. A
+    ; fling is the one that got missed: it scrolled the page from inside the
+    ; draw, kept the frame it had just painted, and from then on the screen
+    ; showed one scroll position while the hit test answered from another. Every
+    ; press after a flick landed on whatever had moved into that place, which
+    ; from the outside looks like a pointer that is off by an amount nobody can
+    ; account for.
+    ;
+    ; So the page counts its own changes and a host compares numbers instead of
+    ; remembering to call something. Note what does NOT count: a touch on the
+    ; surface and the clock that ages it. The ripple is a post-process over a
+    ; picture that has not changed, and making it bump this would put a layout
+    ; and a chart run into every frame of an effect that needs neither.
+    def generationValue:int 0
+
     Constructor () {
     }
 
@@ -55,6 +74,7 @@ class UiAndroid {
         this.refit()
         app.init(css)
         started = true
+        this.bump()
     }
 
     ; A rotation, a split screen, the keyboard opening. The page keeps its
@@ -67,6 +87,7 @@ class UiAndroid {
         if started {
             app.rebuild()
         }
+        this.bump()
     }
 
     ; The one piece of arithmetic this file exists for.
@@ -77,6 +98,17 @@ class UiAndroid {
     ; stop halfway down the screen: the demo clamps the scroll to its own
     ; `pageH`, and a `pageH` that is not the viewport is a clamp against a
     ; viewport nobody has.
+    ; The page is not the page it was.
+    fn bump:void () {
+        generationValue = (generationValue + 1)
+    }
+
+    ; What the last frame was a picture of. A host keeping a frame keeps this
+    ; beside it and rebuilds when the two stop matching.
+    fn generation:int () {
+        return generationValue
+    }
+
     fn refit:void () {
         if (screenW > 0.0) {
             fitScale = (screenW / (app.widthPx()))
@@ -154,6 +186,7 @@ class UiAndroid {
         if started {
             app.rebuild()
         }
+        this.bump()
         return true
     }
 
@@ -168,6 +201,7 @@ class UiAndroid {
         if started {
             app.rebuild()
         }
+        this.bump()
         return true
     }
 
@@ -181,7 +215,11 @@ class UiAndroid {
         def before:double panXValue
         panXValue = (panXValue - (dx / s))
         this.clampPan()
-        return (panXValue != before)
+        if (panXValue != before) {
+            this.bump()
+            return true
+        }
+        return false
     }
 
     ; --- screen to page -------------------------------------------------------
@@ -240,6 +278,7 @@ class UiAndroid {
         def id:string (this.hitAt(x y))
         app.setPressed(id)
         app.press(id)
+        this.bump()
         return true
     }
 
@@ -247,11 +286,13 @@ class UiAndroid {
     ; but the pressed flag has to go, or the last thing touched stays lit.
     fn releasePress:boolean () {
         app.setPressed("")
+        this.bump()
         return true
     }
 
     fn hoverAt:boolean (x:double y:double) {
         app.setHover((this.hitAt(x y)))
+        this.bump()
         return true
     }
 
@@ -266,7 +307,11 @@ class UiAndroid {
         if (s <= 0.0) {
             return false
         }
-        return (app.scrollBy((dy / s)))
+        def moved:boolean (app.scrollBy((dy / s)))
+        if moved {
+            this.bump()
+        }
+        return moved
     }
 
     fn scrollTop:double () {
@@ -282,7 +327,11 @@ class UiAndroid {
     ; knows what every key means; the host only has to name them the way the
     ; browser does.
     fn key:boolean (name:string) {
-        return (app.key(name))
+        def acted:boolean (app.key(name))
+        if acted {
+            this.bump()
+        }
+        return acted
     }
 
     ; --- the surface's ripple -------------------------------------------------

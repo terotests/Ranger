@@ -147,7 +147,7 @@ The presses are found by hit-testing the screen the way the app does, not by
 calling `press(id)` — the coordinate conversion is exactly what this port adds
 and therefore what is worth checking.
 
-62 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
+76 checks, `kotlinc` and a JDK, no SDK, no emulator, no device. It writes
 `tmp/ui-android/dashboard.png` (a landscape tablet), `dashboard-portrait.png`
 (the same tablet turned) and `dashboard-phone.png` (a 411×823 phone), so the
 result is something to look at rather than a number.
@@ -271,9 +271,27 @@ and the first two were learned by hanging one:
 **A ripple frame does not redraw the page.** Ageing a touch changes nothing
 about what was drawn, so the clock only updates the shader's uniforms and
 re-composites; the layout, the chart and the painter are not asked again. That
-is also why the view now caches its frame: `UiAndroid.frame()` lays the page out
-and runs the chart's Vega runtime, which is the right cost for a page that
-changed and the wrong one for an animation.
+is also why the view caches its frame: `UiAndroid.frame()` lays the page out and
+runs the chart's Vega runtime, which is the right cost for a page that changed
+and the wrong one for an animation.
+
+### The frame a host keeps, and the press that then lands wrong
+
+Keeping the last frame means dropping it exactly when the page changes, and
+"exactly" means every path — including the ones added later. The fling was
+missed: it scrolls the page from inside the draw and kept the frame it had just
+painted, so from the first flick onwards the screen showed one scroll position
+while the hit test answered from another. Every press after a flick then landed
+on whatever had moved into that place, which from the outside looks like a
+pointer that is off by an amount nothing accounts for — and the page still looks
+perfectly drawn, because it is; it is a picture of a moment that has passed.
+
+So the page counts its own changes. `UiAndroid.generation()` goes up on every
+press, release, scroll, pan, pinch, key and resize, and the view keeps that
+number beside the frame and rebuilds when the two stop matching. A host cannot
+forget a number it has to compare, and `CheckDashboard` drives every mutator to
+say it counted — including the one that must NOT count, the ripple, whose whole
+point is a picture that has not changed.
 
 ### The gestures are in Ranger, the `MotionEvent` unpacking is not
 
@@ -317,7 +335,7 @@ Verified, off-device, on this repository's own demo:
   full-height sidebar with its account row on the bottom edge, and the ripple's
   touches land in page coordinates, age on a clock and retire on their own —
   including when the clock reports a second between frames, or nothing at all.
-  62 checks.
+  76 checks.
 * `MainActivity` and `DashboardView` type-check against the platform stubs.
 
 Not verified here: the APK build, and whether Skia draws what the surface asks

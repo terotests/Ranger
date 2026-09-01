@@ -175,6 +175,43 @@ object CheckDashboard {
             )
         }
 
+        println("--- the page counts its own changes ---")
+        // The invariant a host that keeps its last frame stands on, and the one
+        // whose absence put every press after a flick in the wrong place: a
+        // fling scrolls the page from inside the draw, so if scrolling did not
+        // COUNT, the screen kept a picture of one scroll position while the hit
+        // test answered from another.
+        run {
+            val g0 = app.generation()
+            ok("a frame does not change the page", app.frame().let { app.generation() == g0 })
+            ok("a scroll does", app.scrollByScreen(120.0) && app.generation() > g0)
+            val g1 = app.generation()
+            ok("a scroll that hits the end does not", !app.scrollByScreen(-100000.0).let {
+                app.scrollByScreen(-1.0)
+            } && app.generation() > g1)
+            val g2 = app.generation()
+            ok("a press does", app.pressAt(120.0, 300.0) && app.generation() > g2)
+            val g3 = app.generation()
+            ok("letting go does", app.releasePress() && app.generation() > g3)
+            val g4 = app.generation()
+            ok("a pinch does", app.pinch(1.5, 640.0, 400.0) && app.generation() > g4)
+            val g5 = app.generation()
+            ok("a pan does", app.panBy(-40.0) && app.generation() > g5)
+            val g6 = app.generation()
+            ok("a double tap does", app.resetZoom() && app.generation() > g6)
+            val g7 = app.generation()
+            ok("a key that acts does", app.key("End") && app.generation() > g7)
+            val g8 = app.generation()
+            // AND THE ONE THAT MUST NOT. The ripple is a post-process over a
+            // picture that has not changed; counting it would put a layout and
+            // a chart run into every frame of an effect that needs neither.
+            app.rippleAt(600.0, 300.0)
+            app.tick(16.0)
+            ok("a touch on the surface does not", app.generation() == g8)
+            while (app.busy()) app.tick(16.0)
+            app.key("Home")
+        }
+
         println("--- what a finger does ---")
         // The sidebar's Analytics link, found the way the app finds it: hit
         // test at a screen coordinate. 1:1-ish here, but the conversion is

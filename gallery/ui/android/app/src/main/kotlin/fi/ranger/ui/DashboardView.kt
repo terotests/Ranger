@@ -133,14 +133,23 @@ class DashboardView @JvmOverloads constructor(
     )
 
     /**
-     * The last frame, kept until something changes it.
+     * The last frame, and what it was a picture of.
      *
      * `UiAndroid.frame()` lays the page out and runs the chart's Vega runtime;
      * that is the right cost for a page that changed and the wrong one for a
-     * repaint that was asked for by an animation. Every path below that touches
-     * the page goes through [changed], which is the only thing that drops this.
+     * repaint an animation asked for. Keeping the frame means dropping it
+     * exactly when the page changes, though — and "exactly" turned out to mean
+     * every path, including the fling, which scrolls the page from inside the
+     * draw and kept the frame it had just painted. The screen then showed one
+     * scroll position while the hit test answered from another, so every press
+     * after a flick landed on whatever had moved into that place.
+     *
+     * So this is keyed on the page's own count of its changes rather than on
+     * every caller remembering. A host cannot forget a number it has to
+     * compare.
      */
     private var frame: EVGDisplayList? = null
+    private var frameGeneration = -1
 
     /**
      * The surface's ripple, which is a post-process rather than anything in the
@@ -304,6 +313,10 @@ class DashboardView @JvmOverloads constructor(
             // the end of its travel has stopped whatever the number says.
             if (!moved || Math.abs(flingDpPerSec) < 40f) flingDpPerSec = 0f
         }
+        // No `changed()` here and none needed: the scroll above counted itself,
+        // so the next frame is rebuilt because the numbers no longer match.
+        // This is the path that got it wrong when the answer was a call every
+        // caller had to remember.
         if (flingDpPerSec != 0f) postInvalidateOnAnimation()
     }
 
@@ -411,19 +424,19 @@ class DashboardView @JvmOverloads constructor(
         )
     }
 
-    /**
-     * The page changed: the frame it was drawn from is no longer the page, and
-     * the screen is no longer the frame.
-     */
+    /** Ask for the screen back. What it is a picture of is [frameNow]'s business. */
     private fun changed() {
-        frame = null
         invalidate()
     }
 
     private fun frameNow(): EVGDisplayList {
-        val f = frame ?: app.frame()
-        frame = f
-        return f
+        val generation = app.generation()
+        val f = frame
+        if (f != null && frameGeneration == generation) return f
+        val built = app.frame()
+        frame = built
+        frameGeneration = generation
+        return built
     }
 
     // --- the ripple's clock ---------------------------------------------------
