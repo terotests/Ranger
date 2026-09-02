@@ -266,5 +266,48 @@ console.log(`\ndashboard: ${tree.nodes.length} nodes, ${tree.w}×${tree.h}\n`);
      `panel says ${card && card.matches}, tree has ${actual}`);
 }
 
+// --- 9. a state held on ------------------------------------------------------
+{
+  // A `:hover` rule cannot be read while the only way to make it true is to
+  // keep the pointer off the panel. Holding the bit on is the answer, and what
+  // makes it work across this page's rebuilds is that the table is keyed by
+  // PATH: the dashboard throws its elements away and builds them again, so a
+  // flag written onto an element would last exactly one frame.
+  //
+  // Nothing was taught to the cascade. `EVGPseudo.holds` reads `isHovered`,
+  // and a held bit is that field being true — so what the gate checks is that
+  // the ORDINARY hover rule won, not that some parallel path produced a colour.
+  const node = tree.nodes.find((n) => (n.cls || "").split(/\s+/).includes("db-brand"));
+  ok("there is something with a :hover rule to hold", node !== undefined);
+  if (node) {
+    const before = JSON.parse(app.inspectNodeJson(node.id));
+    ok("nothing is held to begin with", before.forced === 0, String(before.forced));
+
+    app.inspectForce(node.id, 1);
+    const held = JSON.parse(app.inspectNodeJson(node.id));
+    const flags = JSON.parse(app.inspectJson(9)).nodes.find((n) => n.id === node.id).flags || [];
+    ok("the element reports the state", flags.includes("hover"), JSON.stringify(flags));
+    ok("and the panel knows it is being held", held.forced === 1, String(held.forced));
+    ok("the hover rule now wins", (held.cascade || []).some(
+      (c) => c.p === "background-color" && c.win && /:hover/.test(c.sel)),
+      JSON.stringify((held.cascade || []).filter((c) => c.p === "background-color")));
+    ok("and the value on the element followed",
+      held.computed["background-color"] !== before.computed["background-color"],
+      `${before.computed["background-color"]} → ${held.computed["background-color"]}`);
+
+    // The rebuild is the point: ask for a fresh frame and the hold survives it.
+    app.displayListJson();
+    const still = JSON.parse(app.inspectNodeJson(node.id));
+    ok("and it survives a rebuild", still.computed["background-color"] === held.computed["background-color"]);
+
+    app.inspectClearForced();
+    const let_go = JSON.parse(app.inspectNodeJson(node.id));
+    ok("letting go puts it back",
+      let_go.computed["background-color"] === before.computed["background-color"],
+      `${held.computed["background-color"]} → ${let_go.computed["background-color"]}`);
+    ok("and nothing is held again", let_go.forced === 0);
+  }
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

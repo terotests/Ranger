@@ -52,6 +52,102 @@ Import "EVGHitTest.rgr"
 Import "EVGStyleSheet.rgr"
 Import "EVGDisplayList.rgr"
 
+; ==============================================================================
+; EVGInspectForce — states held on, by node path
+; ==============================================================================
+;
+; A menu that closes when the pointer leaves it cannot be looked at, and a
+; `:hover` rule cannot be edited while the only way to see it is to keep the
+; mouse somewhere other than the panel. Chrome answers this with the `:hov`
+; toggles and so does this: the four interaction bits are held ON for a node
+; until they are let go.
+;
+; They are the four `EVGPseudo.holds` reads — `isHovered`, `isFocused`,
+; `isPressed`, `a11yDisabled` — so nothing new has to be taught to the cascade.
+; A held state is an ordinary state as far as every rule is concerned.
+;
+; KEYED BY PATH, NOT BY ELEMENT, and that is the whole reason this works at
+; all. A page built from tree literals throws its elements away on every input,
+; so a flag written onto an element would last one frame. A path is a fact
+; about the tree's shape, so it names whatever element is in that position on
+; the next pass too.
+;
+; A singleton because the table has to outlive the walk that reads it and every
+; element in the tree, and because the alternative is a field on every app that
+; wants the feature.
+;
+; ON only, like the browser's. Forcing a state OFF is a different thing — it
+; would be arguing with the app about what is happening rather than holding
+; still something that already is.
+; ==============================================================================
+
+class EVGInspectForce @singleton(true) {
+    def paths:[string]
+    def bits:[int]
+
+    Constructor () {
+        def a:[string]
+        paths = a
+        def b:[int]
+        bits = b
+    }
+
+    sfn HOVER:int ()    { return 1 }
+    sfn FOCUS:int ()    { return 2 }
+    sfn PRESSED:int ()  { return 4 }
+    sfn DISABLED:int () { return 8 }
+
+    fn indexOf:int (path:string) {
+        def i:int 0
+        while (i < (array_length paths)) {
+            if ((itemAt paths i) == path) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; `b` of 0 lets the node go rather than recording "nothing held", so an
+    ; empty table is exactly "nothing is held" and the check that skips the
+    ; whole feature is one array length.
+    fn set:void (path:string b:int) {
+        def at:int (this.indexOf(path))
+        if (b == 0) {
+            if (at >= 0) {
+                remove_index paths at
+                remove_index bits at
+            }
+            return
+        }
+        if (at < 0) {
+            push paths path
+            push bits b
+            return
+        }
+        set_at bits at b
+    }
+
+    fn get:int (path:string) {
+        def at:int (this.indexOf(path))
+        if (at < 0) {
+            return 0
+        }
+        return (itemAt bits at)
+    }
+
+    fn count:int () {
+        return (array_length paths)
+    }
+
+    fn clearAll:void () {
+        def a:[string]
+        paths = a
+        def b:[int]
+        bits = b
+    }
+}
+
 class EVGInspect {
     ; Parallel arrays, indexed by slot. A flat tree with a parent id is the
     ; shape `EVGA11yTree` already crosses this seam with, so a host learns one
@@ -390,6 +486,7 @@ class EVGInspect {
         out = (out + "," + (EVGDisplayList.num(ch)) + "]")
 
         out = (out + (this.cascadeJson(el)))
+        out = (out + ",\"forced\":" + (to_string (EVGInspect.forcedState(path))))
         out = (out + ",\"styleSlot\":" + (to_string el.styleSlot))
         out = (out + ",\"styleClass\":" + (EVGInspect.jsonString(el.styleClass)))
         out = (out + ",\"page\":" + (to_string el.calculatedPage))
@@ -615,6 +712,67 @@ class EVGInspect {
         acc = (acc + ":")
         acc = (acc + (EVGInspect.jsonString(value)))
         return (n + 1)
+    }
+
+    ; Hold what the panel asked to be held, on the tree as it is now.
+    ;
+    ; A host calls this between marking its OWN interaction states and running
+    ; the cascade — the order matters and it is the only thing a host has to
+    ; get right: after the app has said what is hovered, before the sheet is
+    ; asked which rules that makes true.
+    ;
+    ; Costs one array length when nothing is held, which is the normal case and
+    ; the whole shape of the guard.
+    sfn applyForced:void (root:EVGElement) {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        if ((force.count()) == 0) {
+            return
+        }
+        def ins (new EVGInspect())
+        ins.build(root)
+        def i:int 0
+        while (i < (array_length ins.paths)) {
+            def b:int (force.get((itemAt ins.paths i)))
+            if (b != 0) {
+                def el:EVGElement (itemAt ins.els i)
+                if ((b % 2) == 1) {
+                    el.isHovered = true
+                }
+                def f:int (idiv b 2)
+                if ((f % 2) == 1) {
+                    el.isFocused = true
+                }
+                def p:int (idiv b 4)
+                if ((p % 2) == 1) {
+                    el.isPressed = true
+                }
+                def d:int (idiv b 8)
+                if ((d % 2) == 1) {
+                    el.a11yDisabled = true
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn forceState:void (path:string bits:int) {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        force.set(path bits)
+    }
+
+    sfn forcedState:int (path:string) {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        return (force.get(path))
+    }
+
+    sfn forcedCount:int () {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        return (force.count())
+    }
+
+    sfn clearForced:void () {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        force.clearAll()
     }
 
     ; --- the three calls a host actually makes ---------------------------------

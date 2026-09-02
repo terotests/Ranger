@@ -1663,6 +1663,11 @@ class DashboardDemo {
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         this.markStates(r)
+        ; Between the app saying what IS hovered and the sheet being asked what
+        ; that makes true — which is the only ordering an inspector needs a
+        ; host to get right. A no-op costing one array length when nothing is
+        ; being held, which is every frame nobody is inspecting anything.
+        EVGInspect.applyForced(r)
         s.applyTree(r "")
         def lay (new EVGLayout())
         lay.setPageSize(pageW pageH)
@@ -2224,6 +2229,24 @@ class DashboardDemo {
         ; The cascade will rewrite every element — `reload` bumped the
         ; generation, so nothing in the tree is holding what the sheet says any
         ; more — but the LAYOUT is cached separately and does not know that.
+        layoutStale = true
+        this.displayListJson()
+    }
+
+    ; --- states held on -------------------------------------------------------
+    ;
+    ; Chrome's `:hov` toggles. The table lives in `EVGInspectForce` and is
+    ; keyed by node path, so it outlives the rebuild this page does on every
+    ; input; `laidOutOnce` applies it between marking this app's own states and
+    ; running the cascade.
+    fn inspectForce:void (path:string bits:int) {
+        EVGInspect.forceState(path bits)
+        layoutStale = true
+        this.displayListJson()
+    }
+
+    fn inspectClearForced:void () {
+        EVGInspect.clearForced()
         layoutStale = true
         this.displayListJson()
     }

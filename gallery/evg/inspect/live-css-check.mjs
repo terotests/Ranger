@@ -153,6 +153,42 @@ try {
   for (let i = 0; i < 60 && back === after; i++) { await sleep(50); back = await cardFill(); }
   ok("putting the file back puts the picture back", back === before, `${after} → ${back}`);
 
+  // --- and the other direction -----------------------------------------------
+  //
+  // The panel edits the app's input, so "save" means writing the text back
+  // where the input came from. This is the same loop run the other way: the
+  // page PUTs, the server writes the file, the watch sees it, and every other
+  // page open on that sheet re-cascades.
+  // NO STRING ESCAPES IN HERE. This source is a template literal, so a `\n`
+  // written in it is a real newline by the time the expression reaches the
+  // page — and a real newline inside a JavaScript string literal is a syntax
+  // error, which the protocol reports as the whole evaluation returning
+  // nothing. Joining an array of lines has no escape to get wrong.
+  const saved = await evalIn(`(async () => {
+    const i = window.__inspector;
+    document.querySelectorAll(".evgi-tab")[2].click();
+    await new Promise(r => setTimeout(r, 300));
+    const ta = document.querySelector(".evgi-css textarea");
+    if (!ta) return "no editor";
+    const btn = [...document.querySelectorAll(".evgi-btn")].find(b => b.textContent === "save to disk");
+    if (!btn) return "no save button";
+    ta.value += ["", "/* saved from the panel by evg:inspect:live */", ".db-card { background-color: #118844; }", ""].join(String.fromCharCode(10));
+    ta.dispatchEvent(new Event("input"));
+    btn.click();
+    await new Promise(r => setTimeout(r, 600));
+    return "clicked";
+  })()`);
+  ok("the panel offers a save", saved === "clicked", String(saved));
+
+  let onDisk = "";
+  for (let i = 0; i < 60; i++) { onDisk = fs.readFileSync(CSS, "utf8"); if (/118844/.test(onDisk)) break; await sleep(50); }
+  ok("saving from the panel wrote the file", /118844/.test(onDisk));
+  ok("and did not lose what was already in it", onDisk.startsWith(original.slice(0, 400)));
+  ok("and the picture is the saved colour", (await cardFill()) === "17,136,68,1", await cardFill());
+
+  fs.writeFileSync(CSS, original);
+  await sleep(400);
+
   ws.close();
 } catch (e) {
   failed++;

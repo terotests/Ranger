@@ -26,9 +26,28 @@
 //                               //            coordinates onto the surface
 //       css:   () => ({ name, text, href, errors }),   // optional
 //       setCss: (text) => void,                        // optional
+//       force: (path, bits) => void,                   // optional — hold a
+//                               //            state on: 1 hover, 2 focus,
+//                               //            4 pressed, 8 disabled
+//       saveCss: (text) => void,                       // optional — write it
+//                               //            back where it came from
 //       label: "…",             // optional — what to call the app
 //     },
 //   })
+//
+// EVERY ONE OF THESE MAY RETURN A PROMISE. A host in the same page answers
+// synchronously and nothing here notices the difference; the three directions
+// that are not in the same page — a DevTools extension over
+// `inspectedWindow.eval`, a native target over a socket, a paused page
+// answering out of a snapshot — are all the same shape, which is that the
+// answer does not come back on the same tick. Awaiting a value that is already
+// a value costs a microtask, and writing the panel as if it could not is the
+// kind of decision that is cheap now and a rewrite later.
+//
+// The two exceptions are `transform` and `viewport`, which are read on every
+// pointer move to place the overlay. Those are awaited once per refresh and
+// cached, because a highlight that arrives a tick after the pointer is a
+// highlight that lags.
 //
 // Everything past `tree` degrades rather than fails, which is what makes one
 // panel serve a slide editor and a dashboard without either knowing about it.
@@ -117,6 +136,12 @@ const CSS = `
   border-radius:11px; padding:1px 8px; margin:0 5px 5px 0; font-family: ui-monospace, Menlo, monospace;
   font-size:11px; }
 .evgi-chip b { color:#b39ddb; font-weight:500; }
+.evgi-hov { display:flex; gap:5px; flex-wrap:wrap; padding:0 0 2px; }
+.evgi-hov button { font:11px ui-monospace, Menlo, monospace; padding:2px 8px; border-radius:5px;
+  border:1px solid var(--evgi-line); background:transparent; color:var(--evgi-dim); cursor:pointer; }
+.evgi-hov button:hover { color:var(--evgi-ink); }
+.evgi-hov button.on { background:var(--evgi-accent); border-color:var(--evgi-accent); color:#0b0e14; }
+.evgi-hov .rel { margin-left:auto; }
 .evgi-chip span { color:var(--evgi-dim); font-size:10.5px; }
 .evgi-note { color:var(--evgi-dim); padding:6px 0 0; line-height:1.6; }
 .evgi-css textarea { width:100%; min-height:230px; resize:vertical; background:var(--evgi-bg);
@@ -272,38 +297,52 @@ export function attach(opts = {}) {
 
   function surfaceRect() { return surface.getBoundingClientRect(); }
 
-  // The surface's own logical width. A page whose tree fills the surface has
-  // nothing to say here and gets the tree's width; an editor that draws a
-  // slide inside a window says how big the window is, because the tree is the
-  // slide and the surface is not.
-  function viewport() {
+  // The surface's own logical size and the tree's placement on it, read once
+  // per refresh and kept. See the note at the top about why these two, alone,
+  // are not awaited per call.
+  let view = { vw: 1, vh: 1, t: { x: 0, y: 0, k: 1 } };
+
+  async function readView() {
+    let vw = tree ? tree.w : 1;
+    let vh = tree ? tree.h : 1;
     if (typeof app.viewport === "function") {
-      try { const v = app.viewport(); if (v && v[0]) return v; } catch { /* below */ }
+      try { const v = await app.viewport(); if (v && v[0]) { vw = v[0]; vh = v[1]; } } catch { /* keep the tree's */ }
     }
-    return tree ? [tree.w, tree.h] : [1, 1];
-  }
-  function scale() {
-    const r = surfaceRect();
-    return r.width / viewport()[0] || 1;
-  }
-  function transform() {
+    let t = { x: 0, y: 0, k: 1 };
     if (typeof app.transform === "function") {
       try {
-        const t = parse(app.transform());
-        if (t && typeof t.k === "number") return { x: t.x || 0, y: t.y || 0, k: t.k || 1 };
-      } catch { /* below */ }
+        const raw = parse(await app.transform());
+        if (raw && typeof raw.k === "number") t = { x: raw.x || 0, y: raw.y || 0, k: raw.k || 1 };
+      } catch { /* identity */ }
     }
-    return { x: 0, y: 0, k: 1 };
+    view = { vw, vh, t };
   }
 
-  function refreshTree(keepSelection = true) {
+  function viewport() { return [view.vw, view.vh]; }
+  function scale() {
+    const r = surfaceRect();
+    return r.width / view.vw || 1;
+  }
+  function transform() { return view.t; }
+
+  // Refreshes overlap when a host is slow — a repaint asks while the previous
+  // answer is still in flight — so the newest wins and the older ones drop
+  // their results rather than painting a tree that has already been replaced.
+  let refreshToken = 0;
+
+  async function refreshTree(keepSelection = true) {
+    const mine = ++refreshToken;
+    let fetched;
     try {
-      tree = parse(app.tree());
+      fetched = parse(await app.tree());
     } catch (e) {
+      if (mine !== refreshToken) return;
       tree = null;
       foot.textContent = "tree() failed: " + e.message;
       return;
     }
+    if (mine !== refreshToken) return;
+    tree = fetched;
     byId = new Map();
     kids = new Map();
     for (const n of tree.nodes) {
@@ -321,16 +360,20 @@ export function attach(opts = {}) {
     }
     frame = null;
     if (typeof app.frame === "function") {
-      try { frame = parse(app.frame()); } catch { frame = null; }
+      try { frame = parse(await app.frame()); } catch { frame = null; }
+      if (mine !== refreshToken) return;
     }
+    await readView();
+    if (mine !== refreshToken) return;
     renderTree(); renderBody(); renderFoot();
   }
 
-  function loadDetail(id) {
+  async function loadDetail(id) {
     detail = null;
-    if (typeof app.node === "function") {
-      try { detail = parse(app.node(id)); } catch (e) { detail = { error: e.message }; }
-    }
+    if (typeof app.node !== "function") return;
+    try { detail = parse(await app.node(id)); } catch (e) { detail = { error: e.message }; }
+    // The selection moved on while this was in flight.
+    if (selected !== id) detail = null;
   }
 
   // A hit test the app did not provide. Reverse document order over the boxes
@@ -345,19 +388,30 @@ export function attach(opts = {}) {
     }
     return "";
   }
-  function hitAt(x, y) {
+  // A pointer moves faster than a slow host answers, so the answers can come
+  // back out of order. The newest question is the only one whose answer is
+  // allowed to move the highlight.
+  let hitToken = 0;
+
+  async function hitAt(x, y) {
     if (typeof app.hit === "function") {
-      try { return app.hit(x, y) || ""; } catch { /* fall through */ }
+      const mine = ++hitToken;
+      try {
+        const id = (await app.hit(x, y)) || "";
+        if (mine !== hitToken) return null;
+        return id;
+      } catch { /* fall through to the geometric one */ }
     }
     return fallbackHit(x, y);
   }
 
   // --- selection -----------------------------------------------------------
 
-  function select(id, { reveal = true, quiet = false } = {}) {
+  async function select(id, { reveal = true, quiet = false } = {}) {
     if (!byId.has(id)) return;
     selected = id;
-    loadDetail(id);
+    await loadDetail(id);
+    if (selected !== id) return;
     if (reveal) {
       let p = byId.get(id).p;
       while (p != null) { expanded.add(p); p = byId.get(p) ? byId.get(p).p : null; }
@@ -518,6 +572,42 @@ export function attach(opts = {}) {
     if (detail.error) { body.appendChild(el("div", "evgi-empty", detail.error)); return; }
     const inline = new Set(detail.inline || []);
 
+    // --- states held on ------------------------------------------------------
+    //
+    // A `:hover` rule cannot be read while the only way to make it true is to
+    // keep the pointer somewhere other than this panel. These hold the four
+    // interaction bits on for the selected node until they are let go, which
+    // is the same thing Chrome's `:hov` does and for the same reason.
+    if (typeof app.force === "function") {
+      const bits = detail.forced || 0;
+      const row = el("div", "evgi-hov");
+      for (const [bit, label] of [[1, ":hover"], [2, ":focus"], [4, ":active"], [8, ":disabled"]]) {
+        const b = el("button", (bits & bit) ? "on" : "", label);
+        b.title = (bits & bit) ? "held on — click to let go" : "hold this state on";
+        b.onclick = async () => {
+          await app.force(n.id, bits ^ bit);
+          await refreshTree();
+          await select(n.id, { reveal: false });
+        };
+        row.appendChild(b);
+      }
+      if (bits) {
+        const rel = el("button", "rel", "let go");
+        rel.onclick = async () => {
+          await app.force(n.id, 0);
+          await refreshTree();
+          await select(n.id, { reveal: false });
+        };
+        row.appendChild(rel);
+      }
+      body.append(el("h4", null, "state"), row);
+      if (bits) {
+        body.appendChild(el("div", "evgi-note",
+          "Held on. The cascade sees an ordinary state — nothing was taught to it — "
+          + "so the rules below are the ones that are really matching."));
+      }
+    }
+
     // --- which classes reach this element ------------------------------------
     //
     // This cascade selects on classes and nothing else, so the set of rules
@@ -625,21 +715,31 @@ export function attach(opts = {}) {
   // goes in the file — there is no "copy as CSS" step because there is nothing
   // to translate.
   let cssDraft = null;
-  function renderCss() {
+  async function renderCss() {
     if (typeof app.css !== "function") {
       body.appendChild(el("div", "evgi-empty",
         "This host does not expose its stylesheet. A host that hands the panel "
         + "css() gets a live editor here; the tree stays readable either way."));
       return;
     }
+    // Awaited, so the pane is drawn into the body it belongs to and not into
+    // whichever one is showing by the time the answer lands.
+    const forTab = tab;
+    const holder = el("div");
+    body.appendChild(holder);
     let src;
-    try { src = app.css(); } catch (e) { body.appendChild(el("div", "evgi-empty", String(e.message))); return; }
+    try { src = await app.css(); } catch (e) { holder.appendChild(el("div", "evgi-empty", String(e.message))); return; }
+    if (tab !== forTab) return;
+    holder.textContent = "";
     const wrap = el("div", "evgi-css");
     const bar = el("div", "bar");
     bar.appendChild(el("span", "name", src.name || "stylesheet"));
     const apply = el("button", "evgi-btn", "apply");
+    const save = el("button", "evgi-btn", "save to disk");
     const revert = el("button", "evgi-btn", "revert");
-    bar.append(apply, revert);
+    bar.append(apply);
+    if (typeof app.saveCss === "function") bar.append(save);
+    bar.append(revert);
     if (src.href) bar.appendChild(el("span", "live", "live from disk"));
     wrap.appendChild(bar);
 
@@ -673,18 +773,33 @@ export function attach(opts = {}) {
       + "app took at startup. Saving the file on disk does the same thing by the "
       + "other route, and the two cannot drift."));
 
-    apply.onclick = () => {
+    apply.onclick = async () => {
       if (typeof app.setCss !== "function") return;
+      apply.disabled = true;
       try {
-        app.setCss(area.value);
-        refreshTree();
+        await app.setCss(area.value);
+        await refreshTree();
         tab = "css";
         renderTabs();
         renderBody();
-      } catch (e) { showErrors([String(e.message)]); }
+      } catch (e) { showErrors([String(e.message)]); apply.disabled = false; }
+    };
+    // Apply, then write it where it came from. Applying first means a sheet
+    // that will not parse is found before it is on disk, and the two together
+    // are what closes the loop the other way: the watch sees the write and
+    // every other page open on this sheet re-cascades too.
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        await app.setCss(area.value);
+        await app.saveCss(area.value);
+        cssDraft = null;
+        await refreshTree();
+        renderBody();
+      } catch (e) { showErrors([String(e.message)]); save.disabled = false; }
     };
     revert.onclick = () => { cssDraft = null; renderBody(); };
-    body.appendChild(wrap);
+    holder.appendChild(wrap);
   }
 
   // Which commands this element emitted. Present only when the host built the
@@ -774,18 +889,18 @@ export function attach(opts = {}) {
     document.body.classList.toggle("evgi-picking", on);
     if (!on) highlight(selected);
   }
-  surface.addEventListener("mousemove", (ev) => {
+  surface.addEventListener("mousemove", async (ev) => {
     if (!picking) return;
     const [x, y] = surfacePoint(ev);
-    const id = hitAt(x, y);
-    if (id && byId.has(id)) highlight(id);
+    const id = await hitAt(x, y);
+    if (id && picking && byId.has(id)) highlight(id);
   });
-  surface.addEventListener("click", (ev) => {
+  surface.addEventListener("click", async (ev) => {
     if (!picking) return;
     ev.preventDefault(); ev.stopPropagation();
     const [x, y] = surfacePoint(ev);
-    const id = hitAt(x, y);
-    if (id && byId.has(id)) { select(id); setPicking(false); }
+    const id = await hitAt(x, y);
+    if (id && byId.has(id)) { setPicking(false); await select(id); }
   }, true);
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && picking) { setPicking(false); ev.preventDefault(); }
@@ -798,14 +913,18 @@ export function attach(opts = {}) {
 
   window.addEventListener("resize", () => highlight(selected));
 
-  refreshTree(false);
+  renderTabs();
   // Open on the root rather than on an empty pane. There is always something
   // to say about the page as a whole, and a panel whose right half is a
   // sentence asking you to click something is a panel that has not started.
-  if (tree && tree.nodes.length) select(tree.root, { quiet: true });
-  renderTabs();
+  const ready = refreshTree(false).then(() => {
+    if (tree && tree.nodes.length) return select(tree.root, { quiet: true });
+  });
 
   const api = {
+    // Resolves when the first tree has been read and the root selected — a
+    // caller that wants to drive the panel has to know when it is up.
+    ready,
     // A host that repaints tells the panel so; nothing here polls.
     refresh: () => refreshTree(true),
     select,

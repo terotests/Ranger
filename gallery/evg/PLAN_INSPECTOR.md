@@ -14,6 +14,12 @@ The rest of this file is still design.
 > browser gate in `inspect/browser-smoke.mjs`, and one end-to-end gate in
 > `inspect/live-css-check.mjs`.
 >
+> Since then: the adapter is asynchronous throughout, so the transports that
+> cannot answer on the same tick are open rather than a rewrite away; states
+> can be held on (`EVGInspectForce`, keyed by path so it survives the rebuild
+> a tree-literal page does on every input); and the panel can write the sheet
+> back to disk, which the watch then sees like any other save.
+>
 > **§7 is superseded and the reason is worth keeping.** That section designs an
 > override layer — a table of (path, property, value) re-applied after every
 > cascade — because an edit written onto an element dies on the next rebuild.

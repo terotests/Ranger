@@ -82,9 +82,22 @@ attach({
     frame: () => app.inspectFrameJson(),
     transform: () => app.inspectTransform(),  // {x, y, k}, when the tree is
     viewport: () => [w, h],                   // drawn inside a larger surface
+    css:   () => ({ name, text, href, errors }),
+    setCss: (text) => app.inspectSetCss(text),
+    saveCss: (text) => fetch(href, { method: "PUT", body: text }),
+    force: (path, bits) => app.inspectForce(path, bits),
   },
 });
 ```
+
+**Every one of these may return a promise.** A host in the same page answers
+synchronously and the panel does not notice; the directions that are not in the
+same page — a DevTools extension over `inspectedWindow.eval`, a native target
+over a socket, a paused page answering out of a snapshot — are all the same
+shape, which is that the answer does not arrive on the same tick. The two
+exceptions are `transform` and `viewport`, read once per refresh and cached,
+because a highlight that arrives a tick after the pointer is a highlight that
+lags.
 
 On the Ranger side that is four one-liners, because `EVGInspect` carries the
 statics:
@@ -221,12 +234,22 @@ always did. Nothing is intercepted, no value is held over the app's head, and
 Two routes into the same operation, and they cannot drift:
 
 ```
-  the panel's CSS pane ─┐
-                        ├─► app.inspectSetCss(text) ─► EVGStyleSheet.reload
-  a save on disk ───────┘        ▲
-     │                           │
-     └─ serve.mjs watch ─► SSE ─┘   (npm run evg:inspect:demo)
+  the panel's CSS pane ─┬─► app.inspectSetCss(text) ─► EVGStyleSheet.reload
+                        │        ▲
+  a save on disk ───────┼────────┘
+     │                  │
+     └─ serve.mjs watch ─► SSE ─► the page fetches and hands it over
+                        │
+  "save to disk" ───────┴─► PUT ─► serve.mjs writes the file
+                                    …which the watch then sees, so every other
+                                    page open on that sheet re-cascades too
 ```
+
+The PUT is deliberately narrow — a `.css` file directly inside
+`gallery/ui/demo`, and nothing else. This server exists to serve a demo on a
+developer's own machine, and a write that could reach further would be a worse
+thing than the convenience is worth. The page that saved keeps the text it
+sent, so its own save coming back round the watch is not applied twice.
 
 `npm run evg:inspect:live` gates the whole path and checks the **colour of a
 rectangle in the display list**, not the element and not the panel: a value
@@ -269,6 +292,41 @@ deliberately.
   file, not by a sheet. CSS editing serves that app's chrome; the slide is a
   different question and the panel does not pretend otherwise.
 
+## Holding a state on
+
+![a hover, held on while the pointer is elsewhere](shots/state.png)
+
+A `:hover` rule cannot be read while the only way to make it true is to keep
+the pointer somewhere other than this panel. So the four interaction bits can
+be **held on** for the selected node — the same thing Chrome's `:hov` toggles
+do, and for the same reason.
+
+Nothing was taught to the cascade. `EVGPseudo.holds` reads `isHovered`,
+`isFocused`, `isPressed` and `a11yDisabled`, and a held bit is one of those
+fields being true — so the rule that wins is the ordinary `.db-brand:hover`
+rule, matching for the ordinary reason. The panel above shows exactly that: the
+initial value struck under it, the base rule, and the hover rule on top.
+
+The table is **keyed by node path, not by element**, and that is the whole
+reason it works here. This page throws its element tree away on every input, so
+a flag written onto an element would last one frame; a path is a fact about the
+tree's shape and names whatever is in that position on the next pass too. It
+lives in `EVGInspectForce`, a singleton, applied by
+`EVGInspect.applyForced(root)` — which a host calls at one specific moment:
+
+```ranger
+this.markStates(r)            ; what the app says is hovered
+EVGInspect.applyForced(r)     ; plus what the panel is holding
+s.applyTree(r "")             ; then ask the sheet what that makes true
+```
+
+That ordering is the only thing a host has to get right, and the cost when
+nothing is held is one array length.
+
+On, not off. Forcing a state *off* would be arguing with the app about what is
+happening rather than holding still something that already is, and the browser
+does not offer it either.
+
 ## A tree drawn inside a larger surface
 
 The dashboard's tree *is* the page: the boxes are in the surface's own
@@ -309,6 +367,7 @@ against the first, which is the habit the painters already keep:
 | a reload lands | a rule added to the sheet reaches a **retained** tree, and the frame |
 | a reload does not double | applying the same text twice leaves the plan the same size |
 | the class counts are the tree's | what the panel says `.db-card` reaches is what the tree has |
+| a held state is an ordinary state | the real `:hover` rule wins, the value follows, it survives a rebuild, and letting go puts it back |
 
 The hit-test gate is deliberately one-sided, and the first version of it was
 wrong in a way worth recording: it expected every node to be reachable. The
@@ -325,10 +384,11 @@ the page does answer, so it cannot pass by never being asked.
 filled. It runs against the SVG editor because that needs no GPU.
 
 `npm run evg:inspect:live` gates the part that only exists across processes:
-the real dev server, a real save, the real page and the real WebGL painter. It
-also checks that the watch fires **once** per save — `fs.watch` reports the
-truncate and the write separately, and a sheet reloaded three times per
-keystroke would relayout three times.
+the real dev server, a real save, the real page and the real WebGL painter, in
+both directions — a rule written to the file reaching the painter, and the
+panel's "save to disk" reaching the file. It also checks that the watch fires
+**once** per save: `fs.watch` reports the truncate and the write separately,
+and a sheet reloaded three times per keystroke would relayout three times.
 
 ## What is not built yet
 
@@ -336,19 +396,19 @@ keystroke would relayout three times.
 the walk and the panel, attribution, the cascade view, and CSS as a live input.
 Not here yet, in the order they are worth doing:
 
-* **an async adapter.** Every remaining direction is the same shape — the
-  answer does not come back synchronously: a DevTools extension talks over
-  `inspectedWindow.eval`, a native target over a socket, a paused page out of a
-  snapshot. The panel calls `app.tree()` and parses the result on the spot, and
-  that is the one refactor that is cheap now and expensive later.
-* **forcing a state.** `EVGPseudo.holds` reads four plain fields —
-  `isHovered`, `isFocused`, `isPressed`, `a11yDisabled` — so Chrome's `:hov`
-  toggles are directly available, and editing a `:hover` rule without being
-  able to hold the hover is working blind.
 * **editing a rule in place** rather than appending to the sheet. The
-  provenance names the rule; what is missing is writing back into its block.
-* **saving to disk from the panel**, closing the loop the other way. The dev
-  server already watches; a PUT is the other half.
+  provenance names the rule and the panel prints its selector; what is missing
+  is finding that block in the text and writing back into it. Until then an
+  edit is appended, which always wins and is easy to strip, but does not teach
+  you where the value really lives.
+* **a second host with a live sheet.** Only the dashboard is wired to
+  `css()`/`setCss()` today. The other seventeen demos each have one, and the
+  PPTX editor takes chrome CSS through `setChromeCss` — the wiring is four
+  methods and a line in the demo registry.
+* **the transports the async adapter now allows** — a DevTools extension over
+  `inspectedWindow.eval`, a native target over a socket, a paused page
+  answering out of a snapshot. The panel no longer assumes any of them answer
+  on the same tick, which was the part that had to be decided early.
 * **component debug notes** — a component saying *why*, which no channel
   carries today.
 * **the offline bundle** — one frame in a file, openable with no app running,

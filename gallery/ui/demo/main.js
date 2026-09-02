@@ -1523,6 +1523,9 @@ function inspectorAdapter() {
     hit: (x, y) => app.inspectHitPath(x, y),
     frame: () => app.inspectFrameJson(),
   };
+  if (typeof app.inspectForce === "function") {
+    adapter.force = (path, bits) => { app.inspectForce(path, bits); paint(); };
+  }
   if (d.css && typeof app.inspectCss === "function") {
     adapter.css = () => ({
       name: d.css,
@@ -1530,7 +1533,15 @@ function inspectorAdapter() {
       text: app.inspectCss(),
       errors: JSON.parse(app.inspectStyleErrors()),
     });
-    adapter.setCss = (text) => { app.inspectSetCss(text); paint(); };
+    adapter.setCss = (text) => { lastSentCss = text; app.inspectSetCss(text); paint(); };
+    // Saving means putting the text back where the input came from. The watch
+    // then picks it up like any other save, which is why `lastSentCss` exists:
+    // the page that wrote it does not need to re-apply its own text.
+    adapter.saveCss = async (text) => {
+      lastSentCss = text;
+      const r = await fetch("/gallery/ui/demo/" + d.css, { method: "PUT", body: text });
+      if (!r.ok) throw new Error("save failed: " + r.status + " " + (await r.text()));
+    };
   }
   return adapter;
 }
@@ -1545,6 +1556,9 @@ function inspectorAdapter() {
 // Editing the file and editing it in the panel are therefore the SAME
 // operation arriving by two routes, and neither can drift from the other.
 let cssStream = null;
+// The last text this page handed to the app, so the save it just made does not
+// come back round the loop as a change to apply again.
+let lastSentCss = null;
 
 function watchCss() {
   if (cssStream) return;
@@ -1560,6 +1574,8 @@ function watchCss() {
     if (!app || typeof app.inspectSetCss !== "function") return;
     try {
       const text = await (await fetch(msg.href + "?t=" + Date.now())).text();
+      if (text === lastSentCss) return;              // our own save, coming back
+      lastSentCss = text;
       app.inspectSetCss(text);
       paint();
       if (inspector) inspector.refresh();
