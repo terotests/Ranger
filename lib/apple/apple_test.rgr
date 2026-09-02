@@ -1,0 +1,369 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; apple_test.rgr -- the Apple build driver, checked without a Mac.
+; =============================================================================
+;
+; Nothing here runs an Apple tool. What it checks is the part of a build driver
+; that has bugs in it: which program is invoked, with which arguments, in which
+; order, and what the bundle it writes claims about itself. `Shell.dryRun`
+; records instead of executing, so the whole plan is a list of strings, and the
+; simulator parser is a pure function over the text simctl prints.
+;
+;     node bin/output.js -es6 lib/apple/apple_test.rgr -nodecli -d=tmp -o=apple_test.js
+;     node tmp/apple_test.js
+; =============================================================================
+
+Import "../Shell.rgr"
+Import "AppleTarget.rgr"
+Import "AppleAppSpec.rgr"
+Import "AppleToolchain.rgr"
+Import "AppleAppBuilder.rgr"
+Import "AppleSimulator.rgr"
+
+class AppleTest {
+
+    def passed:int 0
+    def failed:int 0
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + name
+        }
+    }
+
+    fn checkHas:void (name:string haystack:string needle:string) {
+        this.check(name ((indexOf haystack needle) >= 0))
+    }
+
+    ; ------------------------------------------------------------------ targets
+
+    fn testTargets:void () {
+        def sim:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        this.check("ios simulator triple" ((sim.swiftTriple()) == "arm64-apple-ios15.0-simulator"))
+        this.check("ios simulator sdk" (sim.sdk == "iphonesimulator"))
+        this.check("ios simulator is universal" ((array_length sim.families) == 2))
+        this.check("ios simulator ad hoc" (sim.isAdHocSigned()))
+        this.check("ios simulator is not a watch" ((sim.isWatch()) == false))
+
+        def intel:AppleTarget (AppleTarget.iosSimulator("x86_64"))
+        this.check("intel simulator triple" ((intel.swiftTriple()) == "x86_64-apple-ios15.0-simulator"))
+
+        def dev:AppleTarget (AppleTarget.iosDevice("Apple Development: Someone (ABC123)"))
+        this.check("ios device triple" ((dev.swiftTriple()) == "arm64-apple-ios15.0"))
+        this.check("ios device sdk" (dev.sdk == "iphoneos"))
+        this.check("ios device is not ad hoc" ((dev.isAdHocSigned()) == false))
+
+        def watch:AppleTarget (AppleTarget.watchSimulator("arm64"))
+        this.check("watch simulator triple" ((watch.swiftTriple()) == "arm64-apple-watchos9.0-simulator"))
+        this.check("watch simulator sdk" (watch.sdk == "watchsimulator"))
+        this.check("watch family" ((itemAt watch.families 0) == 4))
+        this.check("watch is a watch" (watch.isWatch()))
+
+        def watchDev:AppleTarget (AppleTarget.watchDevice("Apple Development: Someone (ABC123)"))
+        this.check("watch device triple" ((watchDev.swiftTriple()) == "arm64-apple-watchos9.0"))
+
+        def pad:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        pad.onlyPad()
+        this.check("ipad only family" ((array_length pad.families) == 1))
+        this.check("ipad only is family 2" ((itemAt pad.families 0) == 2))
+        this.checkHas("describe names the triple" (pad.describe()) "arm64-apple-ios15.0-simulator")
+        this.checkHas("describe names the device" (pad.describe()) "iPad")
+    }
+
+    ; -------------------------------------------------------------------- plist
+
+    fn testPlist:void () {
+        def spec:AppleAppSpec (new AppleAppSpec)
+        spec.name = "RangerDashboard"
+        spec.displayName = "Ranger & Co"
+        spec.bundleId = "fi.ranger.dashboard"
+        spec.version = "2.1"
+        spec.build = "77"
+
+        def sim:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def xml:string (AppleInfoPlist.build(spec sim))
+
+        this.checkHas("plist declares the executable" xml "<key>CFBundleExecutable</key>\n\t<string>RangerDashboard</string>")
+        this.checkHas("plist declares the bundle id" xml "<string>fi.ranger.dashboard</string>")
+        this.checkHas("plist escapes the display name" xml "Ranger &amp; Co")
+        this.checkHas("plist has the launch screen" xml "<key>UILaunchScreen</key>")
+        this.checkHas("plist carries the min version" xml "<key>MinimumOSVersion</key>\n\t<string>15.0</string>")
+        this.checkHas("plist names the simulator platform" xml "iPhoneSimulator")
+        this.checkHas("plist is a universal app" xml "<integer>1</integer>")
+        this.checkHas("plist is an iPad app too" xml "<integer>2</integer>")
+        this.checkHas("plist allows landscape" xml "UIInterfaceOrientationLandscapeLeft")
+        this.check("plist has no watch key" ((indexOf xml "WKApplication") < 0))
+
+        def watch:AppleTarget (AppleTarget.watchSimulator("arm64"))
+        def wxml:string (AppleInfoPlist.build(spec watch))
+        this.checkHas("watch plist is standalone" wxml "<key>WKApplication</key>\n\t<true/>")
+        this.checkHas("watch plist has no companion" wxml "<key>WKWatchOnly</key>\n\t<true/>")
+        this.checkHas("watch plist runs on its own" wxml "<key>WKRunsIndependentlyOfCompanionApp</key>\n\t<true/>")
+        this.checkHas("watch plist names the platform" wxml "WatchSimulator")
+        this.check("watch plist has no device family" ((indexOf wxml "UIDeviceFamily") < 0))
+        this.check("watch plist has no launch screen" ((indexOf wxml "UILaunchScreen") < 0))
+
+        def devWatch:AppleTarget (AppleTarget.watchDevice("Someone"))
+        def dxml:string (AppleInfoPlist.build(spec devWatch))
+        this.checkHas("watch device platform" dxml "<string>WatchOS</string>")
+    }
+
+    ; ---------------------------------------------------------------- simulators
+
+    fn simctlFixture:string () {
+        def rows:[string]
+        push rows "== Devices =="
+        push rows "-- iOS 17.5 --"
+        push rows "    iPhone SE (3rd generation) (11111111-2222-3333-4444-555555555555) (Shutdown) "
+        push rows "    iPhone 15 Pro (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) (Booted) "
+        push rows "    iPad Pro 13-inch (M4) (99999999-8888-7777-6666-555555555555) (Shutdown) "
+        push rows "-- watchOS 10.5 --"
+        push rows "    Apple Watch Series 9 (45mm) (12345678-1234-1234-1234-123456789012) (Shutdown) "
+        push rows "-- Unavailable: com.apple.CoreSimulator.SimRuntime.tvOS-17-5 --"
+        push rows "    Apple TV (DEADBEEF-0000-1111-2222-333333333333) (Shutdown) (unavailable, runtime profile not found)"
+        return (join rows "\n")
+    }
+
+    fn testSimulators:void () {
+        def all:[AppleSimulator] (AppleSimulatorList.parse((this.simctlFixture())))
+        this.check("four usable devices" ((array_length all) == 4))
+
+        def se:AppleSimulator (itemAt all 0)
+        this.check("name keeps its brackets" (se.name == "iPhone SE (3rd generation)"))
+        this.check("udid is read" (se.udid == "11111111-2222-3333-4444-555555555555"))
+        this.check("state is read" (se.state == "Shutdown"))
+        this.check("runtime is read" (se.runtime == "iOS 17.5"))
+
+        def pad:AppleSimulator (itemAt all 2)
+        this.check("ipad name with a model bracket" (pad.name == "iPad Pro 13-inch (M4)"))
+
+        def watch:AppleSimulator (itemAt all 3)
+        this.check("watch runtime" (watch.runtime == "watchOS 10.5"))
+
+        def ios:[AppleSimulator] (AppleSimulatorList.onPlatform(all "iOS"))
+        this.check("three iOS devices" ((array_length ios) == 3))
+        def watches:[AppleSimulator] (AppleSimulatorList.onPlatform(all "watchOS"))
+        this.check("one watch" ((array_length watches) == 1))
+
+        ; A booted device wins when nothing was asked for.
+        def anyPick@(optional):AppleSimulator (AppleSimulatorList.pick(ios ""))
+        this.check("picks something" (!null? anyPick))
+        def anyDev:AppleSimulator (unwrap anyPick)
+        this.check("prefers the booted one" (anyDev.name == "iPhone 15 Pro"))
+
+        ; A name that was asked for wins over a booted one that was not.
+        def padPick@(optional):AppleSimulator (AppleSimulatorList.pick(ios "iPad"))
+        this.check("finds the ipad" (!null? padPick))
+        def padDev:AppleSimulator (unwrap padPick)
+        this.check("named beats booted" (padDev.name == "iPad Pro 13-inch (M4)"))
+
+        def byUdid@(optional):AppleSimulator (AppleSimulatorList.pick(ios "11111111-2222-3333-4444-555555555555"))
+        this.check("finds by udid" (!null? byUdid))
+
+        def missing@(optional):AppleSimulator (AppleSimulatorList.pick(ios "Nokia 3310"))
+        this.check("a name that is not there is absent" (null? missing))
+
+        ; An unavailable runtime contributes nothing, however well formed.
+        this.check("unavailable runtimes are skipped" ((array_length all) == 4))
+    }
+
+    ; ------------------------------------------------------------- the whole plan
+
+    fn buildSpec:AppleAppSpec () {
+        def spec:AppleAppSpec (new AppleAppSpec)
+        spec.name = "RangerDashboard"
+        spec.displayName = "Ranger Dashboard"
+        spec.bundleId = "fi.ranger.dashboard"
+        spec.addSource("generated/ui_ios.swift")
+        spec.addSource("ios/DashboardView.swift")
+        spec.addResource("assets/demo.css")
+        spec.addFramework("UIKit")
+        return spec
+    }
+
+    fn testBuildPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+        builder.buildRoot = "build"
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def res:AppleBuildResult (builder.build(spec target))
+
+        this.check("dry build succeeds" res.ok)
+        this.check("bundle path" (res.appPath == "build/ios-simulator/RangerDashboard.app"))
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("compiles with xcrun swiftc" plan "xcrun --sdk iphonesimulator swiftc")
+        this.checkHas("compiles for the simulator triple" plan "-target arm64-apple-ios15.0-simulator")
+        this.checkHas("emits an executable" plan "-emit-executable")
+        this.checkHas("names the binary after the bundle" plan "-o build/ios-simulator/RangerDashboard.app/RangerDashboard")
+        this.checkHas("links UIKit" plan "-framework UIKit")
+        this.checkHas("compiles the generated file" plan "generated/ui_ios.swift")
+        this.checkHas("compiles the host file" plan "ios/DashboardView.swift")
+        this.checkHas("copies the stylesheet" plan "cp -R assets/demo.css build/ios-simulator/RangerDashboard.app")
+        this.checkHas("signs the bundle" plan "codesign --force --sign - ")
+        this.check("no xcodebuild anywhere" ((indexOf plan "xcodebuild") < 0))
+        this.check("no xcodeproj anywhere" ((indexOf plan "xcodeproj") < 0))
+
+        ; The order matters: the plist has to be linted before anything is
+        ; compiled into a bundle that may not install, and signing is last
+        ; because signing anything before the binary is in it signs the wrong
+        ; thing.
+        def lintAt:int (indexOf plan "plutil -lint")
+        def swiftAt:int (indexOf plan "swiftc")
+        def signAt:int (indexOf plan "codesign")
+        this.check("plist is linted before compiling" (lintAt < swiftAt))
+        this.check("signing is last" (signAt > swiftAt))
+
+        ; Every step is recorded whether or not it ran.
+        this.check("steps were recorded" ((array_length res.steps) > 5))
+        ; The ordering check above is only worth anything if both commands are
+        ; really in the plan.
+        this.check("the plist lint is in the plan" (lintAt >= 0))
+        this.check("the compile is in the plan" (swiftAt >= 0))
+        this.check("the signing is in the plan" (signAt >= 0))
+        ; A simulator build has no profile to embed and no entitlements to
+        ; grant: signing it ad hoc is the whole of it.
+        this.check("no profile is embedded for the simulator" ((indexOf plan "embedded.mobileprovision") < 0))
+        this.check("no entitlements for the simulator" ((indexOf plan "--entitlements") < 0))
+    }
+
+    ; A real iPhone. Three things have to happen that the simulator needs none
+    ; of, and they have to happen in the right order relative to signing.
+    fn testDevicePlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        spec.provisioningProfile = "signing/Ranger_Dashboard_Dev.mobileprovision"
+        def target:AppleTarget (AppleTarget.iosDevice("Apple Development: Someone (ABC123)"))
+        def res:AppleBuildResult (builder.build(spec target))
+        this.check("device dry build succeeds" res.ok)
+        this.check("device bundle path" (res.appPath == "build/ios-device/RangerDashboard.app"))
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("device sdk" plan "xcrun --sdk iphoneos swiftc")
+        this.checkHas("device triple has no simulator suffix" plan "-target arm64-apple-ios15.0 ")
+        this.checkHas("the profile goes in the bundle" plan "build/ios-device/RangerDashboard.app/embedded.mobileprovision")
+        this.checkHas("the profile is decoded" plan "security cms -D -i signing/Ranger_Dashboard_Dev.mobileprovision")
+        this.checkHas("entitlements are extracted from it" plan "plutil -extract Entitlements xml1 -o build/ios-device/entitlements.plist")
+        this.checkHas("signed with a real identity" plan "codesign --force --sign 'Apple Development: Someone (ABC123)'")
+        this.checkHas("signed with those entitlements" plan "--entitlements build/ios-device/entitlements.plist")
+
+        def embedAt:int (indexOf plan "embedded.mobileprovision")
+        def signAt:int (indexOf plan "codesign")
+        this.check("the profile is in place before signing" (embedAt < signAt))
+
+        ; Without a profile the build still goes through -- an identity already
+        ; provisioned for the device is a real workflow -- but nothing is
+        ; embedded and no entitlements are invented.
+        def sh2:Shell (new Shell)
+        sh2.dryRun = true
+        def tools2:AppleToolchain (new AppleToolchain (sh2))
+        def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
+        b2.verbose = false
+        def bare:AppleAppSpec (this.buildSpec())
+        def res2:AppleBuildResult (b2.build(bare target))
+        this.check("device build without a profile still builds" res2.ok)
+        def plan2:string (join sh2.commands "\n")
+        this.check("nothing is embedded without a profile" ((indexOf plan2 "embedded.mobileprovision") < 0))
+        this.check("no entitlements without a profile" ((indexOf plan2 "--entitlements") < 0))
+    }
+
+    fn testWatchPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.watchSimulator("arm64"))
+        def res:AppleBuildResult (builder.build(spec target))
+        this.check("watch dry build succeeds" res.ok)
+        this.check("watch bundle path" (res.appPath == "build/watchos-simulator/RangerDashboard.app"))
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("watch sdk" plan "xcrun --sdk watchsimulator swiftc")
+        this.checkHas("watch triple" plan "-target arm64-apple-watchos9.0-simulator")
+    }
+
+    fn testRunPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def res:AppleBuildResult (builder.runOnSimulator(spec target "iPad Pro"))
+        this.check("dry run reaches launch" res.ok)
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("boots a device" plan "xcrun simctl boot")
+        this.checkHas("shows the simulator window" plan "open -a Simulator")
+        this.checkHas("waits for the boot" plan "xcrun simctl bootstatus")
+        this.checkHas("installs the bundle" plan "xcrun simctl install")
+        this.checkHas("launches by bundle id" plan "xcrun simctl launch --terminate-running-process")
+        this.checkHas("launches the right app" plan "fi.ranger.dashboard")
+
+        ; A device target has no simulator to run on, and saying so is better
+        ; than booting something unrelated.
+        def sh2:Shell (new Shell)
+        sh2.dryRun = true
+        def tools2:AppleToolchain (new AppleToolchain (sh2))
+        def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
+        b2.verbose = false
+        def devTarget:AppleTarget (AppleTarget.iosDevice("Someone"))
+        def devRes:AppleBuildResult (b2.runOnSimulator(spec devTarget ""))
+        this.check("a device target is refused" (devRes.ok == false))
+        this.checkHas("and says why" devRes.message "device target")
+    }
+
+    ; The quoting is what makes a logged command line true rather than merely
+    ; suggestive, and a Ranger project path with a space in it is ordinary.
+    fn testQuoting:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+        def spec:AppleAppSpec (new AppleAppSpec)
+        spec.name = "App"
+        spec.bundleId = "fi.ranger.app"
+        spec.addSource("/Users/someone/My Projects/app.swift")
+        def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        builder.build(spec target)
+        def plan:string (join sh.commands "\n")
+        this.checkHas("a path with a space is quoted" plan "'/Users/someone/My Projects/app.swift'")
+    }
+
+    sfn m@(main):void () {
+        def t:AppleTest (new AppleTest)
+        print "Apple build driver"
+        t.testTargets()
+        t.testPlist()
+        t.testSimulators()
+        t.testBuildPlan()
+        t.testDevicePlan()
+        t.testWatchPlan()
+        t.testRunPlan()
+        t.testQuoting()
+        print "  " + t.passed + " passed, " + t.failed + " failed"
+        if (t.failed > 0) {
+            exit 1
+        }
+    }
+}

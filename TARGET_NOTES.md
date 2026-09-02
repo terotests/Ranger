@@ -1832,6 +1832,60 @@ cd bin && go run myserver.go
 `tests/fixtures/http_server.rgr` is a complete example. See
 [PLAN_HTTP.md](PLAN_HTTP.md) and [TODO_HTTP.md](TODO_HTTP.md).
 
+## Running other programs (`run_process_result`)
+
+One operator, on thirteen targets:
+
+```ranger
+run_process_result :[string] (program:string args:[string] cwd:string capture:boolean env:[string])
+```
+
+It answers `([exit code, stdout, stderr])` — three strings, because an array of
+strings is a shape every target already has and a record would need a
+systemclass and a type mapping per language. `capture` chooses between keeping
+the child's output and letting it land on this program's own stdout/stderr as it
+happens; `cwd` is `""` for "the one we are in"; `env` is `"NAME=VALUE"` entries
+**merged over** the environment this program was started with, so a child never
+loses `PATH`.
+
+The arguments are passed as a **vector**. There is no shell in between, so
+nothing inside an argument is re-read as a redirection, a glob or a second
+command — `printf %s "a b > c"` prints `a b > c`.
+
+[`lib/Shell.rgr`](lib/Shell.rgr) is the API you should actually write against:
+a result object, a remembered working directory, a log of every command line,
+and a dry run that records instead of executing.
+
+### Backends
+
+| Target | How | Notes |
+| --- | --- | --- |
+| es6 / ts | `child_process.spawnSync` | `maxBuffer` raised to 256 MB — a compiler's output overflows the 1 MB default |
+| python | `subprocess.Popen` / `call` | |
+| go | `os/exec` | `cmd.Env = append(os.Environ(), env...)`, which is the native shape |
+| kotlin, java7 | `ProcessBuilder` | stderr is drained on its own thread; reading stdout to the end first deadlocks the moment a compiler fills the error pipe |
+| csharp | `System.Diagnostics.Process` | arguments are joined into one command line with the `CommandLineToArgvW` quoting rule, because `ArgumentList` is not on every runtime this target is built with |
+| rust | `std::process::Command` | |
+| swift3 / swift6 | `Foundation.Process` | `Process` wants a path, so `PATH` is walked the way a shell walks it. The polyfill is emitted **only into programs that call the operator**, so an app compiled for iOS or watchOS never sees a symbol that platform does not have |
+| dart | `Process.runSync` | `dart:io` has no synchronous inherit-stdio, so the streaming form replays what it captured |
+| cpp | `std::system` / `popen` | The one target with **no portable spawn**: the vector is quoted back into one shell word list (single quotes, which a POSIX shell never re-reads). A program that is not there therefore reports the shell's 127 rather than -1 |
+| php | `proc_open` | Same 127, for the same reason |
+| scala | not implemented | answers -1 |
+| llvm | not implemented | |
+
+Checked by `npm run shell:test` — 44 assertions that really do start child
+processes — and run identically on **JavaScript, Python, Go, Rust, C++, Java and
+PHP** in this repository. The Kotlin, C#, Swift and Dart backends are written
+but not exercised here, because those toolchains are not installed in the
+environment the operator was added in.
+
+### What it does not do
+
+- No streaming callback: the answer arrives when the child exits.
+- No stdin.
+- No pipelines. Run one program, read its output, run the next.
+- No signals or timeouts.
+
 ## Polyfills
 
 Operators that need helper functions in the target language can carry

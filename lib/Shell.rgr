@@ -1,0 +1,326 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; Shell.rgr -- running other command line programs from Ranger.
+; =============================================================================
+;
+; The compiler gives one primitive for this, `run_process_result`, which answers
+; ([exit code, stdout, stderr]) as three strings. This file is the face you
+; should actually write against: a result object instead of three strings read
+; out by index, a working directory that is remembered rather than repeated, a
+; log of every command line that was asked for, and a DRY RUN.
+;
+; The dry run is the reason a driver written on top of this can be tested at
+; all. A build that shells out to somebody else's toolchain cannot be checked on
+; a machine that does not have that toolchain -- but the DECISIONS it makes (which
+; program, which arguments, in which order, with which working directory) are
+; the part that has bugs, and those can be checked anywhere. Set `dryRun` and
+; every call records its command line and answers success without running
+; anything.
+;
+; There is no shell in the middle of any of this. The arguments are passed as a
+; vector, so a path with a space in it, an argument that starts with a dash and
+; a filename containing a `*` all arrive at the program exactly as written. The
+; `commandLine` text this file builds is for READING -- a log line, an error
+; message, a dry run transcript -- and is quoted well enough to paste back into
+; a shell, but nothing is ever executed through one.
+;
+;     def sh:Shell (new Shell)
+;     sh.cwd = "/path/to/project"
+;     def argv:[string]
+;     push argv "rev-parse"
+;     push argv "HEAD"
+;     def r:ShellResult (sh.capture("git" argv))
+;     if (r.ok()) {
+;         print (r.outText())
+;     }
+;
+; Build the argument vector rather than writing it as an inline literal: an
+; array literal handed straight to a call is lost when the call result is
+; immediately dereferenced, and a one-element one is flattened on Rust
+; (ISSUES.md #84, #85).
+;
+; =============================================================================
+
+; What a finished command answers: its exit code, whatever it printed, and the
+; command line it was asked to run (so an error can name it without the caller
+; having to keep it).
+class ShellResult {
+
+    def code:int 0
+    def out:string ""
+    def err:string ""
+    def command:string ""
+    ; True when the command was recorded but never run, which is what a dry run
+    ; does. A skipped command answers ok() -- a dry run is not a failure -- so
+    ; this is how a caller tells "it worked" from "nothing happened".
+    def skipped:boolean false
+
+    fn ok:boolean () {
+        return (code == 0)
+    }
+
+    fn failed:boolean () {
+        return (code != 0)
+    }
+
+    ; stdout without the trailing newline every command line program writes.
+    fn outText:string () {
+        return (trim out)
+    }
+
+    fn errText:string () {
+        return (trim err)
+    }
+
+    fn outLines:[string] () {
+        def body:string (trim out)
+        if ((strlen body) == 0) {
+            def empty:[string]
+            return empty
+        }
+        return (strsplit body "\n")
+    }
+
+    ; The first line of stdout, which is the whole answer for most of the
+    ; version and locate style tools a build driver asks things of.
+    fn outFirstLine:string () {
+        def lines:[string] (this.outLines())
+        if ((array_length lines) == 0) {
+            return ""
+        }
+        return (trim (itemAt lines 0))
+    }
+
+    ; What went wrong, in one line, for an error message: the exit code, the
+    ; command, and whichever of stderr/stdout has something to say.
+    fn describeFailure:string () {
+        def why:string (trim err)
+        if ((strlen why) == 0) {
+            why = (trim out)
+        }
+        def head:string ("command failed (exit " + code + "): " + command)
+        if ((strlen why) == 0) {
+            return head
+        }
+        return (head + "\n" + why)
+    }
+}
+
+; A working directory, a log, and a switch that turns every call into a record
+; of what would have run.
+class Shell {
+
+    ; The directory commands run in. "" means the one this program is in.
+    def cwd:string ""
+    ; Record commands instead of running them. Every call answers exit 0 with
+    ; no output and `skipped` set.
+    def dryRun:boolean false
+    ; Print each command line before running it.
+    def verbose:boolean false
+    ; Extra environment entries for every command this Shell runs, as
+    ; "NAME=VALUE". Merged over the ones this program was started with rather
+    ; than replacing them, so a child never loses PATH.
+    def env:[string]
+    ; Every command line this Shell was asked for, in order, dry run or not.
+    def commands:[string]
+    ; The exit code of the last command that actually ran.
+    def lastCode:int 0
+
+    Constructor () {
+    }
+
+    ; Set an environment variable for every command this Shell runs from here
+    ; on. A toolchain driver needs this more often than it looks: SDKROOT,
+    ; DEVELOPER_DIR and RANGER_LIB are all read out of the environment by the
+    ; programs they configure, and none of them can be passed as an argument.
+    fn setEnv:void (name:string value:string) {
+        def prefix:string (name + "=")
+        def kept:[string]
+        for env pair:string i {
+            if ((indexOf pair prefix) != 0) {
+                push kept pair
+            }
+        }
+        push kept (prefix + value)
+        env = kept
+    }
+
+    ; Run a program and let its output land on ours as it happens. This is what
+    ; you want for a compiler or a linker: the progress is the point, and there
+    ; is nothing to parse afterwards.
+    fn run:ShellResult (program:string argv:[string]) {
+        return (this.exec(program argv false))
+    }
+
+    ; Run a program and keep what it printed. `out` and `err` come back in the
+    ; result and nothing reaches this program's own output.
+    fn capture:ShellResult (program:string argv:[string]) {
+        return (this.exec(program argv true))
+    }
+
+    ; The trimmed stdout of a captured run, for the many tools whose entire
+    ; answer is one line. A failure answers "" rather than throwing, so a caller
+    ; that only wants the happy path does not have to unwrap anything.
+    fn text:string (program:string argv:[string]) {
+        def res:ShellResult (this.capture(program argv))
+        if (res.failed()) {
+            return ""
+        }
+        return (res.outText())
+    }
+
+    ; Did this program run and succeed? Output is captured and dropped, which is
+    ; what you want when the question is only "does this work here".
+    fn succeeds:boolean (program:string argv:[string]) {
+        def res:ShellResult (this.capture(program argv))
+        return (res.ok())
+    }
+
+    ; Where a program is on PATH, or absent when it is not installed. An
+    ; argument with a "/" in it is a path already and is answered as it stands
+    ; when the file is there -- the same rule a shell follows.
+    fn which@(optional):string (program:string) {
+        ; One optional, assigned where an answer is found and returned once.
+        ; Several `def x@(optional):string value` in branches is the obvious
+        ; way to write this, and the Rust writer turns the initialiser into
+        ; `Some(program).to_string()`, so it is written the way that survives
+        ; every target.
+        def found@(optional):string
+        def slashAt:int (indexOf program "/")
+        if (slashAt >= 0) {
+            def dirPart:string (path_dirname program)
+            def namePart:string (this.baseName(program))
+            if (file_exists dirPart namePart) {
+                found = program
+            }
+            return found
+        }
+        def pathVar@(optional):string (env_var "PATH")
+        if (null? pathVar) {
+            return found
+        }
+        def pathText:string (unwrap pathVar)
+        ; ":" everywhere but Windows, which uses ";" -- and where a ":" is also
+        ; the drive letter separator inside every entry, so the presence of a
+        ; ";" is what decides rather than the platform.
+        def sep:string ":"
+        if ((indexOf pathText ";") >= 0) {
+            sep = ";"
+        }
+        def dirs:[string] (strsplit pathText sep)
+        for dirs dir:string i {
+            if (null? found) {
+                if ((strlen dir) > 0) {
+                    if (file_exists dir program) {
+                        found = (dir + "/" + program)
+                    }
+                }
+            }
+        }
+        return found
+    }
+
+    ; Is this program installed at all? Asked before a build starts, so a
+    ; missing toolchain is one clear message instead of a confusing failure
+    ; three commands later.
+    fn isInstalled:boolean (program:string) {
+        def found@(optional):string (this.which(program))
+        if (null? found) {
+            return false
+        }
+        return true
+    }
+
+    ; The command line as a human would write it. For logs, errors and dry run
+    ; transcripts only -- nothing is executed through a shell.
+    fn commandLine:string (program:string argv:[string]) {
+        def parts:[string]
+        ; The environment first, the way a shell would take it, so a logged or
+        ; dry-run line can be pasted back into a terminal and mean the same
+        ; thing.
+        for env pair:string i {
+            def at:int (indexOf pair "=")
+            if (at > 0) {
+                def name:string (substring pair 0 at)
+                def value:string (substring pair (at + 1) (strlen pair))
+                push parts (name + "=" + (this.quote(value)))
+            }
+        }
+        push parts (this.quote(program))
+        for argv a:string i {
+            push parts (this.quote(a))
+        }
+        return (join parts " ")
+    }
+
+    ; Wrap an argument in single quotes when it holds anything a shell would
+    ; treat as syntax, so the logged line can be pasted back into a terminal.
+    fn quote:string (a:string) {
+        if ((strlen a) == 0) {
+            return "''"
+        }
+        ; Character classes as a string to look in rather than as code point
+        ; arithmetic: `charAt` answers a `char`, and what a `char` IS differs
+        ; enough between targets that the arithmetic form does not compile
+        ; everywhere. `indexOf` over a one-character substring does.
+        def safe:string "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-=:+,@"
+        def plain:boolean true
+        def i:int 0
+        def n:int (strlen a)
+        while (i < n) {
+            def ch:string (substring a i (i + 1))
+            if ((indexOf safe ch) < 0) {
+                plain = false
+            }
+            i = i + 1
+        }
+        if plain {
+            return a
+        }
+        ; Single quotes, because a POSIX shell re-reads nothing inside them.
+        ; A single quote in the argument itself ends the run, is escaped on its
+        ; own, and a new run is opened: the '"'"'-'\''-'"'"' dance every shell
+        ; script eventually writes by hand.
+        def q:string "'"
+        def escaped:[string] (strsplit a q)
+        def glue:string ("'" + "\\" + "'" + "'")
+        return (q + (join escaped glue) + q)
+    }
+
+    ; The last path segment, which is the program name when a caller passed a
+    ; path rather than a name.
+    fn baseName:string (p:string) {
+        def parts:[string] (strsplit p "/")
+        def cnt:int (array_length parts)
+        if (cnt == 0) {
+            return p
+        }
+        return (itemAt parts (cnt - 1))
+    }
+
+    ; Everything above lands here: log the line, honour the dry run, run it,
+    ; and turn the three strings the compiler answers into a result object.
+    fn exec:ShellResult (program:string argv:[string] capture:boolean) {
+        def line:string (this.commandLine(program argv))
+        push commands line
+        if verbose {
+            print "$ " + line
+        }
+        def res:ShellResult (new ShellResult)
+        res.command = line
+        if dryRun {
+            res.skipped = true
+            res.code = 0
+            return res
+        }
+        def raw:[string] (run_process_result program argv cwd capture env)
+        def codeText:string (itemAt raw 0)
+        def parsed@(optional):int (to_int codeText)
+        res.code = (?? parsed (0 - 1))
+        res.out = (itemAt raw 1)
+        res.err = (itemAt raw 2)
+        lastCode = res.code
+        return res
+    }
+}

@@ -244,6 +244,52 @@ port is a facade, one walk over the display list, and two implementations of an
 eight-method surface — the second being Java2D, so a deck renders to PNGs on
 any JVM and the port can be checked without a device.
 
+## Calling other programs, and building an iOS app with no Xcode project
+
+Ranger can run another command line program:
+
+```ranger
+Import "lib/Shell.rgr"
+
+def sh:Shell (new Shell)
+def argv:[string]
+push argv "rev-parse"
+push argv "HEAD"
+def r:ShellResult (sh.capture("git" argv))
+if (r.ok()) {
+    print (r.outText())
+}
+```
+
+One compiler primitive is behind that — `run_process_result`, which answers
+`([exit code, stdout, stderr])` and can either capture the child's output or let
+it stream to this program's own. It takes a working directory and extra
+environment entries, passes the arguments as a **vector** so nothing inside one
+is ever re-read by a shell, and has a backend on thirteen targets.
+[`lib/Shell.rgr`](lib/Shell.rgr) is the API over it: a result object, a log of
+every command line, and a **dry run** that records instead of executing.
+
+That dry run is what makes a build driver testable, and
+[`lib/apple/`](lib/apple/README.md) is the driver it was built for:
+`AppleTarget`, `AppleAppSpec`, `AppleToolchain` and `AppleAppBuilder` turn a
+list of Swift files into an installed, running iOS, iPadOS or watchOS app using
+`xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — **no `.xcodeproj`, no
+`xcodebuild`, and nothing that opens Xcode.** 99 checks assert the plan it
+produces (which program, which arguments, in which order) and they run on
+JavaScript, Python, Go, Rust, C++, Java and PHP, on any machine.
+
+[`gallery/ui/ios`](gallery/ui/ios/README.md) is the whole of it worked through:
+the `gallery/ui` dashboard demo compiled to Swift, painted with CoreGraphics,
+and built for an iPhone, an iPad and an Apple Watch by a **Ranger program**.
+
+```bash
+npm run shell:test      # the process operator and lib/Shell, on this machine
+npm run apple:test      # the Apple build driver, without a Mac
+npm run ui:ios:plan     # the entire iOS build, printed and not run
+npm run ui:ios:verify   # the port's own logic — 82 checks, no Mac
+npm run ui:ios:run      # ...and on a Mac, the app on a simulator
+```
+
 ## Target-specific notes
 
 Swift 6, Rust, the C++ static analysis optimizer, HTTP servers on the Go

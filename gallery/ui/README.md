@@ -104,6 +104,29 @@ The verify run needs `kotlinc` and a JDK and no Android at all — it renders th
 page with Java2D and drives the presses, the scrolling, the keys and the pinch.
 Only the APK needs an SDK.
 
+## Trying it on Apple hardware
+
+```bash
+npm run ui:ios:verify   # the port, checked on Node — no Mac needed
+npm run ui:ios:plan     # the whole build plan, printed, nothing run
+npm run ui:ios:run      # ...or build the app and put it on a simulator
+npm run ui:ios:watch    # the same page on an Apple Watch
+```
+
+[`ios/`](ios/README.md) is the **dashboard demo as an iPhone, iPad and Apple
+Watch app** — the same `DashboardDemo.rgr`, compiled to Swift and painted with
+CoreGraphics through [`gallery/evg/apple`](../evg/apple/README.md).
+
+Two things make it different from the Android port. The facade owns a **safe
+area** and a **readable fit** as well as the viewport arithmetic, because an
+iPhone's window is not its screen and a 45mm watch cannot usefully show a
+1336-pixel page at 0.148 scale. And the build is **not a shell script**: it is
+`ranger/build_ios.rgr`, a Ranger program that calls the Ranger compiler,
+`xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — no Xcode project, and
+`--dry-run` prints the entire plan on a machine that is not a Mac.
+
+The verify run needs nothing but Node.
+
 ## How much of Radix is missing
 
 ```bash
