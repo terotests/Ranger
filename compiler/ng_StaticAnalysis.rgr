@@ -1097,6 +1097,24 @@ class StaticAnalyzer {
     if ((strlen argVarName) == 0) {
       return
     }
+    ; A LOCAL passed into an `inout` parameter has to be `var` storage on
+    ; Swift, or `&x` does not compile. It is marked through the node's own
+    ; paramDesc rather than through fnCtx: a local declared inside an `if` or a
+    ; loop lives in a nested context that getVariableDef, called with the
+    ; FUNCTION's context, does not reach -- which is how nine `let pts` came
+    ; out of gallery/vela and were then handed to `push2(&pts)`. Rust and C++
+    ; answer the same question for themselves at the call site, so only Swift's
+    ; marker travels here, and only downward: a local carries no requirement up
+    ; to the caller.
+    if arg.hasParamDesc {
+      if calleeSwiftInout {
+        def argDesc:RangerAppParamDesc (unwrap arg.paramDesc)
+        if (argDesc.needs_swift_inout == false) {
+          argDesc.needs_swift_inout = true
+          push changedParams argDesc.name
+        }
+      }
+    }
     def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
     if ((strlen argParam.name) == 0) {
       return

@@ -204,6 +204,52 @@ describe("Swift6 Code Generation", () => {
     });
   });
 
+  describe("let, var and char", () => {
+    // Swift is stricter than any other target about three things Ranger says
+    // freely: char and int are the same integer, a loop binds an index whether
+    // or not the body wants it, and a binding the body never writes to should
+    // be a `let`. Each of these is a warning or an error the reader has to
+    // wade through to find a real one.
+    const gen = () =>
+      getGeneratedSwiftCode(`${FIXTURES_DIR}/swift_let_and_char.rgr`);
+
+    it("treats char as the integer code unit it is everywhere else", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // `def ch:char (charAt text 0)` then `def code:int ch` — UInt8 made both
+      // lines a type error
+      expect(result.code).toContain("let ch : Int = Int(");
+      expect(result.code).toContain("let code : Int = ch");
+      expect(result.code).not.toContain("UInt8 = Int(");
+    });
+
+    it("writes _ for a loop index the body never reads", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("for (_, v) in values.enumerated()");
+      // and keeps the name where the body does read it
+      expect(result.code).toContain("for (i, v) in values.enumerated()");
+    });
+
+    it("declares a local let unless the body writes to it", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // never written
+      expect(result.code).toContain("let copyOf : [Int] = values");
+      // appended to
+      expect(result.code).toContain("var out : [Int] = [Int]()");
+      // a Ranger class is a Swift class, so assigning its fields writes
+      // through a let binding
+      expect(result.code).toContain("let p : Point = Point()");
+    });
+
+    it("discards the result of a call kept for its side effect", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("_ = SwiftLetAndChar.counted(text : \"abc\")");
+    });
+  });
+
   describe("Print Statements", () => {
     it("should use print() for output", () => {
       const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/hello.rgr`);

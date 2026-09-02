@@ -5294,7 +5294,12 @@ case class customException(smth:String)  extends Exception
             templates {
                 ranger ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3)" {" nl I (block 4) nl i "}" )
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "for ( " (swift_rc 3) " , " (e 2) " ) in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
-                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (e 3) ", " (e 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
+                ; swift_rc, not e: Swift warns on a bound name the body never
+                ; reads, and `for x in list` binds an index whether or not the
+                ; body wants one. swift_rc writes `_` for either name when its
+                ; ref_cnt is 0 -- the swift3 template already did this for the
+                ; index, and the item needs it just as much.
+                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (swift_rc 3) ", " (swift_rc 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
 
@@ -6494,6 +6499,10 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; Vec<u8> on Rust, so index the byte; `char` is an integer
                 ; code unit here as on every other target
                 rust ( (e 1) "[(" (e 2) ") as usize] as i64" )
+                ; a charbuffer is [UInt8] on Swift 6 and `char` is an Int, so
+                ; the byte is widened; without this the JavaScript fallback
+                ; below emitted `.charCodeAt(...)` into Swift
+                swift6 ( "Int(" (e 1) "[Int(" (e 2) ")])" )
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }
@@ -6628,7 +6637,7 @@ public static class RgUtf8 {
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
-                swift6 ( "UInt8(" (e 1) ".utf8.first ?? 0)" )
+                swift6 ( "Int(" (e 1) ".utf8.first ?? 0)" )
                 python ( "ord(" (e 1) "[0])" )
                 kotlin ( (e 1) "[0].code" )
                 csharp ( "(byte)(" (e 1) "[0])" )
@@ -6651,7 +6660,11 @@ public static class RgUtf8 {
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
-                swift6 ( "String(UnicodeScalar(" (e 1) ")!)")
+                ; UnicodeScalar has no Int initialiser, and the UInt8 one is not
+                ; failable, so `!` does not compile against either. Go through
+                ; UInt32 and answer a space for a code point that is not a
+                ; scalar, rather than trapping on it.
+                swift6 ( "String(UnicodeScalar(UInt32(" (e 1) ")) ?? UnicodeScalar(UInt8(32)))")
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")      
@@ -6695,7 +6708,11 @@ std::string r_str_from_code(int cp) {
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
-                swift6 ( "String(UnicodeScalar(" (e 1) ")!)")
+                ; UnicodeScalar has no Int initialiser, and the UInt8 one is not
+                ; failable, so `!` does not compile against either. Go through
+                ; UInt32 and answer a space for a code point that is not a
+                ; scalar, rather than trapping on it.
+                swift6 ( "String(UnicodeScalar(UInt32(" (e 1) ")) ?? UnicodeScalar(UInt8(32)))")
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")        

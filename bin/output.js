@@ -25589,6 +25589,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return false;
         };
+        isSwiftValueType (nn) {
+          if ( this.isSwiftValueCollection(nn) ) {
+            return true;
+          }
+          if ( nn.type_name == "string" ) {
+            return true;
+          }
+          if ( nn.value_type == 4 ) {
+            return true;
+          }
+          return false;
+        };
         paramNeedsInout (arg) {
           const nn = arg.nameNode;
           if ( nn.hasFlag("mutates") ) {
@@ -25726,7 +25738,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             case "double_buffer" : 
               return "[Double]";
             case "char" : 
-              return "UInt8";
+              return "Int";
             case "boolean" : 
               return "Bool";
             case "double" : 
@@ -25776,7 +25788,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             case "double_buffer" : 
               return "[Double]";
             case "char" : 
-              return "UInt8";
+              return "Int";
             case "boolean" : 
               return "Bool";
             case "double" : 
@@ -25836,7 +25848,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("String", false);
               break;
             case 14 : 
-              wr.out("UInt8", false);
+              wr.out("Int", false);
               break;
             case 15 : 
               wr.out("[UInt8]", false);
@@ -26043,7 +26055,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( is_weak ) {
               wr.out(("weak var " + p.compiledName) + " : ", false);
             } else {
-              if ( (p.set_cnt > 0 || p.is_class_variable) || this.isSwiftValueCollection(nn) ) {
+              if ( ((p.set_cnt > 0 || p.is_class_variable) || p.needs_swift_inout) || p.is_mutating && this.isSwiftValueType(nn) ) {
                 wr.out(("var " + p.compiledName) + " : ", false);
               } else {
                 wr.out(("let " + p.compiledName) + " : ", false);
@@ -26210,8 +26222,45 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return false;
         };
+        callResultIsDiscarded (node, ctx) {
+          if ( ctx.expressionLevel() != 0 ) {
+            return false;
+          }
+          const fnDesc = this.resolveMethodFnDesc(node, ctx);
+          if ( typeof(fnDesc) === "undefined" ) {
+            return false;
+          }
+          const mm = fnDesc;
+          const retNode = mm.nameNode;
+          if ( typeof(retNode) === "undefined" ) {
+            return false;
+          }
+          const rn = retNode;
+          if ( rn.value_type == 0 ) {
+            return false;
+          }
+          if ( rn.type_name == "void" ) {
+            return false;
+          }
+          return true;
+        };
+        async writeSideEffectOnlyStmt (value, ctx, wr) {
+          if ( ctx.expressionLevel() == 0 ) {
+            wr.out("_ = ", false);
+          }
+          ctx.setInExpr();
+          await this.WalkNode(value, ctx, wr);
+          ctx.unsetInExpr();
+          if ( ctx.expressionLevel() == 0 ) {
+            wr.out(";", true);
+          }
+          wr.newline();
+        };
         async CreateCallExpression (node, ctx, wr) {
           if ( node.has_call ) {
+            if ( this.callResultIsDiscarded(node, ctx) ) {
+              wr.out("_ = ", false);
+            }
             const obj = node.getSecond();
             const method = node.getThird();
             const args = node.children[3];
@@ -69429,6 +69478,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const argVarName = arg.vref;
                             if ( argVarName.length == 0 ) {
                               return;
+                            }
+                            if ( arg.hasParamDesc ) {
+                              if ( calleeSwiftInout ) {
+                                const argDesc = arg.paramDesc;
+                                if ( argDesc.needs_swift_inout == false ) {
+                                  argDesc.needs_swift_inout = true;
+                                  changedParams.push(argDesc.name);
+                                }
+                              }
                             }
                             const argParam = fnCtx.getVariableDef(argVarName);
                             if ( argParam.name.length == 0 ) {

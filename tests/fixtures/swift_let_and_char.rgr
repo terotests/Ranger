@@ -1,0 +1,73 @@
+; Shapes that Swift is picky about, and that every other target takes without
+; comment: a `char` mixed with `int`, a loop whose index nobody reads, a local
+; collection nothing writes to, an object whose fields the body assigns, and a
+; call kept for what it does rather than what it answers.
+class Point {
+  def x:int 0
+  def y:int 0
+}
+
+class SwiftLetAndChar {
+
+  sfn firstCode:int (text:string) {
+    def ch:char (charAt text 0)
+    def code:int ch
+    if (code < 0) {
+      return 0
+    }
+    return code
+  }
+
+  sfn totalOf:int (values:[int]) {
+    def sum:int 0
+    for values v:int i {
+      sum = (sum + v)
+    }
+    return sum
+  }
+
+  sfn indexOfFirstBig:int (values:[int]) {
+    for values v:int i {
+      if (v > 100) {
+        return i
+      }
+    }
+    return (0 - 1)
+  }
+
+  sfn readOnly:int (values:[int]) {
+    def copyOf:[int] values
+    return (array_length copyOf)
+  }
+
+  sfn built:[int] () {
+    def out:[int]
+    push out 1
+    push out 2
+    return out
+  }
+
+  sfn madePoint:Point (px:int py:int) {
+    def p:Point (new Point)
+    p.x = px
+    p.y = py
+    return p
+  }
+
+  sfn counted:int (text:string) {
+    return (strlen text)
+  }
+
+  sfn m@(main):void () {
+    def values:[int]
+    push values 7
+    print (to_string (SwiftLetAndChar.firstCode("A")))
+    print (to_string (SwiftLetAndChar.totalOf(values)))
+    print (to_string (SwiftLetAndChar.indexOfFirstBig(values)))
+    print (to_string (SwiftLetAndChar.readOnly(values)))
+    print (to_string (array_length (SwiftLetAndChar.built())))
+    def pt:Point (SwiftLetAndChar.madePoint(1 2))
+    print (to_string pt.x)
+    def ignored:int (SwiftLetAndChar.counted("abc"))
+  }
+}

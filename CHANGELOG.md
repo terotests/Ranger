@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`swiftc` reported the Swift target's real errors underneath about four
+  hundred warnings.** Compiling `gallery/ui` to Swift printed screen after
+  screen of "immutable value 'gi' was never used", "variable 'sorted' was never
+  mutated" and "result of call to 'readUInt16(offset:)' is unused" -- so many
+  that finding the errors among them meant scrolling. Every one of them was the
+  compiler's own doing, and each has a real fix:
+
+  - **`char` is now `Int`, not `UInt8`.** Ranger's `char` IS an integer code
+    unit: Lang.rgr defines `==`, `<`, `>` and the rest across `char` and `int`
+    in both directions, and `(charAt s i)` answers an `int` the source
+    routinely stores in a `char`. Every other target maps both to one integer
+    type. Swift was the one where `let ch : UInt8 = Int(...)` and `let n : Int
+    = ch` are hard errors -- 22 of them in `SVGPathParser` alone. Buffers stay
+    `[UInt8]`, since `buffer_set` already wraps the value; only the scalar
+    changed. `charAt` on a charbuffer had no Swift 6 template at all and fell
+    through to the JavaScript one, emitting `.charCodeAt(...)` into Swift; it
+    has one now.
+  - **A loop binding the body never reads is written `_`.** `for x in list`
+    binds an index whether or not anyone wants it, and Swift warns on each. The
+    swift3 template already had `swift_rc`, which writes `_` when a name's
+    ref_cnt is 0; swift6 did not, and the item name needs it just as much.
+  - **A local is `let` unless the body writes to it.** Arrays, maps and buffers
+    were declared `var` unconditionally, because `.append` does not bump
+    set_cnt -- but StaticAnalyzer's `is_mutating` answers exactly that
+    question, and now that the pass runs for Swift the writer can ask it. A
+    Ranger class is a Swift class, so `p.x = 1` writes through a `let` binding
+    perfectly well; only the value types (collections, buffers, String) and a
+    local handed to an `inout` parameter as `&x` need `var`.
+  - **A call kept for its side effect says so.** `def x:int (readUInt16 off)`
+    where nothing reads `x` becomes a bare value-returning call, which Swift
+    warns about; it is written `_ = ...` now.
+
+  The regenerated 46 000-line file holds zero `let` locals that are then
+  mutated, zero `var` locals that are never mutated, zero unread loop bindings,
+  and zero assignments to a `let` parameter.
+
 - **Swift `inout` is now inferred across call chains, not just at the function
   that does the mutating.** The previous fix looked at one function at a time:
   a parameter got `inout` if that body assigned to it. That is not where the
