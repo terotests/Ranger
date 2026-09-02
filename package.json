@@ -627,6 +627,8 @@
     "ui:bench:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/bench/UiBench.rgr -d=./gallery/ui/bin -o=UiBench.cjs",
     "ui:bench": "npm run ui:bench:build --silent && node gallery/ui/bench/ui-bench.mjs",
     "ui:bench:paint": "npm run ui:bench:build --silent && node gallery/ui/bench/ui-bench.mjs --paint",
+    "watch:evg:bench": "npm run --prefix gallery/watch_evg bench",
+    "watch:evg:bench:android": "bash gallery/watch_evg/android/scripts/bench-desktop.sh",
     "ui:sortable:motion": "npm run ui:demo:build --silent && node gallery/ui/demo/sortable-motion-check.mjs",
     "ui:tree:checkbox": "npm run ui:demo:build --silent && node gallery/ui/demo/tree-checkbox-check.mjs",
     "ui:timeline:check": "npm run ui:demo:build --silent && node gallery/ui/demo/timeline-check.mjs",

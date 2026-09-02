@@ -1,0 +1,219 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; WatchEvgBench — is EVG too heavy for a watch-sized frame?
+; ==============================================================================
+; Two scenes, both at the Apple Watch / Wear face size (390×390):
+;
+;   bezel   the existing WatchEVGSceneBuilder face — pre-laid-out stroke paths
+;           + centre labels. This is what the Watch Dev Emulator already ships.
+;   list    a CSS flex workout list on the same canvas. Full style → layout →
+;           display list. This is the "run an EVG app on the watch" question.
+;
+; The JS harness and the Android/JVM painter harness both drive these phases
+; separately so a total is actionable.
+; ==============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../ranger/WatchExerciseRowInput.rgr"
+Import "../ranger/WatchEVGSceneBuilder.rgr"
+Import "../ranger/EVGSVGRenderer.rgr"
+
+treefactory WatchList {
+    child addChild
+    text  textContent
+
+    tag Page   EVGElement (props (className "w-page"))
+    tag Header EVGElement (props (className "w-header"))
+    tag Title  EVGElement (props (className "w-title") (elementType 1))
+    tag Sub    EVGElement (props (className "w-sub") (elementType 1))
+    tag Body   EVGElement (props (className "w-body"))
+    tag Row    EVGElement (props (className "w-row"))
+    tag Name   EVGElement (props (className "w-name") (elementType 1))
+    tag Meta   EVGElement (props (className "w-meta") (elementType 1))
+    tag Footer EVGElement (props (className "w-footer"))
+    tag Btn    EVGElement (props (className "w-btn") (elementType 1))
+}
+
+class WatchEvgBench {
+
+    sfn faceSize:double () {
+        return 390.0
+    }
+
+    ; Minimal CSS for a watch list. Kept tiny on purpose: a watch stylesheet
+    ; should not look like the dashboard demo.
+    sfn listCss:string () {
+        return ".w-page{display:flex;flex-direction:column;width:390px;height:390px;background:#0b0f14;color:#f5f5f7;padding:18px 16px 14px 16px;box-sizing:border-box}.w-header{flex:0 0 auto;margin-bottom:10px}.w-title{font-size:18px;font-weight:700;color:#f5f5f7}.w-sub{font-size:12px;color:#9aa0a6;margin-top:2px}.w-body{flex:1 1 auto;display:flex;flex-direction:column;gap:6px;overflow:hidden}.w-row{display:flex;flex-direction:column;padding:8px 10px;border-radius:10px;background:#1a222c}.w-row.w-current{background:#2a2118;border:1px solid #ff9800}.w-row.w-done{background:#142018}.w-name{font-size:14px;font-weight:600;color:#f5f5f7}.w-meta{font-size:11px;color:#9aa0a6;margin-top:2px}.w-footer{flex:0 0 auto;display:flex;gap:8px;margin-top:10px}.w-btn{flex:1 1 auto;text-align:center;padding:10px 0;border-radius:999px;background:#2b6cb0;color:#ffffff;font-size:13px;font-weight:600}"
+    }
+
+    sfn nameOf:string (i:int) {
+        def n:int (i % 6)
+        if (n == 0) { return "Plank" }
+        if (n == 1) { return "Squat" }
+        if (n == 2) { return "Deadlift" }
+        if (n == 3) { return "Press" }
+        if (n == 4) { return "Row" }
+        return "Curl"
+    }
+
+    sfn summaryOf:string (i:int) {
+        def n:int (i % 3)
+        if (n == 0) { return "3x45s" }
+        if (n == 1) { return "3x5@80kg" }
+        return "4x8"
+    }
+
+    ; Placeholder arc paths — geometry is host-owned today; the bench needs
+    ; non-empty path data so display-list flattening is part of the cost.
+    sfn strokePathAt:string (i:int count:int) {
+        if (count <= 0) {
+            return ""
+        }
+        ; Four canned arcs around a 390 circle; cycle them. Good enough to
+        ; exercise path flatten + stroke paint without trig in Ranger.
+        def n:int (i % 4)
+        if (n == 0) { return "M 50 195 A 175 175 0 0 1 195 50" }
+        if (n == 1) { return "M 195 50 A 175 175 0 0 1 340 195" }
+        if (n == 2) { return "M 340 195 A 175 175 0 0 1 195 340" }
+        return "M 195 340 A 175 175 0 0 1 50 195"
+    }
+
+    sfn bezelRows:[WatchExerciseRowInput] (segments:int) {
+        def rows:[WatchExerciseRowInput]
+        def i:int 0
+        while (i < segments) {
+            def status:string "pending"
+            def current:boolean false
+            if (i == 0) {
+                status = "completed"
+            }
+            if (i == 1) {
+                current = true
+            }
+            push rows (WatchExerciseRowInput.create(
+                i
+                (WatchEvgBench.nameOf(i))
+                (WatchEvgBench.summaryOf(i))
+                status
+                current
+                (WatchEvgBench.summaryOf(i))
+                (WatchEvgBench.strokePathAt(i segments))
+                ""
+            ))
+            i = (i + 1)
+        }
+        return rows
+    }
+
+    sfn bezelRoot:EVGElement (segments:int) {
+        def builder:WatchEVGSceneBuilder (new WatchEVGSceneBuilder)
+        def rows:[WatchExerciseRowInput] (WatchEvgBench.bezelRows(segments))
+        def completed:int 1
+        if (segments < 1) {
+            completed = 0
+        }
+        return (builder.buildListScreen(rows completed segments))
+    }
+
+    sfn bezelSvg:string (root:EVGElement) {
+        def renderer:EVGSVGRenderer (new EVGSVGRenderer)
+        return (renderer.render(root))
+    }
+
+    sfn listRow:EVGElement (i:int current:int) {
+        def cls:string "w-row"
+        if (i == current) {
+            cls = "w-row w-current"
+        }
+        if (i < current) {
+            cls = "w-row w-done"
+        }
+        def row (tree WatchList
+            (Row (props (className cls) (id ("r" + (to_string i))))
+                (Name (WatchEvgBench.nameOf(i)))
+                (Meta (WatchEvgBench.summaryOf(i)))))
+        return row
+    }
+
+    sfn listPage:EVGElement (rows:int current:int) {
+        def page (tree WatchList (Page (props (id "page"))))
+        def header (tree WatchList
+            (Header
+                (Title "Active workout")
+                (Sub ((to_string current) + "/" + (to_string rows) + " done"))))
+        def body (tree WatchList (Body (props (id "body"))))
+        def i:int 0
+        while (i < rows) {
+            body.addChild((WatchEvgBench.listRow(i current)))
+            i = (i + 1)
+        }
+        def footer (tree WatchList
+            (Footer
+                (Btn "Skip")
+                (Btn "Log set")))
+        page.addChild(header)
+        page.addChild(body)
+        page.addChild(footer)
+        return page
+    }
+
+    sfn sheetFor:EVGStyleSheet (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        s.setViewport(390.0 390.0 false)
+        return s
+    }
+
+    sfn styleOnly:void (sheet:EVGStyleSheet root:EVGElement) {
+        sheet.applyTree(root "")
+    }
+
+    sfn layoutOnly:EVGLayout (root:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(390.0 390.0)
+        lay.layout(root)
+        return lay
+    }
+
+    sfn listOnly:int (root:EVGElement lay:EVGLayout) {
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.count())
+    }
+
+    ; Build a display list from a pre-laid-out bezel tree (no CSS pass).
+    sfn bezelListOnly:int (root:EVGElement) {
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        return (dl.count())
+    }
+
+    sfn listJson:string (root:EVGElement lay:EVGLayout) {
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn bezelListJson:string (root:EVGElement) {
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn countElements:int (el:EVGElement) {
+        def n:int 1
+        def i:int 0
+        while (i < (array_length el.children)) {
+            n = (n + (WatchEvgBench.countElements((itemAt el.children i))))
+            i = (i + 1)
+        }
+        return n
+    }
+}
