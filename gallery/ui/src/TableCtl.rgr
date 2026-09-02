@@ -546,12 +546,26 @@ class TableCtl extends UiCtl {
     ; somewhere else — every activation leaves the pointer where it was, which
     ; is what a table should do.
     fn activate:string (target:string) {
-        this.press(target)
+        this.pressTid(target)
         this.build()
         return ""
     }
 
-    fn press:boolean (target:string) {
+    ; The host's press hook, and it answers the way `UiCtl` says a press
+    ; answers: with the id focus should move to, which for a table is nowhere.
+    ; The interesting answer — did that target mean anything to this table —
+    ; is `pressTid`, and a caller driving the table directly wants that one.
+    ;
+    ; They were ONE method returning a boolean until the Kotlin backend read
+    ; it: `UiCtl.press` returns a string, so a boolean override is a type
+    ; error in every language that checks one, and in JavaScript it silently
+    ; handed `UiHost.pressOn` a boolean to take the length of.
+    fn press:string (target:string) {
+        this.pressTid(target)
+        return ""
+    }
+
+    fn pressTid:boolean (target:string) {
         if (target == (this.selectAllTid())) {
             this.toggleAllOnPage()
             return true
@@ -591,7 +605,7 @@ class TableCtl extends UiCtl {
 
     fn key:boolean (target:string keyName:string) {
         if ((keyName == "Enter") || (keyName == " ")) {
-            return (this.press(target))
+            return (this.pressTid(target))
         }
         return false
     }

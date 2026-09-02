@@ -95,25 +95,26 @@ class EVGBox {
         paddingLeft = left
     }
     
-    fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double rootFontSize:double) {
+    fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double rootFontSize:double viewportW:double viewportH:double) {
         ; Resolve all units to pixel values
         
-        ; `rem` resolves against the root's font size, which only the caller
-        ; knows; hand it to each unit before resolving.
-        marginTop.rootFontSize = rootFontSize
-        marginRight.rootFontSize = rootFontSize
-        marginBottom.rootFontSize = rootFontSize
-        marginLeft.rootFontSize = rootFontSize
-        paddingTop.rootFontSize = rootFontSize
-        paddingRight.rootFontSize = rootFontSize
-        paddingBottom.rootFontSize = rootFontSize
-        paddingLeft.rootFontSize = rootFontSize
-        borderWidth.rootFontSize = rootFontSize
-        borderRadius.rootFontSize = rootFontSize
-        borderRadiusTL.rootFontSize = rootFontSize
-        borderRadiusTR.rootFontSize = rootFontSize
-        borderRadiusBR.rootFontSize = rootFontSize
-        borderRadiusBL.rootFontSize = rootFontSize
+        ; `rem` resolves against the root's font size and `vw`/`vh` against the
+        ; layout's page size, neither of which a unit can reach on its own;
+        ; hand both to each unit before resolving.
+        marginTop.setContext(rootFontSize viewportW viewportH)
+        marginRight.setContext(rootFontSize viewportW viewportH)
+        marginBottom.setContext(rootFontSize viewportW viewportH)
+        marginLeft.setContext(rootFontSize viewportW viewportH)
+        paddingTop.setContext(rootFontSize viewportW viewportH)
+        paddingRight.setContext(rootFontSize viewportW viewportH)
+        paddingBottom.setContext(rootFontSize viewportW viewportH)
+        paddingLeft.setContext(rootFontSize viewportW viewportH)
+        borderWidth.setContext(rootFontSize viewportW viewportH)
+        borderRadius.setContext(rootFontSize viewportW viewportH)
+        borderRadiusTL.setContext(rootFontSize viewportW viewportH)
+        borderRadiusTR.setContext(rootFontSize viewportW viewportH)
+        borderRadiusBR.setContext(rootFontSize viewportW viewportH)
+        borderRadiusBL.setContext(rootFontSize viewportW viewportH)
         
         ; Percentage margins and padding resolve against the containing block's
         ; WIDTH on all four sides — including top and bottom. That is genuinely

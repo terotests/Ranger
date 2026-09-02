@@ -1,0 +1,12 @@
+class Detached {
+  fn foo:int () {
+    return 1
+  }
+  doc {
+    public
+    description "This block binds to nothing."
+  }
+}
+sfn main:void () {
+  print "ok"
+}

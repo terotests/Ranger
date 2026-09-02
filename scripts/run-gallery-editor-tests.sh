@@ -66,6 +66,7 @@ SUITES=(
   evg:style:test
   evg:timing:test
   evg:box:test
+  evg:viewport:test
   evg:reconcile:test
   evg:component:test
   evg:stylecache:test

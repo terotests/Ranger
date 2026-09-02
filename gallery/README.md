@@ -41,6 +41,7 @@ compiler — the long-form writeups live here.
 | [`rangerdbviewer`](rangerdbviewer/README.md) | A database workbench: open SQLite / DuckDB / RangerDB, introspect the real schema, browse it, draw it in RangerFlow and export it |
 | [`rangerdb`](rangerdb/README.md) | A database API with three engines behind it — a columnar engine written in Ranger, plus SQLite and DuckDB adapters — feeding the DataGrid |
 | [`rangersql`](rangersql/README.md) | SQL parser, generator and dialect transpiler, checked against SQLGlot's own identity corpus — and RangerDB's SQL front end |
+| [`graphql`](graphql/README.md) | GraphQL language parser (queries, mutations, subscriptions, SDL) — Ranger's northbound API toward application data, with a feature-by-feature unit suite |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
 | [`odp`](odp/README.md) | The OpenDocument presentation reader: OCF ZIP → `OdpModel` → styles resolved through `OfficeStyle` → EVG display list. A `.odp` opens **in the `.pptx` viewer**, drawn by the same backend in the same window — two models that never meet, one painter |

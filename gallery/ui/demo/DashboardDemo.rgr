@@ -331,6 +331,9 @@ class DashboardDemo {
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def layout@(optional):EVGLayout
+    ; Whether that layout is of the tree that is there NOW. Set by every
+    ; rebuild, cleared by the layout that answers it.
+    def layoutStale:boolean true
 
     def hovered:string ""
     def pressed:string ""
@@ -1594,15 +1597,30 @@ class DashboardDemo {
     }
 
     fn pageBody:EVGElement () {
+        ; THE VIEWPORT IS IN THE STYLESHEET, as `100vh`.
+        ;
+        ; The page, the sidebar and the hairline stood at a constant 1420 —
+        ; the height this page was before it scrolled, kept because it is
+        ; taller than the 900 the browser shows and a column taller than the
+        ; window looks full. On a window TALLER than 1420 it stops looking
+        ; full: an Android tablet in portrait is 2137 page pixels tall, and the
+        ; sidebar ended two thirds of the way down with the host's own
+        ; background under it.
+        ;
+        ; `100%` would not have fixed it — a percentage needs a parent with a
+        ; definite height and the page's height is the number nobody in the
+        ; tree has — so EVG grew `vw`/`vh`, which ask the layout. The layout is
+        ; told by `laidOutOnce` below, from the same `pageH` the scroll box
+        ; used to be given inline.
         def page (tree Db (Page (props (id "page"))))
         page.addChild((this.sidebar()))
         page.addChild((tree Db (SideEdge)))
 
-        ; THE SCROLL CONTAINER. Its height is the page's, its content is
-        ; whatever the current view came to, and the offset is put on before
-        ; the layout so the layout can clamp it.
+        ; THE SCROLL CONTAINER. Its height is the viewport's — `100vh` in the
+        ; sheet, like the page and the sidebar — its content is whatever the
+        ; current view came to, and the offset is put on before the layout so
+        ; the layout can clamp it.
         def scroll (tree Db (Scroll (props (id "db-scroll"))))
-        scroll.height = (EVGUnit.px(pageH))
         scroll.scrollTop = scrollY
 
         def content (tree Db (Content (props (id "db-content"))))
@@ -1615,13 +1633,23 @@ class DashboardDemo {
 
     fn rebuild:void () {
         root = (this.pageBody())
+        ; AND THE LAYOUT WITH IT. `pageBody` builds new elements, so the
+        ; rectangles in the layout that is cached belong to a tree that no
+        ; longer exists — nothing in the new one has been measured at all. A
+        ; `laidOut` that handed that back would answer questions about the page
+        ; before last: `maxScroll` clamping to a height the current view does
+        ; not have, and a hit test finding nothing because every element it
+        ; walked is still at zero.
+        layoutStale = true
     }
 
     ; --- layout ---------------------------------------------------------------
 
     fn laidOut:EVGLayout () {
         if layout {
-            return (unwrap layout)
+            if (layoutStale == false) {
+                return (unwrap layout)
+            }
         }
         return (this.laidOutOnce())
     }
@@ -1645,6 +1673,7 @@ class DashboardDemo {
             scrollY = sc.scrollTop
         }
         layout = lay
+        layoutStale = false
         return lay
     }
 
@@ -1856,7 +1885,7 @@ class DashboardDemo {
         ; The table's own targets: the select-all box, a row's checkbox, a
         ; sortable column header, and the pager. `TableCtl` decides what each
         ; one does; this only says where focus went.
-        if (table.press(target)) {
+        if (table.pressTid(target)) {
             focused = target
             this.rebuild()
             return true
@@ -1984,7 +2013,13 @@ class DashboardDemo {
     ;
     ; The chart is NOT in the element tree — see the header. This is where the
     ; two halves meet, and the only place either of them knows about the other.
-    fn displayListJson:string () {
+    ;
+    ; The list is returned as an OBJECT, and `displayListJson` below is one line
+    ; over it. A host in the same process wants the list: the Kotlin/Android
+    ; host (`gallery/ui/android`) reads `cmds` straight out of this, so nothing
+    ; is serialised and nothing is parsed back. The browser gets the JSON
+    ; because a page has to parse something anyway.
+    fn display:EVGDisplayList () {
         def lay:EVGLayout (this.laidOutOnce())
         def r:EVGElement (unwrap root)
         ; The ripple's state, stamped on at paint time. It is not part of the
@@ -2064,6 +2099,11 @@ class DashboardDemo {
                 dl.addRect(trackX thumbY 4.0 thumbH (EVGColor.parse("#d4d4d8")))
             }
         }
+        return dl
+    }
+
+    fn displayListJson:string () {
+        def dl:EVGDisplayList (this.display())
         return (dl.toJson())
     }
 
@@ -2105,6 +2145,25 @@ class DashboardDemo {
     fn hitId:string (px:double py:double) {
         this.displayListJson()
         def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    ; The same hit test against the layout that is ALREADY there.
+    ;
+    ; `hitId` draws the whole picture first — the Vela chart included — because
+    ; a browser calls it once per click and a guaranteed-fresh layout is worth
+    ; more than the microseconds. A host that paints every frame has already
+    ; laid the page out, and running the chart's runtime again for every touch
+    ; event is tens of milliseconds spent on geometry nothing will look at: the
+    ; chart is not in the element tree, so it can never be what was hit.
+    ;
+    ; `laidOut` returns the cached layout when there is one and lays out once
+    ; when a rebuild threw it away, so this is never a hit test against stale
+    ; rectangles.
+    fn hitIdCached:string (px:double py:double) {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
         def hit (new EVGHitTest())
         return (hit.idAt(r px py))
     }

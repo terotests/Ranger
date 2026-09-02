@@ -1,0 +1,100 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; GqlToken - what the GraphQL lexer produces.
+; ==============================================================================
+;
+; GraphQL's lexical grammar is small on purpose. The tokenizer only classifies
+; what a span IS - a name, an int, a float, a string, punctuation. Keywords
+; (`query`, `type`, `on`) are ordinary names here: the parser decides from
+; position whether `query` opens an operation or is a field called query.
+;
+; Comments and commas are Ignored in the spec, so they never become tokens.
+; That is why `{foo,bar}` and `{ foo bar }` tokenize the same.
+; ==============================================================================
+
+class GqlTokenKind {
+    sfn endOfInput:int () {
+        return 0
+    }
+    sfn nameTok:int () {
+        return 1
+    }
+    sfn intTok:int () {
+        return 2
+    }
+    sfn floatTok:int () {
+        return 3
+    }
+    sfn stringTok:int () {
+        return 4
+    }
+    sfn punctTok:int () {
+        return 5
+    }
+
+    sfn kindName:string (kind:int) {
+        if (kind == 1) {
+            return "name"
+        }
+        if (kind == 2) {
+            return "int"
+        }
+        if (kind == 3) {
+            return "float"
+        }
+        if (kind == 4) {
+            return "string"
+        }
+        if (kind == 5) {
+            return "punct"
+        }
+        return "eof"
+    }
+}
+
+class GqlToken {
+    def kind:int 0
+    ; The value: a name, a number as written, a string after un-escaping, a
+    ; punctuator as written (`...`, `!`, `{`).
+    def text:string ""
+    ; Original source for strings, including the quotes, so a printer can
+    ; choose between a short string and a block string.
+    def raw:string ""
+    def isBlock:boolean false
+    def start:int 0
+    def line:int 1
+    def col:int 1
+
+    Constructor () {
+    }
+
+    fn isName:boolean (word:string) {
+        if (kind != 1) {
+            return false
+        }
+        return (text == word)
+    }
+
+    fn isNameTok:boolean () {
+        return (kind == 1)
+    }
+
+    fn isStringTok:boolean () {
+        return (kind == 4)
+    }
+
+    fn isPunct:boolean (symbol:string) {
+        if (kind != 5) {
+            return false
+        }
+        return (text == symbol)
+    }
+
+    fn describe:string () {
+        if (kind == 0) {
+            return "eof"
+        }
+        return ((GqlTokenKind.kindName(kind)) + "(" + text + ")")
+    }
+}

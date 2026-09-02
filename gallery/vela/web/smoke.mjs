@@ -61,12 +61,29 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(CARS));
     return;
   }
-  const file = path.join(DIST, name === '/' ? 'index.html' : name);
+  let file = path.join(DIST, name === '/' ? 'index.html' : name);
   if (!file.startsWith(DIST) || !fs.existsSync(file)) { res.writeHead(404); res.end('no'); return; }
-  const type = file.endsWith('.js') ? 'text/javascript'
-    : file.endsWith('.ttf') ? 'font/ttf'
-    : file.endsWith('.json') ? 'application/json'
-    : 'text/html';
+  // `/api/` is a directory. Reading one raises EISDIR, which reads as a crash
+  // rather than as "this server does not do directory indexes".
+  if (fs.statSync(file).isDirectory()) {
+    file = path.join(file, 'index.html');
+    if (!fs.existsSync(file)) { res.writeHead(404); res.end('no'); return; }
+  }
+  // A stylesheet served as text/html is REFUSED by the browser in standards
+  // mode, and the page then renders as unstyled blue links -- which looks
+  // exactly like a documentation tool that emitted no CSS. It was this server
+  // that was wrong, not the generated site; GitHub Pages types these
+  // correctly. Guessed from the extension, and every type these pages use is
+  // listed rather than falling through to text/html.
+  const TYPES = {
+    '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+    '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+    '.gif': 'image/gif', '.ico': 'image/x-icon', '.map': 'application/json',
+    '.ttf': 'font/ttf', '.woff': 'font/woff', '.woff2': 'font/woff2',
+    '.otf': 'font/otf', '.eot': 'application/vnd.ms-fontobject',
+    '.html': 'text/html', '.txt': 'text/plain', '.md': 'text/markdown',
+  };
+  const type = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
   res.writeHead(200, { 'content-type': type });
   res.end(fs.readFileSync(file));
 });
@@ -77,7 +94,24 @@ const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 const problems = [];
 page.on('pageerror', e => problems.push(`page error: ${e}`));
-page.on('console', m => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+// Dokka's generated pages load the Kotlin Playground from unpkg.com for the
+// "Run" button on samples. It is the only external fetch any of the three
+// documentation tools makes -- documentation.js and pdoc are entirely
+// self-contained -- and it cannot resolve from a sandbox with no egress.
+// The browser reports the failure twice: once as a failed REQUEST, which
+// carries the URL, and once as a console error, which does not. So the URL is
+// recorded here and the matching console line is ignored, rather than
+// ignoring every "Failed to load resource" and losing a real one with it.
+const externalFailures = new Set();
+page.on('requestfailed', r => {
+  const u = r.url();
+  if (/^https?:\/\//.test(u) && !u.startsWith(base)) externalFailures.add(u);
+});
+page.on('console', m => {
+  if (m.type() !== 'error') return;
+  if (/Failed to load resource/.test(m.text()) && externalFailures.size) return;
+  problems.push(`console: ${m.text()}`);
+});
 
 // The page points relative data URLs at the Vega editor; here they should come
 // from the test server instead.
@@ -248,6 +282,78 @@ async function render(spec) {
   const note = await page.locator('#pdfNote').textContent();
   check('Ranger writes the chart as a PDF', !!pdf && pdf.bytes > 1000, note);
   await page.click('#tab-svg');
+}
+
+// ---- the chart API, built by each platform's own tool ----------------------
+// The point of these pages is that RANGER DID NOT RENDER THEM: documentation.js,
+// pdoc and Dokka did, from the packages `-apipackage` writes. So the checks ask
+// for each tool's own fingerprint rather than for content we chose -- a page we
+// generated ourselves could satisfy any check we invented for it.
+{
+  await page.goto(base + '/api/', { waitUntil: 'load' });
+  const cards = await page.locator('.card').count();
+  check('the API index offers four languages', cards === 4, `${cards} card(s)`);
+
+  // Not every toolchain is installable everywhere -- the Dart SDK host is
+  // blocked by the egress policy here -- so a missing one is REPORTED and
+  // fails only the CI run, which passes --require. What must never happen is
+  // a language quietly vanishing from the index.
+  const built = await page.locator('.card.ok').count();
+  const off = await page.locator('.card.off').allInnerTexts();
+  check('every language is on the index, built or not', built + off.length === 4,
+        `${built} built, ${off.length} reported as not run`);
+  if (off.length) {
+    console.log(`       not built here: ${off.map(t => t.split('\n')[0]).join(', ')}`);
+  }
+
+  const BUILT = [
+    ['javascript', 'index.html',      'documentation.js', "documentation.js signs its own footer"],
+    ['python',     'vela_chart.html', 'pdoc',             'pdoc signs its own footer'],
+    ['kotlin',     'index.html',      'dokka',            'Dokka signs its own footer'],
+    ['dart',       'index.html',      'dartdoc',          'dartdoc signs its own footer'],
+  ].filter(([id]) => fs.existsSync(path.join(DIST, 'api', id, 'index.html'))
+                  || fs.existsSync(path.join(DIST, 'api', id, 'vela_chart.html')));
+  for (const [id, entry, marker, why] of BUILT) {
+    const r = await page.goto(`${base}/api/${id}/${entry}`, { waitUntil: 'load' });
+    check(`${id}: the generated site is served`, r && r.status() === 200,
+          r ? `HTTP ${r.status()}` : 'no response');
+    const html = await page.content();
+    // Case-insensitively: Dokka signs itself `dokka` and `dokkaHtml` in the
+    // markup, not `Dokka`, and asserting the capitalised form failed on a
+    // page that was perfectly fine.
+    check(`${id}: ${why}`, html.toLowerCase().includes(marker.toLowerCase()),
+          `looked for ${JSON.stringify(marker)}`);
+    check(`${id}: the API is actually in it`, html.includes('VlDataRow'),
+          'expected the VlDataRow class');
+  }
+
+  // Did the tool's own stylesheet actually APPLY? A page whose CSS was
+  // refused looks like a page that never had any, and the first screenshot of
+  // this site was of exactly that -- a server here typing .css as text/html.
+  // Body text that is still the browser default 16px/serif means no
+  // stylesheet took effect.
+  for (const [id, entry] of BUILT.map(([a, b]) => [a, b])) {
+    await page.goto(`${base}/api/${id}/${entry}`, { waitUntil: 'load' });
+    const font = await page.evaluate(() =>
+      getComputedStyle(document.body).fontFamily.toLowerCase());
+    check(`${id}: the tool's own stylesheet is applied`,
+          font !== '' && !/^(times|serif)/.test(font), `body font-family: ${font}`);
+  }
+
+  // The examples are Ranger functions compiled for that target. They are the
+  // one part of the page that could not have come from a doc tool alone.
+  await page.goto(`${base}/api/javascript/index.html`, { waitUntil: 'load' });
+  const jsText = await page.locator('body').innerText();
+  check('the compiled example is on the JavaScript page',
+        jsText.includes('VlDataset.create()') && jsText.includes('"region"'),
+        'expected the dataset example');
+}
+
+// Say what was reached for, rather than only that it was tolerated.
+if (externalFailures.size) {
+  console.log(`\n  the published pages request ${externalFailures.size} external`
+    + ` resource(s), unreachable from here:`);
+  for (const u of externalFailures) console.log(`    ${u}`);
 }
 
 await browser.close();

@@ -1,0 +1,15 @@
+; ISSUES.md #75: a trailing block on a class was taken for the class body,
+; so `return (x + 1)` came out as `return+x1` and the compiler reported success.
+class Sample {
+  fn foo:int ( x:int ) {
+    return (x + 1)
+  }
+} doc {
+  public
+  description "A class with a doc tail."
+}
+sfn main:void () {
+  def s:Sample (new Sample())
+  def v:int (s.foo(1))
+  print ("" + v)
+}

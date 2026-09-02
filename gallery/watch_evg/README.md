@@ -32,6 +32,13 @@ npm run build:watch-evg   # copies generated/watch_evg.js
 npm run dev               # face: EVG bezel (default)
 ```
 
+## Is this fast enough for a watch?
+
+Measured, not assumed: **[WATCH_PERFORMANCE.md](WATCH_PERFORMANCE.md)** — three
+watch screens through EVG's whole pipeline on four targets, with a Wear OS
+number, a watchOS estimate, and the two EVG fixes the measurement turned up.
+The benchmark is [`bench/`](bench/README.md).
+
 ## Files
 
 | File | Role |

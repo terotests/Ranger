@@ -916,6 +916,33 @@ class RangerAppWriterContext {
     }
     return res
   }
+  ; A MEMBER name -- a method, a static method or a property. JavaScript
+  ; reserves its keywords only where a NAME may stand: `obj.class`,
+  ; `this.default = 1` and `static function() {}` are all legal, and renaming
+  ; them changes the API a caller already spells. `EvHandle.null` and
+  ; `EvHandle.function` were both renamed out from under their callers this
+  ; way. Every other target here reserves the word in both positions, so for
+  ; those this is transformWord unchanged.
+  fn transformMemberWord:string (input_word:string) {
+    if ((this.getTargetLangName()) == "es6") {
+      return input_word
+    }
+    return (this.transformWord(input_word))
+  }
+  ; A BINDING name, as opposed to a member name. The two are not the same
+  ; word set: JavaScript reads `null` as a literal wherever a name may stand,
+  ; so `const null = 1` and `function f(null)` are syntax errors -- but
+  ; `obj.null`, `this.null = 1` and `static null() {}` are all legal, and a
+  ; module that renames them changes the API its callers already spell. C# and
+  ; Dart cannot spell it in either position and rename it in transformWord.
+  fn transformBindingWord:string (input_word:string) {
+    if ((this.getTargetLangName()) == "es6") {
+      if (input_word == "null") {
+        return "_null"
+      }
+    }
+    return (this.transformWord(input_word))
+  }
   fn transformWord:string (input_word:string) {
     switch input_word {
         case "map" {
@@ -1230,7 +1257,7 @@ class RangerAppWriterContext {
     ;print "arguments of static => " + (argsNode.getCode())
 
     m.name = s
-    m.compiledName = (this.transformWord(s))
+    m.compiledName = (this.transformMemberWord(s))
     m.node = nameNode
     m.nameNode = nameNode
     def rCtx (this.getRoot())
@@ -1881,7 +1908,7 @@ class RangerAppWriterContext {
         p.compiledName = "__len"
       }
       default {
-        p.compiledName = (this.transformWord(p.name))
+        p.compiledName = (this.transformBindingWord(p.name))
       }
     }
   }
@@ -1910,7 +1937,11 @@ class RangerAppWriterContext {
           desc.compiledName = "__len"
         }
         default {
-          desc.compiledName = (this.transformWord(name))
+          if (desc.varType == RangerContextVarType.Property) {
+            desc.compiledName = (this.transformMemberWord(name))
+          } {
+            desc.compiledName = (this.transformBindingWord(name))
+          }
         }
       }
     } {

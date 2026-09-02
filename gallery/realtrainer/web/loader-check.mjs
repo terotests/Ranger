@@ -1,0 +1,300 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// The app, driven with a made-up clock and read out of the display list.
+//
+//   node gallery/realtrainer/web/loader-check.mjs
+//
+// No browser and no GPU: the animation lives in `tick`, so the only thing a
+// browser adds is pixels. What is asserted here is what the app SAYS to draw —
+// that the bar's rectangle grows with time, that the ring's twelve blades
+// carry a rotation that advances, that the gradient reaches the command (the
+// whole reason `EVGDisplayList.applyGradient` exists), that the scene hands
+// over when the bar is full, and that the controls behind the last two scenes
+// are gallery/ui's own: sorting a column three times, opening one accordion
+// section, switching a tab, and what each of them tells a reader.
+//
+// Exit code 0 when every check passes.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const BIN = path.join(HERE, "..", "bin", "RealTrainerDemo.cjs");
+if (!fs.existsSync(BIN)) {
+  console.error("compiled app missing — run `npm run rt:build` first");
+  process.exit(3);
+}
+const require = createRequire(import.meta.url);
+const { RealTrainerDemo } = require(BIN);
+const CSS = fs.readFileSync(path.join(HERE, "realtrainer.css"), "utf8");
+
+let failed = 0;
+const ok = (name, cond, detail) => {
+  if (cond) console.log("  PASS " + name);
+  else {
+    failed += 1;
+    console.log("  FAIL " + name + (detail === undefined ? "" : " — " + detail));
+  }
+};
+
+const app = new RealTrainerDemo();
+app.init(CSS);
+
+console.log("--- the stylesheet ---");
+const errs = [];
+for (let i = 0; i < app.styleErrorCount(); i += 1) errs.push(app.styleErrorAt(i));
+ok("parses with no errors", errs.length === 0, errs.join("; "));
+
+const listOf = () => JSON.parse(app.displayListJson()).cmds;
+const rectsOf = (cmds) => cmds.filter((c) => c.k === 0);
+const textsOf = (cmds) => cmds.filter((c) => c.k === 3).map((c) => c.text);
+// The bar's fill is the only gradient that runs ACROSS its box, which is what
+// makes it findable without an id in a list that has no ids in it.
+const fillOf = (cmds) => rectsOf(cmds).find((c) => c.gd === 1 && c.h === 14);
+
+console.log("\n--- frame one ---");
+let cmds = listOf();
+ok("the loader is the scene", app.sceneName() === "loading", app.sceneName());
+const words = textsOf(cmds);
+ok("the wordmark is drawn", words.includes("REAL") && words.includes("TRAINER"), words.join("|"));
+ok("and the caption", words.includes("Ladataan..."), words.join("|"));
+ok("the bar starts empty", (fillOf(cmds)?.w ?? -1) === 0, JSON.stringify(fillOf(cmds)));
+
+// The twelve blades: same size, one gradient each, twelve different angles.
+const blades = rectsOf(cmds).filter((c) => c.w === 8 && c.h === 26);
+ok("twelve blades", blades.length === 12, "found " + blades.length);
+ok("each blade is a two-stop fill", blades.every((b) => b.c2 && b.gd === 0),
+   JSON.stringify(blades[0]));
+ok("and they fade around the ring",
+   blades[0].c[3] === 1 && blades[11].c[3] < 0.2,
+   blades.map((b) => b.c[3]).join(","));
+const angles = blades.map((b) => Math.round(b.rot ?? 0)).sort((a, b) => a - b);
+ok("twelve distinct angles, 30 degrees apart",
+   new Set(angles).size === 12 && angles[1] - angles[0] === 30, angles.join(","));
+console.log("\n--- half a second later ---");
+const before = blades[0].rot ?? 0;
+app.tick(500);
+cmds = listOf();
+const spun = rectsOf(cmds).filter((c) => c.w === 8 && c.h === 26)[0].rot ?? 0;
+// 220 deg/s for half a second.
+ok("the ring has turned ~110 degrees", Math.abs(spun - before - 110) < 1,
+   `${before} -> ${spun}`);
+const half = fillOf(cmds);
+ok("the bar is a fifth of the way", Math.abs(half.w - 320 * (500 / 2600)) < 1, String(half.w));
+ok("the fill is a gradient across its box", half.gd === 1 && Array.isArray(half.c2),
+   JSON.stringify(half));
+ok("the percentage counts", textsOf(cmds).includes("19 %"), textsOf(cmds).join("|"));
+ok("the caption is still the first one",
+   textsOf(cmds).includes("Ladataan..."), textsOf(cmds).join("|"));
+
+// Every blade turns about the SAME point, which is what makes it a ring
+// rather than twelve boxes with angles on them. Asked here and not on the
+// first frame: at rest the top blade's rotation is zero and a command with no
+// rotation carries no origin — correctly, and there is nothing to compare.
+const turned = rectsOf(cmds).filter((c) => c.w === 8 && c.h === 26);
+const pivots = new Set(turned.map((b) => `${b.rox},${b.roy}`));
+ok("all twelve turn about one pivot", pivots.size === 1, [...pivots].join(" / "));
+
+console.log("\n--- when the bar is full ---");
+app.tick(2100);
+cmds = listOf();
+ok("the bar is the width of its track", Math.abs(fillOf(cmds).w - 320) < 0.01,
+   String(fillOf(cmds).w));
+ok("and it says so", textsOf(cmds).includes("Valmista!"), textsOf(cmds).join("|"));
+ok("the scene has not changed yet", app.sceneName() === "loading", app.sceneName());
+
+console.log("\n--- and then the sign-in page ---");
+app.tick(800);
+ok("the scene handed over", app.sceneName() === "signin", app.sceneName());
+cmds = listOf();
+const t2 = textsOf(cmds);
+ok("the three things it can do are listed",
+   t2.includes("Käytä") && t2.includes("Sanele,") && t2.includes("Kuvaa"), t2.join("|"));
+ok("the button is there", t2.includes("Jatka Googlella"), t2.join("|"));
+// The icons are SVG, so they arrive as PATH commands and not as glyphs.
+ok("the icons are drawn as paths", cmds.filter((c) => c.k === 6).length >= 6,
+   "paths: " + cmds.filter((c) => c.k === 6).length);
+
+console.log("\n--- the pointer ---");
+const centre = 980 / 2;
+// Where the button is, found by asking the app rather than by measuring the
+// picture: this is EVG's own hit test, the same one the page uses.
+const hits = [];
+for (let y = 0; y < 760; y += 4) {
+  if (app.hitId(centre, y) === "rt-google") hits.push(y);
+}
+ok("the button answers the hit test", hits.length > 0, "no row of the page hit it");
+
+console.log("\n--- gallery/ui's controls, on the sign-in page ---");
+// The checkbox is CheckboxCtl's, so this is Radix's state machine being driven
+// through an app's hit test rather than a box this demo draws.
+ok("the checkbox starts unchecked", app.press("rt-remember") === true, "no change");
+let a11y = JSON.parse(app.a11yJson(1, ""));
+const nodeById = (t) => a11y.nodes.find((n) => n.id === t);
+ok("and reports itself checked", nodeById("rt-remember")?.checked === 2,
+   JSON.stringify(nodeById("rt-remember")));
+ok("the tips are collapsed", nodeById("rt-tips-content") === undefined,
+   "content is in the tree while closed");
+ok("the trigger opens them", app.press("rt-tips-trigger") === true, "no change");
+// The body is a node with no ROLE — a plain box holding a label — so it is
+// the drawn text that says whether it opened, not the accessibility tree.
+ok("and then the tip is drawn",
+   textsOf(listOf()).some((t) => t.startsWith("Sanele treeni")),
+   textsOf(listOf()).join("|"));
+
+console.log("\n--- and the dashboard behind it ---");
+ok("the button opens the dashboard",
+   app.press("rt-google") === true && app.sceneName() === "dashboard", app.sceneName());
+cmds = listOf();
+let t3 = textsOf(cmds);
+ok("the three tabs are drawn",
+   t3.includes("Dashboard") && t3.includes("Kalenteri") && t3.includes("Harjoitteet"),
+   t3.join("|"));
+ok("the active plan is on the dashboard tab",
+   t3.some((t) => t.startsWith("Kuulantyöntäjän")), t3.join("|"));
+
+// The goals table: the order is TableCtl's, and three clicks on one header is
+// ascending, descending, and back to the order the records arrived in. A
+// two-way toggle cannot reach that third state, which is why the table is not
+// hand-rolled here.
+const goalOrder = () => {
+  const rows = JSON.parse(app.a11yJson(1, "")).nodes
+    .filter((n) => n.id.startsWith("rt-goals-cell-") && n.id.endsWith("-goal"));
+  return rows.map((n) => n.name);
+};
+const arrived = goalOrder();
+ok("four goals, in the order they were given", arrived.length === 4, arrived.join("|"));
+app.press("rt-goals-col-goal");
+const asc = goalOrder();
+ok("one click sorts A-Z", asc[0] < asc[3] && asc.join("|") !== arrived.join("|"), asc.join("|"));
+app.press("rt-goals-col-goal");
+const desc = goalOrder();
+ok("two clicks sort Z-A", desc[0] > desc[3], desc.join("|"));
+app.press("rt-goals-col-goal");
+ok("three clicks are the original order", goalOrder().join("|") === arrived.join("|"),
+   goalOrder().join("|"));
+
+// The toggle is ToggleCtl's; the filtering is this app's, over the order the
+// controller arrived at.
+app.press("rt-sportonly");
+ok("the toggle filters the table", goalOrder().length === 1, goalOrder().join("|"));
+app.press("rt-sportonly");
+ok("and unfilters it", goalOrder().length === 4, goalOrder().join("|"));
+
+// The accordion lives on the third tab, so getting to it is a tab press —
+// TabsCtl's own activate, through the same hit-test path.
+ok("the tab switches", app.press("rt-tabs-tab-drills") === true, "no change");
+t3 = textsOf(listOf());
+ok("and the plans are listed",
+   t3.some((t) => t.startsWith("M50 Kuulantyöntö")), t3.join("|"));
+ok("one section is open",
+   t3.some((t) => t.startsWith("Kaksi kilpailukautta")), t3.join("|"));
+ok("opening another closes the first", app.press("rt-plans-sm26-trigger") === true, "no change");
+t3 = textsOf(listOf());
+ok("the second body is showing",
+   t3.some((t) => t.startsWith("Kevyempi jakso")) &&
+     !t3.some((t) => t.startsWith("Kaksi kilpailukautta")), t3.join("|"));
+
+// Pressing the tab that is already on. `activate` rebuilds the controller's
+// subtree whether or not the value changed, so this is the case that emptied
+// the dashboard: right tab strip, nothing under it.
+app.press("rt-tabs-tab-dash");
+app.press("rt-tabs-tab-dash");
+ok("pressing the open tab keeps its content",
+   textsOf(listOf()).some((t) => t.startsWith("Kuulantyöntäjän")),
+   textsOf(listOf()).join("|"));
+
+// The calendar is the one grid in the app: seven columns, four weeks, and the
+// marked days carry a second box.
+ok("the calendar tab draws a month", app.press("rt-tabs-tab-cal") === true, "no change");
+cmds = listOf();
+const dayNumbers = textsOf(cmds).filter((t) => /^\d+$/.test(t));
+ok("twenty-eight days", dayNumbers.length === 28, dayNumbers.length + " day numbers");
+const marks = cmds.filter((c) => c.k === 0 && c.w === 34 && c.h === 6);
+ok("twelve of them carry a session", marks.length === 12, marks.length + " marks");
+
+console.log("\n--- the training session ---");
+app.press("rt-tabs-tab-dash");
+ok("the rail opens a session",
+   app.press("rt-rail-train") === true && app.sceneName() === "session", app.sceneName());
+let t4 = textsOf(listOf());
+ok("the plan line reads 3 x 5 @ 40kg", t4.includes("3 × 5 @ 40kg"), t4.join("|"));
+// The steppers, and the clamps that are the reason a stepper exists.
+app.press("rt-reps-up");
+app.press("rt-reps-up");
+app.press("rt-weight-up");
+t4 = textsOf(listOf());
+ok("the steppers write the numbers", t4.includes("3 × 7 @ 45kg"), t4.join("|"));
+for (let i = 0; i < 6; i += 1) app.press("rt-sets-down");
+ok("and clamp at one set", textsOf(listOf()).includes("1 × 7 @ 45kg"),
+   textsOf(listOf()).join("|"));
+
+// The rest picker is a RadioGroupCtl, so the timer's length is the
+// controller's value and not a number this screen keeps beside it.
+ok("the rest picker takes a press", app.press("rt-rest-90") === true, "no change");
+ok("starting the sets opens the dial", app.press("rt-start") === true, "no change");
+cmds = listOf();
+ok("the dial counts the chosen rest", textsOf(cmds).includes("90"), textsOf(cmds).join("|"));
+const ticks = () => listOf().filter((c) => c.k === 0 && c.w === 6 && c.h === 18);
+ok("sixty ticks", ticks().length === 60, ticks().length + " ticks");
+// Lit is ORANGE and unlit is slate — both are two-stop fills now, for the
+// reason the stylesheet gives beside `.rt-tick`, so the colour is what tells
+// them apart and not the presence of a gradient.
+const litNow = () => ticks().filter((c) => c.c[0] > c.c[2]).length;
+ok("and all of them are lit at the start", litNow() === 60, litNow() + " lit");
+app.tick(30000);
+ok("a third of the way, forty are lit", litNow() === 40, litNow() + " lit");
+ok("and the number counts down", textsOf(listOf()).includes("60"), textsOf(listOf()).join("|"));
+app.press("rt-pause");
+const paused = litNow();
+app.tick(5000);
+ok("pausing stops the countdown", litNow() === paused, `${paused} -> ${litNow()}`);
+app.press("rt-reset");
+ok("reset fills it again", litNow() === 60, litNow() + " lit");
+app.tick(91000);
+ok("it stops at zero", textsOf(listOf()).includes("0") && litNow() === 0,
+   litNow() + " lit");
+ok("and says the rest is over",
+   textsOf(listOf()).some((t) => t.startsWith("Tauko ohi")), textsOf(listOf()).join("|"));
+ok("done goes back to the exercise",
+   app.press("rt-timer-done") === true &&
+     textsOf(listOf()).includes("1 × 7 @ 45kg"), textsOf(listOf()).join("|"));
+ok("and the session's own bar counts exercises",
+   app.press("rt-done") === true &&
+     textsOf(listOf()).includes("1 / 2 liikettä tehty"), textsOf(listOf()).join("|"));
+
+console.log("\n--- what a reader is told ---");
+app.press("rt-quit");
+app.press("rt-tabs-tab-dash");
+const problems = app.a11yProblems();
+ok("the tree lints clean", problems.length === 0, problems.join("; "));
+const tree = JSON.parse(app.a11yJson(1, ""));
+const roles = tree.nodes.map((n) => n.role);
+// The controllers' own vocabulary, arriving through `adopt` — without that
+// bridge every one of these paints correctly and says nothing.
+ok("the tab strip is a tablist with tabs",
+   roles.includes("tablist") && roles.filter((r) => r === "tab").length === 3,
+   roles.join(","));
+ok("the sorted column says so",
+   tree.nodes.some((n) => n.id === "rt-goals-col-goal" && n.role === "columnheader"),
+   JSON.stringify(tree.nodes.find((n) => n.id === "rt-goals-col-goal")));
+
+// And the loader's own reading, which is ProgressCtl's row: a progressbar with
+// a range and a position, not a picture of a bar.
+app.press("rt-rail-out");
+ok("the rail logs out to the loader", app.sceneName() === "loading", app.sceneName());
+app.tick(1300);
+const loading = JSON.parse(app.a11yJson(1, "")).nodes.find((n) => n.id === "rt-bar");
+ok("the bar is a progressbar", loading?.role === "progressbar", JSON.stringify(loading));
+ok("with a value on it", loading?.now > 0 && loading?.max === 100,
+   JSON.stringify(loading));
+
+console.log("");
+if (failed) {
+  console.log(`${failed} check(s) failed`);
+  process.exit(1);
+}
+console.log("all checks passed");

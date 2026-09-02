@@ -365,6 +365,12 @@ class EVGElement {
     ; The font-size of the tree's root, which is what `rem` resolves against.
     ; Inherited unchanged all the way down.
     def rootFontSize:double 14.0
+    ; What `vw` and `vh` on this element resolve against: the layout's page
+    ; size, published onto the root by `EVGLayout.layout` and inherited from
+    ; there like the root font size. Zero until a layout says otherwise — see
+    ; the note at the top of EVGUnit.
+    def viewportW:double 0.0
+    def viewportH:double 0.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
     ; ZERO means `normal`, which is the FACE's own line box and is asked of
@@ -1279,6 +1285,10 @@ class EVGElement {
         }
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
+        ; The viewport is the same for every element in a tree, so it travels
+        ; the same way the root font size does rather than being looked up.
+        viewportW = parentEl.viewportW
+        viewportH = parentEl.viewportH
         this.applyOwnFontSize()
         this.applyOwnDirection(parentEl.resolvedRtl)
     }
@@ -1315,7 +1325,7 @@ class EVGElement {
             ; `em` on font-size itself is relative to the *parent's* size,
             ; which is why the base is kept rather than read back out of
             ; inheritedFontSize.
-            fontSize.rootFontSize = rootFontSize
+            fontSize.setContext(rootFontSize viewportW viewportH)
             fontSize.resolve(fontSizeBase fontSizeBase)
             inheritedFontSize = fontSize.pixels
         } {
@@ -1336,24 +1346,27 @@ class EVGElement {
         def fs:double inheritedFontSize
         def rfs:double rootFontSize
         
-        ; `rem` needs the root's font size, which a unit cannot reach on its
-        ; own — hand it over before anything is resolved.
-        width.rootFontSize = rfs
-        height.rootFontSize = rfs
-        flexBasis.rootFontSize = rfs
-        minWidth.rootFontSize = rfs
-        minHeight.rootFontSize = rfs
-        maxWidth.rootFontSize = rfs
-        maxHeight.rootFontSize = rfs
-        left.rootFontSize = rfs
-        top.rootFontSize = rfs
-        right.rootFontSize = rfs
-        bottom.rootFontSize = rfs
-        x.rootFontSize = rfs
-        y.rootFontSize = rfs
-        shadowRadius.rootFontSize = rfs
-        shadowOffsetX.rootFontSize = rfs
-        shadowOffsetY.rootFontSize = rfs
+        ; `rem` needs the root's font size and `vw`/`vh` need the viewport,
+        ; neither of which a unit can reach on its own — hand both over before
+        ; anything is resolved.
+        def vpw:double viewportW
+        def vph:double viewportH
+        width.setContext(rfs vpw vph)
+        height.setContext(rfs vpw vph)
+        flexBasis.setContext(rfs vpw vph)
+        minWidth.setContext(rfs vpw vph)
+        minHeight.setContext(rfs vpw vph)
+        maxWidth.setContext(rfs vpw vph)
+        maxHeight.setContext(rfs vpw vph)
+        left.setContext(rfs vpw vph)
+        top.setContext(rfs vpw vph)
+        right.setContext(rfs vpw vph)
+        bottom.setContext(rfs vpw vph)
+        x.setContext(rfs vpw vph)
+        y.setContext(rfs vpw vph)
+        shadowRadius.setContext(rfs vpw vph)
+        shadowOffsetX.setContext(rfs vpw vph)
+        shadowOffsetY.setContext(rfs vpw vph)
         
         ; Dimensions - width uses parentWidth, height uses parentHeight
         width.resolveWithHeight(parentWidth parentHeight fs)
@@ -1373,7 +1386,7 @@ class EVGElement {
         y.resolve(parentHeight fs)
         
         ; Box model
-        box.resolveUnits(parentWidth parentHeight fs rfs)
+        box.resolveUnits(parentWidth parentHeight fs rfs vpw vph)
         
         ; Shadow
         shadowRadius.resolve(parentWidth fs)
@@ -2192,6 +2205,8 @@ class EVGElement {
         fontSizeInherited = other.fontSizeInherited
         fontSizeBase = other.fontSizeBase
         rootFontSize = other.rootFontSize
+        viewportW = other.viewportW
+        viewportH = other.viewportH
         fontFamily = other.fontFamily
         fontWeight = other.fontWeight
         lineHeight = other.lineHeight

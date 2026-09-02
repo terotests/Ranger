@@ -1,0 +1,236 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGViewportUnitTest — `vh` is the page, not the parent
+; ==============================================================================
+;
+; This file exists because of an Android emulator. `gallery/ui/demo`'s dashboard
+; stated `height: 1420px` on its page, its sidebar and the hairline between
+; them — the height the page was before it scrolled, kept because every window
+; it had been shown in was shorter than that and a column taller than the
+; window looks full. A tablet in portrait is 2137 page pixels tall, and the
+; sidebar stopped two thirds of the way down.
+;
+; `height: 100%` does not fix that on its own: a percentage needs a parent with
+; a definite height, and the page's own height is exactly the number nobody in
+; the tree has. The layout has it — `EVGLayout.pageWidth` / `pageHeight`, which
+; every host sets — so `vw` and `vh` are that number, spelled the way CSS
+; spells it.
+;
+; TWO THINGS ARE WORTH CHECKING and only one of them is arithmetic.
+;
+; The first is that a viewport length ignores its parent. That is the whole
+; difference from `%`, it is invisible on a root element (where the parent IS
+; the page), and it is the thing a "just resolve it like a percentage"
+; implementation gets wrong.
+;
+; The second is what `vh` means ON PAPER. CSS says viewport-percentage lengths
+; are relative to the PAGE AREA in paged media — the sheet less its margins —
+; and the print renderers already hand the layout exactly that as its page
+; size: `EVGPDFRenderer` sets `layout.pageHeight` to the section height less
+; two margins before laying a page out. So the rule needs no print-specific
+; code at all, and the case below is here to say that it stays that way.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGBox.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+
+class VpCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got '" + got + "' want '" + want + "'")
+        }
+        this.ok(name good)
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def good:boolean (((got - want) < 0.01) && ((want - got) < 0.01))
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGViewportUnitTest {
+
+    ; --- the parse ------------------------------------------------------------
+
+    sfn testParse:void (c:VpCheck) {
+        print "--- what the parser makes of them ---"
+        def vh:EVGUnit (EVGUnit.parse("100vh"))
+        c.ok("100vh is set" vh.isSet)
+        c.ok("and it is a viewport length" (vh.isViewport()))
+        c.eqNum("carrying its number" vh.value 100.0)
+        c.eqStr("and it prints as it was written" (vh.toString()) "100vh")
+
+        def vw:EVGUnit (EVGUnit.parse("50vw"))
+        c.ok("50vw too" (vw.isViewport()))
+        c.eqStr("and prints its own suffix" (vw.toString()) "50vw")
+
+        ; A fraction, because a segmented control is a third of something.
+        def third:EVGUnit (EVGUnit.parse("33.5vh"))
+        c.eqNum("a fractional one keeps its fraction" third.value 33.5)
+
+        ; The guard the file was written around: an unknown suffix must not
+        ; fall through to the bare-number path. `vmin` is deliberately not
+        ; supported, so it has to come out unset rather than 10 pixels.
+        def vmin:EVGUnit (EVGUnit.parse("10vmin"))
+        c.ok("an unsupported v-unit stays unset" (vmin.isSet == false))
+        c.eqNum("and is not quietly ten pixels" vmin.pixels 0.0)
+    }
+
+    ; --- the arithmetic -------------------------------------------------------
+
+    sfn testResolve:void (c:VpCheck) {
+        print "--- the numbers ---"
+        def h:EVGUnit (EVGUnit.parse("50vh"))
+        h.setContext(14.0 1000.0 600.0)
+        h.resolve(200.0 14.0)
+        c.eqNum("50vh of a 600-tall viewport is 300" h.pixels 300.0)
+
+        def w:EVGUnit (EVGUnit.parse("25vw"))
+        w.setContext(14.0 1000.0 600.0)
+        w.resolve(200.0 14.0)
+        c.eqNum("25vw of a 1000-wide one is 250" w.pixels 250.0)
+
+        ; The parent is 200 in both calls above and neither answer is 100 or
+        ; 50, which is the whole claim.
+        def pct:EVGUnit (EVGUnit.parse("50%"))
+        pct.resolve(200.0 14.0)
+        c.eqNum("where 50% of the same parent is 100" pct.pixels 100.0)
+
+        ; Height resolution has its own entry point, and it delegates rather
+        ; than reimplementing — this is the check that it kept delegating.
+        def hh:EVGUnit (EVGUnit.parse("100vh"))
+        hh.setContext(14.0 1000.0 600.0)
+        hh.resolveForHeight(200.0 320.0 14.0)
+        c.eqNum("and on the height property it is still the viewport" hh.pixels 600.0)
+
+        ; No viewport handed over: zero, not the parent. A silent fallback is
+        ; what makes `100vh` mean two different things in two places.
+        def orphan:EVGUnit (EVGUnit.parse("100vh"))
+        orphan.resolve(480.0 14.0)
+        c.eqNum("with no viewport it is zero rather than the parent" orphan.pixels 0.0)
+    }
+
+    ; --- through a layout -----------------------------------------------------
+
+    sfn sheet:EVGStyleSheet (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        return s
+    }
+
+    sfn testLaidOut:void (c:VpCheck) {
+        print "--- through a real layout ---"
+        def css:string ".page { display: flex; flex-direction: column; }
+.band { height: 50vh; width: 25vw; overflow: hidden; }
+.inner { height: 100vh; }
+.padded { padding: 5vh; height: 10vh; }"
+        def s:EVGStyleSheet (EVGViewportUnitTest.sheet(css))
+
+        def page:EVGElement (EVGElement.createDiv())
+        page.className = "page"
+        def band:EVGElement (EVGElement.createDiv())
+        band.className = "band"
+        ; NESTED, and this is the case that separates a viewport length from a
+        ; percentage: `inner` sits in a box 300 tall and asks for 100vh, which
+        ; is the page's 600 and not its parent's 300.
+        def inner:EVGElement (EVGElement.createDiv())
+        inner.className = "inner"
+        def padded:EVGElement (EVGElement.createDiv())
+        padded.className = "padded"
+        band.addChild(inner)
+        page.addChild(band)
+        page.addChild(padded)
+        s.applyTree(page "")
+
+        def lay (new EVGLayout())
+        lay.setPageSize(800.0 600.0)
+        lay.layout(page)
+
+        c.eqNum("50vh is half the page's height" band.calculatedHeight 300.0)
+        c.eqNum("25vw is a quarter of its width" band.calculatedWidth 200.0)
+        ; The unit first, because that is the claim: 100vh inside a 300-tall
+        ; box is 600. What the layout then DOES with a child taller than its
+        ; parent is a separate question with a separate answer — a flex item
+        ; shrinks, a clip box keeps it — so the box is checked under
+        ; `overflow: hidden`, which is the arrangement the ui gallery's scroll
+        ; container is built on.
+        c.eqNum("a nested 100vh resolves to the PAGE, not the 300 it sits in"
+            inner.height.pixels 600.0)
+        c.eqNum("and inside a clip box it keeps that height"
+            inner.calculatedHeight 600.0)
+        ; Box lengths take the same context — a `padding: 5vh` that resolved to
+        ; zero would be the same bug one layer down.
+        c.eqNum("padding in vh resolves too" padded.box.paddingTopPx 30.0)
+    }
+
+    ; --- and on paper ---------------------------------------------------------
+
+    sfn testPageArea:void (c:VpCheck) {
+        print "--- on paper it is the page area ---"
+        ; A4 at 72dpi with a 40pt margin all round, which is what the print
+        ; renderers compute before they lay a page out: they set the layout's
+        ; page size to the section less two margins and then lay the Page
+        ; element out inside it. So this is not a special case in the unit, it
+        ; is the same rule reading a different page size.
+        def paperW:double 595.0
+        def paperH:double 842.0
+        def margin:double 40.0
+        def areaW:double (paperW - (margin * 2.0))
+        def areaH:double (paperH - (margin * 2.0))
+
+        def s:EVGStyleSheet (EVGViewportUnitTest.sheet(".sheet { display: flex; flex-direction: column; }
+.full { height: 100vh; width: 100vw; }"))
+        def sheetEl:EVGElement (EVGElement.createDiv())
+        sheetEl.className = "sheet"
+        def full:EVGElement (EVGElement.createDiv())
+        full.className = "full"
+        sheetEl.addChild(full)
+        s.applyTree(sheetEl "")
+
+        def lay (new EVGLayout())
+        lay.setPageSize(areaW areaH)
+        lay.layout(sheetEl)
+
+        c.eqNum("100vh is the text column, not the sheet" full.calculatedHeight areaH)
+        c.eqNum("and 100vw is its width" full.calculatedWidth areaW)
+        c.ok("which is the paper less two margins"
+            ((areaH == (paperH - 80.0)) && (areaW == (paperW - 80.0))))
+    }
+
+    sfn main:void () {
+        def c (new VpCheck())
+        print "=== EVG viewport units: vw and vh ==="
+        EVGViewportUnitTest.testParse(c)
+        EVGViewportUnitTest.testResolve(c)
+        EVGViewportUnitTest.testLaidOut(c)
+        EVGViewportUnitTest.testPageArea(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

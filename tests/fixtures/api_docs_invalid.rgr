@@ -1,0 +1,14 @@
+; Every doc block here is wrong in a way only a structured, type-checked
+; documentation model can detect. Used by the negative tests.
+class Broken {
+  fn takesOne:int ( x:int ) {
+    return (x + 1)
+  } doc {
+    public
+    description "Takes one."
+    param zz "no parameter is called zz"
+  }
+}
+sfn main:void () {
+  print "ok"
+}

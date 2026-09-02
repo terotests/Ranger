@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **EVG on a smartwatch, as a number instead of an opinion.**
+  `gallery/watch_evg/bench` runs three real watch screens — a dial with sixty
+  minute ticks, a Wear list of chips, and a workout view — through EVG's whole
+  pipeline on a 454×454 panel, phase by phase, on **four** targets from one
+  source: Kotlin on a JVM (the Wear OS language, with a C1-only run as the
+  ART-quality bracket), C++ ahead-of-time and reference-counted (the watchOS
+  proxy), and JavaScript on Node. The Kotlin run paints through
+  `gallery/evg/android`, the same painter and surface the `ui` and `pptx`
+  Android ports compile into their APKs, and writes the three PNGs.
+
+  The answer is **no, EVG is not too heavy**: the busiest screen is 0.91 ms for
+  a full declarative rebuild and 0.12 ms retained on the pessimistic bracket,
+  which scales to roughly 9 ms and 1.2 ms on a Cortex-A53/A55 watch core
+  against a 16.7 ms budget. Three conditions come with it — do not rebuild
+  declaratively at 60 fps on the little cores, keep paint on the platform's
+  hardware canvas, and mind the cold frame, which on a JIT target is five
+  hundred times the steady state. Every harness reports a `calibrate` figure so
+  the estimates can be replaced by measurements from a real device.
+  See `gallery/watch_evg/WATCH_PERFORMANCE.md`.
+
 - **A "Taikasauva" in the edit mode: pick an object out of the drawing and cut
   the rest away.** Click a shape and the selection grows outward from it across
   what touches it and is within *Sieto* of the color you clicked — or, when the
@@ -94,6 +114,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bytes: 128 buys seven more layers for another half megabyte.
 
 ### Fixed
+
+- **EVG laid out every element by formatting a debug message nobody read.**
+  `EVGLayout.log` takes an already-built string and discards it unless `debug`
+  is on, and one of its call sites is per-element in `layoutElement` — so every
+  element of every layout pass formatted four doubles into a message that went
+  nowhere. On the C++ target, where a double becomes a string through
+  `ostringstream`, `callgrind` put 47% of the layout phase's instructions
+  inside `vsnprintf`: 2,654 double→string conversions for one layout of an
+  82-element tree. Seven sites now build their string inside `if debug`.
+  Layout of that tree: **75× faster in C++** (2.107 ms → 0.028 ms), 2.4× in
+  Kotlin, 1.3× in JavaScript.
+
+- **`EVGStyleSheet.stripComments` was quadratic on every immutable-string
+  target.** It appended one character at a time, which on Kotlin, Swift, C# or
+  Java copies the whole accumulator per character — O(n²) for an n-byte
+  stylesheet. V8 hid it entirely by concatenating with a rope, so only the JVM
+  and native builds paid. It now appends whole slices between comments, with
+  byte-identical output on 19 cases including both real stylesheets in the
+  repository. Parsing a 6 KB sheet: **12× faster in Kotlin** (14.18 ms →
+  1.20 ms), 6.8× in C++, 1.7× in JavaScript — and together with the layout fix,
+  a cold first frame that is roughly half what it was.
+
+- **An element's gradient never reached the display list.** `hasGrad`, the
+  `gd`/`c2` fields of `toJson` and the WebGL shader's two-stop mix have all
+  been there for a long time, and nothing ever wrote one from an *element*: the
+  walk in `EVGDisplayList` read `backgroundColor` and no more. So
+  `background: linear-gradient(…)` came out flat when there was a
+  `background-color` beside it, and emitted no rectangle at all when there was
+  not — a box that simply did not appear. `applyGradient` is the walk that was
+  missing. Two directions and two stops is what the list can carry, so an angle
+  is snapped to the nearer axis and the stops are swapped when it points the
+  other way (exact for the four right angles); a radial gradient is left flat
+  rather than turned into a lie about its shape, and the RGU1
+  `gradient-from`/`gradient-to`/`gradient-dir` trio is passed through as it
+  stands. `EVGJsonTest` now covers the walk as well as the serializer, which is
+  the half it could not see.
 
 - **The Rust backend hoists a self call the argument only *contains*.** One
   written directly as an argument — `this.dist(this.near(x))` — was already

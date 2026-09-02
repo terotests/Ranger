@@ -9,9 +9,12 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
-import fi.ranger.pptx.evg.EvgPainter
+import fi.ranger.evg.AndroidEvgSurface
+import fi.ranger.evg.EvgPainter
+import fi.ranger.evg.FaceSet
+import fi.ranger.evg.ImageStore
 import fi.ranger.pptx.input.TouchRouter
-import fi.ranger.pptx.rgr.PptxAndroid
+import fi.ranger.rgr.PptxAndroid
 
 /**
  * The viewer, on screen.

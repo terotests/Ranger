@@ -340,11 +340,19 @@ class RangerPythonClassWriter {
   fn CreatePropertyGet(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def obj:CodeNode (node.getSecond())
     def prop:CodeNode (node.getThird())
-    ctx.setInExpr()
-    this.WalkNode( obj ctx wr)
-    ctx.unsetInExpr()
+    if (this.formatterEnabled(ctx)) {
+      this.writeCallReceiver(obj ctx wr)
+    } {
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+    }
+    ; The property name comes from the resolved descriptor, not from the
+    ; source spelling: `def async` is declared as `self._async` on Python and
+    ; writing `prop.vref` here spelled it the old way. Every other writer
+    ; walks the node, which reads the descriptor list GetProperty attaches.
     wr.out('.' false)
-    wr.out(prop.vref false)
+    this.WalkNode(prop ctx wr)
   }
   
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -656,11 +664,26 @@ class RangerPythonClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
+      ; Python is the one writer that wrapped NO receiver at all, so
+      ; `-format=none` has to keep emitting none of them -- the flag means
+      ; "what this compiler emitted before", not "what the others emit".
+      if (this.formatterEnabled(ctx)) {
+        this.writeCallReceiver(obj ctx wr)
+      } {
+        ctx.setInExpr()
+        this.WalkNode( obj ctx wr)
+        ctx.unsetInExpr()
+      }
       wr.out("." false)
-      wr.out(method.vref false)
+      ; The DECLARATION is renamed when the method's name is a Python builtin
+      ; -- `fn str` is defined as `_str` -- but this call site was writing the
+      ; original name, so a chained `r.str(...)` called a method that does not
+      ; exist. Every other writer reads compiledName here; Python did not.
+      def pyMethodName:string method.vref
+      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+        pyMethodName = node.fnDesc.compiledName
+      }
+      wr.out(pyMethodName false)
       wr.out("(" false)
       ctx.setInExpr()
 
@@ -710,6 +733,12 @@ class RangerPythonClassWriter {
     }    
     wr.out(":" true)
     wr.indent(1)
+
+    ; A docstring is the first STATEMENT of the block, not a comment above it
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writePyDocForClass((unwrap cl) ctx wr)
+    }
 
     ; The lazily filled slot the singleton accessor below reads. A class
     ; attribute, so it is one per class rather than one per instance.
@@ -843,6 +872,11 @@ class RangerPythonClassWriter {
 
     ; Static methods
     for cl.static_methods variant:RangerAppFunctionDesc i {
+      if variant.is_doc_example {
+        if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+          continue _
+        }
+      }
       if (variant.nameNode.hasFlag("main")) {
         continue _
       } {
@@ -852,6 +886,10 @@ class RangerPythonClassWriter {
         wr.out("):" true)
       }
       wr.indent(1)
+      if variant.has_doc {
+        def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+        sDocWr.writePyDocForMethod(variant ctx wr)
+      }
       def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
       subCtx.is_function = true
       subCtx.in_static_method = true
@@ -865,6 +903,11 @@ class RangerPythonClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue
+          }
+        }
         if(has declaredFunction variant.name) {
           continue
         }
@@ -876,6 +919,10 @@ class RangerPythonClassWriter {
         }
         wr.out("):" true)
         wr.indent(1)
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writePyDocForMethod(variant ctx wr)
+        }
         def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
         subCtx.is_function = true
         subCtx.in_static_method = false

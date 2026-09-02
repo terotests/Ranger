@@ -1,0 +1,22 @@
+{
+  "name": "ranger-ui-android",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The gallery/ui dashboard demo as an Android app: Ranger -> Kotlin -> android.graphics",
+  "scripts": {
+    "run": "bash scripts/run-emulator.sh",
+    "start": "bash scripts/run-emulator.sh",
+    "build": "bash scripts/build-app.sh debug",
+    "build:release": "bash scripts/build-app.sh release",
+    "build:ranger": "bash scripts/build-ranger.sh",
+    "assets": "bash scripts/prepare-assets.sh",
+    "verify": "bash scripts/verify-desktop.sh",
+    "typecheck": "bash scripts/typecheck-host.sh",
+    "ui:android:run": "bash scripts/run-emulator.sh",
+    "ui:android": "bash scripts/build-app.sh debug",
+    "ui:android:ranger": "bash scripts/build-ranger.sh",
+    "ui:android:assets": "bash scripts/prepare-assets.sh",
+    "ui:android:verify": "bash scripts/verify-desktop.sh",
+    "ui:android:typecheck": "bash scripts/typecheck-host.sh"
+  }
+}

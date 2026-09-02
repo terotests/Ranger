@@ -1,0 +1,25 @@
+; The example calls a method that does not exist. An example is type checked
+; like any other code, so this must not compile.
+class Greeter {
+  fn greet:string ( name:string ) {
+    return ("Hello, " + name)
+  } doc {
+    public
+    description "Builds a greeting."
+    param name "Who to greet."
+    returns "The greeting."
+    example greetExample
+  }
+} doc {
+  public
+  description "Makes greetings."
+}
+class GreeterExamples {
+  sfn greetExample:void () {
+    def g:Greeter (new Greeter())
+    print (g.greetz("world"))
+  }
+}
+sfn main:void () {
+  print "ok"
+}

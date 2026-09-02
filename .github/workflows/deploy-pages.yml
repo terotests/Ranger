@@ -248,8 +248,43 @@ jobs:
       # Paste a Vega or Vega-Lite specification and see what the Ranger
       # runtime draws. The script it loads is compiled from the same sources
       # the C++ build uses, so the page shows this commit's own renderer.
+      # The chart API at /vela/api/ is built by each ecosystem's OWN tool --
+      # documentation.js, pdoc, Dokka and dartdoc -- over the packages `-apipackage`
+      # writes. That is the test PLAN_API_DOCS.md 7.3 sets: the target's own
+      # tool reads Ranger's output with no Ranger plugin. So the toolchains are
+      # installed here rather than the pages being rendered by us.
+      #
+      # Dokka resolves the Kotlin compiler and its own plugin from mavenCentral
+      # through gradle, which is already on the runner. pdoc and documentation.js
+      # are one install each.
+      - name: Install the documentation toolchains
+        run: |
+          npm install --no-save --no-audit --no-fund documentation
+          python3 -m pip install --quiet --disable-pip-version-check pdoc
+
+      # Dart for dartdoc; gradle for Dokka is already on the runner.
+      #
+      # .NET and DocFX are NOT installed: C# is out of the API pipeline for
+      # now. DocFX ran here, exited 0 and wrote _site/api/*.html with no
+      # _site/index.html, so --require failed the whole deploy over a page
+      # nobody could see. See the note in build-api-docs.mjs.
+      - uses: dart-lang/setup-dart@v1
+
       - name: Build the Vela page
         run: bash gallery/vela/web/build.sh --out "$GITHUB_WORKSPACE/_site/vela"
+
+      # --require fails the build when a toolchain is missing. Without it a
+      # runner that lost one would publish a smaller site and say nothing --
+      # the same silent-skip failure the formatter's own gate exists to avoid.
+      - name: Check every API toolchain ran
+        run: |
+          node gallery/vela/web/build-api-docs.mjs \
+            --out "$GITHUB_WORKSPACE/_site/vela/api" --require
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/javascript/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/python/vela_chart.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/kotlin/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/dart/index.html"
 
       # ---- PPTX playground at /pptx/ --------------------------------------
       # The viewer and editor with no server behind them: the page fetches a

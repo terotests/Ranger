@@ -1,0 +1,89 @@
+class EVGA11yNode {
+  def id:string "" doc {
+    public
+    description "The stable accessibility identifier of this node."
+  }
+  def label:string "" doc {
+    public
+    description "The human readable label announced by a screen reader."
+  }
+  def internalIndex:int 0
+} doc {
+  public
+  description "One node of a platform independent accessibility tree."
+  category "Accessibility"
+  since "1.0"
+}
+
+class EVGA11yTree {
+  def nodes:[EVGA11yNode]
+  def focusId:string "" doc {
+    public
+    description "The identifier of the currently focused node."
+  }
+
+  fn add:void ( node:EVGA11yNode ) {
+    push nodes node
+  } doc {
+    public
+    description "Adds a node to the tree."
+    param node "The node to add. The tree takes ownership of it."
+    since "1.0"
+  }
+
+  fn find:EVGA11yNode ( id:string ) {
+    for nodes n:EVGA11yNode i {
+      if (n.id == id) {
+        return n
+      }
+    }
+    return (new EVGA11yNode())
+  } doc {
+    public
+    description "Finds an accessibility node by its stable identifier."
+    param id "The stable accessibility identifier."
+    returns "The matching node, or an empty node when nothing matches."
+    since "1.2"
+    see EVGA11yNode
+  }
+
+  fn oldFind:EVGA11yNode ( id:string ) {
+    return (this.find(id))
+  } doc {
+    public
+    description "Finds an accessibility node."
+    param id "The node identifier."
+    returns "The matching node."
+    deprecated {
+      since "2.0"
+      use "find"
+      description "Use find instead."
+    }
+  }
+
+  fn rebuildIndex:void () {
+  } doc {
+    description "Rebuilds the internal lookup index. Not part of the public API."
+  }
+
+  fn secretHelper:void () {
+  }
+} doc {
+  public
+  description "A platform independent accessibility tree.
+
+The tree is a flat list of nodes addressed by a stable identifier, so a host
+that rebuilds its view hierarchy can keep focus where the user left it."
+  category "Accessibility"
+  since "1.0"
+}
+
+sfn main:void () {
+  def t:EVGA11yTree (new EVGA11yTree())
+  def n:EVGA11yNode (new EVGA11yNode())
+  n.id = "root"
+  n.label = "Root"
+  t.add(n)
+  def found:EVGA11yNode (t.find("root"))
+  print found.label
+}
