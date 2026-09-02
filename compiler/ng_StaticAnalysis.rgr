@@ -204,6 +204,48 @@ class StaticAnalyzer {
     return ""
   }
   
+  ; True when the declaration names a type that Ranger passes by reference and
+  ; a value-semantics target (Swift) passes by value: an array, a map, or one
+  ; of the four buffers. It reads the resolved type, not the spelling --
+  ; value_type is what the parser could tell from the syntax, and eval_type is
+  ; what the flow phase resolved a named type into
+  ; (`nameNode.eval_type = (nameNode.typeNameAsType(ctx))`), so a parameter
+  ; declared `b:buffer` carries the answer in the second one.
+  fn isValuePassedType:boolean (t:RangerNodeType) {
+    if (t == RangerNodeType.Array) {
+      return true
+    }
+    if (t == RangerNodeType.Hash) {
+      return true
+    }
+    if (t == RangerNodeType.Buffer) {
+      return true
+    }
+    if (t == RangerNodeType.IntBuffer) {
+      return true
+    }
+    if (t == RangerNodeType.DoubleBuffer) {
+      return true
+    }
+    if (t == RangerNodeType.CharBuffer) {
+      return true
+    }
+    return false
+  }
+
+  fn isValuePassedCollection:boolean (typeNode:CodeNode) {
+    if ((strlen typeNode.array_type) > 0) {
+      return true
+    }
+    if ((strlen typeNode.key_type) > 0) {
+      return true
+    }
+    if (this.isValuePassedType(typeNode.value_type)) {
+      return true
+    }
+    return (this.isValuePassedType(typeNode.eval_type))
+  }
+
   ; Mark a variable as mutated by walking from localVariables
   fn markVarAsMutated:void (varName:string fnCtx:RangerAppWriterContext) {
     if ((strlen varName) == 0) {
@@ -235,7 +277,6 @@ class StaticAnalyzer {
           ; Check if it's an array type by looking at array_type field
           if ((strlen typeNode.array_type) > 0) {
             param.needs_cpp_reference = true
-            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated array function parameter)")
             }
@@ -243,7 +284,6 @@ class StaticAnalyzer {
           ; Check if it's a hash type by looking at key_type field
           if ((strlen typeNode.key_type) > 0) {
             param.needs_cpp_reference = true
-            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated hash function parameter)")
             }
@@ -252,23 +292,32 @@ class StaticAnalyzer {
           ; These are translated to std::vector in C++ and need reference for mutation
           if (typeNode.type_name == "int_buffer") {
             param.needs_cpp_reference = true
-            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated int_buffer function parameter)")
             }
           }
           if (typeNode.type_name == "double_buffer") {
             param.needs_cpp_reference = true
-            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated double_buffer function parameter)")
             }
           }
           if (typeNode.type_name == "buffer") {
             param.needs_cpp_reference = true
-            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated buffer function parameter)")
+            }
+          }
+          ; The same question for Swift, asked of the TYPE rather than of the
+          ; type's NAME. `buffer` and its two siblings are matched by name
+          ; above because that is how this pass has always found them; the
+          ; parser and the flow phase between them resolve the declaration into
+          ; a RangerNodeType, so the marker Swift reads is taken from that.
+          ; It answers for charbuffer too, which the name list never listed.
+          if (this.isValuePassedCollection(typeNode)) {
+            param.needs_swift_inout = true
+            if debug {
+              print ("StaticAnalysis: " + varName + " needs Swift inout (mutated value-type parameter)")
             }
           }
           ; Check if it's an object type (class instance)

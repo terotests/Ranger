@@ -37,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Ranger class is a Swift class, so `p.x = 1` writes through a `let` binding
     perfectly well; only the value types (collections, buffers, String) and a
     local handed to an `inout` parameter as `&x` need `var`.
+
+  Both of the last two rest on ASKING THE TYPE, not on matching its name. The
+  writer used to carry a list of the strings "buffer", "charbuffer",
+  "int_buffer" and "double_buffer", because a parameter declared `b:buffer`
+  reaches it with `value_type` unset. The resolved type was there the whole
+  time in `eval_type`, which the flow phase fills in
+  (`nameNode.eval_type = (nameNode.typeNameAsType(ctx))`); the list is gone,
+  and so is the one inside StaticAnalyzer, which as a side effect now answers
+  for `charbuffer` too. `paramNeedsInout` also had a second, local rule beside
+  the analysis -- `set_cnt > 0` on a value collection. It answered a strictly
+  smaller question than the pass does; gallery/ui compiles byte for byte
+  identical without it, and one question now has one answer.
   - **A call kept for its side effect says so.** `def x:int (readUInt16 off)`
     where nothing reads `x` becomes a bare value-returning call, which Swift
     warns about; it is written `_ = ...` now.
