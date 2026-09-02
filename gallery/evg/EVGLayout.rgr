@@ -2074,7 +2074,22 @@ class EVGLayout {
 
     fn intrinsicWidth:double (el:EVGElement wantMin:boolean) {
         def outer:double 0.0
-        if el.width.isSet {
+        ; A PERCENTAGE IS NOT A DEFINITE WIDTH HERE. Intrinsic sizing is the
+        ; question "how wide would this be with unlimited / with no space",
+        ; asked while the containing block's width is still being worked out —
+        ; so there is nothing for a percentage to be a percentage OF, and CSS
+        ; says such a width behaves as `auto` for the contribution. Taking it
+        ; as definite reads it as whatever the last resolve happened to leave
+        ; behind, which in the middle of a flex pass is zero: a cell holding
+        ; `.chartBox { width: 100% }` around a 220px chart reported a
+        ; min-content width of NOTHING, and the automatic minimum that is
+        ; supposed to stop the cell being squeezed below its contents let it
+        ; be squeezed to half a row instead.
+        def definite:boolean el.width.isSet
+        if (el.width.isPercent()) {
+            definite = false
+        }
+        if definite {
             ; A definite width is both the min- and the max-content size.
             outer = el.width.pixels
         } {
@@ -2191,8 +2206,33 @@ class EVGLayout {
                 ; PERCENTAGE padding, whose max-content size is undefined in
                 ; CSS anyway and which nothing in this gallery uses; `px` and
                 ; `em` resolve the same whatever they are given.
+                ;
+                ; AND A MEASUREMENT MUST NOT FREEZE THE RESOLUTION. `el` is
+                ; being MEASURED, so its inner width is not decided yet — a
+                ; `flex: 1` item is asked for its min-content size in the
+                ; middle of the pass that works out how wide it gets, and
+                ; `calculatedInnerWidth` is still zero there. Resolving a kid
+                ; against that zero is harmless for the measure (a percentage
+                ; contributes nothing to min-content, which is what CSS says
+                ; too) and fatal afterwards: `resolveUnits` latches
+                ; `unitsResolved`, so `width: 100%` stayed at the 0 it was
+                ; measured with and the flow never asked again.
+                ;
+                ; That is the charts sliding off the left of the showcase
+                ; pages. `.chartBox { width: 100%; align-items: center }` in a
+                ; `flex: 1` cell came out zero wide, and centring a 220px chart
+                ; in a 0px box puts its left edge at -110.
+                ;
+                ; So a kid that was NOT resolved before this pass is handed
+                ; back unresolved, and the flow resolves it for real against
+                ; the width it actually got. A kid that was already resolved
+                ; keeps what it had — the flow resolved it, not this.
+                def wasResolved:boolean kid.unitsResolved
                 kid.resolveUnits(el.calculatedInnerWidth el.calculatedInnerHeight)
                 def w:double (this.intrinsicWidth(kid wantMin))
+                if (wasResolved == false) {
+                    kid.unitsResolved = false
+                }
                 if (w > widest) {
                     widest = w
                 }
