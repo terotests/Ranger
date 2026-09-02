@@ -28,6 +28,9 @@
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #85: an array literal passed to a call whose RESULT IS IMMEDIATELY DEREFERENCED is lost — the elements are emitted bare where the array should be. `(box.take(([] _:string ( "a" "b" )))).count()` becomes `box.take("a""b").count()`, which does not parse on JavaScript or PHP; the one-element form becomes `box.take("a")`, which parses and is silently wrong. Every target. The same array literal one line up, bound to a variable first, is correct (September 2026)
+- Issue #84: Rust drops a ONE-element inline array literal in argument position: `Take.f(([] _:string ( "a" )))` emits `Take::f("a")` where every other target emits the vector. Two elements are correct, so it is the arity, not the literal (September 2026)
+- Issue #83: the PHP writer turns a `$` inside a string literal into `\"`. `def s:string "literal $HOME stays"` comes out as `$s = "literal \"HOME stays";` — a parse error, and the escape that was intended (PHP interpolates `$` inside double quotes) is not what was written either (September 2026)
 - Issue #81: `(expr).field` does not resolve when it appears as a CALL ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles; `ArgMain.id((h.nodeOf()).plain)` on the very next line gives "Undefined variable .plain". Nothing to do with keywords — any property name fails. The dot-tail branch in `WalkNode` is never reached for an argument, so the tail is left as an unresolved `.field` vref. Found while fixing #80 (September 2026)
 - Issue #79: on Rust a method that returns `this` returns `self.clone()`, so every call after the first in a chain mutates a COPY. `a.bump().bump().bump()` leaves `a.n` at 1 where JavaScript, Python and Go all say 3. No error, no warning — a silently wrong answer, and the builder pattern is exactly the shape that hits it. Reproduces on a 13-line program with no generics and no aliasing (September 2026)
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
@@ -2908,6 +2911,144 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #85: an array literal is lost when the call taking it is immediately dereferenced
+
+**Status:** open. Found while writing `lib/Shell.rgr`, where every command is a
+program name and an argument vector, so the shape is unavoidable.
+
+### Reproduction
+
+```ranger
+class Box {
+    def n:int 0
+    fn take:Box (v:[string]) {
+        n = (array_length v)
+        return this
+    }
+    fn count:int () {
+        return n
+    }
+}
+class Bugs {
+    sfn m@(main):void () {
+        def b:Box (new Box)
+        print "chained one = " + ((b.take(([] _:string ( "a" )))).count())
+        print "chained two = " + ((b.take(([] _:string ( "a" "b" )))).count())
+    }
+}
+```
+
+JavaScript:
+
+```javascript
+console.log("chained one = " + b.take("a").count());
+console.log("chained two = " + b.take("a""b").count());
+```
+
+The array is gone. One element parses and is silently wrong — `array_length`
+answers the string's length rather than 1. Two elements do not parse at all,
+on JavaScript or on PHP.
+
+### Where it bites
+
+Any API of the form "a name and a list": a command and its arguments, a query
+and its parameters, a template and its values. The natural way to write the
+assertion is
+
+```ranger
+this.check("it ran" ((sh.capture("ls" ([] _:string ( "-la" )))).ok()))
+```
+
+and it has to be written
+
+```ranger
+def argv:[string]
+push argv "-la"
+def res:ShellResult (sh.capture("ls" argv))
+this.check("it ran" (res.ok()))
+```
+
+### Workaround
+
+Bind the array — or the call result — to a variable first. Related to the
+family in AGENTS.md ("never start a statement with a parenthesised receiver",
+"arithmetic on a call result needs a variable"): a call result that is
+immediately dereferenced is not re-walked, and its arguments are re-emitted
+from a node shape the argument writer does not read.
+
+---
+
+## Issue #84: Rust drops a one-element inline array literal in argument position
+
+**Status:** open.
+
+### Reproduction
+
+```ranger
+class ArrLit {
+    sfn take:int (v:[string]) {
+        return (array_length v)
+    }
+    sfn m@(main):void () {
+        def bound:[string] ([] _:string ( "a" ))
+        print "bound one  = " + (ArrLit.take(bound))
+        print "inline one = " + (ArrLit.take(([] _:string ( "a" ))))
+        print "inline two = " + (ArrLit.take(([] _:string ( "a" "b" ))))
+    }
+}
+```
+
+Rust:
+
+```rust
+ArrLit::take(&bound)                                   // correct
+ArrLit::take("a")                                      // expected &[String]
+ArrLit::take(&vec!["a".to_string(), "b".to_string()])  // correct
+```
+
+`rustc` rejects the middle one, so this is a build failure rather than a wrong
+answer — which is the good version of this bug. JavaScript emits `["a"]` for
+the same line, so it is the Rust writer and not the parser.
+
+### Workaround
+
+Bind it, or build it with `push`. `lib/apple/` does the latter throughout for
+this reason and is checked on seven targets because of it.
+
+---
+
+## Issue #83: the PHP writer mangles a `$` inside a string literal
+
+**Status:** open.
+
+### Reproduction
+
+```ranger
+def dollar:string "literal $HOME stays"
+print dollar
+```
+
+PHP:
+
+```php
+$dollar = "literal \"HOME stays";
+```
+
+The `$` became `\"`. The file does not parse.
+
+Two things are wrong and only one of them is the substitution. PHP interpolates
+`$name` inside a double-quoted string, so a Ranger string holding a `$` needs
+either an escaped `\$` or a single-quoted PHP literal; what it must not get is
+a quote character it never had.
+
+### Where it shows
+
+Any Ranger program that carries a shell fragment, a template, a currency
+amount or a regular expression through a string literal. It is invisible until
+the PHP target is built, because every other target writes the string through.
+
+---
 
 ## Issue #82: the JavaScript keyword table renamed METHOD and PROPERTY names, which changed the API its callers already spell
 

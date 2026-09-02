@@ -1354,6 +1354,12 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ("process.env[" (e 1) "]")
                 rust ( "std::env::var(&" (e 1) ").ok()" )
                 kotlin ( "System.getenv(" (e 1) ")" )
+                ; java7 spells it exactly as Kotlin does, and answers null for a
+                ; name that is not set -- which is the optional this operator
+                ; returns.
+                java7 ( "System.getenv(" (e 1) ")" )
+                swift3 ( "ProcessInfo.processInfo.environment[" (e 1) "]" (imp "Foundation") )
+                swift6 ( "ProcessInfo.processInfo.environment[" (e 1) "]" (imp "Foundation") )
                 csharp ( "System.Environment.GetEnvironmentVariable(" (e 1) ")" )
                 ; .get answers None for a name that is not set, which is the
                 ; optional this operator returns
@@ -1408,6 +1414,645 @@ func r_io_get_env( name string) *GoNullable {
                 ranger ("( shell_arg_cnt )")
             }
         }        
+
+        ; ---------------------------------------------------------------------
+        ; Running another command line program.
+        ;
+        ; One primitive, because everything a driver needs from a child process
+        ; fits in one answer: ([exit code, stdout, stderr]) as three strings.
+        ; An array of strings is a shape every target already has, so nothing
+        ; here needs a systemclass or a type mapping per language.
+        ;
+        ;   program   the program to run. Looked up on PATH when it contains no
+        ;             "/", the way a shell would.
+        ;   args      the arguments, as a VECTOR. There is no shell in the
+        ;             middle, so nothing inside an argument is ever re-read as
+        ;             a redirection, a glob or a second command. C++ is the one
+        ;             exception: it has no portable spawn, so it quotes the
+        ;             vector back into one shell word list.
+        ;   cwd       the directory to run in; "" means "the one we are in".
+        ;   capture   true  -> stdout and stderr come back in the answer.
+        ;             false -> they land on THIS program stdout and stderr as
+        ;                      they happen, which is what a compiler or a
+        ;                      linker wants, and the answer carries the exit
+        ;                      code with two empty strings.
+        ;   env       extra environment entries as "NAME=VALUE", MERGED over
+        ;             the ones this program was started with rather than
+        ;             replacing them -- a child that lost PATH could not find
+        ;             anything. A flat list rather than a map because that is
+        ;             the shape execve takes and the one shape every target
+        ;             already carries; an empty list changes nothing.
+        ;
+        ; lib/Shell.rgr is the friendlier face of this -- Shell.run, Shell.text,
+        ; Shell.which, a command log and a dry run. Prefer it to calling the
+        ; operator directly.
+        ; ---------------------------------------------------------------------
+        run_process_result    cmdRunProcess:[string] (program:string args:[string] cwd:string capture:boolean env:[string]) @doc("run a command line program and answer ([exit code, stdout, stderr]); capture=false streams its output to this program instead") {
+            templates {
+                ranger ( "(run_process_result " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
+                ts ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+// Running another command line program.  spawnSync resolves a bare name on
+// PATH and passes the arguments as a vector, so nothing inside an argument is
+// re-read as a redirection or a glob.
+function r_process_env(pairs: string[]): any {
+  const e: any = {};
+  const src: any = process.env;
+  for (const k in src) { e[k] = src[k]; }
+  for (let i = 0; i < pairs.length; i++) {
+    const at = pairs[i].indexOf("=");
+    if (at > 0) { e[pairs[i].substring(0, at)] = pairs[i].substring(at + 1); }
+  }
+  return e;
+}
+function r_process_result(program: string, args: string[], cwd: string, capture: boolean, env: string[]): string[] {
+  const opt: any = { maxBuffer: 268435456 };
+  opt.stdio = capture ? "pipe" : "inherit";
+  if (capture) { opt.encoding = "utf8"; }
+  if (cwd && cwd.length > 0) { opt.cwd = cwd; }
+  if (env && env.length > 0) { opt.env = r_process_env(env); }
+  const res: any = require("child_process").spawnSync(program, args, opt);
+  if (res.error) { return ["-1", "", String(res.error.message)]; }
+  const code: number = (typeof res.status === "number") ? res.status : -1;
+  if (!capture) { return [String(code), "", ""]; }
+  return [String(code), res.stdout || "", res.stderr || ""];
+}
+')
+                )
+                es6 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+// Running another command line program.  spawnSync resolves a bare name on
+// PATH and passes the arguments as a vector, so nothing inside an argument is
+// re-read as a redirection or a glob.
+function r_process_env(pairs) {
+  var e = {};
+  for (var k in process.env) { e[k] = process.env[k]; }
+  for (var i = 0; i < pairs.length; i++) {
+    var at = pairs[i].indexOf("=");
+    if (at > 0) { e[pairs[i].substring(0, at)] = pairs[i].substring(at + 1); }
+  }
+  return e;
+}
+function r_process_result(program, args, cwd, capture, env) {
+  var opt = { maxBuffer: 268435456 };
+  opt.stdio = capture ? "pipe" : "inherit";
+  if (capture) { opt.encoding = "utf8"; }
+  if (cwd && cwd.length > 0) { opt.cwd = cwd; }
+  if (env && env.length > 0) { opt.env = r_process_env(env); }
+  var res = require("child_process").spawnSync(program, args, opt);
+  if (res.error) { return ["-1", "", String(res.error.message)]; }
+  var code = (typeof res.status === "number") ? res.status : -1;
+  if (!capture) { return [String(code), "", ""]; }
+  return [String(code), res.stdout || "", res.stderr || ""];
+}
+')
+                )
+                python ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "subprocess") (imp "shutil") (imp "os")
+(create_polyfill '
+# Running another command line program.  The argument vector goes straight to
+# execve, so no argument is ever re-parsed by a shell.
+def r_process_env(pairs):
+    if len(pairs) == 0:
+        return None
+    e = dict(os.environ)
+    for p in pairs:
+        at = p.find("=")
+        if at > 0:
+            e[p[:at]] = p[at + 1:]
+    return e
+
+def r_process_result(program, args, cwd, capture, env):
+    where = cwd if len(cwd) > 0 else None
+    childEnv = r_process_env(env)
+    try:
+        if not capture:
+            return [str(subprocess.call([program] + list(args), cwd=where, env=childEnv)), "", ""]
+        p = subprocess.Popen([program] + list(args), cwd=where, env=childEnv,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = p.communicate()
+        return [str(p.returncode),
+                out.decode("utf-8", "replace"),
+                err.decode("utf-8", "replace")]
+    except Exception as ex:
+        return ["-1", "", str(ex)]
+')
+                )
+                go ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "os") (imp "os/exec") (imp "bytes") (imp "strconv")
+(create_polyfill '
+// Running another command line program.  exec.Command resolves a bare name on
+// PATH and passes the arguments as a vector -- there is no shell in between.
+func r_process_result(program string, args []string, cwd string, capture bool, env []string) []string {
+	cmd := exec.Command(program, args...)
+	if len(cwd) > 0 {
+		cmd.Dir = cwd
+	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	var so bytes.Buffer
+	var se bytes.Buffer
+	if capture {
+		cmd.Stdout = &so
+		cmd.Stderr = &se
+	} else {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	code := 0
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else {
+			code = -1
+			se.WriteString(err.Error())
+		}
+	}
+	return []string{strconv.Itoa(code), so.String(), se.String()}
+}
+')
+                )
+                kotlin ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+// Running another command line program.  When output is captured the child
+// stderr is drained on its own thread: reading stdout to the end first would
+// deadlock the moment a compiler filled the error pipe.
+fun r_process_result(program: String, args: MutableList<String>, cwd: String, capture: Boolean, env: MutableList<String>): MutableList<String> {
+  try {
+    val cmd = ArrayList<String>()
+    cmd.add(program)
+    cmd.addAll(args)
+    val pb = ProcessBuilder(cmd)
+    if (cwd.isNotEmpty()) { pb.directory(java.io.File(cwd)) }
+    if (env.size > 0) {
+      val vars = pb.environment()
+      for (pair in env) {
+        val at = pair.indexOf("=")
+        if (at > 0) { vars.put(pair.substring(0, at), pair.substring(at + 1)) }
+      }
+    }
+    if (!capture) {
+      pb.inheritIO()
+      return mutableListOf(pb.start().waitFor().toString(), "", "")
+    }
+    val p = pb.start()
+    var err = ""
+    val t = Thread({ err = p.errorStream.readBytes().toString(Charsets.UTF_8) })
+    t.start()
+    val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
+    val code = p.waitFor()
+    t.join()
+    return mutableListOf(code.toString(), out, err)
+  } catch (e: Exception) {
+    return mutableListOf("-1", "", e.toString())
+  }
+}
+')
+                )
+                java7 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "java.io.File") (imp "java.io.InputStream") (imp "java.io.ByteArrayOutputStream") (imp "java.util.ArrayList")
+(create_polyfill '
+static String r_process_drain(InputStream in) 
+{
+  try {
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+    byte[] chunk = new byte[8192];
+    int n = in.read(chunk);
+    while (n > 0) {
+      buf.write(chunk, 0, n);
+      n = in.read(chunk);
+    }
+    return new String(buf.toByteArray(), "UTF-8");
+  } catch (Exception e) {
+    return "";
+  }
+}
+
+// Running another command line program.  When output is captured the child
+// stderr is drained on its own thread: reading stdout to the end first would
+// deadlock the moment a compiler filled the error pipe.
+static ArrayList<String> r_process_result(String program, ArrayList<String> args, String cwd, boolean capture, ArrayList<String> env) 
+{
+  ArrayList<String> res = new ArrayList<String>();
+  try {
+    ArrayList<String> cmd = new ArrayList<String>();
+    cmd.add(program);
+    cmd.addAll(args);
+    ProcessBuilder pb = new ProcessBuilder(cmd);
+    if (cwd.length() > 0) { pb.directory(new File(cwd)); }
+    for (int ei = 0; ei < env.size(); ei++) {
+      String pair = env.get(ei);
+      int at = pair.indexOf("=");
+      if (at > 0) { pb.environment().put(pair.substring(0, at), pair.substring(at + 1)); }
+    }
+    if (!capture) {
+      pb.inheritIO();
+      res.add(Integer.toString(pb.start().waitFor()));
+      res.add("");
+      res.add("");
+      return res;
+    }
+    final Process p = pb.start();
+    final StringBuilder errBuf = new StringBuilder();
+    Thread t = new Thread(new Runnable() {
+      public void run() { errBuf.append(r_process_drain(p.getErrorStream())); }
+    });
+    t.start();
+    String out = r_process_drain(p.getInputStream());
+    int code = p.waitFor();
+    t.join();
+    res.add(Integer.toString(code));
+    res.add(out);
+    res.add(errBuf.toString());
+  } catch (Exception e) {
+    res.clear();
+    res.add("-1");
+    res.add("");
+    res.add(e.toString());
+  }
+  return res;
+}
+')
+                )
+                csharp ( "RgProcess.Result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(polyfill "after_imports" '
+// Running another command line program on the C# target.  The arguments are
+// joined into one command line because ProcessStartInfo.ArgumentList is not on
+// every runtime this target is built with (Mono included); the quoting is the
+// CommandLineToArgvW rule, which is what the runtimes parse back. The quote and
+// backslash are spelled by code point so this text can live in a Ranger string.
+static class RgProcess {
+  static readonly string DQ = ((char)34).ToString();
+  static readonly string BS = ((char)92).ToString();
+
+  static bool IsPlain(string a) {
+    if (a.Length == 0) { return false; }
+    foreach (char c in a) {
+      bool ok = (c >= (char)97 && c <= (char)122) || (c >= (char)65 && c <= (char)90)
+             || (c >= (char)48 && c <= (char)57)
+             || c == (char)47 || c == (char)46 || c == (char)95 || c == (char)45
+             || c == (char)61 || c == (char)58 || c == (char)43 || c == (char)44 || c == (char)64;
+      if (!ok) { return false; }
+    }
+    return true;
+  }
+
+  static string Quote(string a) {
+    if (IsPlain(a)) { return a; }
+    return DQ + a.Replace(BS, BS + BS).Replace(DQ, BS + DQ) + DQ;
+  }
+
+  // stderr is drained on its own thread: reading stdout to the end first would
+  // deadlock as soon as a compiler filled the error pipe.
+  public static System.Collections.Generic.List<string> Result(string program, System.Collections.Generic.List<string> args, string cwd, bool capture, System.Collections.Generic.List<string> env) {
+    var res = new System.Collections.Generic.List<string>();
+    try {
+      var parts = new System.Collections.Generic.List<string>();
+      foreach (var a in args) { parts.Add(Quote(a)); }
+      var psi = new System.Diagnostics.ProcessStartInfo(program, string.Join(" ", parts));
+      psi.UseShellExecute = false;
+      if (cwd.Length > 0) { psi.WorkingDirectory = cwd; }
+      foreach (var pair in env) {
+        int at = pair.IndexOf((char)61);
+        if (at > 0) { psi.EnvironmentVariables[pair.Substring(0, at)] = pair.Substring(at + 1); }
+      }
+      psi.RedirectStandardOutput = capture;
+      psi.RedirectStandardError = capture;
+      var p = System.Diagnostics.Process.Start(psi);
+      if (!capture) {
+        p.WaitForExit();
+        res.Add(p.ExitCode.ToString());
+        res.Add("");
+        res.Add("");
+        return res;
+      }
+      string err = "";
+      var t = new System.Threading.Thread(delegate() { err = p.StandardError.ReadToEnd(); });
+      t.Start();
+      string outText = p.StandardOutput.ReadToEnd();
+      t.Join();
+      p.WaitForExit();
+      res.Add(p.ExitCode.ToString());
+      res.Add(outText);
+      res.Add(err);
+    } catch (System.Exception ex) {
+      res.Clear();
+      res.Add("-1");
+      res.Add("");
+      res.Add(ex.Message);
+    }
+    return res;
+  }
+}
+')
+                )
+                rust ( "r_process_result(&" (e 1) ", &" (e 2) ", &" (e 3) ", " (e 4) ", &" (e 5) ")"
+(create_polyfill '
+fn r_process_result(program: &str, args: &[String], cwd: &str, capture: bool, env: &[String]) -> Vec<String> {
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args.iter());
+    if cwd.len() > 0 { cmd.current_dir(cwd); }
+    for pair in env.iter() {
+        if let Some(at) = pair.find("=") {
+            if at > 0 { cmd.env(&pair[..at], &pair[(at + 1)..]); }
+        }
+    }
+    if !capture {
+        return match cmd.status() {
+            Ok(st) => vec![
+                match st.code() { Some(c) => c.to_string(), None => String::from("-1") },
+                String::new(),
+                String::new(),
+            ],
+            Err(e) => vec![String::from("-1"), String::new(), e.to_string()],
+        };
+    }
+    match cmd.output() {
+        Ok(o) => vec![
+            match o.status.code() { Some(c) => c.to_string(), None => String::from("-1") },
+            String::from_utf8_lossy(&o.stdout).to_string(),
+            String::from_utf8_lossy(&o.stderr).to_string(),
+        ],
+        Err(e) => vec![String::from("-1"), String::new(), e.to_string()],
+    }
+}
+')
+                )
+                swift3 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "Foundation")
+(create_polyfill '
+// Running another command line program on the Swift 3 target, which predates
+// executableURL / run() and spells the same thing launchPath / launch().
+func r_process_lookup(_ program: String) -> String? {
+    if program.contains("/") {
+        return FileManager.default.isExecutableFile(atPath: program) ? program : nil
+    }
+    guard let path = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+    for dir in path.components(separatedBy: ":") {
+        let full = dir + "/" + program
+        if FileManager.default.isExecutableFile(atPath: full) { return full }
+    }
+    return nil
+}
+
+func r_process_environment(_ pairs: [String]) -> [String: String] {
+    var e = ProcessInfo.processInfo.environment
+    for pair in pairs {
+        if let at = pair.range(of: "=") {
+            let k = String(pair[pair.startIndex..<at.lowerBound])
+            if !k.isEmpty { e[k] = String(pair[at.upperBound...]) }
+        }
+    }
+    return e
+}
+
+func r_process_result(_ program: String, _ args: [String], _ cwd: String, _ capture: Bool, _ env: [String]) -> [String] {
+    guard let exe = r_process_lookup(program) else {
+        return ["-1", "", "program not found on PATH: " + program]
+    }
+    let p = Process()
+    p.launchPath = exe
+    p.arguments = args
+    if !cwd.isEmpty { p.currentDirectoryPath = cwd }
+    if !env.isEmpty { p.environment = r_process_environment(env) }
+    if !capture {
+        p.launch()
+        p.waitUntilExit()
+        return [String(p.terminationStatus), "", ""]
+    }
+    let outPipe = Pipe()
+    let errPipe = Pipe()
+    p.standardOutput = outPipe
+    p.standardError = errPipe
+    p.launch()
+    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    let out = String(data: outData, encoding: String.Encoding.utf8) ?? ""
+    let err = String(data: errData, encoding: String.Encoding.utf8) ?? ""
+    return [String(p.terminationStatus), out, err]
+}
+')
+                )
+                swift6 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "Foundation") (imp "Dispatch")
+(create_polyfill '
+// Running another command line program.  Foundation.Process is a macOS/Linux
+// facility and is emitted only into programs that actually call this operator,
+// so a Ranger app compiled for iOS or watchOS never sees it.
+//
+// Process wants a path, not a name, so PATH is walked here the way a shell
+// walks it. When output is captured, stderr is drained on a second queue:
+// reading stdout to the end first would deadlock once a compiler filled the
+// error pipe.
+func r_process_lookup(_ program: String) -> String? {
+    if program.contains("/") {
+        return FileManager.default.isExecutableFile(atPath: program) ? program : nil
+    }
+    guard let path = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+    for dir in path.split(separator: ":") {
+        let full = String(dir) + "/" + program
+        if FileManager.default.isExecutableFile(atPath: full) { return full }
+    }
+    return nil
+}
+
+func r_process_environment(_ pairs: [String]) -> [String: String] {
+    var e = ProcessInfo.processInfo.environment
+    for pair in pairs {
+        if let at = pair.firstIndex(of: "=") {
+            let k = String(pair[pair.startIndex..<at])
+            if !k.isEmpty { e[k] = String(pair[pair.index(after: at)...]) }
+        }
+    }
+    return e
+}
+
+func r_process_result(_ program: String, _ args: [String], _ cwd: String, _ capture: Bool, _ env: [String]) -> [String] {
+    guard let exe = r_process_lookup(program) else {
+        return ["-1", "", "program not found on PATH: " + program]
+    }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: exe)
+    p.arguments = args
+    if !cwd.isEmpty { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+    if !env.isEmpty { p.environment = r_process_environment(env) }
+    var outPipe: Pipe? = nil
+    var errPipe: Pipe? = nil
+    if capture {
+        outPipe = Pipe()
+        errPipe = Pipe()
+        p.standardOutput = outPipe
+        p.standardError = errPipe
+    }
+    do { try p.run() } catch { return ["-1", "", "could not start: " + exe] }
+    guard let op = outPipe, let ep = errPipe else {
+        p.waitUntilExit()
+        return [String(p.terminationStatus), "", ""]
+    }
+    var errData = Data()
+    let group = DispatchGroup()
+    group.enter()
+    DispatchQueue.global().async {
+        errData = ep.fileHandleForReading.readDataToEndOfFile()
+        group.leave()
+    }
+    let outData = op.fileHandleForReading.readDataToEndOfFile()
+    group.wait()
+    p.waitUntilExit()
+    let out = String(data: outData, encoding: .utf8) ?? ""
+    let err = String(data: errData, encoding: .utf8) ?? ""
+    return [String(p.terminationStatus), out, err]
+}
+')
+                )
+                dart ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "dart:io")
+(create_polyfill '
+// Running another command line program.  runSync always captures, so the
+// streaming form replays what it captured: dart:io has no synchronous
+// inherit-stdio.
+List<String> r_process_result(String program, List<String> args, String cwd, bool capture, List<String> env) {
+  try {
+    Map<String, String>? extra;
+    if (env.isNotEmpty) {
+      extra = <String, String>{};
+      for (final pair in env) {
+        final at = pair.indexOf("=");
+        if (at > 0) { extra[pair.substring(0, at)] = pair.substring(at + 1); }
+      }
+    }
+    final r = Process.runSync(program, args,
+        workingDirectory: cwd.length > 0 ? cwd : null,
+        environment: extra, includeParentEnvironment: true);
+    if (!capture) {
+      stdout.write(r.stdout.toString());
+      stderr.write(r.stderr.toString());
+      return <String>[r.exitCode.toString(), "", ""];
+    }
+    return <String>[r.exitCode.toString(), r.stdout.toString(), r.stderr.toString()];
+  } catch (e) {
+    return <String>["-1", "", e.toString()];
+  }
+}
+')
+                )
+                cpp ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "<string>") (imp "<vector>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<fstream>") (imp "<iterator>") (imp "<unistd.h>") (imp "<sys/wait.h>")
+(create_polyfill '
+// Running another command line program.  There is no portable C++ spawn, so
+// the argument vector is quoted back into one shell word list: every argument
+// is wrapped in single quotes, which a POSIX shell never re-parses. The quote
+// and backslash are spelled by code point so this text can live in a Ranger
+// string.
+static std::string r_process_quote(const std::string& a) {
+  const char q = (char)39;
+  std::string out;
+  out += q;
+  for (size_t i = 0; i < a.size(); i++) {
+    if (a[i] == q) {
+      out += q;
+      out += (char)92;
+      out += q;
+      out += q;
+    } else {
+      out += a[i];
+    }
+  }
+  out += q;
+  return out;
+}
+
+std::vector<std::string> r_process_result(const std::string& program, const std::vector<std::string>& args, const std::string& cwd, bool capture, const std::vector<std::string>& env) {
+  std::vector<std::string> res;
+  std::string cmd;
+  if (cwd.size() > 0) {
+    cmd += "cd ";
+    cmd += r_process_quote(cwd);
+    cmd += " && ";
+  }
+  for (size_t i = 0; i < env.size(); i++) {
+    size_t at = env[i].find("=");
+    if (at != std::string::npos && at > 0) {
+      cmd += env[i].substr(0, at);
+      cmd += "=";
+      cmd += r_process_quote(env[i].substr(at + 1));
+      cmd += " ";
+    }
+  }
+  cmd += r_process_quote(program);
+  for (size_t i = 0; i < args.size(); i++) {
+    cmd += " ";
+    cmd += r_process_quote(args[i]);
+  }
+  if (!capture) {
+    int rc = std::system(cmd.c_str());
+    res.push_back(std::to_string(rc == -1 ? -1 : WEXITSTATUS(rc)));
+    res.push_back("");
+    res.push_back("");
+    return res;
+  }
+  char tmpl[] = "/tmp/rgr_process_XXXXXX";
+  int fd = mkstemp(tmpl);
+  std::string errPath(tmpl);
+  if (fd >= 0) { close(fd); }
+  cmd += " 2>";
+  cmd += r_process_quote(errPath);
+  FILE* pipe = popen(cmd.c_str(), "r");
+  if (pipe == NULL) {
+    res.push_back("-1");
+    res.push_back("");
+    res.push_back("popen failed");
+    return res;
+  }
+  std::string out;
+  char buf[4096];
+  while (fgets(buf, sizeof(buf), pipe) != NULL) { out += buf; }
+  int rc = pclose(pipe);
+  std::string err;
+  {
+    std::ifstream ifs(errPath.c_str());
+    std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
+    err = content;
+  }
+  std::remove(errPath.c_str());
+  res.push_back(std::to_string(rc == -1 ? -1 : WEXITSTATUS(rc)));
+  res.push_back(out);
+  res.push_back(err);
+  return res;
+}
+')
+                )
+                php ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+function r_process_result($program, $args, $cwd, $capture, $env) {
+  $cmd = escapeshellarg($program);
+  foreach ($args as $a) { $cmd = $cmd . " " . escapeshellarg($a); }
+  $dir = ($cwd !== "") ? $cwd : null;
+  $pipes = array();
+  $vars = null;
+  if (count($env) > 0) {
+    $vars = getenv();
+    foreach ($env as $pair) {
+      $at = strpos($pair, "=");
+      if ($at !== false && $at > 0) { $vars[substr($pair, 0, $at)] = substr($pair, $at + 1); }
+    }
+  }
+  if (!$capture) {
+    $spec = array(1 => STDOUT, 2 => STDERR);
+    $p = proc_open($cmd, $spec, $pipes, $dir, $vars);
+    if (!is_resource($p)) { return array("-1", "", "proc_open failed"); }
+    return array(strval(proc_close($p)), "", "");
+  }
+  $spec = array(1 => array("pipe", "w"), 2 => array("pipe", "w"));
+  $p = proc_open($cmd, $spec, $pipes, $dir, $vars);
+  if (!is_resource($p)) { return array("-1", "", "proc_open failed"); }
+  $out = stream_get_contents($pipes[1]);
+  fclose($pipes[1]);
+  $err = stream_get_contents($pipes[2]);
+  fclose($pipes[2]);
+  $code = proc_close($p);
+  return array(strval($code), $out, $err);
+}
+')
+                )
+            }
+        }
 
         ; I/O
         normalize cmdArg:string ( arg:string ) {
@@ -2890,6 +3535,10 @@ void  r_cpp_write_file(const std::string& path, const std::string& filename, con
 
                 java7 ( nl "writeFile(" (e 1) " + \"/\" + " (e 2) " , " (e 3)" );" nl  
                     (imp "java.io.PrintWriter")
+                    ; The polyfill catches it, so the file has to import it.
+                    ; Without this, any Ranger program that writes a file fails
+                    ; to compile on the Java target with "cannot find symbol".
+                    (imp "java.io.FileNotFoundException")
 (create_polyfill "
 static void writeFile(String path, String text) 
 {
@@ -8448,13 +9097,21 @@ fun r_read_key(): String {
                  cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
                  kotlin ( nl "System.exit(" (e 1) ")" nl )
                  scala ( nl "System.exit(" (e 1) ")" nl )
-                 go ( nl "os.Exit(" (e 1) ")" nl (imp "os"))
-                 rust ( nl "std::process::exit(" (e 1) ");" nl )
+                 ; The int these targets spell an exit code with is not the
+                 ; one Ranger's `int` maps to -- go wants a plain `int` where
+                 ; Ranger has int64, and rust and swift want an i32/Int32 --
+                 ; so each one is narrowed here rather than failing to compile
+                 ; at every call site.
+                 go ( nl "os.Exit(int(" (e 1) "))" nl (imp "os"))
+                 rust ( nl "std::process::exit((" (e 1) ") as i32);" nl )
                  java7 ( nl "System.exit(" (e 1) ");" nl )
                  php ( nl "exit(" (e 1) ");" nl )
                  python ( nl "sys.exit(" (e 1) ")" nl (imp "sys"))
                  csharp ( nl "Environment.Exit(" (e 1) ");" nl (imp "System"))
                  swift3 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
+                 ; Without this, swift6 fell through to the `*` template, which
+                 ; is JavaScript.
+                 swift6 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
                  * ( nl "process.exit(" (e 1) ");" nl)
             }
         }

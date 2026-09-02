@@ -1,0 +1,488 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; build_ios.rgr — the dashboard demo, built for Apple hardware, from Ranger.
+; ==============================================================================
+;
+; This program is the point of the exercise. It is written in Ranger, it runs on
+; Node, and it builds an iOS, iPadOS or watchOS app by CALLING COMMAND LINE
+; PROGRAMS — the Ranger compiler to turn `ui_ios.rgr` into Swift, then xcrun,
+; swiftc, plutil, codesign and simctl to turn that Swift into a bundle on a
+; simulator. There is no Xcode project anywhere in it, nothing opens the Xcode
+; application, and the only thing that has to be installed is the toolchain
+; Xcode (or the Command Line Tools) puts on the machine.
+;
+; It is the same shape as `gallery/ui/android/scripts/build-app.sh`, with one
+; difference that is the whole reason it exists: the shell script is a shell
+; script, and this is a program in the language the app is written in. It can be
+; run DRY — every decision made, every command line printed, nothing executed —
+; which is how `lib/apple/apple_test.rgr` checks an Apple build on a machine
+; that is not a Mac.
+;
+;   node tmp/ui-ios/build_ios.js --check          what this machine has
+;   node tmp/ui-ios/build_ios.js                  build for the iOS simulator
+;   node tmp/ui-ios/build_ios.js --run            ...and put it on one
+;   node tmp/ui-ios/build_ios.js --target=watchos-simulator --run
+;   node tmp/ui-ios/build_ios.js --dry-run        the plan, and nothing else
+;
+; ...or `npm run ui:ios`, `npm run ui:ios:run`, `npm run ui:ios:watch`, which
+; are the same commands under shorter names.
+;
+; Run it from the repository root: every path in it is relative to that, the
+; same rule the Android scripts follow.
+; ==============================================================================
+
+Import "../../../../lib/Shell.rgr"
+Import "../../../../lib/apple/AppleAppBuilder.rgr"
+Import "../../../../lib/apple/AppleSigning.rgr"
+
+class IosBuildOptions {
+
+    def target:string "ios-simulator"
+    def device:string ""
+    def identity:string "-"
+    def profile:string ""
+    def bundleId:string ""
+    def doRun:boolean false
+    def dryRun:boolean false
+    def checkOnly:boolean false
+    def release:boolean false
+    def skipRanger:boolean false
+    ; Reuse the .app that is already there. `--no-ranger` skips only the
+    ; Ranger->Swift compile; this skips swiftc as well, which is the 46k lines
+    ; that make a re-run slow when nothing but the device changed.
+    def skipBuild:boolean false
+    ; Keep the launched process attached so its output comes back here. A
+    ; device has no console you can otherwise see.
+    def console:boolean false
+    def verbose:boolean false
+    def onlyPhone:boolean false
+    def onlyPad:boolean false
+    def helpWanted:boolean false
+    def bad:string ""
+
+    Constructor () {
+    }
+
+    ; `--name=value` and `--flag`, which is the shape every other script in this
+    ; repository takes. An unknown option is an ERROR rather than something
+    ; ignored: a typo in `--targt=watchos-simulator` that silently builds for
+    ; the phone is the kind of thing you only notice on the wrong device.
+    sfn parse:IosBuildOptions () {
+        def o:IosBuildOptions (new IosBuildOptions)
+        def n:int (shell_arg_cnt)
+        def i:int 0
+        while (i < n) {
+            def arg:string (shell_arg i)
+            def name:string arg
+            def value:string ""
+            def eq:int (indexOf arg "=")
+            if (eq > 0) {
+                name = (substring arg 0 eq)
+                value = (substring arg (eq + 1) (strlen arg))
+            }
+            switch name {
+                case "--target" {
+                    o.target = value
+                }
+                case "--device" {
+                    o.device = value
+                }
+                case "--identity" {
+                    o.identity = value
+                }
+                case "--profile" {
+                    o.profile = value
+                }
+                case "--bundle-id" {
+                    o.bundleId = value
+                }
+                case "--run" {
+                    o.doRun = true
+                }
+                case "--dry-run" {
+                    o.dryRun = true
+                }
+                case "--check" {
+                    o.checkOnly = true
+                }
+                case "--release" {
+                    o.release = true
+                }
+                case "--no-ranger" {
+                    o.skipRanger = true
+                }
+                case "--no-build" {
+                    o.skipBuild = true
+                    o.skipRanger = true
+                }
+                case "--console" {
+                    o.console = true
+                }
+                case "--verbose" {
+                    o.verbose = true
+                }
+                case "--phone" {
+                    o.onlyPhone = true
+                }
+                case "--pad" {
+                    o.onlyPad = true
+                }
+                case "--help" {
+                    o.helpWanted = true
+                }
+                case "-h" {
+                    o.helpWanted = true
+                }
+                default {
+                    o.bad = arg
+                }
+            }
+            i = i + 1
+        }
+        return o
+    }
+}
+
+class IosBuild {
+
+    ; Where the generated Swift and the bundles go. `generated/` sits beside the
+    ; Ranger it came from, the way the Android port's does, and is NOT checked
+    ; in: a stale copy of it is the one way this port can silently drift from
+    ; the demo everything else runs.
+    def generatedDir:string "gallery/ui/ios/generated"
+    def generatedFile:string "ui_ios.swift"
+    def buildRoot:string "tmp/ui-ios/build"
+    def cssFile:string "gallery/ui/demo/dashboard.css"
+
+    Constructor () {
+    }
+
+    sfn usage:void () {
+        print "build the dashboard demo for Apple hardware, without Xcode"
+        print ""
+        print "  --target=KEY     ios-simulator (default), ios-device,"
+        print "                   watchos-simulator, watchos-device"
+        print "  --run            install and launch afterwards -- on a simulator,"
+        print "                   or on the connected device for an ios-device target"
+        print "  --device=NAME    which simulator or device: a name substring or an id"
+        print "  --console        keep the launched app attached so its output lands here"
+        print "  --phone/--pad    build for only one of the two iOS families"
+        print "  --identity=NAME  codesigning identity for a device build"
+        print "                   (found in the keychain when not given)"
+        print "  --profile=PATH   .mobileprovision for a device build"
+        print "                   (found on this machine when not given)"
+        print "  --bundle-id=ID   override fi.ranger.dashboard"
+        print "  --release        compile with -O"
+        print "  --no-ranger      reuse the generated Swift instead of remaking it"
+        print "  --no-build       reuse the .app that is already built (implies --no-ranger)"
+        print "  --dry-run        print every command and run none of them"
+        print "  --check          report what this machine can build, and stop"
+        print "  --verbose        print each command as it runs"
+        print ""
+        print "run it from the repository root."
+    }
+
+    ; The Ranger compiler, called as a command line program — which is exactly
+    ; what this whole exercise is about. RANGER_LIB is how the compiler is told
+    ; where the operator library is, and it is read out of the ENVIRONMENT
+    ; rather than passed as an argument, which is why `Shell` can set one.
+    fn compileRanger:boolean (sh:Shell) {
+        print "* ranger      gallery/ui/ios/ranger/ui_ios.rgr -> " + generatedDir + "/" + generatedFile
+        if (sh.dryRun == false) {
+            create_dir generatedDir
+        }
+        def compiler:Shell (new Shell)
+        compiler.dryRun = sh.dryRun
+        compiler.verbose = sh.verbose
+        compiler.setEnv("RANGER_LIB" "./compiler/Lang.rgr:./lib/stdops.rgr")
+        def argv:[string]
+        ; The generated file is 46k lines of Swift from one Ranger tree, and
+        ; the default heap is not enough for the analysis that produces it.
+        push argv "--max-old-space-size=8192"
+        push argv "bin/output.js"
+        push argv "-l=swift6"
+        push argv "gallery/ui/ios/ranger/ui_ios.rgr"
+        push argv "-nodecli"
+        push argv ("-d=" + generatedDir)
+        push argv ("-o=" + generatedFile)
+        def res:ShellResult (compiler.capture("node" argv))
+        for compiler.commands c:string ci {
+            push sh.commands c
+        }
+        ; The compiler answers 0 even when it failed, and says so in its output
+        ; instead — so the output is what is read.
+        if ((indexOf res.out "Compilation FAILED") >= 0) {
+            print "the Ranger compiler could not build ui_ios.rgr:"
+            print res.out
+            return false
+        }
+        if (res.failed()) {
+            print (res.describeFailure())
+            return false
+        }
+        if (sh.dryRun == false) {
+            if ((file_exists generatedDir generatedFile) == false) {
+                print "the compiler reported no failure but wrote no " + generatedDir + "/" + generatedFile
+                return false
+            }
+        }
+        return true
+    }
+
+    fn makeTarget@(optional):AppleTarget (o:IosBuildOptions tools:AppleToolchain sh:Shell) {
+        ; A simulator runs NATIVE code, so a simulator build is for whatever
+        ; Mac is running it. Asking the machine is why one build script works
+        ; on both Apple Silicon and Intel.
+        def arch:string "arm64"
+        if (sh.dryRun == false) {
+            arch = (tools.hostArch())
+        }
+        def out@(optional):AppleTarget
+        if (o.target == "ios-simulator") {
+            out = (AppleTarget.iosSimulator(arch))
+        }
+        if (o.target == "ios-device") {
+            out = (AppleTarget.iosDevice(o.identity))
+        }
+        if (o.target == "watchos-simulator") {
+            out = (AppleTarget.watchSimulator(arch))
+        }
+        if (o.target == "watchos-device") {
+            out = (AppleTarget.watchDevice(o.identity))
+        }
+        if (!null? out) {
+            def t:AppleTarget (unwrap out)
+            if o.onlyPhone {
+                t.onlyPhone()
+            }
+            if o.onlyPad {
+                t.onlyPad()
+            }
+        }
+        return out
+    }
+
+    ; The painter and the surfaces, shared with nothing else on Apple yet and
+    ; written to be shared: they are `gallery/evg/apple`, not `gallery/ui/ios`,
+    ; because the next port through them is a deck rather than a dashboard.
+    fn addSharedSources:void (spec:AppleAppSpec) {
+        spec.addSource(generatedDir + "/" + generatedFile)
+        spec.addSource("gallery/evg/apple/Sources/EvgSurface.swift")
+        spec.addSource("gallery/evg/apple/Sources/EvgPainter.swift")
+        spec.addSource("gallery/evg/apple/Sources/CoreGraphicsEvgSurface.swift")
+        spec.addSource("gallery/evg/apple/Sources/RecordingSurface.swift")
+    }
+
+    fn makeSpec:AppleAppSpec (o:IosBuildOptions target:AppleTarget) {
+        def spec:AppleAppSpec (new AppleAppSpec)
+        if (target.isWatch()) {
+            spec.name = "RangerDashboardWatch"
+            spec.displayName = "Ranger"
+            spec.bundleId = "fi.ranger.dashboard.watch"
+            this.addSharedSources(spec)
+            spec.addSource("gallery/ui/ios/watch/WatchApp.swift")
+        } {
+            spec.name = "RangerDashboard"
+            spec.displayName = "Ranger Dashboard"
+            spec.bundleId = "fi.ranger.dashboard"
+            this.addSharedSources(spec)
+            spec.addSource("gallery/ui/ios/ios/DashboardView.swift")
+            spec.addSource("gallery/ui/ios/ios/AppDelegate.swift")
+            spec.addSource("gallery/ui/ios/ios/main.swift")
+        }
+        if ((strlen o.bundleId) > 0) {
+            spec.bundleId = o.bundleId
+        }
+        ; The demo's own stylesheet, as a resource. The same file the browser
+        ; page, the gates and the Android port style the tree from — copied
+        ; rather than referenced because an app bundle is packaged whole and a
+        ; source tree five directories away is not one.
+        spec.addResource(cssFile)
+        if o.release {
+            push spec.swiftFlags "-O"
+        }
+        spec.provisioningProfile = o.profile
+        return spec
+    }
+
+    ; A device build needs an identity and a profile. Both are on the machine
+    ; already if Xcode has ever built for a device, so both are FOUND rather
+    ; than typed -- which is the difference between one command and three flags.
+    ; What the caller passed always wins.
+    fn resolveSigning:boolean (o:IosBuildOptions spec:AppleAppSpec target:AppleTarget sh:Shell tools:AppleToolchain) {
+        if target.isSimulator {
+            return true
+        }
+        if sh.dryRun {
+            ; A dry run resolves nothing, but a plan that showed a device build
+            ; signed ad hoc would be showing something that cannot work.
+            ; Placeholders, obviously placeholders.
+            if (target.signIdentity == "-") {
+                target.signIdentity = "<development-identity>"
+            }
+            if ((strlen spec.provisioningProfile) == 0) {
+                spec.provisioningProfile = "<found>.mobileprovision"
+            }
+            return true
+        }
+        def signing:AppleSigning (new AppleSigning (sh))
+
+        ; The device first, because the profile has to list it.
+        def deviceUdid:string ""
+        def picked@(optional):AppleDeviceInfo (tools.pickDevice(o.device))
+        if (!null? picked) {
+            def dev:AppleDeviceInfo (unwrap picked)
+            deviceUdid = dev.identifier
+            print "* device      " + (dev.describe())
+        }
+
+        if (target.signIdentity == "-") {
+            def ids:[AppleSigningIdentity] (signing.findIdentities())
+            if ((array_length ids) == 0) {
+                print "no codesigning identity is in the keychain."
+                print "Open Xcode once and add your Apple ID (Settings > Accounts), or pass --identity=NAME."
+                return false
+            }
+            def idOpt@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids ""))
+            if (null? idOpt) {
+                print "no usable codesigning identity. `security find-identity -v -p codesigning` lists what there is."
+                return false
+            }
+            def id:AppleSigningIdentity (unwrap idOpt)
+            target.signIdentity = id.sha1
+            print "* identity    " + (id.describe())
+        }
+
+        if ((strlen spec.provisioningProfile) == 0) {
+            def workDir:string (buildRoot + "/" + target.key)
+            def profOpt@(optional):AppleProvisioningProfile (signing.pickProfile(spec.bundleId deviceUdid workDir))
+            if (null? profOpt) {
+                print "no provisioning profile on this machine covers " + spec.bundleId + " for this device."
+                print ""
+                print "A profile cannot be CREATED from the command line -- that is a conversation"
+                print "with Apple's developer portal, and only `xcodebuild -allowProvisioningUpdates`"
+                print "has it, which is the thing this driver exists to avoid. Once:"
+                print ""
+                print "  open Xcode, make any project with the bundle id " + spec.bundleId + ","
+                print "  pick your team, and build it to this device once."
+                print ""
+                print "After that the profile is on this machine and this finds it. Or pass"
+                print "--profile=PATH, or --bundle-id=ID to match a wildcard profile you have."
+                return false
+            }
+            def prof:AppleProvisioningProfile (unwrap profOpt)
+            spec.provisioningProfile = prof.path
+            print "* profile     " + (prof.describe())
+            if ((strlen prof.expires) > 0) {
+                print "              expires " + prof.expires
+            }
+        }
+        return true
+    }
+
+    sfn m@(main):void () {
+        def o:IosBuildOptions (IosBuildOptions.parse())
+        if o.helpWanted {
+            IosBuild.usage()
+            return
+        }
+        if ((strlen o.bad) > 0) {
+            print "unknown option: " + o.bad
+            print ""
+            IosBuild.usage()
+            exit 2
+        }
+
+        def b:IosBuild (new IosBuild)
+        def sh:Shell (new Shell)
+        sh.dryRun = o.dryRun
+        sh.verbose = (o.verbose || o.dryRun)
+        def tools:AppleToolchain (new AppleToolchain (sh))
+
+        ; Everything below assumes the repository root, and saying so up front
+        ; is better than a swiftc error about a file that is right there.
+        if (o.dryRun == false) {
+            if ((file_exists "gallery/ui/demo" "dashboard.css") == false) {
+                print "run this from the repository root — gallery/ui/demo/dashboard.css is not here"
+                exit 3
+            }
+        }
+
+        if o.checkOnly {
+            print "what this machine can build"
+            def lines:[string] ((new AppleAppBuilder (sh tools)).checkEnvironment())
+            for lines line:string i {
+                print "  " + line
+            }
+            return
+        }
+
+        def targetOpt@(optional):AppleTarget (b.makeTarget(o tools sh))
+        if (null? targetOpt) {
+            print "unknown target: " + o.target
+            print "one of ios-simulator, ios-device, watchos-simulator, watchos-device"
+            exit 2
+        }
+        def target:AppleTarget (unwrap targetOpt)
+
+        if (o.skipRanger == false) {
+            if ((b.compileRanger(sh)) == false) {
+                exit 1
+            }
+        }
+
+        def spec:AppleAppSpec (b.makeSpec(o target))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.buildRoot = b.buildRoot
+        builder.verbose = true
+
+        if ((b.resolveSigning(o spec target sh tools)) == false) {
+            exit 1
+        }
+
+        if (o.skipBuild == false) {
+            def res:AppleBuildResult (builder.build(spec target))
+            if (res.ok == false) {
+                print ""
+                print res.message
+                exit 1
+            }
+        } {
+            def appPath:string (builder.bundlePath(spec target))
+            if (sh.dryRun == false) {
+                if ((dir_exists appPath) == false) {
+                    print "--no-build was given and there is nothing built at " + appPath
+                    exit 1
+                }
+            }
+            print "* reusing     " + appPath
+        }
+
+        if o.doRun {
+            if target.isSimulator {
+                def ran:AppleBuildResult (builder.runOnSimulator(spec target o.device))
+                if (ran.ok == false) {
+                    print ""
+                    print ran.message
+                    exit 1
+                }
+            } {
+                def ran:AppleBuildResult (builder.runOnDevice(spec target o.device o.console))
+                if (ran.ok == false) {
+                    print ""
+                    print ran.message
+                    exit 1
+                }
+            }
+        }
+
+        if o.dryRun {
+            print ""
+            print "--- the plan, which is all a dry run does ---"
+            for sh.commands c:string i {
+                print "  " + c
+            }
+        }
+    }
+}

@@ -1,0 +1,444 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleAppBuilder.rgr -- Swift sources in, a runnable .app out. No Xcode.
+; =============================================================================
+;
+; This is the whole pipeline Xcode runs when you press Play, minus the parts
+; that only matter to a project file:
+;
+;   1. is there a toolchain, and does it have this platform's SDK
+;   2. resolve the SDK path and the triple
+;   3. make the bundle directory
+;   4. write Info.plist, and VALIDATE it -- an unparseable plist does not fail
+;      the install with a message, it fails it with a shrug
+;   5. compile every Swift source into one executable, inside the bundle,
+;      named exactly what CFBundleExecutable says
+;   6. copy the resources in
+;   7. sign it -- ad hoc for a simulator, which needs no account and no profile
+;
+; and then, if asked, boot a simulator, install and launch.
+;
+; What is deliberately NOT here: an .xcodeproj, xcodebuild, a scheme, a
+; workspace, a derived data directory. swiftc can build an iOS executable
+; directly, and everything above it is project bookkeeping that a driver
+; already knows the answers to.
+;
+; Every step goes through `Shell`, so setting `dryRun` gives the whole plan --
+; every program, every argument, in order -- without a Mac. That is what the
+; tests here check, because the interesting failures in a build driver are
+; decisions, not I/O.
+; =============================================================================
+
+Import "../Shell.rgr"
+Import "AppleTarget.rgr"
+Import "AppleAppSpec.rgr"
+Import "AppleToolchain.rgr"
+Import "AppleSimulator.rgr"
+Import "AppleDevice.rgr"
+Import "AppleSigning.rgr"
+
+class AppleBuildResult {
+
+    def ok:boolean false
+    ; The finished bundle, e.g. build/ios-simulator/RangerDashboard.app
+    def appPath:string ""
+    ; What went wrong, when something did.
+    def message:string ""
+    ; One line per step, in order, whether or not anything ran.
+    def steps:[string]
+
+    Constructor () {
+    }
+
+    fn note:void (line:string) {
+        push steps line
+    }
+
+    fn fail:void (why:string) {
+        ok = false
+        message = why
+    }
+}
+
+class AppleAppBuilder {
+
+    def sh:Shell
+    def tools:AppleToolchain
+    ; Where bundles are assembled. One subdirectory per target key, so an
+    ; iPhone build and a watch build of the same app do not overwrite each
+    ; other.
+    def buildRoot:string "build"
+    ; Print each step as it happens.
+    def verbose:boolean true
+
+    Constructor (shell:Shell toolchain:AppleToolchain) {
+        sh = shell
+        tools = toolchain
+    }
+
+    fn targetDir:string (target:AppleTarget) {
+        return (buildRoot + "/" + target.key)
+    }
+
+    fn bundlePath:string (spec:AppleAppSpec target:AppleTarget) {
+        return ((this.targetDir(target)) + "/" + (spec.bundleName()))
+    }
+
+    fn say:void (line:string) {
+        if verbose {
+            print line
+        }
+    }
+
+    ; --- the build ------------------------------------------------------------
+
+    fn build:AppleBuildResult (spec:AppleAppSpec target:AppleTarget) {
+        def res:AppleBuildResult (new AppleBuildResult)
+        def appPath:string (this.bundlePath(spec target))
+        res.appPath = appPath
+
+        ; 1. the toolchain
+        if (sh.dryRun == false) {
+            if ((tools.isAvailable()) == false) {
+                res.fail("xcrun was not found. Install Xcode or the Apple Command Line Tools (xcode-select --install).")
+                return res
+            }
+        }
+        res.note("toolchain " + target.key)
+        this.say("* target      " + (target.describe()))
+
+        ; 2. the SDK
+        def sdkPath:string ""
+        if (sh.dryRun == false) {
+            sdkPath = (tools.sdkPath(target.sdk))
+            if ((strlen sdkPath) == 0) {
+                res.fail("the " + target.sdk + " SDK is not installed in the selected Xcode. `xcrun --sdk " + target.sdk + " --show-sdk-path` answered nothing.")
+                return res
+            }
+            this.say("* sdk         " + sdkPath + " (" + (tools.sdkVersion(target.sdk)) + ")")
+        } {
+            ; A dry run resolves nothing, so the plan carries a placeholder that
+            ; is obviously one rather than a shell substitution that would
+            ; look runnable and not be.
+            sdkPath = ("<" + target.sdk + "-sdk-path>")
+        }
+        res.note("sdk " + target.sdk)
+
+        ; 3. the bundle directory
+        if (sh.dryRun == false) {
+            create_dir (this.targetDir(target))
+            create_dir appPath
+        }
+        res.note("bundle " + appPath)
+
+        ; 4. Info.plist
+        def plist:string (AppleInfoPlist.build(spec target))
+        if (sh.dryRun == false) {
+            write_file appPath "Info.plist" plist
+            ; PkgInfo is vestigial and four bytes, and its absence is one of
+            ; the things an old install check still complains about.
+            write_file appPath "PkgInfo" "APPL????"
+        }
+        ; The lint goes through the Shell rather than inside the guard above,
+        ; so that it is part of the recorded plan and its ORDER can be checked:
+        ; a plist has to be found unparseable before an hour of compiling, not
+        ; after it.
+        def lint:ShellResult (tools.lintPlist(appPath + "/Info.plist"))
+        if (lint.failed()) {
+            res.fail("the generated Info.plist did not parse: " + (lint.describeFailure()))
+            return res
+        }
+        res.note("Info.plist " + spec.bundleId)
+        this.say("* plist       " + spec.bundleId + " v" + spec.version + " (" + spec.build + ")")
+
+        ; 5. the executable
+        def compile:ShellResult (this.compileSwift(spec target sdkPath appPath))
+        res.note("swiftc " + (array_length spec.sources) + " sources")
+        if (compile.failed()) {
+            res.fail("swiftc failed.\n" + (compile.describeFailure()))
+            return res
+        }
+        this.say("* executable  " + appPath + "/" + spec.name)
+
+        ; 6. resources
+        for spec.resources r:string i {
+            def cpArgs:[string]
+            push cpArgs "-R"
+            push cpArgs r
+            push cpArgs appPath
+            def copy:ShellResult (sh.capture("cp" cpArgs))
+            if (copy.failed()) {
+                res.fail("could not copy the resource " + r + ": " + (copy.describeFailure()))
+                return res
+            }
+            res.note("resource " + r)
+        }
+        if ((array_length spec.resources) > 0) {
+            this.say("* resources   " + (array_length spec.resources))
+        }
+
+        ; 7. signing
+        ;
+        ; A simulator bundle is signed ad hoc, which needs no account, no
+        ; profile and no keychain. A DEVICE bundle needs three things that come
+        ; as a set: the profile inside the bundle under the name the loader
+        ; looks for, the entitlements that profile grants, and an identity the
+        ; profile was issued to. The entitlements are read OUT OF the profile
+        ; rather than written by hand, because a bundle signed with
+        ; entitlements the profile does not grant installs and then refuses to
+        ; launch, with no message anyone can act on.
+        def entitlements:string ""
+        if (target.isSimulator == false) {
+            if ((strlen spec.provisioningProfile) > 0) {
+                def cpArgs:[string]
+                push cpArgs spec.provisioningProfile
+                push cpArgs (appPath + "/embedded.mobileprovision")
+                def embed:ShellResult (sh.capture("cp" cpArgs))
+                if (embed.failed()) {
+                    res.fail("could not put the provisioning profile in the bundle: " + (embed.describeFailure()))
+                    return res
+                }
+                res.note("embedded.mobileprovision")
+                entitlements = ((this.targetDir(target)) + "/entitlements.plist")
+                def prepared:ShellResult (this.extractEntitlements(spec.provisioningProfile (this.targetDir(target)) entitlements))
+                if (prepared.failed()) {
+                    res.fail("could not read the entitlements out of " + spec.provisioningProfile + ".\n" + (prepared.describeFailure()))
+                    return res
+                }
+                res.note("entitlements " + entitlements)
+            } {
+                this.say("! no provisioning profile: this bundle will install only on a device the identity is already provisioned for")
+            }
+        }
+        def sign:ShellResult (tools.codesign(target.signIdentity appPath entitlements))
+        res.note("codesign " + target.signIdentity)
+        if (sign.failed()) {
+            res.fail("codesign failed.\n" + (sign.describeFailure()))
+            return res
+        }
+        this.say("* signed      " + target.signIdentity)
+
+        res.ok = true
+        this.say("* built       " + appPath)
+        return res
+    }
+
+    ; One swiftc invocation for the whole app. There is no incremental mode
+    ; here on purpose: whole-module is what makes cross-file inlining possible,
+    ; the generated Ranger file is one translation unit anyway, and a build
+    ; that cannot go stale is worth more than one that is occasionally faster.
+    fn compileSwift:ShellResult (spec:AppleAppSpec target:AppleTarget sdkPath:string appPath:string) {
+        def argv:[string]
+        push argv "--sdk"
+        push argv target.sdk
+        push argv "swiftc"
+        push argv "-sdk"
+        push argv sdkPath
+        push argv "-target"
+        push argv (target.swiftTriple())
+        push argv "-emit-executable"
+        ; Whole-module rather than the default per-file mode: the generated
+        ; file is tens of thousands of lines in one module and the cross-file
+        ; call graph is most of the program.
+        push argv "-wmo"
+        push argv "-o"
+        push argv (appPath + "/" + spec.name)
+        for spec.frameworks f:string i {
+            push argv "-framework"
+            push argv f
+        }
+        for spec.swiftFlags fl:string i {
+            push argv fl
+        }
+        for spec.sources s:string i {
+            push argv s
+        }
+        return (sh.run("xcrun" argv))
+    }
+
+
+    ; A .mobileprovision is a CMS envelope around a plist, and the entitlements
+    ; are one key inside it. Two tools, no shell: `security cms -D` decodes to
+    ; stdout, which is written out as a file, and `plutil -extract` pulls the
+    ; one key back out of it.
+    fn extractEntitlements:ShellResult (profilePath:string workDir:string outPath:string) {
+        def decodeArgs:[string]
+        push decodeArgs "cms"
+        push decodeArgs "-D"
+        push decodeArgs "-i"
+        push decodeArgs profilePath
+        def decoded:ShellResult (sh.capture("security" decodeArgs))
+        if (decoded.failed()) {
+            return decoded
+        }
+        def decodedPath:string (workDir + "/profile.plist")
+        if (sh.dryRun == false) {
+            write_file workDir "profile.plist" decoded.out
+        }
+        def extractArgs:[string]
+        push extractArgs "-extract"
+        push extractArgs "Entitlements"
+        push extractArgs "xml1"
+        push extractArgs "-o"
+        push extractArgs outPath
+        push extractArgs decodedPath
+        return (sh.capture("plutil" extractArgs))
+    }
+
+    ; --- putting it on something ---------------------------------------------
+
+    ; Boot a simulator if needed, install, launch. `nameWanted` is a substring
+    ; of a device name ("iPad Pro"), a UDID, or "" for whatever is already
+    ; running.
+    fn runOnSimulator:AppleBuildResult (spec:AppleAppSpec target:AppleTarget nameWanted:string) {
+        def res:AppleBuildResult (new AppleBuildResult)
+        res.appPath = (this.bundlePath(spec target))
+
+        if (target.isSimulator == false) {
+            res.fail("runOnSimulator was given the device target " + target.key + ".")
+            return res
+        }
+
+        if sh.dryRun {
+            ; The dry run still has to produce a plan, and a plan needs a
+            ; device. Nothing is installed, so a placeholder udid is enough to
+            ; make the command lines real.
+            def fake:AppleSimulator (new AppleSimulator)
+            fake.name = "(dry run)"
+            fake.udid = "DRY-RUN-UDID"
+            fake.state = "Shutdown"
+            fake.runtime = "iOS"
+            return (this.installAndLaunch(spec fake res))
+        }
+
+        def picked@(optional):AppleSimulator (tools.pickSimulator(target nameWanted))
+        if (null? picked) {
+            def which:string "iOS"
+            if (target.isWatch()) {
+                which = "watchOS"
+            }
+            if ((strlen nameWanted) > 0) {
+                res.fail("no available " + which + " simulator matches \"" + nameWanted + "\". `xcrun simctl list devices available` shows what there is.")
+                return res
+            }
+            res.fail("no " + which + " simulator is available. Install a runtime in Xcode > Settings > Platforms.")
+            return res
+        }
+        def dev:AppleSimulator (unwrap picked)
+        this.say("* simulator   " + (dev.describe()))
+        return (this.installAndLaunch(spec dev res))
+    }
+
+    ; A real iPhone or iPad on a cable. Two commands where the simulator needs
+    ; five: there is nothing to boot and no window to bring forward.
+    ;
+    ; `attach` keeps the launched process in the foreground with its output
+    ; coming back here, which is what a test build on a cable is FOR -- a device
+    ; has no console you can otherwise see.
+    fn runOnDevice:AppleBuildResult (spec:AppleAppSpec target:AppleTarget nameWanted:string attach:boolean) {
+        def res:AppleBuildResult (new AppleBuildResult)
+        res.appPath = (this.bundlePath(spec target))
+
+        if target.isSimulator {
+            res.fail("runOnDevice was given the simulator target " + target.key + ".")
+            return res
+        }
+
+        def udid:string "DRY-RUN-DEVICE"
+        if (sh.dryRun == false) {
+            if ((tools.hasDeviceCtl()) == false) {
+                res.fail("xcrun devicectl is not in this Xcode. It ships with Xcode 15 and later; an older one needs a third party installer, which this does not wrap.")
+                return res
+            }
+            def picked@(optional):AppleDeviceInfo (tools.pickDevice(nameWanted))
+            if (null? picked) {
+                if ((strlen nameWanted) > 0) {
+                    res.fail("no connected device matches \"" + nameWanted + "\". `xcrun devicectl list devices` shows what is plugged in.")
+                    return res
+                }
+                res.fail("no device is connected. Plug one in, unlock it, and trust this computer -- `xcrun devicectl list devices` shows what it can see.")
+                return res
+            }
+            def dev:AppleDeviceInfo (unwrap picked)
+            udid = dev.identifier
+            this.say("* device      " + (dev.describe()))
+        }
+
+        def install:ShellResult (tools.installOnDevice(udid res.appPath))
+        res.note("install " + res.appPath)
+        if (install.failed()) {
+            res.fail("devicectl could not install the app.\n" + (install.describeFailure()) + "\n\nAn install that is refused here is almost always the signing: the device has to be in the provisioning profile the bundle was signed with.")
+            return res
+        }
+        this.say("* installed   " + res.appPath)
+
+        def launch:ShellResult (tools.launchOnDevice(udid spec.bundleId attach))
+        res.note("launch " + spec.bundleId)
+        if (launch.failed()) {
+            res.fail("devicectl could not launch " + spec.bundleId + ".\n" + (launch.describeFailure()))
+            return res
+        }
+        this.say("* launched    " + spec.bundleId)
+        res.ok = true
+        return res
+    }
+
+    fn installAndLaunch:AppleBuildResult (spec:AppleAppSpec dev:AppleSimulator res:AppleBuildResult) {
+        if ((tools.bootSimulator(dev)) == false) {
+            res.fail("could not boot the simulator " + dev.name + " (" + dev.udid + ").")
+            return res
+        }
+        res.note("boot " + dev.udid)
+        tools.openSimulatorUi()
+        tools.waitForBoot(dev)
+        res.note("bootstatus " + dev.udid)
+
+        def install:ShellResult (tools.installApp(dev res.appPath))
+        res.note("install " + res.appPath)
+        if (install.failed()) {
+            res.fail("simctl could not install the app.\n" + (install.describeFailure()))
+            return res
+        }
+        this.say("* installed   " + res.appPath)
+
+        def launch:ShellResult (tools.launchApp(dev spec.bundleId))
+        res.note("launch " + spec.bundleId)
+        if (launch.failed()) {
+            res.fail("simctl could not launch " + spec.bundleId + ".\n" + (launch.describeFailure()))
+            return res
+        }
+        this.say("* launched    " + spec.bundleId)
+        res.ok = true
+        return res
+    }
+
+    ; --- what a machine can be asked before any of this -----------------------
+
+    ; A one-shot readiness report. Run before a build so that "this Mac cannot
+    ; build a watch app" is a sentence rather than a compiler error.
+    fn checkEnvironment:[string] () {
+        def out:[string]
+        if ((tools.isAvailable()) == false) {
+            push out "xcrun            MISSING -- install Xcode or run xcode-select --install"
+            return out
+        }
+        push out ("developer dir    " + (tools.developerDir()))
+        push out ("swift            " + (tools.swiftVersion()))
+        push out ("host arch        " + (tools.hostArch()))
+        def sdks:[string]
+        push sdks "iphonesimulator"
+        push sdks "iphoneos"
+        push sdks "watchsimulator"
+        push sdks "watchos"
+        for sdks sdk:string i {
+            def p:string (tools.sdkPath(sdk))
+            if ((strlen p) > 0) {
+                push out (sdk + "  " + (tools.sdkVersion(sdk)) + "  " + p)
+            } {
+                push out (sdk + "  not installed")
+            }
+        }
+        return out
+    }
+}

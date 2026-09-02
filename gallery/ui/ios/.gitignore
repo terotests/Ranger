@@ -1,0 +1,4 @@
+# The page, compiled from Ranger. 46k lines of generated Swift, rebuilt by
+# scripts/build-ranger.sh (and by the build driver itself) — a checked-in copy
+# is the one way this port can drift from the source everything else runs.
+generated/*.swift

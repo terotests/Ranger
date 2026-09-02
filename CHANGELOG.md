@@ -9,6 +9,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run ui:ios:device` — one command from Ranger source to a running app
+  on the iPhone or iPad on the cable.** A device build needs three things a
+  simulator build does not, and typing them is what made it a three-flag
+  command: they are all on the machine already, so `lib/apple/AppleSigning.rgr`
+  and `lib/apple/AppleDevice.rgr` find them. The **device** from
+  `xcrun devicectl list devices`, taking the first CONNECTED one — a
+  paired-but-absent device is listed and is not a candidate, and an install
+  onto one fails four seconds later. The **identity** from
+  `security find-identity -v -p codesigning`, preferring an Apple Development
+  certificate, because this is testing on a cable and a distribution
+  certificate cannot do it. The **profile** from the `.mobileprovision` files
+  Xcode leaves behind — in both the directory it used before Xcode 16 and the
+  one it uses now — matched on the bundle id *and* on this device being listed
+  in it, with an exact bundle id beating a wildcard because the exact one is
+  what Xcode made for this app. `--identity` and `--profile` still win when
+  given.
+
+  Then `devicectl device install app` and `devicectl device process launch`,
+  which is two commands where a simulator needs five: there is nothing to boot
+  and no window to bring forward. `--console` keeps the process attached with
+  its output coming back, which is the whole point of a test build on a cable —
+  a device has no console you can otherwise see.
+
+  What it cannot do is CREATE a provisioning profile: that is a conversation
+  with Apple's developer portal and the only command line tool that has it is
+  `xcodebuild -allowProvisioningUpdates`, which is the thing this driver exists
+  to avoid. The error says so in as many words, with the one-time Xcode step
+  that fixes it.
+
+  Both new parsers are pure functions over the text their tool prints, so both
+  are checked on a machine with nothing plugged in: a device name with a space
+  in it, a two-word state, a header row, an unavailable runtime, a 42-character
+  fingerprint that is not one. `npm run apple:test` is 151 assertions now, on
+  the same seven target languages.
+
+- **`--no-build`**, for parity with the Android port: `--no-ranger` skips the
+  Ranger→Swift compile, `--no-build` skips `swiftc` too and reinstalls the
+  `.app` that is already there — the 46 000 lines that make a re-run slow when
+  nothing but the device changed.
+
+- **Ranger can call other command line programs, and the first thing it does
+  with that is build an iOS app.** One new compiler primitive,
+  `run_process_result (program args cwd capture env)`, answers
+  `([exit code, stdout, stderr])` — three strings, because an array of strings
+  is a shape every target already has and a record would need a systemclass and
+  a type mapping per language. It either captures the child's output or lets it
+  stream to this program's own, takes a working directory, and merges extra
+  `"NAME=VALUE"` entries over the environment rather than replacing it, so a
+  child never loses `PATH`. Arguments go as a **vector**: there is no shell in
+  between, so nothing inside an argument is re-read as a redirection, a glob or
+  a second command.
+
+  Thirteen backends. `spawnSync` on Node, `subprocess` on Python, `os/exec` on
+  Go, `ProcessBuilder` on Kotlin and Java, `System.Diagnostics.Process` on C#,
+  `std::process::Command` on Rust, `Foundation.Process` on Swift,
+  `Process.runSync` on Dart, `proc_open` on PHP, and `popen`/`system` on C++,
+  which is the one target with no portable spawn and therefore the one that
+  quotes the vector back into a shell word list. Where output is captured,
+  stderr is drained on its own thread or queue — reading stdout to the end
+  first deadlocks the moment a compiler fills the error pipe, which is exactly
+  the case this was built for.
+
+  [`lib/Shell.rgr`](lib/Shell.rgr) (MIT) is the API over it: a result object
+  instead of three strings read out by index, a remembered working directory, a
+  log of every command line asked for, and a **dry run** that records instead
+  of executing. `npm run shell:test` — 44 assertions that really do start child
+  processes — passes on **JavaScript, Python, Go, Rust, C++, Java and PHP**.
+
+- **`lib/apple/` — an iOS, iPadOS and watchOS app builder, with no Xcode
+  project.** An `.app` is a directory with an executable and a property list in
+  it; `swiftc` can build an iOS executable directly, and everything above that
+  is project bookkeeping a program can do instead. `AppleTarget` names the four
+  decisions Xcode hides behind a scheme pop-up (the SDK, the triple with its
+  deployment target and `-simulator` environment, the device families, the
+  signing identity), `AppleAppSpec` writes the Info.plist, `AppleSimulator`
+  reads `xcrun simctl list devices` as a pure function over its text, and
+  `AppleAppBuilder` runs the pipeline: SDK lookup, bundle, plist,
+  `plutil -lint`, `swiftc`, resources, entitlements read **out of** the
+  provisioning profile, `codesign`, then `simctl boot`/`install`/`launch`.
+  Nothing calls `xcodebuild` and nothing opens Xcode.
+
+  Because every step goes through a `Shell`, the whole thing runs **dry** —
+  which is how `npm run apple:test` asserts 151 things about the plan (which
+  program, which arguments, in which order, including that the plist is linted
+  before an hour of compiling and that signing happens after the binary is in
+  the bundle) on a machine that is not a Mac. Those 151 checks pass on seven
+  target languages.
+
+- **[`gallery/ui/ios`](gallery/ui/ios/README.md) — the dashboard demo on
+  iPhone, iPad and Apple Watch.** The same `DashboardDemo.rgr` the browser
+  page, the gates and the Android port run, compiled to Swift 6 (46 039 lines,
+  one file) and painted with CoreGraphics through the new
+  [`gallery/evg/apple`](gallery/evg/apple/README.md) — an `EvgSurface` protocol,
+  an `EvgPainter` transliterated from the Android one, and a single `CGContext`
+  backend that serves UIKit, SwiftUI and watchOS alike.
+
+  Three things are the port's own and all three are in Ranger rather than in
+  Swift, so that nothing without a Mac is unable to check them. The **safe
+  area**: an Android surface is the screen and an iPhone's is not, so the page
+  is fitted into the window less the notch and the home indicator, and a
+  window-to-page conversion that skipped that would be wrong by the height of
+  the status bar everywhere on the page. The **readable fit**: 1336 page pixels
+  across a 45mm watch is a scale of 0.148, which is a photograph of a dashboard
+  rather than a dashboard, so a watch gets a floor on the scale and pans. And
+  the **crown**, which reports a rotation rather than a distance and therefore
+  does not go through the scale the way a finger does.
+
+  The build itself is `ranger/build_ios.rgr` — a Ranger program, not a shell
+  script — and `npm run ui:ios:plan` prints the ten commands it would run.
+  `npm run ui:ios:verify` drives the port on Node: 82 checks covering the fit,
+  the insets, presses at window coordinates, scrolling, the keys, the pinch,
+  the watch, the crown, and a ripple clock that cannot get stuck. The Swift
+  hosts themselves are written but **not compiled here** — Swift for Apple
+  platforms needs a Mac, and the README says so rather than implying otherwise.
+
 - **EVG on a smartwatch, as a number instead of an opinion.**
   `gallery/watch_evg/bench` runs three real watch screens — a dial with sixty
   minute ticks, a Wear list of chips, and a workout view — through EVG's whole
@@ -114,6 +229,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bytes: 128 buys seven more layers for another half megabyte.
 
 ### Fixed
+
+- `write_file` did not import `java.io.FileNotFoundException` on the java7
+  target, and its own polyfill catches it — so any Ranger program that writes a
+  file failed to compile on Java with "cannot find symbol". Found by compiling
+  `lib/apple` to all seven targets.
+- The `exit` operator narrowed its argument on Go and Rust, and gained a
+  `swift6` template. `os.Exit(int64)` does not compile, `std::process::exit`
+  wants an `i32`, and swift6 was falling through to the `*` template — which is
+  JavaScript.
+- `env_var` gained `java7`, `swift3` and `swift6` templates. It had `kotlin` and
+  not `java7`, so any Ranger program reading an environment variable failed type
+  analysis on the Java target.
 
 - **EVG laid out every element by formatting a debug message nobody read.**
   `EVGLayout.log` takes an already-built string and discards it unless `debug`

@@ -1,0 +1,27 @@
+{
+  "name": "ranger-ui-ios",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The gallery/ui dashboard demo as an iPhone, iPad and Apple Watch app: Ranger -> Swift -> CoreGraphics, built with Apple's command line tools and no Xcode project",
+  "scripts": {
+    "build": "bash scripts/build-app.sh",
+    "run": "bash scripts/build-app.sh --run",
+    "device": "bash scripts/build-app.sh --target=ios-device --run",
+    "device:console": "bash scripts/build-app.sh --target=ios-device --run --console",
+    "start": "bash scripts/build-app.sh --run",
+    "watch": "bash scripts/build-app.sh --target=watchos-simulator --run",
+    "check": "bash scripts/build-app.sh --check",
+    "plan": "bash scripts/build-app.sh --dry-run",
+    "verify": "bash scripts/verify.sh",
+    "build:ranger": "bash scripts/build-ranger.sh",
+    "ui:ios": "bash scripts/build-app.sh",
+    "ui:ios:run": "bash scripts/build-app.sh --run",
+    "ui:ios:watch": "bash scripts/build-app.sh --target=watchos-simulator --run",
+    "ui:ios:check": "bash scripts/build-app.sh --check",
+    "ui:ios:plan": "bash scripts/build-app.sh --dry-run",
+    "ui:ios:verify": "bash scripts/verify.sh",
+    "ui:ios:ranger": "bash scripts/build-ranger.sh",
+    "ui:ios:device": "bash scripts/build-app.sh --target=ios-device --run",
+    "ui:ios:device:console": "bash scripts/build-app.sh --target=ios-device --run --console"
+  }
+}

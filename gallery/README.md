@@ -50,6 +50,9 @@ compiler — the long-form writeups live here.
 | [`ooxml`](ooxml/README.md) | What the three OOXML editors share: one OPC package reader (parts, content types, relationships) and the XML text rules — plus the roadmap for what moves there next |
 | [`office`](office/README.md) | The rest of what they share: which font face draws a run, offset↔x measurement, a style property that knows it was not stated, and the DrawingML theme palette |
 | [`ui`](ui/README.md) | EVG controllers measured against Radix: a behaviour-parity harness that runs the same spec through Ranger's own controllers and real `@radix-ui` components, and diffs what a user can observe |
+| [`ui/android`](ui/android/README.md) | The `gallery/ui` dashboard as an **Android app**: Ranger → Kotlin → `android.graphics`, and a Java2D twin so the port can be checked with no device |
+| [`ui/ios`](ui/ios/README.md) | The same dashboard on **iPhone, iPad and Apple Watch**: Ranger → Swift → CoreGraphics, built by a **Ranger program** that calls `xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — no Xcode project, and `--dry-run` prints the whole plan on a machine that is not a Mac |
+| [`evg/apple`](evg/apple/README.md) | The EVG painter and the CoreGraphics surface the Apple ports draw through — one backend for UIKit, SwiftUI and watchOS |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---

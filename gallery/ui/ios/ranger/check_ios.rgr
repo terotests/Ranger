@@ -1,0 +1,416 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; check_ios.rgr — the iOS port, driven without a Mac.
+; ==============================================================================
+;
+; The Apple half of this port is Swift and needs a Mac to compile at all.
+; Everything UNDERNEATH it does not: the demo is Ranger, the facade is Ranger,
+; and the display list the painter is handed is a Ranger object. So the
+; questions a device would answer are asked here instead, in the same
+; `UiIos` the app runs — not in a second implementation of the same sums.
+;
+;   node bin/output.js -es6 gallery/ui/ios/ranger/check_ios.rgr -nodecli \
+;        -d=tmp/ui-ios -o=check_ios.js
+;   node tmp/ui-ios/check_ios.js
+;
+; ...or `npm run ui:ios:verify`, which is the same thing.
+;
+; What this proves:
+;
+;   * the `gallery/ui` + `gallery/evg` + `gallery/vela` tree behind the facade
+;     builds the page — cascade, flex, scroll container, virtualised table, the
+;     Vela chart — and answers with a display list of real commands;
+;   * every command kind the Swift surface has to implement is REACHED by this
+;     page, so a surface that dropped one would be dropping something the app
+;     actually draws;
+;   * the viewport arithmetic this port adds holds: the fit scale, the page
+;     height a screen is worth, the safe area, a pinch that holds the point
+;     under the fingers, a pan that stops at the page's edge;
+;   * a press at a WINDOW coordinate — insets and all — reaches the control
+;     drawn there;
+;   * the watch fit, which is the one thing here that is not simply the Android
+;     port with different words on it;
+;   * and the ripple's clock, including the two impossible frame times that are
+;     the reason `tick` clamps instead of skipping.
+;
+; What it does NOT prove is the platform delegation: `CoreGraphicsEvgSurface`
+; calling CGContext, and `DashboardView` unpacking a UITouch. Those need a Mac,
+; and `npm run ui:ios` is what builds them.
+; ==============================================================================
+
+Import "ui_ios.rgr"
+
+class CheckIos {
+
+    def passed:int 0
+    def failed:int 0
+    def css:string ""
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + what
+        }
+    }
+
+    fn okDetail:void (what:string cond:boolean detail:string) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + what + "  (" + detail + ")"
+        }
+    }
+
+    sfn near:boolean (a:double b:double eps:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d <= eps)
+    }
+
+    fn fresh:UiIos (w:double h:double) {
+        def app:UiIos (new UiIos)
+        app.start(w h css)
+        return app
+    }
+
+    ; Press the element with this id by finding it on the WINDOW the way a
+    ; finger would: ask the hit test at a grid of window points and press the
+    ; first one that answers with the id. Deliberately the app's whole input
+    ; path — window point, safe area, scale, pan, hit test, press — rather than
+    ; a call to press(id), because the conversion is what this port adds and
+    ; therefore what is worth checking.
+    fn pressUntil:boolean (app:UiIos id:string w:double h:double) {
+        def x:double 6.0
+        while (x < w) {
+            def y:double 6.0
+            while (y < h) {
+                if ((app.hitAt(x y)) == id) {
+                    app.pressAt(x y)
+                    return true
+                }
+                y = (y + 12.0)
+            }
+            x = (x + 12.0)
+        }
+        return false
+    }
+
+    ; How many commands of each kind the page reaches. The Android port counts
+    ; these by wrapping its painter in a recording surface; there is no Swift
+    ; here to wrap, so they are counted on the list the painter is handed —
+    ; which is the same question one step earlier.
+    fn kindCount:int (app:UiIos kind:int) {
+        def dl:EVGDisplayList (app.frame())
+        def n:int 0
+        for dl.cmds c:EVGDrawCmd i {
+            if (c.kind == kind) {
+                n = n + 1
+            }
+        }
+        return n
+    }
+
+    fn roundedCount:int (app:UiIos) {
+        def dl:EVGDisplayList (app.frame())
+        def n:int 0
+        for dl.cmds c:EVGDrawCmd i {
+            if (c.radius > 0.0) {
+                n = n + 1
+            }
+        }
+        return n
+    }
+
+    ; --- the page -------------------------------------------------------------
+
+    fn checkPage:void () {
+        print "--- the page, laid out ---"
+        ; An iPad in landscape, in points. The page is 1336 wide, so 1180 is
+        ; very nearly 1:1 — the size this demo was drawn for.
+        def app:UiIos (this.fresh(1180.0 820.0))
+        def s:double (app.scale())
+        this.ok("the page is scaled to fit the window's width" (CheckIos.near((s * (app.pageWidth())) 1180.0 0.5)))
+        this.ok("and the viewport is what that window is worth in page pixels" (CheckIos.near((app.pageHeight()) (820.0 / s) 0.5)))
+        this.ok("the stylesheet parsed" ((app.styleErrorCount()) == 0))
+        def e:int 0
+        while (e < (app.styleErrorCount())) {
+            print "      " + (app.styleErrorAt(e))
+            e = e + 1
+        }
+
+        def total:int (app.commandCount())
+        this.okDetail("the frame has commands in it" (total > 200) ("" + total))
+        this.ok("and the chart is some of them" ((app.chartCommandCount()) > 20))
+
+        ; Every command kind the Swift surface has to implement, and whether
+        ; this page reaches it. A kind nothing reaches is PRINTED rather than
+        ; left silent — that is the list of what the surface carries untested.
+        def rects:int (this.kindCount(app 0))
+        def borders:int (this.kindCount(app 1))
+        def images:int (this.kindCount(app 2))
+        def texts:int (this.kindCount(app 3))
+        def pushes:int (this.kindCount(app 4))
+        def pops:int (this.kindCount(app 5))
+        def paths:int (this.kindCount(app 6))
+        def strokes:int (this.kindCount(app 7))
+        print "      " + total + " commands: RECT=" + rects + " BORDER=" + borders + " TEXT=" + texts + " CLIP=" + pushes + "/" + pops + " PATH=" + paths + " STROKE=" + strokes + " IMAGE=" + images
+        this.ok("text was drawn" (texts > 100))
+        this.ok("boxes were filled" (rects > 40))
+        this.ok("borders were stroked" (borders > 10))
+        this.ok("corners were rounded" ((this.roundedCount(app)) > 10))
+        this.ok("the scroll region clipped" (pushes > 0))
+        ; A clip that is pushed and not popped leaves the surface clipped for
+        ; the rest of the frame, which on CoreGraphics means the rest of the
+        ; page is simply missing.
+        this.ok("every clip that was pushed was popped" (pushes == pops))
+        ; The sidebar's icons are lucide's, which are STROKED outlines rather
+        ; than filled silhouettes, and so is the chart's line; the one filled
+        ; path is the area under it. A surface that had dropped strokePath
+        ; would draw this page with an empty sidebar and a flat chart.
+        this.ok("the chart's area was filled" (paths > 0))
+        this.ok("the icons and the chart's line were stroked" (strokes > 20))
+        if (images == 0) {
+            print "      (not reached by this page: drawImage)"
+        }
+    }
+
+    ; --- the safe area --------------------------------------------------------
+
+    fn checkSafeArea:void () {
+        print "--- the notch, the status bar and the home indicator ---"
+        def app:UiIos (this.fresh(1180.0 820.0))
+        def wide:double (app.scale())
+        ; A phone held sideways: the notch is on one edge and the home
+        ; indicator on the other. The page is laid into what is left.
+        app.setSafeArea(0.0 21.0 59.0 59.0)
+        this.ok("the usable width is the window less the insets" ((app.usableWidth()) == (1180.0 - 118.0)))
+        this.ok("the usable height is the window less the insets" ((app.usableHeight()) == (820.0 - 21.0)))
+        def s:double (app.scale())
+        this.ok("the page is fitted to the usable width, not the window" (CheckIos.near((s * (app.pageWidth())) 1062.0 0.5)))
+        this.ok("so the inset page is smaller than the full-bleed one" (s < wide))
+        this.ok("and the viewport is the usable height at that scale" (CheckIos.near((app.pageHeight()) (799.0 / s) 0.5)))
+
+        ; The conversion a host would get wrong by handing the hit test window
+        ; coordinates: the page starts at the inset, so the page point under
+        ; the left inset edge is the page's own origin.
+        this.ok("the page origin is under the left inset" (CheckIos.near((app.toPageX(59.0)) 0.0 0.001)))
+        this.ok("and under the top inset" (CheckIos.near((app.toPageY(0.0)) 0.0 0.001)))
+        this.ok("a point in the middle converts through the scale" (CheckIos.near((app.toPageX((59.0 + (100.0 * s)))) 100.0 0.01)))
+
+        ; And a press still lands on the control that is drawn there, with the
+        ; insets in the way.
+        this.ok("a tap still reaches a sidebar link" (this.pressUntil(app "db-nav-analytics" 1180.0 820.0)))
+        this.ok("and the page it names is the page you are on" ((app.navPage()) == "analytics"))
+    }
+
+    ; --- what a finger does ---------------------------------------------------
+
+    fn checkInput:void () {
+        print "--- what a finger does ---"
+        def app:UiIos (this.fresh(1180.0 820.0))
+        def before:string (app.navPage())
+        this.ok("a tap reaches a sidebar link" (this.pressUntil(app "db-nav-analytics" 1180.0 820.0)))
+        this.ok("and the page it names is the page you are on" (((app.navPage()) == "analytics") && (before != "analytics")))
+        this.ok("and back again" ((this.pressUntil(app "db-nav-dashboard" 1180.0 820.0)) && ((app.navPage()) == "dashboard")))
+        this.ok("a tap on a range button is answered" (this.pressUntil(app "db-range-d30" 1180.0 820.0)))
+        this.ok("and the chart is redrawn for it" ((app.chartCommandCount()) > 20))
+        app.releasePress()
+
+        print "--- scrolling, and where it stops ---"
+        def travel:double (app.maxScroll())
+        this.ok("there is more page than screen" (travel > 100.0))
+        this.ok("a drag scrolls" ((app.scrollByScreen(200.0)) && ((app.scrollTop()) > 0.0)))
+        app.scrollByScreen(100000.0)
+        this.ok("and it stops at the bottom rather than past it" (CheckIos.near((app.scrollTop()) travel 1.0)))
+        this.ok("scrolling back up returns to the top" ((app.scrollByScreen(-100000.0)) && ((app.scrollTop()) == 0.0)))
+
+        print "--- zoom and pan ---"
+        this.ok("nothing is panned at rest" (((app.panX()) == 0.0) && ((app.maxPanX()) == 0.0)))
+        def fit:double (app.scale())
+        def focus:double 900.0
+        def pageUnderFocus:double (app.toPageX(focus))
+        this.ok("a pinch zooms" ((app.pinch(2.0 focus 400.0)) && ((app.zoom()) == 2.0)))
+        this.ok("and the scale follows it" (CheckIos.near((app.scale()) (fit * 2.0) 0.001)))
+        this.ok("the point under the fingers stayed there" (CheckIos.near((app.toPageX(focus)) pageUnderFocus 0.5)))
+        this.ok("zoomed in, there is now something to pan" ((app.maxPanX()) > 0.0))
+        app.panBy(10000.0)
+        this.ok("panning past the left edge stops at zero" ((app.panX()) == 0.0))
+        app.panBy(-100000.0)
+        this.ok("and past the right edge it stops at the edge" (CheckIos.near((app.panX()) (app.maxPanX()) 0.001)))
+        this.ok("a zoomed page is a shorter viewport" ((app.pageHeight()) < (820.0 / fit)))
+        this.ok("a double tap puts it back" ((app.resetZoom()) && ((app.zoom()) == 1.0) && ((app.panX()) == 0.0)))
+        this.ok("the viewport came back with it" (CheckIos.near((app.pageHeight()) (820.0 / fit) 0.5)))
+        this.ok("presses still land after all that" ((this.pressUntil(app "db-nav-team" 1180.0 820.0)) && ((app.navPage()) == "team")))
+
+        print "--- the keys an iPad has ---"
+        this.pressUntil(app "db-nav-dashboard" 1180.0 820.0)
+        app.scrollByScreen(-100000.0)
+        this.ok("PageDown scrolls the page" ((app.key("PageDown")) && ((app.scrollTop()) > 0.0)))
+        this.ok("Home goes back to the top" ((app.key("Home")) && ((app.scrollTop()) == 0.0)))
+        this.ok("End goes to the bottom" ((app.key("End")) && (CheckIos.near((app.scrollTop()) (app.maxScroll()) 1.0))))
+        app.key("Home")
+    }
+
+    ; --- the watch ------------------------------------------------------------
+
+    fn checkWatch:void () {
+        print "--- a 45mm watch ---"
+        ; A 45mm Apple Watch is 198 points across. Fitting 1336 page pixels
+        ; into that is a scale of 0.148 — a photograph of a dashboard rather
+        ; than a dashboard — so the watch fit is a FLOOR and the reader moves
+        ; around the page instead.
+        def watch:UiIos (new UiIos)
+        watch.useWatchFit(0.5)
+        watch.start(198.0 242.0 css)
+        this.okDetail("the watch does not shrink the page to nothing" ((watch.scale()) >= 0.5) ("" + (watch.scale())))
+        this.ok("it uses the readable floor, not the width fit" (CheckIos.near((watch.scale()) 0.5 0.0001)))
+        this.ok("so most of the page is off the side" ((watch.maxPanX()) > 900.0))
+        this.ok("and the viewport is the watch's height at that scale" (CheckIos.near((watch.pageHeight()) (242.0 / 0.5) 0.5)))
+        this.ok("the page still draws on a watch" ((watch.commandCount()) > 100))
+
+        ; The crown is not a finger: it reports turns, not a distance on a
+        ; screen, so it does not go through the scale. A host that divided it
+        ; by the scale would scroll twice as far on a page zoomed out by half.
+        def start:double (watch.scrollTop())
+        this.ok("a turn of the crown scrolls" ((watch.scrollByCrown(0.5)) && ((watch.scrollTop()) > start)))
+        this.ok("half a turn is half the travel" (CheckIos.near((watch.scrollTop()) 160.0 0.001)))
+        watch.scrollByCrown(1000.0)
+        this.ok("and it stops at the bottom" (CheckIos.near((watch.scrollTop()) (watch.maxScroll()) 1.0)))
+
+        ; Panning is what makes the readable floor usable at all.
+        this.ok("the watch can pan sideways" ((watch.panBy(-100.0)) && ((watch.panX()) > 0.0)))
+        watch.panBy(-1000000.0)
+        this.ok("and stops at the page's right edge" (CheckIos.near((watch.panX()) (watch.maxPanX()) 0.001)))
+
+        ; A watch with a smaller floor behaves like a phone: the floor only
+        ; ever raises the scale, it never lowers it.
+        def big:UiIos (new UiIos)
+        big.useWatchFit(0.01)
+        big.start(1180.0 820.0 css)
+        this.ok("a floor below the width fit changes nothing" (CheckIos.near(((big.scale()) * (big.pageWidth())) 1180.0 0.5)))
+    }
+
+    ; --- phones, rotations, and a screen taller than the page -------------------
+
+    fn checkScreens:void () {
+        print "--- a phone, and a rotation ---"
+        def phone:UiIos (this.fresh(393.0 852.0))
+        this.ok("the same page fits a phone by scaling down" ((phone.scale()) < 0.35))
+        this.ok("and its viewport is taller in page pixels than the tablet's" ((phone.pageHeight()) > 2000.0))
+        this.ok("and it still draws" ((phone.commandCount()) > 200))
+        phone.resize(852.0 393.0)
+        this.ok("a rotation re-fits it" (CheckIos.near(((phone.scale()) * (phone.pageWidth())) 852.0 0.5)))
+        this.ok("and it still draws after that" ((phone.commandCount()) > 200))
+
+        print "--- a screen taller than the page ---"
+        def tall:UiIos (this.fresh(834.0 1194.0))
+        tall.frame()
+        this.ok("the viewport is taller than the page's content" ((tall.pageHeight()) > 1900.0))
+        def rootEl@(optional):EVGElement tall.app.root
+        this.ok("the page laid out" (!null? rootEl))
+        if (!null? rootEl) {
+            def r:EVGElement (unwrap rootEl)
+            def page:EVGElement (tall.app.findEl(r "page"))
+            this.okDetail("the page fills it" (CheckIos.near(page.calculatedHeight (tall.pageHeight()) 1.0)) ("" + page.calculatedHeight))
+            def side:EVGElement (tall.app.findEl(r "db-side"))
+            this.okDetail("and so does the sidebar" (CheckIos.near(side.calculatedHeight (tall.pageHeight()) 1.0)) ("" + side.calculatedHeight))
+            def user:EVGElement (tall.app.findEl(r "db-user"))
+            def bottomGap:double ((tall.pageHeight()) - (user.calculatedY + user.calculatedHeight))
+            this.okDetail("the account row is at the bottom of it" (bottomGap < 24.0) ("" + bottomGap))
+        }
+    }
+
+    ; --- the ripple's clock ----------------------------------------------------
+
+    fn checkRipple:void () {
+        print "--- the surface's ripple ---"
+        def app:UiIos (this.fresh(1180.0 820.0))
+        this.ok("nothing is rippling at rest" (((app.dropCount()) == 0) && ((app.busy()) == false)))
+
+        app.rippleAt(590.0 400.0)
+        this.ok("a touch makes a drop" ((app.dropCount()) == 1))
+        this.ok("at the page point under the finger, not the window point" ((CheckIos.near((app.dropX(0)) (app.toPageX(590.0)) 0.01)) && (CheckIos.near((app.dropY(0)) (app.toPageY(400.0)) 0.01))))
+        this.ok("and the page is busy while it lives" (app.busy()))
+        this.ok("a new touch starts at zero" (CheckIos.near((app.dropAge(0)) 0.0 0.001)))
+        this.ok("a tick ages it" ((app.tick(50.0)) && (CheckIos.near((app.dropAge(0)) 0.05 0.001))))
+
+        ; A step nobody believes is CLAMPED rather than skipped: at most one
+        ; slow frame's worth, 64ms, however long the frame really took.
+        def aged:double (app.dropAge(0))
+        app.tick(5000.0)
+        this.okDetail("a frame that arrived a second late ages by one slow frame, not a second" (CheckIos.near(((app.dropAge(0)) - aged) 0.064 0.001)) ("" + ((app.dropAge(0)) - aged)))
+
+        app.rippleTo(595.0 400.0)
+        this.ok("a small move adds nothing" ((app.dropCount()) == 1))
+        app.rippleTo(650.0 400.0)
+        this.ok("a real one adds a source" ((app.dropCount()) == 2))
+        app.rippleEnd()
+        app.rippleTo(850.0 400.0)
+        this.ok("and a lifted finger leaves none" ((app.dropCount()) == 2))
+
+        ; With the safe area in the way, a touch still has to land under the
+        ; finger — the drop is in page coordinates and the insets are part of
+        ; the conversion.
+        app.setSafeArea(47.0 34.0 0.0 0.0)
+        app.rippleAt(590.0 400.0)
+        def last:int ((app.dropCount()) - 1)
+        this.ok("a touch under an inset window still lands under the finger" ((CheckIos.near((app.dropX(last)) (app.toPageX(590.0)) 0.01)) && (CheckIos.near((app.dropY(last)) (app.toPageY(400.0)) 0.01))))
+
+        def spun:int 0
+        while ((app.busy()) && (spun < 400)) {
+            app.tick(16.0)
+            spun = spun + 1
+        }
+        this.ok("they all retire" ((app.dropCount()) == 0))
+        this.okDetail("and it took about three seconds" (((spun >= 150) && (spun <= 260))) ("" + spun + " frames of 16ms"))
+
+        ; The rule that hung an Android emulator, as a check. A frame clock
+        ; that reports something impossible — a second between frames, or
+        ; nothing at all — must still ADVANCE, because a page that cannot go
+        ; quiet keeps a full-surface effect running for as long as the app is
+        ; open. Clamping does that; skipping the step does not.
+        app.rippleAt(400.0 300.0)
+        def stubborn:int 0
+        while ((app.busy()) && (stubborn < 500)) {
+            app.tick(9000.0)
+            stubborn = stubborn + 1
+        }
+        this.ok("a clock that jumps a second at a time still ends it" ((app.busy()) == false))
+        app.rippleAt(400.0 300.0)
+        def frozen:int 0
+        while ((app.busy()) && (frozen < 5000)) {
+            app.tick(0.0)
+            frozen = frozen + 1
+        }
+        this.ok("and so does one that reports no time at all" ((app.busy()) == false))
+    }
+
+    sfn m@(main):void () {
+        def c:CheckIos (new CheckIos)
+        def cssText@(optional):string (read_file "gallery/ui/demo" "dashboard.css")
+        if (null? cssText) {
+            print "dashboard.css not found — run this from the repository root"
+            exit 3
+        }
+        c.css = (unwrap cssText)
+        print "the dashboard on iPhone, iPad and Apple Watch"
+        c.checkPage()
+        c.checkSafeArea()
+        c.checkInput()
+        c.checkWatch()
+        c.checkScreens()
+        c.checkRipple()
+        print ""
+        print "" + c.passed + " checks, " + c.failed + " failed"
+        if (c.failed > 0) {
+            exit 1
+        }
+        print "the port fits, converts, presses, scrolls and goes quiet"
+    }
+}
