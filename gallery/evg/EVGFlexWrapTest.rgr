@@ -1,0 +1,246 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGFlexWrapTest — a row must not wrap because of its own arithmetic
+; ==============================================================================
+;
+; The case, which is the commonest two-column layout there is:
+;
+;   .body { display: flex; gap: 24px }        ; wrap allowed — the default here
+;   .side { width: 240px }
+;   .main { flex: 1 }
+;
+; `.main`'s width is computed BY THE LAYOUT out of the same line it is then
+; measured against: take the inner width, subtract the sidebar and the gap, and
+; the remainder is `.main`. Adding those three back up is not guaranteed to
+; return the number they were subtracted from — in binary floating point
+; `(a - b - c) + b + c` can land one ulp above `a` — and the wrap test then
+; reads the row as too wide for itself and puts `.main` on a second line.
+;
+; It is not a rare case. Before the tolerance went into `EVGLayout`, the page in
+; `gallery/evg/web/responsive` wrapped at 127 of the 680 integer window widths
+; between 821 and 1500, scattered rather than in a band: dragging the window
+; edge dropped the content below the sidebar and pulled it back up a pixel
+; later, over and over. That is what this file is here to stop coming back.
+;
+; --- WHAT IS ACTUALLY ASSERTED ------------------------------------------------
+;
+; Three things, in the order that matters:
+;
+;   1. Across a fine sweep of widths — including fractional ones, because a
+;      device pixel ratio and a `vw` padding both produce them — the two boxes
+;      stay on the same line. One width would prove nothing; the defect was
+;      that SOME widths failed.
+;   2. A row that genuinely does not fit still wraps. A tolerance that stops
+;      every wrap would pass test 1 and be worse than the bug.
+;   3. `flex-wrap: nowrap` still means nowrap.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+Import "EVGStyleSheet.rgr"
+
+class FlexWrapCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; A page with `4vw` side padding — the padding matters, because it is what
+    ; makes the inner width fractional and therefore makes the sum that has to
+    ; come back out exact.
+    fn build:EVGElement (sideWidth:string mainFlex:string wrap:string) {
+        def page (EVGElement.createDiv())
+        page.className = "page"
+        page.setAttribute("display" "flex")
+        page.setAttribute("flex-direction" "column")
+        page.setAttribute("padding-left" "4vw")
+        page.setAttribute("padding-right" "4vw")
+
+        def body (EVGElement.createDiv())
+        body.className = "body"
+        body.setAttribute("display" "flex")
+        body.setAttribute("flex-direction" "row")
+        body.setAttribute("gap" "24px")
+        if ((strlen wrap) > 0) {
+            body.setAttribute("flex-wrap" wrap)
+        }
+
+        def side (EVGElement.createDiv())
+        side.className = "side"
+        side.setAttribute("width" sideWidth)
+        side.setAttribute("height" "300px")
+
+        def main (EVGElement.createDiv())
+        main.className = "main"
+        main.setAttribute("flex" mainFlex)
+        main.setAttribute("height" "300px")
+
+        body.addChild(side)
+        body.addChild(main)
+        page.addChild(body)
+        return page
+    }
+
+    fn childAt:EVGElement (root:EVGElement a:int b:int) {
+        def outer:EVGElement (root.getChild(a))
+        return (outer.getChild(b))
+    }
+
+    ; True when the two children of `.body` sit on one line.
+    fn sameRow:boolean (root:EVGElement) {
+        def side:EVGElement (this.childAt(root 0 0))
+        def main:EVGElement (this.childAt(root 0 1))
+        def dy:double (main.calculatedY - side.calculatedY)
+        if (dy < 0.0) {
+            dy = (0.0 - dy)
+        }
+        return (dy < 1.0)
+    }
+
+    fn layoutAt:EVGElement (root:EVGElement w:double) {
+        def lay (new EVGLayout())
+        lay.setPageSize(w 900.0)
+        lay.layout(root)
+        return root
+    }
+
+    fn run:void () {
+        print "EVGFlexWrapTest"
+
+        ; --- 1. the sweep -----------------------------------------------------
+        ;
+        ; 0.25px steps so fractional widths are covered too. Every failure is
+        ; named — a count alone would not say whether the tolerance is slightly
+        ; short or missing entirely.
+        def wrapped:int 0
+        def shown:int 0
+        def w:double 400.0
+        while (w <= 1800.0) {
+            def root:EVGElement (this.build("240px" "1" ""))
+            this.layoutAt(root w)
+            if ((this.sameRow(root)) == false) {
+                wrapped = (wrapped + 1)
+                if (shown < 8) {
+                    shown = (shown + 1)
+                    print ("       wrapped at width " + (to_string w))
+                }
+            }
+            w = (w + 0.25)
+        }
+        this.ok("a 240px sidebar and a flex:1 panel stay on one line at every width"
+            (wrapped == 0))
+
+        ; The same, with the sidebar in a unit that does not divide evenly.
+        def wrapped2:int 0
+        def w2:double 400.0
+        while (w2 <= 1200.0) {
+            def root2:EVGElement (this.build("33.3333%" "1" ""))
+            this.layoutAt(root2 w2)
+            if ((this.sameRow(root2)) == false) {
+                wrapped2 = (wrapped2 + 1)
+            }
+            w2 = (w2 + 0.25)
+        }
+        this.ok("a percentage sidebar and a flex:1 panel stay on one line"
+            (wrapped2 == 0))
+
+        ; --- 2. a row that really does not fit still wraps ---------------------
+        ;
+        ; Two fixed children whose declared widths exceed the line by whole
+        ; pixels. Nothing here is a rounding artifact, so the wrap must happen.
+        def big (EVGElement.createDiv())
+        big.className = "page"
+        big.setAttribute("display" "flex")
+        def row (EVGElement.createDiv())
+        row.setAttribute("display" "flex")
+        row.setAttribute("flex-direction" "row")
+        def a (EVGElement.createDiv())
+        a.setAttribute("width" "400px")
+        a.setAttribute("height" "50px")
+        def b (EVGElement.createDiv())
+        b.setAttribute("width" "400px")
+        b.setAttribute("height" "50px")
+        row.addChild(a)
+        row.addChild(b)
+        big.addChild(row)
+        def lay2 (new EVGLayout())
+        lay2.setPageSize(600.0 900.0)
+        lay2.layout(big)
+        this.ok("two 400px boxes on a 600px line still wrap"
+            ((b.calculatedY - a.calculatedY) > 1.0))
+
+        ; And one that misses by a single whole pixel, which is the smallest
+        ; overflow that is a layout rather than an artifact.
+        def big2 (EVGElement.createDiv())
+        big2.setAttribute("display" "flex")
+        def row2 (EVGElement.createDiv())
+        row2.setAttribute("display" "flex")
+        row2.setAttribute("flex-direction" "row")
+        def c (EVGElement.createDiv())
+        c.setAttribute("width" "300px")
+        c.setAttribute("height" "50px")
+        def d (EVGElement.createDiv())
+        d.setAttribute("width" "301px")
+        d.setAttribute("height" "50px")
+        row2.addChild(c)
+        row2.addChild(d)
+        big2.addChild(row2)
+        def lay3 (new EVGLayout())
+        lay3.setPageSize(600.0 900.0)
+        lay3.layout(big2)
+        this.ok("300px + 301px on a 600px line wraps"
+            ((d.calculatedY - c.calculatedY) > 1.0))
+
+        ; --- 3. nowrap still means nowrap --------------------------------------
+        def nw (EVGElement.createDiv())
+        nw.setAttribute("display" "flex")
+        def row3 (EVGElement.createDiv())
+        row3.setAttribute("display" "flex")
+        row3.setAttribute("flex-direction" "row")
+        row3.setAttribute("flex-wrap" "nowrap")
+        def e (EVGElement.createDiv())
+        e.setAttribute("width" "400px")
+        e.setAttribute("height" "50px")
+        def f (EVGElement.createDiv())
+        f.setAttribute("width" "400px")
+        f.setAttribute("height" "50px")
+        row3.addChild(e)
+        row3.addChild(f)
+        nw.addChild(row3)
+        def lay4 (new EVGLayout())
+        lay4.setPageSize(600.0 900.0)
+        lay4.layout(nw)
+        def dy4:double (f.calculatedY - e.calculatedY)
+        if (dy4 < 0.0) {
+            dy4 = (0.0 - dy4)
+        }
+        this.ok("flex-wrap: nowrap keeps two overflowing boxes on one line"
+            (dy4 < 1.0))
+
+        print ""
+        print ((("Passed: " + (to_string passed)) + "  Failed: ") + (to_string failed))
+        if (failed > 0) {
+            print "FAILED"
+        } {
+            print "OK"
+        }
+    }
+
+    sfn m@(main):void () {
+        def c (new FlexWrapCheck())
+        c.run()
+    }
+}

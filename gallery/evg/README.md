@@ -438,7 +438,7 @@ than claiming the parent's width. **Grid** is `display: grid` with fixed,
 percentage and `fr` tracks, `repeat()`, `minmax()`, named areas, spans and row
 `subgrid`.
 
-Two deliberate differences from a browser, both documented at their source:
+Three things worth knowing, all documented at their source:
 
 * `align-items` defaults to **`flex-start`**, not `stretch`. An auto cross size
   is therefore fit-content, so a column whose children should fill it says
@@ -447,6 +447,13 @@ Two deliberate differences from a browser, both documented at their source:
   content of the box it is positioned against, so scrolling a container moves
   everything inside it — absolutes and overlays alike, which is what makes a
   dropdown stay with its trigger.
+* `flex-wrap` **initialises to `wrap`**, where CSS's initial value is `nowrap`.
+  A row that must stay on one line says `flex-wrap: nowrap`, which also enables
+  the row-axis shrink pass. The wrap test itself allows a hundredth of a pixel
+  of overflow, because a `flex: 1` child's width was computed out of the very
+  line it is then measured against and the parts do not always add back up to
+  the whole — see ISSUES #8, and `EVGFlexWrapTest.rgr`, which sweeps a sidebar
+  and a flexible panel across 5600 widths to keep it that way.
 
 **The root** with no stated size becomes the page: `EVGLayout` gives it
 `pageWidth` × `pageHeight`. That is right for paper and not for a window, where
@@ -677,6 +684,7 @@ and the difference is what these are for.
 # the engine's own tests
 npm run evg                     # evg_test: the layout basics
 npm run evg:box:test            # the box-model shorthands
+npm run evg:flexwrap:test       # a row must not wrap because of its own arithmetic
 npm run evg:style:test          # pseudo-classes and transitions
 npm run evg:stylecache:test     # the cache, viewport included
 npm run evg:viewport:test       # vw / vh, on screen and on paper
