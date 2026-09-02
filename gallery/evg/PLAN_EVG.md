@@ -9,7 +9,8 @@ Related sketch (CSS-closer flex/grid, themes, font-correct layout):
 
 Related design (devtools over a live or captured frame — element hierarchy,
 box model, cascade provenance, component debug notes):
-[`PLAN_INSPECTOR.md`](./PLAN_INSPECTOR.md)
+[`PLAN_INSPECTOR.md`](./PLAN_INSPECTOR.md), built so far in
+[`inspect/README.md`](./inspect/README.md)
 
 ## 1. Overview
 

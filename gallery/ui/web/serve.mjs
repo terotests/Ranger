@@ -65,7 +65,8 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`\n  conformance playground → http://127.0.0.1:${PORT}/gallery/ui/web/index.html`);
-  console.log(`  tree-literal demos     → http://127.0.0.1:${PORT}/gallery/ui/demo/index.html\n`);
+  console.log(`  tree-literal demos     → http://127.0.0.1:${PORT}/gallery/ui/demo/index.html`);
+  console.log(`  the same, inspected    → http://127.0.0.1:${PORT}/gallery/ui/demo/index.html?inspect=1&demo=dashboard\n`);
   console.log("  The playground puts Radix beside Ranger's EVG controllers and diffs");
   console.log("  them live. The demos are the menubar and toolbar built with `tree`.");
   console.log("  Ctrl+C to stop.\n");

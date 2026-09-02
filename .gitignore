@@ -19,6 +19,9 @@ data_folder/
 !tests/fixtures/game_bg_8x8.png
 !gallery/pdf_writer/docs/jpeg_scaler_quality/*.png
 !gallery/evg/web/tracer/sample.png
+# The inspector's screenshots — the README shows them, and
+# `npm run evg:inspect:shots` regenerates them from the running pages.
+!gallery/evg/inspect/shots/*.png
 # The RealTrainer demo's screenshots — the README shows them, and
 # `npm run rt:shots` regenerates them from the running page.
 !gallery/realtrainer/web/shots/*.png

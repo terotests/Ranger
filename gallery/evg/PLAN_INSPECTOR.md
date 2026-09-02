@@ -1,7 +1,17 @@
 # EVG Inspector — devtools for a picture nobody can read
 
-**Status:** design. Nothing in this file is built yet.
+**Status:** phases 1 and 3 are built — see
+[`inspect/README.md`](inspect/README.md) and `npm run evg:inspect:test`.
+The rest of this file is still design.
 **License:** AGPL-3.0-or-later (Gallery).
+
+> **What exists now.** `EVGInspect.rgr` (the walk, node paths, the box model,
+> the computed style), `inspect/evg-inspect.js` (the panel and the overlay),
+> attribution on `EVGDrawCmd` behind a flag, and two hosts wired to it: the
+> `gallery/ui` dashboard on the WebGL painter and the PPTX slide editor on the
+> SVG one. Five gates in `inspect/inspect-check.mjs`, one browser gate in
+> `inspect/browser-smoke.mjs`. The sections below still describe the design as
+> a whole; where the built thing differs, the README is what shipped.
 
 An EVG app in a browser is one `<canvas>` element. Open the browser's dev
 tools on it and you get exactly that: one element, no children, no styles, no
@@ -679,9 +689,9 @@ Each phase is useful on its own; none of them requires the next.
 
 | # | What | Roughly |
 | --- | --- | --- |
-| 1 | `EVGInspect` walk, node paths, tree + box model. In-page panel, overlay, hit-to-select. Read-only, both painters. | the spine |
+| 1 | ✅ **built** — `EVGInspect` walk, node paths, tree + box model. In-page panel, overlay, hit-to-select. Read-only, both painters. | the spine |
 | 2 | `planRules`, the cascade view, `units`. Gates 2 and 3. | the reason it is devtools and not a tree dump |
-| 3 | Attribution on `EVGDrawCmd` + binary bridge, command list per node, gates 1 and 5. | |
+| 3 | ✅ **built** (except the binary bridge) — attribution on `EVGDrawCmd`, command list per node, gates 1 and 5. | |
 | 4 | Overrides — `once` and `sticky`, copy-as-CSS. | the loop this exists to shorten |
 | 5 | `EVGDebug` sink and note format; adopted across `gallery/ui` controllers; note lint. | |
 | 6 | Offline bundle + `npm run evg:inspect`, CI attachment on gate failure. | the highest value per line of the six |

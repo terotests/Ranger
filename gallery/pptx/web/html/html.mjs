@@ -18,6 +18,9 @@
  */
 import { renderDisplayList, loadImages, setFontFallback, clearFontMetrics } from "./html/evg-html.js";
 import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
+// The EVG inspector. Generic — it knows nothing about slides — and attached
+// only when the page is asked for it with `?inspect=1`.
+import { attach as attachInspector } from "./inspect/evg-inspect.js";
 
 window.__pageStarted = true;
 
@@ -151,6 +154,47 @@ async function draw() {
   window.__evgStats = stats;
   window.__pptxDoc = framed;
   window.__pptxWeb = web;
+  inspectorTick();
+}
+
+// --- the inspector -----------------------------------------------------------
+//
+// What the panel is shown is the SLIDE's element tree — the same one the PDF
+// and the SVG export are made from — and not the frame. The frame is the whole
+// editor, chrome included, and its chrome is a different tree.
+//
+// The slide is drawn fitted and centred inside the window, so the panel is
+// handed the map between the two: `transform` says where the slide landed and
+// how big it was drawn, `viewport` says how big the window is. Without them
+// every highlight would be in the top-left corner at the wrong size.
+const INSPECT_MS = 400;
+let inspector = null;
+let inspectorAt = 0;
+
+function inspectorTick() {
+  const q = new URLSearchParams(location.search).get("inspect");
+  if (q === null || q === "0" || q === "false") return;
+  if (!inspector) {
+    inspector = attachInspector({
+      surface: screen,
+      app: {
+        label: "EVG · pptx slide",
+        tree: () => web.inspectJson(0),
+        node: (path) => web.inspectNodeJson(path),
+        hit: (x, y) => web.inspectHitPath(x, y),
+        frame: () => web.inspectFrameJson(),
+        transform: () => web.inspectTransform(),
+        viewport: () => [sceneW, sceneH],
+      },
+    });
+    window.__inspector = inspector;
+    inspectorAt = performance.now();
+    return;
+  }
+  const now = performance.now();
+  if (now - inspectorAt < INSPECT_MS) return;
+  inspectorAt = now;
+  inspector.refresh();
 }
 
 /** Resize: the engine is told the new surface and the whole frame is redrawn.

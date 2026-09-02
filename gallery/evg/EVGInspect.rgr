@@ -1,0 +1,532 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGInspect — what the tree IS, for a panel that can ask
+; ==============================================================================
+;
+; An EVG app in a browser is one <canvas>, and a browser's dev tools have
+; nothing to say about it. Three descriptions already come out of the same
+; laid-out tree — `EVGDisplayList` (what to draw), `EVGHitTest` (what is under
+; the pointer) and `EVGA11yFromTree` (what it means). This is the fourth, and
+; it obeys the same rule they do: it is DERIVED from the tree that was laid
+; out, on the same pass, and it recomputes nothing.
+;
+; That rule is the whole design. Every rectangle reported here is the one
+; `EVGLayout` computed and the display list drew, read off `calculatedX` and
+; friends. Nothing here has a second opinion about geometry, so the panel
+; cannot disagree with the picture.
+;
+; --- IDENTITY -----------------------------------------------------------------
+;
+; `EVGElement.id` is not an identity: it is optional, it is the app's own test
+; id, and most elements have none. So the identity is a PATH, assigned here and
+; nowhere else:
+;
+;   "0"            the root
+;   "0/3"          its fourth child
+;   "0/3/k:share"  a child with `key` set uses the key instead of the index
+;
+; The same trick `EVGComponentHost` plays with `enter`/`leave`: a name unique
+; among siblings composes into a name unique in the tree, with no registry.
+;
+; It is STRUCTURAL, and the cost is honest — insert an unkeyed row above the
+; selected one and the path names a different element. Keyed children are
+; immune, which is the set a list rebuild actually reorders. A panel whose
+; path stops resolving must drop the selection and say so, never re-point it
+; at whatever is now at that index.
+;
+; --- WHY THE ELEMENT CARRIES A SLOT -------------------------------------------
+;
+; `build` stamps `el.inspectSlot`. Two things need to go from an element back
+; to a node and Ranger has no identity comparison for objects: the hit test,
+; which answers with an element, and the display list, which stamps the
+; emitting element on each command. One int on the element buys both, and the
+; alternative — a second walk that reimplements the paint order — is exactly
+; the drift this file exists to avoid.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGBox.rgr"
+Import "EVGColor.rgr"
+Import "EVGHitTest.rgr"
+Import "EVGDisplayList.rgr"
+
+class EVGInspect {
+    ; Parallel arrays, indexed by slot. A flat tree with a parent id is the
+    ; shape `EVGA11yTree` already crosses this seam with, so a host learns one
+    ; format and not two.
+    def paths:[string]
+    def parentPaths:[string]
+    def els:[EVGElement]
+    def index:[string:int]
+    def built:boolean false
+
+    Constructor () {
+        def a:[string]
+        paths = a
+        def b:[string]
+        parentPaths = b
+        def c:[EVGElement]
+        els = c
+        def d:[string:int]
+        index = d
+    }
+
+    ; --- the walk -------------------------------------------------------------
+
+    fn build:void (root:EVGElement) {
+        def a:[string]
+        paths = a
+        def b:[string]
+        parentPaths = b
+        def c:[EVGElement]
+        els = c
+        def d:[string:int]
+        index = d
+        this.visit(root "0" "")
+        built = true
+    }
+
+    fn visit:void (el:EVGElement path:string parentPath:string) {
+        def slot:int (array_length paths)
+        push paths path
+        push parentPaths parentPath
+        push els el
+        set index path slot
+        el.inspectSlot = slot
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            def seg:string (to_string i)
+            if ((strlen kid.key) > 0) {
+                seg = ("k:" + kid.key)
+            }
+            def kidPath:string ((path + "/") + seg)
+            this.visit(kid kidPath path)
+            i = (i + 1)
+        }
+    }
+
+    fn count:int () {
+        return (array_length paths)
+    }
+
+    fn pathAt:string (slot:int) {
+        if (slot < 0) {
+            return ""
+        }
+        if (slot >= (array_length paths)) {
+            return ""
+        }
+        return (itemAt paths slot)
+    }
+
+    fn slotOf:int (path:string) {
+        def at@(optional):int (get index path)
+        if (null? at) {
+            return (0 - 1)
+        }
+        return (unwrap at)
+    }
+
+    fn elementAt@(optional):EVGElement (path:string) {
+        def slot:int (this.slotOf(path))
+        if (slot < 0) {
+            def miss@(optional):EVGElement
+            return miss
+        }
+        def hit@(optional):EVGElement (itemAt els slot)
+        return hit
+    }
+
+    ; A point to a node, through the REAL hit test — the same paint order the
+    ; display list draws in, overlays deferred, topmost wins. Nothing about
+    ; that order is restated here; the element that comes back is turned into
+    ; a path by the slot it was stamped with.
+    fn hitPath:string (root:EVGElement px:double py:double) {
+        def hit (new EVGHitTest())
+        def order:[EVGElement] (hit.paintOrderAt(root px py))
+        def i:int ((array_length order) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt order i)
+            if (EVGHitTest.containsPoint(el px py)) {
+                return (this.pathAt(el.inspectSlot))
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    fn treeJson:string (title:string gen:int w:double h:double) {
+        def out:string "{\"evginspect\":1,\"title\":"
+        out = (out + (EVGInspect.jsonString(title)))
+        out = (out + ",\"gen\":" + (to_string gen))
+        out = (out + ",\"w\":" + (EVGDisplayList.num(w)))
+        out = (out + ",\"h\":" + (EVGDisplayList.num(h)))
+        out = (out + ",\"root\":\"0\",\"nodes\":[")
+        def i:int 0
+        while (i < (array_length paths)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (this.nodeBrief(i)))
+            i = (i + 1)
+        }
+        return (out + "]}")
+    }
+
+    fn nodeBrief:string (slot:int) {
+        def el:EVGElement (itemAt els slot)
+        def bx:EVGBox el.box
+        def out:string "{\"id\":"
+        out = (out + (EVGInspect.jsonString((itemAt paths slot))))
+        def pp:string (itemAt parentPaths slot)
+        if ((strlen pp) > 0) {
+            out = (out + ",\"p\":" + (EVGInspect.jsonString(pp)))
+        }
+        out = (out + ",\"slot\":" + (to_string slot))
+        out = (out + ",\"tag\":" + (EVGInspect.jsonString(el.tagName)))
+        if ((strlen el.id) > 0) {
+            out = (out + ",\"tid\":" + (EVGInspect.jsonString(el.id)))
+        }
+        if ((strlen el.className) > 0) {
+            out = (out + ",\"cls\":" + (EVGInspect.jsonString(el.className)))
+        }
+        if ((strlen el.role) > 0) {
+            out = (out + ",\"role\":" + (EVGInspect.jsonString(el.role)))
+        }
+        def txt:string (EVGInspect.clip(el.textContent 80))
+        if ((strlen txt) > 0) {
+            out = (out + ",\"text\":" + (EVGInspect.jsonString(txt)))
+        }
+        ; The border box: what was painted, what the hit test tests.
+        out = (out + ",\"box\":[" + (EVGDisplayList.num(el.calculatedX)))
+        out = (out + "," + (EVGDisplayList.num(el.calculatedY)))
+        out = (out + "," + (EVGDisplayList.num(el.calculatedWidth)))
+        out = (out + "," + (EVGDisplayList.num(el.calculatedHeight)) + "]")
+        ; The four rings, resolved to pixels by `EVGBox`. The authored units
+        ; are in the detail, where the difference between `1em` and `12px` is
+        ; the answer to a different question.
+        out = (out + ",\"m\":[" + (EVGDisplayList.num(bx.marginTopPx)))
+        out = (out + "," + (EVGDisplayList.num(bx.marginRightPx)))
+        out = (out + "," + (EVGDisplayList.num(bx.marginBottomPx)))
+        out = (out + "," + (EVGDisplayList.num(bx.marginLeftPx)) + "]")
+        out = (out + ",\"b\":" + (EVGDisplayList.num(bx.borderWidthPx)))
+        out = (out + ",\"pd\":[" + (EVGDisplayList.num(bx.paddingTopPx)))
+        out = (out + "," + (EVGDisplayList.num(bx.paddingRightPx)))
+        out = (out + "," + (EVGDisplayList.num(bx.paddingBottomPx)))
+        out = (out + "," + (EVGDisplayList.num(bx.paddingLeftPx)) + "]")
+        def flags:string (this.flagsOf(el))
+        if ((strlen flags) > 0) {
+            out = (out + ",\"flags\":[" + flags + "]")
+        }
+        out = (out + ",\"kids\":" + (to_string (array_length el.children)))
+        return (out + "}")
+    }
+
+    ; The booleans that change how a node BEHAVES rather than how it looks.
+    ; The state ones are here because a `:hover` rule that won is unreadable
+    ; without knowing the element is hovered.
+    fn flagsOf:string (el:EVGElement) {
+        def out:string ""
+        if el.isAbsolute {
+            out = (EVGInspect.addFlag(out "abs"))
+        }
+        if el.isOverlay {
+            out = (EVGInspect.addFlag(out "overlay"))
+        }
+        if (el.clipsContent()) {
+            out = (EVGInspect.addFlag(out "clip"))
+        }
+        if el.isInline {
+            out = (EVGInspect.addFlag(out "inline"))
+        }
+        if el.isHovered {
+            out = (EVGInspect.addFlag(out "hover"))
+        }
+        if el.isFocused {
+            out = (EVGInspect.addFlag(out "focus"))
+        }
+        if el.isPressed {
+            out = (EVGInspect.addFlag(out "pressed"))
+        }
+        if el.a11yHidden {
+            out = (EVGInspect.addFlag(out "a11y-hidden"))
+        }
+        return out
+    }
+
+    sfn addFlag:string (soFar:string name:string) {
+        if ((strlen soFar) == 0) {
+            return ("\"" + name + "\"")
+        }
+        return (((soFar + ",\"") + name) + "\"")
+    }
+
+    ; --- the detail -----------------------------------------------------------
+    ;
+    ; Fetched for one node at a time and never for the whole tree: a dashboard
+    ; is twelve hundred elements and nobody is going to read every computed
+    ; property of all of them.
+    ;
+    ; `inline` is not guessed. `EVGElement.inlineProps` is what the cascade
+    ; itself consults to know what it must not overwrite, so it is the authoring
+    ; layer's own record of what was set on the element, read rather than
+    ; inferred.
+
+    fn nodeJson:string (path:string) {
+        def slot:int (this.slotOf(path))
+        if (slot < 0) {
+            return "{\"error\":\"no such node\"}"
+        }
+        def el:EVGElement (itemAt els slot)
+        def bx:EVGBox el.box
+        def out:string "{\"id\":"
+        out = (out + (EVGInspect.jsonString(path)))
+        out = (out + ",\"computed\":{")
+        def n:int 0
+        n = (this.prop(n "display" el.display))
+        n = (this.prop(n "position" el.position))
+        n = (this.prop(n "flex-direction" el.flexDirection))
+        n = (this.prop(n "justify-content" el.justifyContent))
+        n = (this.prop(n "align-items" el.alignItems))
+        n = (this.prop(n "align-content" el.alignContent))
+        n = (this.prop(n "flex-wrap" el.flexWrap))
+        n = (this.numProp(n "flex-grow" el.flex))
+        n = (this.numProp(n "flex-shrink" el.flexShrink))
+        n = (this.unitProp(n "flex-basis" el.flexBasis))
+        n = (this.prop(n "grid-template-columns" el.gridTemplateColumns))
+        n = (this.prop(n "grid-template-rows" el.gridTemplateRows))
+        n = (this.prop(n "grid-area" el.gridArea))
+        n = (this.unitProp(n "gap" el.gap))
+        n = (this.unitProp(n "width" el.width))
+        n = (this.unitProp(n "height" el.height))
+        n = (this.unitProp(n "min-width" el.minWidth))
+        n = (this.unitProp(n "min-height" el.minHeight))
+        n = (this.unitProp(n "max-width" el.maxWidth))
+        n = (this.unitProp(n "max-height" el.maxHeight))
+        n = (this.unitProp(n "left" el.left))
+        n = (this.unitProp(n "top" el.top))
+        n = (this.unitProp(n "right" el.right))
+        n = (this.unitProp(n "bottom" el.bottom))
+        n = (this.pxProp(n "margin-top" bx.marginTopPx))
+        n = (this.pxProp(n "margin-right" bx.marginRightPx))
+        n = (this.pxProp(n "margin-bottom" bx.marginBottomPx))
+        n = (this.pxProp(n "margin-left" bx.marginLeftPx))
+        n = (this.pxProp(n "padding-top" bx.paddingTopPx))
+        n = (this.pxProp(n "padding-right" bx.paddingRightPx))
+        n = (this.pxProp(n "padding-bottom" bx.paddingBottomPx))
+        n = (this.pxProp(n "padding-left" bx.paddingLeftPx))
+        n = (this.pxProp(n "border-width" bx.borderWidthPx))
+        n = (this.pxProp(n "border-radius" bx.borderRadiusPx))
+        n = (this.colorProp(n "border-color" bx.borderColor))
+        n = (this.colorProp(n "background-color" el.backgroundColor))
+        n = (this.colorProp(n "color" el.color))
+        n = (this.numProp(n "opacity" el.opacity))
+        n = (this.prop(n "background-gradient" el.backgroundGradient))
+        n = (this.prop(n "font-family" el.fontFamily))
+        n = (this.unitProp(n "font-size" el.fontSize))
+        n = (this.prop(n "font-weight" el.fontWeight))
+        n = (this.numProp(n "line-height" el.lineHeight))
+        n = (this.prop(n "text-align" el.textAlign))
+        n = (this.prop(n "overflow" el.overflow))
+        n = (this.prop(n "cursor" el.cursor))
+        n = (this.prop(n "transition" el.transitionSpec))
+        n = (this.prop(n "transform" el.transformSpec))
+        n = (this.numProp(n "rotate" el.rotate))
+        n = (this.numProp(n "scale" el.scale))
+        n = (this.prop(n "class" el.className))
+        n = (this.prop(n "theme" el.theme))
+        n = (this.prop(n "src" el.src))
+        n = (this.prop(n "object-fit" el.objectFit))
+        out = (out + acc)
+        out = (out + "}")
+
+        ; The authoring layer's own record, not a guess. An entry here outranks
+        ; every stylesheet rule and that is why the cascade keeps the list.
+        out = (out + ",\"inline\":[")
+        def k:int 0
+        while (k < (array_length el.inlineProps)) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + (EVGInspect.jsonString((itemAt el.inlineProps k))))
+            k = (k + 1)
+        }
+        out = (out + "]")
+
+        ; Geometry a panel draws the box diagram from, in one place so the
+        ; diagram is not four subtractions done in a browser.
+        def cx:double ((el.calculatedX + bx.borderWidthPx) + bx.paddingLeftPx)
+        def cy:double ((el.calculatedY + bx.borderWidthPx) + bx.paddingTopPx)
+        def chW:double (bx.getPaddingHorizontal())
+        def chH:double (bx.getPaddingVertical())
+        def bw2:double (bx.borderWidthPx * 2.0)
+        def cw:double (((el.calculatedWidth - chW) - bw2))
+        def ch:double (((el.calculatedHeight - chH) - bw2))
+        out = (out + ",\"content\":[" + (EVGDisplayList.num(cx)))
+        out = (out + "," + (EVGDisplayList.num(cy)))
+        out = (out + "," + (EVGDisplayList.num(cw)))
+        out = (out + "," + (EVGDisplayList.num(ch)) + "]")
+
+        out = (out + ",\"styleSlot\":" + (to_string el.styleSlot))
+        out = (out + ",\"styleClass\":" + (EVGInspect.jsonString(el.styleClass)))
+        out = (out + ",\"page\":" + (to_string el.calculatedPage))
+        def full:string (EVGInspect.clip(el.textContent 400))
+        out = (out + ",\"textFull\":" + (EVGInspect.jsonString(full)))
+        return (out + "}")
+    }
+
+    ; The property writer. An accumulator field rather than a returned string,
+    ; because fifty `out = (out + this.prop(...))` lines would each be a
+    ; concatenation of the whole buffer so far.
+    def acc:string ""
+
+    fn prop:int (n:int name:string value:string) {
+        if ((strlen value) == 0) {
+            return n
+        }
+        return (this.write(n name value))
+    }
+
+    fn pxProp:int (n:int name:string v:double) {
+        def s:string ((EVGDisplayList.num(v)) + "px")
+        return (this.write(n name s))
+    }
+
+    fn numProp:int (n:int name:string v:double) {
+        return (this.write(n name (EVGDisplayList.num(v))))
+    }
+
+    ; The unit fields are optional on the element, so the null is a real
+    ; answer here and not a defensive check: "this element never said anything
+    ; about width" is different from "it said auto".
+    fn unitProp:int (n:int name:string u@(optional):EVGUnit) {
+        if (null? u) {
+            return n
+        }
+        def uu:EVGUnit (unwrap u)
+        if (uu.isSet == false) {
+            return n
+        }
+        def s:string (uu.toString())
+        def px:string (EVGDisplayList.num(uu.pixels))
+        def asPx:string (px + "px")
+        if (s != asPx) {
+            s = ((s + "  ->  ") + asPx)
+        }
+        return (this.write(n name s))
+    }
+
+    fn colorProp:int (n:int name:string c@(optional):EVGColor) {
+        if (null? c) {
+            return n
+        }
+        def cc:EVGColor (unwrap c)
+        if (cc.isSet == false) {
+            return n
+        }
+        def s:string (cc.toCSSString())
+        return (this.write(n name s))
+    }
+
+    fn write:int (n:int name:string value:string) {
+        if (n == 0) {
+            acc = ""
+        }
+        if (n > 0) {
+            acc = (acc + ",")
+        }
+        acc = (acc + (EVGInspect.jsonString(name)))
+        acc = (acc + ":")
+        acc = (acc + (EVGInspect.jsonString(value)))
+        return (n + 1)
+    }
+
+    ; --- the three calls a host actually makes ---------------------------------
+    ;
+    ; A fresh walk per call rather than a cached instance, and deliberately: a
+    ; panel asks a handful of times per interaction, a walk over twelve hundred
+    ; elements is microseconds, and an instance kept between calls would be a
+    ; fourth thing that can go stale against a tree that was rebuilt. The paths
+    ; are a pure function of the tree's shape, so two walks over the same tree
+    ; agree by construction and `nodeOf` can be called without `treeOf` first.
+
+    sfn treeOf:string (root:EVGElement title:string gen:int w:double h:double) {
+        def ins (new EVGInspect())
+        ins.build(root)
+        return (ins.treeJson(title gen w h))
+    }
+
+    sfn nodeOf:string (root:EVGElement path:string) {
+        def ins (new EVGInspect())
+        ins.build(root)
+        return (ins.nodeJson(path))
+    }
+
+    sfn hitOf:string (root:EVGElement px:double py:double) {
+        def ins (new EVGInspect())
+        ins.build(root)
+        return (ins.hitPath(root px py))
+    }
+
+    ; The display list with every command carrying the element that emitted it.
+    ; The walk runs FIRST because attribution reads `inspectSlot`, and a slot
+    ; that has not been stamped this pass is -1 — which would attribute the
+    ; whole frame to nothing at all.
+    sfn frameOf:string (root:EVGElement) {
+        def ins (new EVGInspect())
+        ins.build(root)
+        def dl (new EVGDisplayList())
+        dl.attribute = true
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    ; --- helpers --------------------------------------------------------------
+
+    sfn clip:string (v:string limit:int) {
+        if ((strlen v) <= limit) {
+            return v
+        }
+        def cut:string (substring v 0 limit)
+        return (cut + "…")
+    }
+
+    sfn jsonString:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def ch:int (charAt v i)
+            if (ch == 34) {
+                out = (out + "\\\"")
+            } {
+                if (ch == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (ch == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (ch < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + (strfromcode ch))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+}

@@ -26,6 +26,10 @@
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
+// Dev tools for a canvas. Loaded always and attached only when the page is
+// asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
+// one import and no work at all.
+import { attach as attachInspector } from "../../evg/inspect/evg-inspect.js";
 import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
@@ -664,6 +668,9 @@ const DEMOS = {
     list: () => dashboard.displayListJson(),
     hit: (x, y) => dashboard.hitId(x, y),
     a11y: (gen, focus) => dashboard.a11yJson(gen, focus),
+    // The fourth channel. Nothing else in this entry changes: the panel reads
+    // it and the page does not know the panel exists.
+    inspect: () => dashboard,
     press: (id) => dashboard.press(id),
     hover: (id) => {
       if (id === lastDashHover) return false;
@@ -1480,9 +1487,63 @@ function paint() {
     lastTree = tree;
     mirror.update(tree);
     syncControls();
+    inspectorTick();
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);
   }
+}
+
+// --- the inspector -----------------------------------------------------------
+//
+// `?inspect=1` and nothing else. The panel is generic — it knows nothing about
+// this page — so all this does is hand it four functions off whichever demo is
+// showing, and tell it when the picture changed.
+//
+// The refresh is throttled rather than run per frame: a hover repaints, and
+// re-walking a 470-element tree at 60Hz would make the panel the reason the
+// page is slow. Anything faster than this interval is invisible to a person
+// reading a tree anyway.
+const INSPECT_MS = 400;
+let inspector = null;
+let inspectorFor = "";
+let inspectorAt = 0;
+
+function inspectorAdapter() {
+  const d = demo();
+  const app = d && typeof d.inspect === "function" ? d.inspect() : null;
+  if (!app || typeof app.inspectJson !== "function") return null;
+  return {
+    label: "EVG · " + state.which,
+    tree: () => app.inspectJson(generation),
+    node: (path) => app.inspectNodeJson(path),
+    hit: (x, y) => app.inspectHitPath(x, y),
+    frame: () => app.inspectFrameJson(),
+  };
+}
+
+function inspectorTick() {
+  const q = new URLSearchParams(location.search).get("inspect");
+  if (q === null || q === "0" || q === "false") return;
+  const adapter = inspectorAdapter();
+  if (!adapter) {
+    // A demo that publishes no inspect channel is not an error: the panel is
+    // taken down and the page carries on. Saying which demos have it would be
+    // this file keeping a second list of that fact.
+    if (inspector) { inspector.detach(); inspector = null; inspectorFor = ""; }
+    return;
+  }
+  if (!inspector || inspectorFor !== state.which) {
+    if (inspector) inspector.detach();
+    inspector = attachInspector({ surface: canvas, app: adapter });
+    inspectorFor = state.which;
+    inspectorAt = performance.now();
+    window.__inspector = inspector;
+    return;
+  }
+  const now = performance.now();
+  if (now - inspectorAt < INSPECT_MS) return;
+  inspectorAt = now;
+  inspector.refresh();
 }
 
 // --- the page ----------------------------------------------------------------
@@ -1555,10 +1616,17 @@ function syncPanels() {
   }
 }
 
+// `?demo=dashboard` lands on one directly. A page with eighteen demos and one
+// entry point makes every link to it a click instruction; a check that wants
+// the dashboard should not have to press a radio to get there.
+const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"];
+const wanted = new URLSearchParams(location.search).get("demo");
+if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
+
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"],
+  DEMO_NAMES,
   () => state.which,
   (v) => {
     state.which = v;
