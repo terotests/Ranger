@@ -235,6 +235,7 @@ class StaticAnalyzer {
           ; Check if it's an array type by looking at array_type field
           if ((strlen typeNode.array_type) > 0) {
             param.needs_cpp_reference = true
+            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated array function parameter)")
             }
@@ -242,6 +243,7 @@ class StaticAnalyzer {
           ; Check if it's a hash type by looking at key_type field
           if ((strlen typeNode.key_type) > 0) {
             param.needs_cpp_reference = true
+            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated hash function parameter)")
             }
@@ -250,18 +252,21 @@ class StaticAnalyzer {
           ; These are translated to std::vector in C++ and need reference for mutation
           if (typeNode.type_name == "int_buffer") {
             param.needs_cpp_reference = true
+            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated int_buffer function parameter)")
             }
           }
           if (typeNode.type_name == "double_buffer") {
             param.needs_cpp_reference = true
+            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated double_buffer function parameter)")
             }
           }
           if (typeNode.type_name == "buffer") {
             param.needs_cpp_reference = true
+            param.needs_swift_inout = true
             if debug {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated buffer function parameter)")
             }
@@ -1080,9 +1085,12 @@ class StaticAnalyzer {
   fn propagateArgMutRef:void (calledParam:RangerAppParamDesc arg:CodeNode fnCtx:RangerAppWriterContext changedParams:[string]) {
     def calleeMut:boolean (calledParam.rust_borrow_type == 2)
     def calleeCppRef:boolean calledParam.needs_cpp_reference
+    def calleeSwiftInout:boolean calledParam.needs_swift_inout
     if (calleeMut == false) {
       if (calleeCppRef == false) {
-        return
+        if (calleeSwiftInout == false) {
+          return
+        }
       }
     }
     def argVarName:string arg.vref
@@ -1105,6 +1113,15 @@ class StaticAnalyzer {
       if calleeCppRef {
         if (argParam.needs_cpp_reference == false) {
           argParam.needs_cpp_reference = true
+          didChange = true
+        }
+      }
+      ; Swift's marker travels on its own: `writeLoca(out)` handing its own
+      ; buffer parameter to a callee that takes it `inout` makes writeLoca's
+      ; parameter `inout` as well, however the C++ and Rust markers landed.
+      if calleeSwiftInout {
+        if (argParam.needs_swift_inout == false) {
+          argParam.needs_swift_inout = true
           didChange = true
         }
       }

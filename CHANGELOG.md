@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Swift `inout` is now inferred across call chains, not just at the function
+  that does the mutating.** The previous fix looked at one function at a time:
+  a parameter got `inout` if that body assigned to it. That is not where the
+  requirement ends. `put16(b:buffer ...)` writes into `b`, so `putLoca` -- which
+  only passes its own `out` along -- has to take `out` `inout` as well, and so
+  does `writeLoca` above it. Fixing one level exposed the next, and hand
+  annotation was chasing a moving target: the shape is transitive and the fix
+  has to be too.
+
+  The Rust and C++ targets had already answered exactly this question.
+  `StaticAnalyzer` marks a mutated array, map or buffer parameter, then runs a
+  fixpoint (`propagateArgMutRef`, `analyzeClassTransitiveMutBorrow`) that
+  carries the requirement from a callee's parameter to whatever the caller
+  passed in, repeating until nothing changes. Swift now uses that pass instead
+  of a second, weaker rule of its own.
+
+  It uses a marker of its own inside it -- `needs_swift_inout` beside
+  `needs_cpp_reference` and `rust_borrow_type` -- because the two languages
+  disagree about objects: a class instance is a reference in Swift and needs no
+  `inout`, but is a value in C++ and needs `&`. The value types are the ones
+  that carry it: `[T]`, `[K:V]`, the four buffers, and `String`. Each marker
+  still propagates independently, so Rust and C++ inference is unchanged.
+
+  The static analysis pass, which ran only for `cpp` and `rust`, now runs for
+  `swift6` as well. `gallery/ui` compiled to Swift -- 46 000 lines -- holds zero
+  `let` parameters passed as `&x`, `writeLoca` included, with no `@(mutates)`
+  annotations anywhere in the source; the compiler still reproduces itself byte
+  for byte.
+
+  A reassigned `string` parameter went the other way and stopped being `inout`.
+  Ranger has no operator that writes into a string in place, so `s = (s + "x")`
+  rebinds a local name and every other target reads it that way; Swift alone
+  was writing the new value back to the caller, and demanding a `var` at every
+  call site to do it. It gets the same `var` copy an `int` gets.
+
 - **The Swift target could not compile a function that assigns to its own
   parameter, and silently mis-compiled one that mutates a `buffer`
   parameter.** A Swift parameter is a `let`, and Ranger lets a body assign to

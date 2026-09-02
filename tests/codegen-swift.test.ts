@@ -158,6 +158,52 @@ describe("Swift6 Code Generation", () => {
     });
   });
 
+  describe("inout parameters", () => {
+    // Swift arrays, dictionaries and buffers are VALUE types, so a function
+    // that mutates one of its parameters needs `inout` -- and so does every
+    // function that only passes its own parameter along to that one. Fixing
+    // one level at a time exposes the next, which is why the requirement is
+    // inferred transitively (StaticAnalyzer.propagateArgMutRef) rather than
+    // annotated by hand.
+    const chain = () =>
+      getGeneratedSwiftCode(`${FIXTURES_DIR}/swift_inout_chain.rgr`);
+
+    it("marks the function that does the mutating", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("func put16(b : inout [UInt8]");
+      expect(result.code).toContain("func fill(xs : inout [Int]");
+    });
+
+    it("carries the requirement up through the callers", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // putLoca only hands `out` to put16; writeLoca only hands it to putLoca
+      expect(result.code).toContain("func putLoca(out : inout [UInt8]");
+      expect(result.code).toContain("func writeLoca(out : inout [UInt8]");
+      expect(result.code).toContain("func fillTwice(xs : inout [Int]");
+    });
+
+    it("passes &x at every call site, and never through a let", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("InoutChain.put16(b : &out");
+      expect(result.code).toContain("InoutChain.putLoca(out : &out");
+      expect(result.code).toContain("InoutChain.fill(xs : &xs");
+    });
+
+    it("leaves a reassigned string parameter alone, with a var copy", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // Ranger has no operator that writes into a string in place, so `s = s +
+      // "x"` rebinds a local name; `inout` would make Swift alone write it back
+      // to the caller and demand a `var` at every call site.
+      expect(result.code).toContain("func clampName(name name__p : String)");
+      expect(result.code).toContain("var name : String = name__p");
+      expect(result.code).not.toContain("clampName(name : &name)");
+    });
+  });
+
   describe("Print Statements", () => {
     it("should use print() for output", () => {
       const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/hello.rgr`);

@@ -108,17 +108,29 @@ class RangerSwift6ClassWriter {
     return false
   }
 
+  ; Whether the parameter has to be `inout`. Two sources agree here:
+  ; StaticAnalyzer's needs_swift_inout, which sees the whole program and so
+  ; also catches a parameter that is only handed on to a mutating callee
+  ; (`writeLoca(out)` -> `putLoca(out)` -> `put16(out ...)`), and the local
+  ; checks below, which stand on their own for a single class compiled without
+  ; the analysis pass. @(mutates) stays as the explicit override.
   fn paramNeedsInout:boolean (arg:RangerAppParamDesc) {
     def nn:CodeNode (unwrap arg.nameNode)
     if (nn.hasFlag("mutates")) {
       return true
     }
+    if arg.needs_swift_inout {
+      return true
+    }
     if ((arg.set_cnt > 0) && (this.isSwiftValueCollection(nn))) {
       return true
     }
-    if ((arg.set_cnt > 0) && (nn.type_name == "string")) {
-      return true
-    }
+    ; A `string` parameter the body assigns to is NOT one of these. Ranger has
+    ; no operator that writes into a string in place, so `s = (s + "x")` is a
+    ; rebinding of the local name and every other target reads it that way;
+    ; `inout` would make Swift alone write the new value back to the caller,
+    ; and would demand a `var` at every call site. paramNeedsLocalCopy gives it
+    ; the same `var` copy an `int` gets.
     return false
   }
   

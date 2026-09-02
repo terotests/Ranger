@@ -1,0 +1,49 @@
+; A mutation three calls deep. `put16` writes into its buffer parameter, so it
+; needs `inout`; `putLoca` only hands its own `out` along, and `writeLoca` only
+; hands its own `out` to `putLoca` -- both of them need `inout` too, or the
+; generated Swift passes `&out` where `out` is a `let`.
+;
+; The same shape for a plain array (`fill` / `fillTwice`) and for a String,
+; which Swift also passes by value.
+class InoutChain {
+
+  sfn put16:void (b:buffer at:int v:int) {
+    buffer_set b at (bit_and (bit_shr v 8) 255)
+    buffer_set b (at + 1) (bit_and v 255)
+  }
+
+  sfn putLoca:void (out:buffer dst:int value:int) {
+    InoutChain.put16(out dst value)
+  }
+
+  sfn writeLoca:void (out:buffer dst:int) {
+    InoutChain.putLoca(out dst 7)
+  }
+
+  sfn fill:void (xs:[int] v:int) {
+    push xs v
+  }
+
+  sfn fillTwice:void (xs:[int] v:int) {
+    InoutChain.fill(xs v)
+    InoutChain.fill(xs (v + 1))
+  }
+
+  sfn clampName:void (name:string) {
+    name = (name + "!")
+  }
+
+  sfn renameAll:void (name:string) {
+    InoutChain.clampName(name)
+  }
+
+  sfn m@(main):void () {
+    def buf:buffer (buffer_alloc 16)
+    InoutChain.writeLoca(buf 0)
+    def xs:[int]
+    InoutChain.fillTwice(xs 1)
+    def n:string "a"
+    InoutChain.renameAll(n)
+    print "done"
+  }
+}
