@@ -26,7 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
-import { requireDom, findChromium } from "../conformance/dom-adapter.mjs";
+import { requireHostTool, findChromium } from "../conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..", "..");
@@ -54,7 +54,11 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
-const { chromium } = requireDom("playwright-core");
+// playwright-core ALONE. This check serves this repository and drives this
+// repository's page; it renders no reference component, so `requireDom` — which
+// demands everything the Radix host declares — would fail it on any machine
+// that has not run `ui:conformance:install`, CI included.
+const { chromium } = requireHostTool("playwright-core");
 const browser = await chromium.launch({ executablePath: findChromium() });
 // A context of its own, so the clipboard can be granted: the point of the
 // text bridge is that copy and paste are the platform's, and a check that

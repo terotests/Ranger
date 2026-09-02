@@ -3,25 +3,29 @@
  *
  * The stylesheet is generated into a module rather than fetched, so the page
  * and `npm run ui:menubar:png` style the tree from exactly the same text and
- * cannot drift. esbuild comes from the conformance reference host, so there is
- * one install for the playground, the gate and this.
+ * cannot drift. esbuild is resolved out of the conformance host's directory,
+ * so there is one install for the playground, the gate and this.
+ *
+ * It asks for esbuild ALONE, via `requireHostTool`, and not for the reference
+ * host `requireDom` demands. Everything bundled here is this repository's own
+ * source: nothing on the page imports React or a Radix component. Demanding
+ * the reference host as well made this exit 3 on any machine without it —
+ * including CI, where the root install supplies esbuild and the host is never
+ * installed, so `ui:demo:page` failed there while passing on a developer
+ * machine that happened to have run `ui:conformance:install`.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
-import { assertDomInstalled, MissingDomDeps } from "../conformance/dom-adapter.mjs";
+import { MissingDomDeps, requireHostTool } from "../conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.join(HERE, "..");
-const DOM_DIR = path.join(UI, "conformance", "dom");
-const domRequire = createRequire(path.join(DOM_DIR, "package.json"));
 
 function requireDom(name) {
   try {
-    assertDomInstalled();
-    return domRequire(name);
+    return requireHostTool(name);
   } catch (e) {
     console.error(e instanceof MissingDomDeps ? e.message : String(e));
     process.exit(3);
