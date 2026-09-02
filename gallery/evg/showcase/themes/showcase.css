@@ -131,7 +131,15 @@
    room for, sits against the left edge of a column sized for a bar chart. */
 .chartBox  { width: 100%; align-items: center; }
 .chartRow  { align-items: flex-start; }
-.chartCell { flex: 1; }
+/* HALVES OF THE PAGE, not of their contents. `min-width: 0` is the whole
+   difference: without it a flex item may not be sized below its min-content
+   width, so a chart wider than half the row widens its own column, the two
+   columns no longer add up to the row, and the pair either hangs off the
+   right (nowrap) or drops onto two lines (EVG's default). Two equal columns
+   is what this page is; a drawing too wide for its half overflows its column
+   evenly on both sides, into the gutter and the margin, which is what
+   centring means. */
+.chartCell { flex: 1; min-width: 0; }
 
 /* ---- the chart api page: the calls, beside the chart they built -------- */
 /* The one page in this gallery whose charts came from a program rather than

@@ -23,8 +23,24 @@ jobs:
           # dorny paths-filter '**' + '!gallery/**' is OR-matched, so '**' makes
           # non_gallery always true and gallery-only PRs incorrectly run full CI.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}" 2>/dev/null || true
-            files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+            # `fetch-depth: 0` above already brought the whole history. The
+            # `--depth=1` fetch that used to stand here made the repository
+            # SHALLOW again, and — with no refspec — it updated FETCH_HEAD
+            # rather than `refs/remotes/origin/<base>`, so the base ref stayed
+            # behind the new shallow boundary and merge-base had nothing to
+            # find: `fatal: origin/master...HEAD: no merge base`, exit 128.
+            # That failed `changes`, skipped every job that needs it, and
+            # turned `test-gate` red on every open pull request at once.
+            git fetch --no-tags origin \
+              "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" \
+              2>/dev/null || true
+            # AND THE FILTER MUST NOT BE ABLE TO FAIL THE BUILD. It decides
+            # which suites to skip; it is an optimisation, and the step runs
+            # under `bash -e`, so an unreadable diff took the whole workflow
+            # down with it. An empty list falls through to the branch below,
+            # which runs everything — the safe answer to "I do not know what
+            # changed".
+            files=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" || true)
           else
             files=$(git diff --name-only HEAD~1...HEAD 2>/dev/null || true)
           fi

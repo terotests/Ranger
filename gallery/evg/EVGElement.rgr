@@ -2371,6 +2371,12 @@ class EVGElement {
         styleGen = other.styleGen
         styleSlot = other.styleSlot
         styleKids = other.styleKids
+        ; Where the inspector last saw this element. Declared with the field
+        ; and not copied here, so `evg:adopt:check` — which reads the field
+        ; list and this function and compares them — named it the moment the
+        ; suite could run again. A reconciled element that loses its slot is
+        ; an element the display list and the hit test can no longer name.
+        inspectSlot = other.inspectSlot
         isLayoutComplete = other.isLayoutComplete
         unitsResolved = other.unitsResolved
         hasReturn = other.hasReturn

@@ -222,6 +222,16 @@ SUITES=(
   # implementation gets wrong: weighted factors, `flex-basis` sharing only the
   # remainder, and a grower with no free space left to take.
   evg:flexgrow:check
+  # A percentage width inside an item whose width comes from `flex`, against
+  # Chromium. Every chart on the showcase's generated chart pages hung off the
+  # left edge of the paper: `.chartBox { width: 100% }` in a `flex: 1` cell
+  # came out zero wide, because the automatic-minimum-size pass asks the cell
+  # for its min-content width while the cell's own width is undecided, and the
+  # walk that answers resolved — and LATCHED — the percentage against that
+  # zero. Seven cases, including the control that always worked, the one
+  # where the automatic minimum is what decides the cell, and the
+  # `min-width: 0` shape the showcase's chart columns actually ask for.
+  evg:pctflex:check
 )
 
 failed=()

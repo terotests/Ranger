@@ -834,6 +834,8 @@
     "ui:demo:web": "npm run ui:web",
     "evg:flexgrow:oracle": "node gallery/ui/conformance/oracle/flexgrow_oracle.mjs",
     "evg:flexgrow:check": "npm run ui:demo:build --silent && node gallery/ui/conformance/oracle/flexgrow_check.mjs",
+    "evg:pctflex:oracle": "node gallery/ui/conformance/oracle/pctflex_oracle.mjs",
+    "evg:pctflex:check": "npm run ui:demo:build --silent && node gallery/ui/conformance/oracle/pctflex_check.mjs",
     "ui:layout:check": "npm run ui:demo:build --silent && node gallery/ui/demo/layout-check.mjs",
     "ui:layout:record": "npm run ui:demo:build --silent && node gallery/ui/demo/layout-check.mjs --record",
     "compiler:issue76:check": "node tests/compiler-issue-76-check.mjs",
