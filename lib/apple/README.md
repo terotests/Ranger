@@ -48,6 +48,47 @@ npm run apple:test
 
 Nothing in that list is `xcodebuild`, and nothing in it is an `.xcodeproj`.
 
+## Putting it on a simulator
+
+`AppleAppBuilder.runOnSimulator(spec target nameWanted)` is the second half, and
+it is five commands:
+
+```
+xcrun simctl boot <udid>
+open -a Simulator
+xcrun simctl bootstatus <udid>
+xcrun simctl install <udid> build/ios-simulator/MyApp.app
+xcrun simctl launch --terminate-running-process <udid> com.example.myapp
+```
+
+Three of those are there for reasons that are not obvious until the day they
+are missing:
+
+* **`open -a Simulator`** — `simctl boot` starts the *device*, not the
+  application that shows it. Without this the app is running and there is no
+  window, which looks exactly like a build that did nothing.
+* **`bootstatus`** — installing into a device that is still starting fails
+  intermittently, which is the worst kind of failure to debug.
+* **`--terminate-running-process`** — so a second run replaces the first
+  instead of appearing to do nothing.
+
+`boot` is skipped when the device is already `Booted`, and a
+`Unable to boot device in current state: Booted` race with something else is
+read as success rather than as an error.
+
+**Which device.** `nameWanted` is a substring of a device name (`"iPad Pro"`,
+`"iPhone 15"`) or a UDID. Given `""`, a device that is **already booted** wins:
+booting a second simulator when one is open is slow and puts the app on a
+window nobody is looking at. Given a name, the named one wins even over a
+booted one — you asked for an iPad, you get the iPad. A name that matches
+nothing is an error naming it, not a fallback to something else.
+
+**A real device is built and not launched.** `runOnSimulator` refuses a device
+target — naming it — rather than booting something unrelated. Installing on one
+is `AppleToolchain.installOnDevice`, wrapping `xcrun devicectl`; the driver in
+`gallery/ui/ios` prints that command to finish with instead of running it,
+because the step needs a cable and a trusted machine.
+
 ## The four decisions, and why each one is its own field
 
 ```ranger

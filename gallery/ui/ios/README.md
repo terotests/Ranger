@@ -50,13 +50,52 @@ device** — a simulator bundle is signed ad hoc.
 Arguments go through after a `--`:
 
 ```bash
-npm run ui:ios:run -- --device="iPad Pro"      # pick the simulator
-npm run ui:ios:run -- --pad                    # an iPad-only app
+npm run ui:ios:run -- --device="iPad Pro"      # which simulator to launch on
+npm run ui:ios:run -- --device="iPhone 15"
+npm run ui:ios -- --pad                        # what the app CLAIMS to run on
 npm run ui:ios -- --release                    # swiftc -O
 npm run ui:ios -- --target=ios-device \
   --identity="Apple Development: You (ABC123)" \
-  --profile=signing/dev.mobileprovision        # a real iPhone
+  --profile=signing/dev.mobileprovision        # build+sign for a real iPhone
 ```
+
+**`--device` and `--pad` are not the same question.** `--device` chooses the
+machine the app lands on. `--pad` and `--phone` set `UIDeviceFamily` in
+Info.plist — what the bundle *claims* to run on, which is the only difference
+between "an iPhone app" and "an iPad app" once the binary exists. Building
+`--pad` and launching on an iPhone simulator is a thing you can ask for, and it
+will not install.
+
+`--target=ios-device` builds and signs and stops there. Putting a bundle on a
+real iPhone needs a cable and a trusted machine, so adding `--run` to a device
+build prints the `xcrun devicectl` lines to finish with rather than running
+them.
+
+### What `--run` actually does
+
+`--run` is what turns the build into a launch. Without it you get a `.app` on
+disk and nothing else. With it:
+
+```
+xcrun simctl boot <udid>
+open -a Simulator
+xcrun simctl bootstatus <udid>
+xcrun simctl install <udid> tmp/ui-ios/build/ios-simulator/RangerDashboard.app
+xcrun simctl launch --terminate-running-process <udid> fi.ranger.dashboard
+```
+
+`open -a Simulator` is not decoration: `simctl boot` starts the *device*, not
+the application that shows it, and without this the app is running with no
+window — which looks exactly like a build that did nothing. `bootstatus` is
+there because installing into a device that is still starting fails
+intermittently, and `--terminate-running-process` so that a second run replaces
+the first.
+
+With no `--device`, a simulator that is **already booted** is preferred over
+starting another one. With a `--device`, the named one wins even over a booted
+one. A name that matches nothing is an error that names it and points at
+`xcrun simctl list devices available`, rather than a quiet fallback to some
+other device.
 
 This directory is also a package of its own, so `npm run run` works from in
 here, and the repository-root names are aliases in the same file.
