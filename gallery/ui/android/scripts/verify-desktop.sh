@@ -48,10 +48,15 @@ kotlinc -J-Xmx8g -nowarn \
   "$AND/desktop/src/main/kotlin" \
   -d "$CLASSES"
 
-KOTLIN_HOME="$(dirname "$(dirname "$(command -v kotlinc)")")"
+KOTLINC_BIN="$(command -v kotlinc)"
+KOTLIN_HOME="$(dirname "$(dirname "$(readlink -f "$KOTLINC_BIN" 2>/dev/null || realpath "$KOTLINC_BIN")")")"
 STDLIB="$KOTLIN_HOME/lib/kotlin-stdlib.jar"
 if [ ! -f "$STDLIB" ]; then
-  STDLIB="$(find "$KOTLIN_HOME" -name 'kotlin-stdlib*.jar' | head -1)"
+  STDLIB="$(find "$KOTLIN_HOME" -name 'kotlin-stdlib.jar' | head -1)"
+fi
+if [ ! -f "$STDLIB" ]; then
+  echo "kotlin-stdlib.jar not found near $KOTLINC_BIN" >&2
+  exit 1
 fi
 
 java -Xmx4g -Djava.awt.headless=true \
