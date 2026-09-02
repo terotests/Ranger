@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Four more things swiftc could not build, and the last of the warnings.**
+  Each was a gap in a mechanism that already existed rather than something
+  needing a new one:
+
+  - **A parameter named `where`.** `reserved_words` in `compiler/Lang.rgr` is
+    the compiler's table for exactly this, and it renames a word once, in
+    `assignParamCompiledName` / `defineVariable`, so the declaration, the uses
+    and the call-site argument label all move together. The `swift6` block held
+    four entries, filled in as errors were hit -- and `where`, which opens a
+    generic constraint in Swift, was not among them, so
+    `bootstrapCI(values : values, where : where)` did not parse. The block is
+    now the whole of Swift's keyword list, taken from the one
+    `scripts/reserved_probe.py` already carries rather than guessed at. Five
+    words actually occur in gallery/ui: `init`, `open`, `where`, `guard`,
+    `any`.
+  - **A public class with internal witnesses.** A class the docs mark `public`
+    came out as `public final class VlJson : Hashable` with a non-public
+    `hash(into:)` and `==`, which Swift rejects: a protocol witness has to be
+    at least as visible as the conforming type. Those two members are
+    synthesized by the writer, not written by the author, so their visibility
+    is not a separate decision -- it is the class's, and it is now read once
+    and used for all three.
+  - **An expression swiftc gave up on.** "The compiler is unable to type-check
+    this expression in reasonable time" on a six-term concatenation, because
+    the inline Swift for `strfromcode` and `charAt` was a tower of generic
+    initialisers -- `String(UnicodeScalar(UInt32(Int(s[s.index(...)]…)))
+    ?? …)` -- and the overload search across six of them exploded. Both now
+    call one monomorphic helper installed through `create_polyfill`, the same
+    way the C++ target has always emitted `r_str_from_code`. The line went from
+    roughly 900 characters of nested generics to a plain concatenation of
+    calls.
+  - **A loop item nobody reads.** The index was elided and the item was not,
+    because `swift_rc` asked `ref_cnt`, and the loop assigns the ITEM from the
+    list on every iteration -- so its counter is never 0 even when the body
+    ignores it. It now walks the loop body, which is how `go_for_bind` has
+    always decided the same thing. This fixes swift3 as well.
+
 - **`swiftc` reported the Swift target's real errors underneath about four
   hundred warnings.** Compiling `gallery/ui` to Swift printed screen after
   screen of "immutable value 'gi' was never used", "variable 'sorted' was never

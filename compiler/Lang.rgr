@@ -360,13 +360,74 @@ language {
             init _init
             guard _guard
         }
+        ; Swift's keyword list, taken from the one scripts/reserved_probe.py
+        ; already carries rather than filled in as errors were hit -- which is
+        ; how this block came to hold four entries and miss `where`. A
+        ; parameter named `where` is legal Ranger and is where Swift starts a
+        ; generic constraint, so `bootstrapCI(values : values, where : where)`
+        ; did not parse, in the declaration, at the call, and at every use.
+        ; Renaming happens once, in assignParamCompiledName /
+        ; defineVariable, so all three move together.
+        ;
+        ; A word Ranger itself cannot spell as a name (`class`, `return`, `if`)
+        ; is listed anyway: the entry is simply never matched, and a list that
+        ; mirrors the language's own is one nobody has to guess about later.
+        ; `true`, `false` and `nil` are the exception -- the Ranger parser
+        ; reads them as literals, so the `word transform` pair does not parse.
         swift6 {
-            operator _operator
-            static _static
+            associatedtype _associatedtype
+            borrowing _borrowing
+            class _class
+            consuming _consuming
+            deinit _deinit
+            enum _enum
+            extension _extension
+            fileprivate _fileprivate
+            import _import
             init _init
-            ; `guard` is a statement keyword; a loop counter named `guard`
-            ; must be renamed or the generated file does not parse.
+            inout _inout
+            internal _internal
+            let _let
+            nonisolated _nonisolated
+            open _open
+            operator _operator
+            private _private
+            precedencegroup _precedencegroup
+            protocol _protocol
+            public _public
+            rethrows _rethrows
+            static _static
+            struct _struct
+            subscript _subscript
+            typealias _typealias
+            var _var
+            where _where
+            while _while
             guard _guard
+            defer _defer
+            do _do
+            else _else
+            fallthrough _fallthrough
+            for _for
+            in _in
+            repeat _repeat
+            return _return
+            switch _switch
+            case _case
+            break _break
+            continue _continue
+            default _default
+            throw _throw
+            catch _catch
+            throws _throws
+            try _try
+            as _as
+            is _is
+            any _any
+            some _some
+            await _await
+            async _async
+            super _super
         }
         ; A name that is a keyword of the target has to be renamed, or the
         ; generated file does not parse. `def double (fn:int (n:int) ...)`
@@ -6428,7 +6489,28 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 go ( "int64([]rune(" (e 1) ")[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
-                swift6 ( "Int(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")].asciiValue ?? 0)")
+                ; Also a named helper, and for the same reason: the inline form
+                ; names the string three times and nests four calls, so a
+                ; handful of them in one expression is what pushed swiftc's
+                ; type checker over its budget.
+                swift6 ( "r_char_at(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    // One walk, not two: `s.count` and `index(offsetBy:)` are each O(n) on a
+    // String, and a scanner calls this once per character.
+    if at < 0 { return 0 }
+    var i = s.startIndex
+    var seen = 0
+    while seen < at {
+        if i == s.endIndex { return 0 }
+        i = s.index(after: i)
+        seen += 1
+    }
+    if i == s.endIndex { return 0 }
+    return Int(s[i].asciiValue ?? 0)
+}
+")
+                )
                 python ( "ord(" (e 1) "[" (e 2) "])")
                 rust ( (e 1) ".chars().nth(" (idx 2) ").unwrap_or('\\0') as i64")
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
@@ -6660,11 +6742,22 @@ public static class RgUtf8 {
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
-                ; UnicodeScalar has no Int initialiser, and the UInt8 one is not
-                ; failable, so `!` does not compile against either. Go through
-                ; UInt32 and answer a space for a code point that is not a
-                ; scalar, rather than trapping on it.
-                swift6 ( "String(UnicodeScalar(UInt32(" (e 1) ")) ?? UnicodeScalar(UInt8(32)))")
+                ; A named helper, not an inline expression. UnicodeScalar has
+                ; no Int initialiser and its UInt8 one is not failable, so the
+                ; inline form needed a UInt32 conversion and a `??` fallback --
+                ; six of those concatenated in one `return` and swiftc gave up
+                ; with "unable to type-check this expression in reasonable
+                ; time". One monomorphic function takes the overload resolution
+                ; out of the expression entirely.
+                swift6 ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+func r_str_from_code(_ cp: Int) -> String {
+    if cp < 0 { return \" \" }
+    if let scalar = UnicodeScalar(UInt32(cp)) { return String(scalar) }
+    return \" \"
+}
+")
+                )
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")      
@@ -6708,11 +6801,22 @@ std::string r_str_from_code(int cp) {
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
-                ; UnicodeScalar has no Int initialiser, and the UInt8 one is not
-                ; failable, so `!` does not compile against either. Go through
-                ; UInt32 and answer a space for a code point that is not a
-                ; scalar, rather than trapping on it.
-                swift6 ( "String(UnicodeScalar(UInt32(" (e 1) ")) ?? UnicodeScalar(UInt8(32)))")
+                ; A named helper, not an inline expression. UnicodeScalar has
+                ; no Int initialiser and its UInt8 one is not failable, so the
+                ; inline form needed a UInt32 conversion and a `??` fallback --
+                ; six of those concatenated in one `return` and swiftc gave up
+                ; with "unable to type-check this expression in reasonable
+                ; time". One monomorphic function takes the overload resolution
+                ; out of the expression entirely.
+                swift6 ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+func r_str_from_code(_ cp: Int) -> String {
+    if cp < 0 { return \" \" }
+    if let scalar = UnicodeScalar(UInt32(cp)) { return String(scalar) }
+    return \" \"
+}
+")
+                )
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")        

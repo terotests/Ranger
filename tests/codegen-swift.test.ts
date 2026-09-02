@@ -218,9 +218,9 @@ describe("Swift6 Code Generation", () => {
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // `def ch:char (charAt text 0)` then `def code:int ch` — UInt8 made both
       // lines a type error
-      expect(result.code).toContain("let ch : Int = Int(");
+      expect(result.code).toContain("let ch : Int = r_char_at(text, 0)");
       expect(result.code).toContain("let code : Int = ch");
-      expect(result.code).not.toContain("UInt8 = Int(");
+      expect(result.code).not.toContain("UInt8 = ");
     });
 
     it("writes _ for a loop index the body never reads", () => {
@@ -247,6 +247,62 @@ describe("Swift6 Code Generation", () => {
       const result = gen();
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("_ = SwiftLetAndChar.counted(text : \"abc\")");
+    });
+  });
+
+  describe("keywords, visibility and expression size", () => {
+    const gen = () =>
+      getGeneratedSwiftCode(`${FIXTURES_DIR}/swift_keywords_and_public.rgr`);
+
+    it("renames a name that is a Swift keyword, everywhere at once", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // declaration, local, and the call-site argument label all move together
+      // because the rename happens once, in assignParamCompiledName
+      expect(result.code).toContain("pick(values : [Double], _where : Double)");
+      expect(result.code).toContain("let _where : Double = 0.025");
+      expect(result.code).toContain("KeywordUser.pick(values : values, _where : _where)");
+      expect(result.code).not.toMatch(/\bwhere : where\b/);
+    });
+
+    it("makes a public class's synthesized witnesses public too", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // Swift requires a protocol witness to be at least as visible as the type
+      expect(result.code).toContain("public func ==(l: Boxed, r: Boxed)");
+      expect(result.code).toContain("public final class Boxed : Hashable");
+      expect(result.code).toContain("public func hash(into hasher: inout Hasher)");
+    });
+
+    it("keeps an internal class's witnesses internal", () => {
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/swift_let_and_char.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("func ==(l: Point, r: Point)");
+      expect(result.code).not.toContain("public func ==(l: Point");
+    });
+
+    it("calls a helper instead of inlining a tower of initialisers", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // several of the inline forms in one expression exhausted swiftc's
+      // type-checking budget; one monomorphic call each takes the overload
+      // resolution out of the expression
+      expect(result.code).toContain("r_str_from_code(r_char_at(text, 0))");
+      expect(result.code).toContain("func r_char_at(_ s: String, _ at: Int) -> Int");
+      expect(result.code).toContain("func r_str_from_code(_ cp: Int) -> String");
+      // the UnicodeScalar dance now lives inside the helper, once, instead of
+      // at every call site
+      expect(result.code.split("UnicodeScalar(UInt32(").length - 1).toBe(1);
+    });
+
+    it("writes _ for a loop item the body never reads", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // ref_cnt cannot answer this: the loop assigns the item on every
+      // iteration, so its counter is never 0
+      expect(result.code).toContain("for (_, _) in rows.enumerated()");
     });
   });
 
