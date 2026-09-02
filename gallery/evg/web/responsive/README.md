@@ -67,6 +67,25 @@ strip toggles what the host reports, and the sidebar's rows grow for a finger.
 | `build.mjs` | compiles the demo to a browser IIFE and copies the painter beside it |
 | `smoke.mjs` | serves `dist/` and drives it in Chromium |
 
+## What it found
+
+The page did what a demo is for. Dragging the window edge flickered: the content
+dropped below the sidebar and came back up a pixel later, over and over.
+
+`.side` and `.main` are a flex row and `.main` is `flex: 1`, so its width is
+computed by the layout out of the same line it is then measured against — and
+`(a - b - c) + b + c` can land one ulp above `a`, at which point the row is too
+wide for itself and wraps. It failed at **127 of the 680 integer widths between
+821 and 1500**, scattered rather than in a band, which is why it read as a
+flicker rather than as a breakpoint.
+
+Fixed in `EVGLayout` by allowing a hundredth of a pixel of overflow before the
+row wraps (`ISSUES.md` #8). Guarded in three places: `EVGFlexWrapTest.rgr` in
+the engine, the width sweep in `EvgResponsiveCheck` here, and a sweep in
+`smoke.mjs` that reads it off the painted boxes in Chromium.
+
+## The checks
+
 `EvgResponsiveCheck` counts card columns by **grouping the laid-out cards by
 their `y`** rather than by reading the stylesheet back: however the grid decided
 to place them, the cards sharing the top row are the columns. The sidebar's move

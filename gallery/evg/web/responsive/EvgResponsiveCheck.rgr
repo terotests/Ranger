@@ -211,6 +211,40 @@ class EvgResponsiveCheck {
         this.ok("a finger gets taller nav rows than a mouse"
             (fi.calculatedHeight > mi.calculatedHeight))
 
+        ; --- the page is STABLE across widths, not just correct at four -------
+        ;
+        ; The defect this exists for was invisible at any single width: the
+        ; sidebar and the content are a flex row, `.main` is `flex: 1`, and its
+        ; width is computed out of the same line it is then measured against.
+        ; Adding the parts back up could land one ulp over the whole, so the row
+        ; wrapped — at 127 of the 680 integer widths between 821 and 1500,
+        ; scattered, which on a dragged window edge is a flicker rather than a
+        ; layout. `EVGLayout`'s wrap test now has a sub-pixel tolerance and
+        ; `gallery/evg/EVGFlexWrapTest.rgr` guards it in the engine; this is the
+        ; same question asked of THIS page, at quarter-pixel steps because a
+        ; `4vw` padding and a device pixel ratio both produce fractional widths.
+        def flickers:int 0
+        def sw:double 830.0
+        while (sw <= 1600.0) {
+            def r:EVGElement (this.layoutAt(sw 900.0 false))
+            def sSide:[EVGElement] (this.find(r "side"))
+            def sMain:[EVGElement] (this.find(r "main"))
+            def s1:EVGElement (itemAt sSide 0)
+            def m1:EVGElement (itemAt sMain 0)
+            def dy:double (m1.calculatedY - s1.calculatedY)
+            if (dy < 0.0) {
+                dy = (0.0 - dy)
+            }
+            if (dy >= 1.0) {
+                flickers = (flickers + 1)
+                if (flickers < 6) {
+                    print ("       sidebar wrapped at width " + (to_string sw))
+                }
+            }
+            sw = (sw + 0.25)
+        }
+        this.eqInt("above 820px the sidebar never wraps below the content" flickers 0)
+
         ; --- the page still renders -------------------------------------------
         def demo (new EvgResponsiveDemo())
         demo.setViewport(420.0 900.0 false)

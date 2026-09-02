@@ -151,6 +151,50 @@ s = await atWidth(420);
 check("420px: one card per row", (await cardColumns()) === 1, `width=${s.width}`);
 check("420px: the page grew taller than the window", s.height > 900, `height=${s.height}`);
 
+// The flicker. `.side` and `.main` are a flex row and `.main` is `flex: 1`, so
+// its width is computed out of the line it is then measured against — and the
+// sum coming back one ulp over made the row wrap, at 127 of the 680 integer
+// widths between 821 and 1500, scattered. On a dragged window edge that is a
+// page that jumps rather than a layout that responds (ISSUES #8).
+//
+// Read off the painted boxes, and by VERTICAL OVERLAP rather than by a shared
+// top edge: `.main` opens with a heading, so the first card starts lower than
+// the sidebar even when the two are side by side. Overlapping means one row;
+// a card that starts below the sidebar's bottom edge means the row wrapped.
+const sidebarBesideContent = () => page.evaluate(() => {
+  const boxes = [...document.querySelectorAll("#stage svg rect")]
+    .filter((r) => (r.getAttribute("fill") || "").replace(/\s+/g, "") === "rgb(255,255,255)"
+                && Math.abs(Number(r.getAttribute("rx") || 0) - 12) < 0.5)
+    .map((r) => ({ x: +r.getAttribute("x"), y: +r.getAttribute("y"),
+                   w: +r.getAttribute("width"), h: +r.getAttribute("height") }));
+  if (boxes.length < 2) return false;
+  // The sidebar is the leftmost card-shaped box; the deck is everything that
+  // starts to the right of it.
+  const side = boxes.reduce((a, b) => (b.x < a.x ? b : a));
+  const deck = boxes.filter((b) => b.x > side.x + side.w - 1);
+  if (!deck.length) return false;
+  const top = Math.min(...deck.map((b) => b.y));
+  return top < side.y + side.h - 1;
+});
+
+// A sweep rather than a list of widths: the scrollbar takes an unknown few
+// pixels off, so naming the widths that used to fail would be naming the wrong
+// ones. Every step in this range is above the 820px breakpoint even after the
+// scrollbar, so the sidebar must be beside the content at all of them.
+{
+  let jumped = 0;
+  let firstBad = 0;
+  for (let w = 870; w <= 1110; w += 6) {
+    const st = await atWidth(w);
+    if (!(await sidebarBesideContent())) {
+      jumped += 1;
+      if (!firstBad) firstBad = st.width;
+    }
+  }
+  check("the sidebar stays beside the content at every width from 870 to 1110",
+    jumped === 0, `${jumped} widths wrapped, first at ${firstBad}`);
+}
+
 // Back up again: a layout that only narrows is half a layout.
 s = await atWidth(1400);
 check("back at 1400px: four cards across again", (await cardColumns()) === 4);

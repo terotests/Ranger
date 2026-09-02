@@ -680,6 +680,7 @@
     "evg:adopt:check": "node scripts/check-evg-adopt.mjs",
     "evg:tags:check": "node scripts/check-tree-tags.mjs",
     "evg:viewport:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGViewportUnitTest.rgr -d=./gallery/evg/bin -o=EVGViewportUnitTest.js -nodecli && node ./gallery/evg/bin/EVGViewportUnitTest.js",
+    "evg:flexwrap:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGFlexWrapTest.rgr -d=./gallery/evg/bin -o=EVGFlexWrapTest.js -nodecli && node ./gallery/evg/bin/EVGFlexWrapTest.js",
     "evg:box:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGBoxShorthandTest.rgr -d=./gallery/evg/bin -o=EVGBoxShorthandTest.js -nodecli && node ./gallery/evg/bin/EVGBoxShorthandTest.js",
     "evg:box:oracle": "node gallery/evg/oracle/css_box_oracle.mjs",
     "evg:style:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGStyleStateTest.rgr -d=./gallery/evg/bin -o=EVGStyleStateTest.js -nodecli && node ./gallery/evg/bin/EVGStyleStateTest.js",
