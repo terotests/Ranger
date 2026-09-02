@@ -681,27 +681,52 @@ class FormDemo {
         if secretShown {
             eyeLabel = "Hide password"
         }
-        def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) "👁"))
+        ; Two glyphs, not one. A single eye is the same picture in both states,
+        ; so the only feedback that the press did anything was the dots turning
+        ; into letters — and on a short password that is a small change in a
+        ; small place. The closed eye is what the control looks like when the
+        ; text is showing.
+        def eyeGlyph:string "👁"
+        if secretShown {
+            eyeGlyph = "🙈"
+        }
+        def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) eyeGlyph))
         eye.a11yPressed = (EVGA11yTri.no())
         if secretShown {
             eye.a11yPressed = (EVGA11yTri.yes())
         }
-        ; PINNED TO THE RIGHT EDGE, and positioned the way the caret is.
+        ; AT THE END OF THE BOX, CENTRED — anchored to the right edge, not
+        ; measured to a text width.
         ;
-        ; It used to be appended straight after the text in a row, so it moved
-        ; with every character typed — an affordance that walks away from where
-        ; you last saw it, and the only thing in the form whose position
-        ; depended on the value beside it.
+        ; Three spellings, and only the third is stable. It was first appended
+        ; straight after the text in a row, so it moved with every character
+        ; typed. The obvious fix is a `width: fill` spacer between the two, and
+        ; that is what it was until the containment check caught it overflowing
+        ; its box by fifty pixels — the bug written down as "a spacer eats its
+        ; space twice". So it became absolute at `left = halfTextW - 6`, which
+        ; stopped it following the text but pinned it to a HALF-WIDTH CONSTANT
+        ; instead: on a 244px box the eye sat at 116, three-quarters of the way
+        ; across and nowhere near an edge, which is what it looked like.
         ;
-        ; The obvious fix is a spacer with `width: fill` between the two, and
-        ; that is what this was until the containment check caught it
-        ; overflowing its box by fifty pixels. It is the bug already written
-        ; down as "a spacer eats its space twice": `fill` in a row with these
-        ; siblings resolves against the parent rather than the remainder. So
-        ; not a spacer — absolute, from the same measurement the caret uses,
-        ; which is a route already proven in this file.
+        ; `right` is the property that means what this wants, and the layout
+        ; honours it for absolutes — `calculatedX = parentWidth - right - width`
+        ; — so the anchor is the box's own right edge whatever its width.
+        ; `left` must stay unset: it wins over `right` when both are given.
+        ;
+        ; ZERO, not the ten the padding is. That `parentWidth` is the CONTENT
+        ; width and the origin already carries the left padding, so `right: 0`
+        ; puts the glyph's right edge exactly on the content edge — which is
+        ; the same inset the text starts from on the left, and is what makes
+        ; the two look symmetric. Ten put it at twenty-one from the border and
+        ; the gate said so.
+        ;
+        ; Vertically it is centred by arithmetic rather than by flow, because
+        ; an absolute child is skipped by the row's `align-items: center`: the
+        ; box is 36 high and the glyph 18, so 9 from the top. Both numbers are
+        ; in form.css beside each other.
         eye.position = "absolute"
-        eye.left = (EVGUnit.px((halfTextW - 6.0)))
+        eye.right = (EVGUnit.px(0.0))
+        eye.top = (EVGUnit.px(9.0))
         ; A TOGGLE, and it says so in the state as well as in the name.
         ;
         ; The comment that used to be here said `EVGElement` has no
