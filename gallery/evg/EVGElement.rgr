@@ -2477,21 +2477,26 @@ class EVGElement {
             role = (trim value)
             return
         }
+        ; A BARE `return`, like every other branch here: `setAttribute` is
+        ; declared `:void`. These four said `return true`, which JavaScript
+        ; ignores and C++ refuses — `return-statement with a value, in function
+        ; returning 'void'` — so the whole surface compiled and every JS suite
+        ; passed while the C++ build of the deck editor was broken.
         if ((name == "a11yRequired") || (name == "aria-required")) {
             a11yRequired = value
-            return true
+            return
         }
         if ((name == "a11yInvalid") || (name == "aria-invalid")) {
             a11yInvalid = value
-            return true
+            return
         }
         if ((name == "a11yReadOnly") || (name == "aria-readonly")) {
             a11yReadOnly = value
-            return true
+            return
         }
         if ((name == "a11yValue") || (name == "aria-valuetext")) {
             a11yValue = value
-            return true
+            return
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value
