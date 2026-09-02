@@ -821,6 +821,8 @@
     "ui:sortable:png": "npm run ui:demo:build && DEMO=sortable node gallery/ui/demo/render.mjs gallery/ui/demo/sortable.png",
     "ui:toolbar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs && DEMO=toolbar node gallery/ui/demo/render.mjs",
     "ui:demo:web": "npm run ui:web",
+    "evg:flexgrow:oracle": "node gallery/ui/conformance/oracle/flexgrow_oracle.mjs",
+    "evg:flexgrow:check": "npm run ui:demo:build --silent && node gallery/ui/conformance/oracle/flexgrow_check.mjs",
     "ui:layout:check": "npm run ui:demo:build --silent && node gallery/ui/demo/layout-check.mjs",
     "ui:layout:record": "npm run ui:demo:build --silent && node gallery/ui/demo/layout-check.mjs --record",
     "compiler:issue76:check": "node tests/compiler-issue-76-check.mjs",

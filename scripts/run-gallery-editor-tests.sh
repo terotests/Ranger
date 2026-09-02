@@ -214,6 +214,14 @@ SUITES=(
   # real and shipping it as one red suite would just get the suite muted.
   # Lower a number when you fix something; the check fails if you do not.
   ui:layout:check
+  # `flex-grow` against Chromium's own answer. It was not a property EVG
+  # parsed at all — the shorthand and the other two longhands were, so a sheet
+  # using `flex-grow: 1` was ignored without a word, and the stepper's rails
+  # each took the parent's full width and pushed the steps down the page on
+  # top of each other. Six cases, and the ones that matter are the ones an
+  # implementation gets wrong: weighted factors, `flex-basis` sharing only the
+  # remainder, and a grower with no free space left to take.
+  evg:flexgrow:check
 )
 
 failed=()

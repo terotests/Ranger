@@ -1,0 +1,171 @@
+{
+  "$source": "Chromium via playwright-core, measured by gallery/ui/conformance/oracle/flexgrow_oracle.mjs",
+  "cases": {
+    "evenPair": {
+      "note": "two equal growers between three fixed items, with a gap",
+      "css": ".box{display:flex;flex-direction:row;align-items:center;gap:8px;width:852px;height:40px}\n          .item{width:60px;height:26px}\n          .rail{height:2px;flex-grow:1}",
+      "html": "<div class=\"box\"><div class=\"item\" id=\"a\"></div><div class=\"rail\" id=\"r1\"></div><div class=\"item\" id=\"b\"></div><div class=\"rail\" id=\"r2\"></div><div class=\"item\" id=\"c\"></div></div>",
+      "ids": [
+        "a",
+        "r1",
+        "b",
+        "r2",
+        "c"
+      ],
+      "boxes": {
+        "a": {
+          "x": 0,
+          "y": 7,
+          "w": 60,
+          "h": 26
+        },
+        "r1": {
+          "x": 68,
+          "y": 19,
+          "w": 320,
+          "h": 2
+        },
+        "b": {
+          "x": 396,
+          "y": 7,
+          "w": 60,
+          "h": 26
+        },
+        "r2": {
+          "x": 464,
+          "y": 19,
+          "w": 320,
+          "h": 2
+        },
+        "c": {
+          "x": 792,
+          "y": 7,
+          "w": 60,
+          "h": 26
+        }
+      }
+    },
+    "weighted": {
+      "note": "factors 1 and 3 share the same free space",
+      "css": ".box{display:flex;flex-direction:row;width:400px;height:20px}\n          .one{flex-grow:1;height:10px}\n          .three{flex-grow:3;height:10px}",
+      "html": "<div class=\"box\"><div class=\"one\" id=\"p\"></div><div class=\"three\" id=\"q\"></div></div>",
+      "ids": [
+        "p",
+        "q"
+      ],
+      "boxes": {
+        "p": {
+          "x": 0,
+          "y": 0,
+          "w": 100,
+          "h": 10
+        },
+        "q": {
+          "x": 100,
+          "y": 0,
+          "w": 300,
+          "h": 10
+        }
+      }
+    },
+    "growAndFixed": {
+      "note": "one grower beside a fixed item",
+      "css": ".box{display:flex;flex-direction:row;width:300px;height:20px}\n          .fix{width:100px;height:10px}\n          .go{flex-grow:1;height:10px}",
+      "html": "<div class=\"box\"><div class=\"fix\" id=\"f\"></div><div class=\"go\" id=\"g\"></div></div>",
+      "ids": [
+        "f",
+        "g"
+      ],
+      "boxes": {
+        "f": {
+          "x": 0,
+          "y": 0,
+          "w": 100,
+          "h": 10
+        },
+        "g": {
+          "x": 100,
+          "y": 0,
+          "w": 200,
+          "h": 10
+        }
+      }
+    },
+    "growWithBasis": {
+      "note": "flex-basis is the starting size; grow shares only the remainder",
+      "css": ".box{display:flex;flex-direction:row;width:400px;height:20px}\n          .b1{flex-grow:1;flex-basis:100px;height:10px}\n          .b2{flex-grow:1;flex-basis:50px;height:10px}",
+      "html": "<div class=\"box\"><div class=\"b1\" id=\"u\"></div><div class=\"b2\" id=\"v\"></div></div>",
+      "ids": [
+        "u",
+        "v"
+      ],
+      "boxes": {
+        "u": {
+          "x": 0,
+          "y": 0,
+          "w": 225,
+          "h": 10
+        },
+        "v": {
+          "x": 225,
+          "y": 0,
+          "w": 175,
+          "h": 10
+        }
+      }
+    },
+    "noFreeSpace": {
+      "note": "the fixed items already fill the line",
+      "css": ".box{display:flex;flex-direction:row;width:200px;height:20px}\n          .fix{width:100px;height:10px}\n          .go{flex-grow:1;height:10px}",
+      "html": "<div class=\"box\"><div class=\"fix\" id=\"m\"></div><div class=\"fix\" id=\"n\"></div><div class=\"go\" id=\"o\"></div></div>",
+      "ids": [
+        "m",
+        "n",
+        "o"
+      ],
+      "boxes": {
+        "m": {
+          "x": 0,
+          "y": 0,
+          "w": 100,
+          "h": 10
+        },
+        "n": {
+          "x": 100,
+          "y": 0,
+          "w": 100,
+          "h": 10
+        },
+        "o": {
+          "x": 200,
+          "y": 0,
+          "w": 0,
+          "h": 10
+        }
+      }
+    },
+    "columnGrow": {
+      "note": "the same question down a column",
+      "css": ".box{display:flex;flex-direction:column;width:100px;height:300px}\n          .fix{height:100px;width:20px}\n          .go{flex-grow:1;width:20px}",
+      "html": "<div class=\"box\"><div class=\"fix\" id=\"s\"></div><div class=\"go\" id=\"t\"></div></div>",
+      "ids": [
+        "s",
+        "t"
+      ],
+      "boxes": {
+        "s": {
+          "x": 0,
+          "y": 0,
+          "w": 20,
+          "h": 100
+        },
+        "t": {
+          "x": 0,
+          "y": 100,
+          "w": 20,
+          "h": 200
+        }
+      }
+    }
+  }
+}

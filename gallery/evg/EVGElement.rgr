@@ -2948,6 +2948,25 @@ class EVGElement {
             flexWrap = value
             return
         }
+        ; `flex-grow`, WHICH WAS NOT HERE. `flex-shrink`, `flex-basis` and the
+        ; `flex` shorthand all were, so a stylesheet using the shorthand worked
+        ; and one using the longhand was silently ignored — the property name
+        ; falls through to the end of this function and nothing says so.
+        ;
+        ; What that looked like: `.cx-rail { flex-grow: 1 }` in the stepper.
+        ; With the grow factor dropped the rail has no width of its own, so it
+        ; took the parent's whole 852px, each of the three did, the row
+        ; overflowed by a factor of three and the steps stacked down the page
+        ; on top of one another. Chromium gives each rail 320 — the 640 of free
+        ; space split two ways — which is what the oracle beside this now
+        ; asserts.
+        if ((name == "flex-grow") || (name == "flexGrow")) {
+            def gv@(optional):double (to_double value)
+            if gv {
+                flex = (unwrap gv)
+            }
+            return
+        }
         if ((name == "flex-shrink") || (name == "flexShrink")) {
             def sv@(optional):double (to_double value)
             if sv {
