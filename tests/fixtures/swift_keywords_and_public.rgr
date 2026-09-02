@@ -1,0 +1,53 @@
+; A parameter named after a Swift keyword, a class the docs mark public, and
+; the two operators whose inline Swift form used to blow the type checker's
+; budget when several appeared in one expression.
+class Boxed {
+  def value:int 0
+} doc {
+  public
+  category "Test"
+  description "A public class, so its synthesized Hashable and Equatable witnesses have to be public too."
+}
+
+class KeywordUser {
+
+  ; `where` is legal Ranger and is where Swift opens a generic constraint
+  sfn pick:double (values:[double] where:double) {
+    if (where < 0.0) {
+      return 0.0
+    }
+    return where
+  }
+
+  sfn atOrAbove:double (values:[double]) {
+    def where:double 0.025
+    return (KeywordUser.pick(values where))
+  }
+
+  sfn sixChars:string (text:string) {
+    def a:string (strfromcode (charAt text 0))
+    def b:string (strfromcode (charAt text 1))
+    def c:string (strfromcode (charAt text 2))
+    return (((("#" + a) + b) + c) + a)
+  }
+
+  sfn countOnly:int (rows:[int]) {
+    def n:int 0
+    for rows row0:int ri {
+      n = (n + 1)
+    }
+    return n
+  }
+
+  sfn m@(main):void () {
+    def vs:[double]
+    push vs 1.0
+    print (to_string (KeywordUser.atOrAbove(vs)))
+    print (KeywordUser.sixChars("abc"))
+    def bx:Boxed (new Boxed)
+    print (to_string bx.value)
+    def rows:[int]
+    push rows 3
+    print (to_string (KeywordUser.countOnly(rows)))
+  }
+}

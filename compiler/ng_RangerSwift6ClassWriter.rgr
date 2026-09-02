@@ -1302,6 +1302,14 @@ class RangerSwift6ClassWriter {
       }
     }
 
+    ; Swift requires a protocol witness to be at least as visible as the type
+    ; that conforms. `==` and `hash(into:)` are synthesized here rather than
+    ; written by the author, so their visibility is not a separate decision --
+    ; it is the class's, and it is read once, here, for all three.
+    def swVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+    def clVis:string (swVis.classVisibility((unwrap cl) "" "public " ""))
+
+    wr.out(clVis false)
     wr.out("func ==(l: " + cl.compiledName +  ", r: " + cl.compiledName +  ") -> Bool {" , true)
     wr.indent(1)
     wr.out("return l === r" true)
@@ -1317,8 +1325,7 @@ class RangerSwift6ClassWriter {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
       clDocWr.writeSwiftDocForClass((unwrap cl) ctx wr)
     }
-    def swVis:RangerDocCommentWriter (new RangerDocCommentWriter)
-    wr.out((swVis.classVisibility((unwrap cl) "" "public " "")) false)
+    wr.out(clVis false)
     if cl.is_inherited {
     } {
       wr.out("final " false)
@@ -1342,6 +1349,7 @@ class RangerSwift6ClassWriter {
 
     if parentClass {
     } {
+      wr.out(clVis false)
       wr.out("func hash(into hasher: inout Hasher) {" true)
       wr.indent(1)
       wr.out("hasher.combine(ObjectIdentifier(self))" true)

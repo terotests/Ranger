@@ -26797,6 +26797,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               };
             };
           }
+          const swVis = new RangerDocCommentWriter();
+          const clVis = swVis.classVisibility(cl, "", "public ", "");
+          wr.out(clVis, false);
           wr.out(((("func ==(l: " + cl.compiledName) + ", r: ") + cl.compiledName) + ") -> Bool {", true);
           wr.indent(1);
           wr.out("return l === r", true);
@@ -26806,8 +26809,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const clDocWr = new RangerDocCommentWriter();
             clDocWr.writeSwiftDocForClass(cl, ctx, wr);
           }
-          const swVis = new RangerDocCommentWriter();
-          wr.out(swVis.classVisibility(cl, "", "public ", ""), false);
+          wr.out(clVis, false);
           if ( cl.is_inherited ) {
           } else {
             wr.out("final ", false);
@@ -26828,6 +26830,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.indent(1);
           if ( typeof(parentClass) != "undefined" ) {
           } else {
+            wr.out(clVis, false);
             wr.out("func hash(into hasher: inout Hasher) {", true);
             wr.indent(1);
             wr.out("hasher.combine(ObjectIdentifier(self))", true);
@@ -67909,34 +67912,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   break;
                                 case "swift_rc" : 
                                   const idx_24 = cmdArg.int_value;
+                                  const blockIdx = 4;
                                   if ( node.children.length > idx_24 ) {
                                     const arg_22 = node.children[idx_24];
-                                    if ( arg_22.hasParamDesc ) {
-                                      if ( arg_22.paramDesc.ref_cnt == 0 ) {
-                                        wr.out("_", false);
-                                      } else {
-                                        const p_2 = ctx.getVariableDef(arg_22.vref);
-                                        wr.out(p_2.compiledName, false);
+                                    let isRead = true;
+                                    if ( node.children.length > blockIdx ) {
+                                      const blockNode = node.children[blockIdx];
+                                      if ( arg_22.vref.length > 0 ) {
+                                        isRead = this.treeReferencesVRef(blockNode, arg_22.vref);
                                       }
                                     } else {
-                                      wr.out(arg_22.vref, false);
+                                      if ( arg_22.hasParamDesc ) {
+                                        isRead = arg_22.paramDesc.ref_cnt != 0;
+                                      }
+                                    }
+                                    if ( isRead == false ) {
+                                      wr.out("_", false);
+                                    } else {
+                                      if ( arg_22.hasParamDesc ) {
+                                        const p_2 = ctx.getVariableDef(arg_22.vref);
+                                        wr.out(p_2.compiledName, false);
+                                      } else {
+                                        wr.out(arg_22.vref, false);
+                                      }
                                     }
                                   }
                                   break;
                                 case "go_for_bind" : 
                                   const itemIdx = cmdArg.int_value;
-                                  const blockIdx = 4;
-                                  if ( node.children.length > blockIdx ) {
+                                  const blockIdx_1 = 4;
+                                  if ( node.children.length > blockIdx_1 ) {
                                     if ( node.children.length <= itemIdx ) {
                                       return;
                                     }
                                     const itemNode = node.children[itemIdx];
-                                    const blockNode = node.children[blockIdx];
+                                    const blockNode_1 = node.children[blockIdx_1];
                                     const itemName = itemNode.vref;
                                     if ( itemName.length == 0 ) {
                                       return;
                                     }
-                                    if ( this.treeReferencesVRef(blockNode, itemName) == false ) {
+                                    if ( this.treeReferencesVRef(blockNode_1, itemName) == false ) {
                                       return;
                                     }
                                     if ( itemNode.hasParamDesc ) {

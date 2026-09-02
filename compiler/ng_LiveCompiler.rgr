@@ -1442,19 +1442,41 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        ; Write a `for` loop's binding, or `_` when the loop BODY never reads it
+        ; -- Swift warns on every bound name that goes unread, and Ranger's
+        ; `for` binds both an item and an index whether the body wants them or
+        ; not.
+        ;
+        ; The question is answered by walking the body, the same way go_for_bind
+        ; decides whether to bind its item at all. ref_cnt cannot answer it: the
+        ; loop assigns the ITEM from the list on every iteration, so its counter
+        ; is never 0 even when nothing reads it -- which is why `for (_, row0)`
+        ; came out with the index elided and the unread item left in place.
         case "swift_rc" {
           def idx:int cmdArg.int_value
+          def blockIdx:int 4
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            if arg.hasParamDesc {
-              if (arg.paramDesc.ref_cnt == 0) {
-                wr.out("_" false)
-              } {
-                def p:RangerAppParamDesc (ctx.getVariableDef(arg.vref))
-                wr.out(p.compiledName false)
+            def isRead:boolean true
+            if ((array_length node.children) > blockIdx) {
+              def blockNode:CodeNode (itemAt node.children blockIdx)
+              if ((strlen arg.vref) > 0) {
+                isRead = (this.treeReferencesVRef(blockNode arg.vref))
               }
             } {
-              wr.out(arg.vref false)
+              if arg.hasParamDesc {
+                isRead = (arg.paramDesc.ref_cnt != 0)
+              }
+            }
+            if (isRead == false) {
+              wr.out("_" false)
+            } {
+              if arg.hasParamDesc {
+                def p:RangerAppParamDesc (ctx.getVariableDef(arg.vref))
+                wr.out(p.compiledName false)
+              } {
+                wr.out(arg.vref false)
+              }
             }
           }
         }
