@@ -643,6 +643,118 @@ console.log("--- the controls demo, and the modifier the page nearly dropped ---
   await page.waitForTimeout(150);
   ok("a plain ArrowUp still moves by one", (await shown()).includes("12"),
     (await shown()).join("/"));
+  // --- the sliders, through the page's own pointer -------------------------
+  //
+  // Four sliders drawn from a controller that has known how to be pressed,
+  // dragged and arrowed since it was measured against Radix. The demo called
+  // none of it and the page handed `press` an id with the x thrown away, so
+  // every one of them was a picture: a press on a track returned false and
+  // the values never moved. Making `position: absolute` parse put the thumbs
+  // in the right PLACE, which is the version of this that looks fixed.
+  //
+  // Checked here rather than only offline because the offline check drives
+  // `pressAt` directly, and what was missing was the page CALLING it — and
+  // because a drag has three steps and only a real pointer has all three.
+  const rails = () => page.evaluate(() => {
+    const cmds = JSON.parse(window.__lastList || '{"cmds":[]}').cmds;
+    // The rail and its filled range share an origin and a height; the colour
+    // is what tells them apart, and a full range is 300 wide like the rail.
+    const same = (c, rgb) => c.c && c.c[0] === rgb[0] && c.c[1] === rgb[1] && c.c[2] === rgb[2];
+    const bars = cmds.filter((c) => Math.abs(c.h - 6) < 0.5);
+    return bars.filter((c) => same(c, [244, 244, 245]))
+      .map((rail) => {
+        const fill = bars.find((b) => same(b, [10, 10, 10])
+          && Math.abs(b.x - rail.x) < 0.5 && Math.abs(b.y - rail.y) < 0.5);
+        return { x: rail.x, y: rail.y + rail.h / 2, w: rail.w, fill: fill ? fill.w : 0 };
+      })
+      .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  });
+  const origin = await page.evaluate(() => {
+    const b = document.querySelector("#stage canvas").getBoundingClientRect();
+    return { x: b.x, y: b.y };
+  });
+  const storage = async () => (await rails())[0];
+
+  const four = await rails();
+  ok("four sliders are drawn", four.length === 4, JSON.stringify(four));
+  // 5..35 at 12 is (12-5)/30 of 300.
+  ok("storage starts where init put it", Math.round(four[0].fill) === 70,
+    JSON.stringify(four[0]));
+
+  // A press on the rail, at 80% of it: 5..35 at 80% is 29, so 240/300 filled.
+  {
+    const s = await storage();
+    await page.mouse.click(origin.x + s.x + s.w * 0.8, origin.y + s.y);
+    await page.waitForTimeout(150);
+    const after = await storage();
+    ok("a press on the rail moves the slider", Math.round(after.fill) === 240,
+      JSON.stringify(after));
+  }
+
+  // A drag. Down at 80%, move to 20%, up — the three-step gesture, and the
+  // only one of the three paths a click cannot exercise.
+  {
+    const s = await storage();
+    await page.mouse.move(origin.x + s.x + s.w * 0.8, origin.y + s.y);
+    await page.mouse.down();
+    await page.mouse.move(origin.x + s.x + s.w * 0.5, origin.y + s.y, { steps: 4 });
+    await page.waitForTimeout(120);
+    const mid = await storage();
+    ok("the value follows the pointer DURING the drag", Math.round(mid.fill) === 150,
+      JSON.stringify(mid));
+    // Off the track entirely, which is where a real finger goes: the slider
+    // that was picked up keeps the gesture.
+    await page.mouse.move(origin.x + s.x + s.w * 0.2, origin.y + s.y - 60, { steps: 4 });
+    await page.waitForTimeout(120);
+    const off = await storage();
+    ok("and keeps following once the pointer leaves the track",
+      Math.round(off.fill) === 60, JSON.stringify(off));
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+    // 5..35 at 20% is 11.
+    const end = await storage();
+    ok("the release leaves it where the drag ended", Math.round(end.fill) === 60,
+      JSON.stringify(end));
+    // And the gesture is over: moving again does nothing.
+    await page.mouse.move(origin.x + s.x + s.w * 0.9, origin.y + s.y, { steps: 2 });
+    await page.waitForTimeout(120);
+    ok("a move after the release is not a drag",
+      Math.round((await storage()).fill) === 60, JSON.stringify(await storage()));
+  }
+
+  // The keyboard, on the thumb the press focused. One step of 30 across 300px
+  // is 10px of fill.
+  {
+    // Against the fill BEFORE the key, not against an absolute number: with
+    // the page's wiring reverted this slider sits at 70 for the whole run,
+    // and `=== 70` here would have passed while every other assertion in this
+    // block failed. A gate that can pass for the wrong reason is not a gate.
+    const before = Math.round((await storage()).fill);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(150);
+    const after = Math.round((await storage()).fill);
+    ok("ArrowRight moves the focused slider by exactly one step",
+      after - before === 10, `${before} -> ${after}`);
+    await page.keyboard.press("End");
+    await page.waitForTimeout(150);
+    ok("End fills it", Math.round((await storage()).fill) === 300,
+      JSON.stringify(await storage()));
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(150);
+    ok("Home empties it", Math.round((await storage()).fill) === 0,
+      JSON.stringify(await storage()));
+  }
+
+  // What a reader gets. The mirror is the tree a screen reader walks, and a
+  // slider that moves on screen while the mirror says 12 is the defect
+  // `a11yHasValue`/`a11yHasRange` were added for, reappearing on the page.
+  {
+    const spoken = await page.evaluate(() => {
+      const el = document.querySelector('[data-a11y-id="cx-storage-thumb"]');
+      return el ? [el.getAttribute("role"), el.getAttribute("aria-valuenow")].join("|") : "(absent)";
+    });
+    ok("the mirror reports the slider's new position", spoken === "slider|5", spoken);
+  }
 }
 
 console.log("--- the window follows the pointer ---");

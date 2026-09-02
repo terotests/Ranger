@@ -803,7 +803,17 @@ const DEMOS = {
     list: () => controls.displayListJson(),
     hit: (x, y) => controls.hitId(x, y),
     a11y: (gen, focus) => controls.a11yJson(gen, focus),
-    press: (id) => controls.press(id),
+    // `pressAt`, not `press`: a slider needs the x. The four on this page were
+    // drawn from a controller that has answered `dragBoundsTid` /
+    // `valueAtFraction` / `keyDown` since it was measured against Radix, and
+    // the page handed it an id and threw the coordinate away — so a press on a
+    // track returned false and every slider was a picture. `pressAt` falls
+    // through to `press` for everything that is not a slider.
+    press: (id, x) => controls.pressAt(id, x),
+    // A slider is a GESTURE, so this demo joins the drag path: the press picks
+    // up the track, the move carries the value, the release puts it down.
+    drag: (id, ev) => controls.dragTo(id, ev.offsetX),
+    drop: () => controls.dragEnd(),
     hover: (id) => {
       if (id === lastControlsHover) return false;
       lastControlsHover = id;
