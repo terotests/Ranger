@@ -565,7 +565,115 @@ The headless runs go in beside the existing ones: `npm run evg:inspect:test`.
 
 ---
 
-## 12. Phases
+## 12. The runner: the same channels, with no browser
+
+The four reads this design is built on — tree, style, hit, frame — are not
+only what a panel needs. They are what a **test** needs, and an EVG app can be
+driven through them in-process, with no browser, no page and no protocol.
+That makes the headless runner a use of the inspector rather than a separate
+project, and it is measured here rather than asserted:
+
+```bash
+npm run ui:runner:bench          # gallery/ui/bench/runner-vs-browser.mjs
+```
+
+Twenty tests, each a fresh instance or page, five interactions, five
+assertions. The browser half drives Chromium over raw CDP against a page
+holding one canvas and a ready flag — **no Playwright and no application**, so
+every browser number below is generous to the browser.
+
+```
+  target                      start-up      per test      suite total
+  ------------------------------------------------------------------
+  EVG runner / MessageDemo        9.2 ms       4.2 ms         93 ms
+  EVG runner / DashboardDemo     22.8 ms     107.1 ms       2 165 ms
+  Chromium floor (no app)       251.0 ms      91.9 ms       2 090 ms
+
+  per call
+    browser        evaluate 1.0–1.4 ms · DOM query 2.4–3.4 ms
+                   click 2.2–3.1 ms · screenshot 35–43 ms
+    MessageDemo    boot 2.4 ms · frame 0.34 ms · a11y 0.14 ms · hit 0.04 ms
+    DashboardDemo  boot 31 ms · frame 9.1 ms · a11y 8.8 ms · hit 11 ms
+                   hit (cached) 0.007 ms
+```
+
+Four things are worth reading off that table, and the last one is the reason
+this section is in the inspector's design and not in a benchmark README.
+
+**The browser's per-test cost is a constant.** Roughly 90 ms of page creation,
+navigation and protocol round trips before the app under test has done
+anything, on an empty page. Nothing in a suite tunes it away, and a real
+Playwright test adds its driver process, its selector engine, its actionability
+polling and the app's own boot on top.
+
+**An assertion is thirty to a hundred times cheaper in process.** 1.0–3.4 ms
+for an `evaluate` or a DOM query, against 0.04–0.14 ms to read the hit test or
+the accessible tree directly. A suite whose cost is dominated by assertions
+rather than by page loads is where this compounds hardest.
+
+**The runner has no screenshot problem.** A `Page.captureScreenshot` is 35–43 ms
+and produces pixels that then have to be diffed with a tolerance. The display
+list is already in hand, costs what the frame costs, and compares as
+structure — a command that moved says which command moved. Pixels stay the
+right tool for the two painters, and only for them (§11.4).
+
+**The runner's per-test cost is your app's frame, and that is the finding.**
+`MessageDemo` is 22× faster than the floor. `DashboardDemo` is *slower* than
+it, and not because of the method: `hitId` costs 11 ms and `hitIdCached`
+costs 0.007 ms, because the first re-renders the entire page before testing a
+point and the second tests the layout that is already there. `a11yJson` does
+the same rebuild. So a test that interacts and then makes three assertions
+pays for four full frames when it needed one — a 1 400× difference on one of
+them, sitting in an app that looks fine.
+
+That is precisely the class of thing this design exists to make visible, and
+it is an argument for building the panel first and the runner second: the
+runner's speed is the app's frame cost, and the frame cost is what the
+inspector shows you. A frame panel over `EVGStyleSheet`'s existing
+`planHits` / `planMisses` and the layout counters is the natural next step
+after the phase 2 in §13, and it is what turns "the dashboard suite is slow" into
+"the dashboard rebuilds its table three times per assertion".
+
+### What this is not
+
+The repository already runs this split and names the two halves correctly:
+`gallery/ui/conformance/oracle/*_oracle.mjs` drives **real Radix and Base UI in
+a real browser** and writes a trace to JSON; `*_check.mjs` replays the same
+questions against the Ranger controllers with no browser at all. The browser is
+the **oracle**, run when the reference might have changed. The headless run is
+the **gate**, run on every commit. `README.md` in `gallery/ui` says the browser
+playground is "a lead, not the gate", and that sentence is the whole policy.
+
+So the runner does not replace the browser. It replaces the *majority* of
+tests that never needed one, and leaves the browser the ones that do:
+
+* the painters — WebGL and SVG produce pixels and only a browser has them
+  (`pptx:html:parity` already differences the two);
+* real font rasterisation and platform text shaping;
+* the input the platform owns — IME composition, clipboard, the text-input
+  bridge driven through the DevTools protocol in `PLAN_INPUTS.md`;
+* whatever a screen reader is actually handed, as opposed to what the a11y
+  tree claims.
+
+### A mocked backend costs nothing here
+
+The reason e2e suites reach for a browser is usually not the browser. It is
+that the app only assembles inside one. An EVG app under this runner is an
+ordinary object in the test's own process, so a mock is an argument, not an
+interception: no route table, no service worker, no port, no fixture server,
+and no async at all if the mock is synchronous. `gallery/ui`'s checks already
+construct the demo, hand it CSS and press it by id.
+
+### Determinism, which may be worth more than the speed
+
+There is nothing to wait for. No auto-wait, no retry, no polling for an
+element to become actionable, no timeout to tune, and no frame budget to race.
+An interaction returns when the frame is built, and the assertion reads that
+frame. The flake class that makes browser suites expensive to own is not
+reduced here, it is absent — and a suite that never flakes is one nobody has
+to re-run, which is a second multiplier on top of the first.
+
+## 13. Phases
 
 Each phase is useful on its own; none of them requires the next.
 
@@ -584,9 +692,17 @@ Phase 6 is placed after 5 rather than last on purpose: a bundle is worth more
 than a live panel to the person reading a CI failure tomorrow, and it needs
 nothing from phase 7.
 
+The runner of §12 is not a phase here, because it needs nothing from this file
+that does not already exist — `gallery/ui`'s checks drive apps headless today.
+What it needs is the frame panel that phase 2 makes possible: the runner's
+speed is the app's frame cost, and until that is visible, a suite that is
+slower than a browser looks like a verdict on the method. Redundant rebuilds
+behind `hitId` and `a11yJson` are worth fixing on their own account and are
+independent of everything above.
+
 ---
 
-## 13. Non-goals
+## 14. Non-goals
 
 * **Not a profiler.** Frame timing is a real want and a different panel.
   `EVGStyleSheet` already counts `planHits` / `planMisses`, and `EVGDisplayList`
@@ -604,7 +720,7 @@ nothing from phase 7.
 
 ---
 
-## 14. Open questions
+## 15. Open questions
 
 * **Node paths across a keyed reorder.** `EVGReconcile` already decides which
   nodes are the same node across a rebuild. Should the inspect path be derived
@@ -626,7 +742,7 @@ nothing from phase 7.
 
 ---
 
-## 15. Summary
+## 16. Summary
 
 The picture an EVG app draws already knows everything the panel needs. The
 tree was laid out, the boxes were resolved, the rules were matched and a
