@@ -49,7 +49,104 @@ Import "EVGElement.rgr"
 Import "EVGBox.rgr"
 Import "EVGColor.rgr"
 Import "EVGHitTest.rgr"
+Import "EVGStyleSheet.rgr"
 Import "EVGDisplayList.rgr"
+
+; ==============================================================================
+; EVGInspectForce — states held on, by node path
+; ==============================================================================
+;
+; A menu that closes when the pointer leaves it cannot be looked at, and a
+; `:hover` rule cannot be edited while the only way to see it is to keep the
+; mouse somewhere other than the panel. Chrome answers this with the `:hov`
+; toggles and so does this: the four interaction bits are held ON for a node
+; until they are let go.
+;
+; They are the four `EVGPseudo.holds` reads — `isHovered`, `isFocused`,
+; `isPressed`, `a11yDisabled` — so nothing new has to be taught to the cascade.
+; A held state is an ordinary state as far as every rule is concerned.
+;
+; KEYED BY PATH, NOT BY ELEMENT, and that is the whole reason this works at
+; all. A page built from tree literals throws its elements away on every input,
+; so a flag written onto an element would last one frame. A path is a fact
+; about the tree's shape, so it names whatever element is in that position on
+; the next pass too.
+;
+; A singleton because the table has to outlive the walk that reads it and every
+; element in the tree, and because the alternative is a field on every app that
+; wants the feature.
+;
+; ON only, like the browser's. Forcing a state OFF is a different thing — it
+; would be arguing with the app about what is happening rather than holding
+; still something that already is.
+; ==============================================================================
+
+class EVGInspectForce @singleton(true) {
+    def paths:[string]
+    def bits:[int]
+
+    Constructor () {
+        def a:[string]
+        paths = a
+        def b:[int]
+        bits = b
+    }
+
+    sfn HOVER:int ()    { return 1 }
+    sfn FOCUS:int ()    { return 2 }
+    sfn PRESSED:int ()  { return 4 }
+    sfn DISABLED:int () { return 8 }
+
+    fn indexOf:int (path:string) {
+        def i:int 0
+        while (i < (array_length paths)) {
+            if ((itemAt paths i) == path) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; `b` of 0 lets the node go rather than recording "nothing held", so an
+    ; empty table is exactly "nothing is held" and the check that skips the
+    ; whole feature is one array length.
+    fn set:void (path:string b:int) {
+        def at:int (this.indexOf(path))
+        if (b == 0) {
+            if (at >= 0) {
+                remove_index paths at
+                remove_index bits at
+            }
+            return
+        }
+        if (at < 0) {
+            push paths path
+            push bits b
+            return
+        }
+        set_at bits at b
+    }
+
+    fn get:int (path:string) {
+        def at:int (this.indexOf(path))
+        if (at < 0) {
+            return 0
+        }
+        return (itemAt bits at)
+    }
+
+    fn count:int () {
+        return (array_length paths)
+    }
+
+    fn clearAll:void () {
+        def a:[string]
+        paths = a
+        def b:[int]
+        bits = b
+    }
+}
 
 class EVGInspect {
     ; Parallel arrays, indexed by slot. A flat tree with a parent id is the
@@ -288,7 +385,24 @@ class EVGInspect {
         out = (out + ",\"computed\":{")
         def n:int 0
         n = (this.prop(n "display" el.display))
-        n = (this.prop(n "position" el.position))
+        ; `position` is reported as the layout USED it, not as the field reads.
+        ;
+        ; The cascade has no `position` branch — `EVGElement.setAttribute` does
+        ; not know the name — so a rule saying `position: absolute` never
+        ; reaches the field, and `hasAbsolutePosition` decides out-of-flow from
+        ; the offsets, the overlay flag and the tag instead. An element that a
+        ; rule made absolute therefore still reads "relative", and a panel
+        ; printing the field would be reporting a value nothing consulted.
+        ;
+        ; Two consequences worth knowing rather than hiding: `position:
+        ; absolute` with no offsets is silently ignored by this engine, and the
+        ; check in `inspect-check.mjs` is what would catch it, because the
+        ; effective value would then disagree with the rule that asked for it.
+        def pos:string el.position
+        if el.isAbsolute {
+            pos = "absolute"
+        }
+        n = (this.prop(n "position" pos))
         n = (this.prop(n "flex-direction" el.flexDirection))
         n = (this.prop(n "justify-content" el.justifyContent))
         n = (this.prop(n "align-items" el.alignItems))
@@ -371,12 +485,167 @@ class EVGInspect {
         out = (out + "," + (EVGDisplayList.num(cw)))
         out = (out + "," + (EVGDisplayList.num(ch)) + "]")
 
+        out = (out + (this.cascadeJson(el)))
+        out = (out + ",\"forced\":" + (to_string (EVGInspect.forcedState(path))))
         out = (out + ",\"styleSlot\":" + (to_string el.styleSlot))
         out = (out + ",\"styleClass\":" + (EVGInspect.jsonString(el.styleClass)))
         out = (out + ",\"page\":" + (to_string el.calculatedPage))
         def full:string (EVGInspect.clip(el.textContent 400))
         out = (out + ",\"textFull\":" + (EVGInspect.jsonString(full)))
         return (out + "}")
+    }
+
+    ; --- what set this value --------------------------------------------------
+    ;
+    ; Which classes reach this element, and which rules under them wrote what.
+    ;
+    ; Read out of the PLAN, which is where `buildPlan` recorded the rule beside
+    ; every declaration it flattened. Nothing is re-matched and no specificity
+    ; is scored here: the plan's order is the cascade's order, so the LAST
+    ; entry for a property is the winner and the ones before it are the ones it
+    ; beat. That is why the panel cannot disagree with the engine about who
+    ; won — it is not deciding, it is reading.
+    ;
+    ; Empty when no sheet was given, which is the honest answer for a host that
+    ; has not offered one rather than a guess assembled from the element.
+
+    def sheet@(optional):EVGStyleSheet
+    def tally:[string]
+    def tallyCount:[int]
+
+    fn useSheet:void (s:EVGStyleSheet) {
+        sheet = s
+    }
+
+    ; How many elements in this tree carry a class. The panel shows it before
+    ; you edit a rule, because this cascade selects on classes alone: there is
+    ; no way to reach one instance without giving it a class of its own, and
+    ; ".db-card" is four cards whether or not that was the intention.
+    fn countClass:int (want:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length els)) {
+            def el:EVGElement (itemAt els i)
+            def classes:[string] (EVGInspect.splitWs(el.className))
+            def j:int 0
+            while (j < (array_length classes)) {
+                if ((itemAt classes j) == want) {
+                    n = (n + 1)
+                    j = (array_length classes)
+                } {
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn cascadeJson:string (el:EVGElement) {
+        def out:string ",\"classes\":["
+        def classes:[string] (EVGInspect.splitWs(el.className))
+        def c:int 0
+        while (c < (array_length classes)) {
+            if (c > 0) {
+                out = (out + ",")
+            }
+            def nm:string (itemAt classes c)
+            out = (out + "{\"name\":" + (EVGInspect.jsonString(nm)))
+            out = (out + ",\"matches\":" + (to_string (this.countClass(nm))) + "}")
+            c = (c + 1)
+        }
+        out = (out + "]")
+        if (null? sheet) {
+            return (out + ",\"cascade\":[]")
+        }
+        def sh:EVGStyleSheet (unwrap sheet)
+        def slot:int el.styleSlot
+        def n:int (sh.planLength(slot))
+        if (n == 0) {
+            return (out + ",\"cascade\":[]")
+        }
+        ; The winner of each property is the last entry that names it, so one
+        ; backwards pass marks the winners and everything else lost.
+        def wonAt:[int]
+        def seen:[string]
+        def i:int (n - 1)
+        while (i >= 0) {
+            def nm2:string (sh.planNameAt(slot i))
+            def already:boolean false
+            def k:int 0
+            while (k < (array_length seen)) {
+                if ((itemAt seen k) == nm2) {
+                    already = true
+                    k = (array_length seen)
+                } {
+                    k = (k + 1)
+                }
+            }
+            if already {
+                push wonAt 0
+            } {
+                push wonAt 1
+                push seen nm2
+            }
+            i = (i - 1)
+        }
+        ; `wonAt` was filled backwards, so entry `i` is at `n - 1 - i`.
+        out = (out + ",\"cascade\":[")
+        def w:int 0
+        while (w < n) {
+            if (w > 0) {
+                out = (out + ",")
+            }
+            def ruleIdx:int (sh.planRuleAt(slot w))
+            out = (out + "{\"p\":" + (EVGInspect.jsonString((sh.planNameAt(slot w)))))
+            out = (out + ",\"v\":" + (EVGInspect.jsonString((sh.planValueAt(slot w)))))
+            out = (out + ",\"sel\":" + (EVGInspect.jsonString((sh.selectorOf(ruleIdx)))))
+            def med:string (sh.ruleMediaOf(ruleIdx))
+            if ((strlen med) > 0) {
+                out = (out + ",\"media\":" + (EVGInspect.jsonString(med)))
+            }
+            def cls:string (sh.ruleClassOf(ruleIdx))
+            if ((strlen cls) > 0) {
+                out = (out + ",\"cls\":" + (EVGInspect.jsonString(cls)))
+            }
+            def isWin:int (itemAt wonAt ((n - 1) - w))
+            if (isWin == 1) {
+                out = (out + ",\"win\":true")
+            }
+            ; An inline attribute outranks every rule, so a declaration the
+            ; element has set on itself never lands however the plan reads.
+            ; Marked rather than dropped: "the app writes this one" is the
+            ; answer to why editing the sheet did nothing.
+            def nm3:string (sh.planNameAt(slot w))
+            if (el.hasInline(nm3)) {
+                out = (out + ",\"beatenByInline\":true")
+            }
+            out = (out + "}")
+            w = (w + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn splitWs:[string] (v:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen v)) {
+            def ch:int (charAt v i)
+            if ((((ch == 32) || (ch == 9)) || (ch == 10)) || (ch == 13)) {
+                if ((strlen cur) > 0) {
+                    push out cur
+                    cur = ""
+                }
+            } {
+                cur = (cur + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
     }
 
     ; The property writer. An accumulator field rather than a returned string,
@@ -445,6 +714,67 @@ class EVGInspect {
         return (n + 1)
     }
 
+    ; Hold what the panel asked to be held, on the tree as it is now.
+    ;
+    ; A host calls this between marking its OWN interaction states and running
+    ; the cascade — the order matters and it is the only thing a host has to
+    ; get right: after the app has said what is hovered, before the sheet is
+    ; asked which rules that makes true.
+    ;
+    ; Costs one array length when nothing is held, which is the normal case and
+    ; the whole shape of the guard.
+    sfn applyForced:void (root:EVGElement) {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        if ((force.count()) == 0) {
+            return
+        }
+        def ins (new EVGInspect())
+        ins.build(root)
+        def i:int 0
+        while (i < (array_length ins.paths)) {
+            def b:int (force.get((itemAt ins.paths i)))
+            if (b != 0) {
+                def el:EVGElement (itemAt ins.els i)
+                if ((b % 2) == 1) {
+                    el.isHovered = true
+                }
+                def f:int (idiv b 2)
+                if ((f % 2) == 1) {
+                    el.isFocused = true
+                }
+                def p:int (idiv b 4)
+                if ((p % 2) == 1) {
+                    el.isPressed = true
+                }
+                def d:int (idiv b 8)
+                if ((d % 2) == 1) {
+                    el.a11yDisabled = true
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn forceState:void (path:string bits:int) {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        force.set(path bits)
+    }
+
+    sfn forcedState:int (path:string) {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        return (force.get(path))
+    }
+
+    sfn forcedCount:int () {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        return (force.count())
+    }
+
+    sfn clearForced:void () {
+        def force:EVGInspectForce (EVGInspectForce.__singleton())
+        force.clearAll()
+    }
+
     ; --- the three calls a host actually makes ---------------------------------
     ;
     ; A fresh walk per call rather than a cached instance, and deliberately: a
@@ -463,6 +793,16 @@ class EVGInspect {
     sfn nodeOf:string (root:EVGElement path:string) {
         def ins (new EVGInspect())
         ins.build(root)
+        return (ins.nodeJson(path))
+    }
+
+    ; The same, with the cascade. A host that has its stylesheet in hand should
+    ; call this one: without the sheet the detail can still say what the value IS,
+    ; and only with it can it say what SET it.
+    sfn nodeOfIn:string (root:EVGElement path:string sheet:EVGStyleSheet) {
+        def ins (new EVGInspect())
+        ins.build(root)
+        ins.useSheet(sheet)
         return (ins.nodeJson(path))
     }
 

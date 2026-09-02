@@ -24,12 +24,41 @@
 //                               //            the tree does not fill it
 //       transform: () => json,  // optional — {x, y, k} mapping the tree's
 //                               //            coordinates onto the surface
+//       css:   () => ({ name, text, href, errors }),   // optional
+//       setCss: (text) => void,                        // optional
+//       force: (path, bits) => void,                   // optional — hold a
+//                               //            state on: 1 hover, 2 focus,
+//                               //            4 pressed, 8 disabled
+//       saveCss: (text) => void,                       // optional — write it
+//                               //            back where it came from
 //       label: "…",             // optional — what to call the app
 //     },
 //   })
 //
+// EVERY ONE OF THESE MAY RETURN A PROMISE. A host in the same page answers
+// synchronously and nothing here notices the difference; the three directions
+// that are not in the same page — a DevTools extension over
+// `inspectedWindow.eval`, a native target over a socket, a paused page
+// answering out of a snapshot — are all the same shape, which is that the
+// answer does not come back on the same tick. Awaiting a value that is already
+// a value costs a microtask, and writing the panel as if it could not is the
+// kind of decision that is cheap now and a rewrite later.
+//
+// The two exceptions are `transform` and `viewport`, which are read on every
+// pointer move to place the overlay. Those are awaited once per refresh and
+// cached, because a highlight that arrives a tick after the pointer is a
+// highlight that lags.
+//
 // Everything past `tree` degrades rather than fails, which is what makes one
 // panel serve a slide editor and a dashboard without either knowing about it.
+//
+// `css`/`setCss` are the pair that makes the panel an editor rather than a
+// viewer, and they are the reason it does not need an override layer. The
+// element tree is an app's OUTPUT — edit it and the next rebuild throws the
+// edit away, which is why a DevTools style edit dies on a React re-render. The
+// stylesheet is an app's INPUT: hand back a changed one and the app re-parses
+// and re-cascades exactly as it did at startup. Nothing is intercepted, and
+// the text in the editor is the text that goes in the file.
 //
 // The overlay is DOM over the surface, not commands in the display list. Two
 // reasons and both matter: a screenshot taken while the panel is open is still
@@ -92,6 +121,37 @@ const CSS = `
 .evgi-bm.p { background: var(--evgi-padding); }
 .evgi-bm.c { background: var(--evgi-content); padding:16px 10px; }
 .evgi-empty { color:var(--evgi-dim); padding:14px 2px; }
+.evgi-rule { border:1px solid var(--evgi-line); border-radius:6px; margin:0 0 7px; overflow:hidden; }
+.evgi-rule > header { display:flex; align-items:center; gap:7px; padding:4px 8px; background:var(--evgi-panel);
+  font-family: ui-monospace, Menlo, monospace; font-size:11.5px; }
+.evgi-rule > header .sel { color:#b39ddb; }
+.evgi-rule > header .cnt { margin-left:auto; color:var(--evgi-dim); font-size:10.5px; white-space:nowrap; }
+.evgi-rule > header .media { color:#f2b661; font-size:10.5px; }
+.evgi-rule .decls { padding:4px 8px 5px; display:grid; grid-template-columns:minmax(96px,auto) 1fr;
+  gap:1px 10px; font-family: ui-monospace, Menlo, monospace; font-size:11.5px; }
+.evgi-rule .decls .k { color:var(--evgi-dim); }
+.evgi-rule .lost .k, .evgi-rule .lost .v { text-decoration: line-through; opacity:.45; }
+.evgi-rule .inl .k, .evgi-rule .inl .v { text-decoration: line-through; opacity:.55; }
+.evgi-chip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--evgi-line);
+  border-radius:11px; padding:1px 8px; margin:0 5px 5px 0; font-family: ui-monospace, Menlo, monospace;
+  font-size:11px; }
+.evgi-chip b { color:#b39ddb; font-weight:500; }
+.evgi-hov { display:flex; gap:5px; flex-wrap:wrap; padding:0 0 2px; }
+.evgi-hov button { font:11px ui-monospace, Menlo, monospace; padding:2px 8px; border-radius:5px;
+  border:1px solid var(--evgi-line); background:transparent; color:var(--evgi-dim); cursor:pointer; }
+.evgi-hov button:hover { color:var(--evgi-ink); }
+.evgi-hov button.on { background:var(--evgi-accent); border-color:var(--evgi-accent); color:#0b0e14; }
+.evgi-hov .rel { margin-left:auto; }
+.evgi-chip span { color:var(--evgi-dim); font-size:10.5px; }
+.evgi-note { color:var(--evgi-dim); padding:6px 0 0; line-height:1.6; }
+.evgi-css textarea { width:100%; min-height:230px; resize:vertical; background:var(--evgi-bg);
+  color:var(--evgi-ink); border:1px solid var(--evgi-line); border-radius:6px; padding:7px 8px;
+  font:11.5px/1.55 ui-monospace, Menlo, monospace; white-space:pre; overflow-wrap:normal; }
+.evgi-css textarea:focus { outline:none; border-color:var(--evgi-accent); }
+.evgi-css .bar { display:flex; align-items:center; gap:7px; padding:0 0 6px; }
+.evgi-css .bar .name { font-family: ui-monospace, Menlo, monospace; font-size:11.5px; }
+.evgi-css .bar .live { margin-left:auto; color:#7ee0c0; font-size:10.5px; }
+.evgi-css .err { color:#f87171; font-family: ui-monospace, Menlo, monospace; font-size:11px; padding:5px 0 0; }
 .evgi-cmd { font-family: ui-monospace, Menlo, monospace; font-size:11px; padding:1px 0; }
 .evgi-cmd b { color:#7ee0c0; font-weight:600; }
 .evgi-foot { flex:0 0 auto; padding:5px 9px; border-top:1px solid var(--evgi-line); color:var(--evgi-dim);
@@ -214,7 +274,7 @@ export function attach(opts = {}) {
   const body = el("div", "evgi-body");
   const foot = el("div", "evgi-foot");
 
-  const TABS = [["box", "Box"], ["styles", "Styles"], ["cmds", "Commands"], ["raw", "Node"]];
+  const TABS = [["box", "Box"], ["styles", "Styles"], ["css", "CSS"], ["cmds", "Commands"], ["raw", "Node"]];
   const tabEls = {};
   for (const [key, label] of TABS) {
     const t = el("div", "evgi-tab", label);
@@ -237,38 +297,52 @@ export function attach(opts = {}) {
 
   function surfaceRect() { return surface.getBoundingClientRect(); }
 
-  // The surface's own logical width. A page whose tree fills the surface has
-  // nothing to say here and gets the tree's width; an editor that draws a
-  // slide inside a window says how big the window is, because the tree is the
-  // slide and the surface is not.
-  function viewport() {
+  // The surface's own logical size and the tree's placement on it, read once
+  // per refresh and kept. See the note at the top about why these two, alone,
+  // are not awaited per call.
+  let view = { vw: 1, vh: 1, t: { x: 0, y: 0, k: 1 } };
+
+  async function readView() {
+    let vw = tree ? tree.w : 1;
+    let vh = tree ? tree.h : 1;
     if (typeof app.viewport === "function") {
-      try { const v = app.viewport(); if (v && v[0]) return v; } catch { /* below */ }
+      try { const v = await app.viewport(); if (v && v[0]) { vw = v[0]; vh = v[1]; } } catch { /* keep the tree's */ }
     }
-    return tree ? [tree.w, tree.h] : [1, 1];
-  }
-  function scale() {
-    const r = surfaceRect();
-    return r.width / viewport()[0] || 1;
-  }
-  function transform() {
+    let t = { x: 0, y: 0, k: 1 };
     if (typeof app.transform === "function") {
       try {
-        const t = parse(app.transform());
-        if (t && typeof t.k === "number") return { x: t.x || 0, y: t.y || 0, k: t.k || 1 };
-      } catch { /* below */ }
+        const raw = parse(await app.transform());
+        if (raw && typeof raw.k === "number") t = { x: raw.x || 0, y: raw.y || 0, k: raw.k || 1 };
+      } catch { /* identity */ }
     }
-    return { x: 0, y: 0, k: 1 };
+    view = { vw, vh, t };
   }
 
-  function refreshTree(keepSelection = true) {
+  function viewport() { return [view.vw, view.vh]; }
+  function scale() {
+    const r = surfaceRect();
+    return r.width / view.vw || 1;
+  }
+  function transform() { return view.t; }
+
+  // Refreshes overlap when a host is slow — a repaint asks while the previous
+  // answer is still in flight — so the newest wins and the older ones drop
+  // their results rather than painting a tree that has already been replaced.
+  let refreshToken = 0;
+
+  async function refreshTree(keepSelection = true) {
+    const mine = ++refreshToken;
+    let fetched;
     try {
-      tree = parse(app.tree());
+      fetched = parse(await app.tree());
     } catch (e) {
+      if (mine !== refreshToken) return;
       tree = null;
       foot.textContent = "tree() failed: " + e.message;
       return;
     }
+    if (mine !== refreshToken) return;
+    tree = fetched;
     byId = new Map();
     kids = new Map();
     for (const n of tree.nodes) {
@@ -286,16 +360,20 @@ export function attach(opts = {}) {
     }
     frame = null;
     if (typeof app.frame === "function") {
-      try { frame = parse(app.frame()); } catch { frame = null; }
+      try { frame = parse(await app.frame()); } catch { frame = null; }
+      if (mine !== refreshToken) return;
     }
+    await readView();
+    if (mine !== refreshToken) return;
     renderTree(); renderBody(); renderFoot();
   }
 
-  function loadDetail(id) {
+  async function loadDetail(id) {
     detail = null;
-    if (typeof app.node === "function") {
-      try { detail = parse(app.node(id)); } catch (e) { detail = { error: e.message }; }
-    }
+    if (typeof app.node !== "function") return;
+    try { detail = parse(await app.node(id)); } catch (e) { detail = { error: e.message }; }
+    // The selection moved on while this was in flight.
+    if (selected !== id) detail = null;
   }
 
   // A hit test the app did not provide. Reverse document order over the boxes
@@ -310,19 +388,30 @@ export function attach(opts = {}) {
     }
     return "";
   }
-  function hitAt(x, y) {
+  // A pointer moves faster than a slow host answers, so the answers can come
+  // back out of order. The newest question is the only one whose answer is
+  // allowed to move the highlight.
+  let hitToken = 0;
+
+  async function hitAt(x, y) {
     if (typeof app.hit === "function") {
-      try { return app.hit(x, y) || ""; } catch { /* fall through */ }
+      const mine = ++hitToken;
+      try {
+        const id = (await app.hit(x, y)) || "";
+        if (mine !== hitToken) return null;
+        return id;
+      } catch { /* fall through to the geometric one */ }
     }
     return fallbackHit(x, y);
   }
 
   // --- selection -----------------------------------------------------------
 
-  function select(id, { reveal = true, quiet = false } = {}) {
+  async function select(id, { reveal = true, quiet = false } = {}) {
     if (!byId.has(id)) return;
     selected = id;
-    loadDetail(id);
+    await loadDetail(id);
+    if (selected !== id) return;
     if (reveal) {
       let p = byId.get(id).p;
       while (p != null) { expanded.add(p); p = byId.get(p) ? byId.get(p).p : null; }
@@ -431,6 +520,7 @@ export function attach(opts = {}) {
     }
     if (tab === "box") renderBox(n);
     else if (tab === "styles") renderStyles(n);
+    else if (tab === "css") renderCss();
     else if (tab === "cmds") renderCmds(n);
     else renderRaw(n);
   }
@@ -481,18 +571,235 @@ export function attach(opts = {}) {
     }
     if (detail.error) { body.appendChild(el("div", "evgi-empty", detail.error)); return; }
     const inline = new Set(detail.inline || []);
+
+    // --- states held on ------------------------------------------------------
+    //
+    // A `:hover` rule cannot be read while the only way to make it true is to
+    // keep the pointer somewhere other than this panel. These hold the four
+    // interaction bits on for the selected node until they are let go, which
+    // is the same thing Chrome's `:hov` does and for the same reason.
+    if (typeof app.force === "function") {
+      const bits = detail.forced || 0;
+      const row = el("div", "evgi-hov");
+      for (const [bit, label] of [[1, ":hover"], [2, ":focus"], [4, ":active"], [8, ":disabled"]]) {
+        const b = el("button", (bits & bit) ? "on" : "", label);
+        b.title = (bits & bit) ? "held on — click to let go" : "hold this state on";
+        b.onclick = async () => {
+          await app.force(n.id, bits ^ bit);
+          await refreshTree();
+          await select(n.id, { reveal: false });
+        };
+        row.appendChild(b);
+      }
+      if (bits) {
+        const rel = el("button", "rel", "let go");
+        rel.onclick = async () => {
+          await app.force(n.id, 0);
+          await refreshTree();
+          await select(n.id, { reveal: false });
+        };
+        row.appendChild(rel);
+      }
+      body.append(el("h4", null, "state"), row);
+      if (bits) {
+        body.appendChild(el("div", "evgi-note",
+          "Held on. The cascade sees an ordinary state — nothing was taught to it — "
+          + "so the rules below are the ones that are really matching."));
+      }
+    }
+
+    // --- which classes reach this element ------------------------------------
+    //
+    // This cascade selects on classes and nothing else, so the set of rules
+    // that can ever touch a node is exactly the set written against one of its
+    // classes. That makes the list short, exact, and worth showing first: it
+    // is the answer to "where do I go to change this".
+    const classes = detail.classes || [];
+    if (classes.length) {
+      body.append(el("h4", null, "classes on this element"));
+      const wrap = el("div");
+      for (const c of classes) {
+        const chip = el("span", "evgi-chip");
+        chip.append(el("b", null, "." + c.name), el("span", null, `${c.matches} element${c.matches === 1 ? "" : "s"}`));
+        chip.title = `.${c.name} matches ${c.matches} element${c.matches === 1 ? "" : "s"} in this tree`;
+        chip.onclick = () => { filter = "." + c.name; search.value = filter; renderTree(); };
+        wrap.appendChild(chip);
+      }
+      body.appendChild(wrap);
+      const many = classes.filter((c) => c.matches > 1);
+      if (many.length) {
+        body.appendChild(el("div", "evgi-note",
+          "Editing one of these changes every element that carries it — there is no "
+          + "way to reach one instance without giving it a class of its own."));
+      }
+    } else if (n.cls === undefined) {
+      body.append(el("h4", null, "classes on this element"));
+      body.appendChild(el("div", "evgi-note",
+        "None. The cascade skips an element with no class, so no stylesheet rule "
+        + "can reach this one at all — whatever it looks like was set on it directly."));
+    }
+
+    // --- the rules, grouped, winners and losers ------------------------------
+    const cascade = detail.cascade || [];
+    if (cascade.length) {
+      body.append(el("h4", null, "rules, strongest last"));
+      // Group consecutive declarations that came from the same selector: the
+      // plan is flat, but a person reads rules.
+      const groups = [];
+      for (const d of cascade) {
+        const last = groups[groups.length - 1];
+        if (last && last.sel === d.sel && last.media === d.media) last.decls.push(d);
+        else groups.push({ sel: d.sel, media: d.media, cls: d.cls, decls: [d] });
+      }
+      const matchOf = new Map(classes.map((c) => [c.name, c.matches]));
+      for (const g of groups) {
+        const box = el("div", "evgi-rule");
+        const head = el("header");
+        head.appendChild(el("span", "sel", g.sel));
+        if (g.media) head.appendChild(el("span", "media", "@media " + g.media));
+        const m = matchOf.get(g.cls);
+        if (m !== undefined) head.appendChild(el("span", "cnt", `${m} element${m === 1 ? "" : "s"}`));
+        box.appendChild(head);
+        const decls = el("div", "decls");
+        for (const d of g.decls) {
+          const cls = d.beatenByInline ? "inl" : (d.win ? "" : "lost");
+          const k = el("div", "k" + (cls ? " " + cls : ""), d.p);
+          const v = el("div", "v" + (cls ? " " + cls : ""));
+          if (/^(#|rgb|hsl)/.test(String(d.v))) {
+            const sw = el("span", "evgi-swatch");
+            sw.style.background = d.v;
+            v.append(sw, document.createTextNode(d.v));
+          } else v.textContent = d.v;
+          if (d.beatenByInline) v.title = "the app sets this on the element; no rule can win";
+          else if (!d.win) v.title = "overridden by a later rule";
+          decls.append(k, v);
+        }
+        box.appendChild(decls);
+        body.appendChild(box);
+      }
+      if (cascade.some((d) => d.beatenByInline)) {
+        body.appendChild(el("div", "evgi-note",
+          "A struck line marked as inline is not lost to another rule — the app "
+          + "writes that property onto the element itself, and an inline value "
+          + "outranks every rule. Editing the sheet cannot change it."));
+      }
+    } else {
+      body.append(el("h4", null, "rules"));
+      body.appendChild(el("div", "evgi-note",
+        detail.classes
+          ? "No rule in the sheet writes to this element."
+          : "This host did not hand the inspector its stylesheet, so what SET each "
+          + "value cannot be shown — only what the value is."));
+    }
+
+    // --- and the values that came out ----------------------------------------
     const rows = Object.entries(detail.computed || {})
       .map(([k, v]) => [k, v, inline.has(k) ? "ov" : ""]);
     body.append(el("h4", null, `computed  ·  ${rows.length} properties`), kv(rows));
     if (inline.size) {
-      body.append(el("h4", null, "set on the element"),
+      body.append(el("h4", null, "set on the element, not by a rule"),
         el("div", "evgi-cmd", [...inline].join(", ")));
-      const note = el("div", "evgi-empty",
-        "Highlighted above. This is the cascade's own record — an inline value "
-        + "outranks every stylesheet rule, which is why it is kept.");
-      note.style.paddingTop = "4px";
-      body.append(note);
+      body.appendChild(el("div", "evgi-note",
+        "Highlighted above. This is the cascade's own record of what the authoring "
+        + "layer set directly — it is what the cascade consults to know what it must "
+        + "not overwrite, so it is read here rather than guessed."));
     }
+  }
+
+  // --- the stylesheet, as the input it is ------------------------------------
+  //
+  // The element tree is the app's output; the sheet is its input. So this pane
+  // edits a real input and hands it back, and the app re-parses and
+  // re-cascades exactly as it did at startup. Nothing is intercepted, no value
+  // is held over the app's head, and the text in this box is the text that
+  // goes in the file — there is no "copy as CSS" step because there is nothing
+  // to translate.
+  let cssDraft = null;
+  async function renderCss() {
+    if (typeof app.css !== "function") {
+      body.appendChild(el("div", "evgi-empty",
+        "This host does not expose its stylesheet. A host that hands the panel "
+        + "css() gets a live editor here; the tree stays readable either way."));
+      return;
+    }
+    // Awaited, so the pane is drawn into the body it belongs to and not into
+    // whichever one is showing by the time the answer lands.
+    const forTab = tab;
+    const holder = el("div");
+    body.appendChild(holder);
+    let src;
+    try { src = await app.css(); } catch (e) { holder.appendChild(el("div", "evgi-empty", String(e.message))); return; }
+    if (tab !== forTab) return;
+    holder.textContent = "";
+    const wrap = el("div", "evgi-css");
+    const bar = el("div", "bar");
+    bar.appendChild(el("span", "name", src.name || "stylesheet"));
+    const apply = el("button", "evgi-btn", "apply");
+    const save = el("button", "evgi-btn", "save to disk");
+    const revert = el("button", "evgi-btn", "revert");
+    bar.append(apply);
+    if (typeof app.saveCss === "function") bar.append(save);
+    bar.append(revert);
+    if (src.href) bar.appendChild(el("span", "live", "live from disk"));
+    wrap.appendChild(bar);
+
+    const area = el("textarea");
+    area.spellcheck = false;
+    area.value = cssDraft != null ? cssDraft : (src.text || "");
+    area.oninput = () => { cssDraft = area.value; };
+    // Tab indents rather than leaving the box: this is an editor, and losing
+    // your place to focus the next button is not what the key is for here.
+    area.onkeydown = (ev) => {
+      if (ev.key === "Tab") {
+        ev.preventDefault();
+        const a0 = area.selectionStart, b0 = area.selectionEnd;
+        area.value = area.value.slice(0, a0) + "  " + area.value.slice(b0);
+        area.selectionStart = area.selectionEnd = a0 + 2;
+        cssDraft = area.value;
+      }
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") { ev.preventDefault(); apply.onclick(); }
+    };
+    wrap.appendChild(area);
+
+    const errs = el("div", "err");
+    const showErrors = (list) => {
+      errs.textContent = "";
+      for (const e of list || []) errs.appendChild(el("div", null, e));
+    };
+    showErrors(src.errors);
+    wrap.appendChild(errs);
+    wrap.appendChild(el("div", "evgi-note",
+      "Applying re-parses the sheet and re-cascades the tree — the same path the "
+      + "app took at startup. Saving the file on disk does the same thing by the "
+      + "other route, and the two cannot drift."));
+
+    apply.onclick = async () => {
+      if (typeof app.setCss !== "function") return;
+      apply.disabled = true;
+      try {
+        await app.setCss(area.value);
+        await refreshTree();
+        tab = "css";
+        renderTabs();
+        renderBody();
+      } catch (e) { showErrors([String(e.message)]); apply.disabled = false; }
+    };
+    // Apply, then write it where it came from. Applying first means a sheet
+    // that will not parse is found before it is on disk, and the two together
+    // are what closes the loop the other way: the watch sees the write and
+    // every other page open on this sheet re-cascades too.
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        await app.setCss(area.value);
+        await app.saveCss(area.value);
+        cssDraft = null;
+        await refreshTree();
+        renderBody();
+      } catch (e) { showErrors([String(e.message)]); save.disabled = false; }
+    };
+    revert.onclick = () => { cssDraft = null; renderBody(); };
+    holder.appendChild(wrap);
   }
 
   // Which commands this element emitted. Present only when the host built the
@@ -582,18 +889,18 @@ export function attach(opts = {}) {
     document.body.classList.toggle("evgi-picking", on);
     if (!on) highlight(selected);
   }
-  surface.addEventListener("mousemove", (ev) => {
+  surface.addEventListener("mousemove", async (ev) => {
     if (!picking) return;
     const [x, y] = surfacePoint(ev);
-    const id = hitAt(x, y);
-    if (id && byId.has(id)) highlight(id);
+    const id = await hitAt(x, y);
+    if (id && picking && byId.has(id)) highlight(id);
   });
-  surface.addEventListener("click", (ev) => {
+  surface.addEventListener("click", async (ev) => {
     if (!picking) return;
     ev.preventDefault(); ev.stopPropagation();
     const [x, y] = surfacePoint(ev);
-    const id = hitAt(x, y);
-    if (id && byId.has(id)) { select(id); setPicking(false); }
+    const id = await hitAt(x, y);
+    if (id && byId.has(id)) { setPicking(false); await select(id); }
   }, true);
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && picking) { setPicking(false); ev.preventDefault(); }
@@ -606,14 +913,18 @@ export function attach(opts = {}) {
 
   window.addEventListener("resize", () => highlight(selected));
 
-  refreshTree(false);
+  renderTabs();
   // Open on the root rather than on an empty pane. There is always something
   // to say about the page as a whole, and a panel whose right half is a
   // sentence asking you to click something is a panel that has not started.
-  if (tree && tree.nodes.length) select(tree.root, { quiet: true });
-  renderTabs();
+  const ready = refreshTree(false).then(() => {
+    if (tree && tree.nodes.length) return select(tree.root, { quiet: true });
+  });
 
   const api = {
+    // Resolves when the first tree has been read and the root selected — a
+    // caller that wants to drive the panel has to know when it is up.
+    ready,
     // A host that repaints tells the panel so; nothing here polls.
     refresh: () => refreshTree(true),
     select,

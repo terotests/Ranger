@@ -157,5 +157,157 @@ console.log(`\ndashboard: ${tree.nodes.length} nodes, ${tree.w}×${tree.h}\n`);
   ok("and the attributed one does", /"n":/.test(attributed));
 }
 
+// --- 6. the cascade agrees with the values it produced -----------------------
+{
+  // The gate that keeps the provenance honest. It fails the moment a value
+  // stops arriving through the plan — which is exactly the drift a recorded
+  // trace is vulnerable to, and the reason the record is made in `buildPlan`
+  // rather than reconstructed afterwards.
+  //
+  // The two sides are spelled differently on purpose: the sheet says
+  // `#ffffff` and the element says `rgb(255,255,255)`, the sheet says `18px`
+  // and the box says `18.00px`. So both are normalised to a comparable shape
+  // and anything that will not normalise is skipped rather than guessed at.
+  const norm = (v) => {
+    // A unit the detail shows as authored AND resolved — `100vh  ->  900.00px`
+    // — is compared on the authored half, because that half is literally the
+    // text the sheet carries. Comparing the resolved half would be asking the
+    // sheet to have written the answer the layout computed.
+    const t = String(v).split("->")[0].trim().toLowerCase();
+    let m = /^#([0-9a-f]{6})$/.exec(t);
+    if (m) {
+      const n = parseInt(m[1], 16);
+      return `rgb(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255})`;
+    }
+    m = /^#([0-9a-f]{3})$/.exec(t);
+    if (m) {
+      const [r, g, b] = [...m[1]].map((c) => parseInt(c + c, 16));
+      return `rgb(${r},${g},${b})`;
+    }
+    m = /^rgba?\(([^)]*)\)$/.exec(t);
+    if (m) {
+      const p = m[1].split(",").map((x) => parseFloat(x));
+      return `rgb(${p[0] | 0},${p[1] | 0},${p[2] | 0})`;
+    }
+    m = /^(-?[0-9.]+)px$/.exec(t);
+    if (m) return String(Math.round(parseFloat(m[1]) * 100) / 100);
+    if (/^-?[0-9.]+$/.test(t)) return String(Math.round(parseFloat(t) * 100) / 100);
+    if (t === "transparent") return "rgb(0,0,0)";   // and alpha 0, which neither side prints here
+    return t;
+  };
+
+  let checked = 0, disagreed = 0;
+  const shown = [];
+  for (const n of tree.nodes) {
+    if (!n.cls) continue;
+    const d = JSON.parse(app.inspectNodeJson(n.id));
+    const winners = new Map();
+    for (const c of d.cascade || []) if (c.win && !c.beatenByInline) winners.set(c.p, c.v);
+    for (const [prop, want] of winners) {
+      const got = (d.computed || {})[prop];
+      if (got === undefined) continue;             // a shorthand, or not in the curated set
+      checked++;
+      if (norm(got) !== norm(want)) {
+        disagreed++;
+        if (shown.length < 6) shown.push(`${n.id} ${prop}: sheet ${want} → element ${got}`);
+      }
+    }
+  }
+  for (const line of shown) console.log("       " + line);
+  ok("the winning rule is the value on the element", disagreed === 0,
+     `${disagreed} of ${checked} disagree`);
+  ok("the cascade was read at all", checked > 100, `${checked} properties compared`);
+}
+
+// --- 7. the sheet is an input, and reloading it lands ------------------------
+{
+  // The dashboard KEEPS its tree — `laidOutOnce` styles and lays out the same
+  // root every frame — which is what makes this gate worth having. A reload
+  // that swapped in a fresh EVGStyleSheet would restart the generation counter
+  // at the value the elements are already holding, `applyTo` would skip every
+  // one of them, and the new CSS would land on nothing. It would still pass on
+  // a page that rebuilds its tree, so this is the shape of app that catches it.
+  const node = tree.nodes.find((n) => n.cls === "db-card");
+  const before = JSON.parse(app.inspectNodeJson(node.id)).computed["background-color"];
+  const base = app.inspectCss();
+
+  app.inspectSetCss(base + "\n.db-card { background-color: #123456; }\n");
+  const after = JSON.parse(app.inspectNodeJson(node.id)).computed["background-color"];
+  ok("a reloaded sheet reaches a retained tree", after !== before && /18,52,86/.test(after),
+     `${before} → ${after}`);
+
+  // And it reaches the picture, not only the element: the display list is what
+  // a painter draws, and a value that stopped at the element would be a frame
+  // that still shows the old colour.
+  const cmds = (() => { const f = JSON.parse(app.inspectFrameJson()); return f.list ? f.list.cmds : f.cmds; })();
+  ok("and the frame carries it", cmds.some((c) => c.c && c.c[0] === 18 && c.c[1] === 52 && c.c[2] === 86));
+
+  // `parse` appends; `reload` must not. Applying the same text twice may not
+  // grow the plan, or every rule in the sheet is in it twice and the second
+  // copy is the one that wins.
+  const lenOnce = JSON.parse(app.inspectNodeJson(node.id)).cascade.length;
+  app.inspectSetCss(base + "\n.db-card { background-color: #123456; }\n");
+  const lenTwice = JSON.parse(app.inspectNodeJson(node.id)).cascade.length;
+  ok("reloading twice does not duplicate the rules", lenOnce === lenTwice, `${lenOnce} then ${lenTwice}`);
+
+  app.inspectSetCss(base);
+  const restored = JSON.parse(app.inspectNodeJson(node.id)).computed["background-color"];
+  ok("and putting the original back restores the value", restored === before, `${restored} vs ${before}`);
+}
+
+// --- 8. classes, and how many elements a rule reaches -------------------------
+{
+  const node = tree.nodes.find((n) => n.cls === "db-card");
+  const d = JSON.parse(app.inspectNodeJson(node.id));
+  const card = (d.classes || []).find((c) => c.name === "db-card");
+  const actual = tree.nodes.filter((n) => (n.cls || "").split(/\s+/).includes("db-card")).length;
+  ok("the class list is the element's own", card !== undefined);
+  ok("and its match count is the tree's", card && card.matches === actual,
+     `panel says ${card && card.matches}, tree has ${actual}`);
+}
+
+// --- 9. a state held on ------------------------------------------------------
+{
+  // A `:hover` rule cannot be read while the only way to make it true is to
+  // keep the pointer off the panel. Holding the bit on is the answer, and what
+  // makes it work across this page's rebuilds is that the table is keyed by
+  // PATH: the dashboard throws its elements away and builds them again, so a
+  // flag written onto an element would last exactly one frame.
+  //
+  // Nothing was taught to the cascade. `EVGPseudo.holds` reads `isHovered`,
+  // and a held bit is that field being true — so what the gate checks is that
+  // the ORDINARY hover rule won, not that some parallel path produced a colour.
+  const node = tree.nodes.find((n) => (n.cls || "").split(/\s+/).includes("db-brand"));
+  ok("there is something with a :hover rule to hold", node !== undefined);
+  if (node) {
+    const before = JSON.parse(app.inspectNodeJson(node.id));
+    ok("nothing is held to begin with", before.forced === 0, String(before.forced));
+
+    app.inspectForce(node.id, 1);
+    const held = JSON.parse(app.inspectNodeJson(node.id));
+    const flags = JSON.parse(app.inspectJson(9)).nodes.find((n) => n.id === node.id).flags || [];
+    ok("the element reports the state", flags.includes("hover"), JSON.stringify(flags));
+    ok("and the panel knows it is being held", held.forced === 1, String(held.forced));
+    ok("the hover rule now wins", (held.cascade || []).some(
+      (c) => c.p === "background-color" && c.win && /:hover/.test(c.sel)),
+      JSON.stringify((held.cascade || []).filter((c) => c.p === "background-color")));
+    ok("and the value on the element followed",
+      held.computed["background-color"] !== before.computed["background-color"],
+      `${before.computed["background-color"]} → ${held.computed["background-color"]}`);
+
+    // The rebuild is the point: ask for a fresh frame and the hold survives it.
+    app.displayListJson();
+    const still = JSON.parse(app.inspectNodeJson(node.id));
+    ok("and it survives a rebuild", still.computed["background-color"] === held.computed["background-color"]);
+
+    app.inspectClearForced();
+    const let_go = JSON.parse(app.inspectNodeJson(node.id));
+    ok("letting go puts it back",
+      let_go.computed["background-color"] === before.computed["background-color"],
+      `${held.computed["background-color"]} → ${let_go.computed["background-color"]}`);
+    ok("and nothing is held again", let_go.forced === 0);
+  }
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

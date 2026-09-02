@@ -671,6 +671,10 @@ const DEMOS = {
     // The fourth channel. Nothing else in this entry changes: the panel reads
     // it and the page does not know the panel exists.
     inspect: () => dashboard,
+    // The file this demo's stylesheet was built from. Named here rather than
+    // derived from `state.which`, because a demo whose sheet is not a file on
+    // disk must not claim to be live-editable.
+    css: "dashboard.css",
     press: (id) => dashboard.press(id),
     hover: (id) => {
       if (id === lastDashHover) return false;
@@ -1527,13 +1531,77 @@ function inspectorAdapter() {
   const d = demo();
   const app = d && typeof d.inspect === "function" ? d.inspect() : null;
   if (!app || typeof app.inspectJson !== "function") return null;
-  return {
+  const adapter = {
     label: "EVG · " + state.which,
     tree: () => app.inspectJson(generation),
     node: (path) => app.inspectNodeJson(path),
     hit: (x, y) => app.inspectHitPath(x, y),
     frame: () => app.inspectFrameJson(),
   };
+  if (typeof app.inspectForce === "function") {
+    adapter.force = (path, bits) => { app.inspectForce(path, bits); paint(); };
+  }
+  if (d.css && typeof app.inspectCss === "function") {
+    adapter.css = () => ({
+      name: d.css,
+      href: "/gallery/ui/demo/" + d.css,
+      text: app.inspectCss(),
+      errors: JSON.parse(app.inspectStyleErrors()),
+    });
+    adapter.setCss = (text) => { lastSentCss = text; app.inspectSetCss(text); paint(); };
+    // Saving means putting the text back where the input came from. The watch
+    // then picks it up like any other save, which is why `lastSentCss` exists:
+    // the page that wrote it does not need to re-apply its own text.
+    adapter.saveCss = async (text) => {
+      lastSentCss = text;
+      const r = await fetch("/gallery/ui/demo/" + d.css, { method: "PUT", body: text });
+      if (!r.ok) throw new Error("save failed: " + r.status + " " + (await r.text()));
+    };
+  }
+  return adapter;
+}
+
+// --- live CSS from disk -------------------------------------------------------
+//
+// `serve.mjs` watches gallery/ui/demo/*.css and says which one changed. This
+// end fetches it and hands it to the app, which re-parses and re-cascades the
+// way it did at `init` — the sheet is the app's INPUT, so there is nothing to
+// patch and nothing to hold over its head.
+//
+// Editing the file and editing it in the panel are therefore the SAME
+// operation arriving by two routes, and neither can drift from the other.
+let cssStream = null;
+// The last text this page handed to the app, so the save it just made does not
+// come back round the loop as a change to apply again.
+let lastSentCss = null;
+
+function watchCss() {
+  if (cssStream) return;
+  const q = new URLSearchParams(location.search).get("inspect");
+  if (q === null || q === "0" || q === "false") return;
+  cssStream = new EventSource("/evg/css/events");
+  cssStream.onmessage = async (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    const d = demo();
+    if (!d || d.css !== msg.file) return;          // a sheet this demo does not use
+    const app = typeof d.inspect === "function" ? d.inspect() : null;
+    if (!app || typeof app.inspectSetCss !== "function") return;
+    try {
+      const text = await (await fetch(msg.href + "?t=" + Date.now())).text();
+      if (text === lastSentCss) return;              // our own save, coming back
+      lastSentCss = text;
+      app.inspectSetCss(text);
+      paint();
+      if (inspector) inspector.refresh();
+      console.log(`css reloaded: ${msg.file} (${text.length} bytes)`);
+    } catch (e) {
+      errEl.textContent = "css reload failed: " + e.message;
+    }
+  };
+  // A dropped stream is not an error worth shouting about — EventSource
+  // reconnects on its own, and the server says `retry: 1000`.
+  cssStream.onerror = () => {};
 }
 
 function inspectorTick() {
@@ -1547,6 +1615,7 @@ function inspectorTick() {
     if (inspector) { inspector.detach(); inspector = null; inspectorFor = ""; }
     return;
   }
+  watchCss();
   if (!inspector || inspectorFor !== state.which) {
     if (inspector) inspector.detach();
     inspector = attachInspector({ surface: canvas, app: adapter });

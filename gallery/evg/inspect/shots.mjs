@@ -130,15 +130,71 @@ if (fs.existsSync(path.join(ROOT, "gallery/ui/demo/bundle.js"))) {
     ready: "document.querySelectorAll('.evgi-row').length > 3",
     // The chart's title: deep in the tree, with real text and a real box, so
     // the picture shows the tree expanded to it and the overlay on it.
-    drive: `(() => {
+    // A card: it carries a class four elements share, so the cascade pane
+    // shows the rule, its declarations, and the "4 elements" badge that says
+    // what editing it would reach.
+    drive: `(async () => {
       const i = window.__inspector;
-      i.select('0/2/0/0/1/0/0/0');
+      await i.ready;
+      await i.select('0/2/0/0/0/0');
       document.querySelectorAll('.evgi-tab')[1].click();
       return i.selection;
     })()`,
   });
 } else {
   console.log("  (skipping the dashboard — run: npm run ui:demo:build && node gallery/ui/demo/build.mjs)");
+}
+
+if (fs.existsSync(path.join(ROOT, "gallery/ui/demo/bundle.js"))) {
+  await shot({
+    root: ROOT,
+    url: "/gallery/ui/demo/index.html?inspect=1&demo=dashboard",
+    out: path.join(OUT, "css.png"),
+    ready: "document.querySelectorAll('.evgi-row').length > 3",
+    // The sheet, edited in the panel and applied — the cards go cream with
+    // square corners, which is the whole claim in one picture: an input
+    // changed and the app did the rest.
+    drive: `(async () => {
+      const i = window.__inspector;
+      await i.ready;
+      await i.select('0/2/0/0/0/0');
+      document.querySelectorAll('.evgi-tab')[2].click();
+      // The pane reads the sheet through the adapter, which may answer on a
+      // later tick, so the editor is waited for rather than assumed.
+      let ta = null;
+      for (let k = 0; k < 60 && !ta; k++) {
+        await new Promise(r => setTimeout(r, 50));
+        ta = document.querySelector('.evgi-css textarea');
+      }
+      ta.value += '\\n/* typed in the inspector */\\n.db-card { border-radius: 2px; background-color: #fff7e0; }\\n';
+      ta.dispatchEvent(new Event('input'));
+      [...document.querySelectorAll('.evgi-btn')].find(b => b.textContent === 'apply').click();
+      return i.selection;
+    })()`,
+  });
+}
+
+if (fs.existsSync(path.join(ROOT, "gallery/ui/demo/bundle.js"))) {
+  await shot({
+    root: ROOT,
+    url: "/gallery/ui/demo/index.html?inspect=1&demo=dashboard",
+    out: path.join(OUT, "state.png"),
+    ready: "document.querySelectorAll('.evgi-row').length > 3",
+    // The brand row, with its hover held on. The pointer is nowhere near it —
+    // that is the point — and the cascade below shows the ordinary
+    // `.db-brand:hover` rule winning, because a held bit is an ordinary state.
+    drive: `(async () => {
+      const i = window.__inspector;
+      await i.ready;
+      await i.select('0/0/0');
+      document.querySelectorAll('.evgi-tab')[1].click();
+      await new Promise(r => setTimeout(r, 200));
+      const hov = [...document.querySelectorAll('.evgi-hov button')].find(b => b.textContent === ':hover');
+      hov.click();
+      await new Promise(r => setTimeout(r, 700));
+      return i.selection;
+    })()`,
+  });
 }
 
 if (fs.existsSync(path.join(ROOT, "gallery/pptx/web/html/dist/pptx_web.js"))) {
