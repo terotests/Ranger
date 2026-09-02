@@ -166,11 +166,18 @@ console.log("a chosen option is legible, not black on black");
     `${box && rgba(box.c)} vs ${glyphs && rgba(glyphs.c)}`);
 }
 
-console.log("removing a chip");
+// Removing a chip is now TWO steps, and that is the fix rather than a
+// regression: the ellipsis opens a menu and Remove is an item in it. This
+// block used to press the ellipsis and assert the chip was gone, which is
+// precisely the behaviour that was reported.
+console.log("removing a chip, through the menu");
 {
   const d = fresh();
-  const gone = clickOn(d, "seed-2-menu");
-  ok("clicking the chip's menu is handled", gone.handled, `hit [${gone.hit}]`);
+  const opened = clickOn(d, "seed-2-menu");
+  ok("clicking the chip's ellipsis is handled", opened.handled, `hit [${opened.hit}]`);
+  ok("the chip is still there", byId(d, "seed-2") !== undefined);
+  const gone = clickOn(d, "seed-2-menu-remove");
+  ok("clicking Remove is handled", gone.handled, `hit [${gone.hit}]`);
   ok("the chip is off the page", byId(d, "seed-2") === undefined);
   // Only the assignee chip is left: everyone but r3 has an assignee in it.
   eq("and the answer widens", countText(d), "5 of 6 tasks");
@@ -192,6 +199,89 @@ console.log("the keyboard reaches the bar");
   d.displayListJson();
   ok("the chip is gone from the page", byId(d, "seed-1") === undefined);
   eq("and the answer follows", countText(d), "2 of 6 tasks");
+}
+
+// The ellipsis opens a menu.
+//
+// Reported: "tasks sivulla kolmen pisteen menu vain poistaa ton valinnan".
+// It did — `press` on `<id>-menu` called `removeNode` and nothing else. A
+// control drawn as "more actions" with exactly one action, the destructive
+// one, taken on the first click with no menu and no way back. Its accessible
+// name at least said "Remove the … filter", so a reader was told the truth
+// and a person looking at three dots was not.
+//
+// Every action behind it is a call FilterCtl already answers: setOperator
+// through positiveOf/negatedOf, addRule + setValues, removeNode.
+console.log("the ellipsis opens a menu instead of removing the rule");
+{
+  const d = fresh();
+  const ids = () => flat(d).filter((e) => e.id).map((e) => e.id);
+  const rules = () => Array.from(d.model.node("root").kids);
+  const press = (id) => { const took = d.press(id); d.displayListJson(); return took; };
+  const opOf = (id) => d.model.node(id).operator;
+
+  eq("two rules to begin with", rules().join(","), "seed-1,seed-2");
+  ok("no menu is drawn while it is shut", !ids().includes("seed-1-menulist"));
+
+  ok("pressing the ellipsis is taken", press("seed-1-menu"));
+  // THE ASSERTION THE DEFECT NEEDED: the rule is still there.
+  eq("and the rule it belongs to survives it", rules().join(","), "seed-1,seed-2");
+  ok("the menu is drawn", ids().includes("seed-1-menulist"));
+  for (const item of ["negate", "duplicate", "remove"]) {
+    ok(`with a ${item} item`, ids().includes(`seed-1-menu-${item}`));
+  }
+
+  // Negate, through the operator pairing the controller already states.
+  eq("the operator to start", opOf("seed-1"), "has_any_of");
+  ok("negate is taken", press("seed-1-menu-negate"));
+  eq("and inverts the operator", opOf("seed-1"), "has_none_of");
+  ok("the menu closes behind it", !ids().includes("seed-1-menulist"));
+  press("seed-1-menu");
+  press("seed-1-menu-negate");
+  eq("and inverts back", opOf("seed-1"), "has_any_of");
+
+  // Duplicate: a copy carrying the same field, operator and values, under an
+  // id of its own — reusing the source's would make `node()` answer with
+  // whichever it found first.
+  press("seed-1-menu");
+  ok("duplicate is taken", press("seed-1-menu-duplicate"));
+  eq("a third rule appears", rules().length, 3);
+  const copy = rules()[2];
+  ok("under an id of its own", copy !== "seed-1", copy);
+  const src = d.model.node("seed-1");
+  const cp = d.model.node(copy);
+  eq("copying the field", cp.path, src.path);
+  eq("and the operator", cp.operator, src.operator);
+  eq("and the values", Array.from(cp.vals).join("/"), Array.from(src.vals).join("/"));
+
+  // Remove still exists — it is just behind the menu now.
+  press(copy + "-menu");
+  ok("remove is taken", press(copy + "-menu-remove"));
+  eq("and the copy is gone", rules().join(","), "seed-1,seed-2");
+
+  // Pressing the ellipsis again shuts it.
+  press("seed-1-menu");
+  press("seed-1-menu");
+  ok("a second press on the ellipsis shuts the menu", !ids().includes("seed-1-menulist"));
+
+  // What a reader is told. The name used to say "Remove the …", which was
+  // honest about a button that removed and is wrong for one that opens.
+  const tree = JSON.parse(d.a11yJson(1, ""));
+  const btn = tree.nodes.find((n) => n.id === "seed-1-menu");
+  ok("the ellipsis is named for what it opens",
+    btn && btn.name === "More actions for the Assignee filter", btn && btn.name);
+  // 1 is collapsed on the EVG tri, 2 is expanded.
+  ok("and reports collapsed", btn && btn.expanded === 1, JSON.stringify(btn));
+  press("seed-1-menu");
+  const open = JSON.parse(d.a11yJson(2, ""));
+  const btn2 = open.nodes.find((n) => n.id === "seed-1-menu");
+  ok("expanded once open", btn2 && btn2.expanded === 2, JSON.stringify(btn2));
+  const menu = open.nodes.find((n) => n.id === "seed-1-menulist");
+  ok("the menu is a menu", menu && menu.role === "menu", JSON.stringify(menu));
+  const items = open.nodes.filter((n) => n.role === "menuitem");
+  eq("with three menu items", items.length, 3);
+  ok("the tree still lints clean with it open",
+    Array.from(d.a11yProblems()).length === 0, Array.from(d.a11yProblems()).join(" | "));
 }
 
 console.log(`\npassed=${passed} failed=${failed}`);
