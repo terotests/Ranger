@@ -13,6 +13,7 @@
     "check": "bash scripts/build-app.sh --check",
     "plan": "bash scripts/build-app.sh --dry-run",
     "verify": "bash scripts/verify.sh",
+    "smoke": "bash scripts/smoke.sh",
     "build:ranger": "bash scripts/build-ranger.sh",
     "ui:ios": "bash scripts/build-app.sh",
     "ui:ios:run": "bash scripts/build-app.sh --run",
@@ -22,6 +23,7 @@
     "ui:ios:verify": "bash scripts/verify.sh",
     "ui:ios:ranger": "bash scripts/build-ranger.sh",
     "ui:ios:device": "bash scripts/build-app.sh --target=ios-device --run",
-    "ui:ios:device:console": "bash scripts/build-app.sh --target=ios-device --run --console"
+    "ui:ios:device:console": "bash scripts/build-app.sh --target=ios-device --run --console",
+    "ui:ios:smoke": "bash scripts/smoke.sh"
   }
 }

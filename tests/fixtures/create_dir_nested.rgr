@@ -1,0 +1,25 @@
+; `create_dir` has to mean the same thing on every target: make the path,
+; parents and all, and say nothing when it is already there. Four targets got
+; that wrong -- es6 and php threw or warned on an existing directory, go and
+; java made only one level -- and the failure was invisible until a program ran
+; TWICE, which is the shape of every build script.
+class CreateDirNested {
+    sfn m@(main):void () {
+        def deep:string "tests/.output-createdir/a/b/c"
+        ; Twice on purpose: the second one is the bug.
+        create_dir deep
+        create_dir deep
+        if (dir_exists deep) {
+            print "nested=yes"
+        } {
+            print "nested=NO"
+        }
+        write_file deep "x.txt" "hello"
+        def back@(optional):string (read_file deep "x.txt")
+        if (null? back) {
+            print "readback=MISSING"
+        } {
+            print "readback=" + (unwrap back)
+        }
+    }
+}

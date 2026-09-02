@@ -37,6 +37,7 @@ gallery/evg/apple                   the painter and the CoreGraphics surface
 npm run ui:ios:check    # what this machine can build — safe anywhere
 npm run ui:ios:plan     # the whole plan, printed, nothing run — safe anywhere
 npm run ui:ios:verify   # the port's own logic, checked — safe anywhere
+npm run ui:ios:smoke    # the driver itself, run for real — safe anywhere
 
 npm run ui:ios          # build the .app                    (needs a Mac)
 npm run ui:ios:run      # ...and put it on a simulator       (needs a Mac)
@@ -44,7 +45,7 @@ npm run ui:ios:watch    # the same page on an Apple Watch    (needs a Mac)
 npm run ui:ios:device   # ...and onto the iPhone or iPad on the cable
 ```
 
-The first three need nothing but Node. The rest need Xcode or the Apple Command
+The first four need nothing but Node. The rest need Xcode or the Apple Command
 Line Tools; the simulator ones need **no Xcode project and no developer
 account** — a simulator bundle is signed ad hoc.
 
@@ -152,6 +153,7 @@ here, and the repository-root names are aliases in the same file.
 | `npm run build` | `npm run ui:ios` |
 | `npm run watch` | `npm run ui:ios:watch` |
 | `npm run verify` | `npm run ui:ios:verify` |
+| `npm run smoke` | `npm run ui:ios:smoke` |
 | `npm run check` | `npm run ui:ios:check` |
 | `npm run plan` | `npm run ui:ios:plan` |
 
@@ -167,6 +169,7 @@ here, and the repository-root names are aliases in the same file.
 | `ios/main.swift` | `UIApplicationMain`, written out rather than left to `@main` |
 | `watch/WatchApp.swift` | SwiftUI `Canvas`, the digital crown, and the readable fit |
 | `scripts/` | Thin wrappers: compile the driver, then run it |
+| `scripts/smoke.sh` | The driver run for real against a stand-in toolchain, on any machine |
 
 The painter, the surface protocol and the CoreGraphics backend are **not** here:
 they are [`gallery/evg/apple`](../../evg/apple/README.md), shared with whatever
@@ -247,6 +250,28 @@ found by hit-testing the screen the way the app does, not by calling
 **Does the ripple's clock get stuck?** It cannot: `tick` clamps a late frame
 rather than skipping it, and the checks drive it with a clock that jumps nine
 seconds at a time and one that reports nothing at all. Both have to end.
+
+### And the driver, run for real
+
+```bash
+npm run ui:ios:smoke
+```
+
+`--dry-run` checks the **plan**: which program, with which arguments, in which
+order. It cannot check the code that *runs* — the directories the driver makes,
+the Info.plist it writes, the profile it decodes, the order the answers come
+back in. That code went untested until someone ran the real thing on a Mac and
+it died on `mkdir` for a directory that already existed.
+
+So `scripts/faketoolchain/` is a stand-in `xcrun`, `security`, `plutil`,
+`codesign`, `open` and `xcode-select` on `PATH`. It is not a simulation of
+Xcode — its `swiftc` writes five bytes and calls it a Mach-O — it is a stand-in
+for every tool the driver shells out to, so that everything *around* those
+tools is exercised: a device found and a paired-but-absent one skipped, an
+identity and a profile discovered, a bundle with all five files in it, the
+plist's contents, `--no-build` not compiling, a missing phone said **before**
+`swiftc` rather than after, and the whole thing **run twice**, because the
+second run over its own output is where the interesting bugs are.
 
 What this does NOT prove is the platform delegation:
 `CoreGraphicsEvgSurface` calling `CGContext`, and `DashboardView` unpacking a

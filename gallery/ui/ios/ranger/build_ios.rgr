@@ -328,13 +328,32 @@ class IosBuild {
         }
         def signing:AppleSigning (new AppleSigning (sh))
 
-        ; The device first, because the profile has to list it.
+        ; The device first, because the profile has to list it -- and because a
+        ; phone that is not plugged in should be said BEFORE swiftc spends
+        ; minutes on 46k lines, not after.
         def deviceUdid:string ""
         def picked@(optional):AppleDeviceInfo (tools.pickDevice(o.device))
         if (!null? picked) {
             def dev:AppleDeviceInfo (unwrap picked)
             deviceUdid = dev.identifier
             print "* device      " + (dev.describe())
+        } {
+            if o.doRun {
+                if ((strlen o.device) > 0) {
+                    print "no connected device matches \"" + o.device + "\"."
+                } {
+                    print "no device is connected."
+                }
+                print "Plug one in, unlock it, and trust this computer."
+                print "`xcrun devicectl list devices` shows what it can see -- a device listed as"
+                print "\"available (paired)\" rather than \"connected\" is known and not plugged in."
+                print ""
+                print "To build without installing, leave --run off."
+                return false
+            }
+            ; No --run: the build is still worth doing, and a profile is
+            ; matched on the bundle id alone.
+            print "* device      none connected; the profile will be matched on the bundle id only"
         }
 
         if (target.signIdentity == "-") {

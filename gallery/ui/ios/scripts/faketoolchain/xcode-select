@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "/Applications/Xcode.app/Contents/Developer"; exit 0
