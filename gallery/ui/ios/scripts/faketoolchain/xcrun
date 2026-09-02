@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# A pretend Apple toolchain: enough of xcrun to drive the WHOLE build path on a
+# machine that is not a Mac. It is not a simulation of Xcode -- swiftc writes
+# five bytes and calls it a Mach-O -- it is a stand-in for every tool the driver
+# shells out to, so that the driver's own decisions, file writing and ordering
+# are exercised rather than only planned. `--dry-run` checks the plan; this
+# checks the part of the code that runs.
+sdk=""
+while [ "$1" = "--sdk" ]; do sdk="$2"; shift 2; done
+case "$1" in
+  --show-sdk-path)    echo "/Applications/Xcode.app/Contents/Developer/Platforms/${sdk}.sdk"; exit 0 ;;
+  --show-sdk-version) echo "17.5"; exit 0 ;;
+  swift)              echo "swift-driver version: 1.90.11 Apple Swift version 5.10"; exit 0 ;;
+  swiftc)
+      out=""; prev=""
+      for a in "$@"; do if [ "$prev" = "-o" ]; then out="$a"; fi; prev="$a"; done
+      echo "pretend swiftc: wrote $out"
+      mkdir -p "$(dirname "$out")"; printf 'MACHO' > "$out"; chmod +x "$out"; exit 0 ;;
+  simctl)
+      shift
+      if [ "$1" = "list" ]; then
+        printf '== Devices ==\n'
+        printf -- '-- iOS 17.5 --\n'
+        printf '    iPhone 15 Pro (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) (Booted) \n'
+        printf '    iPad Pro 13-inch (M4) (99999999-8888-7777-6666-555555555555) (Shutdown) \n'
+        printf -- '-- watchOS 10.5 --\n'
+        printf '    Apple Watch Series 9 (45mm) (12345678-1234-1234-1234-123456789012) (Shutdown) \n'
+        exit 0
+      fi
+      echo "simctl $*"; exit 0 ;;
+  devicectl)
+      shift
+      if [ "$1" = "--version" ]; then echo "devicectl 397.24"; exit 0; fi
+      if [ "$1" = "list" ]; then
+        printf 'Devices:\n'
+        printf 'Name          Hostname                  Identifier                             State                Model\n'
+        printf -- '------------  ------------------------  -------------------------------------  -------------------  -----\n'
+        printf 'Teron iPhone  00008101-001A.coredevice  1A2B3C4D-5E6F-7890-ABCD-EF1234567890   connected            iPhone 14 Pro (iPhone15,2)\n'
+        printf 'Vanha iPad    00008103-001B.coredevice  99999999-8888-7777-6666-555555555555   available (paired)   iPad Air (iPad13,16)\n'
+        exit 0
+      fi
+      echo "devicectl $*"; exit 0 ;;
+esac
+echo "xcrun: unhandled $*" >&2; exit 1

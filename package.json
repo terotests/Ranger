@@ -778,6 +778,7 @@
     "ui:ios:check": "bash gallery/ui/ios/scripts/build-app.sh --check",
     "ui:ios:plan": "bash gallery/ui/ios/scripts/build-app.sh --dry-run",
     "ui:ios:verify": "bash gallery/ui/ios/scripts/verify.sh",
+    "ui:ios:smoke": "bash gallery/ui/ios/scripts/smoke.sh",
     "ui:ios:ranger": "bash gallery/ui/ios/scripts/build-ranger.sh",
     "apple:test": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/apple/apple_test.rgr -nodecli -d=./tmp -o=apple_test.js && node tmp/apple_test.js",
     "shell:test": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/shell_test.rgr -nodecli -d=./tmp -o=shell_test.js && node tmp/shell_test.js",

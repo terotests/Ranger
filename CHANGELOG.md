@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run ui:ios:smoke` — the iOS build driver, run for real, on a machine
+  that is not a Mac.** `--dry-run` checks the plan and cannot check the code
+  that runs: the directories the driver makes, the plist it writes, the profile
+  it decodes. That code went untested until the real thing was run on a Mac and
+  died on `mkdir` for a directory that already existed. A stand-in `xcrun`,
+  `security`, `plutil`, `codesign`, `open` and `xcode-select` on PATH now
+  exercise everything around those tools — a device found and a paired-absent
+  one skipped, an identity and a profile discovered, the five files in the
+  bundle, `--no-build` not compiling, and the whole thing **twice**, because the
+  second run over its own output is where the interesting bugs are.
+
+- A device that is not plugged in is now said **before** `swiftc`, not after.
+  It was resolved early enough to pick a profile with and then not acted on, so
+  a missing phone cost a full 46 000-line Swift compile before the message.
+
 - **`npm run ui:ios:device` — one command from Ranger source to a running app
   on the iPhone or iPad on the cable.** A device build needs three things a
   simulator build does not, and typing them is what made it a three-flag
@@ -230,6 +245,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`create_dir` meant four different things on four targets, and every one of
+  them failed only on the SECOND run** — which is the shape of every build
+  script. `es6` was `mkdirSync` with no `recursive`, so a directory that already
+  existed was an EEXIST stack trace; `php` was `mkdir` with no recursive flag, a
+  warning and no parents; `go` was `os.Mkdir` rather than `os.MkdirAll`; `java7`
+  was `File.mkdir` rather than `File.mkdirs`; and the C++ polyfill made one
+  level. Seven targets already did the right thing — make the path, parents and
+  all, and say nothing when it is there — and the other four do now.
+  `tests/create-dir.test.ts` checks it on ES6, Python and Go, cleaning the
+  directory out of each target's own run cwd first: a leftover tree from the
+  previous passing run is exactly what makes a broken `create_dir` look fixed.
+  Found by running the iOS build driver twice on a Mac.
 - `write_file` did not import `java.io.FileNotFoundException` on the java7
   target, and its own polyfill catches it — so any Ranger program that writes a
   file failed to compile on Java with "cannot find symbol". Found by compiling

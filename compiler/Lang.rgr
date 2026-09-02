@@ -3393,15 +3393,47 @@ static class RgFiles {
 (create_polyfill "
 void  r_cpp_create_dir(const std::string& name) 
 {
-  mkdir( name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
+  // mkdir(2) makes one directory and fails on a parent that is not there, so
+  // the path is walked and each segment made in turn. An EEXIST is the answer
+  // we wanted, not a failure.
+  if (name.empty()) { return; }
+  std::string sofar;
+  size_t at = 0;
+  while (at <= name.size()) {
+    size_t slash = name.find('/', at);
+    size_t end = (slash == std::string::npos) ? name.size() : slash;
+    sofar = name.substr(0, end);
+    if (!sofar.empty()) {
+      mkdir( sofar.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
+    }
+    if (slash == std::string::npos) { break; }
+    at = slash + 1;
+  }
 }    
     ") )
                 swift3 ( nl )
                 swift6 ( nl "try? FileManager.default.createDirectory(atPath: " (e 1) ", withIntermediateDirectories: true)" nl (imp "Foundation") )        
-                php (  nl "mkdir(" (e 1) ");" nl )
-                es6 ("require(\"fs\").mkdirSync( " (e 1) ")")
+                php (  nl "r_create_dir(" (e 1) ");" nl
+(create_polyfill "
+function r_create_dir($path) {
+  // Recursive and quiet about a directory that is already there, which is what
+  // this operator means on every other target.
+  if (!is_dir($path)) {
+    @mkdir($path, 0777, true);
+  }
+}
+")
+                )
+                ; `recursive` does both halves of what every other target here
+                ; already does: it makes the parents, and it does NOT throw when
+                ; the directory is already there. Without it the second run of
+                ; any program that creates its own output directory dies with an
+                ; EEXIST stack trace.
+                es6 ("require(\"fs\").mkdirSync( " (e 1) ", { recursive: true })")
                 python ( nl "os.makedirs(" (e 1) ", exist_ok=True)" nl (imp "os") )
-                go ( nl "_ = os.Mkdir( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
+                ; MkdirAll, not Mkdir: it makes the parents and answers nil for
+                ; a directory that already exists.
+                go ( nl "_ = os.MkdirAll( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
 
                 ranger ( nl "create_dir " (e 1) nl)
                 java7 ( nl "createDir(" (e 1) ");" nl  
@@ -3412,7 +3444,9 @@ static void createDir(String path)
     try{
         File theDir = new File(path);
         if (!theDir.exists()) {
-            theDir.mkdir();
+            // mkdirs, not mkdir: this operator makes the parents too, which is
+            // what it does on every other target.
+            theDir.mkdirs();
         }
     } catch(SecurityException se) {
 

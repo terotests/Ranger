@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+if [ "$1" = "-lint" ]; then echo "$2: OK"; exit 0; fi
+if [ "$1" = "-extract" ]; then
+  key="$2"; out=""; file=""
+  shift 3
+  while [ $# -gt 0 ]; do
+    if [ "$1" = "-o" ]; then out="$2"; shift 2; continue; fi
+    file="$1"; shift
+  done
+  case "$key" in
+    Name)                                  val='iOS Team Provisioning Profile: *' ;;
+    Entitlements.application-identifier)   val='ABC123DEF4.*' ;;
+    ProvisionedDevices)                    val='["1A2B3C4D-5E6F-7890-ABCD-EF1234567890"]' ;;
+    ExpirationDate)                        val='2027-01-01T00:00:00Z' ;;
+    Entitlements)                          val='<plist><dict/></plist>' ;;
+    *)                                     val='' ;;
+  esac
+  if [ "$out" = "-" ] || [ -z "$out" ]; then echo "$val"; else mkdir -p "$(dirname "$out")"; echo "$val" > "$out"; fi
+  exit 0
+fi
+exit 1
