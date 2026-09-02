@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`gallery/evg`: a grid flag nothing read.** `EVGLayout.layoutGrid` set
+  `usingSubgrid = true` when a column template inherited its tracks from the
+  enclosing grid, and then never looked at it. The subgrid effect is carried
+  entirely by rewriting `colSpec` into the parent's pixel tracks, and the rows
+  branch a few lines down does the same job with no flag at all -- so this was
+  a leftover from an earlier shape of the code, not a guard someone forgot to
+  finish. Removed.
+
+  This one was the source's own, not the compiler's: `swiftc` is simply the
+  first target that says "written to, but never read" out loud. Worth keeping
+  it that way rather than teaching the writer to drop a dead store silently --
+  the warning found real dead code, and eliding it would have hidden exactly
+  that. It was the only one in 46 000 generated lines.
+
 ### Added
 
 - **Four more things swiftc could not build, and the last of the warnings.**
