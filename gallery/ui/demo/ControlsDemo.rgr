@@ -152,16 +152,21 @@ class ControlsDemo {
 
         ; ReUI's own three steps, with its icons named rather than drawn: the
         ; controller holds a NAME and the theme decides what "card" looks like.
-        ; Named intermediates, NOT `stepper.stepAt(0).icon = …`. Ranger has no
-        ; field assignment on a call result — and it does not reject one, it
-        ; silently assigns to a temporary. The first version of this block
-        ; compiled cleanly and set nothing, so every circle drew the fallback
-        ; glyph and the panel was empty.
+        ; Named intermediates, NOT `stepper.stepAt(0).icon = …` — ISSUES.md #76.
+        ; That spelling compiles and DROPS THE STORE: the emitted JS keeps the
+        ; call and loses the assignment entirely. (An earlier version of this
+        ; comment said it assigns to a temporary; it does not, and the emitted
+        ; code is in the issue.) So every circle drew the fallback glyph and
+        ; the panel was empty, with a clean compile.
         ;
-        ; The gate did not catch it because the gate is JavaScript, where
-        ; `c.stepAt(0).complete = true` works exactly as it reads. The same
-        ; expression means two different things on the two sides of this
-        ; boundary, and only one of them is a mistake.
+        ; The PARENTHESISED spelling, `(stepper.stepAt(0)).icon = …`, is a
+        ; parse error with a helpful message — the guard added for #65 — so the
+        ; language already refuses the shape and only this one route past it is
+        ; silent.
+        ;
+        ; The gate did not catch it either, because the gate is JavaScript,
+        ; where `c.stepAt(0).complete = true` works exactly as it reads. One
+        ; line, two meanings across that boundary, and only one a mistake.
         def s0:StepItem (stepper.stepAt(0))
         def s1:StepItem (stepper.stepAt(1))
         def s2:StepItem (stepper.stepAt(2))

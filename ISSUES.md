@@ -21,6 +21,7 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
+- Issue #76: `recv.method(args).field = value` at statement level compiles and SILENTLY DROPS the assignment — the call is emitted, the store is not. Same family and same severity as #65, through the path #65's guard does not cover: that guard catches the *parenthesised* receiver, this is the bare one (September 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
@@ -264,6 +265,93 @@ A `main:void` is emitted as before, with no wrapper.
 Verified as a real net: 9 of the 12 fail against the pre-fix compiler. The 3
 that pass either way are deliberate over-reach guards (valid spellings still
 compile; `main:void` untouched; runtime element values unchanged).
+
+---
+
+## Issue #76: Assigning to a field of a call result silently drops the assignment
+
+**Status:** Open
+**Severity:** **Critical** (silent wrong-code generation; no diagnostic at all)
+**Found:** September 2026, drawing the ReUI stepper in `gallery/ui/demo/ControlsDemo.rgr`
+**Targets:** front-end, so every backend inherits it
+
+### Description
+
+A statement of the form `recv.method(args).field = value` compiles without a
+word of complaint and does nothing. The call is emitted; the store is not.
+
+This is the same failure #65 documents — silent wrong-code generation with no
+diagnostic — reached by the path #65's guard does not cover. That guard rejects
+a statement STARTING with a parenthesised receiver, `(expr).method()`. The bare
+spelling never trips it, because it parses as an ordinary vref chain.
+
+The two spellings therefore behave in three different ways, and only one of
+them is safe:
+
+| spelling | result |
+|---|---|
+| `(b.at(0)).name = "x"` | **rejected** by the parser, with guidance (#65's guard) |
+| `b.at(0).name = "x"` | **compiles, does nothing** — this issue |
+| `def t:Item (b.at(0))` then `t.name = "x"` | works |
+
+### Reproduction
+
+```ranger
+class Item {
+    def name:string "unset"
+    Constructor () {
+    }
+}
+class Box {
+    def items:[Item]
+    Constructor () { def none:[Item] items = none }
+    fn add:void () { def i:Item (new Item ()) push items i }
+    fn at:Item (i:int) { return (itemAt items i) }
+}
+class Main {
+    Constructor () {
+    }
+    sfn main:void () {
+        def b:Box (new Box ())
+        b.add()
+        b.at(0).name = "bare"
+        def chk:Item (b.at(0))
+        print ("-> " + chk.name)     ; prints "-> unset"
+    }
+}
+```
+
+### What is emitted
+
+```js
+function __js_main() {
+  const b = new Box();
+  b.add();
+  (b).at(0);                 // <-- the call survives; `.name = "bare"` is gone
+  const chk = (b).at(0);
+  console.log("-> " + chk.name);
+}
+```
+
+### Why it bit
+
+`gallery/ui/demo/ControlsDemo.rgr` set each stepper step's icon with
+`stepper.stepAt(0).icon = "user"`. Every circle drew the fallback glyph and the
+panel came up empty, with a clean compile. The gate could not catch it either:
+the gate is JavaScript, where that same expression works exactly as it reads.
+One line, two meanings across the boundary, and only one of them a mistake.
+
+### Two ways to close it
+
+1. **Reject it**, with #65's existing message — "bind the receiver to a local
+   first". Small, and consistent with the decision already taken for the
+   parenthesised spelling. Turns a silent miscompile into the diagnostic that
+   already exists a few lines away in `ng_parser_v2.rgr`.
+2. **Make it work** — emit the store. Nicer to write, and what a reader of the
+   line expects, but a codegen change rather than a parser one.
+
+Either is an improvement on silence. The second is the one that makes the
+language do what the line says.
 
 ---
 
