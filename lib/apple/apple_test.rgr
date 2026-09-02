@@ -20,6 +20,8 @@ Import "AppleAppSpec.rgr"
 Import "AppleToolchain.rgr"
 Import "AppleAppBuilder.rgr"
 Import "AppleSimulator.rgr"
+Import "AppleDevice.rgr"
+Import "AppleSigning.rgr"
 
 class AppleTest {
 
@@ -350,6 +352,175 @@ class AppleTest {
         this.checkHas("a path with a space is quoted" plan "'/Users/someone/My Projects/app.swift'")
     }
 
+    ; ------------------------------------------------------- connected devices
+
+    fn devicectlFixture:string () {
+        def rows:[string]
+        push rows "Devices:"
+        push rows "Name             Hostname                     Identifier                             State                Model"
+        push rows "---------------  ---------------------------  -------------------------------------  -------------------  -----"
+        push rows "Tero iPhone      00008101-001A.coredevice     1A2B3C4D-5E6F-7890-ABCD-EF1234567890   connected            iPhone 14 Pro (iPhone15,2)"
+        push rows "Testi iPad Air   00008103-001B.coredevice     99999999-8888-7777-6666-555555555555   available (paired)   iPad Air (iPad13,16)"
+        push rows "Vanha iPhone     00008020-001C.coredevice     11111111-2222-3333-4444-555555555555   connected            iPhone 11 (iPhone12,1)"
+        return (join rows "\n")
+    }
+
+    fn testDevices:void () {
+        def all:[AppleDeviceInfo] (AppleDeviceList.parse((this.devicectlFixture())))
+        this.check("three devices are listed" ((array_length all) == 3))
+
+        def first:AppleDeviceInfo (itemAt all 0)
+        ; A name with a single space inside it must survive: the fields are
+        ; split on runs of TWO spaces, not on every space.
+        this.check("a name with a space in it" (first.name == "Tero iPhone"))
+        this.check("the identifier is the devicectl one" (first.identifier == "1A2B3C4D-5E6F-7890-ABCD-EF1234567890"))
+        this.check("the state is read" (first.state == "connected"))
+        this.check("and the model, brackets and all" (first.model == "iPhone 14 Pro (iPhone15,2)"))
+        this.check("a connected device is connected" (first.isConnected()))
+
+        def paired:AppleDeviceInfo (itemAt all 1)
+        ; "available (paired)" is a device that is known and not plugged in.
+        ; Installing onto it fails four seconds later, so it is not a candidate.
+        this.check("a paired device is not connected" ((paired.isConnected()) == false))
+        this.check("a two-word state survives" (paired.state == "available (paired)"))
+
+        ; The header and the separator hold no identifier and fall out.
+        def headerCols:[string] (AppleDeviceList.columns("Name             Hostname                     Identifier"))
+        this.check("the header splits into columns" ((array_length headerCols) == 3))
+
+        def anyPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all ""))
+        this.check("something is picked" (!null? anyPick))
+        def any:AppleDeviceInfo (unwrap anyPick)
+        this.check("and it is the first CONNECTED one" (any.name == "Tero iPhone"))
+
+        ; A name that is only on the paired device is not a device you can
+        ; install onto, so it is absent rather than a fallback to another one.
+        def padPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "iPad"))
+        this.check("a paired-only name is refused" (null? padPick))
+
+        def oldPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Vanha"))
+        this.check("a named connected device is found" (!null? oldPick))
+        def byId@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "11111111-2222-3333-4444-555555555555"))
+        this.check("and so is one named by identifier" (!null? byId))
+        def missing@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Nokia"))
+        this.check("a name that is not there is absent" (null? missing))
+
+        def none:[AppleDeviceInfo] (AppleDeviceList.parse(""))
+        this.check("nothing plugged in is no devices" ((array_length none) == 0))
+    }
+
+    ; -------------------------------------------------------------- signing
+
+    fn identityFixture:string () {
+        def rows:[string]
+        push rows "  1) A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D \"Apple Development: Tero Tolonen (ABC123DEF4)\""
+        push rows "  2) 0918273645AABBCCDDEEFF001122334455667788 \"Apple Distribution: Tero Tolonen (ABC123DEF4)\""
+        push rows "     2 valid identities found"
+        return (join rows "\n")
+    }
+
+    fn testSigning:void () {
+        def ids:[AppleSigningIdentity] (AppleSigning.parseIdentities((this.identityFixture())))
+        this.check("two identities are read" ((array_length ids) == 2))
+        def dev:AppleSigningIdentity (itemAt ids 0)
+        this.check("the fingerprint" (dev.sha1 == "A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D"))
+        this.check("the quoted name, spaces and all" (dev.name == "Apple Development: Tero Tolonen (ABC123DEF4)"))
+        this.check("the team id is the last bracket" ((dev.teamId()) == "ABC123DEF4"))
+        this.check("a development certificate is one" (dev.isDevelopment()))
+        def dist:AppleSigningIdentity (itemAt ids 1)
+        this.check("a distribution certificate is not" ((dist.isDevelopment()) == false))
+        this.check("the trailing count line is not an identity" ((array_length ids) == 2))
+        ; The fingerprint is 40 hex characters. A line that quotes something and
+        ; carries a word that is not one is not a certificate, and reading it as
+        ; one would put a name in the keychain lookup that finds nothing.
+        def malformed:[AppleSigningIdentity] (AppleSigning.parseIdentities("  1) TOOSHORT \"Apple Development: Someone (X)\""))
+        this.check("a line with no fingerprint is not an identity" ((array_length malformed) == 0))
+
+        ; Testing on a cable wants the DEVELOPMENT one, whatever order the
+        ; keychain lists them in.
+        def autoPick@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids ""))
+        this.check("development wins when nothing was asked for" ((unwrap autoPick).isDevelopment()))
+        def named@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids "Distribution"))
+        this.check("but a named one wins over that" (((unwrap named).isDevelopment()) == false))
+        def byHash@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids "A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D"))
+        this.check("and a fingerprint finds one too" (!null? byHash))
+        def noSuch@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids "Nokia"))
+        this.check("a name that is not there is absent" (null? noSuch))
+        def emptyIds:[AppleSigningIdentity]
+        def fromNothing@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(emptyIds ""))
+        this.check("an empty keychain answers absent" (null? fromNothing))
+
+        ; The profile match. An exact application-identifier and a wildcard are
+        ; both usable and the exact one is the one Xcode made for this app.
+        this.check("an exact app id matches" (AppleSigning.appIdMatches("ABC123DEF4.fi.ranger.dashboard" "fi.ranger.dashboard")))
+        this.check("a wildcard matches" (AppleSigning.appIdMatches("ABC123DEF4.*" "fi.ranger.dashboard")))
+        this.check("a prefixed wildcard matches under it" (AppleSigning.appIdMatches("ABC123DEF4.fi.ranger.*" "fi.ranger.dashboard")))
+        this.check("and not outside it" ((AppleSigning.appIdMatches("ABC123DEF4.fi.other.*" "fi.ranger.dashboard")) == false))
+        this.check("a different app id does not match" ((AppleSigning.appIdMatches("ABC123DEF4.com.example.other" "fi.ranger.dashboard")) == false))
+        this.check("a malformed app id does not match" ((AppleSigning.appIdMatches("nodots" "fi.ranger.dashboard")) == false))
+
+        def prof:AppleProvisioningProfile (new AppleProvisioningProfile)
+        prof.appId = "ABC123DEF4.fi.ranger.dashboard"
+        prof.devicesRaw = "[\"1A2B3C4D-5E6F-7890-ABCD-EF1234567890\"]"
+        this.check("the team id comes off the app id" ((prof.teamId()) == "ABC123DEF4"))
+        this.check("and the bundle pattern is the rest" ((prof.bundlePattern()) == "fi.ranger.dashboard"))
+        this.check("a profile with devices is a development one" (prof.isDevelopment()))
+        this.check("and it knows which device" (prof.hasDevice("1A2B3C4D-5E6F-7890-ABCD-EF1234567890")))
+        this.check("and which it does not" ((prof.hasDevice("00000000-0000-0000-0000-000000000000")) == false))
+        def store:AppleProvisioningProfile (new AppleProvisioningProfile)
+        store.appId = "ABC123DEF4.fi.ranger.dashboard"
+        this.check("a profile with no device list is not for a cable" ((store.isDevelopment()) == false))
+    }
+
+    ; ------------------------------------------------- the device run plan
+
+    fn testDeviceRunPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.iosDevice("Someone"))
+        def res:AppleBuildResult (builder.runOnDevice(spec target "" false))
+        this.check("a device run reaches launch" res.ok)
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("it installs with devicectl" plan "xcrun devicectl device install app --device")
+        this.checkHas("and launches by bundle id" plan "xcrun devicectl device process launch --device")
+        this.checkHas("replacing whatever was running" plan "--terminate-existing")
+        this.checkHas("the right app" plan "fi.ranger.dashboard")
+        ; A device has nothing to boot and no window to bring forward, so none
+        ; of the simulator's five commands belong here.
+        this.check("nothing is booted" ((indexOf plan "simctl boot") < 0))
+        this.check("and no Simulator window is opened" ((indexOf plan "open -a Simulator") < 0))
+
+        ; --console attaches instead, which is the whole point of a test build
+        ; on a cable: a device has no console you can otherwise see.
+        def sh2:Shell (new Shell)
+        sh2.dryRun = true
+        def tools2:AppleToolchain (new AppleToolchain (sh2))
+        def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
+        b2.verbose = false
+        b2.runOnDevice(spec target "" true)
+        def plan2:string (join sh2.commands "\n")
+        this.checkHas("--console attaches" plan2 "--console")
+        this.check("and does not also terminate" ((indexOf plan2 "--terminate-existing") < 0))
+
+        ; A simulator target has no cable, and saying so beats installing
+        ; nowhere.
+        def sh3:Shell (new Shell)
+        sh3.dryRun = true
+        def tools3:AppleToolchain (new AppleToolchain (sh3))
+        def b3:AppleAppBuilder (new AppleAppBuilder (sh3 tools3))
+        b3.verbose = false
+        def simTarget:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def refused:AppleBuildResult (b3.runOnDevice(spec simTarget "" false))
+        this.check("a simulator target is refused" (refused.ok == false))
+        this.checkHas("and says why" refused.message "simulator target")
+    }
+
     sfn m@(main):void () {
         def t:AppleTest (new AppleTest)
         print "Apple build driver"
@@ -360,6 +531,9 @@ class AppleTest {
         t.testDevicePlan()
         t.testWatchPlan()
         t.testRunPlan()
+        t.testDevices()
+        t.testSigning()
+        t.testDeviceRunPlan()
         t.testQuoting()
         print "  " + t.passed + " passed, " + t.failed + " failed"
         if (t.failed > 0) {

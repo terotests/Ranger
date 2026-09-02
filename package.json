@@ -772,6 +772,8 @@
     "ui:android:typecheck": "bash gallery/ui/android/scripts/typecheck-host.sh",
     "ui:ios": "bash gallery/ui/ios/scripts/build-app.sh",
     "ui:ios:run": "bash gallery/ui/ios/scripts/build-app.sh --run",
+    "ui:ios:device": "bash gallery/ui/ios/scripts/build-app.sh --target=ios-device --run",
+    "ui:ios:device:console": "bash gallery/ui/ios/scripts/build-app.sh --target=ios-device --run --console",
     "ui:ios:watch": "bash gallery/ui/ios/scripts/build-app.sh --target=watchos-simulator --run",
     "ui:ios:check": "bash gallery/ui/ios/scripts/build-app.sh --check",
     "ui:ios:plan": "bash gallery/ui/ios/scripts/build-app.sh --dry-run",

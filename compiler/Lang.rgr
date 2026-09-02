@@ -3535,6 +3535,10 @@ void  r_cpp_write_file(const std::string& path, const std::string& filename, con
 
                 java7 ( nl "writeFile(" (e 1) " + \"/\" + " (e 2) " , " (e 3)" );" nl  
                     (imp "java.io.PrintWriter")
+                    ; The polyfill catches it, so the file has to import it.
+                    ; Without this, any Ranger program that writes a file fails
+                    ; to compile on the Java target with "cannot find symbol".
+                    (imp "java.io.FileNotFoundException")
 (create_polyfill "
 static void writeFile(String path, String text) 
 {

@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run ui:ios:device` — one command from Ranger source to a running app
+  on the iPhone or iPad on the cable.** A device build needs three things a
+  simulator build does not, and typing them is what made it a three-flag
+  command: they are all on the machine already, so `lib/apple/AppleSigning.rgr`
+  and `lib/apple/AppleDevice.rgr` find them. The **device** from
+  `xcrun devicectl list devices`, taking the first CONNECTED one — a
+  paired-but-absent device is listed and is not a candidate, and an install
+  onto one fails four seconds later. The **identity** from
+  `security find-identity -v -p codesigning`, preferring an Apple Development
+  certificate, because this is testing on a cable and a distribution
+  certificate cannot do it. The **profile** from the `.mobileprovision` files
+  Xcode leaves behind — in both the directory it used before Xcode 16 and the
+  one it uses now — matched on the bundle id *and* on this device being listed
+  in it, with an exact bundle id beating a wildcard because the exact one is
+  what Xcode made for this app. `--identity` and `--profile` still win when
+  given.
+
+  Then `devicectl device install app` and `devicectl device process launch`,
+  which is two commands where a simulator needs five: there is nothing to boot
+  and no window to bring forward. `--console` keeps the process attached with
+  its output coming back, which is the whole point of a test build on a cable —
+  a device has no console you can otherwise see.
+
+  What it cannot do is CREATE a provisioning profile: that is a conversation
+  with Apple's developer portal and the only command line tool that has it is
+  `xcodebuild -allowProvisioningUpdates`, which is the thing this driver exists
+  to avoid. The error says so in as many words, with the one-time Xcode step
+  that fixes it.
+
+  Both new parsers are pure functions over the text their tool prints, so both
+  are checked on a machine with nothing plugged in: a device name with a space
+  in it, a two-word state, a header row, an unavailable runtime, a 42-character
+  fingerprint that is not one. `npm run apple:test` is 151 assertions now, on
+  the same seven target languages.
+
+- **`--no-build`**, for parity with the Android port: `--no-ranger` skips the
+  Ranger→Swift compile, `--no-build` skips `swiftc` too and reinstalls the
+  `.app` that is already there — the 46 000 lines that make a re-run slow when
+  nothing but the device changed.
+
 - **Ranger can call other command line programs, and the first thing it does
   with that is build an iOS app.** One new compiler primitive,
   `run_process_result (program args cwd capture env)`, answers
@@ -51,10 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nothing calls `xcodebuild` and nothing opens Xcode.
 
   Because every step goes through a `Shell`, the whole thing runs **dry** —
-  which is how `npm run apple:test` asserts 99 things about the plan (which
+  which is how `npm run apple:test` asserts 151 things about the plan (which
   program, which arguments, in which order, including that the plist is linted
   before an hour of compiling and that signing happens after the binary is in
-  the bundle) on a machine that is not a Mac. Those 99 checks pass on seven
+  the bundle) on a machine that is not a Mac. Those 151 checks pass on seven
   target languages.
 
 - **[`gallery/ui/ios`](gallery/ui/ios/README.md) — the dashboard demo on
@@ -190,6 +230,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `write_file` did not import `java.io.FileNotFoundException` on the java7
+  target, and its own polyfill catches it — so any Ranger program that writes a
+  file failed to compile on Java with "cannot find symbol". Found by compiling
+  `lib/apple` to all seven targets.
 - The `exit` operator narrowed its argument on Go and Rust, and gained a
   `swift6` template. `os.Exit(int64)` does not compile, `std::process::exit`
   wants an `i32`, and swift6 was falling through to the `*` template — which is

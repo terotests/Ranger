@@ -34,6 +34,7 @@
 
 Import "../../../../lib/Shell.rgr"
 Import "../../../../lib/apple/AppleAppBuilder.rgr"
+Import "../../../../lib/apple/AppleSigning.rgr"
 
 class IosBuildOptions {
 
@@ -47,6 +48,13 @@ class IosBuildOptions {
     def checkOnly:boolean false
     def release:boolean false
     def skipRanger:boolean false
+    ; Reuse the .app that is already there. `--no-ranger` skips only the
+    ; Ranger->Swift compile; this skips swiftc as well, which is the 46k lines
+    ; that make a re-run slow when nothing but the device changed.
+    def skipBuild:boolean false
+    ; Keep the launched process attached so its output comes back here. A
+    ; device has no console you can otherwise see.
+    def console:boolean false
     def verbose:boolean false
     def onlyPhone:boolean false
     def onlyPad:boolean false
@@ -104,6 +112,13 @@ class IosBuildOptions {
                 case "--no-ranger" {
                     o.skipRanger = true
                 }
+                case "--no-build" {
+                    o.skipBuild = true
+                    o.skipRanger = true
+                }
+                case "--console" {
+                    o.console = true
+                }
                 case "--verbose" {
                     o.verbose = true
                 }
@@ -148,14 +163,19 @@ class IosBuild {
         print ""
         print "  --target=KEY     ios-simulator (default), ios-device,"
         print "                   watchos-simulator, watchos-device"
-        print "  --run            install and launch on a simulator afterwards"
-        print "  --device=NAME    which simulator: a name substring or a UDID"
+        print "  --run            install and launch afterwards -- on a simulator,"
+        print "                   or on the connected device for an ios-device target"
+        print "  --device=NAME    which simulator or device: a name substring or an id"
+        print "  --console        keep the launched app attached so its output lands here"
         print "  --phone/--pad    build for only one of the two iOS families"
         print "  --identity=NAME  codesigning identity for a device build"
+        print "                   (found in the keychain when not given)"
         print "  --profile=PATH   .mobileprovision for a device build"
+        print "                   (found on this machine when not given)"
         print "  --bundle-id=ID   override fi.ranger.dashboard"
         print "  --release        compile with -O"
         print "  --no-ranger      reuse the generated Swift instead of remaking it"
+        print "  --no-build       reuse the .app that is already built (implies --no-ranger)"
         print "  --dry-run        print every command and run none of them"
         print "  --check          report what this machine can build, and stop"
         print "  --verbose        print each command as it runs"
@@ -286,6 +306,81 @@ class IosBuild {
         return spec
     }
 
+    ; A device build needs an identity and a profile. Both are on the machine
+    ; already if Xcode has ever built for a device, so both are FOUND rather
+    ; than typed -- which is the difference between one command and three flags.
+    ; What the caller passed always wins.
+    fn resolveSigning:boolean (o:IosBuildOptions spec:AppleAppSpec target:AppleTarget sh:Shell tools:AppleToolchain) {
+        if target.isSimulator {
+            return true
+        }
+        if sh.dryRun {
+            ; A dry run resolves nothing, but a plan that showed a device build
+            ; signed ad hoc would be showing something that cannot work.
+            ; Placeholders, obviously placeholders.
+            if (target.signIdentity == "-") {
+                target.signIdentity = "<development-identity>"
+            }
+            if ((strlen spec.provisioningProfile) == 0) {
+                spec.provisioningProfile = "<found>.mobileprovision"
+            }
+            return true
+        }
+        def signing:AppleSigning (new AppleSigning (sh))
+
+        ; The device first, because the profile has to list it.
+        def deviceUdid:string ""
+        def picked@(optional):AppleDeviceInfo (tools.pickDevice(o.device))
+        if (!null? picked) {
+            def dev:AppleDeviceInfo (unwrap picked)
+            deviceUdid = dev.identifier
+            print "* device      " + (dev.describe())
+        }
+
+        if (target.signIdentity == "-") {
+            def ids:[AppleSigningIdentity] (signing.findIdentities())
+            if ((array_length ids) == 0) {
+                print "no codesigning identity is in the keychain."
+                print "Open Xcode once and add your Apple ID (Settings > Accounts), or pass --identity=NAME."
+                return false
+            }
+            def idOpt@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids ""))
+            if (null? idOpt) {
+                print "no usable codesigning identity. `security find-identity -v -p codesigning` lists what there is."
+                return false
+            }
+            def id:AppleSigningIdentity (unwrap idOpt)
+            target.signIdentity = id.sha1
+            print "* identity    " + (id.describe())
+        }
+
+        if ((strlen spec.provisioningProfile) == 0) {
+            def workDir:string (buildRoot + "/" + target.key)
+            def profOpt@(optional):AppleProvisioningProfile (signing.pickProfile(spec.bundleId deviceUdid workDir))
+            if (null? profOpt) {
+                print "no provisioning profile on this machine covers " + spec.bundleId + " for this device."
+                print ""
+                print "A profile cannot be CREATED from the command line -- that is a conversation"
+                print "with Apple's developer portal, and only `xcodebuild -allowProvisioningUpdates`"
+                print "has it, which is the thing this driver exists to avoid. Once:"
+                print ""
+                print "  open Xcode, make any project with the bundle id " + spec.bundleId + ","
+                print "  pick your team, and build it to this device once."
+                print ""
+                print "After that the profile is on this machine and this finds it. Or pass"
+                print "--profile=PATH, or --bundle-id=ID to match a wildcard profile you have."
+                return false
+            }
+            def prof:AppleProvisioningProfile (unwrap profOpt)
+            spec.provisioningProfile = prof.path
+            print "* profile     " + (prof.describe())
+            if ((strlen prof.expires) > 0) {
+                print "              expires " + prof.expires
+            }
+        }
+        return true
+    }
+
     sfn m@(main):void () {
         def o:IosBuildOptions (IosBuildOptions.parse())
         if o.helpWanted {
@@ -342,11 +437,26 @@ class IosBuild {
         builder.buildRoot = b.buildRoot
         builder.verbose = true
 
-        def res:AppleBuildResult (builder.build(spec target))
-        if (res.ok == false) {
-            print ""
-            print res.message
+        if ((b.resolveSigning(o spec target sh tools)) == false) {
             exit 1
+        }
+
+        if (o.skipBuild == false) {
+            def res:AppleBuildResult (builder.build(spec target))
+            if (res.ok == false) {
+                print ""
+                print res.message
+                exit 1
+            }
+        } {
+            def appPath:string (builder.bundlePath(spec target))
+            if (sh.dryRun == false) {
+                if ((dir_exists appPath) == false) {
+                    print "--no-build was given and there is nothing built at " + appPath
+                    exit 1
+                }
+            }
+            print "* reusing     " + appPath
         }
 
         if o.doRun {
@@ -358,13 +468,12 @@ class IosBuild {
                     exit 1
                 }
             } {
-                ; A real device is one command away, and it is the one command
-                ; that needs a cable and a trusted machine, so it is said
-                ; rather than attempted.
-                print ""
-                print "built for a device. To install it:"
-                print "  xcrun devicectl list devices"
-                print "  xcrun devicectl device install app --device <udid> " + res.appPath
+                def ran:AppleBuildResult (builder.runOnDevice(spec target o.device o.console))
+                if (ran.ok == false) {
+                    print ""
+                    print ran.message
+                    exit 1
+                }
             }
         }
 

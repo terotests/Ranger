@@ -274,7 +274,7 @@ That dry run is what makes a build driver testable, and
 `AppleTarget`, `AppleAppSpec`, `AppleToolchain` and `AppleAppBuilder` turn a
 list of Swift files into an installed, running iOS, iPadOS or watchOS app using
 `xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — **no `.xcodeproj`, no
-`xcodebuild`, and nothing that opens Xcode.** 99 checks assert the plan it
+`xcodebuild`, and nothing that opens Xcode.** 151 checks assert the plan it
 produces (which program, which arguments, in which order) and they run on
 JavaScript, Python, Go, Rust, C++, Java and PHP, on any machine.
 
@@ -288,7 +288,12 @@ npm run apple:test      # the Apple build driver, without a Mac
 npm run ui:ios:plan     # the entire iOS build, printed and not run
 npm run ui:ios:verify   # the port's own logic — 82 checks, no Mac
 npm run ui:ios:run      # ...and on a Mac, the app on a simulator
+npm run ui:ios:device   # ...or on the iPhone or iPad on the cable
 ```
+
+`ui:ios:device` is one command because the three things a device build needs —
+the connected device, a codesigning identity and a matching provisioning
+profile — are all already on the machine, so they are found rather than typed.
 
 ## Target-specific notes
 

@@ -41,11 +41,56 @@ npm run ui:ios:verify   # the port's own logic, checked — safe anywhere
 npm run ui:ios          # build the .app                    (needs a Mac)
 npm run ui:ios:run      # ...and put it on a simulator       (needs a Mac)
 npm run ui:ios:watch    # the same page on an Apple Watch    (needs a Mac)
+npm run ui:ios:device   # ...and onto the iPhone or iPad on the cable
 ```
 
-The first three need nothing but Node. The last three need Xcode or the Apple
-Command Line Tools; they need **no Xcode project, no developer account and no
-device** — a simulator bundle is signed ad hoc.
+The first three need nothing but Node. The rest need Xcode or the Apple Command
+Line Tools; the simulator ones need **no Xcode project and no developer
+account** — a simulator bundle is signed ad hoc.
+
+### One command onto a test device
+
+```bash
+npm run ui:ios:device                       # build, sign, install, launch
+npm run ui:ios:device:console               # ...and keep its output here
+npm run ui:ios:device -- --device="Tero"    # when more than one is plugged in
+```
+
+That is one command because the three things a device build needs are all
+**found** rather than typed:
+
+| | |
+| --- | --- |
+| the device | `xcrun devicectl list devices`, first **connected** one — a paired-but-absent device is listed and is not a candidate |
+| the identity | `security find-identity -v -p codesigning`, preferring an **Apple Development** certificate, because this is testing on a cable and a distribution one cannot be |
+| the profile | the `.mobileprovision` files Xcode leaves on the machine, matched on the bundle id **and** on this device being in it; an exact bundle id beats a wildcard |
+
+`--identity=` and `--profile=` still win when given. The entitlements are read
+out of the profile that was chosen — a bundle signed with entitlements its
+profile does not grant installs and then refuses to launch, with no message
+anyone can act on.
+
+Then two commands, where a simulator needs five:
+
+```
+xcrun devicectl device install app --device <id> …/RangerDashboard.app
+xcrun devicectl device process launch --device <id> --terminate-existing fi.ranger.dashboard
+```
+
+`--console` swaps `--terminate-existing` for `--console` and keeps the process
+attached, which is the whole point of a test build on a cable: a device has no
+console you can otherwise see.
+
+**What this cannot do is CREATE a provisioning profile.** That is a
+conversation with Apple's developer portal, and the only command line tool that
+has it is `xcodebuild -allowProvisioningUpdates` — the thing this driver exists
+to avoid. If no profile matches, the error says exactly this: open Xcode once,
+make any project with the bundle id, pick your team and build to the device
+once. After that the profile is on the machine and this finds it. `--bundle-id`
+is the other way out, if you already have a wildcard profile.
+
+Needs Xcode 15 or later for `devicectl`; older toolchains need a third-party
+installer, which this does not wrap, and the error says so.
 
 Arguments go through after a `--`:
 
@@ -54,6 +99,7 @@ npm run ui:ios:run -- --device="iPad Pro"      # which simulator to launch on
 npm run ui:ios:run -- --device="iPhone 15"
 npm run ui:ios -- --pad                        # what the app CLAIMS to run on
 npm run ui:ios -- --release                    # swiftc -O
+npm run ui:ios:run -- --no-build               # reinstall what is already built
 npm run ui:ios -- --target=ios-device \
   --identity="Apple Development: You (ABC123)" \
   --profile=signing/dev.mobileprovision        # build+sign for a real iPhone
@@ -66,10 +112,9 @@ between "an iPhone app" and "an iPad app" once the binary exists. Building
 `--pad` and launching on an iPhone simulator is a thing you can ask for, and it
 will not install.
 
-`--target=ios-device` builds and signs and stops there. Putting a bundle on a
-real iPhone needs a cable and a trusted machine, so adding `--run` to a device
-build prints the `xcrun devicectl` lines to finish with rather than running
-them.
+`--no-build` reuses the `.app` that is already there — `--no-ranger` skips only
+the Ranger→Swift compile, this skips `swiftc` too, which is the 46 000 lines
+that make a re-run slow when nothing but the device changed.
 
 ### What `--run` actually does
 
@@ -103,6 +148,7 @@ here, and the repository-root names are aliases in the same file.
 | From `gallery/ui/ios` | From the repository root |
 | --- | --- |
 | `npm run run` / `npm start` | `npm run ui:ios:run` |
+| `npm run device` | `npm run ui:ios:device` |
 | `npm run build` | `npm run ui:ios` |
 | `npm run watch` | `npm run ui:ios:watch` |
 | `npm run verify` | `npm run ui:ios:verify` |
@@ -161,7 +207,7 @@ xcrun simctl launch --terminate-running-process <udid> fi.ranger.dashboard
 ```
 
 That is the entire iOS build. Ten commands, no project file, and
-[`lib/apple/apple_test.rgr`](../../../lib/apple/README.md) asserts 99 things
+[`lib/apple/apple_test.rgr`](../../../lib/apple/README.md) asserts 151 things
 about it — including that the plist is linted **before** an hour of compiling
 and that signing happens **after** the binary is in the bundle — on a machine
 with no Xcode on it.
@@ -293,7 +339,7 @@ Verified here, without a Mac:
   checks.**
 * The build driver's plan — every program, every argument, in order, for an
   iPhone, an iPad, a watch and a signed device build — is asserted by
-  `lib/apple/apple_test.rgr`. **99 checks**, on seven target languages.
+  `lib/apple/apple_test.rgr`. **151 checks**, on seven target languages.
 
 **Not verified here: anything that needs a Mac.** The `swiftc` compile of the
 generated Swift, the CoreGraphics drawing, the UIKit and SwiftUI hosts, and the
@@ -327,5 +373,5 @@ Known gaps, in rough order of how much they would be missed:
 * [`gallery/ui/demo`](../demo) — the same page in a browser
 * [`gallery/ui/android`](../android/README.md) — the same page on Android, and the port this follows
 * [`gallery/evg/apple`](../../evg/apple/README.md) — the painter and the CoreGraphics surface
-* [`lib/apple`](../../../lib/apple/README.md) — the Apple toolchain driver, and its 99 checks
+* [`lib/apple`](../../../lib/apple/README.md) — the Apple toolchain driver, and its 151 checks
 * [`lib/Shell.rgr`](../../../lib/Shell.rgr) — calling command line programs from Ranger

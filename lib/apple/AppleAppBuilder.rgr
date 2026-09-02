@@ -35,6 +35,8 @@ Import "AppleTarget.rgr"
 Import "AppleAppSpec.rgr"
 Import "AppleToolchain.rgr"
 Import "AppleSimulator.rgr"
+Import "AppleDevice.rgr"
+Import "AppleSigning.rgr"
 
 class AppleBuildResult {
 
@@ -326,6 +328,60 @@ class AppleAppBuilder {
         def dev:AppleSimulator (unwrap picked)
         this.say("* simulator   " + (dev.describe()))
         return (this.installAndLaunch(spec dev res))
+    }
+
+    ; A real iPhone or iPad on a cable. Two commands where the simulator needs
+    ; five: there is nothing to boot and no window to bring forward.
+    ;
+    ; `attach` keeps the launched process in the foreground with its output
+    ; coming back here, which is what a test build on a cable is FOR -- a device
+    ; has no console you can otherwise see.
+    fn runOnDevice:AppleBuildResult (spec:AppleAppSpec target:AppleTarget nameWanted:string attach:boolean) {
+        def res:AppleBuildResult (new AppleBuildResult)
+        res.appPath = (this.bundlePath(spec target))
+
+        if target.isSimulator {
+            res.fail("runOnDevice was given the simulator target " + target.key + ".")
+            return res
+        }
+
+        def udid:string "DRY-RUN-DEVICE"
+        if (sh.dryRun == false) {
+            if ((tools.hasDeviceCtl()) == false) {
+                res.fail("xcrun devicectl is not in this Xcode. It ships with Xcode 15 and later; an older one needs a third party installer, which this does not wrap.")
+                return res
+            }
+            def picked@(optional):AppleDeviceInfo (tools.pickDevice(nameWanted))
+            if (null? picked) {
+                if ((strlen nameWanted) > 0) {
+                    res.fail("no connected device matches \"" + nameWanted + "\". `xcrun devicectl list devices` shows what is plugged in.")
+                    return res
+                }
+                res.fail("no device is connected. Plug one in, unlock it, and trust this computer -- `xcrun devicectl list devices` shows what it can see.")
+                return res
+            }
+            def dev:AppleDeviceInfo (unwrap picked)
+            udid = dev.identifier
+            this.say("* device      " + (dev.describe()))
+        }
+
+        def install:ShellResult (tools.installOnDevice(udid res.appPath))
+        res.note("install " + res.appPath)
+        if (install.failed()) {
+            res.fail("devicectl could not install the app.\n" + (install.describeFailure()) + "\n\nAn install that is refused here is almost always the signing: the device has to be in the provisioning profile the bundle was signed with.")
+            return res
+        }
+        this.say("* installed   " + res.appPath)
+
+        def launch:ShellResult (tools.launchOnDevice(udid spec.bundleId attach))
+        res.note("launch " + spec.bundleId)
+        if (launch.failed()) {
+            res.fail("devicectl could not launch " + spec.bundleId + ".\n" + (launch.describeFailure()))
+            return res
+        }
+        this.say("* launched    " + spec.bundleId)
+        res.ok = true
+        return res
     }
 
     fn installAndLaunch:AppleBuildResult (spec:AppleAppSpec dev:AppleSimulator res:AppleBuildResult) {

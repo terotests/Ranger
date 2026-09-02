@@ -6,6 +6,8 @@
   "scripts": {
     "build": "bash scripts/build-app.sh",
     "run": "bash scripts/build-app.sh --run",
+    "device": "bash scripts/build-app.sh --target=ios-device --run",
+    "device:console": "bash scripts/build-app.sh --target=ios-device --run --console",
     "start": "bash scripts/build-app.sh --run",
     "watch": "bash scripts/build-app.sh --target=watchos-simulator --run",
     "check": "bash scripts/build-app.sh --check",
@@ -18,6 +20,8 @@
     "ui:ios:check": "bash scripts/build-app.sh --check",
     "ui:ios:plan": "bash scripts/build-app.sh --dry-run",
     "ui:ios:verify": "bash scripts/verify.sh",
-    "ui:ios:ranger": "bash scripts/build-ranger.sh"
+    "ui:ios:ranger": "bash scripts/build-ranger.sh",
+    "ui:ios:device": "bash scripts/build-app.sh --target=ios-device --run",
+    "ui:ios:device:console": "bash scripts/build-app.sh --target=ios-device --run --console"
   }
 }

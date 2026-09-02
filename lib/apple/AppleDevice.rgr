@@ -1,0 +1,156 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleDevice.rgr -- the iPhones and iPads that are plugged in.
+; =============================================================================
+;
+; `xcrun devicectl list devices` prints a table. This reads it, and like the
+; simulator parser it is a PURE FUNCTION over the text: the one part of the
+; device story that has edge cases is therefore the one part that can be tested
+; on a machine with nothing plugged into it.
+;
+;     Devices:
+;     Name           Hostname              Identifier                             State       Model
+;     ─────────────  ────────────────────  ─────────────────────────────────────  ──────────  ─────
+;     Tero iPhone    00008101-...local     1A2B3C4D-5E6F-7890-ABCD-EF1234567890   connected   iPhone 14 Pro (iPhone15,2)
+;
+; The fields are found by splitting on runs of TWO OR MORE spaces rather than by
+; slicing at the separator line's column offsets. Column offsets look tidier and
+; are wrong: `strlen` counts UTF-16 units on some targets, runes on others and
+; BYTES on C++, so a device named "Terön iPhone" would slice at three different
+; places in three languages. Two spaces is two spaces everywhere.
+;
+; The IDENTIFIER is what `devicectl --device` wants, and it is not the 40-hex
+; UDID that older tools used -- it is a UUID that devicectl assigns. Finding it
+; by shape rather than by column position is also what makes this survive a
+; column being added, which Xcode has done before.
+; =============================================================================
+
+Import "AppleSimulator.rgr"
+
+class AppleDeviceInfo {
+
+    def name:string ""
+    ; What `devicectl --device` takes.
+    def identifier:string ""
+    ; "connected", "available (paired)", "unavailable"...
+    def state:string ""
+    def model:string ""
+
+    Constructor () {
+    }
+
+    ; Only a connected device can be installed onto. A paired-but-absent one is
+    ; listed and is not a candidate, and saying which is why is better than an
+    ; install that fails four seconds later.
+    fn isConnected:boolean () {
+        return ((indexOf state "connected") >= 0)
+    }
+
+    fn describe:string () {
+        return (name + " (" + model + ") " + identifier + " -- " + state)
+    }
+}
+
+class AppleDeviceList {
+
+    ; Split a table row on runs of two or more spaces, dropping empty pieces.
+    sfn columns:[string] (line:string) {
+        def out:[string]
+        def n:int (strlen line)
+        def cur:string ""
+        def spaces:int 0
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring line i (i + 1))
+            if (ch == " ") {
+                spaces = spaces + 1
+            } {
+                ; One space is inside a field; two ends it.
+                if (spaces >= 2) {
+                    if ((strlen (trim cur)) > 0) {
+                        push out (trim cur)
+                    }
+                    cur = ""
+                } {
+                    if (spaces == 1) {
+                        cur = (cur + " ")
+                    }
+                }
+                spaces = 0
+                cur = (cur + ch)
+            }
+            i = i + 1
+        }
+        if ((strlen (trim cur)) > 0) {
+            push out (trim cur)
+        }
+        return out
+    }
+
+    sfn parse:[AppleDeviceInfo] (text:string) {
+        def found:[AppleDeviceInfo]
+        def lines:[string] (strsplit text "\n")
+        for lines rawLine:string li {
+            def cols:[string] (AppleDeviceList.columns(rawLine))
+            def cnt:int (array_length cols)
+            if (cnt >= 3) {
+                ; The identifier is found by SHAPE, so a new column before or
+                ; after it changes nothing. The header row and the separator
+                ; row hold no UUID and fall out here.
+                def at:int (0 - 1)
+                def ci:int 0
+                while (ci < cnt) {
+                    if (at < 0) {
+                        if (AppleSimulatorList.looksLikeUdid((itemAt cols ci))) {
+                            at = ci
+                        }
+                    }
+                    ci = ci + 1
+                }
+                if (at > 0) {
+                    def dev:AppleDeviceInfo (new AppleDeviceInfo)
+                    dev.name = (itemAt cols 0)
+                    dev.identifier = (itemAt cols at)
+                    if ((at + 1) < cnt) {
+                        dev.state = (itemAt cols (at + 1))
+                    }
+                    def rest:[string]
+                    def mi:int (at + 2)
+                    while (mi < cnt) {
+                        push rest (itemAt cols mi)
+                        mi = mi + 1
+                    }
+                    dev.model = (join rest " ")
+                    push found dev
+                }
+            }
+        }
+        return found
+    }
+
+    ; The device to install onto. `nameWanted` is a substring of the name, or
+    ; the identifier itself; "" takes the first connected one, which is the
+    ; whole point of a one-command device build.
+    sfn pick@(optional):AppleDeviceInfo (devices:[AppleDeviceInfo] nameWanted:string) {
+        def wanted:string (trim nameWanted)
+        def found@(optional):AppleDeviceInfo
+        for devices d:AppleDeviceInfo i {
+            if (null? found) {
+                if (d.isConnected()) {
+                    if ((strlen wanted) == 0) {
+                        found = d
+                    } {
+                        if ((indexOf d.name wanted) >= 0) {
+                            found = d
+                        }
+                        if (d.identifier == wanted) {
+                            found = d
+                        }
+                    }
+                }
+            }
+        }
+        return found
+    }
+}

@@ -23,6 +23,7 @@
 Import "../Shell.rgr"
 Import "AppleTarget.rgr"
 Import "AppleSimulator.rgr"
+Import "AppleDevice.rgr"
 
 class AppleToolchain {
 
@@ -247,11 +248,52 @@ class AppleToolchain {
         return (res.ok())
     }
 
+    ; The iPhones and iPads that are plugged in, parsed.
+    fn listConnectedDevices:[AppleDeviceInfo] () {
+        def res:ShellResult (this.listDevices())
+        if (res.failed()) {
+            def none:[AppleDeviceInfo]
+            return none
+        }
+        return (AppleDeviceList.parse(res.out))
+    }
+
+    ; The one to install onto: connected, and matching `nameWanted` when the
+    ; caller named something.
+    fn pickDevice@(optional):AppleDeviceInfo (nameWanted:string) {
+        def all:[AppleDeviceInfo] (this.listConnectedDevices())
+        return (AppleDeviceList.pick(all nameWanted))
+    }
+
     fn listDevices:ShellResult () {
         def argv:[string]
         push argv "devicectl"
         push argv "list"
         push argv "devices"
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; Start it on the device. `devicectl` needs the bundle id, not the path --
+    ; the app is already installed by this point -- and `--console` keeps the
+    ; process attached so its output lands here, which is what a test build on
+    ; a cable is for.
+    fn launchOnDevice:ShellResult (udid:string bundleId:string attach:boolean) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "process"
+        push argv "launch"
+        push argv "--device"
+        push argv udid
+        if attach {
+            push argv "--console"
+        } {
+            push argv "--terminate-existing"
+        }
+        push argv bundleId
+        if attach {
+            return (sh.run("xcrun" argv))
+        }
         return (sh.capture("xcrun" argv))
     }
 
