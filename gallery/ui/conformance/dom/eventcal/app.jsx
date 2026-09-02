@@ -66,13 +66,30 @@ const EVENTS = [
   },
 ];
 
+// WHICH VIEW, from the query string. Day, week and month are three different
+// layouts and the question "where does an event go" has a different answer in
+// each, so each has to be measured.
+//
+// A fresh load per view rather than a runtime switch: `calendarState.setView`
+// exists but flipping it after render throws inside the library on a date it
+// has not recomputed, and an oracle that pokes a component's internals is
+// measuring the poke. `defaultView` is the supported way to ask for a view and
+// it is the one a host would use.
+const VIEW_BY_NAME = {
+  day: viewDay.name,
+  week: viewWeek.name,
+  month: viewMonthGrid.name,
+};
+const wanted = new URLSearchParams(location.search).get("view") || "week";
+
 const cal = createCalendar({
   views: [viewDay, viewWeek, viewMonthGrid],
-  defaultView: viewWeek.name,
+  defaultView: VIEW_BY_NAME[wanted] || viewWeek.name,
   selectedDate: Temporal.PlainDate.from("2026-05-11"),
   events: EVENTS,
 });
 cal.render(document.getElementById("root"));
 window.__CAL__ = cal;
 window.__EVENTS__ = EVENTS;
+window.__VIEW__ = wanted;
 window.__READY__ = true;

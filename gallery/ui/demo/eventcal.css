@@ -179,3 +179,55 @@
   color: #a1a1aa;
   height: 16px;
 }
+
+/* --- the month view --------------------------------------------------------
+ *
+ * Five rows of seven cells. A cell has no time axis, so its children are the
+ * day number and the chips that begin there — measured from the reference,
+ * where every event in a month came back with a grid row and a day span and
+ * none with a top or a height.
+ *
+ * `overflow: visible` on the cell is load-bearing: a chip spanning three days
+ * is drawn three cells wide from the cell it starts in, and clipping it to its
+ * own cell would draw a third of it. */
+.ec-monthgrid {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.ec-monthweek {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.ec-monthcell {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+  border-radius: 6px;
+  background-color: #fafafa;
+  padding: 4px 4px 4px 4px;
+  height: 84px;
+  overflow: visible;
+}
+
+.ec-monthnum { color: #71717a; font-family: Arial; font-size: 11px; height: 14px; }
+
+.ec-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 4px;
+  background-color: #dbeafe;
+  padding: 0 6px 0 6px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.ec-chiptxt { color: #1e3a8a; font-family: Arial; font-size: 11px; height: 14px; }

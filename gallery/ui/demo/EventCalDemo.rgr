@@ -50,6 +50,15 @@ treefactory Ec {
     tag ViewBtn  EVGElement (props (className "ec-viewbtn") (role "button"))
     tag ViewTxt  EVGElement (props (className "ec-viewtxt") (elementType 1) (a11yHidden true))
     tag Body     EVGElement (props (className "ec-body") (role "region"))
+    ; The month view's own furniture. A month cell has no time axis, so an
+    ; event in it is a CHIP — measured: every event in the reference's month
+    ; came back with a `grid-row` and a day span and none with a `top`.
+    tag MonthGrid EVGElement (props (className "ec-monthgrid") (role "grid") (a11yLabel "Month"))
+    tag MonthWeek EVGElement (props (className "ec-monthweek") (role "row"))
+    tag MonthCell EVGElement (props (className "ec-monthcell") (role "gridcell"))
+    tag MonthNum  EVGElement (props (className "ec-monthnum") (elementType 1) (a11yHidden true))
+    tag Chip      EVGElement (props (className "ec-chip") (role "button") (a11yFocusable true))
+    tag ChipTxt   EVGElement (props (className "ec-chiptxt") (elementType 1) (a11yHidden true))
     tag DayCols  EVGElement (props (className "ec-daycols"))
     tag DayHead  EVGElement (props (className "ec-dayhead") (elementType 1) (a11yHidden true))
     tag Band     EVGElement (props (className "ec-band") (role "list") (a11yLabel "All day"))
@@ -144,8 +153,103 @@ class EventCalDemo {
         return ((f / (this.windowSpan())) * gridH)
     }
 
-    fn colWidth:double () {
+    ; As many columns as the VIEW shows, not always seven. A day view is one
+    ; wide column and a month is seven narrow ones with five rows under them;
+    ; hard-coding 7 here is half of why the view buttons drew the same picture
+    ; whatever you pressed.
+    ; Five rows of seven cells, each cell a day number and the chips that start
+    ; in it. Everything here follows the measurement in `eventcal.json`'s
+    ; `views.month`: 35 cells, every event a chip with a lane and a day span,
+    ; and no time position on anything — a timed event is a chip like the rest.
+    ;
+    ; A chip is drawn in the cell it STARTS in, widened across the days it
+    ; covers, which is what a span of `calc(200% - 8px)` on a grid cell means.
+    ; Clipped events are drawn at their clipped width; one that begins before
+    ; the grid begins is drawn from the first cell it reaches.
+    fn monthCellWidth:double () {
         return (((pageW - 120.0) - (colGap * 6.0)) / 7.0)
+    }
+
+    fn monthGrid:EVGElement () {
+        def grid (tree Ec (MonthGrid (props (id "ec-month"))))
+        def start:int (model.firstDay())
+        def cw:double (this.monthCellWidth())
+        def row:int 0
+        while (row < 5) {
+            def wk (tree Ec (MonthWeek (props (id ("ec-week-" + (to_string row))))))
+            def c:int 0
+            while (c < 7) {
+                def day:int ((start + (row * 7)) + c)
+                def p:[int] ([] _:int ( 0 0 0 ))
+                UiDate.fromDays(day p)
+                def cell (tree Ec (MonthCell (props (id ("ec-cell-" + (to_string ((row * 7) + c)))))))
+                cell.a11yLabel = (UiDate.longLabel((itemAt p 0) (itemAt p 1) (itemAt p 2)))
+                UiTree.inline(cell "width" (EventCalDemo.px(cw)))
+                ; A NAMED INTERMEDIATE, not `(MonthNum (to_string …))`: a
+                ; computed child in text position is read as a tag name by the
+                ; tree factory, which fails the build with "to_string is not a
+                ; tag of treefactory Ec".
+                def dayNum:string (to_string (itemAt p 2))
+                cell.addChild((tree Ec (MonthNum dayNum)))
+                ; The chips that BEGIN in this cell. One pass over the events
+                ; rather than a per-cell search of all of them, because a chip
+                ; belongs to exactly one cell and the rest of its width is
+                ; overhang.
+                def i:int 0
+                while (i < (array_length model.events)) {
+                    def e:CalEvent (itemAt model.events i)
+                    if ((model.isVisible(e.id)) && (e.clipStart == day)) {
+                        def span:int (model.chipSpan(e.id))
+                        def chip (tree Ec
+                            (Chip (props (id ("ec-" + e.id)) (a11yLabel (this.chipLabel(e))))
+                                (ChipTxt e.title)))
+                        ; Wide enough to cover its days, gaps included, and
+                        ; lifted into its lane so two chips on one day stack
+                        ; rather than collide.
+                        def w:double ((cw * (to_double span)) + (colGap * (to_double (span - 1))))
+                        UiTree.inline(chip "width" (EventCalDemo.px(w)))
+                        UiTree.inline(chip "z-index" (to_string e.lane))
+                        cell.addChild(chip)
+                    }
+                    i = (i + 1)
+                }
+                wk.addChild(cell)
+                c = (c + 1)
+            }
+            grid.addChild(wk)
+            row = (row + 1)
+        }
+        return grid
+    }
+
+    ; What a reader is told about a chip. A month cell shows no times, so the
+    ; name carries them: a chip that says only its title tells somebody using a
+    ; screen reader strictly less than the week view did.
+    fn chipLabel:string (e:CalEvent) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(e.clipStart p)
+        def when:string (UiDate.longLabel((itemAt p 0) (itemAt p 1) (itemAt p 2)))
+        if e.allDay {
+            def days:int (model.chipSpan(e.id))
+            if (days > 1) {
+                return ((((e.title + ", all day, ") + (to_string days)) + " days from ") + when)
+            }
+            return (((e.title + ", all day, ") + when))
+        }
+        return ((((e.title + ", ") + (EventCalCtl.clock(e.startMin))) + ", ") + when)
+    }
+
+    fn colCount:int () {
+        if (model.view == "day") {
+            return 1
+        }
+        return 7
+    }
+
+    fn colWidth:double () {
+        def n:int (this.colCount())
+        def gaps:double (colGap * (to_double (n - 1)))
+        return (((pageW - 120.0) - gaps) / (to_double n))
     }
 
     ; A CSS length. Rounded to two places: the fractions are thirds, and a
@@ -221,17 +325,28 @@ class EventCalDemo {
         ; The weekday strip. Decoration: each event already carries its own day
         ; in its accessible name, so a column header would say it twice.
         def cols (tree Ec (DayCols))
+        def nCols:int (this.colCount())
         def d:int 0
-        while (d < 7) {
-            def dow:int (UiDate.weekday((model.weekStart + d)))
+        while (d < nCols) {
+            def dow:int (UiDate.weekday(((model.firstDay()) + d)))
             def p:[int] ([] _:int ( 0 0 0 ))
-            UiDate.fromDays((model.weekStart + d) p)
+            UiDate.fromDays(((model.firstDay()) + d) p)
             def head2 (tree Ec (DayHead ((UiDate.dayAbbr(dow)) + " " + (to_string (itemAt p 2)))))
             UiTree.inline(head2 "width" (EventCalDemo.px((this.colWidth()))))
             cols.addChild(head2)
             d = (d + 1)
         }
         body.addChild(cols)
+
+        ; THE MONTH IS A DIFFERENT DRAWING, so it returns here rather than
+        ; falling through into the time grid. A month cell has no time axis:
+        ; the reference gives every event in it a `grid-row` and a day span and
+        ; not one a `top` or a `height`, timed events included. Drawing the
+        ; hour rows under it would be drawing a time axis that means nothing.
+        if (model.view == "month") {
+            body.addChild((this.monthGrid()))
+            return body
+        }
 
         ; --- the all-day band, one row per lane ------------------------------
         def band (tree Ec (Band (props (id "ec-band"))))
@@ -276,7 +391,7 @@ class EventCalDemo {
         ; --- the time grid ---------------------------------------------------
         def grid (tree Ec (Grid (props (id "ec-grid"))))
         def dd:int 0
-        while (dd < 7) {
+        while (dd < nCols) {
             def col (tree Ec (Col (props (id ("ec-col-" + (to_string dd))))))
             UiTree.inline(col "width" (EventCalDemo.px((this.colWidth()))))
             UiTree.inline(col "height" (EventCalDemo.px(gridH)))
@@ -344,6 +459,12 @@ class EventCalDemo {
 
     fn pickView:boolean (v:string) {
         model.setView(v)
+        ; RE-LAY IT OUT. `setView` changes which days are shown and therefore
+        ; every clip, every lane and every column; without this the new view
+        ; was drawn from the old view's arithmetic. `ec-prev` and `ec-next`
+        ; next door have always called it — this one never did, which was the
+        ; smaller half of why the buttons did nothing.
+        model.layout()
         this.rebuild()
         return true
     }

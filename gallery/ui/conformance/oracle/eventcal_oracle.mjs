@@ -64,6 +64,56 @@ await esbuild.build({
 const browser = await chromium.launch({ executablePath: findChromium() });
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.error("PAGEERROR:", e.message));
+// THREE VIEWS, three loads. Day, week and month are three different layouts
+// and "where does this event go" has a different answer in each — the demo's
+// Day/Week/Month buttons changed a highlight and nothing else because nobody
+// had ever asked the reference what the other two look like.
+//
+// A fresh load per view rather than a runtime switch: `calendarState.setView`
+// exists, but flipping it after render throws inside the library on a date it
+// has not recomputed, and an oracle that pokes a component's internals is
+// measuring the poke.
+async function readView(viewName) {
+  await page.goto(pathToFileURL(path.join(CAL_DIR, "index.html")).href + "?view=" + viewName);
+  await page.waitForFunction("window.__READY__ === true", null, { timeout: 20000 });
+  await page.waitForTimeout(350);
+  return page.evaluate(() => {
+    const num = (s, re) => { const m = s.match(re); return m ? Number(m[1]) : null; };
+    return {
+      // A day view has one column, a week seven, a month none at all: it is a
+      // grid of day CELLS instead, which is the shape difference that matters.
+      timeColumns: document.querySelectorAll(".sx__time-grid-day").length,
+      monthDayCells: document.querySelectorAll(".sx__month-grid-day").length,
+      events: [...document.querySelectorAll("[data-event-id]")].map((el) => {
+        const st = el.getAttribute("style") || "";
+        const cls = el.className;
+        return {
+          id: el.getAttribute("data-event-id"),
+          kind: cls.includes("month-grid-event") ? "monthChip"
+              : cls.includes("date-grid-event") ? "allDayBand" : "timed",
+          // A band that runs past the edge of what is shown is CLIPPED and
+          // marked, rather than drawn out of the frame.
+          overflowRight: cls.includes("date-grid-event--overflow-right"),
+          overflowLeft: cls.includes("date-grid-event--overflow-left"),
+          top: num(st, /top: ([\d.]+)%/),
+          height: num(st, /height: ([\d.]+)%/),
+          left: num(st, /inset-inline-start: ([\d.]+)%/),
+          width: num(st, /width: ([\d.]+)%/),
+          spanPercent: num(st, /width: calc\(([\d.]+)% - \d+px\)/),
+          zIndex: num(st, /z-index: (\d+)/),
+          lane: num(st, /grid-row: (\d+)/),
+        };
+      }),
+    };
+  });
+}
+
+const byView = {
+  day: await readView("day"),
+  week: await readView("week"),
+  month: await readView("month"),
+};
+
 await page.goto(pathToFileURL(path.join(CAL_DIR, "index.html")).href);
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 20000 });
 await page.waitForTimeout(300);
@@ -197,6 +247,13 @@ fs.writeFileSync(
         "library writes. ReUI's own surface is NOT in here — see FINDINGS.",
       library: `@schedule-x/calendar@${version}`,
       week: "2026-05-11 (Monday) to 2026-05-17",
+      // Every view, because the shape of the answer differs per view and not
+      // just the numbers. `views.month` has no `top` or `height` on anything:
+      // a month cell has no time axis, so an event there is a CHIP in a lane,
+      // and a timed event becomes one too. `views.day` has one column instead
+      // of seven, and a band that runs past the day is clipped and marked
+      // rather than drawn outside the frame.
+      views: byView,
       timed,
       allDay,
       FINDINGS,
