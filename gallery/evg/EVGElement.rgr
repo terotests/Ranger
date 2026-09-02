@@ -845,6 +845,14 @@ class EVGElement {
     ; been styled.
     def styleKids:int (0 - 1)
 
+    ; Where this element sits in the last inspect walk, or -1 when the
+    ; inspector has never run. `EVGInspect` stamps it, and two things read it:
+    ; the display list, to say which element emitted a command, and the hit
+    ; test, to turn a point into a node path without comparing object
+    ; identity — which Ranger has no operator for. One int, untouched and
+    ; meaningless while nothing inspects anything.
+    def inspectSlot:int (0 - 1)
+
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
     

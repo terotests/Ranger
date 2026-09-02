@@ -20,6 +20,8 @@
 ; ==============================================================================
 
 Import "../src/PptxApp.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGInspect.rgr"
 
 class PptxWeb {
     def app:PptxApp (new PptxApp)
@@ -370,6 +372,98 @@ class PptxWeb {
         if (name == "f5")       { return (UIKey.f5()) }
         if (name == "tab")      { return (UIKey.tab()) }
         return (UIKey.none())
+    }
+
+    ; --- the inspector --------------------------------------------------------
+    ;
+    ; The slide as an element tree, for `gallery/evg/inspect`. This is the
+    ; export path's tree — the one the PDF and the HTML renderer are made from
+    ; — laid out and then read, so what the panel shows is what a print of this
+    ; slide would be made of, not a second description of the picture.
+    ;
+    ; The EDITOR CHROME is not in here. The toolbar and the slide strip are
+    ; their own trees (`PptxChrome`), and a panel showing a slide's shapes next
+    ; to the buttons that edit them would be answering two questions at once.
+    ; Saying so is better than quietly showing half of one.
+
+    fn inspectRoot@(optional):EVGElement () {
+        def page@(optional):EVGElement (app.currentEvg())
+        if (null? page) {
+            return page
+        }
+        def r:EVGElement (unwrap page)
+        def lay (new EVGLayout())
+        lay.layout(r)
+        return page
+    }
+
+    fn inspectJson:string (gen:int) {
+        def page@(optional):EVGElement (this.inspectRoot())
+        if (null? page) {
+            return "{\"evginspect\":1,\"title\":\"no slide\",\"gen\":0,\"w\":0,\"h\":0,\"root\":\"0\",\"nodes\":[]}"
+        }
+        def r:EVGElement (unwrap page)
+        def idx:int (this.slideIndex())
+        def shown:int (idx + 1)
+        def label:string ("PPTX slide " + (to_string shown))
+        return (EVGInspect.treeOf(r label gen r.calculatedWidth r.calculatedHeight))
+    }
+
+    fn inspectNodeJson:string (path:string) {
+        def page@(optional):EVGElement (this.inspectRoot())
+        if (null? page) {
+            return "{\"error\":\"no slide\"}"
+        }
+        def r:EVGElement (unwrap page)
+        return (EVGInspect.nodeOf(r path))
+    }
+
+    fn inspectHitPath:string (px:double py:double) {
+        def page@(optional):EVGElement (this.inspectRoot())
+        if (null? page) {
+            return ""
+        }
+        def r:EVGElement (unwrap page)
+        return (EVGInspect.hitOf(r px py))
+    }
+
+    fn inspectFrameJson:string () {
+        def page@(optional):EVGElement (this.inspectRoot())
+        if (null? page) {
+            return "{\"cmds\":[]}"
+        }
+        def r:EVGElement (unwrap page)
+        return (EVGInspect.frameOf(r))
+    }
+
+    ; Where the slide sits on the window, and how big it is drawn.
+    ;
+    ; The tree is in the converter's own pixels and the window draws the slide
+    ; fitted and centred, so the panel needs the map between them or its
+    ; highlight lands on the wrong shape. `k` is DERIVED from the two widths
+    ; rather than assembled from `ptScale` and the converter's scale factor:
+    ; that is one number instead of two that have to agree, and it stays right
+    ; if either of them is ever changed.
+    fn inspectTransform:string () {
+        def x:double (app.slideOriginX())
+        def y:double (app.slideOriginY())
+        def k:double 1.0
+        def page@(optional):EVGElement (this.inspectRoot())
+        if (null? page) {
+            k = 1.0
+        } {
+            def r:EVGElement (unwrap page)
+            def pw:double (app.pageWidthPt())
+            def sc:double (app.ptScale())
+            def screenW:double (pw * sc)
+            if (r.calculatedWidth > 0.0) {
+                k = (screenW / r.calculatedWidth)
+            }
+        }
+        def out:string ("{\"x\":" + (EVGDisplayList.num(x)))
+        out = (out + ",\"y\":" + (EVGDisplayList.num(y)))
+        out = (out + ",\"k\":" + (EVGDisplayList.num(k)) + "}")
+        return out
     }
 
     fn scene:string () {

@@ -88,6 +88,11 @@ cp gallery/pptx/web/host/pptx-host.mjs "$OUT/host/pptx-host.mjs"
 mkdir -p "$OUT/html" "$OUT/fonts"
 cp gallery/evg/html/evg-html.js "$OUT/html/evg-html.js"
 
+# The inspector panel, beside the painter and for the same reason: it lives in
+# gallery/evg because it is not this page's — any EVG app can import it.
+mkdir -p "$OUT/inspect"
+cp gallery/evg/inspect/evg-inspect.js "$OUT/inspect/evg-inspect.js"
+
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
@@ -103,7 +108,7 @@ cp gallery/odp/fixtures/20-business-deck.odp "$OUT/sample.odp"
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/pptx_web.js', '$OUT/html.mjs', '$OUT/host/pptx-host.mjs', '$OUT/html/evg-html.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/pptx_web.js', '$OUT/html.mjs', '$OUT/host/pptx-host.mjs', '$OUT/html/evg-html.js', '$OUT/inspect/evg-inspect.js']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "
