@@ -283,22 +283,20 @@ word of complaint and did nothing. The call was emitted; the store was not.
 This is the same failure #65 documents — silent wrong-code generation with no
 diagnostic — reached by the path #65's guard does not cover. That guard rejects
 a statement STARTING with a parenthesised receiver, `(expr).method()`. The bare
-spelling never trips it, because it parses as an ordinary vref chain.
+spelling never tripped it, because it parses as an ordinary vref chain.
 
-The two spellings therefore behave in three different ways, and only one of
-them is safe:
+The two spellings therefore behaved in three different ways, and only one of
+them was safe:
 
 | spelling | result |
 |---|---|
-| `(b.at(0)).name = "x"` | **rejected** by the parser, with guidance (#65's guard) |
+| `(b.at(0)).name = "x"` | **was rejected** by #65's guard; now compiles and stores |
 | `b.at(0).name = "x"` | **compiled, did nothing** — this issue; now compiles and stores |
 | `def t:Item (b.at(0))` then `t.name = "x"` | works |
 
-The first row is unchanged by this fix and is **still rejected**, verified after
-the change: a statement that *begins* with a parenthesis is caught by #65's
-guard long before the dot-leading vref this issue is about is ever scanned.
-Nothing is lost by that — the bare spelling beside it now works, and it is the
-one people write.
+All three spellings now do the same thing. The two that store reach the parser
+at **different places**, which is why the fix has two halves — see *The
+parenthesised spelling* below.
 
 ### Reproduction
 
@@ -438,6 +436,39 @@ The old diagnostic is kept as the `else` branch, for a shape this cannot
 rewrite — no enclosing block, or no receiver to move. Silently dropping the
 store is the one outcome that must never come back.
 
+### The parenthesised spelling
+
+`(b.at(0)).name = "x"` never reaches that point. The statement starts with `(`,
+so the group is parsed as a statement of its own and is **already the block's
+last child** by the time `.name` is scanned — with `curr_node` back at the
+block, which is exactly the condition #65's guard fires on. The receiver is not
+in the statement's children; it is the sibling behind it.
+
+So the same desugaring is taught to reach for it there, at the #65 guard site,
+before the guard gives up. It pops the block's last child as the receiver,
+builds the same `def`, then opens the statement itself — pushing a vref named
+`__rgr_recv_N.name` and handing the rest of the line (` = "x"`) to the ordinary
+recursion, which is the same thing the normal statement path does one token
+later.
+
+**The receiver is only taken when the `.` sits immediately after a `)`, with
+nothing between.** That single check is what separates a rewrite from a theft:
+
+```ranger
+b.touch()
+.name = "stolen"
+```
+
+Here the previous statement also ends in `)`, and a rewrite that looked only
+for a call result behind it would store into whatever `b.touch()` returned.
+Whitespace or a newline before the dot means no rewrite, and #65's error
+stands. `tests/fixtures/issue_76_dangling_dot.rgr` gates it.
+
+A parenthesised receiver followed by a **call** — `(a.b()).c()` — is also still
+#65's error, gated by `tests/fixtures/issue_76_paren_receiver_call.rgr`. The
+lookahead fires only on `=`, and that shape has a bare spelling,
+`a.b().c()`, that has always worked.
+
 ### What it emits
 
 ```js
@@ -474,8 +505,13 @@ reach the rewrite and the ones that must not:
 | `b.at(0).self().name = "chained"` — chained receiver | stores |
 | `b.at(0).inner.tag = "deep"` — nested field path | stores |
 | `b.at(i).n = (i + 7)` inside a `for` block | stores |
+| `(b.at(0)).name = "paren"` — the parenthesised spelling | stores |
+| `(b.at(0)).n= 5` — no space before the `=` | stores |
+| `(b.at(1)).inner.tag = "deep"` — parenthesised, nested path | stores |
 | `((b.at(1)).name) == "one"` | still a READ, unchanged |
 | `def r:string ((b.at(0)).name)` | still a READ, unchanged |
+| `b.touch()` then `.name = "x"` on the next line | still #65's error — not stolen |
+| `(b.at(0)).ping()` — parenthesised receiver, a CALL | still #65's error |
 
 The compiler bootstraps to a fixpoint on the change (stage1 == stage2 ==
 stage3), and all 79 gallery editor suites pass.

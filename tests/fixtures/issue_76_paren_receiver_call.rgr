@@ -1,0 +1,36 @@
+; ISSUES.md #76 / #65 — a parenthesised receiver followed by a CALL rather than
+; an assignment. Still #65's error: the rewrite's lookahead fires only on `=`,
+; and this shape has a bare spelling — `b.at(0).ping()` — that has always
+; worked.
+;
+; This fixture must FAIL to compile.
+
+class Box {
+    def name:string "unset"
+    Constructor () {
+    }
+    fn ping:void () {
+        print "ping"
+    }
+}
+
+class Bag {
+    def items:[Box]
+    Constructor () {
+    }
+    fn at:Box (idx:int) {
+        return (itemAt items idx)
+    }
+}
+
+class Main {
+    Constructor () {
+    }
+    sfn main:void () {
+        def b:Bag (new Bag ())
+        def it:Box (new Box ())
+        push b.items it
+        (b.at(0)).ping()
+        print "after"
+    }
+}

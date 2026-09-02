@@ -6900,6 +6900,87 @@ class RangerLispParser  {
         let vref_end = this.i;
         if ( (((((this.i < this.__len) && ((s.charCodeAt(this.i )) > 32)) && (c != 58)) && (c != 40)) && (c != 41)) && (c != (125)) ) {
           if ( (this.curr_node.is_block_node == true) && ((s.charCodeAt(this.i )) == (46)) ) {
+            let didRewrite65 = false;
+            if ( this.i > 0 ) {
+              if ( (s.charCodeAt((this.i - 1) )) == (41) ) {
+                const save65 = this.i;
+                const fp_sp = this.i;
+                let cc65 = s.charCodeAt(this.i );
+                while ((((((this.i < this.__len) && ((s.charCodeAt(this.i )) > 32)) && (cc65 != 58)) && (cc65 != 40)) && (cc65 != 41)) && (cc65 != (125))) {
+                  if ( this.i > fp_sp ) {
+                    const isop65 = this.isOperator(s, disable_ops_set);
+                    if ( isop65 > 0 ) {
+                      break;
+                    }
+                  }
+                  this.i = 1 + this.i;
+                  cc65 = s.charCodeAt(this.i );
+                };
+                const fp_ep = this.i;
+                let lk65 = this.i;
+                while ((lk65 < this.__len) && ((s.charCodeAt(lk65 )) <= 32)) {
+                  lk65 = lk65 + 1;
+                };
+                let isAssign65 = false;
+                if ( lk65 < this.__len ) {
+                  if ( (s.charCodeAt(lk65 )) == (61) ) {
+                    isAssign65 = true;
+                    if ( (lk65 + 1) < this.__len ) {
+                      if ( (s.charCodeAt((lk65 + 1) )) == (61) ) {
+                        isAssign65 = false;
+                      }
+                    }
+                  }
+                }
+                if ( (isAssign65 && ((fp_ep - fp_sp) > 1)) && ((this.curr_node.children.length) > 0) ) {
+                  const blk65 = this.curr_node;
+                  const recv65 = blk65.children.splice(((blk65.children.length) - 1), 1).pop();
+                  this.recv_tmp_count = this.recv_tmp_count + 1;
+                  const tmp65 = "__rgr_recv_" + ((this.recv_tmp_count.toString()));
+                  const defNode65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  defNode65.expression = true;
+                  defNode65.parent = blk65;
+                  const kw65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  kw65.vref = "def";
+                  kw65.value_type = 11;
+                  kw65.parsed_type = 11;
+                  kw65.ns = "def".split(".");
+                  kw65.parent = defNode65;
+                  defNode65.children.push(kw65);
+                  const nm65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  nm65.vref = tmp65;
+                  nm65.value_type = 11;
+                  nm65.parsed_type = 11;
+                  nm65.ns = tmp65.split(".");
+                  nm65.parent = defNode65;
+                  defNode65.children.push(nm65);
+                  recv65.parent = defNode65;
+                  defNode65.children.push(recv65);
+                  blk65.children.push(defNode65);
+                  const stmt65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  stmt65.expression = true;
+                  stmt65.parent = blk65;
+                  blk65.children.push(stmt65);
+                  const tgt65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  tgt65.vref = tmp65 + (s.substring(fp_sp, fp_ep ));
+                  tgt65.value_type = 11;
+                  tgt65.parsed_type = 11;
+                  tgt65.ns = tgt65.vref.split(".");
+                  tgt65.parent = stmt65;
+                  stmt65.children.push(tgt65);
+                  this.curr_node = stmt65;
+                  this.parents.push(stmt65);
+                  this.paren_cnt = 1 + this.paren_cnt;
+                  this.parseBuf(s, disable_ops_set);
+                  didRewrite65 = true;
+                } else {
+                  this.i = save65;
+                }
+              }
+            }
+            if ( didRewrite65 ) {
+              continue;
+            }
             const err_node = new CodeNode(this.code, this.i, this.i + 1);
             const err_line = err_node.getLine();
             console.log((err_node.getFilename() + " Line: ") + err_line);

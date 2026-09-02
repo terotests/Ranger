@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { compileAndRun, type CompileResult, type RunResult } from "./helpers/compiler";
+import {
+  compileAndRun,
+  compileRanger,
+  type CompileResult,
+  type RunResult,
+} from "./helpers/compiler";
 
 // ISSUES.md #76. `recv.call(args).field = value` used to compile without a
 // word of complaint and DROP THE STORE — the call was emitted, the assignment
@@ -18,6 +23,12 @@ import { compileAndRun, type CompileResult, type RunResult } from "./helpers/com
 //                    every store dropped, and `cmp|ok` never printed
 //   the reject fix   parse error, no output at all
 //   this fix         the eight lines asserted below
+//
+// The parenthesised spelling `(b.at(0)).name = "x"` is here too. It reaches the
+// parser at a DIFFERENT place — the statement starts with `(`, so the receiver
+// is already the enclosing block's previous child rather than the statement's
+// own — and was refused by #65's guard until the same desugaring was taught to
+// reach for it there.
 describe("Issue #76 assigning to a field of a call result", () => {
   let compile: CompileResult;
   let run: RunResult | undefined;
@@ -61,8 +72,42 @@ describe("Issue #76 assigning to a field of a call result", () => {
     expect(run?.output).toContain("one|101|in-loop-1");
   });
 
+  it("stores through the parenthesised spelling", () => {
+    // (b.at(0)).name = "paren" and (b.at(0)).n= 5, with no space before the =
+    expect(run?.output).toContain("paren|5|in-loop-0");
+  });
+
+  it("stores through a nested field path on a parenthesised receiver", () => {
+    // (b.at(1)).inner.tag = "paren-deep"
+    expect(run?.output).toContain("one|101|paren-deep");
+  });
+
   it("leaves reads of a call result alone", () => {
-    expect(run?.output).toContain("read|zero");
+    expect(run?.output).toContain("read|paren");
     expect(run?.output).toContain("cmp|ok");
+  });
+});
+
+// The rewrite reaches BEHIND the statement for its receiver in the
+// parenthesised case, so the two shapes it must refuse to reach for are gates
+// of their own. Without these, widening the lookahead later would silently
+// start storing into an unrelated statement's return value.
+describe("Issue #76 shapes the rewrite must still refuse", () => {
+  it("does not steal the previous statement for a dangling `.field =`", () => {
+    const compile = compileRanger("tests/fixtures/issue_76_dangling_dot.rgr");
+    expect(
+      compile.success,
+      "a `.field = value` line after an unrelated statement must not compile"
+    ).toBe(false);
+  });
+
+  it("still refuses a parenthesised receiver followed by a call", () => {
+    const compile = compileRanger(
+      "tests/fixtures/issue_76_paren_receiver_call.rgr"
+    );
+    expect(
+      compile.success,
+      "`(expr).method()` at statement level must not compile"
+    ).toBe(false);
   });
 });

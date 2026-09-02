@@ -75,6 +75,14 @@ class Main {
         }
         Main.say(b)
 
+        ; the PARENTHESISED spelling of the same store, which used to be
+        ; refused by #65's guard because the statement starts with `(`
+        (b.at(0)).name = "paren"
+        (b.at(1)).inner.tag = "paren-deep"
+        ; no space before the `=`
+        (b.at(0)).n= 5
+        Main.say(b)
+
         ; reads on a call result must still be reads
         def r:string ((b.at(0)).name)
         print ("read|" + r)

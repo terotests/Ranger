@@ -1056,6 +1056,125 @@ class RangerLispParser {
           ; `charAt s i` alongside it), and a leftover dot from an earlier token
           ; would reject innocent lines.
           if ((curr_node.is_block_node == true) && (((charAt s i)) == ((ccode ".")))) {
+            ; ISSUES.md #76, the PARENTHESISED spelling of the same store:
+            ;
+            ;     (b.at(0)).name = "x"
+            ;
+            ; It arrives here rather than at the vref site the bare spelling
+            ; uses, because the statement started with `(`: the group was
+            ; parsed as a statement of its own and is already the block's LAST
+            ; CHILD by the time this `.name` is scanned. So the receiver is not
+            ; in `curr_node.children` — it is the sibling behind us — and the
+            ; rewrite has to reach for it there.
+            ;
+            ; Same desugaring, same three moves:
+            ;
+            ;     def __rgr_recv_1 (b.at(0))
+            ;     __rgr_recv_1.name = "x"
+            ;
+            ; The receiver is only taken when the `.` sits IMMEDIATELY after a
+            ; `)`, with nothing between. That is what separates this from the
+            ; shape the guard below exists for:
+            ;
+            ;     doSomething()
+            ;     .name = "x"
+            ;
+            ; where the previous statement is unrelated and stealing it would
+            ; be far worse than refusing the line. Whitespace or a newline
+            ; before the dot means no rewrite.
+            ;
+            ; A parenthesised receiver followed by a CALL — `(a.b()).c()` —
+            ; still gets the guard, unchanged. The lookahead below only fires
+            ; on `=` (never `==`), and that shape has a bare spelling that has
+            ; always worked.
+            def didRewrite65:boolean false
+            if (i > 0) {
+              if (((charAt s (i - 1))) == ((ccode ")"))) {
+                def save65:int i
+                def fp_sp:int i
+                def cc65:char (charAt s i)
+                while ((i < len) && (((charAt s i)) > 32) && (cc65 != 58) && (cc65 != 40) && (cc65 != 41) && (cc65 != ((ccode "}")))) {
+                  if (i > fp_sp) {
+                    def isop65:int (this.isOperator(s disable_ops_set))
+                    if (isop65 > 0) {
+                      break
+                    }
+                  }
+                  i = 1 + i
+                  cc65 = (charAt s i)
+                }
+                def fp_ep:int i
+                def lk65:int i
+                while ((lk65 < len) && (((charAt s lk65)) <= 32)) {
+                  lk65 = lk65 + 1
+                }
+                def isAssign65:boolean false
+                if (lk65 < len) {
+                  if (((charAt s lk65)) == ((ccode "="))) {
+                    isAssign65 = true
+                    if ((lk65 + 1) < len) {
+                      if (((charAt s (lk65 + 1))) == ((ccode "="))) {
+                        isAssign65 = false
+                      }
+                    }
+                  }
+                }
+                if (isAssign65 && ((fp_ep - fp_sp) > 1) && (((array_length curr_node.children)) > 0)) {
+                  def blk65@(optional weak):CodeNode curr_node
+                  def recv65:CodeNode (array_extract blk65.children (((array_length blk65.children)) - 1))
+                  recv_tmp_count = recv_tmp_count + 1
+                  def tmp65:string ("__rgr_recv_" + (to_string recv_tmp_count))
+
+                  def defNode65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  defNode65.expression = true
+                  defNode65.parent = blk65
+
+                  def kw65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  kw65.vref = "def"
+                  kw65.value_type = RangerNodeType.VRef
+                  kw65.parsed_type = RangerNodeType.VRef
+                  kw65.ns = (strsplit "def" ".")
+                  kw65.parent = defNode65
+                  push defNode65.children kw65
+
+                  def nm65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  nm65.vref = tmp65
+                  nm65.value_type = RangerNodeType.VRef
+                  nm65.parsed_type = RangerNodeType.VRef
+                  nm65.ns = (strsplit tmp65 ".")
+                  nm65.parent = defNode65
+                  push defNode65.children nm65
+
+                  recv65.parent = defNode65
+                  push defNode65.children recv65
+                  push blk65.children defNode65
+
+                  def stmt65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  stmt65.expression = true
+                  stmt65.parent = blk65
+                  push blk65.children stmt65
+
+                  def tgt65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  tgt65.vref = (tmp65 + ((substring s fp_sp fp_ep)))
+                  tgt65.value_type = RangerNodeType.VRef
+                  tgt65.parsed_type = RangerNodeType.VRef
+                  tgt65.ns = (strsplit tgt65.vref ".")
+                  tgt65.parent = stmt65
+                  push stmt65.children tgt65
+
+                  curr_node = stmt65
+                  push parents stmt65
+                  paren_cnt = 1 + paren_cnt
+                  this.parseBuf(s disable_ops_set)
+                  didRewrite65 = true
+                } {
+                  i = save65
+                }
+              }
+            }
+            if didRewrite65 {
+              continue 
+            }
             def err_node:CodeNode (new CodeNode(( unwrap code) i (i + 1)))
             def err_line:int (err_node.getLine())
             print ((err_node.getFilename()) + " Line: " + err_line)
