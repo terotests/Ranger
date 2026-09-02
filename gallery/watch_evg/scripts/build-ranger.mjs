@@ -29,9 +29,14 @@ const env = {
 
 function compile(sourceRel, outName, opts = {}) {
   const outDirRel = path.relative(rangerRoot, outDir).split(path.sep).join("/");
-  const baseFlags = opts.noEsm
-    ? ["-es6", "-nodecli"]
-    : ["-es6", "-esm", "-nodemodule"];
+  let baseFlags;
+  if (opts.nodemodule) {
+    baseFlags = ["-es6", "-nodemodule"];
+  } else if (opts.noEsm) {
+    baseFlags = ["-es6", "-nodecli"];
+  } else {
+    baseFlags = ["-es6", "-esm", "-nodemodule"];
+  }
   const cmd = [
     "node",
     JSON.stringify(compiler),
@@ -49,10 +54,17 @@ const libRel = path
   .split(path.sep)
   .join("/");
 const testRel = path.relative(rangerRoot, path.join(galleryDir, "watch_evg_test.rgr")).split(path.sep).join("/");
+const benchRel = path
+  .relative(rangerRoot, path.join(galleryDir, "bench/WatchEvgBench.rgr"))
+  .split(path.sep)
+  .join("/");
 
 compile(libRel, "watch_evg.js");
 compile(testRel, "watch_evg_test.js", { noEsm: true });
+compile(benchRel, "WatchEvgBench.cjs", { nodemodule: true });
 
 fs.copyFileSync(path.join(outDir, "watch_evg_test.js"), path.join(binDir, "watch_evg_test.js"));
+fs.copyFileSync(path.join(outDir, "WatchEvgBench.cjs"), path.join(binDir, "WatchEvgBench.cjs"));
 
 console.log("Wrote", path.join(outDir, "watch_evg.js"));
+console.log("Wrote", path.join(binDir, "WatchEvgBench.cjs"));

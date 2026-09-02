@@ -1,0 +1,50 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Facade the Android/JVM painter bench calls. Returns the same EVGDisplayList
+; type `EvgPainter` already knows how to walk.
+
+Import "../../bench/WatchEvgBench.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGStyleSheet.rgr"
+Import "../../../evg/EVGElement.rgr"
+
+class WatchEvgAndroid {
+    def lastElements:int 0
+    def lastScene:string ""
+
+    fn faceSize:double () {
+        return (WatchEvgBench.faceSize())
+    }
+
+    fn bezelFrame:EVGDisplayList (segments:int) {
+        def root:EVGElement (WatchEvgBench.bezelRoot(segments))
+        lastElements = (WatchEvgBench.countElements(root))
+        lastScene = "bezel"
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        return dl
+    }
+
+    fn listFrame:EVGDisplayList (rows:int) {
+        def css:string (WatchEvgBench.listCss())
+        def sheet:EVGStyleSheet (WatchEvgBench.sheetFor(css))
+        def root:EVGElement (WatchEvgBench.listPage(rows 1))
+        WatchEvgBench.styleOnly(sheet root)
+        def lay:EVGLayout (WatchEvgBench.layoutOnly(root))
+        lastElements = (WatchEvgBench.countElements(root))
+        lastScene = "list"
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return dl
+    }
+
+    fn elementCount:int () {
+        return lastElements
+    }
+
+    fn sceneName:string () {
+        return lastScene
+    }
+}

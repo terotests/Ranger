@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build:ranger": "node scripts/build-ranger.mjs",
-    "test": "npm run build:ranger && node bin/watch_evg_test.js"
+    "test": "npm run build:ranger && node bin/watch_evg_test.js",
+    "bench": "npm run build:ranger && node bench/watch-evg-bench.mjs",
+    "bench:android": "bash android/scripts/bench-desktop.sh"
   }
 }
