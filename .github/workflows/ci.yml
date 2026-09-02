@@ -285,6 +285,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `ui:demo:page` loads the demo page in a real browser — it is the one
+      # suite here that cannot be answered in Node, and the reason it exists:
+      # three wiring defects passed every Node assertion while the page was
+      # dead. This runner had no browser at all, so that suite failed with
+      # "Executable doesn't exist at .../chromium_headless_shell-1234" the
+      # first time it ran in CI.
+      #
+      # `playwright-core` is a devDependency of this repository and ships the
+      # same `install` command as the full package; `chromium` brings the
+      # headless shell the launch actually asks for, since page-check.mjs
+      # launches headless. `--with-deps` is Playwright's documented CI form.
+      #
+      # This downloads the browser on every run. That is the going rate for a
+      # gate that drives a real page, and the alternative — pointing at a
+      # stock Chrome on the image — unpins the browser from the
+      # playwright-core the harness uses.
+      - name: Install Chromium for the browser-driven suites
+        run: npx playwright-core install --with-deps chromium
+
       - name: Run the gallery editor suites
         run: npm run gallery:editors:test
 

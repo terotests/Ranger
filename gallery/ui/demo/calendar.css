@@ -1,0 +1,242 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * shadcn's Calendar, as an EVG stylesheet.
+ *
+ * Class-first: every class here is one CalendarDemo.rgr writes, and the tree
+ * literal carries no appearance at all. The palette is the zinc one the rest
+ * of this directory uses; the geometry is read off shadcn's class map as a
+ * spec — `size-8` cells, `rounded-md` on a day, a `rounded-lg border` card —
+ * and NOT off react-day-picker's own stylesheet, which shadcn replaces
+ * wholesale anyway.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so a variant is its own
+ * token on the same element (`cd-day cd-day-selected`) rather than a compound
+ * rule, and later in the sheet is the only way to say "this one wins".
+ */
+
+.cd-page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  background-color: #fafafa;
+  padding: 28px;
+  width: 900px;
+  height: 520px;
+}
+
+/* --- the field ------------------------------------------------------------
+ *
+ * The half that makes this an input rather than a wall calendar: it says what
+ * the control currently holds, and it empties when the selection is cleared.
+ */
+
+.cd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+}
+
+.cd-field-label {
+  color: #3f3f46;
+  font-size: 13px;
+  font-weight: bold;
+  width: 320px;
+  height: 18px;
+}
+
+.cd-box {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 12px;
+  width: 320px;
+  height: 38px;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+
+.cd-box-text {
+  color: #18181b;
+  font-size: 14px;
+  width: 294px;
+  height: 20px;
+}
+
+/* Pale, and a different class from the value — a placeholder that looked like
+ * a value would make an empty field read as a filled one. The box's accessible
+ * name stays "Date" either way, so a reader is not told the hint is the
+ * answer. */
+.cd-box-hint {
+  color: #a1a1aa;
+  font-size: 14px;
+  width: 294px;
+  height: 20px;
+}
+
+/* --- the card -------------------------------------------------------------- */
+
+.cd-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+  padding: 12px;
+  width: 268px;
+}
+
+.cd-nav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  width: 244px;
+  height: 32px;
+}
+
+.cd-navbtn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.cd-navbtn:hover { background-color: #f4f4f5; }
+.cd-navbtn:active { background-color: #e4e4e7; }
+
+.cd-navglyph {
+  color: #52525b;
+  font-size: 14px;
+  width: 26px;
+  height: 20px;
+  text-align: center;
+}
+
+/* role=status with a live region behind it: arrowing into another month has to
+ * be announced, because the grid moves under the reader without them asking. */
+.cd-caption {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: bold;
+  width: 180px;
+  height: 20px;
+  text-align: center;
+}
+
+.cd-grid {
+  display: flex;
+  flex-direction: column;
+  width: 244px;
+}
+
+.cd-headrow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 244px;
+  height: 28px;
+}
+
+.cd-weekday {
+  color: #a1a1aa;
+  font-size: 12px;
+  width: 34px;
+  height: 18px;
+  text-align: center;
+}
+
+.cd-week {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 244px;
+  height: 34px;
+}
+
+/* One day. Thirty-four wide so seven of them are exactly the grid's 238 plus
+ * the row's own spare — a day that sized itself from its text would make the
+ * 1st narrower than the 30th and the columns would not line up. */
+.cd-day {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 32px;
+  border-radius: 6px;
+  background-color: #ffffff;
+  cursor: pointer;
+  /* On the BASE rule, not on `:hover`. A transition describes the property and
+   * not the direction — declared only under `:hover`, a day lights up slowly
+   * and goes dark instantly. */
+  transition: background-color 120ms ease-out;
+}
+
+.cd-daynum {
+  color: #18181b;
+  font-size: 13px;
+  width: 32px;
+  height: 18px;
+  text-align: center;
+}
+
+.cd-day:hover { background-color: #f4f4f5; }
+
+/* The number's own variants. It cannot inherit them: EVGStyleSheet matches one
+ * class token per selector and has no descendant selectors, so "the number
+ * inside a selected day" is not something a rule here can say. The demo writes
+ * the token on the number instead. */
+.cd-daynum-outside { color: #a1a1aa; }
+.cd-daynum-selected { color: #ffffff; }
+
+/* The neighbours' days. Present and clickable — the reference selects them —
+ * but pale, because the month you are looking at is the subject. */
+.cd-day-outside { background-color: #ffffff; }
+
+/* Today: a ring rather than a fill, so it can still show through a selection
+ * or a hover. The fill is already saying "chosen" and the two would be one
+ * picture. */
+.cd-day-today {
+  border: 1px solid #a1a1aa;
+}
+
+/* Later than `:hover` on purpose: a chosen day stays visibly chosen under the
+ * pointer. */
+.cd-day-selected {
+  background-color: #18181b;
+}
+
+/* A day you cannot pick. No pointer cursor either — a cursor that says
+ * "clickable" over something that is not is a lie the user acts on. */
+.cd-day-disabled {
+  background-color: #ffffff;
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Two lines, because the sentence is two lines wide at 560px — measured off
+ * the render, not guessed. A height of one line here does not wrap the text
+ * differently, it just clips the second one. */
+.cd-note {
+  color: #71717a;
+  font-size: 12px;
+  width: 560px;
+  height: 36px;
+}

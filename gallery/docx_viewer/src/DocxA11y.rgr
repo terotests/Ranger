@@ -247,7 +247,15 @@ class DocxA11y {
                 ; A viewer that is not in edit mode still has a caret to
                 ; report; what it does not have is a place to type. Saying so
                 ; is the difference between "read this" and "type here".
-                cn.readOnly = readOnly
+                ;
+                ; "true" or NOTHING, never "false": `readOnly` on the node is
+                ; `aria-readonly` in the DOM's own three states, and absent
+                ; and "false" are different claims — one says the question was
+                ; never asked, the other that it was asked and answered. An
+                ; editable document says nothing rather than denying it.
+                if readOnly {
+                    cn.readOnly = "true"
+                }
                 cn.actSetValue = (readOnly == false)
                 cn.value = cn.name
                 cn.caret = caretOffset

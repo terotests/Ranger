@@ -1,0 +1,364 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CalendarTest — the calendar's arithmetic and its keyboard, offline.
+; =============================================================================
+; Every expected value in here was READ OFF `conformance/oracle/calendar.json`,
+; which was captured from a real react-day-picker in a real browser. Nothing
+; below re-derives a date rule and calls the result a reference — that is
+; exactly how a re-implementation and its test drift together.
+;
+; The date arithmetic gets its own section, first, and it is not padding: a
+; calendar built on a wrong `weekday` looks plausible and is wrong in a
+; different place every month. Cheap to gate here, miserable to find later.
+; =============================================================================
+
+Import "../src/UiDate.rgr"
+Import "../src/CalendarCtl.rgr"
+Import "../src/UiHost.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class CalCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class CalendarTest {
+
+    ; --- 1. the day count ----------------------------------------------------
+
+    sfn testDate:void (t:CalCheck) {
+        print "--- the civil calendar ---"
+
+        ; The epoch and the weekday it fell on. Everything else hangs off this
+        ; one fact, so it is asserted rather than assumed.
+        t.eqInt("1970-01-01 is day zero" (UiDate.toDays(1970 1 1)) 0)
+        t.eqInt("and it was a Thursday" (UiDate.weekday(0)) 4)
+
+        ; A round trip through both directions, over a leap day and a century
+        ; boundary — the two places the shifted-year arithmetic earns its keep.
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays((UiDate.toDays(2000 2 29)) p)
+        t.eqInt("2000-02-29 round trips: year" (itemAt p 0) 2000)
+        t.eqInt("  month" (itemAt p 1) 2)
+        t.eqInt("  day" (itemAt p 2) 29)
+        UiDate.fromDays((UiDate.toDays(1899 12 31)) p)
+        t.eqInt("1899-12-31 round trips: year" (itemAt p 0) 1899)
+        t.eqInt("  month" (itemAt p 1) 12)
+        t.eqInt("  day" (itemAt p 2) 31)
+
+        ; 1900 was NOT a leap year, and this is the one the spreadsheet's
+        ; serial deliberately gets wrong. A calendar must not.
+        t.ok("1900 is not a leap year" ((UiDate.isLeap(1900)) == false))
+        t.ok("2000 is" (UiDate.isLeap(2000)))
+        t.eqInt("February 1900 has 28 days" (UiDate.daysInMonth(1900 2)) 28)
+        t.eqInt("February 2024 has 29" (UiDate.daysInMonth(2024 2)) 29)
+        t.eqInt("there is no 31st of April" (UiDate.daysInMonth(2026 4)) 30)
+
+        ; The oracle's month: May 2026 begins on a Friday and ends on a Sunday,
+        ; which is why it is the fixture.
+        t.eqInt("2026-05-01 is a Friday" (UiDate.weekday((UiDate.toDays(2026 5 1)))) 5)
+        t.eqInt("2026-05-31 is a Sunday" (UiDate.weekday((UiDate.toDays(2026 5 31)))) 0)
+
+        ; The labels a reader hears, character for character from the capture.
+        t.eqStr("a long label" (UiDate.longLabel(2026 5 13)) "Wednesday, May 13th, 2026")
+        t.eqStr("the 1st" (UiDate.longLabel(2026 5 1)) "Friday, May 1st, 2026")
+        t.eqStr("the 2nd" (UiDate.longLabel(2026 5 2)) "Saturday, May 2nd, 2026")
+        t.eqStr("the 3rd" (UiDate.longLabel(2026 5 3)) "Sunday, May 3rd, 2026")
+        ; Eleven, twelve and thirteen are the exception the rule needs.
+        t.eqStr("the 11th, not the 11st" (UiDate.ordinal(11)) "11th")
+        t.eqStr("the 12th" (UiDate.ordinal(12)) "12th")
+        t.eqStr("the 13th" (UiDate.ordinal(13)) "13th")
+        t.eqStr("the 21st" (UiDate.ordinal(21)) "21st")
+        t.eqStr("the 22nd" (UiDate.ordinal(22)) "22nd")
+        t.eqStr("the 23rd" (UiDate.ordinal(23)) "23rd")
+        t.eqStr("the 31st" (UiDate.ordinal(31)) "31st")
+        t.eqStr("the caption" (UiDate.monthLabel(2026 5)) "May 2026")
+        t.eqStr("an ISO day" (UiDate.iso(2026 5 3)) "2026-05-03")
+    }
+
+    ; The oracle's calendar: May 2026, today the 14th, nothing selected.
+    sfn fixture:CalendarCtl () {
+        def c (new CalendarCtl())
+        c.tid = "cal"
+        c.name = "Date"
+        c.setMonth(2026 5)
+        c.setToday(2026 5 14)
+        c.build()
+        return c
+    }
+
+    ; --- 2. the shape of the grid --------------------------------------------
+
+    sfn testGrid:void (t:CalCheck) {
+        print "--- the grid ---"
+        def c:CalendarCtl (CalendarTest.fixture())
+
+        ; Six rows, because May 2026 needs six. A calendar that always draws
+        ; six and one that draws what the month needs agree on this month and
+        ; disagree on most others, so the count is asserted per month.
+        t.eqInt("May 2026 is six weeks" (c.weekCount()) 6)
+        t.eqStr("the first cell is April's 26th" (UiDate.isoOfDays((c.gridStart()))) "2026-04-26")
+        t.eqStr("the last is June's 6th" (UiDate.isoOfDays(((c.gridStart()) + 41))) "2026-06-06")
+
+        ; Two months that would let a six-row assumption pass unnoticed.
+        c.setMonth(2026 2)
+        t.eqInt("February 2026 is four weeks" (c.weekCount()) 4)
+        t.eqStr("  and starts on its own 1st" (UiDate.isoOfDays((c.gridStart()))) "2026-02-01")
+        c.setMonth(2026 9)
+        t.eqInt("September 2026 is five" (c.weekCount()) 5)
+
+        c.setMonth(2026 5)
+        t.ok("April's 26th is outside" (c.isOutside((UiDate.toDays(2026 4 26)))))
+        t.ok("May's 1st is not" ((c.isOutside((UiDate.toDays(2026 5 1)))) == false))
+        t.ok("June's 1st is" (c.isOutside((UiDate.toDays(2026 6 1)))))
+
+        ; The tab stop at rest is TODAY. Not the 1st — measured, and the 1st is
+        ; what this was written as before the capture came back.
+        t.eqStr("the tab stop at rest is today" (UiDate.isoOfDays((c.currentFocusDay()))) "2026-05-14")
+        c.setSelected(2026 5 20)
+        t.eqStr("once a day is chosen, it is that" (UiDate.isoOfDays((c.currentFocusDay()))) "2026-05-20")
+    }
+
+    ; --- 3. the keyboard -----------------------------------------------------
+
+    ; One key from one day, answered the way the oracle answers it: the day
+    ; focus lands on, and the month the caption then shows.
+    sfn press:string (c:CalendarCtl from:string key:string) {
+        def landed:string (c.keyDown((c.tid + "-" + from) key))
+        if (landed == "") {
+            return ""
+        }
+        return (UiDate.isoOfDays((c.currentFocusDay())))
+    }
+
+    sfn walk:void (t:CalCheck from:string key:string wantDay:string wantMonth:string) {
+        def c:CalendarCtl (CalendarTest.fixture())
+        def got:string (CalendarTest.press(c from key))
+        t.eqStr((key + " from " + from) got wantDay)
+        t.eqStr(("  caption after " + key) (c.monthLabel()) wantMonth)
+    }
+
+    sfn testKeyboard:void (t:CalCheck) {
+        print "--- the keyboard, from the middle ---"
+        ; Straight off calendar.json's keyboardMiddle.
+        CalendarTest.walk(t "2026-05-13" "ArrowRight" "2026-05-14" "May 2026")
+        CalendarTest.walk(t "2026-05-13" "ArrowLeft" "2026-05-12" "May 2026")
+        CalendarTest.walk(t "2026-05-13" "ArrowDown" "2026-05-20" "May 2026")
+        CalendarTest.walk(t "2026-05-13" "ArrowUp" "2026-05-06" "May 2026")
+        ; Home and End are WEEK-relative. This is the pair that would have been
+        ; written as "the 1st" and "the last" without the capture.
+        CalendarTest.walk(t "2026-05-13" "Home" "2026-05-10" "May 2026")
+        CalendarTest.walk(t "2026-05-13" "End" "2026-05-16" "May 2026")
+        CalendarTest.walk(t "2026-05-13" "PageUp" "2026-04-13" "April 2026")
+        CalendarTest.walk(t "2026-05-13" "PageDown" "2026-06-13" "June 2026")
+
+        print "--- and from the edges, where it leaves the month ---"
+        ; From the 1st, a Friday: keyboardEdges["first of month (a Friday)"].
+        CalendarTest.walk(t "2026-05-01" "ArrowLeft" "2026-04-30" "April 2026")
+        CalendarTest.walk(t "2026-05-01" "ArrowUp" "2026-04-24" "April 2026")
+        ; Home from a Friday the 1st is the PREVIOUS month's 26th, and the
+        ; caption follows. The single most surprising row in the capture.
+        CalendarTest.walk(t "2026-05-01" "Home" "2026-04-26" "April 2026")
+        CalendarTest.walk(t "2026-05-01" "End" "2026-05-02" "May 2026")
+        CalendarTest.walk(t "2026-05-01" "PageUp" "2026-04-01" "April 2026")
+        CalendarTest.walk(t "2026-05-01" "PageDown" "2026-06-01" "June 2026")
+
+        ; From the 31st, a Sunday: keyboardEdges["last of month (a Sunday)"].
+        CalendarTest.walk(t "2026-05-31" "ArrowRight" "2026-06-01" "June 2026")
+        CalendarTest.walk(t "2026-05-31" "ArrowDown" "2026-06-07" "June 2026")
+        CalendarTest.walk(t "2026-05-31" "Home" "2026-05-31" "May 2026")
+        CalendarTest.walk(t "2026-05-31" "End" "2026-06-06" "June 2026")
+        ; April has no 31st, so PageUp clamps. "Subtract 31 days" would land
+        ; on the 30th here too and be wrong for every other pair of months.
+        CalendarTest.walk(t "2026-05-31" "PageUp" "2026-04-30" "April 2026")
+        CalendarTest.walk(t "2026-05-31" "PageDown" "2026-06-30" "June 2026")
+
+        ; A Sunday inside the month: Home is itself, ArrowUp leaves the month.
+        CalendarTest.walk(t "2026-05-03" "Home" "2026-05-03" "May 2026")
+        CalendarTest.walk(t "2026-05-03" "ArrowUp" "2026-04-26" "April 2026")
+        ; A Saturday: End is itself.
+        CalendarTest.walk(t "2026-05-09" "End" "2026-05-09" "May 2026")
+        CalendarTest.walk(t "2026-05-09" "Home" "2026-05-03" "May 2026")
+    }
+
+    ; --- 4. choosing a day ---------------------------------------------------
+
+    sfn testSelection:void (t:CalCheck) {
+        print "--- selection ---"
+        def c:CalendarCtl (CalendarTest.fixture())
+        t.ok("nothing is chosen to begin with" (c.hasSelection == false))
+
+        c.activate("cal-2026-05-13")
+        t.ok("a click chooses" c.hasSelection)
+        t.eqStr("  the day it landed on" (UiDate.isoOfDays(c.selectedDay)) "2026-05-13")
+
+        c.activate("cal-2026-05-20")
+        t.eqStr("another click moves it" (UiDate.isoOfDays(c.selectedDay)) "2026-05-20")
+
+        ; The toggle. Measured: mode=single without `required` clears.
+        c.activate("cal-2026-05-20")
+        t.ok("clicking the chosen day clears it" (c.hasSelection == false))
+
+        ; Enter agrees with the pointer — also measured, not assumed.
+        def k:CalendarCtl (CalendarTest.fixture())
+        k.keyDown("cal-2026-05-07" "Enter")
+        t.eqStr("Enter chooses" (UiDate.isoOfDays(k.selectedDay)) "2026-05-07")
+        k.keyDown("cal-2026-05-07" "Enter")
+        t.ok("and Enter on the chosen day clears it" (k.hasSelection == false))
+        def s:CalendarCtl (CalendarTest.fixture())
+        s.keyDown("cal-2026-05-08" " ")
+        t.eqStr("Space chooses too" (UiDate.isoOfDays(s.selectedDay)) "2026-05-08")
+
+        ; An outside day selects that date and does NOT move the month.
+        def o:CalendarCtl (CalendarTest.fixture())
+        o.activate("cal-2026-04-26")
+        t.eqStr("an outside day is selectable" (UiDate.isoOfDays(o.selectedDay)) "2026-04-26")
+        t.eqStr("  and the caption stays put" (o.monthLabel()) "May 2026")
+
+        ; The nav buttons.
+        def n:CalendarCtl (CalendarTest.fixture())
+        n.activate("cal-prev")
+        t.eqStr("prev" (n.monthLabel()) "April 2026")
+        n.activate("cal-next")
+        n.activate("cal-next")
+        t.eqStr("next twice" (n.monthLabel()) "June 2026")
+        ; Across a year boundary, which no capture covers and arithmetic must.
+        def y:CalendarCtl (CalendarTest.fixture())
+        y.setMonth(2026 1)
+        y.activate("cal-prev")
+        t.eqStr("December of the year before" (y.monthLabel()) "December 2025")
+        y.setMonth(2026 12)
+        y.activate("cal-next")
+        t.eqStr("and January of the year after" (y.monthLabel()) "January 2027")
+    }
+
+    ; --- 5. days that cannot be picked ---------------------------------------
+
+    sfn testDisabled:void (t:CalCheck) {
+        print "--- disabled days ---"
+        def c:CalendarCtl (CalendarTest.fixture())
+        c.setMinDate(2026 5 10)
+        c.build()
+
+        t.ok("the 9th is disabled" (c.isDisabledDay((UiDate.toDays(2026 5 9)))))
+        t.ok("the 10th is not" ((c.isDisabledDay((UiDate.toDays(2026 5 10)))) == false))
+        t.ok("April's outside days are too" (c.isDisabledDay((UiDate.toDays(2026 4 26)))))
+
+        ; An arrow key STOPS rather than skipping over. Measured — skipping to
+        ; the next enabled day is the plausible alternative and is not it.
+        def landed:string (c.keyDown("cal-2026-05-10" "ArrowLeft"))
+        t.eqStr("ArrowLeft onto a disabled day is refused" landed "")
+        t.eqStr("  and the cursor is still on the 10th"
+            (UiDate.isoOfDays((c.currentFocusDay()))) "2026-05-10")
+        def up:CalendarCtl (CalendarTest.fixture())
+        up.setMinDate(2026 5 10)
+        up.build()
+        t.eqStr("ArrowUp onto one is too" (up.keyDown("cal-2026-05-14" "ArrowUp")) "")
+        ; A refused key leaves the cursor ON THE DAY IT CAME FROM, not at the
+        ; resting day. The first version of this asserted that focus had never
+        ; been recorded at all, which passed for the wrong reason: the next
+        ; key would then have moved from somewhere the user was not.
+        t.eqStr("  and focus stayed where it was"
+            (UiDate.isoOfDays((up.currentFocusDay()))) "2026-05-14")
+        t.eqStr("  so the next key moves from there"
+            (CalendarTest.press(up "2026-05-14" "ArrowRight")) "2026-05-15")
+
+        ; Nor does a click land.
+        def k:CalendarCtl (CalendarTest.fixture())
+        k.setMinDate(2026 5 10)
+        k.build()
+        k.activate("cal-2026-05-05")
+        t.ok("a click on a disabled day is ignored" (k.hasSelection == false))
+        t.ok("a disabled day is not focusable" ((k.isFocusable("cal-2026-05-05")) == false))
+        t.ok("an enabled one is" (k.isFocusable("cal-2026-05-11")))
+    }
+
+    ; --- 6. what a reader is told --------------------------------------------
+
+    sfn nameOf:string (tree:EVGA11yTree id:string) {
+        def n:EVGA11yNode (tree.find(id))
+        return n.name
+    }
+
+    sfn roleOf:string (tree:EVGA11yTree id:string) {
+        def n:EVGA11yNode (tree.find(id))
+        return (EVGA11yRole.ariaName(n.role))
+    }
+
+    sfn testA11y:void (t:CalCheck) {
+        print "--- the accessible tree ---"
+        def h (new UiHost())
+        def c:CalendarCtl (h.addCalendar("cal" "Date"))
+        c.setMonth(2026 5)
+        c.setToday(2026 5 14)
+        c.build()
+        def tree:EVGA11yTree (h.a11yTree())
+
+        t.ok("the grid is in the tree" (tree.has("cal-grid")))
+        t.ok("and every day of it" (tree.has("cal-2026-05-13")))
+        t.ok("including the outside ones" (tree.has("cal-2026-04-26")))
+        t.eqStr("the grid is named for its month" (CalendarTest.nameOf(tree "cal-grid")) "May 2026")
+        t.eqStr("the grid's role" (CalendarTest.roleOf(tree "cal-grid")) "grid")
+        t.eqStr("a day is a gridcell" (CalendarTest.roleOf(tree "cal-2026-05-13")) "gridcell")
+        t.eqStr("a week is a row" (CalendarTest.roleOf(tree "cal-week-0")) "row")
+        t.eqStr("the caption is a status" (CalendarTest.roleOf(tree "cal-caption")) "status")
+        t.eqStr("the nav is a navigation" (CalendarTest.roleOf(tree "cal-nav")) "navigation")
+
+        ; The labels, character for character from the capture — including the
+        ; affixes, which are how the reference announces state at all.
+        t.eqStr("a plain day" (CalendarTest.nameOf(tree "cal-2026-05-06")) "Wednesday, May 6th, 2026")
+        t.eqStr("today says so first"
+            (CalendarTest.nameOf(tree "cal-2026-05-14")) "Today, Thursday, May 14th, 2026")
+        c.setSelected(2026 5 20)
+        c.build()
+        def tree2:EVGA11yTree (h.a11yTree())
+        t.eqStr("and a chosen day says so last"
+            (CalendarTest.nameOf(tree2 "cal-2026-05-20")) "Wednesday, May 20th, 2026, selected")
+
+        ; The weekday strip is deliberately absent: every day already carries
+        ; its weekday, and a column header would say it twice per cell.
+        t.ok("the weekday strip is not in the tree" ((tree2.has("cal-weekday-0")) == false))
+    }
+
+    sfn main:void () {
+        def t (new CalCheck())
+        print "=== calendar, against react-day-picker 10.0.1 ==="
+        CalendarTest.testDate(t)
+        CalendarTest.testGrid(t)
+        CalendarTest.testKeyboard(t)
+        CalendarTest.testSelection(t)
+        CalendarTest.testDisabled(t)
+        CalendarTest.testA11y(t)
+        print ""
+        print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
+    }
+}

@@ -25,14 +25,15 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo } from "./generated-host.js";
+import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -320,6 +321,42 @@ let lastFormHover = "";
 const profile = new ProfileDemo();
 profile.init(PROFILE_CSS);
 let lastProfileHover = "";
+// The calendar. `CalendarCtl` answers every key and every click here — the
+// same controller `ui:calendar:check` runs against react-day-picker — so this
+// demo owns the look and not one rule of the month arithmetic.
+const calendar = new CalendarDemo();
+calendar.init(CALENDAR_CSS);
+
+// The filter bar. `FilterCtl` decides every predicate here — the same
+// controller `ui:filters:check` runs against @tanstack/table-core — and the
+// list of matching tasks under the chips is that controller's answer, not a
+// second opinion drawn to look like one.
+const filters = new FilterDemo();
+filters.init(FILTERS_CSS);
+let lastFiltersHover = "";
+
+// The event calendar. Where each box sits is `EventCalCtl`'s answer, measured
+// against a rendered @schedule-x/calendar; this page turns its fractions into
+// pixels and nothing else.
+const eventcal = new EventCalDemo();
+eventcal.init(EVENTCAL_CSS);
+let lastEventcalHover = "";
+
+// The chat transcript. It had a headless render entry and its own gate and was
+// never in this file at all — so it passed every check while being absent from
+// the only place a person looks. That is the same shape of hole as a
+// controller with no surface, one level up.
+const message = new MessageDemo();
+message.init(MESSAGE_CSS);
+let lastMessageHover = "";
+
+// A stepper, a progress bar and a number field on one panel. They are together
+// because the INTERACTION is the thing worth showing: filling the field
+// completes the step, which moves the bar and enables Next.
+const controls = new ControlsDemo();
+controls.init(CONTROLS_CSS);
+let lastControlsHover = "";
+let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
 let lastDashHover = "";
@@ -525,7 +562,25 @@ const DEMOS = {
     list: () => form.displayListJson(),
     hit: (x, y) => form.hitId(x, y),
     a11y: (gen, focus) => form.a11yJson(gen, focus),
-    press: (id) => form.press(id),
+    // Shift+click extends rather than collapses — measured, [2,10] from a
+    // caret at 2 and a click at 10.
+    cursorAt: (x, y) => form.cursorAt(x, y),
+    // The platform owns the editing; see evg-textinput.js.
+    textSession: {
+      focused: () => form.focusedField(),
+      state: (tid) => JSON.parse(form.fieldStateJson(tid)),
+      apply: (tid, v, a, b) => form.applyEdit(tid, v, a, b),
+    },
+    press: (id, x, y, ev) => form.beginSelection(id, x, !!(ev && ev.shiftKey)),
+    // `drag`/`drop` put the pointer under CAPTURE, which is the whole reason
+    // they are declared: without it a selection that starts inside the box
+    // and travels past its edge stops the moment `hitAt` names something
+    // else. The browser clamps instead of collapsing — [3,23] dragging right
+    // off the end — and `indexAtX` clamps the same way, so the x is passed
+    // through wherever the pointer has got to.
+    drag: (id, ev) => form.extendSelection(ev.offsetX),
+    drop: () => form.endSelection(),
+    dblclick: (id, x) => form.selectWordAt(id, x),
     hover: (id) => {
       if (id === lastFormHover) return false;
       lastFormHover = id;
@@ -558,7 +613,16 @@ const DEMOS = {
     list: () => profile.displayListJson(),
     hit: (x, y) => profile.hitId(x, y),
     a11y: (gen, focus) => profile.a11yJson(gen, focus),
-    press: (id) => profile.press(id),
+    cursorAt: (x, y) => profile.cursorAt(x, y),
+    textSession: {
+      focused: () => profile.focusedField(),
+      state: (tid) => JSON.parse(profile.fieldStateJson(tid)),
+      apply: (tid, v, a, b) => profile.applyEdit(tid, v, a, b),
+    },
+    press: (id, x, y, ev) => profile.beginSelection(id, x, !!(ev && ev.shiftKey)),
+    drag: (id, ev) => profile.extendSelection(ev.offsetX),
+    drop: () => profile.endSelection(),
+    dblclick: (id, x) => profile.selectWordAt(id, x),
     hover: (id) => {
       if (id === lastProfileHover) return false;
       lastProfileHover = id;
@@ -620,6 +684,154 @@ const DEMOS = {
       setPressed: (id) => dashboard.setPressed(id),
       root: () => null,
     }),
+  },
+
+  calendar: {
+    height: () => calendar.heightPx(),
+    list: () => calendar.displayListJson(),
+    hit: (x, y) => calendar.hitId(x, y),
+    a11y: (gen, focus) => calendar.a11yJson(gen, focus),
+    press: (id) => calendar.press(id),
+    hover: (id) => {
+      if (id === lastCalendarHover) return false;
+      lastCalendarHover = id;
+      calendar.setHover(id);
+      return true;
+    },
+    key: (k) => calendar.key(k),
+    host: () => ({
+      tick: (dt) => calendar.tick(dt),
+      busy: () => calendar.busyNow(),
+      setHover: (id) => {
+        if (id === lastCalendarHover) return false;
+        lastCalendarHover = id;
+        calendar.setHover(id);
+        return true;
+      },
+      setPressed: (id) => calendar.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  filters: {
+    height: () => filters.heightPx(),
+    list: () => filters.displayListJson(),
+    hit: (x, y) => filters.hitId(x, y),
+    a11y: (gen, focus) => filters.a11yJson(gen, focus),
+    // The id the hit test returned, passed through unchanged. The text field
+    // lost a whole feature here once by dropping what it was given, so this
+    // stays a pass-through and the demo decides what a click on that id means.
+    press: (id) => filters.press(id),
+    hover: (id) => {
+      if (id === lastFiltersHover) return false;
+      lastFiltersHover = id;
+      filters.setHover(id);
+      return true;
+    },
+    key: (k) => filters.key(k),
+    host: () => ({
+      tick: (dt) => filters.tick(dt),
+      busy: () => filters.busyNow(),
+      setHover: (id) => {
+        if (id === lastFiltersHover) return false;
+        lastFiltersHover = id;
+        filters.setHover(id);
+        return true;
+      },
+      setPressed: (id) => filters.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  eventcal: {
+    height: () => eventcal.heightPx(),
+    list: () => eventcal.displayListJson(),
+    hit: (x, y) => eventcal.hitId(x, y),
+    a11y: (gen, focus) => eventcal.a11yJson(gen, focus),
+    press: (id) => eventcal.press(id),
+    hover: (id) => {
+      if (id === lastEventcalHover) return false;
+      lastEventcalHover = id;
+      eventcal.setHover(id);
+      return true;
+    },
+    key: (k) => eventcal.key(k),
+    host: () => ({
+      tick: (dt) => eventcal.tick(dt),
+      busy: () => eventcal.busyNow(),
+      setHover: (id) => {
+        if (id === lastEventcalHover) return false;
+        lastEventcalHover = id;
+        eventcal.setHover(id);
+        return true;
+      },
+      setPressed: (id) => eventcal.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  message: {
+    height: () => message.heightPx(),
+    list: () => message.displayListJson(),
+    hit: (x, y) => message.hitId(x, y),
+    a11y: (gen, focus) => message.a11yJson(gen, focus),
+    press: (id) => message.press(id),
+    hover: (id) => {
+      if (id === lastMessageHover) return false;
+      lastMessageHover = id;
+      message.setHover(id);
+      return true;
+    },
+    key: (k) => message.key(k),
+    host: () => ({
+      tick: (dt) => message.tick(dt),
+      busy: () => message.busyNow(),
+      setHover: (id) => {
+        if (id === lastMessageHover) return false;
+        lastMessageHover = id;
+        message.setHover(id);
+        return true;
+      },
+      setPressed: (id) => message.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  controls: {
+    height: () => controls.heightPx(),
+    list: () => controls.displayListJson(),
+    hit: (x, y) => controls.hitId(x, y),
+    a11y: (gen, focus) => controls.a11yJson(gen, focus),
+    press: (id) => controls.press(id),
+    hover: (id) => {
+      if (id === lastControlsHover) return false;
+      lastControlsHover = id;
+      controls.setHover(id);
+      return true;
+    },
+    key: (k) => controls.key(k),
+    // `keyWith` is the door this page already has for a demo that reads
+    // modifiers — `key` is only ever called with one argument, so a handler
+    // taking an event would silently never see Shift. And Shift is where the
+    // LARGE STEP lives, the least guessable thing the number field measured:
+    // wiring it through `key` would have left it unreachable on the page while
+    // every demo assertion still passed, because those call the controller
+    // directly. That is the text field's dropped coordinate exactly.
+    keyWith: (k, shift) => (shift ? controls.keyWithShift(k) : controls.key(k)),
+    host: () => ({
+      tick: (dt) => controls.tick(dt),
+      busy: () => controls.busyNow(),
+      setHover: (id) => {
+        if (id === lastControlsHover) return false;
+        lastControlsHover = id;
+        controls.setHover(id);
+        return true;
+      },
+      setPressed: (id) => controls.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
   },
 
   timeline: {
@@ -1196,9 +1408,18 @@ function settlePendingRow() {
 let lastTree = null;
 let mirror = null;
 
-function press(x, y) {
+// The point, not just the id.
+//
+// This function used to hand the demo `hitAt(x, y)` and throw the coordinates
+// away, which is fine for a button and is exactly wrong for a text field: a
+// click has to land on a CHARACTER, and only the x knows which. `FormDemo`
+// had been able to answer that since the field was written, the offline check
+// called it directly and passed, and the page never asked. Every other demo's
+// `press` takes one argument and ignores the extras.
+function press(x, y, ev) {
   const id = hitAt(x, y);
-  if (demo().press(id)) paint();
+  if (demo().press(id, x, y, ev)) paint();
+  syncTextSession();
 }
 
 function paint() {
@@ -1247,7 +1468,14 @@ function paint() {
     // knows the frame changed; it keeps its elements by id, which is why a
     // reader's cursor survives a repaint.
     generation += 1;
-    const tree = JSON.parse(d.a11y(generation, state.focus));
+    const treeJson = d.a11y(generation, state.focus);
+    // Alongside `__lastList`, and for the same reason: something driving this
+    // page from outside needs the VALUE of a field, and only the accessible
+    // tree carries it. Scraping the draw commands for a known string works
+    // right up until the thing under test removes that string — which is
+    // exactly what selecting a word and typing over it does.
+    window.__lastA11y = treeJson;
+    const tree = JSON.parse(treeJson);
     tree.byId = new Map(tree.nodes.map((n) => [n.id, n]));
     lastTree = tree;
     mirror.update(tree);
@@ -1330,13 +1558,14 @@ function syncPanels() {
 radios(
   document.getElementById("demos"),
   "demo",
-  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "profile", "dashboard", "dropdown", "dialog", "motion"],
+  ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"],
   () => state.which,
   (v) => {
     state.which = v;
     state.focus = "";
     syncPanels();
     syncMotionClock();
+    syncTextSession();
   },
 );
 boxes(
@@ -1458,14 +1687,15 @@ canvas.addEventListener("pointerdown", (ev) => {
     // puts down. Nothing happens on a press that never travels.
     grabPointer = { x: ev.offsetX, y: ev.offsetY };
     grabCursor = d.cursorAt ? d.cursorAt(ev.offsetX, ev.offsetY) : "";
-    held = d.press(hitAt(ev.offsetX, ev.offsetY));
+    held = d.press(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY, ev);
     if (held) {
       canvas.setPointerCapture(ev.pointerId);
       paint();
     }
+    syncTextSession();
     return;
   }
-  press(ev.offsetX, ev.offsetY);
+  press(ev.offsetX, ev.offsetY, ev);
 });
 canvas.addEventListener("pointermove", (ev) => {
   const d = demo();
@@ -1499,6 +1729,20 @@ canvas.addEventListener("pointermove", (ev) => {
     if (d.animated) animate();
   }
 });
+// Double-click, from the browser's own event rather than a click count of our
+// own: it owns the interval and the slop radius, and re-deriving either turns
+// a slow double-click into two carets.
+//
+// A `pointerdown` cannot answer this — measured, its `detail` is 0 here while
+// `click` and `dblclick` carry 1 and 2. (And `preventDefault()` on the
+// pointerdown does NOT suppress them, which was the reason given for reading
+// the count instead; that reason was wrong.)
+canvas.addEventListener("dblclick", (ev) => {
+  const d = demo();
+  if (!d.dblclick) return;
+  if (d.dblclick(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY)) paint();
+  syncTextSession();
+});
 canvas.addEventListener("pointerup", () => {
   const d = demo();
   if (d.rippleEnd) d.rippleEnd();
@@ -1511,6 +1755,7 @@ canvas.addEventListener("pointerup", () => {
   if (!held || !d.drop) return;
   held = false;
   if (d.drop()) paint();
+  syncTextSession();
 });
 canvas.addEventListener("pointerleave", () => {
   const d = demo();
@@ -1570,6 +1815,76 @@ window.addEventListener("keydown", (ev) => {
   // exist once that paint has built them. One more pass settles it.
   if (settlePendingRow()) paint();
 });
+
+// The text-input session. A real, transparent <input> over the focused field:
+// the browser does the editing and Ranger mirrors it, so IME, dead keys, the
+// clipboard, undo, emoji and a phone's on-screen keyboard all work without a
+// line of code each. See evg-textinput.js for what was measured first.
+const textInput = createTextInputBridge({
+  host: stage,
+  canvas,
+  onEdit: ({ value, selStart, selEnd }) => {
+    const d = demo();
+    const s = d.textSession;
+    if (!s) return;
+    const tid = textInput.activeTid();
+    if (!tid) return;
+    if (!s.apply(tid, value, selStart, selEnd)) return;
+    paint();
+    // The model may have REFUSED part of it — a number field will not take
+    // letters, and the platform has no idea. Push the corrected value back
+    // into the session, but only when it actually differs: writing to the
+    // proxy's `value` for no reason disturbs the browser's own undo history,
+    // which is one of the things this bridge exists to inherit.
+    const after = s.state(tid);
+    if (after && after.value !== value) textInput.sync(after);
+  },
+  // Keys the APPLICATION owns rather than the field. Everything else — every
+  // arrow, Home, End, Ctrl+Arrow, Backspace over an emoji — stays with the
+  // proxy on purpose: those are precisely the platform rules this exists to
+  // borrow, and intercepting them here would be reimplementing them again.
+  onKey: (k) => {
+    if (k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
+    const d = demo();
+    const took = d.keyWith ? d.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey) : false;
+    // Focus may have moved to another field, or off the fields entirely.
+    syncTextSession();
+    if (took) paint();
+    return took;
+  },
+});
+
+/**
+ * Hand the keyboard to whichever field the demo now says is focused, or take
+ * it back. Called after anything that can move focus — a click, a Tab, a
+ * demo switch — because the demo owns focus and the bridge only follows it.
+ */
+function syncTextSession() {
+  const d = demo();
+  const s = d.textSession;
+  if (!s) {
+    textInput.blurField();
+    return;
+  }
+  const tid = s.focused();
+  if (!tid) {
+    textInput.blurField();
+    return;
+  }
+  const st = s.state(tid);
+  if (!st) {
+    textInput.blurField();
+    return;
+  }
+  if (textInput.activeTid() === tid) {
+    // Same field, but Ranger may have moved the caret itself — a click, a
+    // drag, a double-click. The proxy has to agree or the next keystroke
+    // edits at the old place.
+    textInput.sync(st);
+    return;
+  }
+  textInput.focusField(tid, st);
+}
 
 mirror = createA11yMirror(stage, {
   canvas,

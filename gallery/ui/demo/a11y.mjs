@@ -46,6 +46,7 @@ const { TimelineDemo } = require(path.join(ROOT, "gallery/ui/bin/TimelineDemo.cj
 const { ResizeDemo } = require(path.join(ROOT, "gallery/ui/bin/ResizeDemo.cjs"));
 const { FormDemo } = require(path.join(ROOT, "gallery/ui/bin/FormDemo.cjs"));
 const { DashboardDemo } = require(path.join(ROOT, "gallery/ui/bin/DashboardDemo.cjs"));
+const { CalendarDemo } = require(path.join(ROOT, "gallery/ui/bin/CalendarDemo.cjs"));
 const MENUBAR_CSS = fs.readFileSync(path.join(HERE, "menubar.css"), "utf8");
 const TOOLBAR_CSS = fs.readFileSync(path.join(HERE, "toolbar.css"), "utf8");
 const SORTABLE_CSS = fs.readFileSync(path.join(HERE, "sortable.css"), "utf8");
@@ -57,6 +58,7 @@ const TREE_CSS = fs.readFileSync(path.join(HERE, "tree.css"), "utf8");
 const TIMELINE_CSS = fs.readFileSync(path.join(HERE, "timeline.css"), "utf8");
 const RESIZE_CSS = fs.readFileSync(path.join(HERE, "resize.css"), "utf8");
 const FORM_CSS = fs.readFileSync(path.join(HERE, "form.css"), "utf8");
+const CALENDAR_CSS = fs.readFileSync(path.join(HERE, "calendar.css"), "utf8");
 const DASHBOARD_CSS = fs.readFileSync(path.join(HERE, "dashboard.css"), "utf8");
 
 // The showcase keeps its tree, so unlike the other three it is an instance and
@@ -100,6 +102,11 @@ const resize = new ResizeDemo();
 resize.init(RESIZE_CSS);
 const form = new FormDemo();
 form.init(FORM_CSS);
+const calendar = new CalendarDemo();
+calendar.init(CALENDAR_CSS);
+// With a day chosen, because that is the state where the label carries an
+// affix and one cell is the tab stop — the empty grid exercises neither.
+calendar.press("cal-2026-05-20");
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
 // The chart's commands are built on demand and the tree is rebuilt with them.
@@ -287,6 +294,15 @@ const STATES = [
     // worth auditing is the one with something WRONG in it — a field in error
     // has to say what is wrong where a reader will hear it, and a red ring is
     // not a sentence.
+    // A grid widget is where axe has the most to say: a role=grid whose rows
+    // and cells do not nest correctly is a tree a reader cannot steer, and
+    // nothing in the controller tests would notice.
+    name: "calendar — a month grid with a day chosen",
+    size: [900, 520],
+    lint: () => calendar.a11yProblems(),
+    tree: () => calendar.a11yJson(31, "cal-2026-05-20"),
+  },
+  {
     name: "form — six controls, one of them in error",
     size: [620, 560],
     lint: () => form.a11yProblems(),

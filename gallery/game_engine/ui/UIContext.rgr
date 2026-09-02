@@ -369,6 +369,43 @@ class UIContext {
     }
 
     ; Fill a polygon given as a flat [x0,y0,x1,y1,...] point list (even-odd).
+    ; --- which pixels a span covers ------------------------------------------
+    ;
+    ; A pixel belongs to a span when its CENTRE does. That is the rule the
+    ; scanline below already uses vertically — `sy = y + 0.5` — and these put
+    ; the horizontal axis on the same footing.
+    ;
+    ; It was not. The span was taken as `to_int` of each crossing with both
+    ; ends included, which is not a sampling rule at all: it paints every pixel
+    ; the span TOUCHES. A span from 10.6 to 20.4 came out eleven pixels wide
+    ; where the same rectangle through `fillRect` is nine, so every polygon was
+    ; up to a pixel fatter on each side than the identical shape drawn as a
+    ; rectangle — and a scanline whose two axes disagree about what a pixel is
+    ; cannot tile with anything, including itself.
+    ;
+    ; What that cost, beyond a fat outline: two abutting polygons overlapped by
+    ; a pixel and double-blended when translucent, a shape grew when it was
+    ; rotated (rotation turns a rectangle into a polygon), and a rounded box
+    ; filled from its outline's ring only met that outline because both were
+    ; dilated into each other.
+    fn spanFirst:int (left:double) {
+        def v:double (left - 0.5)
+        def f:int (floor v)
+        if ((to_double f) < v) {
+            return (f + 1)
+        }
+        return f
+    }
+
+    fn spanLast:int (right:double) {
+        def v:double (right - 0.5)
+        def f:int (floor v)
+        if ((to_double f) == v) {
+            return (f - 1)
+        }
+        return f
+    }
+
     fn fillPolygon:void (pts:[double] r:int g:int b:int a:int) {
         def m:int (array_length pts)
         def npts:int (idiv m 2)
@@ -418,8 +455,8 @@ class UIContext {
             }
             def p:int 0
             while ((p + 1) < (array_length xs)) {
-                def x0:int (to_int (itemAt xs p))
-                def x1:int (to_int (itemAt xs (p + 1)))
+                def x0:int (this.spanFirst((itemAt xs p)))
+                def x1:int (this.spanLast((itemAt xs (p + 1))))
                 def xx:int x0
                 while (xx <= x1) {
                     this.blendPixel(xx y r g b a)
@@ -515,8 +552,8 @@ class UIContext {
             }
             def p:int 0
             while ((p + 1) < (array_length xs)) {
-                def x0:int (to_int (itemAt xs p))
-                def x1:int (to_int (itemAt xs (p + 1)))
+                def x0:int (this.spanFirst((itemAt xs p)))
+                def x1:int (this.spanLast((itemAt xs (p + 1))))
                 def xx:int x0
                 while (xx <= x1) {
                     this.blendPixel(xx y r g b a)

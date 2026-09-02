@@ -314,6 +314,12 @@ class ProfileDemo {
             box = (tree Pf (BoxOff (props (id c.tid) (a11yLabel c.name))))
         }
         box.a11yDescription = c.description
+        ; What the field contains — see the note in `FormDemo.boxFor`. Empty
+        ; for a password, which this form has none of but which the rule
+        ; covers anyway rather than waiting for one to arrive.
+        if (c.kind != "password") {
+            box.a11yValue = c.value
+        }
         box.a11yFocusable = (c.disabled == false)
 
         def eng:EVGTextEngine (this.engine())
@@ -612,6 +618,267 @@ class ProfileDemo {
             i = (i + 1)
         }
         return false
+    }
+
+    ; --- the pointer ---------------------------------------------------------
+    ;
+    ; The same three methods the invoice form has, over the same shared
+    ; `InputCtl.indexAtPageX`. Written here rather than shared with FormDemo
+    ; because the two demos own different trees and different id schemes; the
+    ; part that is easy to get wrong — where in the box the text starts — is
+    ; the part that IS shared, and neither demo spells it out any more.
+
+    def dragField:string ""
+
+    sfn byId:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def found:EVGElement (ProfileDemo.byId((el.getChild(i)) id))
+            if (found.id == id) {
+                return found
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+
+    ; Which field an element BELONGS to.
+    ;
+    ; A click on the letters themselves hits `fm-name-text`, not `fm-name`:
+    ; the glyph run is a child of the box and it is what is under the pointer
+    ; wherever there is text. So `press("fm-name-text")` found no field, and
+    ; clicking a field's own characters did nothing at all — only the empty
+    ; part of the box to the right of the text focused it. Which is precisely
+    ; backwards, and invisible in a screenshot.
+    ;
+    ; Resolved by containment rather than by name: an id prefix test would
+    ; also match a second field called `fm-name-2`, and this is the sort of
+    ; rule that is only ever wrong once someone adds one.
+    fn fieldOwning:string (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == target) {
+                return target
+            }
+            def box:EVGElement (ProfileDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def inner:EVGElement (ProfileDemo.byId(box target))
+                if (inner.id == target) {
+                    ; A CONTROL of its own is not part of the field, even
+                    ; though it sits inside its box. The password's eye is a
+                    ; button living in the password's box: mapping every
+                    ; descendant to the field made clicking the eye focus the
+                    ; field instead of toggling it, which is the bug this rule
+                    ; introduced and the reason a role check belongs here.
+                    ; A glyph run and a caret have no role; a button does.
+                    if ((strlen inner.role) > 0) {
+                        return target
+                    }
+                    return c.tid
+                }
+            }
+            i = (i + 1)
+        }
+        return target
+    }
+
+    fn fieldBoxOf:EVGElement (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        return (ProfileDemo.byId(r target))
+    }
+
+    fn indexAt:int (target:string px:double) {
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return -1
+        }
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def box:EVGElement (ProfileDemo.byId(r target))
+        if (box.id != target) {
+            return -1
+        }
+        return (InputCtl.indexAtPageX((this.engine()) c box px))
+    }
+
+    fn beginSelection:boolean (rawTarget:string px:double extend:boolean) {
+        def target:string (this.fieldOwning(rawTarget))
+        def took:boolean (this.press(target))
+        if (took == false) {
+            return false
+        }
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            dragField = ""
+            return true
+        }
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            dragField = ""
+            return true
+        }
+        c.moveTo(idx extend)
+        dragField = target
+        this.rebuild()
+        return true
+    }
+
+    fn extendSelection:boolean (px:double) {
+        if (dragField == "") {
+            return false
+        }
+        def c:InputCtl (this.inputFor(dragField))
+        if (c.tid != dragField) {
+            return false
+        }
+        def idx:int (this.indexAt(dragField px))
+        if (idx < 0) {
+            return false
+        }
+        if (idx == c.caret) {
+            return false
+        }
+        c.moveTo(idx true)
+        this.rebuild()
+        return true
+    }
+
+    fn endSelection:boolean () {
+        dragField = ""
+        return false
+    }
+
+    fn selectWordAt:boolean (rawTarget:string px:double) {
+        def target:string (this.fieldOwning(rawTarget))
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return false
+        }
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            return false
+        }
+        def at:int idx
+        if (at >= (strlen c.value)) {
+            at = ((strlen c.value) - 1)
+        }
+        c.selectWordAt(at)
+        this.rebuild()
+        return true
+    }
+
+
+    ; What the pointer should look like. A canvas UI has no `cursor: text` for
+    ; free — the page picks the cursor from the accessible tree, where a field
+    ; and a button are both "activatable" and would both say `pointer`. So the
+    ; field boxes are tested directly.
+    ;
+    ; It matters more than it sounds: an I-beam is how a person knows a
+    ; rectangle is text they can put a caret in, and without one a drawn form
+    ; reads as a picture of a form.
+    fn cursorAt:string (px:double py:double) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            def box:EVGElement (ProfileDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def x0:double (box.calculatedX)
+                def y0:double (box.calculatedY)
+                if ((px >= x0) && (px <= (x0 + (box.calculatedWidth)))) {
+                    if ((py >= y0) && (py <= (y0 + (box.calculatedHeight)))) {
+                        if (c.disabled) {
+                            return "default"
+                        }
+                        return "text"
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+
+    ; --- the platform text-input session --------------------------------------
+    ;
+    ; The web host puts a real, transparent `<input>` over the focused field
+    ; and lets the browser do the editing; these two methods are the seam.
+    ; JSON across it, the way the display list and the accessible tree already
+    ; cross it — one method rather than nine accessors that can drift.
+
+    fn focusedField:string () {
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == focused) {
+                return c.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Everything the proxy needs to become this field: what it holds, where
+    ; the selection is, what KIND it is — which decides the proxy's `type` and
+    ; `inputmode`, so a password proxy reveals correctly and a number proxy
+    ; brings up a numeric keypad on a phone — and where it is drawn, so the
+    ; IME's candidate window appears next to the text it is composing rather
+    ; than in a corner.
+    fn fieldStateJson:string (tid:string) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return "null"
+        }
+        def box:EVGElement (this.fieldBoxOf(tid))
+        def out:string "{"
+        out = (out + "\"tid\":" + (EVGA11yTree.jsonString(c.tid)))
+        out = (out + ",\"value\":" + (EVGA11yTree.jsonString(c.value)))
+        out = (out + ",\"selStart\":" + (to_string (c.selStart())))
+        out = (out + ",\"selEnd\":" + (to_string (c.selEnd())))
+        out = (out + ",\"kind\":" + (EVGA11yTree.jsonString(c.kind)))
+        out = (out + ",\"maxLength\":" + (to_string c.maxLength))
+        if c.readOnly {
+            out = (out + ",\"readOnly\":true")
+        }
+        if (box.id == tid) {
+            out = (out + ",\"box\":{\"x\":" + (to_string (to_int (box.calculatedX))))
+            out = (out + ",\"y\":" + (to_string (to_int (box.calculatedY))))
+            out = (out + ",\"w\":" + (to_string (to_int (box.calculatedWidth))))
+            out = (out + ",\"h\":" + (to_string (to_int (box.calculatedHeight))) + "}")
+        }
+        return (out + "}")
+    }
+
+    ; The session reported an edit. Wholesale — see `InputCtl.applyEdit`: the
+    ; browser has already done the work, and there is nothing here to replay.
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return false
+        }
+        if (c.readOnly) {
+            return false
+        }
+        if (c.disabled) {
+            return false
+        }
+        c.applyEdit(v selStart selEnd)
+        c.ensureCaretVisible((this.engine()))
+        this.rebuild()
+        return true
     }
 
     fn setHover:void (id:string) { hovered = id }

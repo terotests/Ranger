@@ -1,0 +1,606 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CalendarCtl — measured against react-day-picker 10.0.1 (mode="single")
+; =============================================================================
+; The oracle is `conformance/oracle/calendar.json`, captured from a real
+; DayPicker in a real browser by `calendar_oracle.mjs`. react-day-picker is
+; what shadcn's Calendar wraps, so it is what people mean by "a calendar like
+; that one"; unlike TanStack it owns its own accessibility, so the ARIA below
+; is measured and not merely specified.
+;
+; What the capture settled, three of which contradict the obvious guess:
+;
+;   the grid draws as many WEEKS as the month needs — six for May 2026 —
+;   and not a fixed six;
+;   Home and End move within the displayed WEEK, so Home from a Friday the
+;   1st is the previous month's 26th;
+;   PageUp and PageDown hold the day number and clamp it to the target
+;   month's length, so the 31st of May pages up to the 30th of April;
+;   arrow keys are not bounded by the month: focus drags the grid with it;
+;   the tab stop at rest is TODAY, not the 1st;
+;   selecting the selected day CLEARS it, by pointer and by keyboard alike;
+;   a disabled day STOPS an arrow key rather than being stepped over;
+;   and clicking an outside day selects that date without moving the month.
+;
+; TWO DELIBERATE DIVERGENCES, both recorded in the oracle's `findings` and
+; both scored as deviations rather than misses by `calendar_check.mjs`:
+;
+;   1. THE ROVING TAB STOP. The reference's follows the first click but not
+;      the second, and jumps to the 1st of the new month when focus crosses a
+;      boundary — measured, stable at 800ms, not a race. Under WAI-ARIA's grid
+;      pattern the tabbable cell is the one that will receive focus, and there
+;      it demonstrably is not: you would tab out and back to somewhere else.
+;      Here the tab stop is always the focused day.
+;   2. `aria-selected`. The reference has none at all — it appends ", selected"
+;      to the day's label instead, and prefixes "Today, " for today. Both of
+;      those are copied, because a reader that relies on them must hear the
+;      same thing. `aria-selected` is emitted ON TOP, because the APG's
+;      date-picker pattern asks for it and an extra true attribute on one cell
+;      costs a reader nothing.
+;
+; Appearance is NOT taken from the reference. Every class in its DOM is a hook
+; shadcn replaces wholesale, so no geometry or colour is copied from it; the
+; classes written here are this kit's own and the demo's stylesheet decides
+; what they look like.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "UiDate.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class CalendarCtl extends UiCtl {
+    ; The displayed month. Day-of-month is not part of it: a month is a month.
+    def viewYear:int 2026
+    def viewMonth:int 5
+
+    ; The focused day, as a day number. This is the roving tab stop, and it is
+    ; the ONLY place the calendar's cursor lives — the displayed month is
+    ; derived from it whenever a key moves it, which is what makes "arrowing
+    ; off the end scrolls the grid" fall out rather than need a special case.
+    def focusDay:int 0
+    def hasFocusDay:boolean false
+
+    def selectedDay:int 0
+    def hasSelection:boolean false
+
+    ; Today, passed in rather than read from a clock: a control whose output
+    ; changes overnight cannot be gated.
+    def todayDay:int 0
+    def hasToday:boolean false
+
+    ; The one disabled rule the invoice form needs: nothing before this day.
+    def minDay:int 0
+    def hasMin:boolean false
+
+    def showOutsideDays:boolean true
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    ; --- setting it up -------------------------------------------------------
+
+    fn setMonth:void (y:int m:int) {
+        viewYear = y
+        viewMonth = m
+    }
+
+    fn setToday:void (y:int m:int d:int) {
+        todayDay = (UiDate.toDays(y m d))
+        hasToday = true
+    }
+
+    fn setSelected:void (y:int m:int d:int) {
+        selectedDay = (UiDate.toDays(y m d))
+        hasSelection = true
+    }
+
+    fn clearSelected:void () {
+        hasSelection = false
+    }
+
+    fn setMinDate:void (y:int m:int d:int) {
+        minDay = (UiDate.toDays(y m d))
+        hasMin = true
+    }
+
+    ; --- the geometry of the grid --------------------------------------------
+
+    ; The first cell drawn: the Sunday on or before the 1st of the month.
+    fn gridStart:int () {
+        def first:int (UiDate.toDays(viewYear viewMonth 1))
+        return (first - (UiDate.weekday(first)))
+    }
+
+    ; As many weeks as the month needs. Measured: six for May 2026, five for
+    ; most months, four for a February that begins on a Sunday.
+    fn weekCount:int () {
+        def first:int (UiDate.toDays(viewYear viewMonth 1))
+        def lead:int (UiDate.weekday(first))
+        def len:int (UiDate.daysInMonth(viewYear viewMonth))
+        def cells:int (lead + len)
+        def weeks:int (idiv cells 7)
+        if ((cells % 7) != 0) {
+            weeks = (weeks + 1)
+        }
+        return weeks
+    }
+
+    fn isOutside:boolean (day:int) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(day p)
+        if ((itemAt p 0) != viewYear) {
+            return true
+        }
+        return ((itemAt p 1) != viewMonth)
+    }
+
+    fn isDisabledDay:boolean (day:int) {
+        if (hasMin == false) {
+            return false
+        }
+        return (day < minDay)
+    }
+
+    ; The day the tab stop sits on when the control is first shown: the
+    ; selected day, else today, else the 1st of the displayed month. Measured —
+    ; "the 1st" alone is the wrong guess, and was written down as right before
+    ; the numbers came back.
+    fn restingDay:int () {
+        if hasSelection {
+            return selectedDay
+        }
+        if hasToday {
+            def t:int todayDay
+            if ((this.isOutside(t)) == false) {
+                return t
+            }
+        }
+        return (UiDate.toDays(viewYear viewMonth 1))
+    }
+
+    fn currentFocusDay:int () {
+        if hasFocusDay {
+            return focusDay
+        }
+        return (this.restingDay())
+    }
+
+    ; --- tids ----------------------------------------------------------------
+
+    fn gridTid:string () {
+        return (tid + "-grid")
+    }
+
+    fn captionTid:string () {
+        return (tid + "-caption")
+    }
+
+    fn prevTid:string () {
+        return (tid + "-prev")
+    }
+
+    fn nextTid:string () {
+        return (tid + "-next")
+    }
+
+    fn weekTid:string (row:int) {
+        return ((tid + "-week-") + (to_string row))
+    }
+
+    fn dayTid:string (day:int) {
+        return ((tid + "-") + (UiDate.isoOfDays(day)))
+    }
+
+    ; The inverse: which day a tid names, or -1. A calendar's cells are
+    ; addressed by DATE rather than by index, so a click on the 20th means the
+    ; same thing whichever month happens to be on screen.
+    fn dayOfTid:int (target:string) {
+        def start:int (this.gridStart())
+        def total:int ((this.weekCount()) * 7)
+        def i:int 0
+        while (i < total) {
+            def d:int (start + i)
+            if ((this.dayTid(d)) == target) {
+                return d
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- what a day is called ------------------------------------------------
+
+    ; "Today, Thursday, May 14th, 2026" / "Wednesday, May 20th, 2026, selected".
+    ; Both affixes are the reference's, and they are how it announces state at
+    ; all — see the header's second divergence note.
+    fn dayLabel:string (day:int) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(day p)
+        def base:string (UiDate.longLabel((itemAt p 0) (itemAt p 1) (itemAt p 2)))
+        if hasToday {
+            if (day == todayDay) {
+                base = ("Today, " + base)
+            }
+        }
+        if hasSelection {
+            if (day == selectedDay) {
+                base = (base + ", selected")
+            }
+        }
+        return base
+    }
+
+    fn monthLabel:string () {
+        return (UiDate.monthLabel(viewYear viewMonth))
+    }
+
+    ; --- building the tree ---------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-calendar"
+        UiTree.clearChildren(root)
+
+        def nav (UiTree.div((tid + "-nav") "ui-calendar-nav"))
+        def prev (UiTree.div((this.prevTid()) "ui-calendar-prev"))
+        UiTree.leafText(prev "‹")
+        nav.addChild(prev)
+        def cap (UiTree.div((this.captionTid()) "ui-calendar-caption"))
+        UiTree.leafText(cap (this.monthLabel()))
+        nav.addChild(cap)
+        def nxt (UiTree.div((this.nextTid()) "ui-calendar-next"))
+        UiTree.leafText(nxt "›")
+        nav.addChild(nxt)
+        root.addChild(nav)
+
+        def grid (UiTree.div((this.gridTid()) "ui-calendar-grid"))
+
+        def head (UiTree.div((tid + "-weekdays") "ui-calendar-weekdays"))
+        def c:int 0
+        while (c < 7) {
+            def th (UiTree.div(((tid + "-weekday-") + (to_string c)) "ui-calendar-weekday"))
+            UiTree.leafText(th (UiDate.dayAbbr(c)))
+            head.addChild(th)
+            c = (c + 1)
+        }
+        grid.addChild(head)
+
+        def start:int (this.gridStart())
+        def focused:int (this.currentFocusDay())
+        def weeks:int (this.weekCount())
+        def r:int 0
+        while (r < weeks) {
+            def row (UiTree.div((this.weekTid(r)) "ui-calendar-week"))
+            def i:int 0
+            while (i < 7) {
+                def day:int ((start + (r * 7)) + i)
+                def cell (UiTree.div((this.dayTid(day)) "ui-calendar-day"))
+                def outside:boolean (this.isOutside(day))
+                if outside {
+                    UiTree.addClass(cell "ui-calendar-day-outside")
+                }
+                if (this.isDisabledDay(day)) {
+                    UiTree.addClass(cell "ui-calendar-day-disabled")
+                }
+                if hasSelection {
+                    if (day == selectedDay) {
+                        UiTree.addClass(cell "ui-calendar-day-selected")
+                    }
+                }
+                if hasToday {
+                    if (day == todayDay) {
+                        UiTree.addClass(cell "ui-calendar-day-today")
+                    }
+                }
+                if (day == focused) {
+                    UiTree.addClass(cell "ui-calendar-day-focused")
+                }
+                ; An outside day that is not shown still occupies its cell —
+                ; the week is seven columns wide whatever is in them, and a
+                ; row that dropped its blanks would shift the rest left.
+                def p:[int] ([] _:int ( 0 0 0 ))
+                UiDate.fromDays(day p)
+                def text:string ""
+                if outside {
+                    if showOutsideDays {
+                        text = ("" + (itemAt p 2))
+                    }
+                } {
+                    text = ("" + (itemAt p 2))
+                }
+                UiTree.leafText(cell text)
+                row.addChild(cell)
+                i = (i + 1)
+            }
+            grid.addChild(row)
+            r = (r + 1)
+        }
+        root.addChild(grid)
+    }
+
+    ; --- pointer -------------------------------------------------------------
+
+    ; Choosing a day. In single mode without `required` this TOGGLES: the
+    ; measured reference clears the selection when the selected day is chosen
+    ; again, by pointer and by Enter alike.
+    fn pickDay:void (day:int) {
+        if (this.isDisabledDay(day)) {
+            return
+        }
+        if hasSelection {
+            if (day == selectedDay) {
+                hasSelection = false
+                focusDay = day
+                hasFocusDay = true
+                this.build()
+                return
+            }
+        }
+        selectedDay = day
+        hasSelection = true
+        focusDay = day
+        hasFocusDay = true
+        ; The month does NOT follow: measured, clicking a leading outside day
+        ; selects that date and leaves the caption where it was.
+        this.build()
+    }
+
+    fn stepMonth:void (delta:int) {
+        def m:int ((viewMonth + delta) - 1)
+        def y:int (viewYear + (idiv m 12))
+        def mm:int (m % 12)
+        if (mm < 0) {
+            mm = (mm + 12)
+            y = (y - 1)
+        }
+        viewYear = y
+        viewMonth = (mm + 1)
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.prevTid())) {
+            this.stepMonth(-1)
+            this.build()
+            return ""
+        }
+        if (target == (this.nextTid())) {
+            this.stepMonth(1)
+            this.build()
+            return ""
+        }
+        def day:int (this.dayOfTid(target))
+        if (day >= 0) {
+            this.pickDay(day)
+        }
+        return ""
+    }
+
+    ; --- keyboard ------------------------------------------------------------
+
+    ; Where a key WOULD land, as a day number; the caller decides whether it
+    ; may. Split out because the answer is pure arithmetic and the refusal
+    ; rules are not: a disabled target must leave focus untouched, and that is
+    ; much easier to get right when "where to" and "may I" are separate.
+    fn targetOf:int (from:int key:string) {
+        if (key == "ArrowRight") {
+            return (from + 1)
+        }
+        if (key == "ArrowLeft") {
+            return (from - 1)
+        }
+        if (key == "ArrowDown") {
+            return (from + 7)
+        }
+        if (key == "ArrowUp") {
+            return (from - 7)
+        }
+        ; Home and End are WEEK-relative — measured. A calendar whose Home key
+        ; means "the 1st of the month" is a different component, and that is
+        ; the guess this would otherwise have been written as.
+        if (key == "Home") {
+            return (from - (UiDate.weekday(from)))
+        }
+        if (key == "End") {
+            return (from + (6 - (UiDate.weekday(from))))
+        }
+        if (key == "PageUp") {
+            return (this.pageBy(from -1))
+        }
+        if (key == "PageDown") {
+            return (this.pageBy(from 1))
+        }
+        return -1
+    }
+
+    ; One month, keeping the day number, clamped to the target month's length.
+    ; Measured: the 31st of May pages up to the 30th of April, because April
+    ; has no 31st — a plain "subtract 31 days" would give the 30th too and be
+    ; wrong for every other pair of months.
+    fn pageBy:int (from:int delta:int) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(from p)
+        def m:int (((itemAt p 1) + delta) - 1)
+        def y:int ((itemAt p 0) + (idiv m 12))
+        def mm:int (m % 12)
+        if (mm < 0) {
+            mm = (mm + 12)
+            y = (y - 1)
+        }
+        def month:int (mm + 1)
+        def d:int (itemAt p 2)
+        def len:int (UiDate.daysInMonth(y month))
+        if (d > len) {
+            d = len
+        }
+        return (UiDate.toDays(y month d))
+    }
+
+    fn moveFocusTo:string (day:int) {
+        ; Focus drags the displayed month with it. This is the whole reason
+        ; the cursor is a day number and not a (month, index) pair.
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(day p)
+        viewYear = (itemAt p 0)
+        viewMonth = (itemAt p 1)
+        focusDay = day
+        hasFocusDay = true
+        this.build()
+        return (this.dayTid(day))
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def from:int (this.dayOfTid(target))
+        if (from < 0) {
+            return ""
+        }
+        ; The key arrived AT this cell, so this cell has focus — record that
+        ; before deciding anything. It matters only when the key is refused:
+        ; without it a stopped ArrowLeft leaves the cursor at its resting day
+        ; rather than where the user actually is, and the next key would then
+        ; move from the wrong place. Measured against the reference, which
+        ; reports focus still on the day the refused key came from.
+        focusDay = from
+        hasFocusDay = true
+        if (UiCtl.activatesOn(key)) {
+            this.pickDay(from)
+            return (this.dayTid(from))
+        }
+        def to:int (this.targetOf(from key))
+        if (to < 0) {
+            return ""
+        }
+        ; A disabled day stops the key rather than being stepped over —
+        ; measured. Skipping to the next enabled day is the plausible
+        ; alternative and is not what the reference does.
+        if (this.isDisabledDay(to)) {
+            return ""
+        }
+        return (this.moveFocusTo(to))
+    }
+
+    ; --- the accessible tree -------------------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (tid + "-nav")
+        push a (this.prevTid())
+        push a (this.captionTid())
+        push a (this.nextTid())
+        push a (this.gridTid())
+        def start:int (this.gridStart())
+        def weeks:int (this.weekCount())
+        def r:int 0
+        while (r < weeks) {
+            push a (this.weekTid(r))
+            def i:int 0
+            while (i < 7) {
+                push a (this.dayTid(((start + (r * 7)) + i)))
+                i = (i + 1)
+            }
+            r = (r + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.prevTid())) {
+            return true
+        }
+        if (target == (this.nextTid())) {
+            return true
+        }
+        def day:int (this.dayOfTid(target))
+        if (day < 0) {
+            return false
+        }
+        return ((this.isDisabledDay(day)) == false)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.group()) name))
+        push out rootRow
+
+        def navRow:UiRow (UiRow.of((tid + "-nav") (EVGA11yRole.navigation()) "Navigation bar"))
+        navRow.parentTid = tid
+        push out navRow
+
+        def prevRow:UiRow (UiRow.of((this.prevTid()) (EVGA11yRole.button()) "Go to the Previous Month"))
+        prevRow.parentTid = (tid + "-nav")
+        prevRow.tabStop = true
+        prevRow.focusable = true
+        push out prevRow
+
+        ; role=status with a polite live region, so arrowing into another month
+        ; is announced without the reader being interrupted — measured, and it
+        ; is the only thing that tells a listener the grid moved under them.
+        def capRow:UiRow (UiRow.of((this.captionTid()) (EVGA11yRole.status()) (this.monthLabel())))
+        capRow.parentTid = (tid + "-nav")
+        push out capRow
+
+        def nextRow:UiRow (UiRow.of((this.nextTid()) (EVGA11yRole.button()) "Go to the Next Month"))
+        nextRow.parentTid = (tid + "-nav")
+        nextRow.tabStop = true
+        nextRow.focusable = true
+        push out nextRow
+
+        def gridRow:UiRow (UiRow.of((this.gridTid()) (EVGA11yRole.grid()) (this.monthLabel())))
+        gridRow.parentTid = tid
+        push out gridRow
+
+        ; The weekday strip is NOT in the tree. The reference marks its
+        ; <thead> aria-hidden, and it is right to: every day already carries
+        ; its weekday in its own label, so a column header would make a reader
+        ; say "Wednesday" twice per cell.
+
+        def start:int (this.gridStart())
+        def focused:int (this.currentFocusDay())
+        def weeks:int (this.weekCount())
+        def r:int 0
+        while (r < weeks) {
+            def rowRow:UiRow (UiRow.of((this.weekTid(r)) (EVGA11yRole.row()) ""))
+            rowRow.parentTid = (this.gridTid())
+            push out rowRow
+            def i:int 0
+            while (i < 7) {
+                def day:int ((start + (r * 7)) + i)
+                def cellRow:UiRow (UiRow.of((this.dayTid(day)) (EVGA11yRole.cell()) (this.dayLabel(day))))
+                cellRow.parentTid = (this.weekTid(r))
+                if (this.isDisabledDay(day)) {
+                    cellRow.disabled = true
+                } {
+                    cellRow.focusable = true
+                    ; The tab stop is the focused day, always — the first of
+                    ; the two divergences in the header.
+                    if (day == focused) {
+                        cellRow.tabStop = true
+                    }
+                }
+                if hasSelection {
+                    if (day == selectedDay) {
+                        cellRow.selected = (EVGA11yTri.yes())
+                    }
+                }
+                push out cellRow
+                i = (i + 1)
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+}

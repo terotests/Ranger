@@ -10,6 +10,7 @@
 - Issue #68: Rust `main:int` emitted `return <code>` into a `fn main()` that returns `()` — never compiled. Body now runs as a closure feeding `std::process::exit`, so the exit status survives (July 2026)
 - Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiled on every backend. Now a parse error naming the correct spelling (July 2026)
 - Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]`. The C++ writer moved off C99 compound literals to `std::vector<T>{...}` at the same time (July 2026)
+- Issue #76: `recv.call(args).field = value` compiled and SILENTLY DROPPED the assignment — the call was emitted, the store was not - Parser now rejects it with the fix in the message (September 2026)
 - Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
@@ -273,6 +274,280 @@ A `main:void` is emitted as before, with no wrapper.
 Verified as a real net: 9 of the 12 fail against the pre-fix compiler. The 3
 that pass either way are deliberate over-reach guards (valid spellings still
 compile; `main:void` untouched; runtime element values unchanged).
+
+---
+
+## Issue #76: Assigning to a field of a call result silently drops the assignment
+
+**Status:** Fixed — the parser now compiles it (September 2026)
+**Severity:** **Critical** (silent wrong-code generation; no diagnostic at all)
+**Found:** September 2026, drawing the ReUI stepper in `gallery/ui/demo/ControlsDemo.rgr`
+**Targets:** front-end, so every backend inherits it
+
+### Description
+
+A statement of the form `recv.method(args).field = value` compiled without a
+word of complaint and did nothing. The call was emitted; the store was not.
+
+This is the same failure #65 documents — silent wrong-code generation with no
+diagnostic — reached by the path #65's guard does not cover. That guard rejects
+a statement STARTING with a parenthesised receiver, `(expr).method()`. The bare
+spelling never tripped it, because it parses as an ordinary vref chain.
+
+The two spellings therefore behaved in three different ways, and only one of
+them was safe:
+
+| spelling | result |
+|---|---|
+| `(b.at(0)).name = "x"` | **was rejected** by #65's guard; now compiles and stores |
+| `b.at(0).name = "x"` | **compiled, did nothing** — this issue; now compiles and stores |
+| `def t:Item (b.at(0))` then `t.name = "x"` | works |
+
+All three spellings now do the same thing. The two that store reach the parser
+at **different places**, which is why the fix has two halves — see *The
+parenthesised spelling* below.
+
+### Reproduction
+
+```ranger
+class Item {
+    def name:string "unset"
+    Constructor () {
+    }
+}
+class Box {
+    def items:[Item]
+    Constructor () { def none:[Item] items = none }
+    fn add:void () { def i:Item (new Item ()) push items i }
+    fn at:Item (i:int) { return (itemAt items i) }
+}
+class Main {
+    Constructor () {
+    }
+    sfn main:void () {
+        def b:Box (new Box ())
+        b.add()
+        b.at(0).name = "bare"
+        def chk:Item (b.at(0))
+        print ("-> " + chk.name)     ; prints "-> unset"
+    }
+}
+```
+
+### What was emitted
+
+```js
+function __js_main() {
+  const b = new Box();
+  b.add();
+  (b).at(0);                 // <-- the call survives; `.name = "bare"` is gone
+  const chk = (b).at(0);
+  console.log("-> " + chk.name);
+}
+```
+
+### Why it bit
+
+`gallery/ui/demo/ControlsDemo.rgr` set each stepper step's icon with
+`stepper.stepAt(0).icon = "user"`. Every circle drew the fallback glyph and the
+panel came up empty, with a clean compile. The gate could not catch it either:
+the gate is JavaScript, where that same expression works exactly as it reads.
+One line, two meanings across the boundary, and only one of them a mistake.
+
+### What has been ruled out
+
+Four probes, each compiled and run, narrowing where the store was lost:
+
+| probe | result |
+|---|---|
+| `b.at(0).rename("x")` — a chained METHOD call | **works**, emits `((b).at(0)).rename("x")` |
+| `((b.at(0)).name)` — reading a field of a call result | **works** |
+| `b.solo.name = "x"` — a plain field chain | **works**, emits `b.solo.name = "x"` |
+| `b.first().name = "x"` — zero-arg call, still an assignment | **silent no-op** |
+
+So:
+
+- **The parser handles the chain.** A method call on a call result parses and
+  renders correctly, and the renderer already produces exactly the receiver
+  syntax an assignment would need.
+- **Reading is fine.** Only writing was lost.
+- **It is not arity.** A zero-argument call fails the same way.
+- **It is lost before codegen.** Nothing of the assignment appears in the
+  output at all — not a mangled store, no store.
+- **It is NOT the `=` operator overload.** `Lang.rgr` declares
+  `= cmdAssign:void ( target:vref expr:expression )`, and a chain is not a
+  plain `vref`, so that looked like the cause. Adding a sibling overload
+  `( target:expression expr:expression )` and rebuilding the compiler changes
+  nothing — the statement never reaches operator matching in this shape.
+  (Tried and reverted; recorded so nobody spends the afternoon on it twice.)
+
+That left the symbol/vref scanner in `ng_parser_v2.rgr`, which absorbed the
+trailing `.field` into the chain it was building and then dropped it when the
+statement turned out to be an assignment rather than a call.
+
+### The fix
+
+The trailing `.field` is scanned as a vref **whose name begins with a dot** —
+there is no receiver in front of it, because the receiver was the call, already
+folded into a group. Nothing downstream knew that shape, so the statement
+collapsed to the call alone.
+
+Two other shapes reach the same point with a dot-leading vref and are both
+legal, so the test is not "does it lead with a dot" but *what follows it*.
+Established by instrumenting the parser and running all three, rather than by
+reasoning:
+
+| source | next char | meaning |
+|---|---|---|
+| `b.at(0).rename(x)` | `(` | chained method CALL — folds correctly today |
+| `((b.at(0)).name)` | `)` | READ inside an expression — always worked |
+| `b.at(0).name = x` | `=` | the assignment, this issue |
+
+At that point — a dot-leading vref followed by `=`, with `==` excluded so a
+comparison on a call result stays a legal read — the parser now **desugars the
+statement into the two it always had to be written as**:
+
+```ranger
+b.at(0).name = "x"
+```
+
+becomes, before anything downstream sees it,
+
+```ranger
+def __rgr_recv_1 (b.at(0))
+__rgr_recv_1.name = "x"
+```
+
+Both halves are shapes the compiler already handled: a `def` whose type is
+inferred from a call, and a plain field store on a local. **Nothing downstream
+of the parser changed** — no new operator overload, no codegen change, no type
+rule. That is the whole reason this route works where the `Lang.rgr` route
+ruled out above does not.
+
+The surgery is three moves at the detection point in `ng_parser_v2.rgr`:
+
+1. The children the statement node has accumulated so far *are* the receiver
+   (the callee vref and its argument group). They are moved into the new
+   `def`'s value expression.
+2. The `def` is inserted into the enclosing **block**, immediately ahead of the
+   statement being parsed. The statement is already a child of that block — a
+   statement is pushed onto its block before its own parse begins — so the
+   insert point is that statement's own index, found by start offset, which is
+   unique per statement, rather than by object identity.
+3. The dot-leading vref is renamed from `.name` to `__rgr_recv_1.name`, so it
+   hangs off the temporary instead of off nothing. Parsing then continues
+   normally and the `=` is matched by the ordinary `cmdAssign` overload.
+
+The temporaries are numbered per parser instance, so per **file**; they are
+block locals, so two files never see each other's.
+
+The old diagnostic is kept as the `else` branch, for a shape this cannot
+rewrite — no enclosing block, or no receiver to move. Silently dropping the
+store is the one outcome that must never come back.
+
+### The parenthesised spelling
+
+`(b.at(0)).name = "x"` never reaches that point. The statement starts with `(`,
+so the group is parsed as a statement of its own and is **already the block's
+last child** by the time `.name` is scanned — with `curr_node` back at the
+block, which is exactly the condition #65's guard fires on. The receiver is not
+in the statement's children; it is the sibling behind it.
+
+So the same desugaring is taught to reach for it there, at the #65 guard site,
+before the guard gives up. It pops the block's last child as the receiver,
+builds the same `def`, then opens the statement itself — pushing a vref named
+`__rgr_recv_N.name` and handing the rest of the line (` = "x"`) to the ordinary
+recursion, which is the same thing the normal statement path does one token
+later.
+
+**The receiver is only taken when the `.` sits immediately after a `)`, with
+nothing between.** That single check is what separates a rewrite from a theft:
+
+```ranger
+b.touch()
+.name = "stolen"
+```
+
+Here the previous statement also ends in `)`, and a rewrite that looked only
+for a call result behind it would store into whatever `b.touch()` returned.
+Whitespace or a newline before the dot means no rewrite, and #65's error
+stands. `tests/fixtures/issue_76_dangling_dot.rgr` gates it.
+
+A parenthesised receiver followed by a **call** — `(a.b()).c()` — is also still
+#65's error, gated by `tests/fixtures/issue_76_paren_receiver_call.rgr`. The
+lookahead fires only on `=`, and that shape has a bare spelling,
+`a.b().c()`, that has always worked.
+
+### What it emits
+
+```js
+const __rgr_recv_1 = (b).at(0);
+__rgr_recv_1.name = "zero";
+const __rgr_recv_2 = (b).at(1);
+__rgr_recv_2.name = "one";
+const __rgr_recv_3 = (b).first();
+__rgr_recv_3.n = 42;
+```
+
+### What was tried first, and does not work
+
+The obvious route is the operator declaration in `Lang.rgr`,
+`= cmdAssign:void ( target:vref expr:expression )`: a call chain is not a plain
+`vref`, so no overload can match. Adding a sibling overload with an expression
+target and rebuilding the compiler changes nothing — **the statement never
+reaches operator matching in this shape**, because the dot-leading vref is
+already lost by then. Recorded so the next person does not spend an afternoon
+on it. The parser is the only place early enough to see the receiver still
+intact.
+
+### Verified
+
+A probe compiled and run against the rebuilt compiler, covering the shapes that
+reach the rewrite and the ones that must not:
+
+| shape | result |
+|---|---|
+| `b.at(0).name = "zero"` | stores |
+| `b.first().n = 42` — zero-arg call | stores |
+| `b.at(k).n = (k + 100)` inside a `while` block | stores |
+| two rewrites in the same block | both store, distinct temporaries |
+| `b.at(0).self().name = "chained"` — chained receiver | stores |
+| `b.at(0).inner.tag = "deep"` — nested field path | stores |
+| `b.at(i).n = (i + 7)` inside a `for` block | stores |
+| `(b.at(0)).name = "paren"` — the parenthesised spelling | stores |
+| `(b.at(0)).n= 5` — no space before the `=` | stores |
+| `(b.at(1)).inner.tag = "deep"` — parenthesised, nested path | stores |
+| `((b.at(1)).name) == "one"` | still a READ, unchanged |
+| `def r:string ((b.at(0)).name)` | still a READ, unchanged |
+| `b.touch()` then `.name = "x"` on the next line | still #65's error — not stolen |
+| `(b.at(0)).ping()` — parenthesised receiver, a CALL | still #65's error |
+
+The compiler bootstraps to a fixpoint on the change (stage1 == stage2 ==
+stage3), and all 79 gallery editor suites pass.
+
+The probe is kept as `tests/fixtures/issue_76_call_result_field.rgr` with
+`tests/compiler-issue-76.test.ts` over it, so it is a gate rather than a
+session. The gate reads the program's OUTPUT, not the emitted source: grepping
+for `__rgr_recv_` would pass on a rewrite that stored the wrong thing, and fail
+on a future fix that reached the same result another way.
+
+Mutation-proved against both earlier states of the compiler, by compiling and
+running the same fixture:
+
+| compiler | result |
+|---|---|
+| before any fix (`f57e27d^`) | **compiles cleanly, prints `unset\|0\|unset` four times** — every store dropped, and the comparison branch never fires |
+| the reject-only fix (`f57e27d`) | parse error, no output |
+| this fix | the eight expected lines |
+
+`vitest` is not installed in the environment this was written in, so the test
+file itself was not executed here; the fixture was compiled and run directly
+with `bin/output.js` and its output matched every assertion in the file,
+line for line.
+
+`gallery/ui/demo/ControlsDemo.rgr` — the file that found the bug — is written
+back in the natural spelling, so the fix has a live user rather than only a
+probe.
 
 ---
 

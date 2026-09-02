@@ -293,6 +293,21 @@ function buildHost(M, fixture, css) {
         break;
       }
 
+      // A calendar. The month and `today` come from the fixture rather than a
+      // clock, because a control whose output changes overnight cannot be
+      // compared against anything.
+      case "calendar": {
+        ctl = host.addCalendar(c.tid, c.name || "");
+        const [y, m] = String(c.month || "2026-05").split("-").map(Number);
+        ctl.setMonth(y, m);
+        if (c.today) ctl.setToday(...c.today.split("-").map(Number));
+        if (c.selected) ctl.setSelected(...c.selected.split("-").map(Number));
+        if (c.minDate) ctl.setMinDate(...c.minDate.split("-").map(Number));
+        if (c.showOutsideDays === false) ctl.showOutsideDays = false;
+        ctl.build();
+        break;
+      }
+
       case "accordion":
         ctl = host.addAccordion(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, it.body || "", !!it.disabled);
@@ -349,6 +364,7 @@ const SUPPORTED_TYPES = [
   "navigationmenu",
   "scrollarea",
   "table",
+  "calendar",
 ];
 
 module.exports = { buildHost, SUPPORTED_TYPES };

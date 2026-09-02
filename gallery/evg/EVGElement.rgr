@@ -709,6 +709,33 @@ class EVGElement {
     ; role of their own — the same rule the HTML name calculation uses, and the
     ; reason a row of Label + Shortcut announces as one thing.
     def a11yLabel:string ""
+    ; What a text field CONTAINS, as opposed to what it is called.
+    ;
+    ; A reader that is told "Full name, text box" and not the name in it is
+    ; being told half of what is on screen — and this was missing entirely:
+    ; the tree carried the label and the role, the DOM mirror asked for
+    ; `node.value`, and nothing on this side ever set it. The conformance
+    ; trace has had the value all along through `UiRow.text`, which is the
+    ; CONTROLLER's path; a demo that draws its own tree went without.
+    ;
+    ; A password field must leave this EMPTY. `value` is the text and
+    ; `glyphText()` is the bullets, and neither belongs to a reader: a browser
+    ; exposes no value for `type=password` either.
+    def a11yValue:string ""
+    ; `aria-required`, `aria-invalid` and `aria-readonly`, as the DOM spells
+    ; them: "true", "false", or "" for a control that says nothing.
+    ;
+    ; STRINGS AND NOT BOOLEANS, and that is the whole point of them. Absent
+    ; and "false" are different claims — a field that says
+    ; `aria-required="false"` has been asked and answered, and one that says
+    ; nothing has not. The controller path has spelled them this way since the
+    ; `input_required` spec recorded the rule against a real <input>
+    ; ("aria-required is published only when it was asked for"); the element
+    ; path could not say either at all, so a demo-built form drew a red ring
+    ; and a message for a person and told a reader nothing.
+    def a11yRequired:string ""
+    def a11yInvalid:string ""
+    def a11yReadOnly:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
     ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
@@ -2298,6 +2325,10 @@ class EVGElement {
         transitionSpec = other.transitionSpec
         role = other.role
         a11yLabel = other.a11yLabel
+        a11yValue = other.a11yValue
+        a11yRequired = other.a11yRequired
+        a11yInvalid = other.a11yInvalid
+        a11yReadOnly = other.a11yReadOnly
         a11yRoleDescription = other.a11yRoleDescription
         a11yDescription = other.a11yDescription
         a11yHasPopup = other.a11yHasPopup
@@ -2445,6 +2476,22 @@ class EVGElement {
         if ((name == "role") || (name == "a11yRole")) {
             role = (trim value)
             return
+        }
+        if ((name == "a11yRequired") || (name == "aria-required")) {
+            a11yRequired = value
+            return true
+        }
+        if ((name == "a11yInvalid") || (name == "aria-invalid")) {
+            a11yInvalid = value
+            return true
+        }
+        if ((name == "a11yReadOnly") || (name == "aria-readonly")) {
+            a11yReadOnly = value
+            return true
+        }
+        if ((name == "a11yValue") || (name == "aria-valuetext")) {
+            a11yValue = value
+            return true
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value

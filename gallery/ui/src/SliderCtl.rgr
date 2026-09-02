@@ -220,6 +220,163 @@ class SliderCtl extends UiCtl {
         return (target == (this.thumbTid()))
     }
 
+    ; =========================================================================
+    ; The ReUI presentation layer
+    ; =========================================================================
+    ; SPECIFIED from the source and screenshots the user supplied — reui.io is
+    ; refused by the egress proxy, so this is the same footing the four shadcn
+    ; components were on: a real source, not a guess.
+    ;
+    ; Everything above this line is MEASURED against @radix-ui/react-slider and
+    ; is untouched. What follows is the layer ReUI draws on top, and it lives
+    ; in the controller rather than in a demo for one reason: every one of
+    ; these is a VALUE-TO-TEXT or VALUE-TO-POSITION function, which is exactly
+    ; the kind of thing a gate can check and a picture cannot.
+    ;
+    ; AND ONE OF THEM IS AN ACCESSIBILITY FIX, not decoration. A rating slider
+    ; whose thumb sits at 3 announces "3" to a reader, which is useless — the
+    ; screen says "Okay" and the reader hears a bare number. `aria-valuetext`
+    ; is what closes that, and the band labels below are what fill it. The same
+    ; goes for "5 GB": the unit is on the screen and, without this, nowhere
+    ; else.
+
+    ; A suffix on the number: "%", " GB", " months". "" for a bare value.
+    def unitSuffix:string ""
+    ; Tick marks. `tickStep` is the spacing of the marks themselves and
+    ; `skipInterval` is how many of them carry a NUMBER — from ReUI's source,
+    ; where every tick draws a mark and `tick % skipInterval !== 0` draws it
+    ; shorter and hides its label. Two different rules, and an implementation
+    ; that keeps only one of them draws either a bare ruler or a crowded one.
+    def tickStep:int 0
+    def skipInterval:int 1
+    ; Bands, for a slider whose value is a word: "Okay", "Great". Parallel
+    ; arrays because a band is an upper bound and a label, and Ranger has no
+    ; tuple. Held sorted by the caller's insertion order and read in order.
+    def bandUpTo:[int]
+    def bandLabel:[string]
+    def bandEmoji:[string]
+
+    fn addBand:void (upTo:int label:string emoji:string) {
+        push bandUpTo upTo
+        push bandLabel label
+        push bandEmoji emoji
+    }
+
+    ; --- where things sit, as FRACTIONS ------------------------------------
+    ;
+    ; Fractions, not pixels — the demo multiplies. The same split the event
+    ; calendar and the progress bar are under, and what lets one number serve
+    ; a 200px track and a 900px one.
+
+    fn fractionOf:double (v:int) {
+        def span:int (maxValue - minValue)
+        if (span <= 0) {
+            return 0.0
+        }
+        def clamped:int v
+        if (clamped < minValue) { clamped = minValue }
+        if (clamped > maxValue) { clamped = maxValue }
+        return ((to_double (clamped - minValue)) / (to_double span))
+    }
+
+    fn thumbFraction:double () {
+        return (this.fractionOf(value))
+    }
+
+    ; --- ticks --------------------------------------------------------------
+
+    fn tickCount:int () {
+        if (tickStep <= 0) {
+            return 0
+        }
+        ; Inclusive of both ends: a 0..12 range stepping by 1 has THIRTEEN
+        ; ticks, not twelve. ReUI's own source is `length: max + 1`, and the
+        ; off-by-one here is the difference between a ruler that ends on 12 and
+        ; one that ends on 11.
+        return ((idiv (maxValue - minValue) tickStep) + 1)
+    }
+
+    fn tickValue:int (i:int) {
+        return (minValue + (i * tickStep))
+    }
+
+    ; A MAJOR tick carries a number and a full-height mark; a minor one is a
+    ; short mark with its label hidden. From ReUI's source: the test is on the
+    ; tick's INDEX, not on its value, so a range starting somewhere other than
+    ; zero still labels its own first tick.
+    fn tickIsMajor:boolean (i:int) {
+        if (skipInterval <= 1) {
+            return true
+        }
+        return ((i % skipInterval) == 0)
+    }
+
+    fn tickFraction:double (i:int) {
+        return (this.fractionOf((this.tickValue(i))))
+    }
+
+    ; --- what the value READS as -------------------------------------------
+
+    ; The number with its unit: "50%", "5 GB". This is what the tooltip bubble
+    ; shows and what a reader is told.
+    fn formatted:string () {
+        return ((to_string value) + unitSuffix)
+    }
+
+    ; The band a value falls in, "" when the slider has none. The FIRST band
+    ; whose upper bound the value has not passed — so a caller lists them low
+    ; to high and the last one catches everything above it.
+    fn bandFor:string (v:int) {
+        def i:int 0
+        while (i < (array_length bandUpTo)) {
+            if (v <= (itemAt bandUpTo i)) {
+                return (itemAt bandLabel i)
+            }
+            i = (i + 1)
+        }
+        if ((array_length bandLabel) > 0) {
+            return (itemAt bandLabel ((array_length bandLabel) - 1))
+        }
+        return ""
+    }
+
+    fn emojiFor:string (v:int) {
+        def i:int 0
+        while (i < (array_length bandUpTo)) {
+            if (v <= (itemAt bandUpTo i)) {
+                return (itemAt bandEmoji i)
+            }
+            i = (i + 1)
+        }
+        if ((array_length bandEmoji) > 0) {
+            return (itemAt bandEmoji ((array_length bandEmoji) - 1))
+        }
+        return ""
+    }
+
+    fn currentBand:string () {
+        return (this.bandFor(value))
+    }
+
+    fn currentEmoji:string () {
+        return (this.emojiFor(value))
+    }
+
+    ; `aria-valuetext`. The BAND when there is one, because "Okay" is what the
+    ; screen says and a reader hearing "3" has been told nothing; the formatted
+    ; number otherwise, so a unit is not lost; and "" when the value speaks for
+    ; itself, which keeps the attribute absent rather than making it a
+    ; duplicate of aria-valuenow.
+    fn valueText:string () {
+        if ((array_length bandLabel) > 0) {
+            return (this.currentBand())
+        }
+        if ((strlen unitSuffix) > 0) {
+            return (this.formatted())
+        }
+        return ""
+    }
+
     fn rows:[UiRow] () {
         def out:[UiRow]
 
@@ -251,6 +408,10 @@ class SliderCtl extends UiCtl {
         thumbRow.hasRange = true
         thumbRow.valueMin = minValue
         thumbRow.valueMax = maxValue
+        ; What a reader hears INSTEAD of the number, when the number alone is
+        ; not the answer. See `valueText` — this is the whole point of the
+        ; band labels.
+        thumbRow.valueText = (this.valueText())
         if (disabled == false) {
             thumbRow.tabStop = true
             thumbRow.focusable = true

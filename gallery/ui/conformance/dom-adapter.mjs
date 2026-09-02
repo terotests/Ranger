@@ -62,6 +62,37 @@ export function requireDom(name) {
   return domRequire(name);
 }
 
+/**
+ * One tool out of the host's directory, WITHOUT demanding the reference
+ * components.
+ *
+ * `requireDom` asks for everything `dom/package.json` declares, and for a
+ * caller that renders Radix that is right — see the note on
+ * `assertDomInstalled`. But `esbuild` and `playwright-core` are also
+ * devDependencies of the REPOSITORY, and a caller that only bundles this
+ * repo's own sources or only launches a browser needs nothing else. Making
+ * those callers demand forty-three reference packages they never import turns
+ * a working check into a failing one on any machine that has not run
+ * `ui:conformance:install` — which is exactly what happened in CI, where the
+ * root install provides both tools and the reference host is not installed at
+ * all.
+ *
+ * So this resolves the one package asked for and reports only that one. Use it
+ * for tools; use `requireDom` for anything that touches the reference
+ * components, where a partial install really is the failure worth naming.
+ */
+export function requireHostTool(name) {
+  try {
+    return domRequire(name);
+  } catch {
+    throw new MissingDomDeps(
+      `${name} could not be resolved — run:\n` +
+        "  npm install\n" +
+        `(or \`npm run ui:conformance:install\` to install it with the reference host)`,
+    );
+  }
+}
+
 export function findChromium() {
   if (process.env.RANGER_CHROMIUM) return process.env.RANGER_CHROMIUM;
   const base = process.env.PLAYWRIGHT_BROWSERS_PATH;

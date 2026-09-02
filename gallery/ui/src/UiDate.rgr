@@ -1,0 +1,213 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiDate — the civil calendar, as a day count.
+; =============================================================================
+;
+; A calendar control needs four things and no more: which day of the week a
+; date falls on, how many days a month has, how to step by days or by months,
+; and how to say a date out loud. All of it is arithmetic on a DAY NUMBER —
+; days since 1970-01-01 — because every question a calendar grid asks is
+; "which cell is N steps from this one", and only a plain integer answers that
+; without special cases at month ends.
+;
+; The conversion both ways is Howard Hinnant's `days_from_civil` /
+; `civil_from_days`, published with `<chrono>`'s proposal and correct for all
+; years in the proleptic Gregorian calendar. It shifts the year to start in
+; March so that the leap day lands at the END of it, which is the whole trick:
+; February's length stops being a special case inside the arithmetic.
+;
+; WHY NOT `datagrid/src/DateSerial.rgr`, which has the same algorithm in it.
+; Two reasons, and the first one alone settles it. That file deliberately
+; encodes Excel's 1900 leap-year bug — its serial 60 is the 29th of February
+; 1900, a date that never happened — because it exists to read spreadsheets
+; that contain the bug. A calendar you pick a date in must not have a phantom
+; day in it, so it is not the same quantity and sharing it would be wrong.
+; Second, `gallery/ui` depends only on `gallery/evg`; reaching into a
+; spreadsheet application to borrow a helper would invert that.
+;
+; The shared part is the published algorithm, not the other file's code. If a
+; third caller ever appears, the right move is to lift the pure civil core out
+; of both into a layer they can both sit on — recorded rather than left to be
+; rediscovered.
+; =============================================================================
+
+class UiDate {
+    sfn isLeap:boolean (y:int) {
+        if ((y % 4) != 0) {
+            return false
+        }
+        if ((y % 100) != 0) {
+            return true
+        }
+        return ((y % 400) == 0)
+    }
+
+    sfn daysInMonth:int (y:int m:int) {
+        if (m == 2) {
+            if (UiDate.isLeap(y)) {
+                return 29
+            }
+            return 28
+        }
+        if (m == 4) {
+            return 30
+        }
+        if (m == 6) {
+            return 30
+        }
+        if (m == 9) {
+            return 30
+        }
+        if (m == 11) {
+            return 30
+        }
+        return 31
+    }
+
+    ; Days since 1970-01-01, negative before it.
+    sfn toDays:int (y:int m:int d:int) {
+        def yy:int y
+        if (m <= 2) {
+            yy = (yy - 1)
+        }
+        def era:int (idiv yy 400)
+        if (yy < 0) {
+            era = (idiv (yy - 399) 400)
+        }
+        def yoe:int (yy - (era * 400))
+        def mp:int (m + 9)
+        if (m > 2) {
+            mp = (m - 3)
+        }
+        def doy:int ((idiv (((153 * mp) + 2)) 5) + (d - 1))
+        def doe:int ((((yoe * 365) + (idiv yoe 4)) - (idiv yoe 100)) + doy)
+        return (((era * 146097) + doe) - 719468)
+    }
+
+    ; The inverse. `out` receives year, month, day — an out-parameter because a
+    ; date is three numbers and the language has no tuple.
+    sfn fromDays:void (days:int out:[int]) {
+        def z:int (days + 719468)
+        def era:int (idiv z 146097)
+        if (z < 0) {
+            era = (idiv (z - 146096) 146097)
+        }
+        def doe:int (z - (era * 146097))
+        def yoe:int (idiv (((doe - (idiv doe 1460)) + (idiv doe 36524)) - (idiv doe 146096)) 365)
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (idiv yoe 4)) - (idiv yoe 100)))
+        def mp:int (idiv (((5 * doy) + 2)) 153)
+        def d:int ((doy - (idiv (((153 * mp) + 2)) 5)) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        set out 0 y
+        set out 1 m
+        set out 2 d
+    }
+
+    ; 0 is Sunday, to match the en-US week the reference lays out. The +4 is
+    ; because day 0, 1970-01-01, was a Thursday.
+    sfn weekday:int (days:int) {
+        def w:int ((days + 4) % 7)
+        if (w < 0) {
+            w = (w + 7)
+        }
+        return w
+    }
+
+    ; --- saying it -----------------------------------------------------------
+
+    sfn pad2:string (n:int) {
+        if (n < 10) {
+            return ("0" + n)
+        }
+        return ("" + n)
+    }
+
+    sfn iso:string (y:int m:int d:int) {
+        return ((("" + y) + "-" + (UiDate.pad2(m))) + "-" + (UiDate.pad2(d)))
+    }
+
+    sfn isoOfDays:string (days:int) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(days p)
+        return (UiDate.iso((itemAt p 0) (itemAt p 1) (itemAt p 2)))
+    }
+
+    sfn monthName:string (m:int) {
+        def names:[string] ([] _:string (
+            "January" "February" "March" "April" "May" "June"
+            "July" "August" "September" "October" "November" "December"
+        ))
+        if (m < 1) {
+            return ""
+        }
+        if (m > 12) {
+            return ""
+        }
+        return (itemAt names (m - 1))
+    }
+
+    sfn dayName:string (dow:int) {
+        def names:[string] ([] _:string (
+            "Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday"
+        ))
+        if (dow < 0) {
+            return ""
+        }
+        if (dow > 6) {
+            return ""
+        }
+        return (itemAt names dow)
+    }
+
+    sfn dayAbbr:string (dow:int) {
+        def names:[string] ([] _:string ( "Su" "Mo" "Tu" "We" "Th" "Fr" "Sa" ))
+        if (dow < 0) {
+            return ""
+        }
+        if (dow > 6) {
+            return ""
+        }
+        return (itemAt names dow)
+    }
+
+    ; English ordinals: 1st, 2nd, 3rd, 4th … and 11th, 12th, 13th, which are
+    ; the exception that makes the rule worth writing down rather than reaching
+    ; for the last digit alone.
+    sfn ordinal:string (d:int) {
+        def suffix:string "th"
+        def tens:int ((idiv d 10) % 10)
+        if (tens != 1) {
+            def ones:int (d % 10)
+            if (ones == 1) {
+                suffix = "st"
+            }
+            if (ones == 2) {
+                suffix = "nd"
+            }
+            if (ones == 3) {
+                suffix = "rd"
+            }
+        }
+        return (("" + d) + suffix)
+    }
+
+    ; "Wednesday, May 13th, 2026" — the reference's day label, in en-US.
+    sfn longLabel:string (y:int m:int d:int) {
+        def dow:int (UiDate.weekday((UiDate.toDays(y m d))))
+        def head:string ((UiDate.dayName(dow)) + ", " + (UiDate.monthName(m)))
+        return ((head + " " + (UiDate.ordinal(d))) + ", " + y)
+    }
+
+    ; "May 2026" — the caption, and the grid's accessible name.
+    sfn monthLabel:string (y:int m:int) {
+        return ((UiDate.monthName(m)) + " " + y)
+    }
+}

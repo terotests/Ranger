@@ -206,12 +206,26 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     // cannot tell has already been pressed.
     setAttr(el, "aria-expanded", node.expanded ? TRI[node.expanded] || null : null);
     setAttr(el, "aria-disabled", node.disabled ? "true" : null);
-    setAttr(el, "aria-readonly", node.readonly ? "true" : null);
+    // Three states, passed STRAIGHT THROUGH: "true", "false", or absent.
+    // `node.readonly ? "true" : null` was right while the field was a boolean
+    // and became a bug the moment it became a string — "false" is truthy in
+    // JavaScript, so a field that had been asked and answered no would have
+    // been mirrored as yes. Absent and "false" are different claims, which is
+    // the entire reason these are strings.
+    setAttr(el, "aria-readonly", node.readonly || null);
+    setAttr(el, "aria-required", node.required || null);
+    setAttr(el, "aria-invalid", node.invalid || null);
     setAttr(el, "aria-modal", node.modal ? "true" : null);
     setAttr(el, "aria-selected", node.selected ? "true" : null);
-    // A toggle button is pressed; a checkbox or a radio is checked. Same field
-    // in the tree, two different words on the way out.
-    if (node.checked) {
+    // A toggle button that says so in its own field. `node.pressed` has been
+    // in the tree and in the serialisation all along and NOTHING read it here:
+    // the only route to `aria-pressed` was through `checked`, so a control
+    // that set `pressed` honestly got nothing. Checked first, because a
+    // checkbox mirrored as a toggle would be worse than either.
+    if (!node.checked && node.pressed) {
+      setAttr(el, "aria-pressed", role === "button" ? TRI[node.pressed] || null : null);
+      setAttr(el, "aria-checked", null);
+    } else if (node.checked) {
       const state = TRI[node.checked] || null;
       if (role === "button") {
         setAttr(el, "aria-pressed", state);

@@ -1,0 +1,63 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Does the measurer agree with the browser about how wide text is?
+//
+//   npm run evg:advance:check
+//
+// The caret is drawn at the measured width of the text before it, so this
+// number IS the caret's error. It was 12.4px at 13px before the advance table
+// went in — eight of those pixels on "ada.example.com", which is what put the
+// caret visibly past the end of the text in the invoice demo.
+//
+// TWO BUDGETS, because there are two kinds of error and only one of them is a
+// bug. A string the table gets wrong by summing single advances where the
+// browser kerns a pair is a KNOWN residual, bounded and small; a string it
+// gets wrong for any other reason is a broken table. So: exact for anything
+// without a kerning pair, and a stated ceiling for the rest.
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, "..", "..", "..", "..");
+const require = createRequire(import.meta.url);
+const H = require(path.join(ROOT, "gallery/ui/bin/ui_host.cjs"));
+const o = JSON.parse(fs.readFileSync(path.join(HERE, "advance.json"), "utf8"));
+
+// The strings where a browser kerns and a sum of advances cannot.
+const KERNS = new Set(["AVATAR", "To Wave", "INV-2026-0148"]);
+const KERN_BUDGET = 4.0;   // px at 13px, measured worst case 3.86
+
+let pass = 0, fail = 0;
+const ok = (name, cond, got, want) => {
+  if (cond) { pass++; return; }
+  fail++;
+  console.log(`  FAIL  ${name} — got ${got} want ${want}`);
+};
+
+for (const [fam, data] of Object.entries(o.families)) {
+  const m = new H.SimpleTextMeasurer();
+  for (const size of [11, 13, 14, 18]) {
+    let worstPlain = 0, worstPlainS = "", worstKern = 0;
+    for (const { s, w } of data.whole) {
+      const want = w / o.referenceSize * size;
+      const got = m.measureText(s, fam, size).width;
+      const err = Math.abs(got - want);
+      if (KERNS.has(s)) { if (err > worstKern) worstKern = err; }
+      else if (err > worstPlain) { worstPlain = err; worstPlainS = s; }
+    }
+    // "exact" to a tenth of a pixel: the table holds five decimals of an em.
+    ok(`${fam} @${size}px — unkerned strings are exact`,
+       worstPlain < 0.1, `${worstPlain.toFixed(3)}px on "${worstPlainS}"`, "< 0.1px");
+    const budget = KERN_BUDGET * size / 13;
+    ok(`${fam} @${size}px — kerned strings stay inside the stated residual`,
+       worstKern <= budget, `${worstKern.toFixed(3)}px`, `<= ${budget.toFixed(2)}px`);
+  }
+}
+
+console.log("");
+console.log(`passed = ${pass}  failed = ${fail}`);
+console.log(fail === 0 ? "ALL PASS" : "FAILURES");
+process.exit(fail === 0 ? 0 : 1);

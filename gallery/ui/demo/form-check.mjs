@@ -326,6 +326,53 @@ console.log("--- what a reader gets ---");
   ok("no style errors", d.styleErrorCount() === 0, d.styleErrorAt(0) || "");
 }
 
+// --- clicking puts the caret where you clicked -------------------------------
+//
+// The field could always answer "which character is under this x" —
+// `indexAtX` — and was never asked, so a click focused a box and left the
+// caret wherever it had been. It also could not have answered correctly until
+// the advance table went in: fed the old bucket estimate it would have
+// returned an index several characters out on any string of mixed widths.
+//
+// So this asserts both halves at once: that the click is wired, and that the
+// index it lands on is the one under the pointer.
+{
+  const d = fresh();
+  const bx = d.boxXOf("fm-name"), bw = d.boxWidthOf("fm-name");
+  const c = d.inputFor("fm-name");
+  const value = c.value;                     // "Ada Lovelace"
+
+  // Click before the first character: caret 0, whichever way the pointer
+  // approaches the left edge.
+  d.pressAt("fm-name", bx + 2);
+  ok("a click at the very left puts the caret at 0", c.caret === 0, c.caret);
+
+  // Click past the end of the text: the last index, not an overflow.
+  d.pressAt("fm-name", bx + bw - 2);
+  ok("a click past the end puts the caret at the end", c.caret === value.length, c.caret);
+
+  // And in between: walk the string and check the caret lands on the character
+  // whose box contains the x. The measurement is exact for this string, so
+  // this is an equality and not a tolerance.
+  let wrong = 0, firstWrong = "";
+  for (let i = 1; i < value.length; i++) {
+    // Through the demo's own inverse, not `bx + 10`. That literal was the
+    // padding without the border — the same mistake `pressAt` made, so the
+    // round trip agreed with itself and the caret sat a pixel off the pointer.
+    const x = d.pageXOf("fm-name", i) - 0.5;   // just inside char i
+    d.pressAt("fm-name", x);
+    if (c.caret !== i) { wrong++; if (!firstWrong) firstWrong = `x for index ${i} landed on ${c.caret}`; }
+  }
+  ok(`every position in "${value}" maps back to its own index`, wrong === 0, firstWrong);
+
+  // Dragging extends rather than moves: the anchor stays where the press put it.
+  d.pressAt("fm-name", bx + 10 + d.caretXOf("fm-name", 4));
+  d.dragTo("fm-name", bx + 10 + d.caretXOf("fm-name", 9));
+  ok("a drag keeps the anchor and moves the caret", c.anchor === 4 && c.caret === 9,
+     `anchor ${c.anchor} caret ${c.caret}`);
+  ok("which is a selection", c.hasSelection());
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }
