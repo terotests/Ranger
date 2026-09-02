@@ -99,8 +99,19 @@ console.log("the linear gate is VISIBLE, not merely refused");
   const d = fresh();
   // Step three has not been reached. Clicking its circle must do nothing.
   const before = texts(d).join("|");
+  const wasOn = d.stepper.current;
   const r = clickOn(d, "cx-step-payment");
-  eq("clicking an unreachable step is refused", r.handled, false);
+  // THE CLICK HAS TO LAND FIRST. This used to assert `r.handled === false`,
+  // and it passed for the wrong reason: the stepper's steps were laid out on
+  // top of one another, so the centre of `cx-step-payment` was over something
+  // else entirely and `press` refused a target it did not recognise. A gate
+  // that reads "the click was refused" while the click never arrived says
+  // nothing about the linear rule at all.
+  eq("the click reaches the step it aimed at", r.hit, "cx-step-payment");
+  // And then the rule, stated as the behaviour rather than as `press`'s
+  // bookkeeping: `press` returns true for "I know this target and rebuilt",
+  // which is not the same claim as "I moved".
+  eq("the step you are on does not change", d.stepper.current, wasOn);
   eq("and nothing on the page changed", texts(d).join("|"), before);
   // It also has to LOOK unreachable — a circle that looks clickable and is not
   // is worse than one that looks disabled.
@@ -386,6 +397,120 @@ console.log("what a reader is told");
   const rate = ns.find((n) => n.id === "cx-rating-thumb");
   eq("the rating slider reports a position", rate.now, 3);
   eq("and its range", `${rate.min}..${rate.max}`, "1..5");
+}
+
+// The sliders MOVE. Four of them were drawn from a controller that has known
+// how to be pressed, dragged and arrowed since it was measured against Radix,
+// and the demo called none of it: `press` on a track returned false, an arrow
+// key returned false, and all four sat at their initial values for the life of
+// the page. Making `position: absolute` parse a commit earlier put the thumbs
+// in the right PLACE, which is the version of this defect that is hardest to
+// see — four sliders that look correct and are pictures.
+//
+// Every press below goes through `hitId(x, y)` at a real coordinate, for the
+// same reason the rest of this file does.
+console.log("the sliders move");
+{
+  const d = fresh();
+  // Laid out FIRST, every time. `rebuild()` hands back a fresh tree whose
+  // boxes are all at zero until something lays it out, so a helper that reads
+  // geometry straight after a key press aims at (0, 0) and hits nothing —
+  // which shows up as a slider that "did not move" when what did not happen
+  // was the press. The page paints between every event and never sees this;
+  // a check driving the demo directly does.
+  const trackOf = (name) => { d.displayListJson(); return byId(d, `cx-${name}-track`); };
+  // Press at a FRACTION of the track, through the hit test, the way the page
+  // does: `pressAt(hitId(x, y), x)`.
+  const pressFrac = (name, f) => {
+    const t = trackOf(name);
+    const x = t.calculatedX + t.calculatedWidth * f;
+    const y = t.calculatedY + t.calculatedHeight / 2;
+    const took = d.pressAt(d.hitId(x, y), x);
+    d.displayListJson();
+    return took;
+  };
+  const dragFrac = (name, f) => {
+    const t = trackOf(name);
+    const x = t.calculatedX + t.calculatedWidth * f;
+    const took = d.dragTo("", x);
+    d.displayListJson();
+    return took;
+  };
+
+  eq("storage starts where init put it", d.storage.value, 12);
+  ok("a press on the rail is taken", pressFrac("storage", 0.8));
+  // 5..35 at 80% is 29. The value comes from the TRACK's geometry, not from
+  // where on the control the press landed.
+  eq("and lands the value the fraction names", d.storage.value, 29);
+  eq("focus goes to the THUMB, not the rail", d.focused, "cx-storage-thumb");
+
+  ok("a drag carries", dragFrac("storage", 0.2));
+  eq("to the value under the pointer", d.storage.value, 11);
+  // Past either end: clamped, not extrapolated. `valueAtFraction` rounds
+  // toward the nearest step and a fraction below zero rounds the other way,
+  // which is why SliderCtl spells that branch out.
+  ok("a drag past the left end is taken", dragFrac("storage", -0.5));
+  eq("and clamps to the minimum", d.storage.value, 5);
+  ok("a drag past the right end is taken", dragFrac("storage", 1.5));
+  eq("and clamps to the maximum", d.storage.value, 35);
+  ok("the drag ends", d.dragEnd());
+  ok("and a move after the release is not a drag", dragFrac("storage", 0.5) === false);
+  eq("so the value stays where the release left it", d.storage.value, 35);
+
+  // The visible half. A controller that moved and a range that did not is the
+  // whole class of defect this file exists for.
+  const range = () => Math.round(byId(d, "cx-storage-range").calculatedWidth);
+  const thumbX = () => Math.round(byId(d, "cx-storage-thumb").calculatedX);
+  eq("the filled range spans the whole track at the maximum", range(), 300);
+  // 24 (the track's x) + 300 - 7 (half the thumb) — centred on the value
+  // rather than hanging off the end.
+  eq("and the thumb is centred on the end, not past it", thumbX(), 317);
+  pressFrac("storage", 0.0);
+  eq("at the minimum the range is empty", range(), 0);
+  eq("and the thumb sits back by half its width", thumbX(), 17);
+
+  // The keyboard, on the focused thumb.
+  pressFrac("storage", 0.5);
+  eq("a press at the midpoint", d.storage.value, 20);
+  ok("ArrowRight is taken", d.key("ArrowRight"));
+  eq("and moves by one step", d.storage.value, 21);
+  ok("ArrowUp is taken", d.key("ArrowUp"));
+  // Up means MORE. Not "earlier in the list", which is what a menu's
+  // next/prev keys would have said — the harness caught that on the first run
+  // with the reference at 60 and this at 40.
+  eq("and also means MORE", d.storage.value, 22);
+  d.key("ArrowLeft"); d.key("ArrowDown");
+  eq("Left and Down mean less", d.storage.value, 20);
+  d.key("Home");
+  eq("Home is the minimum", d.storage.value, 5);
+  d.key("End");
+  eq("End is the maximum", d.storage.value, 35);
+
+  // A key a slider does not use must not fall through to the stepper strip
+  // behind it, and neither must one it uses and cannot act on.
+  const step0 = d.stepper.current;
+  ok("ArrowRight at the maximum is still taken", d.key("ArrowRight"));
+  eq("and does not advance the checkout behind it", d.stepper.current, step0);
+  ok("Shift+Arrow does not become a back door either",
+    d.keyWithShift("ArrowRight", true) && d.stepper.current === step0);
+
+  // Four sliders, four controllers.
+  pressFrac("volume", 0.25);
+  eq("pressing one slider moves that one", d.volume.value, 25);
+  eq("and leaves the others alone", d.storage.value, 35);
+
+  // Everything that is not a slider still goes where it always went.
+  d.displayListJson();
+  const inc = byId(d, "cx-num-inc");
+  const ix = inc.calculatedX + inc.calculatedWidth / 2;
+  const iy = inc.calculatedY + inc.calculatedHeight / 2;
+  const heldStorage = d.storage.value;
+  ok("a press on a button still reaches `press`", d.pressAt(d.hitId(ix, iy), ix));
+  eq("focus left the slider", d.focused, "cx-num");
+  // And the arrow key goes with it. The two consumers of a key on this page
+  // are now three, and the rule is the same one: focus decides.
+  ok("so an arrow key belongs to the field again", d.key("ArrowUp"));
+  eq("and the slider it left did not move", d.storage.value, heldStorage);
 }
 
 console.log(`\npassed=${passed} failed=${failed}`);

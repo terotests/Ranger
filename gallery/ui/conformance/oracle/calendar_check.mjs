@@ -254,6 +254,116 @@ console.log("disabled days");
   check("a click on one is ignored", sel(k), df.clickDisabled.selected);
 }
 
+// --- reaching a year --------------------------------------------------------
+//
+// Reported: the calendar has no way to reach a year, so 2019 is forty-eight
+// presses of the previous-month arrow. Every rule below is read out of the
+// capture, including the two that were not guessable: which way the list runs,
+// and where the cursor lands after a jump.
+console.log("reaching a year, the way the reference reaches one");
+{
+  const yn = oracle.yearNav;
+  const bounded = yn.bounded.years;
+  const lo = bounded[0];
+  const hi = bounded[bounded.length - 1];
+
+  const withYears = (rev) => {
+    const c = mk();
+    c.startYear = lo;
+    c.endYear = hi;
+    c.reverseYears = rev;
+    c.build();
+    return c;
+  };
+
+  const c = withYears(false);
+  check("the list is as long as the bounds", c.yearCount(), bounded.length);
+  const listed = [];
+  for (let i = 0; i < c.yearCount(); i++) listed.push(c.yearAt(i));
+  check("and holds exactly those years, ascending", listed.join(","), bounded.join(","));
+  // Month option values are ZERO-BASED indices in the reference, and the
+  // controller counts months from one. Checked rather than assumed: the two
+  // conventions differing by one is exactly the kind of thing that survives
+  // every test until a December sends the year forward.
+  check("the reference's month index for May", Number(yn.bounded.monthValueOfMay), M - 1);
+
+  const r = withYears(true);
+  const rlisted = [];
+  for (let i = 0; i < r.yearCount(); i++) rlisted.push(r.yearAt(i));
+  check("reverseYears puts the newest first", rlisted.join(","), yn.reversed.years.join(","));
+
+  // The jump. The reference kept the month and moved the tab stop to the
+  // FIRST of the shown month — 2026-05-14 to 2023-05-01, not to 2023-05-14.
+  // Keeping the day number would have been the obvious choice and would land
+  // on days that do not exist.
+  const ch = yn.changing;
+  const j = withYears(false);
+  check("before the jump the cursor is where the reference put it", at(j), ch.before.tabbable[0]);
+  j.setViewYear(Number(ch.afterYear.year));
+  check("the year moves", j.viewYear, Number(ch.afterYear.year));
+  check("the month is kept", j.viewMonth, Number(ch.afterYear.month) + 1);
+  check("and the cursor goes to the first of it", at(j), ch.afterYear.tabbable[0]);
+  // The grid reshapes with it: May 2026 is six rows and May 2023 is five.
+  check("the grid reshapes", j.weekCount() * 7, ch.afterYear.cells);
+
+  j.setViewMonth(Number(ch.afterMonth.month) + 1);
+  check("changing the month keeps the year", j.viewYear, Number(ch.afterMonth.year));
+  check("and lands on the first of that one", at(j), ch.afterMonth.tabbable[0]);
+  check("that grid reshapes too", j.weekCount() * 7, ch.afterMonth.cells);
+
+  // A year outside the bounds is not reachable. The reference expresses this
+  // by not listing it; there is nothing to press, so the rule is the same.
+  const b = withYears(false);
+  b.setViewYear(hi + 1);
+  check("a year past the end is refused", b.viewYear, Y);
+  b.setViewYear(lo - 1);
+  check("and one before the start", b.viewYear, Y);
+
+  // The selection survives the jump. Measured: `__selected` was still
+  // 2026-05-20 with 2024 on screen, and nothing in view was marked.
+  const ss = yn.selectionSurvives;
+  const k = withYears(false);
+  k.activate(cell(ss.selectedValue));
+  check("a day is chosen", sel(k), ss.selectedValue);
+  k.setViewYear(2024);
+  check("jumping the year does not clear it", sel(k), ss.selectedValue);
+  const shown = [];
+  const start = k.gridStart();
+  for (let i = 0; i < k.weekCount() * 7; i++) {
+    if (k.hasSelection && start + i === k.selectedDay) shown.push(H.UiDate.isoOfDays(start + i));
+  }
+  check("and nothing in the shown month is marked", shown.join(","), ss.markedInView.join(","));
+}
+
+// The panel itself is SPECIFIED, not measured: react-day-picker uses a native
+// `<select>`, a canvas kit has none, and the request was for a panel you can
+// scroll. What it DOES on a choice is the measured part above; that it opens,
+// closes and tells a reader it is there is checked here as a specification.
+console.log("the year panel (specified — the reference uses a native select)");
+{
+  const c = mk();
+  c.startYear = 2020;
+  c.endYear = 2030;
+  c.build();
+  const ids = () => Array.from(c.tids());
+  const has = (id) => ids().includes(id);
+  check("closed, the panel is not in the tree", has(c.yearPanelTid()), false);
+  check("and no year option is either", has(c.yearOptTid(2024)), false);
+  check("the year itself is reachable", c.isFocusable(c.yearTid()), true);
+  c.activate(c.yearTid());
+  check("pressing the year opens it", c.yearPanelOpen, true);
+  check("the panel joins the tree", has(c.yearPanelTid()), true);
+  check("with one option per year", ids().filter((x) => x.startsWith("cal-year-")).length, 11);
+  check("and they are focusable", c.isFocusable(c.yearOptTid(2024)), true);
+  c.activate(c.yearOptTid(2024));
+  check("choosing one jumps the view", c.viewYear, 2024);
+  check("and closes the panel behind it", c.yearPanelOpen, false);
+  check("so the options leave the tree again", has(c.yearOptTid(2024)), false);
+  c.activate(c.yearTid());
+  c.activate(c.yearTid());
+  check("pressing the year again closes it", c.yearPanelOpen, false);
+}
+
 const total = pass + fail;
 console.log("");
 console.log(`parity: ${pass}/${total} behaviours match react-day-picker ${oracle.reactDayPicker}`);

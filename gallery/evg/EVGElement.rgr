@@ -2477,21 +2477,26 @@ class EVGElement {
             role = (trim value)
             return
         }
+        ; A BARE `return`, like every other branch here: `setAttribute` is
+        ; declared `:void`. These four said `return true`, which JavaScript
+        ; ignores and C++ refuses — `return-statement with a value, in function
+        ; returning 'void'` — so the whole surface compiled and every JS suite
+        ; passed while the C++ build of the deck editor was broken.
         if ((name == "a11yRequired") || (name == "aria-required")) {
             a11yRequired = value
-            return true
+            return
         }
         if ((name == "a11yInvalid") || (name == "aria-invalid")) {
             a11yInvalid = value
-            return true
+            return
         }
         if ((name == "a11yReadOnly") || (name == "aria-readonly")) {
             a11yReadOnly = value
-            return true
+            return
         }
         if ((name == "a11yValue") || (name == "aria-valuetext")) {
             a11yValue = value
-            return true
+            return
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
             a11yLabel = value
@@ -2941,6 +2946,56 @@ class EVGElement {
         }
         if ((name == "flex-wrap") || (name == "flexWrap")) {
             flexWrap = value
+            return
+        }
+        ; `flex-grow`, WHICH WAS NOT HERE. `flex-shrink`, `flex-basis` and the
+        ; `flex` shorthand all were, so a stylesheet using the shorthand worked
+        ; and one using the longhand was silently ignored — the property name
+        ; falls through to the end of this function and nothing says so.
+        ;
+        ; What that looked like: `.cx-rail { flex-grow: 1 }` in the stepper.
+        ; With the grow factor dropped the rail has no width of its own, so it
+        ; took the parent's whole 852px, each of the three did, the row
+        ; overflowed by a factor of three and the steps stacked down the page
+        ; on top of one another. Chromium gives each rail 320 — the 640 of free
+        ; space split two ways — which is what the oracle beside this now
+        ; asserts.
+        ; `position`, WHICH WAS ALSO NOT HERE. The field exists, the layout
+        ; branches on it — `if (kid.position == "absolute")` in half a dozen
+        ; places — and until now the ONLY way to set it was from Ranger code.
+        ; Every `position: absolute` written in a stylesheet was read, matched,
+        ; and dropped on the floor.
+        ;
+        ; What that looked like: `.cx-thumb { position: absolute }` on the
+        ; sliders. The thumb stayed in flow, so it took horizontal space beside
+        ; the filled range instead of riding over it, and the two overlapped by
+        ; exactly the thumb's overhang. `.fd-menu` in the filter bar is the same
+        ; fault with a louder symptom — a popup that pushes the rows below it
+        ; instead of covering them.
+        ;
+        ; `fixed` maps to `absolute`: EVG has one out-of-flow mode and tests for
+        ; that string by name. The difference between them is which box you are
+        ; positioned against, and nothing here models a viewport separate from
+        ; the root, so calling it absolute is honest rather than approximate.
+        ; `sticky` has no implementation at all and stays in flow, which is what
+        ; it does until it sticks.
+        if (name == "position") {
+            def pv:string (trim value)
+            if ((pv == "absolute") || (pv == "fixed")) {
+                position = "absolute"
+                return
+            }
+            if ((pv == "static") || (pv == "relative") || (pv == "sticky")) {
+                position = "relative"
+                return
+            }
+            return
+        }
+        if ((name == "flex-grow") || (name == "flexGrow")) {
+            def gv@(optional):double (to_double value)
+            if gv {
+                flex = (unwrap gv)
+            }
             return
         }
         if ((name == "flex-shrink") || (name == "flexShrink")) {

@@ -167,6 +167,46 @@ let freshForm;
 let box;
 const IN_TEXT = 40;
 
+// THE SELECT, ON THE PAGE. It works in Node — trigger opens, option chooses —
+// and that proves nothing about here: the page's press door is
+// `beginSelection`, not `press`, and a control routed through the wrong door
+// is this gallery's most-repeated defect. Three of them survived every Node
+// assertion before this file existed.
+{
+  const box = async (id) => page.evaluate((x) => {
+    const el = document.querySelector(`[data-a11y-id="${x}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  }, id);
+  const roleOf = async (id) => page.evaluate((x) => {
+    const el = document.querySelector(`[data-a11y-id="${x}"]`);
+    return el ? el.getAttribute("role") : null;
+  }, id);
+
+  const trig = await box("pf-visibility");
+  ok("the Visibility select is on the page", !!trig);
+  if (trig) {
+    ok("and it is a combobox", (await roleOf("pf-visibility")) === "combobox");
+    await page.mouse.click(trig.x, trig.y);
+    await page.waitForTimeout(150);
+    const opt = await box("pf-visibility-item-nobody");
+    ok("clicking it opens the list", !!opt, "no option element after the click");
+    if (opt) {
+      await page.mouse.click(opt.x, opt.y);
+      await page.waitForTimeout(150);
+      const label = await page.evaluate(() => {
+        const l = JSON.parse(window.__lastList || "{}");
+        return (l.cmds || []).filter((c) => c.text).map((c) => c.text)
+          .find((t) => t === "Nobody" || t === "Team only" || t === "Everyone");
+      });
+      ok("choosing an option puts its label on the trigger", label === "Nobody", String(label));
+      const stillOpen = await box("pf-visibility-item-nobody");
+      ok("and closes the list", !stillOpen);
+    }
+  }
+}
+
 console.log("--- the pointer edits the text, not just the focus ---");
 {
   // THE BUG THIS EXISTS FOR. `FormDemo.pressAt` could put the caret under the
@@ -548,6 +588,129 @@ console.log("--- the filter bar filters, in a browser ---");
   ok("and a reader is told the count, as a status", spoken === "1 of 6 tasks", spoken);
 }
 
+console.log("--- the calendar: reaching a year ---");
+{
+  // Reported: the calendar looked right and had no way to a year — 2019 was
+  // forty-eight presses of the previous-month arrow. `ui:calendar:check`
+  // gates what a jump DOES against react-day-picker and `ui:calendar:demo`
+  // gates the drawn panel; what only a page can check is the WHEEL, because
+  // the page owns that event and hands it to the demo, and a panel taller
+  // than its box with no way to scroll it is a list with most of its years
+  // out of reach.
+  await page.click('#demos input[value="calendar"]');
+  await page.waitForTimeout(300);
+
+  const origin = await page.evaluate(() => {
+    const b = document.querySelector("#stage canvas").getBoundingClientRect();
+    return { x: b.x, y: b.y };
+  });
+  // The display list does NOT clip to a scroll container — the painter does —
+  // so a year scrolled out of the panel is still in it, at a y outside the
+  // panel's box. Reading the SET of year texts therefore says the same thing
+  // however far the panel is scrolled, which is how this block first passed
+  // its "a list appears" assertion while its wheel assertions compared two
+  // identical strings. Positions are what carry the answer.
+  //
+  // An option's number is 60 wide (`.cd-yearopttx`) and the caption's year is
+  // 44 (`.cd-yeartxt`), which is what tells the two apart.
+  const opts = () =>
+    page.evaluate(() => {
+      const l = JSON.parse(window.__lastList || '{"cmds":[]}');
+      return (l.cmds || [])
+        .filter((c) => typeof c.text === "string" && /^\d{4}$/.test(c.text) && Math.abs(c.w - 60) < 1)
+        .map((c) => ({ year: c.text, x: c.x + c.w / 2, y: c.y + c.h / 2 }));
+    });
+  const captionYear = () =>
+    page.evaluate(() => {
+      const l = JSON.parse(window.__lastList || '{"cmds":[]}');
+      const c = (l.cmds || []).find((x) => typeof x.text === "string" && /^\d{4}$/.test(x.text) && Math.abs(x.w - 44) < 1);
+      return c ? { year: c.text, x: c.x + c.w / 2, y: c.y + c.h / 2 } : null;
+    });
+  // The panel's own box, so "visible" can be asked properly.
+  const panelBox = () =>
+    page.evaluate(() => {
+      const l = JSON.parse(window.__lastList || '{"cmds":[]}');
+      const c = (l.cmds || []).find((x) => Math.abs(x.w - 88) < 1 && Math.abs(x.h - 200) < 1);
+      return c ? { top: c.y, bottom: c.y + c.h } : null;
+    });
+  const mirror = (id, what) =>
+    page.evaluate(([i, w]) => {
+      const el = document.querySelector(`[data-a11y-id="${i}"]`);
+      if (!el) return "(absent)";
+      return w === "tag" ? el.tagName : el.getAttribute(w);
+    }, [id, what]);
+
+  const cap = await captionYear();
+  ok("the caption shows a year", cap && cap.year === "2026", JSON.stringify(cap));
+  ok("no panel is drawn while it is shut", (await opts()).length === 0,
+    JSON.stringify(await opts()));
+  // The mirror renders role=button as a real <button>, which already carries
+  // the role, so the tag is the thing to look at and not a role attribute.
+  ok("the year is a button in the mirror", (await mirror("cal-year", "tag")) === "BUTTON",
+    await mirror("cal-year", "tag"));
+  ok("reported collapsed", (await mirror("cal-year", "aria-expanded")) === "false",
+    await mirror("cal-year", "aria-expanded"));
+
+  await page.mouse.click(origin.x + cap.x, origin.y + cap.y);
+  await page.waitForTimeout(200);
+  ok("pressing it expands the year", (await mirror("cal-year", "aria-expanded")) === "true",
+    await mirror("cal-year", "aria-expanded"));
+  const opened = await opts();
+  ok("a list of years appears", opened.length === 21, String(opened.length));
+  const box = await panelBox();
+  const inside = (o) => box && o.y >= box.top && o.y <= box.bottom;
+  ok("parked on the year it is on", opened.some((o) => o.year === "2026" && inside(o)),
+    JSON.stringify(opened.filter((o) => o.year === "2026")));
+  // A scroller, not a list that happens to fit: with 21 years at 26px in a
+  // 200px box, some of them have to be outside it.
+  ok("and years beyond the box are out of view", opened.some((o) => !inside(o)),
+    JSON.stringify(box));
+
+  // The wheel. This is the assertion that needs a page: `scroll(dy)` is
+  // plumbed by main.js and the offline check calls `scrollBy` directly, so a
+  // panel that scrolls in the demo and not under a real wheel would pass
+  // everything else.
+  const yOf = (list, y) => (list.find((o) => o.year === y) || {}).y;
+  const before2026 = yOf(opened, "2026");
+  await page.mouse.move(origin.x + cap.x, origin.y + cap.y + 60);
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(200);
+  const afterUp = await opts();
+  ok("the wheel scrolls the panel", yOf(afterUp, "2026") === before2026 + 120,
+    `${before2026} -> ${yOf(afterUp, "2026")}`);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(200);
+  ok("and back", yOf(await opts(), "2026") === before2026,
+    `${yOf(await opts(), "2026")} vs ${before2026}`);
+
+  // Down far enough to bring an older year into the box, then choose the one
+  // that is actually visible. Clicking a year drawn outside the panel is
+  // clicking through it, which is what made this look broken the first time.
+  await page.mouse.wheel(0, 160);
+  await page.waitForTimeout(200);
+  const scrolled = await opts();
+  const box2 = await panelBox();
+  const visible = scrolled.filter((o) => o.y >= box2.top + 14 && o.y <= box2.bottom - 14);
+  const pick = visible.find((o) => Number(o.year) < 2026);
+  ok("an older year is now inside the panel", !!pick,
+    JSON.stringify(visible.map((o) => o.year)));
+  await page.mouse.click(origin.x + pick.x, origin.y + pick.y);
+  await page.waitForTimeout(250);
+  const nowCap = await captionYear();
+  ok("choosing it moves the calendar", nowCap && nowCap.year === pick.year,
+    `${JSON.stringify(nowCap)} want ${pick.year}`);
+  ok("and the panel closed behind it", (await opts()).length === 0,
+    String((await opts()).length));
+  ok("collapsed again in the mirror", (await mirror("cal-year", "aria-expanded")) === "false",
+    await mirror("cal-year", "aria-expanded"));
+  // The month is kept, which is the reference's rule and is measured in
+  // `ui:calendar:check`; this is it surviving the trip through the page.
+  const texts = await page.evaluate(() =>
+    JSON.parse(window.__lastList || '{"cmds":[]}').cmds
+      .filter((c) => typeof c.text === "string").map((c) => c.text));
+  ok("keeping the month it was on", texts.includes("May"), texts.slice(0, 8).join("/"));
+}
+
 console.log("--- the controls demo, and the modifier the page nearly dropped ---");
 {
   // The large step lives on SHIFT and is the least guessable thing the number
@@ -603,6 +766,118 @@ console.log("--- the controls demo, and the modifier the page nearly dropped ---
   await page.waitForTimeout(150);
   ok("a plain ArrowUp still moves by one", (await shown()).includes("12"),
     (await shown()).join("/"));
+  // --- the sliders, through the page's own pointer -------------------------
+  //
+  // Four sliders drawn from a controller that has known how to be pressed,
+  // dragged and arrowed since it was measured against Radix. The demo called
+  // none of it and the page handed `press` an id with the x thrown away, so
+  // every one of them was a picture: a press on a track returned false and
+  // the values never moved. Making `position: absolute` parse put the thumbs
+  // in the right PLACE, which is the version of this that looks fixed.
+  //
+  // Checked here rather than only offline because the offline check drives
+  // `pressAt` directly, and what was missing was the page CALLING it — and
+  // because a drag has three steps and only a real pointer has all three.
+  const rails = () => page.evaluate(() => {
+    const cmds = JSON.parse(window.__lastList || '{"cmds":[]}').cmds;
+    // The rail and its filled range share an origin and a height; the colour
+    // is what tells them apart, and a full range is 300 wide like the rail.
+    const same = (c, rgb) => c.c && c.c[0] === rgb[0] && c.c[1] === rgb[1] && c.c[2] === rgb[2];
+    const bars = cmds.filter((c) => Math.abs(c.h - 6) < 0.5);
+    return bars.filter((c) => same(c, [244, 244, 245]))
+      .map((rail) => {
+        const fill = bars.find((b) => same(b, [10, 10, 10])
+          && Math.abs(b.x - rail.x) < 0.5 && Math.abs(b.y - rail.y) < 0.5);
+        return { x: rail.x, y: rail.y + rail.h / 2, w: rail.w, fill: fill ? fill.w : 0 };
+      })
+      .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  });
+  const origin = await page.evaluate(() => {
+    const b = document.querySelector("#stage canvas").getBoundingClientRect();
+    return { x: b.x, y: b.y };
+  });
+  const storage = async () => (await rails())[0];
+
+  const four = await rails();
+  ok("four sliders are drawn", four.length === 4, JSON.stringify(four));
+  // 5..35 at 12 is (12-5)/30 of 300.
+  ok("storage starts where init put it", Math.round(four[0].fill) === 70,
+    JSON.stringify(four[0]));
+
+  // A press on the rail, at 80% of it: 5..35 at 80% is 29, so 240/300 filled.
+  {
+    const s = await storage();
+    await page.mouse.click(origin.x + s.x + s.w * 0.8, origin.y + s.y);
+    await page.waitForTimeout(150);
+    const after = await storage();
+    ok("a press on the rail moves the slider", Math.round(after.fill) === 240,
+      JSON.stringify(after));
+  }
+
+  // A drag. Down at 80%, move to 20%, up — the three-step gesture, and the
+  // only one of the three paths a click cannot exercise.
+  {
+    const s = await storage();
+    await page.mouse.move(origin.x + s.x + s.w * 0.8, origin.y + s.y);
+    await page.mouse.down();
+    await page.mouse.move(origin.x + s.x + s.w * 0.5, origin.y + s.y, { steps: 4 });
+    await page.waitForTimeout(120);
+    const mid = await storage();
+    ok("the value follows the pointer DURING the drag", Math.round(mid.fill) === 150,
+      JSON.stringify(mid));
+    // Off the track entirely, which is where a real finger goes: the slider
+    // that was picked up keeps the gesture.
+    await page.mouse.move(origin.x + s.x + s.w * 0.2, origin.y + s.y - 60, { steps: 4 });
+    await page.waitForTimeout(120);
+    const off = await storage();
+    ok("and keeps following once the pointer leaves the track",
+      Math.round(off.fill) === 60, JSON.stringify(off));
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+    // 5..35 at 20% is 11.
+    const end = await storage();
+    ok("the release leaves it where the drag ended", Math.round(end.fill) === 60,
+      JSON.stringify(end));
+    // And the gesture is over: moving again does nothing.
+    await page.mouse.move(origin.x + s.x + s.w * 0.9, origin.y + s.y, { steps: 2 });
+    await page.waitForTimeout(120);
+    ok("a move after the release is not a drag",
+      Math.round((await storage()).fill) === 60, JSON.stringify(await storage()));
+  }
+
+  // The keyboard, on the thumb the press focused. One step of 30 across 300px
+  // is 10px of fill.
+  {
+    // Against the fill BEFORE the key, not against an absolute number: with
+    // the page's wiring reverted this slider sits at 70 for the whole run,
+    // and `=== 70` here would have passed while every other assertion in this
+    // block failed. A gate that can pass for the wrong reason is not a gate.
+    const before = Math.round((await storage()).fill);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(150);
+    const after = Math.round((await storage()).fill);
+    ok("ArrowRight moves the focused slider by exactly one step",
+      after - before === 10, `${before} -> ${after}`);
+    await page.keyboard.press("End");
+    await page.waitForTimeout(150);
+    ok("End fills it", Math.round((await storage()).fill) === 300,
+      JSON.stringify(await storage()));
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(150);
+    ok("Home empties it", Math.round((await storage()).fill) === 0,
+      JSON.stringify(await storage()));
+  }
+
+  // What a reader gets. The mirror is the tree a screen reader walks, and a
+  // slider that moves on screen while the mirror says 12 is the defect
+  // `a11yHasValue`/`a11yHasRange` were added for, reappearing on the page.
+  {
+    const spoken = await page.evaluate(() => {
+      const el = document.querySelector('[data-a11y-id="cx-storage-thumb"]');
+      return el ? [el.getAttribute("role"), el.getAttribute("aria-valuenow")].join("|") : "(absent)";
+    });
+    ok("the mirror reports the slider's new position", spoken === "slider|5", spoken);
+  }
 }
 
 console.log("--- the window follows the pointer ---");
@@ -741,9 +1016,30 @@ console.log("--- the surface ripples where it was touched ---");
 
   // The second pass really ran: `rippled` is the renderer saying it drew the
   // page into a texture and put it on the screen through the shader.
-  const stats = await page.evaluate(() => window.__lastStats || null);
-  if (stats) ok("the renderer took the post-pass", stats.rippled === 1, JSON.stringify(stats.rippled));
-  else console.log("  (the page does not publish renderer stats; skipped)");
+  //
+  // POLLED, NOT SAMPLED. This read `window.__lastStats` once, 80ms after the
+  // drag, and `rippled` is a PER-FRAME flag: whether the last frame took the
+  // post-pass, not whether any frame did. Whether that one read landed on a
+  // rippled frame depended on where the animation clock happened to be, so the
+  // assertion passed and failed on identical code — measured twice in a row,
+  // once each way. A gate that answers differently to the same question is
+  // worse than no gate, because it teaches everyone to re-run it.
+  //
+  // So: wait for the frame rather than guess at when it will be. Failure is
+  // still a real failure — a second of frames with no post-pass among them
+  // means the renderer never took it.
+  let rippled = 0;
+  for (let i = 0; i < 40; i++) {
+    const st = await page.evaluate(() => window.__lastStats || null);
+    if (st && st.rippled === 1) { rippled = 1; break; }
+    await page.waitForTimeout(25);
+  }
+  // The skip that used to hang off this — "the page does not publish renderer
+  // stats" — went with the sampling: the poll above already distinguishes a
+  // page that never reports from a page that reports zero, and both are the
+  // same failure for a check whose whole subject is whether the post-pass ran.
+  ok("the renderer took the post-pass", rippled === 1,
+    "no frame in a second of them reported rippled=1");
 }
 
 await browser.close();

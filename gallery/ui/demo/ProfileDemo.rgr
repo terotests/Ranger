@@ -101,6 +101,16 @@ treefactory Pf {
     ; is the one thing a reader cannot see about it.
     tag Trigger EVGElement (props (className "pf-trigger") (role "combobox"))
     tag Chevron EVGElement (props (className "pf-chevron") (elementType 1) (a11yHidden true))
+    ; THE OPEN LIST. A sibling of the trigger carrying `isOverlay`, which is
+    ; the arrangement the overlay pass's anchor search expects and the only one
+    ; that does not put a listbox inside a combobox. The dropdown demo proved
+    ; the shape; nothing here is new except that the select finally uses it.
+    tag SelWrap EVGElement (props (className "pf-selwrap"))
+    tag Listbox EVGElement (props (className "pf-listbox") (isOverlay true) (overlaySide "bottom") (overlayAlign "start") (role "listbox"))
+    tag Option  EVGElement (props (className "pf-option") (role "option") (a11yFocusable true))
+    tag OptionOn EVGElement (props (className "pf-option pf-option-active") (role "option") (a11yFocusable true))
+    tag OptTxt  EVGElement (props (className "pf-opttxt") (elementType 1) (a11yHidden true))
+    tag OptMark EVGElement (props (className "pf-optmark") (elementType 1) (a11yHidden true))
 
     ; The switch, whose state is a POSITION rather than a mark — the only
     ; control here whose picture is where a thing is rather than whether it is
@@ -405,15 +415,62 @@ class ProfileDemo {
         return wrap
     }
 
+    ; The select, OPEN AS WELL AS CLOSED. The header used to say this page drew
+    ; the closed trigger and stopped, because opening it needs the overlay
+    ; layer — but the overlay layer exists, `DropdownDemo` uses it, and
+    ; `SelectCtl` already had `openList`, `closeList`, `activate` and `keyDown`
+    ; measured against Radix. The only thing missing was a demo that drew the
+    ; state the controller was already keeping.
+    ;
+    ; Wrapped, because the trigger and the surface have to be SIBLINGS for the
+    ; overlay pass to find the anchor.
     fn selectRow:EVGElement () {
+        def wrap (tree Pf (SelWrap))
         def t (tree Pf (Trigger (props (id "pf-visibility") (a11yLabel visibility.name))))
         t.a11yFocusable = true
         t.a11yHasPopup = "listbox"
-        t.a11yExpanded = (EVGA11yTri.no())
+        t.isOverlayAnchor = true
         t.addChild((tree Pf (Text (visibility.labelOf(visibility.value)))))
         t.addChild((tree Pf (Spacer)))
         t.addChild((tree Pf (Chevron "⌄")))
-        return t
+        wrap.addChild(t)
+        if visibility.open {
+            t.a11yExpanded = (EVGA11yTri.yes())
+            wrap.addChild((this.optionList()))
+        } {
+            t.a11yExpanded = (EVGA11yTri.no())
+        }
+        return wrap
+    }
+
+    ; One row per item. The ACTIVE one is the controller's `activeValue` — the
+    ; keyboard's cursor — and the tick marks the CHOSEN one; Radix keeps those
+    ; two separate and so does this, because arrowing through a list without
+    ; choosing must not look like choosing.
+    fn optionList:EVGElement () {
+        def list (tree Pf (Listbox (props (id (visibility.contentTid())))))
+        def i:int 0
+        while (i < (array_length visibility.items)) {
+            def it:UiItem (itemAt visibility.items i)
+            def row (tree Pf (Option (props (id (visibility.itemTid(it.value))))))
+            if (it.value == visibility.activeValue) {
+                row = (tree Pf (OptionOn (props (id (visibility.itemTid(it.value))))))
+            }
+            row.a11yLabel = it.name
+            if (it.value == visibility.value) {
+                row.a11ySelected = 2
+            }
+            row.addChild((tree Pf (OptTxt it.name)))
+            row.addChild((tree Pf (Spacer)))
+            def mark:string " "
+            if (it.value == visibility.value) {
+                mark = "✓"
+            }
+            row.addChild((tree Pf (OptMark mark)))
+            list.addChild(row)
+            i = (i + 1)
+        }
+        return list
     }
 
     fn switchRow:EVGElement () {
@@ -567,6 +624,31 @@ class ProfileDemo {
     }
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        ; THE OPEN LIST TAKES THE KEYBOARD FIRST, including Tab. A select whose
+        ; list is open and whose Tab moves to the next field is a select you
+        ; cannot close without the mouse, and Radix does not do that.
+        ;
+        ; `SelectCtl.keyDown` owns every rule here — which key moves the cursor,
+        ; where Home and End land, that Enter chooses and Escape does not — and
+        ; it was measured against the reference. This asks it and draws what it
+        ; returns.
+        if visibility.open {
+            def land:string (visibility.keyDown(focused k))
+            if ((strlen land) > 0) {
+                focused = land
+            }
+            this.rebuild()
+            return true
+        }
+        ; Closed: the keys that OPEN it. Enter and Space on the trigger, and
+        ; either arrow, which is the pattern for a collapsed combobox.
+        if (focused == "pf-visibility") {
+            if (((k == "Enter") || (k == " ")) || ((k == "ArrowDown") || (k == "ArrowUp"))) {
+                visibility.openList()
+                this.rebuild()
+                return true
+            }
+        }
         if (k == "Tab") {
             return (this.tab(shift))
         }
@@ -601,6 +683,35 @@ class ProfileDemo {
     }
 
     fn press:boolean (target:string) {
+        ; THE SELECT, BEFORE THE FOCUS RING. Every decision goes through the
+        ; controller: this asks it what a press on that target means and draws
+        ; whatever it says afterwards. Nothing here decides whether the list is
+        ; open.
+        if (target == "pf-visibility") {
+            focused = target
+            if visibility.open {
+                visibility.closeList()
+            } {
+                visibility.openList()
+            }
+            this.rebuild()
+            return true
+        }
+        if visibility.open {
+            ; A press on an option chooses it and closes; `activate` does both
+            ; and returns the tid the focus lands on.
+            def act:string (visibility.activate(target))
+            if ((strlen act) > 0) {
+                focused = (visibility.triggerTid())
+                this.rebuild()
+                return true
+            }
+            ; Anywhere else with the list open dismisses it, which is what a
+            ; click outside does in the reference.
+            visibility.closeList()
+            this.rebuild()
+            return true
+        }
         if (target == "pf-hire") {
             focused = target
             hire.checkState = (1 - hire.checkState)

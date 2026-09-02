@@ -13,6 +13,12 @@
  * get for assuming it can.
  */
 
+/* NO FIXED HEIGHT. It was `height: 460px` while the content came to 584, so
+ * the last three sections — the slider bank, the buttons and the note — were
+ * drawn below the page's own bottom edge and over whatever the browser put
+ * there. A panel that states a height its content does not fit is stating a
+ * wish. `min-height` keeps the empty case from collapsing without capping the
+ * full one. */
 .cx-page {
   display: flex;
   flex-direction: column;
@@ -20,7 +26,7 @@
   background-color: #ffffff;
   padding: 24px;
   width: 900px;
-  height: 460px;
+  min-height: 460px;
 }
 
 .cx-title {
@@ -31,12 +37,21 @@
 
 /* --- the stepper strip -------------------------------------------------- */
 
+/* `nowrap`, because EVG's default is `wrap` and CSS's is `nowrap` — the
+ * comment on `flexWrap` in EVGElement calls its own default historical. Four
+ * steps and three rails come to exactly the strip's 852px, so with the
+ * implicit wrap the last step fell to a second line and sat on the section
+ * below it.
+ *
+ * And no fixed height: a step is an icon, an eyebrow, a title and a badge
+ * stacked, which is 75px, not the 40 this claimed. The strip is as tall as the
+ * tallest step. */
 .cx-strip {
   display: flex;
   flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  height: 40px;
 }
 
 .cx-step {

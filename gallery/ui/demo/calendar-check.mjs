@@ -139,7 +139,11 @@ console.log("the keyboard drives it");
   const d = fresh();
   // No focus yet: the first key must still land, or it reads as a dropped
   // keystroke and the second press is the one that appears to work.
-  const caption = () => withClass(d, "cd-caption")[0].textContent;
+  // The caption is two runs now — a month and a pressable year — so this
+  // reads both. It used to be `.textContent` of the caption itself, which
+  // silently became the empty string when the year was split out of it.
+  const caption = () =>
+    withClass(d, "cd-monthtxt")[0].textContent + " " + withClass(d, "cd-yeartxt")[0].textContent;
   d.key("ArrowRight");
   // From the resting day, today, so this is the 15th. Asserting the DAY and
   // not merely that a cell exists: every cell exists either way, and an
@@ -175,6 +179,125 @@ console.log("what a reader is told");
   // weekday, and a column header would say it twice per cell.
   ok("the weekday strip is not announced",
     !/"Su"/.test(JSON.stringify(tree.nodes)), "found a weekday node");
+}
+
+// Reaching a year, on the drawn page.
+//
+// Reported: the calendar looked fine but had no way to a year — 2019 was
+// forty-eight presses of the previous-month arrow away. `ui:calendar:check`
+// gates what a year jump DOES against react-day-picker; this file gates the
+// half that only exists once something is drawn: that the year is a box you
+// can hit, that the panel lands under it rather than over it, and that the
+// list is parked on the year you are on.
+console.log("reaching a year");
+{
+  const d = fresh();
+  const hitCentre = (id) => {
+    const e = byId(d, id);
+    if (!e) return "(no such element)";
+    return d.hitId(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2);
+  };
+  const press = (id) => { const took = d.press(id); d.displayListJson(); return took; };
+
+  const caption = byId(d, "cal-caption");
+  const year = byId(d, "cal-year");
+  ok("the year is its own box in the caption", !!year, "no cal-year");
+  // Inside the caption, so the live region a reader hears when the month
+  // changes still says the year: the caption is role=status.
+  ok("inside the caption, not beside it",
+    year.calculatedX >= caption.calculatedX
+      && year.calculatedX + year.calculatedWidth <= caption.calculatedX + caption.calculatedWidth,
+    `${year.calculatedX}+${year.calculatedWidth} in ${caption.calculatedX}+${caption.calculatedWidth}`);
+  // The month is beside it and neither is on top of the other.
+  const month = withClass(d, "cd-monthtxt")[0];
+  ok("the month sits to its left with no overlap",
+    month.calculatedX + month.calculatedWidth <= year.calculatedX,
+    `${month.calculatedX + month.calculatedWidth} vs ${year.calculatedX}`);
+  // And the caption still fits between the two arrows.
+  const prev = byId(d, "cal-prev");
+  const next = byId(d, "cal-next");
+  ok("and the whole caption still clears both arrows",
+    prev.calculatedX + prev.calculatedWidth <= caption.calculatedX
+      && caption.calculatedX + caption.calculatedWidth <= next.calculatedX,
+    `${prev.calculatedX + prev.calculatedWidth} .. ${caption.calculatedX} | ${caption.calculatedX + caption.calculatedWidth} .. ${next.calculatedX}`);
+
+  ok("the year is hittable at its centre", hitCentre("cal-year") === "cal-year", hitCentre("cal-year"));
+  ok("the panel is not drawn while it is shut", !byId(d, "cal-years"), "cal-years present");
+
+  ok("pressing the year is taken", press("cal-year"));
+  const panel = byId(d, "cal-years");
+  ok("the panel is drawn", !!panel, "no cal-years");
+  // UNDER the year, not over it. As a child of the anchor it placed at the
+  // anchor's own origin and covered the year it hangs from.
+  ok("under the year, not on top of it",
+    panel.calculatedY >= year.calculatedY + year.calculatedHeight,
+    `panel y=${panel.calculatedY} vs year bottom ${year.calculatedY + year.calculatedHeight}`);
+  // An overlay is out of flow: opening it must not move the grid.
+  const gridBefore = byId(d, "cal-grid").calculatedY;
+  ok("and the grid did not move to make room", gridBefore === byId(d, "cal-grid").calculatedY,
+    String(gridBefore));
+
+  // Parked on the year you are on. Without this it opens at the top, which
+  // with `reverseYears` is twenty years out — the control that exists to save
+  // you scrolling would start by making you scroll.
+  const on = byId(d, "cal-year-2026");
+  ok("the current year is inside the panel when it opens",
+    on.calculatedY >= panel.calculatedY
+      && on.calculatedY + on.calculatedHeight <= panel.calculatedY + panel.calculatedHeight,
+    `option y=${on.calculatedY} in ${panel.calculatedY}..${panel.calculatedY + panel.calculatedHeight}`);
+  // A year at the far end is scrolled out of it, which is what makes the
+  // panel a scroller rather than a list that happens to fit.
+  const far = byId(d, "cal-year-2036");
+  ok("and a year at the far end is scrolled out of view",
+    far.calculatedY + far.calculatedHeight <= panel.calculatedY,
+    `far y=${far.calculatedY}`);
+
+  // The wheel moves it, and stops at the ends.
+  const before = d.yearScroll;
+  ok("the wheel scrolls the panel", d.scrollBy(60) && d.yearScroll === before + 60, String(d.yearScroll));
+  d.displayListJson();
+  d.scrollBy(-99999);
+  ok("and clamps at the top", d.yearScroll === 0, String(d.yearScroll));
+  d.scrollBy(99999);
+  const bottom = d.yearScroll;
+  ok("and at the bottom", d.scrollBy(99999) === false && d.yearScroll === bottom, String(d.yearScroll));
+  d.displayListJson();
+
+  // Choosing one.
+  ok("an option is hittable", hitCentre("cal-year-2019") === "cal-year-2019", hitCentre("cal-year-2019"));
+  press("cal-year-2019");
+  ok("choosing a year moves the view", d.model.viewYear === 2019, String(d.model.viewYear));
+  ok("and closes the panel", !byId(d, "cal-years"), "cal-years still there");
+  const texts = JSON.parse(d.displayListJson()).cmds.filter((c) => c.text !== undefined).map((c) => c.text);
+  ok("the caption shows the year it went to", texts.includes("2019"), texts.join("/"));
+  ok("and still shows the month it kept", texts.includes("May"), texts.join("/"));
+
+  // The wheel is not claimed while the panel is shut — the page reads a
+  // `false` as "not mine" and scrolls itself instead.
+  ok("a shut panel does not swallow the wheel", d.scrollBy(60) === false);
+
+  // What a reader is told.
+  const tree = JSON.parse(d.a11yJson(1, ""));
+  const yearNode = tree.nodes.find((n) => n.id === "cal-year");
+  ok("the year is a button", yearNode && yearNode.role === "button", JSON.stringify(yearNode));
+  ok("named with the year it is on", yearNode && yearNode.name === "Year, 2019, choose a year",
+    yearNode && yearNode.name);
+  // 1 is collapsed on the EVG tri; 2 is expanded.
+  ok("and collapsed while it is shut", yearNode && yearNode.expanded === 1, JSON.stringify(yearNode));
+  press("cal-year");
+  const openTree = JSON.parse(d.a11yJson(2, ""));
+  const openNode = openTree.nodes.find((n) => n.id === "cal-year");
+  ok("expanded once it is open", openNode && openNode.expanded === 2, JSON.stringify(openNode));
+  const list = openTree.nodes.find((n) => n.id === "cal-years");
+  ok("the panel is a listbox named Year",
+    list && list.role === "listbox" && list.name === "Year", JSON.stringify(list));
+  const opts = openTree.nodes.filter((n) => n.role === "option");
+  ok("with one option per year in the bounds", opts.length === 21, String(opts.length));
+  const chosen = openTree.nodes.find((n) => n.id === "cal-year-2019");
+  ok("and the one it is on is marked selected", chosen && chosen.selected === true,
+    JSON.stringify(chosen));
+  ok("the tree still lints clean with it open",
+    Array.from(d.a11yProblems()).length === 0, Array.from(d.a11yProblems()).join(" | "));
 }
 
 console.log("");

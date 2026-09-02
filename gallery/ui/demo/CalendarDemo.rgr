@@ -61,7 +61,27 @@ treefactory Cal {
     tag Nav       EVGElement (props (className "cd-nav") (role "navigation") (a11yLabel "Navigation bar"))
     tag NavBtn    EVGElement (props (className "cd-navbtn") (role "button"))
     tag NavGlyph  EVGElement (props (className "cd-navglyph") (elementType 1) (a11yHidden true))
-    tag Caption   EVGElement (props (className "cd-caption") (role "status") (elementType 1))
+    ; The caption keeps `role="status"` — arrowing into another month has to be
+    ; announced — but it is no longer a text run: it holds the month and the
+    ; year, and its accessible name is still the two of them read together.
+    tag Caption   EVGElement (props (className "cd-caption") (role "status"))
+    ; The caption is TWO things: a month, and a year you can press. It used to
+    ; be one text run — which is why the only way to 2019 was forty-eight
+    ; presses of the arrow beside it.
+    tag MonthTxt  EVGElement (props (className "cd-monthtxt") (elementType 1))
+    tag YearBtn   EVGElement (props (className "cd-yearbtn") (role "button") (a11yHasPopup "listbox"))
+    tag YearTxt   EVGElement (props (className "cd-yeartxt") (elementType 1) (a11yHidden true))
+    ; The panel, hung off the year as an overlay so it draws OVER the grid
+    ; instead of pushing it down: a calendar that changes height when you
+    ; reach for a year moves the thing you were about to click.
+    tag YearPanel EVGElement (props (className "cd-yearpanel") (isOverlay true) (overlaySide "bottom") (overlayAlign "start") (role "listbox") (a11yLabel "Year"))
+    tag YearOpt   EVGElement (props (className "cd-yearopt") (role "option") (a11yFocusable true))
+    tag YearOptOn EVGElement (props (className "cd-yearopt cd-yearopt-on") (role "option") (a11yFocusable true))
+    tag YearOptTx EVGElement (props (className "cd-yearopttx") (elementType 1) (a11yHidden true))
+    ; The chosen year's number gets its own token rather than a descendant
+    ; selector: EVGStyleSheet matches ONE token per selector, so
+    ; `.cd-yearopt-on .cd-yearopttx` would never have matched anything.
+    tag YearOptTxOn EVGElement (props (className "cd-yearopttx cd-yearopttx-on") (elementType 1) (a11yHidden true))
     tag Spacer    EVGElement (props (className "cd-spacer"))
     tag Grid      EVGElement (props (className "cd-grid") (role "grid"))
     tag HeadRow   EVGElement (props (className "cd-headrow"))
@@ -100,6 +120,15 @@ class CalendarDemo {
         model.name = "Date"
         model.setMonth(2026 5)
         model.setToday(2026 5 14)
+        ; The bounds are the HOST's decision. The reference with none given
+        ; runs a hundred years back from the current year and stops there, so
+        ; out of the box it cannot reach next year at all — recorded in
+        ; `calendar.json` as a default not worth copying. A date field for an
+        ; invoice wants a decade either side.
+        model.startYear = 2016
+        model.endYear = 2036
+        ; Newest first, so the years near today are the ones you land on.
+        model.reverseYears = true
         model.build()
 
         root = (this.page())
@@ -162,6 +191,113 @@ class CalendarDemo {
         return cls
     }
 
+    ; "Year, 2026, choose a year". The number is IN the name because the
+    ; visible glyphs are hidden from the trace — a button whose accessible name
+    ; is "choose a year" tells a reader which control it is and not what it
+    ; currently says.
+    sfn byId:EVGElement (el:EVGElement want:string) {
+        if (el.id == want) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (CalendarDemo.byId((el.getChild(i)) want))
+            if (kid.id == want) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+    fn yearBtnLabel:string () {
+        return (("Year, " + (to_string model.viewYear)) + ", choose a year")
+    }
+
+    ; One row per year in the bounds. The reference uses a native `<select>`,
+    ; which a canvas kit does not have; this is the scrollable panel the
+    ; request described, and no measurement is claimed for it. What choosing a
+    ; year DOES is measured — see `ui:calendar:check`.
+    ; Where the panel is scrolled to. State, not style: a stylesheet has no
+    ; business owning where a list is parked, and the same rule already
+    ; applies to the dashboard's scroller.
+    def yearScroll:double 0.0
+
+    ; One row's pitch and the panel's own height, from the stylesheet in one
+    ; place so the open-centred arithmetic and the wheel clamp cannot drift.
+    sfn yearRowH:double () {
+        return 26.0
+    }
+
+    sfn yearPanelH:double () {
+        return 200.0
+    }
+
+    ; The whole point of the panel: opening it should not leave you eleven
+    ; scrolls from the year you are on. Centred on the current year, clamped
+    ; to the ends so the first and last years are reachable without an
+    ; overscroll that shows nothing.
+    fn centreOnCurrentYear:void () {
+        def i:double (to_double (model.indexOfYear(model.viewYear)))
+        def want:double (((i * (CalendarDemo.yearRowH())) + ((CalendarDemo.yearRowH()) / 2.0)) - ((CalendarDemo.yearPanelH()) / 2.0))
+        yearScroll = (this.clampYearScroll(want))
+    }
+
+    fn yearContentH:double () {
+        return ((to_double (model.yearCount())) * (CalendarDemo.yearRowH()))
+    }
+
+    fn clampYearScroll:double (v:double) {
+        def max:double ((this.yearContentH()) - (CalendarDemo.yearPanelH()))
+        if (max < 0.0) {
+            max = 0.0
+        }
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > max) {
+            return max
+        }
+        return v
+    }
+
+    ; The wheel. The page hands every demo `scroll(dy)` and takes a `false`
+    ; as "not mine, let the page scroll" — so this must not claim the wheel
+    ; while the panel is shut.
+    fn scrollBy:boolean (dy:double) {
+        if (model.yearPanelOpen == false) {
+            return false
+        }
+        def next:double (this.clampYearScroll((yearScroll + dy)))
+        if (next == yearScroll) {
+            return false
+        }
+        yearScroll = next
+        this.rebuild()
+        return true
+    }
+
+    fn yearPanel:EVGElement () {
+        def panel (tree Cal (YearPanel (props (id (model.yearPanelTid())))))
+        panel.scrollTop = yearScroll
+        def i:int 0
+        while (i < (model.yearCount())) {
+            def y:int (model.yearAt(i))
+            def label:string (to_string y)
+            def opt (tree Cal (YearOpt (props (id (model.yearOptTid(y))) (a11yLabel label))))
+            if (y == model.viewYear) {
+                opt = (tree Cal (YearOptOn (props (id (model.yearOptTid(y))) (a11yLabel label))))
+                opt.a11ySelected = (EVGA11yTri.yes())
+                opt.addChild((tree Cal (YearOptTxOn label)))
+            } {
+                opt.addChild((tree Cal (YearOptTx label)))
+            }
+            panel.addChild(opt)
+            i = (i + 1)
+        }
+        return panel
+    }
+
     fn page:EVGElement () {
         def page (tree Cal (Page))
 
@@ -198,9 +334,34 @@ class CalendarDemo {
                 ; centred box is unaffected, which is what this is.
                 (NavBtn (props (id "cal-prev") (a11yLabel "Go to the Previous Month"))
                     (NavGlyph "‹"))
-                (Caption (props (id "cal-caption")) (model.monthLabel()))
+                (Caption (props (id "cal-caption"))
+                    (MonthTxt (UiDate.monthName(model.viewMonth))))
                 (NavBtn (props (id "cal-next") (a11yLabel "Go to the Next Month"))
                     (NavGlyph "›"))))
+        ; The year goes INSIDE the caption, beside the month. Not after it:
+        ; the caption is the live region a reader hears when the month
+        ; changes, and a year drawn outside it would leave the announcement
+        ; saying "May" with no year in it.
+        def cap:EVGElement (CalendarDemo.byId(nav "cal-caption"))
+        ; A named intermediate rather than `(YearTxt (to_string ...))`: a
+        ; computed child in text position is read as a TAG NAME by the tree
+        ; factory, and the error says `to_string is not a tag of Cal`.
+        def yearNum:string (to_string model.viewYear)
+        def yearBtn (tree Cal
+            (YearBtn (props (id (model.yearTid()))
+                (a11yLabel (this.yearBtnLabel())))
+                (YearTxt yearNum)))
+        yearBtn.a11yExpanded = (EVGA11yTri.no())
+        cap.addChild(yearBtn)
+        ; The panel is the anchor's SIBLING, not its child. As a child it
+        ; placed at the anchor's own origin and drew over the year instead of
+        ; under it — the overlay layer positions against the PRECEDING
+        ; anchor, which is how the profile demo's select list is built too.
+        if model.yearPanelOpen {
+            yearBtn.a11yExpanded = (EVGA11yTri.yes())
+            yearBtn.isOverlayAnchor = true
+            cap.addChild((this.yearPanel()))
+        }
         card.addChild(nav)
 
         def grid (tree Cal
@@ -253,7 +414,17 @@ class CalendarDemo {
     ; --- events --------------------------------------------------------------
 
     fn press:boolean (target:string) {
+        def wasOpen:boolean model.yearPanelOpen
         model.activate(target)
+        ; Opening the panel parks it on the year you are on. Without this it
+        ; opens at the top — which with `reverseYears` is a year twenty out,
+        ; and the control that exists to save you scrolling starts by making
+        ; you scroll.
+        if (model.yearPanelOpen) {
+            if (wasOpen == false) {
+                this.centreOnCurrentYear()
+            }
+        }
         focused = target
         this.rebuild()
         return true

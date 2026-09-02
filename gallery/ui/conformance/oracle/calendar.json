@@ -1893,6 +1893,150 @@
       "$comment": "A disabled day is not selectable by pointer either."
     }
   },
+  "yearNav": {
+    "dropdownUnbounded": {
+      "hasMonthSelect": true,
+      "hasYearSelect": true,
+      "navKept": [
+        "Go to the Previous Month",
+        "Go to the Next Month"
+      ],
+      "yearCount": 101,
+      "firstYear": 1926,
+      "lastYear": 2026,
+      "viewYear": "2026",
+      "$comment": "No bounds given: the list runs a hundred years BACK from the current year and stops there, ascending. So out of the box the dropdown cannot reach next year at all — the range is a decision the host has to make, not a default worth copying."
+    },
+    "dropdownYearsOnly": {
+      "hasMonthSelect": false,
+      "hasYearSelect": true,
+      "$comment": "\"dropdown-years\" is the year alone; the month stays a label."
+    },
+    "bounded": {
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026,
+        2027,
+        2028,
+        2029,
+        2030
+      ],
+      "monthValues": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11"
+      ],
+      "monthTexts": [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ],
+      "monthValueOfMay": "4",
+      "$comment": "The year list is exactly the bounded years, ascending. Month option values are ZERO-BASED indices, not month numbers."
+    },
+    "reversed": {
+      "years": [
+        2030,
+        2029,
+        2028,
+        2027,
+        2026,
+        2025,
+        2024,
+        2023,
+        2022,
+        2021,
+        2020
+      ]
+    },
+    "narrowBounds": {
+      "years": [
+        2026
+      ],
+      "monthsEnabled": [
+        "May",
+        "June",
+        "July"
+      ],
+      "monthsDisabled": [
+        "January",
+        "February",
+        "March",
+        "April",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ],
+      "nav": [
+        {
+          "label": "Go to the Previous Month",
+          "disabled": false
+        },
+        {
+          "label": "Go to the Next Month",
+          "disabled": false
+        }
+      ],
+      "$comment": "A month outside the range is DISABLED, not removed: the list is always twelve long, so it does not reflow as you move through the range. The nav arrows are not bounded by it in this version."
+    },
+    "changing": {
+      "before": {
+        "year": "2026",
+        "month": "4",
+        "cells": 42,
+        "tabbable": [
+          "2026-05-14"
+        ]
+      },
+      "afterYear": {
+        "year": "2023",
+        "month": "4",
+        "cells": 35,
+        "tabbable": [
+          "2023-05-01"
+        ]
+      },
+      "afterMonth": {
+        "year": "2023",
+        "month": "1",
+        "cells": 35,
+        "tabbable": [
+          "2023-02-01"
+        ]
+      },
+      "$comment": "Changing the year KEEPS the month index and vice versa. The grid reshapes — May 2026 is six rows and May 2023 is five — and the tab stop moves to the FIRST of the shown month rather than staying on the same day number, which is the part a re-implementation gets wrong: keeping the day number would land on a day that may not exist in the new month."
+    },
+    "selectionSurvives": {
+      "selectedValue": "2026-05-20",
+      "markedInView": [],
+      "$comment": "Jumping the year does not clear the selection — it just takes it off screen. Nothing in the shown month is marked, and coming back to May 2026 finds it still there."
+    }
+  },
   "findings": {
     "homeAndEndAreWeekRelative": "Home and End move within the displayed WEEK, not the month: Home from 2026-05-13 is 2026-05-10 (that week's Sunday) and End is 2026-05-16. From 2026-05-01, a Friday, Home is 2026-04-26 — an outside day — and the displayed month changes to April. A calendar whose Home key means 'the 1st' is a different component, and that is the obvious wrong guess.",
     "pageKeysKeepTheDayOfMonth": "PageUp and PageDown shift by one month and hold the day number: 2026-05-13 goes to 2026-04-13 and 2026-06-13. At the ends this is capped by the target month's length — PageUp from 2026-05-31 is 2026-04-30, because April has no 31st.",

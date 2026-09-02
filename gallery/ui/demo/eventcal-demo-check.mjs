@@ -166,6 +166,97 @@ console.log("the view switcher says which view it is in");
   ok("and the caption narrows to one day", !/–/.test(cap.name), cap.name);
 }
 
+console.log("the view buttons draw three different calendars");
+{
+  // The buttons used to change a HIGHLIGHT and nothing else. `model.view` was
+  // read in exactly two places in this file, both of them the button's own
+  // class, and nothing branched on it while drawing — so Day, Week and Month
+  // lit up in turn over one unchanging week grid. `pickView` also skipped
+  // `model.layout()`, so even the arithmetic was the old view's.
+  //
+  // What each view IS was measured, not chosen: `eventcal.json`'s `views`
+  // block was captured from the same @schedule-x calendar in all three. A day
+  // has one time column, a week seven, and a month none at all — 35 day cells
+  // instead, with every event a chip carrying a grid row and a day span and
+  // not one carrying a top or a height.
+  const d = fresh();
+  const cls = (n) => (n.className || "").split(/\s+/);
+  const count = (c) => {
+    let n = 0;
+    const walk = (e) => { if (cls(e).includes(c)) n += 1; for (const k of e.children) walk(k); };
+    walk(d.root);
+    return n;
+  };
+  const pressView = (v) => {
+    const b = byId(d, "ec-view-" + v);
+    d.press(d.hitId(b.calculatedX + b.calculatedWidth / 2, b.calculatedY + b.calculatedHeight / 2));
+    d.displayListJson();
+  };
+
+  pressView("week");
+  eq("a week shows seven day columns", count("ec-col"), 7);
+  eq("and seven day headings", count("ec-dayhead"), 7);
+  eq("with no month cells", count("ec-monthcell"), 0);
+  const weekTimed = count("ec-ev");
+  ok("and timed events in the grid", weekTimed > 0, String(weekTimed));
+
+  pressView("day");
+  eq("a day shows ONE column", count("ec-col"), 1);
+  eq("and one day heading", count("ec-dayhead"), 1);
+  ok("with fewer timed events than the week", count("ec-ev") < weekTimed,
+    `${count("ec-ev")} vs ${weekTimed}`);
+
+  pressView("month");
+  eq("a month shows 35 day cells", count("ec-monthcell"), 35);
+  eq("and no time columns at all", count("ec-col"), 0);
+  eq("nor a single timed box", count("ec-ev"), 0);
+  ok("every event is a chip instead", count("ec-chip") > 0, String(count("ec-chip")));
+
+  // The rule that makes the month a month: a chip has no time position. If one
+  // ever gains a `top`, the month has quietly become a time grid again.
+  const chips = [];
+  const walk = (e) => { if (cls(e).includes("ec-chip")) chips.push(e); for (const k of e.children) walk(k); };
+  walk(d.root);
+  ok("and no chip carries a vertical position",
+    chips.every((c) => !c.top || !c.top.isSet),
+    JSON.stringify(chips.filter((c) => c.top && c.top.isSet).map((c) => c.id)));
+
+  // A reader gets the times the cell cannot show.
+  const ns = JSON.parse(d.a11yJson(9, "")).nodes;
+  const named = ns.filter((n) => (n.name || "").includes(","));
+  ok("a chip's name carries when it is", named.length > 0,
+    JSON.stringify(ns.slice(0, 4).map((n) => n.name)));
+}
+
+console.log("a day view clips what runs past it, and hides what never reaches it");
+{
+  // Measured: in the reference's day view the two-day band came back with
+  // `--overflow-right`, clipped to the day rather than drawn outside the
+  // frame. An event on a different day is not clipped — it is simply not
+  // there, which is a different answer and was worth a separate assertion
+  // after a probe returned `clip 1..0` with an overflow flag pointing at an
+  // edge it never reached.
+  const d = fresh();
+  const b = byId(d, "ec-view-day");
+  d.press(d.hitId(b.calculatedX + b.calculatedWidth / 2, b.calculatedY + b.calculatedHeight / 2));
+  d.displayListJson();
+  const shown = d.model.firstDay();
+  let clipped = 0;
+  let hidden = 0;
+  for (const e of d.model.events) {
+    if (!d.model.isVisible(e.id)) { hidden += 1; continue; }
+    if (e.overflowLeft || e.overflowRight) clipped += 1;
+  }
+  ok("something is hidden entirely", hidden > 0, String(hidden));
+  ok("and a span that crosses the day is clipped and marked", clipped > 0, String(clipped));
+  ok("nothing visible has an inverted range",
+    d.model.events.every((e) => !d.model.isVisible(e.id) || e.clipEnd >= e.clipStart));
+  ok("every visible span is at least one day",
+    d.model.events.every((e) => !d.model.isVisible(e.id) || d.model.chipSpan(e.id) >= 1));
+  ok("and no visible event starts before the day shown",
+    d.model.events.every((e) => !d.model.isVisible(e.id) || e.clipStart >= shown));
+}
+
 console.log(`\npassed=${passed} failed=${failed}`);
 if (failed > 0) process.exit(1);
 console.log("ALL PASS");

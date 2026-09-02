@@ -77,6 +77,30 @@ class CalendarCtl extends UiCtl {
 
     def showOutsideDays:boolean true
 
+    ; --- reaching a year -----------------------------------------------------
+    ;
+    ; Reported: getting to 2019 is forty-eight presses of the previous-month
+    ; arrow. The reference has an answer and keeps it off by default —
+    ; `captionLayout` is "label" unless you ask for a dropdown — so a calendar
+    ; built from the default capture is missing it by construction.
+    ;
+    ; The bounds. The reference with none given runs a hundred years BACK from
+    ; the current year and stops there, so out of the box it cannot reach next
+    ; year at all; `calendar.json` records that as a default not worth copying.
+    ; These are set by the host, and the demo sets them from its own `today`.
+    def startYear:int 2020
+    def endYear:int 2030
+    ; Measured: `reverseYears` puts the newest first, and that is the whole of
+    ; what it does — same years, same bounds.
+    def reverseYears:boolean false
+
+    ; The year PANEL is not from the reference. react-day-picker has a
+    ; `<select>`; a canvas kit has no native one, and the request was for a
+    ; panel you can scroll to a year quickly. Written from that description,
+    ; and no measurement is claimed for its appearance or its scrolling — only
+    ; for what choosing a year DOES, which is measured below.
+    def yearPanelOpen:boolean false
+
     Constructor () {
         rootEl = (EVGElement.createDiv())
     }
@@ -187,6 +211,19 @@ class CalendarCtl extends UiCtl {
         return (tid + "-next")
     }
 
+    ; The caption's year, which opens the panel, and one option per year in it.
+    fn yearTid:string () {
+        return (tid + "-year")
+    }
+
+    fn yearPanelTid:string () {
+        return (tid + "-years")
+    }
+
+    fn yearOptTid:string (y:int) {
+        return ((tid + "-year-") + (to_string y))
+    }
+
     fn weekTid:string (row:int) {
         return ((tid + "-week-") + (to_string row))
     }
@@ -238,6 +275,113 @@ class CalendarCtl extends UiCtl {
         return (UiDate.monthLabel(viewYear viewMonth))
     }
 
+    ; --- the year list -------------------------------------------------------
+
+    fn yearCount:int () {
+        if (endYear < startYear) {
+            return 0
+        }
+        return ((endYear - startYear) + 1)
+    }
+
+    ; Ascending, or newest first when `reverseYears` is set. Both measured.
+    fn yearAt:int (i:int) {
+        if (i < 0) {
+            return startYear
+        }
+        if (i >= (this.yearCount())) {
+            return endYear
+        }
+        if reverseYears {
+            return (endYear - i)
+        }
+        return (startYear + i)
+    }
+
+    fn indexOfYear:int (y:int) {
+        if reverseYears {
+            return (endYear - y)
+        }
+        return (y - startYear)
+    }
+
+    fn isYearInRange:boolean (y:int) {
+        if (y < startYear) {
+            return false
+        }
+        if (y > endYear) {
+            return false
+        }
+        return true
+    }
+
+    ; Which year a year-option tid names, or -1.
+    fn yearOfTid:int (target:string) {
+        def i:int 0
+        while (i < (this.yearCount())) {
+            def y:int (this.yearAt(i))
+            if ((this.yearOptTid(y)) == target) {
+                return y
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- jumping there -------------------------------------------------------
+
+    ; Measured, and it is the part a re-implementation gets wrong: changing the
+    ; year KEEPS the month and moves the cursor to the FIRST of the shown
+    ; month. Keeping the day number instead would land on a day that need not
+    ; exist — the 31st of a month with thirty. The capture shows it plainly:
+    ; the tab stop went from 2026-05-14 to 2023-05-01, not to 2023-05-14.
+    ;
+    ; The selection is NOT cleared. It just goes off screen, and coming back
+    ; finds it still there — also measured.
+    fn setViewYear:void (y:int) {
+        if ((this.isYearInRange(y)) == false) {
+            return
+        }
+        viewYear = y
+        this.restToFirst()
+        this.build()
+    }
+
+    fn setViewMonth:void (m:int) {
+        if (m < 1) {
+            return
+        }
+        if (m > 12) {
+            return
+        }
+        viewMonth = m
+        this.restToFirst()
+        this.build()
+    }
+
+    fn restToFirst:void () {
+        focusDay = (UiDate.toDays(viewYear viewMonth 1))
+        hasFocusDay = true
+    }
+
+    fn openYearPanel:void () {
+        yearPanelOpen = true
+        this.build()
+    }
+
+    fn closeYearPanel:void () {
+        yearPanelOpen = false
+        this.build()
+    }
+
+    fn toggleYearPanel:void () {
+        if yearPanelOpen {
+            this.closeYearPanel()
+        } {
+            this.openYearPanel()
+        }
+    }
+
     ; --- building the tree ---------------------------------------------------
 
     fn build:void () {
@@ -250,13 +394,57 @@ class CalendarCtl extends UiCtl {
         def prev (UiTree.div((this.prevTid()) "ui-calendar-prev"))
         UiTree.leafText(prev "‹")
         nav.addChild(prev)
+        ; The caption is TWO things: a month, and a year you can press. It
+        ; used to be one text run, which is why the only way to 2019 was
+        ; forty-eight presses of the arrow beside it.
         def cap (UiTree.div((this.captionTid()) "ui-calendar-caption"))
-        UiTree.leafText(cap (this.monthLabel()))
+        def mon (UiTree.div((tid + "-month") "ui-calendar-month"))
+        UiTree.leafText(mon (UiDate.monthName(viewMonth)))
+        cap.addChild(mon)
+        def yr (UiTree.div((this.yearTid()) "ui-calendar-year"))
+        yr.a11yLabel = ((("Year, " + (to_string viewYear)) + ", choose a year"))
+        yr.role = "button"
+        yr.a11yHasPopup = "listbox"
+        yr.a11yExpanded = (EVGA11yTri.no())
+        if yearPanelOpen {
+            yr.a11yExpanded = (EVGA11yTri.yes())
+            UiTree.addClass(yr "ui-calendar-year-open")
+        }
+        UiTree.leafText(yr (to_string viewYear))
+        cap.addChild(yr)
         nav.addChild(cap)
         def nxt (UiTree.div((this.nextTid()) "ui-calendar-next"))
         UiTree.leafText(nxt "›")
         nav.addChild(nxt)
         root.addChild(nav)
+
+        ; The panel. It hangs off the year as an overlay so it draws over the
+        ; grid instead of pushing it down — a calendar that changes height
+        ; when you reach for a year moves the thing you were about to click.
+        if yearPanelOpen {
+            def panel (UiTree.div((this.yearPanelTid()) "ui-calendar-yearpanel"))
+            panel.isOverlay = true
+            panel.overlaySide = "bottom"
+            panel.overlayAlign = "start"
+            panel.role = "listbox"
+            panel.a11yLabel = "Year"
+            def yi:int 0
+            while (yi < (this.yearCount())) {
+                def y:int (this.yearAt(yi))
+                def opt (UiTree.div((this.yearOptTid(y)) "ui-calendar-yearopt"))
+                opt.role = "option"
+                opt.a11yFocusable = true
+                if (y == viewYear) {
+                    opt.a11ySelected = (EVGA11yTri.yes())
+                    UiTree.addClass(opt "ui-calendar-yearopt-on")
+                }
+                UiTree.leafText(opt (to_string y))
+                panel.addChild(opt)
+                yi = (yi + 1)
+            }
+            yr.isOverlayAnchor = true
+            cap.addChild(panel)
+        }
 
         def grid (UiTree.div((this.gridTid()) "ui-calendar-grid"))
 
@@ -374,6 +562,16 @@ class CalendarCtl extends UiCtl {
         if (target == (this.nextTid())) {
             this.stepMonth(1)
             this.build()
+            return ""
+        }
+        if (target == (this.yearTid())) {
+            this.toggleYearPanel()
+            return ""
+        }
+        def picked:int (this.yearOfTid(target))
+        if (picked >= 0) {
+            this.setViewYear(picked)
+            this.closeYearPanel()
             return ""
         }
         def day:int (this.dayOfTid(target))
@@ -497,7 +695,19 @@ class CalendarCtl extends UiCtl {
         push a (tid + "-nav")
         push a (this.prevTid())
         push a (this.captionTid())
+        push a (this.yearTid())
         push a (this.nextTid())
+        ; The panel is in the tree only while it is open, and a reader is told
+        ; about it only then: a listbox of eleven years announced from a closed
+        ; calendar is eleven things in the way of the grid.
+        if yearPanelOpen {
+            push a (this.yearPanelTid())
+            def yi:int 0
+            while (yi < (this.yearCount())) {
+                push a (this.yearOptTid((this.yearAt(yi))))
+                yi = (yi + 1)
+            }
+        }
         push a (this.gridTid())
         def start:int (this.gridStart())
         def weeks:int (this.weekCount())
@@ -523,6 +733,14 @@ class CalendarCtl extends UiCtl {
         }
         if (target == (this.nextTid())) {
             return true
+        }
+        if (target == (this.yearTid())) {
+            return true
+        }
+        if yearPanelOpen {
+            if ((this.yearOfTid(target)) >= 0) {
+                return true
+            }
         }
         def day:int (this.dayOfTid(target))
         if (day < 0) {

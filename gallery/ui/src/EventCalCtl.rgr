@@ -78,6 +78,15 @@ class CalEvent {
     def column:int 0
     def total:int 1
     def lane:int 0
+    ; Where the event actually STARTS AND ENDS ON SCREEN, which is not where it
+    ; starts and ends. A two-day band shown in a one-day view is drawn for that
+    ; one day and marked as running past the edge — the reference clips it and
+    ; adds `--overflow-right` rather than drawing outside the frame. Measured:
+    ; `views.day` in eventcal.json has band `j` with overflowRight true.
+    def clipStart:int 0
+    def clipEnd:int 0
+    def overflowLeft:boolean false
+    def overflowRight:boolean false
 
     Constructor () {
     }
@@ -451,13 +460,169 @@ class EventCalCtl extends UiCtl {
         return e.lane
     }
 
-    ; Lay out everything the current week shows. One entry point, because the
-    ; two halves have to be run together — an event promoted into the band must
-    ; not also be given a column in the grid.
+    ; --- what the view shows -------------------------------------------------
+    ;
+    ; Measured, not assumed. `eventcal.json`'s `views` block was captured from
+    ; the same library in all three: a day has ONE time column, a week seven,
+    ; and a month has NONE — 35 day cells instead. That is a shape difference,
+    ; not a number, and it is why the demo's Day/Week/Month buttons could
+    ; change a highlight and nothing else for as long as they did.
+    fn firstDay:int () {
+        if (view == "month") {
+            return (this.monthGridStart())
+        }
+        return weekStart
+    }
+
+    fn dayCount:int () {
+        if (view == "day") {
+            return 1
+        }
+        if (view == "month") {
+            return 35
+        }
+        return 7
+    }
+
+    ; The month grid starts on the same weekday the week view does, on or
+    ; before the first of the month, and runs five rows of seven. Five and not
+    ; six: the reference rendered 35 cells for this month, and a sixth row is a
+    ; question about a different month than the one that was measured.
+    fn monthGridStart:int () {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(weekStart p)
+        def first:int (UiDate.toDays((itemAt p 0) (itemAt p 1) 1))
+        def dow:int (UiDate.weekday(first))
+        return (first - dow)
+    }
+
+    fn lastDay:int () {
+        return ((this.firstDay()) + ((this.dayCount()) - 1))
+    }
+
+    ; Clip every event to the window the view shows, and record which ends ran
+    ; past it. Runs for every view: a week shows a band that started last week
+    ; the same way a day shows one that started this morning.
+    fn clipToView:void () {
+        def lo:int (this.firstDay())
+        def hi:int (this.lastDay())
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:CalEvent (itemAt events i)
+            def s:int e.startDay
+            def n:int e.endDay
+            ; NOT VISIBLE AT ALL is its own answer, and not the same as clipped.
+            ; Clipping an event that ends before the window starts gives an
+            ; inverted range and an overflow flag pointing at an edge it never
+            ; reached — which is what this did until a probe put a two-day band
+            ; on the day AFTER the one a day view was showing and got back
+            ; `clip 1..0, overflowRight true`.
+            if ((n < lo) || (s > hi)) {
+                e.clipStart = 1
+                e.clipEnd = 0
+                e.overflowLeft = false
+                e.overflowRight = false
+            } {
+                e.overflowLeft = (s < lo)
+                e.overflowRight = (n > hi)
+                if (s < lo) { s = lo }
+                if (n > hi) { n = hi }
+                e.clipStart = s
+                e.clipEnd = n
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A MONTH CELL HAS NO TIME AXIS, so an event in it is a chip in a lane and
+    ; a timed event becomes one too. That is the finding: in `views.month`
+    ; every one of the six events came back as a `monthChip` with a `grid-row`
+    ; and a day span, and not one of them carried a `top` or a `height`.
+    ;
+    ; Lanes are assigned the way the all-day band assigns them — first free row
+    ; that nothing overlapping already holds — so two chips on the same day
+    ; stack instead of colliding.
+    fn monthChips:[CalEvent] () {
+        def out:[CalEvent]
+        def lo:int (this.firstDay())
+        def hi:int (this.lastDay())
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:CalEvent (itemAt events i)
+            if ((e.startDay <= hi) && (e.endDay >= lo)) {
+                push out e
+            }
+            i = (i + 1)
+        }
+        return (EventCalCtl.sortByStart(out false))
+    }
+
+    fn layoutMonth:void () {
+        def chips:[CalEvent] (this.monthChips())
+        def i:int 0
+        while (i < (array_length chips)) {
+            def cur:CalEvent (itemAt chips i)
+            def lane:int 1
+            def searching:boolean true
+            while searching {
+                def taken:boolean false
+                def j:int 0
+                while (j < i) {
+                    def other:CalEvent (itemAt chips j)
+                    if (other.lane == lane) {
+                        ; The CLIPPED range, so a chip that runs off the grid
+                        ; does not reserve a lane it cannot be seen in.
+                        if ((cur.clipStart <= other.clipEnd) && (other.clipStart <= cur.clipEnd)) {
+                            taken = true
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if taken {
+                    lane = (lane + 1)
+                } {
+                    searching = false
+                }
+            }
+            cur.lane = lane
+            i = (i + 1)
+        }
+    }
+
+    ; Is any part of it on screen? `clipEnd < clipStart` is the empty range
+    ; `clipToView` writes for an event the window does not reach.
+    fn isVisible:boolean (id:string) {
+        def e:CalEvent (this.event(id))
+        return (e.clipEnd >= e.clipStart)
+    }
+
+    ; How many day cells the chip covers on screen, after clipping. Zero when
+    ; it is not on screen at all.
+    fn chipSpan:int (id:string) {
+        def e:CalEvent (this.event(id))
+        if (e.clipEnd < e.clipStart) {
+            return 0
+        }
+        return ((e.clipEnd - e.clipStart) + 1)
+    }
+
+    ; Lay out everything the current view shows. One entry point, because the
+    ; halves have to be run together — an event promoted into the band must not
+    ; also be given a column in the grid — and because which halves run at all
+    ; is what the view decides.
     fn layout:void () {
+        this.clipToView()
+        if (view == "month") {
+            ; No time grid at all. Running `layoutDay` here would hand every
+            ; event a column and a width that nothing draws, which is the kind
+            ; of dead state that later reads as a bug.
+            this.layoutMonth()
+            return
+        }
+        def n:int (this.dayCount())
         def d:int 0
-        while (d < 7) {
-            this.layoutDay((weekStart + d))
+        while (d < n) {
+            this.layoutDay(((this.firstDay()) + d))
             d = (d + 1)
         }
         this.layoutBand()

@@ -128,6 +128,11 @@ class ControlsDemo {
     def hovered:string ""
     def pressed:string ""
     def focused:string ""
+    ; Which slider a live drag belongs to. A drag is a gesture, and a gesture
+    ; needs somewhere to remember what it picked up: the pointer leaves the
+    ; track long before the finger comes off it, so `dragTo` cannot ask what
+    ; is under the pointer NOW.
+    def dragSlider:string ""
     def pageW:double 900.0
     def pageH:double 460.0
 
@@ -588,6 +593,145 @@ class ControlsDemo {
 
     ; --- events ----------------------------------------------------------------
 
+    ; --- the sliders' pointer and keyboard --------------------------------------
+    ;
+    ; SliderCtl has answered all of this since it was measured against Radix:
+    ; `dragBoundsTid` says which track a press belongs to whether it landed on
+    ; the rail, the filled range or the thumb; `valueAtFraction` snaps to the
+    ; step grid; `keyDown` moves by a step and knows that Up means MORE. The
+    ; demo drew four of them and called none of it. A press on a track returned
+    ; false, a press on a thumb returned false, an arrow key returned false,
+    ; and all four controllers sat at their initial values for the life of the
+    ; page — four pictures of sliders.
+    ;
+    ; Which is the text field's dropped coordinate again, in a third place:
+    ; right in the controller, right in the demo's API, dead on the page. The
+    ; `position` fix two commits back made the thumbs LOOK right, which is the
+    ; version of this defect that is hardest to see.
+
+    sfn byId:EVGElement (el:EVGElement tid:string) {
+        if (el.id == tid) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (ControlsDemo.byId((el.getChild(i)) tid))
+            if (kid.id == tid) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+    fn sliders:[SliderCtl] () {
+        def a:[SliderCtl]
+        push a storage
+        push a duration
+        push a volume
+        push a rating
+        return a
+    }
+
+    ; The slider a target belongs to. Asked of the CONTROLLERS rather than by
+    ; an id prefix: a prefix test would have `cx-rating` answer for a fifth
+    ; slider called `cx-rating-2`, and that is the sort of rule that is only
+    ; ever wrong once someone adds one. A miss returns a slider with an empty
+    ; tid, which is how every caller here spells "not one of mine".
+    fn sliderOwning:SliderCtl (target:string) {
+        def all:[SliderCtl] (this.sliders())
+        def i:int 0
+        while (i < (array_length all)) {
+            def s:SliderCtl (itemAt all i)
+            if ((strlen (s.dragBoundsTid(target))) > 0) {
+                return s
+            }
+            i = (i + 1)
+        }
+        def none:SliderCtl (new SliderCtl())
+        return none
+    }
+
+    ; A page x to a fraction of the TRACK — the geometry that decides the
+    ; value, wherever on the control the press actually landed. Laid out
+    ; first, because a press can be the first thing that happens to a demo
+    ; and an unlaid tree has every box at zero.
+    fn fractionAt:double (s:SliderCtl px:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def track:EVGElement (ControlsDemo.byId(r (s.trackTid())))
+        if (track.id != (s.trackTid())) {
+            return 0.0
+        }
+        def w:double track.calculatedWidth
+        if (w <= 0.0) {
+            return 0.0
+        }
+        def frac:double ((px - track.calculatedX) / w)
+        if (frac < 0.0) {
+            frac = 0.0
+        }
+        if (frac > 1.0) {
+            frac = 1.0
+        }
+        return frac
+    }
+
+    ; The press, WITH the x. `press` keeps its one-argument shape for every
+    ; other control on this page; this is the door the pointer comes through,
+    ; and it falls through to `press` for anything that is not a slider.
+    fn pressAt:boolean (target:string px:double) {
+        def s:SliderCtl (this.sliderOwning(target))
+        if ((strlen s.tid) > 0) {
+            ; A press on the rail focuses the THUMB, not the rail — that is
+            ; what `dragTo` returns, and it is what the reference does.
+            focused = (s.dragTo((this.fractionAt(s px))))
+            dragSlider = s.tid
+            this.rebuild()
+            return true
+        }
+        dragSlider = ""
+        return (this.press(target))
+    }
+
+    ; The carry. The pointer is off the track within a few pixels of a real
+    ; drag, so this asks the slider the press picked up, not the one under the
+    ; pointer now.
+    fn dragTo:boolean (target:string px:double) {
+        if ((strlen dragSlider) == 0) {
+            return false
+        }
+        def s:SliderCtl (this.sliderOwning((dragSlider + "-track")))
+        if ((strlen s.tid) == 0) {
+            return false
+        }
+        focused = (s.dragTo((this.fractionAt(s px))))
+        this.rebuild()
+        return true
+    }
+
+    fn dragEnd:boolean () {
+        if ((strlen dragSlider) == 0) {
+            return false
+        }
+        dragSlider = ""
+        return true
+    }
+
+    ; Which keys belong to a focused slider. Named rather than inferred from
+    ; whether the value moved: an ArrowRight at the maximum changes nothing
+    ; and still must not fall through to the stepper strip behind it, or the
+    ; page would advance a checkout step because a slider was already full.
+    sfn isSliderKey:boolean (k:string) {
+        if (k == "ArrowLeft") { return true }
+        if (k == "ArrowRight") { return true }
+        if (k == "ArrowUp") { return true }
+        if (k == "ArrowDown") { return true }
+        if (k == "Home") { return true }
+        if (k == "End") { return true }
+        return false
+    }
+
     fn press:boolean (target:string) {
         if (target == "") {
             return false
@@ -654,6 +798,15 @@ class ControlsDemo {
     ; quantity — the same "one page, two consumers" problem the demo page had
     ; when picking a demo swallowed every key.
     fn key:boolean (k:string) {
+        def sk:SliderCtl (this.sliderOwning(focused))
+        if ((strlen sk.tid) > 0) {
+            if (ControlsDemo.isSliderKey(k)) {
+                sk.keyDown(focused k)
+                this.rebuild()
+                return true
+            }
+            return false
+        }
         if (focused == "cx-num") {
             if (num.onKey(k false)) {
                 this.syncFromField()
@@ -682,6 +835,12 @@ class ControlsDemo {
         ; page gate caught it: Shift+ArrowUp moved the field while a plain
         ; ArrowUp right after it did nothing, because the two disagreed about
         ; whether focus was on the field or on the + button beside it.
+        ; A focused slider owns its keys under Shift too, or Shift+Arrow would
+        ; be a back door into the stepper from a control that has focus.
+        def shiftSlider:SliderCtl (this.sliderOwning(focused))
+        if ((strlen shiftSlider.tid) > 0) {
+            return (this.key(k))
+        }
         if (focused != "cx-num") {
             if (stepper.onKey(k)) {
                 this.loadField()
