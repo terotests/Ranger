@@ -1,0 +1,446 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; WatchBench — three watch screens, so "EVG is too heavy for a watch" becomes a
+;              number instead of an opinion
+; ==============================================================================
+; `gallery/ui/bench` asks where the time goes in a 1600-row table. That is the
+; wrong question for a watch: a watch never draws 1600 rows, it draws about
+; eighty elements on a 454x454 panel, and the thing that can kill it is not the
+; size of the tree but the size of the *budget* — 16.7ms to stay at 60fps while
+; a wrist is turning, and a battery that a phone does not have.
+;
+; So the scenes here are watch-sized and watch-shaped, and they are the three a
+; Wear OS app actually has:
+;
+;   face      a watch face: 60 minute ticks placed on the circle, four hour
+;             numerals, a digital time, a date, three complications and a
+;             progress arc. The tick ring is the interesting part — it is 60
+;             absolutely-positioned elements that no layout pass can skip.
+;   list      a Wear list of chips: an icon, a title and a subtitle each,
+;             scrolled. The rotary crown moves this at 60fps.
+;   workout   the screen a run is spent on: one enormous number, four stat
+;             tiles and a progress bar. Small tree, big text.
+;
+; The phases are the ones `gallery/ui/bench` splits out, for the same reason —
+; a total says the frame costs 4ms and gives you nowhere to start:
+;
+;   build         make the EVGElement tree
+;   style         EVGStyleSheet.applyTree
+;   layout        EVGLayout.layout
+;   displayList   EVGDisplayList.build
+;
+; …plus the two mutations a watch actually performs, which are what the answer
+; turns on:
+;
+;   tick          the clock's seconds change. One text run, on a tree that
+;                 stands. This runs once a second, forever, and on a watch face
+;                 in ambient mode it is the ONLY thing that ever runs.
+;   scroll        the list's scroll offset changes. Layout must run; nothing
+;                 else about the tree did.
+;
+; `calibrate` is here so the numbers can leave this machine. It is a fixed
+; scalar workload with no allocation and no library calls, in the same language
+; as everything else, so running this benchmark on a device gives a ratio to
+; scale every other row by rather than a guess about clock speeds.
+; ==============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGReconcile.rgr"
+
+treefactory Watch {
+    child addChild
+    text  textContent
+
+    tag Root     EVGElement (props (className "w-root"))
+    tag Face     EVGElement (props (className "w-face"))
+    tag Dial     EVGElement (props (className "w-dial"))
+    tag Tick     EVGElement (props (className "w-tick"))
+    tag TickMaj  EVGElement (props (className "w-tick-major"))
+    tag Numeral  EVGElement (props (className "w-numeral") (elementType 1))
+    tag Time     EVGElement (props (className "w-time") (elementType 1))
+    tag DateLbl  EVGElement (props (className "w-date") (elementType 1))
+    tag Comps    EVGElement (props (className "w-comps"))
+    tag Comp     EVGElement (props (className "w-comp"))
+    tag CompIcon EVGElement (props (className "w-comp-icon"))
+    tag CompVal  EVGElement (props (className "w-comp-value") (elementType 1))
+    tag CompLbl  EVGElement (props (className "w-comp-label") (elementType 1))
+
+    tag List     EVGElement (props (className "w-list"))
+    tag ListT    EVGElement (props (className "w-list-title") (elementType 1))
+    tag Chip     EVGElement (props (className "w-chip"))
+    tag ChipIcon EVGElement (props (className "w-chip-icon"))
+    tag ChipText EVGElement (props (className "w-chip-text"))
+    tag ChipTtl  EVGElement (props (className "w-chip-title") (elementType 1))
+    tag ChipSub  EVGElement (props (className "w-chip-sub") (elementType 1))
+
+    tag Workout  EVGElement (props (className "w-workout"))
+    tag Metric   EVGElement (props (className "w-metric") (elementType 1))
+    tag Unit     EVGElement (props (className "w-metric-unit") (elementType 1))
+    tag Tiles    EVGElement (props (className "w-tiles"))
+    tag Tile     EVGElement (props (className "w-tile"))
+    tag TileVal  EVGElement (props (className "w-tile-value") (elementType 1))
+    tag TileLbl  EVGElement (props (className "w-tile-label") (elementType 1))
+    tag Bar      EVGElement (props (className "w-bar"))
+    tag BarFill  EVGElement (props (className "w-bar-fill"))
+}
+
+class WatchBench {
+
+    ; --- the panel ------------------------------------------------------------
+    ; 454x454 is the largest round Wear OS panel in the field (Galaxy Watch 6/7
+    ; 47mm, Pixel Watch 3 45mm). Everything below is in those pixels at 1x.
+    sfn panelW:double () { return 454.0 }
+    sfn panelH:double () { return 454.0 }
+
+    ; --- small helpers --------------------------------------------------------
+
+    sfn fixed1:string (v:double) {
+        def scaled:int (to_int ((v * 10.0) + 0.5))
+        def whole:int (to_int ((scaled - (scaled % 10)) / 10))
+        def frac:int (scaled % 10)
+        if (frac < 0) { frac = (0 - frac) }
+        return ((to_string whole) + "." + (to_string frac))
+    }
+
+    sfn pad2:string (v:int) {
+        if (v < 10) { return ("0" + (to_string v)) }
+        return (to_string v)
+    }
+
+    ; Place an element by its centre, the way a face's ring is built: absolute
+    ; coordinates on the circle, computed once per element.
+    sfn placeAt:void (el:EVGElement cx:double cy:double w:double h:double) {
+        el.position = "absolute"
+        el.left = (EVGUnit.px((cx - (w / 2.0))))
+        el.top = (EVGUnit.px((cy - (h / 2.0))))
+        el.width = (EVGUnit.px(w))
+        el.height = (EVGUnit.px(h))
+    }
+
+    ; A circular arc as cubic beziers — the display list has to flatten these,
+    ; which a ring of rectangles would never make it do.
+    sfn arcPath:string (cx:double cy:double r:double a0:double a1:double segs:int) {
+        def step:double ((a1 - a0) / (to_double segs))
+        def k:double ((4.0 / 3.0) * (tan (step / 4.0)))
+        def x0:double (cx + (r * (cos a0)))
+        def y0:double (cy + (r * (sin a0)))
+        def d:string ("M " + (WatchBench.fixed1(x0)) + " " + (WatchBench.fixed1(y0)))
+        def i:int 0
+        while (i < segs) {
+            def s:double (a0 + (step * (to_double i)))
+            def e:double (s + step)
+            def sx:double (cx + (r * (cos s)))
+            def sy:double (cy + (r * (sin s)))
+            def ex:double (cx + (r * (cos e)))
+            def ey:double (cy + (r * (sin e)))
+            def c1x:double (sx - ((k * r) * (sin s)))
+            def c1y:double (sy + ((k * r) * (cos s)))
+            def c2x:double (ex + ((k * r) * (sin e)))
+            def c2y:double (ey - ((k * r) * (cos e)))
+            d = (d + " C " + (WatchBench.fixed1(c1x)) + " " + (WatchBench.fixed1(c1y))
+                   + " " + (WatchBench.fixed1(c2x)) + " " + (WatchBench.fixed1(c2y))
+                   + " " + (WatchBench.fixed1(ex)) + " " + (WatchBench.fixed1(ey)))
+            i = (i + 1)
+        }
+        return d
+    }
+
+    ; --- scene 1: the watch face ---------------------------------------------
+    ; `secs` is the second hand's position, and the only thing `tick` changes.
+    sfn face:EVGElement (ticks:int secs:int) {
+        def root (tree Watch (Face (props (id "face"))))
+
+        def pw:double (WatchBench.panelW())
+        def ph:double (WatchBench.panelH())
+        def cx:double (pw / 2.0)
+        def cy:double (ph / 2.0)
+        def rTick:double (cx - 14.0)
+        def rNum:double (cx - 44.0)
+
+        ; The ring. 60 minute marks, every fifth one long — the standard
+        ; analogue dial, and 60 elements a layout pass has to walk.
+        def i:int 0
+        while (i < ticks) {
+            def ang:double ((((to_double i) / (to_double ticks)) * 6.2831853) - 1.5707963)
+            def major:boolean ((i % 5) == 0)
+            def tx:double (cx + (rTick * (cos ang)))
+            def ty:double (cy + (rTick * (sin ang)))
+            def t:EVGElement (EVGElement.createDiv())
+            t.id = ("tick" + (to_string i))
+            t.key = t.id
+            if major {
+                t.className = "w-tick-major"
+                WatchBench.placeAt(t tx ty 3.0 14.0)
+            } else {
+                t.className = "w-tick"
+                WatchBench.placeAt(t tx ty 2.0 8.0)
+            }
+            t.rotate = (((to_double i) / (to_double ticks)) * 360.0)
+            root.addChild(t)
+            i = (i + 1)
+        }
+
+        ; 12 / 3 / 6 / 9.
+        def h:int 0
+        while (h < 4) {
+            def ang2:double ((((to_double h) / 4.0) * 6.2831853) - 1.5707963)
+            def n:EVGElement (EVGElement.createSpan())
+            n.className = "w-numeral"
+            n.elementType = 1
+            n.id = ("num" + (to_string h))
+            n.key = n.id
+            if (h == 0) { n.textContent = "12" }
+            if (h == 1) { n.textContent = "3" }
+            if (h == 2) { n.textContent = "6" }
+            if (h == 3) { n.textContent = "9" }
+            def nx:double (cx + (rNum * (cos ang2)))
+            def ny:double (cy + (rNum * (sin ang2)))
+            WatchBench.placeAt(n nx ny 34.0 20.0)
+            root.addChild(n)
+            h = (h + 1)
+        }
+
+        ; The progress arc — a real curve, stroked, the way a goal ring is.
+        def arc:EVGElement (EVGElement.createPath())
+        arc.className = "w-arc"
+        arc.elementType = 3
+        arc.id = "goal"
+        arc.key = "goal"
+        arc.position = "absolute"
+        arc.width = (EVGUnit.px(pw))
+        arc.height = (EVGUnit.px(ph))
+        arc.strokeColor = (EVGColor.parse("#38bdf8"))
+        arc.fillColor = (EVGColor.noColor())
+        def rArc:double (cx - 34.0)
+        def aStart:double -1.5707963
+        def aEnd:double 2.0
+        arc.svgPath = (WatchBench.arcPath(cx cy rArc aStart aEnd 8))
+        arc.strokeWidth = 12.0
+        root.addChild(arc)
+
+        ; The dial's own text, and the complication row under it.
+        def stack (tree Watch
+            (Dial (props (id "dial"))
+                (DateLbl (props (id "date") (key "date")) "TUE 14 OCT")
+                (Time (props (id "clock") (key "clock")) ("10:24:" + (WatchBench.pad2(secs))))))
+
+        def comps (tree Watch (Comps (props (id "comps") (key "comps"))))
+        def c:int 0
+        while (c < 3) {
+            def comp (tree Watch
+                (Comp (props (id ("comp" + (to_string c))) (key ("comp" + (to_string c))))
+                    (CompIcon (props (id ("ci" + (to_string c)))))))
+            if (c == 0) {
+                comp.addChild((tree Watch (CompVal "8 240")))
+                comp.addChild((tree Watch (CompLbl "STEPS")))
+            }
+            if (c == 1) {
+                comp.addChild((tree Watch (CompVal "72")))
+                comp.addChild((tree Watch (CompLbl "BPM")))
+            }
+            if (c == 2) {
+                comp.addChild((tree Watch (CompVal "64%")))
+                comp.addChild((tree Watch (CompLbl "BATT")))
+            }
+            comps.addChild(comp)
+            c = (c + 1)
+        }
+        stack.addChild(comps)
+        root.addChild(stack)
+        return root
+    }
+
+    ; --- scene 2: the Wear list ----------------------------------------------
+    sfn chipTitle:string (i:int) {
+        def n:int (i % 5)
+        if (n == 0) { return "Outdoor Run" }
+        if (n == 1) { return "Pool Swim" }
+        if (n == 2) { return "Strength" }
+        if (n == 3) { return "Cycling" }
+        return "Hiking"
+    }
+
+    sfn chipSub:string (i:int) {
+        def n:int (i % 4)
+        if (n == 0) { return "Yesterday · 5.2 km" }
+        if (n == 1) { return "Mon · 32 min" }
+        if (n == 2) { return "Sun · 410 kcal" }
+        return "Sat · 1 h 04 min"
+    }
+
+    sfn list:EVGElement (rows:int selected:int) {
+        def root (tree Watch
+            (List (props (id "list"))
+                (ListT (props (id "listtitle") (key "listtitle")) "Workouts")))
+        def i:int 0
+        while (i < rows) {
+            def key:string ("chip" + (to_string i))
+            def cls:string "w-chip"
+            if (i == selected) { cls = "w-chip-on" }
+            def chip (tree Watch
+                (Chip (props (id key) (key key) (className cls))
+                    (ChipIcon (props (id (key + "-i"))))
+                    (ChipText
+                        (ChipTtl (WatchBench.chipTitle(i)))
+                        (ChipSub (WatchBench.chipSub(i))))))
+            root.addChild(chip)
+            i = (i + 1)
+        }
+        return root
+    }
+
+    ; --- scene 3: the workout view -------------------------------------------
+    sfn workout:EVGElement (hr:int) {
+        def hrText:string (to_string hr)
+        def root (tree Watch
+            (Workout (props (id "workout"))
+                (Metric (props (id "hr") (key "hr")) hrText)
+                (Unit (props (id "hrunit") (key "hrunit")) "BPM · ZONE 3")))
+        def tiles (tree Watch (Tiles (props (id "tiles") (key "tiles"))))
+        def i:int 0
+        while (i < 4) {
+            def key:string ("tile" + (to_string i))
+            def tile (tree Watch (Tile (props (id key) (key key))))
+            if (i == 0) {
+                tile.addChild((tree Watch (TileVal "5.24")))
+                tile.addChild((tree Watch (TileLbl "KM")))
+            }
+            if (i == 1) {
+                tile.addChild((tree Watch (TileVal "28:41")))
+                tile.addChild((tree Watch (TileLbl "TIME")))
+            }
+            if (i == 2) {
+                tile.addChild((tree Watch (TileVal "5:28")))
+                tile.addChild((tree Watch (TileLbl "PACE")))
+            }
+            if (i == 3) {
+                tile.addChild((tree Watch (TileVal "412")))
+                tile.addChild((tree Watch (TileLbl "KCAL")))
+            }
+            tiles.addChild(tile)
+            i = (i + 1)
+        }
+        root.addChild(tiles)
+        def bar (tree Watch (Bar (props (id "bar") (key "bar"))))
+        def fill (tree Watch (BarFill (props (id "barfill") (key "barfill"))))
+        fill.width = (EVGUnit.px(186.0))
+        bar.addChild(fill)
+        root.addChild(bar)
+        return root
+    }
+
+    ; kind 0 = face, 1 = list, 2 = workout. `n` is the tick count or the row
+    ; count; `v` is the seconds / the selected row / the heart rate.
+    sfn scene:EVGElement (kind:int n:int v:int) {
+        if (kind == 0) { return (WatchBench.face(n v)) }
+        if (kind == 1) { return (WatchBench.list(n v)) }
+        return (WatchBench.workout(v))
+    }
+
+    ; --- the phases, each callable on its own ---------------------------------
+
+    sfn sheetFor:EVGStyleSheet (css:string) {
+        def s (new EVGStyleSheet())
+        def pw:double (WatchBench.panelW())
+        def ph:double (WatchBench.panelH())
+        s.parse(css)
+        s.setViewport(pw ph false)
+        return s
+    }
+
+    sfn styleOnly:void (sheet:EVGStyleSheet root:EVGElement) {
+        sheet.applyTree(root "")
+    }
+
+    sfn layoutClean:boolean (sheet:EVGStyleSheet) { return (sheet.layoutClean()) }
+    sfn styledCount:int (sheet:EVGStyleSheet) { return sheet.passStyled }
+    sfn skippedCount:int (sheet:EVGStyleSheet) { return sheet.passSkipped }
+    sfn styleErrors:int (sheet:EVGStyleSheet) { return (array_length sheet.errors) }
+
+    sfn layoutOnly:EVGLayout (root:EVGElement) {
+        def lay (new EVGLayout())
+        def pw:double (WatchBench.panelW())
+        def ph:double (WatchBench.panelH())
+        lay.setPageSize(pw ph)
+        lay.layout(root)
+        return lay
+    }
+
+    sfn listOnly:int (root:EVGElement lay:EVGLayout) {
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.count())
+    }
+
+    sfn listOf:EVGDisplayList (root:EVGElement lay:EVGLayout) {
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return dl
+    }
+
+    sfn listJson:string (root:EVGElement lay:EVGLayout) {
+        def dl (WatchBench.listOf(root lay))
+        return (dl.toJson())
+    }
+
+    sfn countElements:int (el:EVGElement) {
+        def n:int 1
+        def i:int 0
+        while (i < (array_length el.children)) {
+            n = (n + (WatchBench.countElements((itemAt el.children i))))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- the two mutations a watch really makes -------------------------------
+
+    sfn findById:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) { return el }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def hit:EVGElement (WatchBench.findById((itemAt el.children i) id))
+            if ((strlen hit.id) > 0) { return hit }
+            i = (i + 1)
+        }
+        return (EVGElement.createDiv())
+    }
+
+    ; The clock's seconds. One text run changes; nothing else about the tree
+    ; did, and on an always-on face this is the entire per-second workload.
+    sfn setClock:void (root:EVGElement secs:int) {
+        def el:EVGElement (WatchBench.findById(root "clock"))
+        el.textContent = ("10:24:" + (WatchBench.pad2(secs)))
+    }
+
+    ; The crown turned. Layout has to run; the tree did not change.
+    sfn setScroll:void (root:EVGElement top:double) {
+        root.scrollTop = top
+    }
+
+    ; --- calibration ----------------------------------------------------------
+    ; A fixed scalar workload, no allocation, no library calls. Its purpose is
+    ; to be run on the target device: every other number in this benchmark can
+    ; then be scaled by the ratio of the two calibration times instead of by a
+    ; guess about clock speeds. Returns a value so nothing can be folded away.
+    sfn calibrate:double (iters:int) {
+        def acc:double 0.0
+        def x:double 1.0
+        def i:int 0
+        while (i < iters) {
+            x = ((x * 1.0000001) + 0.000001)
+            acc = (acc + ((x * x) - (x / 3.0)))
+            if ((i % 3) == 0) { acc = (acc * 0.9999999) }
+            i = (i + 1)
+        }
+        return acc
+    }
+}
