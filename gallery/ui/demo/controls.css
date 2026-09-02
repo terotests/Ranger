@@ -131,6 +131,215 @@
   color: #d4d4d8;
 }
 
+/* ReUI's block under each circle: an eyebrow, the title, a state badge. */
+.cx-stepcol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.cx-eyebrow {
+  font-size: 10px;
+  color: #a1a1aa;
+}
+
+.cx-badge {
+  display: flex;
+  align-items: center;
+  height: 17px;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-radius: 9px;
+  background-color: #f4f4f5;
+}
+
+.cx-badge-active {
+  background-color: #dbeafe;
+}
+
+.cx-badge-completed {
+  background-color: #dcfce7;
+}
+
+.cx-badge-loading {
+  background-color: #fef3c7;
+}
+
+/* Every badge label needs its own token, for the reason every other label in
+ * this file does: there are no descendant selectors, so a dark badge with a
+ * label inheriting nothing draws dark on dark. */
+.cx-badgetxt {
+  font-size: 10px;
+  color: #71717a;
+}
+
+.cx-badgetxt-active {
+  color: #1e3a8a;
+}
+
+.cx-badgetxt-completed {
+  color: #14532d;
+}
+
+.cx-badgetxt-loading {
+  color: #78350f;
+}
+
+/* The separator takes the state of the step BEFORE it. */
+.cx-rail-completed {
+  background-color: #16a34a;
+}
+
+.cx-rail-inactive {
+  background-color: #e4e4e7;
+}
+
+.cx-panelbox {
+  display: flex;
+  align-items: center;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 10px;
+  padding-left: 14px;
+  height: 44px;
+  width: 852px;
+  background-color: #fafafa;
+}
+
+.cx-paneltxt {
+  font-size: 13px;
+  color: #52525b;
+}
+
+/* --- the four sliders ----------------------------------------------------
+ *
+ * No POSITION here that the controller owns. Every left and width is a
+ * SliderCtl fraction turned into pixels by ControlsDemo.rgr — a rule in this
+ * file that placed a thumb would be a second, unmeasured answer competing
+ * with the one the Radix capture settled.
+ */
+
+.cx-slides {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+}
+
+.cx-slide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 300px;
+}
+
+.cx-slidelbl {
+  font-size: 13px;
+  color: #0a0a0a;
+  height: 18px;
+}
+
+.cx-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #f4f4f5;
+}
+
+.cx-range {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #0a0a0a;
+}
+
+.cx-thumb {
+  position: absolute;
+  top: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  border-width: 1px;
+  border-color: #a1a1aa;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+/* Reference labels: the ends and the midpoint, spread under the track. */
+.cx-refs {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.cx-reftxt {
+  font-size: 12px;
+  color: #71717a;
+}
+
+/* The ruler. Every tick has a cell; a MINOR one is a shorter mark with an
+ * empty label, which is how ReUI hides the number without losing the space. */
+.cx-ticks {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.cx-tick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.cx-tickmark {
+  width: 1px;
+  background-color: #a1a1aa;
+}
+
+.cx-tickmark-major {
+  height: 5px;
+}
+
+.cx-tickmark-minor {
+  height: 3px;
+}
+
+.cx-ticktxt {
+  font-size: 11px;
+  color: #71717a;
+  height: 14px;
+}
+
+/* The bubble over the thumb. */
+.cx-bubble {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 20px;
+  border-radius: 5px;
+  background-color: #0a0a0a;
+}
+
+.cx-bubbletxt {
+  font-size: 11px;
+  color: #ffffff;
+}
+
+.cx-emoji {
+  font-size: 20px;
+  color: #0a0a0a;
+}
+
+.cx-bandtxt {
+  font-size: 12px;
+  color: #52525b;
+  height: 16px;
+}
+
 /* --- the progress bar ---------------------------------------------------- */
 
 .cx-bar {

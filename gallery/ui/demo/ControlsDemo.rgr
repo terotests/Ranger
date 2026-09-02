@@ -31,6 +31,7 @@
 
 Import "../src/StepperCtl.rgr"
 Import "../src/NumberCtl.rgr"
+Import "../src/SliderCtl.rgr"
 Import "../src/PresentationCtl.rgr"
 Import "../src/UiTree.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -76,6 +77,33 @@ treefactory Ctl {
     tag NumTxt    EVGElement (props (className "cx-numtxt") (elementType 1) (a11yHidden true))
     tag NumHint   EVGElement (props (className "cx-numhint") (elementType 1))
 
+    ; ReUI's step block: an eyebrow, a title and a state badge under the
+    ; circle, with a separator running to the next step.
+    tag StepCol   EVGElement (props (className "cx-stepcol"))
+    tag Eyebrow   EVGElement (props (className "cx-eyebrow") (elementType 1) (a11yHidden true))
+    tag Badge     EVGElement (props (className "cx-badge"))
+    tag BadgeTxt  EVGElement (props (className "cx-badgetxt") (elementType 1) (a11yHidden true))
+    tag PanelBox  EVGElement (props (className "cx-panelbox") (role "region"))
+    tag PanelTxt  EVGElement (props (className "cx-paneltxt") (elementType 1))
+
+    ; The sliders. Four variants from the screenshots, over one SliderCtl each.
+    tag Slides    EVGElement (props (className "cx-slides"))
+    tag Slide     EVGElement (props (className "cx-slide"))
+    tag SlideLbl  EVGElement (props (className "cx-slidelbl") (elementType 1))
+    tag Track     EVGElement (props (className "cx-track"))
+    tag Range     EVGElement (props (className "cx-range"))
+    tag Thumb     EVGElement (props (className "cx-thumb") (role "slider"))
+    tag Refs      EVGElement (props (className "cx-refs"))
+    tag RefTxt    EVGElement (props (className "cx-reftxt") (elementType 1) (a11yHidden true))
+    tag Ticks     EVGElement (props (className "cx-ticks"))
+    tag Tick      EVGElement (props (className "cx-tick"))
+    tag TickMark  EVGElement (props (className "cx-tickmark"))
+    tag TickTxt   EVGElement (props (className "cx-ticktxt") (elementType 1) (a11yHidden true))
+    tag Bubble    EVGElement (props (className "cx-bubble"))
+    tag BubbleTxt EVGElement (props (className "cx-bubbletxt") (elementType 1) (a11yHidden true))
+    tag Emoji     EVGElement (props (className "cx-emoji") (elementType 1) (a11yHidden true))
+    tag BandTxt   EVGElement (props (className "cx-bandtxt") (elementType 1) (a11yHidden true))
+
     tag Actions   EVGElement (props (className "cx-actions"))
     tag Btn       EVGElement (props (className "cx-btn") (role "button"))
     tag BtnTxt    EVGElement (props (className "cx-btntxt") (elementType 1) (a11yHidden true))
@@ -86,6 +114,13 @@ class ControlsDemo {
     def stepper:StepperCtl (new StepperCtl())
     def bar:ProgressCtl (new ProgressCtl())
     def num:NumberCtl (new NumberCtl())
+    ; The four slider variants from the screenshots. Each is a real SliderCtl
+    ; — the measured one — differing only in what its presentation layer is
+    ; told, which is the point: four pictures, one control.
+    def storage:SliderCtl (new SliderCtl())
+    def duration:SliderCtl (new SliderCtl())
+    def volume:SliderCtl (new SliderCtl())
+    def rating:SliderCtl (new SliderCtl())
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def transitions:EVGTransition (new EVGTransition())
@@ -114,6 +149,72 @@ class ControlsDemo {
         bar.maxValue = 4.0
         bar.value = 0.0
         bar.build()
+
+        ; ReUI's own three steps, with its icons named rather than drawn: the
+        ; controller holds a NAME and the theme decides what "card" looks like.
+        ; Named intermediates, NOT `stepper.stepAt(0).icon = …`. Ranger has no
+        ; field assignment on a call result — and it does not reject one, it
+        ; silently assigns to a temporary. The first version of this block
+        ; compiled cleanly and set nothing, so every circle drew the fallback
+        ; glyph and the panel was empty.
+        ;
+        ; The gate did not catch it because the gate is JavaScript, where
+        ; `c.stepAt(0).complete = true` works exactly as it reads. The same
+        ; expression means two different things on the two sides of this
+        ; boundary, and only one of them is a mistake.
+        def s0:StepItem (stepper.stepAt(0))
+        def s1:StepItem (stepper.stepAt(1))
+        def s2:StepItem (stepper.stepAt(2))
+        def s3:StepItem (stepper.stepAt(3))
+        s0.icon = "user"
+        s1.icon = "card"
+        s2.icon = "lock"
+        s0.content = "Name, email and how to reach you."
+        s1.content = "Card number, expiry and billing address."
+        s2.content = "The six digits we just sent you."
+        s3.content = "Check it over before it goes."
+
+        ; --- the four sliders ------------------------------------------------
+        ; Reference labels: the ends and the midpoint, with a unit a reader
+        ; would otherwise never hear.
+        storage.tid = "cx-storage"
+        storage.name = "Storage"
+        storage.minValue = 5
+        storage.maxValue = 35
+        storage.value = 12
+        storage.unitSuffix = " GB"
+        storage.build()
+
+        ; Tick marks: every month draws a mark, every second one a number.
+        duration.tid = "cx-duration"
+        duration.name = "Duration (months)"
+        duration.minValue = 0
+        duration.maxValue = 12
+        duration.value = 5
+        duration.tickStep = 1
+        duration.skipInterval = 2
+        duration.build()
+
+        ; A bubble over the thumb.
+        volume.tid = "cx-volume"
+        volume.name = "Volume"
+        volume.value = 50
+        volume.unitSuffix = "%"
+        volume.build()
+
+        ; A rating whose value is a WORD — the one that is an accessibility
+        ; fix rather than decoration: at 3 a reader hears "Okay", not "3".
+        rating.tid = "cx-rating"
+        rating.name = "Rate your experience"
+        rating.minValue = 1
+        rating.maxValue = 5
+        rating.value = 3
+        rating.addBand(1 "Awful" "😭")
+        rating.addBand(2 "Poor" "🙁")
+        rating.addBand(3 "Okay" "😐")
+        rating.addBand(4 "Good" "🙂")
+        rating.addBand(5 "Great" "😍")
+        rating.build()
 
         num.tid = "cx-num"
         num.name = "Quantity"
@@ -211,6 +312,131 @@ class ControlsDemo {
         return "cx-btntxt cx-btntxt-off"
     }
 
+    ; A glyph name to a character. The controller holds NAMES so a theme can
+    ; decide what an icon looks like; this is that decision, in one place.
+    sfn glyphFor:string (name:string) {
+        if (name == "check") { return "✓" }
+        if (name == "spinner") { return "◌" }
+        if (name == "user") { return "☺" }
+        if (name == "card") { return "▤" }
+        if (name == "lock") { return "🔒" }
+        return "•"
+    }
+
+    ; The track, the filled range and the thumb — the three the measured
+    ; controller owns. Every position here is its FRACTION times the width.
+    def trackW:double 300.0
+
+    fn trackFor:EVGElement (s:SliderCtl) {
+        def track (tree Ctl (Track (props (id (s.tid + "-track")))))
+        UiTree.inline(track "width" (ControlsDemo.px(trackW)))
+        def range (tree Ctl (Range (props (id (s.tid + "-range")))))
+        UiTree.inline(range "width" (ControlsDemo.px(((s.thumbFraction()) * trackW))))
+        track.addChild(range)
+        def thumb (tree Ctl (Thumb (props (id (s.tid + "-thumb")) (a11yLabel s.name))))
+        ; The thumb is where the VALUE lives — measured against Radix, which
+        ; puts role=slider and the value on the thumb and not on the track.
+        ; The FLAGS as well as the numbers. `a11yHasValue` and `a11yHasRange`
+        ; are what make the element path emit them at all — setting the values
+        ; alone leaves a slider that announces its name and nothing about where
+        ; it sits, which is the exact defect SliderCtl's header says forced the
+        ; trace to grow, reappearing on the other path.
+        thumb.a11yHasRange = true
+        thumb.a11yHasValue = true
+        thumb.a11yValueMin = s.minValue
+        thumb.a11yValueMax = s.maxValue
+        thumb.a11yValueNow = s.value
+        thumb.a11yValue = (s.valueText())
+        ; Centred on its position: half the thumb's own width back, or it
+        ; hangs off the right end at the maximum.
+        UiTree.inline(thumb "left" (ControlsDemo.px((((s.thumbFraction()) * trackW) - 7.0))))
+        track.addChild(thumb)
+        return track
+    }
+
+    sfn px:string (v:double) {
+        def scaled:int (to_int (v * 100.0))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) { frac = (0 - frac) }
+        def fs:string (to_string frac)
+        if (frac < 10) { fs = "0" + fs }
+        return ((to_string whole) + "." + fs + "px")
+    }
+
+    ; Reference labels: the ends and the midpoint, spread under the track.
+    fn sliderWithRefs:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        box.addChild((this.trackFor(s)))
+        def refs (tree Ctl (Refs))
+        UiTree.inline(refs "width" (ControlsDemo.px(trackW)))
+        def mid:int (s.minValue + (idiv (s.maxValue - s.minValue) 2))
+        refs.addChild((tree Ctl (RefTxt ((to_string s.minValue) + s.unitSuffix))))
+        refs.addChild((tree Ctl (RefTxt ((to_string mid) + s.unitSuffix))))
+        refs.addChild((tree Ctl (RefTxt ((to_string s.maxValue) + s.unitSuffix))))
+        box.addChild(refs)
+        return box
+    }
+
+    ; Tick marks: EVERY tick draws a mark, only a major one is tall and
+    ; carries a number. Two rules from ReUI's source, and an implementation
+    ; keeping one of them draws either a bare ruler or a crowded one.
+    fn sliderWithTicks:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        box.addChild((this.trackFor(s)))
+        def ticks (tree Ctl (Ticks))
+        UiTree.inline(ticks "width" (ControlsDemo.px(trackW)))
+        def i:int 0
+        while (i < (s.tickCount())) {
+            def major:boolean (s.tickIsMajor(i))
+            def cell (tree Ctl (Tick))
+            def markCls:string "cx-tickmark cx-tickmark-minor"
+            if major {
+                markCls = "cx-tickmark cx-tickmark-major"
+            }
+            cell.addChild((tree Ctl (TickMark (props (className markCls)))))
+            def label:string ""
+            if major {
+                label = (to_string (s.tickValue(i)))
+            }
+            cell.addChild((tree Ctl (TickTxt label)))
+            ticks.addChild(cell)
+            i = (i + 1)
+        }
+        box.addChild(ticks)
+        return box
+    }
+
+    ; A bubble sitting over the thumb, carrying the formatted value.
+    fn sliderWithBubble:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        def bubble (tree Ctl
+            (Bubble (props (id (s.tid + "-bubble")))
+                (BubbleTxt (s.formatted()))))
+        ; Over the thumb, and back by half its own width so it is centred on
+        ; the value rather than starting at it.
+        UiTree.inline(bubble "left" (ControlsDemo.px((((s.thumbFraction()) * trackW) - 22.0))))
+        box.addChild(bubble)
+        box.addChild((this.trackFor(s)))
+        return box
+    }
+
+    ; The rating: a face at the end of the track and the band word under it.
+    ; The WORD is what a reader hears — see SliderCtl.valueText.
+    fn sliderWithRating:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        def row (tree Ctl (Refs))
+        row.addChild((this.trackFor(s)))
+        row.addChild((tree Ctl (Emoji (s.currentEmoji()))))
+        box.addChild(row)
+        box.addChild((tree Ctl (BandTxt (s.currentBand()))))
+        return box
+    }
+
     fn page:EVGElement () {
         def page (tree Ctl (Page))
         page.addChild((tree Ctl (Title "Checkout")))
@@ -223,28 +449,45 @@ class ControlsDemo {
             def st:StepItem (stepper.stepAt(i))
             def state:string (stepper.stateOf(i))
             def item (tree Ctl
+                ; The BADGE, matching what `StepperCtl.rows()` reports on the
+                ; controller path. This used to be the raw state word, so the
+                ; same node was named "Account, completed" here and "Account,
+                ; Completed" there — one node, two names, and a conformance
+                ; comparison between the paths would have called it a
+                ; divergence when it was just this demo disagreeing with the
+                ; controller it draws.
                 (Step (props (id ("cx-step-" + st.key))
-                             (a11yLabel (st.label + ", " + state)))))
+                             (a11yLabel (st.label + ", " + (stepper.badgeAt(i)))))))
             ; MEASURED-adjacent, and the whole shape decision: aria-current
             ; "step", never aria-selected.
             if (i == stepper.current) {
                 item.a11yCurrent = "step"
             }
-            def mark:string (to_string (i + 1))
-            if st.complete {
-                ; A tick, not the numeral, once it is done. One glyph alone in
-                ; a centred box — the measurer falls back to half an em outside
-                ; 32..126 and that spaces a RUN wrongly, which this is not.
-                mark = "✓"
-            }
+            ; The indicator ReUI's `indicators` map decides: a tick once done,
+            ; a spinner while working, the step's own icon otherwise. One glyph
+            ; alone in a centred box — the measurer falls back to half an em
+            ; outside 32..126, which spaces a RUN wrongly and does not apply.
+            def mark:string (ControlsDemo.glyphFor((stepper.indicatorAt(i))))
             item.addChild((tree Ctl
                 (Dot (props (className (this.dotClass(i))))
                     (DotTxt (props (className (this.dotTextClass(i)))) mark))))
-            item.addChild((tree Ctl
+            ; ReUI's block under the circle: eyebrow, title, state badge.
+            def col (tree Ctl (StepCol))
+            col.addChild((tree Ctl (Eyebrow (stepper.eyebrowAt(i)))))
+            col.addChild((tree Ctl
                 (StepLbl (props (className (this.stepLabelClass(i)))) st.label)))
+            col.addChild((tree Ctl
+                (Badge (props (className ("cx-badge cx-badge-" + state)))
+                    (BadgeTxt (props (className ("cx-badgetxt cx-badgetxt-" + state)))
+                        (stepper.badgeAt(i))))))
+            item.addChild(col)
             strip.addChild(item)
-            if (i < (n - 1)) {
-                strip.addChild((tree Ctl (Rail)))
+            ; The separator belongs to the step BEFORE it and takes ITS state —
+            ; colouring it from the step it points at leaves a green line
+            ; running into a pending circle.
+            if (stepper.hasSeparatorAfter(i)) {
+                strip.addChild((tree Ctl
+                    (Rail (props (className ("cx-rail cx-rail-" + (stepper.separatorStateAt(i))))))))
             }
             i = (i + 1)
         }
@@ -277,6 +520,12 @@ class ControlsDemo {
         page.addChild((tree Ctl
             (BarTxt (props (id "cx-bartxt"))
                 ((to_string (stepper.completedCount())) + " of " + (to_string n) + " steps done"))))
+
+        ; ReUI renders a StepperContent per step and shows the current one.
+        def curStep:StepItem (stepper.stepAt(stepper.current))
+        page.addChild((tree Ctl
+            (PanelBox (props (id "cx-panel") (a11yLabel curStep.label))
+                (PanelTxt curStep.content))))
 
         ; --- the number field --------------------------------------------------
         def panel (tree Ctl (Panel))
@@ -315,6 +564,14 @@ class ControlsDemo {
         panel.addChild(row)
         panel.addChild((tree Ctl (NumHint "0 to 99. Shift+Arrow moves by 10 — not PageUp, which does nothing.")))
         page.addChild(panel)
+
+        ; --- the four sliders ---------------------------------------------------
+        def slides (tree Ctl (Slides))
+        slides.addChild((this.sliderWithRefs(storage)))
+        slides.addChild((this.sliderWithTicks(duration)))
+        slides.addChild((this.sliderWithBubble(volume)))
+        slides.addChild((this.sliderWithRating(rating)))
+        page.addChild(slides)
 
         ; --- back and next -----------------------------------------------------
         def actions (tree Ctl (Actions))

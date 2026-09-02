@@ -623,6 +623,7 @@
     "ui:number:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/numberfield_check.mjs",
     "ui:stepper:oracle": "node gallery/ui/conformance/oracle/stepper_oracle.mjs",
     "ui:stepper:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/stepper_check.mjs",
+    "ui:slider:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/slider_check.mjs",
     "ui:eventcal:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/eventcal_check.mjs",
     "ui:filters:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/filters_check.mjs",
     "ui:switch:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/switch_check.mjs",

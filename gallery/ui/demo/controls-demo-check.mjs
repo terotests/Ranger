@@ -105,7 +105,7 @@ console.log("the linear gate is VISIBLE, not merely refused");
   // It also has to LOOK unreachable — a circle that looks clickable and is not
   // is worse than one that looks disabled.
   const dot = byId(d, "cx-step-payment").children[0];
-  ok("its circle carries the upcoming token", (dot.className || "").includes("cx-dot-upcoming"), dot.className);
+  ok("its circle carries ReUI's inactive token", (dot.className || "").includes("cx-dot-inactive"), dot.className);
   const nextBtn = byId(d, "cx-next");
   ok("and Next is drawn as unavailable", (nextBtn.className || "").includes("cx-btn-off"), nextBtn.className);
 }
@@ -217,6 +217,101 @@ console.log("the number field's own rules survive being drawn");
   eq("Shift+ArrowUp jumps by ten", (() => { e.keyWithShift("ArrowUp"); e.displayListJson(); return texts(e).includes("11"); })(), true);
 }
 
+console.log("ReUI's step block: icon, eyebrow, title, badge, separator");
+{
+  const d = fresh();
+  const t = texts(d);
+  // The icons come from the CONTROLLER as names and are turned into glyphs
+  // here. The first version of that assignment used
+  // `stepper.stepAt(0).icon = …`, which Ranger accepts and silently applies
+  // to a temporary — it compiled clean and set nothing, so every circle drew
+  // the fallback. This gate is JavaScript, where that same expression works,
+  // so only a rendered check can catch it.
+  ok("the first step draws its own icon, not the fallback", t.includes("☺"), t.join("/"));
+  ok("the second draws its own", t.includes("▤"), t.join("/"));
+  ok("and none of them is the fallback bullet at step one", t.indexOf("☺") < t.indexOf("•"), t.join("/"));
+  ok("the eyebrow counts from one", t.includes("Step 1") && t.includes("Step 4"), t.join("/"));
+  // ReUI's badge words, not prettified state names.
+  ok("the current step reads In Progress", t.includes("In Progress"), t.join("/"));
+  ok("and the rest read Pending", t.filter((x) => x === "Pending").length === 3, t.join("/"));
+  // The panel under the strip shows the current step's content.
+  ok("the panel shows the current step's content", t.includes("Name, email and how to reach you."), t.join("/"));
+
+  // Complete step one and the separator after it greens, while the next stays.
+  clickOn(d, "cx-num");
+  clickOn(d, "cx-num-inc");
+  // Filling it does NOT make the current step read Completed — the step you
+  // are ON is active even when satisfied, which is ReUI's own precedence and
+  // the reason `stateOf` tests position before completion.
+  ok("the step you are on still reads In Progress", texts(d).includes("In Progress"), texts(d).join("/"));
+  clickOn(d, "cx-next");
+  const after = texts(d);
+  ok("but once you leave it, it reads Completed", after.includes("Completed"), after.join("/"));
+  ok("and shows a tick instead of its icon", after.includes("✓"), after.join("/"));
+  ok("while its own icon is gone", !after.includes("☺"), after.join("/"));
+}
+
+console.log("the sliders: four pictures, one measured control");
+{
+  const d = fresh();
+  const t = texts(d);
+  // Reference labels — the ends and the midpoint, with the unit.
+  ok("the storage slider labels its ends", t.includes("5 GB") && t.includes("35 GB"), t.join("/"));
+  ok("and its midpoint", t.includes("20 GB"), t.join("/"));
+  // The ruler: every other tick carries a number, and 1/3/5 do not.
+  for (const n of ["0", "2", "4", "6", "8", "10", "12"]) {
+    ok(`the ruler shows ${n}`, t.includes(n), t.join("/"));
+  }
+  ok("but not the odd months", !t.includes("11"), t.join("/"));
+  // The bubble, and the rating's word.
+  ok("the volume bubble reads its unit", t.includes("50%"), t.join("/"));
+  ok("the rating shows a face", t.includes("😐"), t.join("/"));
+  ok("and the word under it", t.includes("Okay"), t.join("/"));
+}
+
+console.log("the slider geometry is the controller's fraction, in pixels");
+{
+  const d = fresh();
+  // 20 of a 5..35 range is HALFWAY, not 57%. The trap is dividing by max
+  // alone, and it is only visible once the fractions become pixels.
+  const track = byId(d, "cx-storage-track");
+  const range = byId(d, "cx-storage-range");
+  eq("the storage fill is half the track",
+    Math.round(range.calculatedWidth), Math.round(track.calculatedWidth * (12 - 5) / 30));
+  const thumb = byId(d, "cx-storage-thumb");
+  ok("and the thumb sits on the fill's end",
+    Math.abs((thumb.calculatedX + thumb.calculatedWidth / 2) - (range.calculatedX + range.calculatedWidth)) < 2,
+    `${thumb.calculatedX + thumb.calculatedWidth / 2} vs ${range.calculatedX + range.calculatedWidth}`);
+  // The tick marks: minor ones are shorter than major ones. Two rules, and an
+  // implementation keeping one draws a bare ruler or a crowded one.
+  const marks = flat(d).filter((e) => (e.className || "").includes("cx-tickmark"));
+  eq("there are thirteen marks", marks.length, 13);
+  const major = marks.filter((e) => (e.className || "").includes("major"));
+  const minor = marks.filter((e) => (e.className || "").includes("minor"));
+  eq("seven of them are major", major.length, 7);
+  eq("and six are minor", minor.length, 6);
+  ok("the minor ones are drawn shorter",
+    minor[0].calculatedHeight < major[0].calculatedHeight,
+    `${minor[0].calculatedHeight} vs ${major[0].calculatedHeight}`);
+}
+
+console.log("a reader hears the word, not the number");
+{
+  const d = fresh();
+  const ns = nodes(d);
+  const rating = ns.find((n) => n.id === "cx-rating-thumb");
+  // The whole point of the band labels: 3 of 5 tells a reader nothing.
+  eq("the rating slider announces its band", rating.value, "Okay");
+  eq("while its raw value is still there", rating.now, 3);
+  const storage = ns.find((n) => n.id === "cx-storage-thumb");
+  eq("the storage slider announces its unit", storage.value, "12 GB");
+  const duration = ns.find((n) => n.id === "cx-duration-thumb");
+  // No unit and no bands, so the attribute stays ABSENT rather than
+  // duplicating aria-valuenow.
+  ok("a bare slider announces no valuetext", !duration.value, String(duration.value));
+  eq("but still reports its position", duration.now, 5);
+}
+
 console.log("clicking a stepper button leaves focus on the field");
 {
   // The page gate caught this and this gate did not, so it belongs here too —
@@ -277,12 +372,20 @@ console.log("what a reader is told");
   const box = ns.find((n) => n.id === "cx-num");
   eq("the field says what it holds", box.value, "0");
   eq("and what kind of field it is", box.roledesc, "Number field");
-  // "current" while you are standing on it — position wins over completion.
+  // ReUI's badge words, and its precedence: the step you are STANDING ON is
+  // "In Progress" even when satisfied, because position wins over completion.
   const here = ns.find((n) => n.id === "cx-step-account");
-  eq("the step you are on says current", here.name, "Account, current");
+  eq("the step you are on says In Progress", here.name, "Account, In Progress");
   d.press("cx-next"); d.displayListJson();
   const done = JSON.parse(d.a11yJson(2, "")).nodes.find((n) => n.id === "cx-step-account");
-  eq("and says complete once you have left it", done.name, "Account, complete");
+  eq("and Completed once you have left it", done.name, "Account, Completed");
+  // The slider's position reaches a reader on the ELEMENT path too. It did
+  // not until `a11yHasValue`/`a11yHasRange` were set: the numbers alone are
+  // not enough, and a slider announcing only its name is the defect that
+  // forced this trace to grow in the first place.
+  const rate = ns.find((n) => n.id === "cx-rating-thumb");
+  eq("the rating slider reports a position", rate.now, 3);
+  eq("and its range", `${rate.min}..${rate.max}`, "1..5");
 }
 
 console.log(`\npassed=${passed} failed=${failed}`);

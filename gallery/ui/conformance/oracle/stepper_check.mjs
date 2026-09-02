@@ -14,6 +14,13 @@
 // — is the DECISION: a Radix tablist and an ordered list with
 // aria-current="step", captured side by side, so the choice between them rests
 // on what each publishes and how each answers a key.
+//
+// THE SOURCE ARRIVED LATER. The user supplied ReUI's own component source, so
+// the parts that were guessed at are now specified from it: the state words
+// are its `data-[state=completed|active|inactive]`, the badges are its "In
+// Progress"/"Completed"/"Pending", and `loading` exists because its Stepper
+// takes an `indicators.loading`. Sections below say which of the two they
+// stand on.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -152,10 +159,10 @@ console.log("\nSPECIFIED — what each step is, which the index alone cannot say
   // after it that a caller satisfied is not upcoming. Position decides only
   // which is current.
   const c = mk({ at: 2, linear: false, complete: [0, 3] });
-  eq("a finished earlier step is complete", c.stateOf(0), "complete");
-  eq("a skipped earlier step is NOT complete", c.stateOf(1), "upcoming");
-  eq("the one you are on is current", c.stateOf(2), "current");
-  eq("a finished later step is complete, not upcoming", c.stateOf(3), "complete");
+  eq("a finished earlier step is completed", c.stateOf(0), "completed");
+  eq("a skipped earlier step is NOT completed", c.stateOf(1), "inactive");
+  eq("the one you are on is active", c.stateOf(2), "active");
+  eq("a finished later step is completed, not inactive", c.stateOf(3), "completed");
   eq("and the count follows the flags, not the position", c.completedCount(), 2);
 }
 
@@ -163,16 +170,68 @@ console.log("\nSPECIFIED — what a reader is told");
 {
   const c = mk({ at: 1, complete: [0] });
   const r = rows(c);
-  eq("each step says its state out loud", r["st-address"].name, "Address, current");
-  eq("including the finished one", r["st-account"].name, "Account, complete");
-  eq("and the ones still to come", r["st-payment"].name, "Payment, upcoming");
+  eq("each step says its state out loud", r["st-address"].name, "Address, In Progress");
+  eq("including the finished one", r["st-account"].name, "Account, Completed");
+  eq("and the ones still to come", r["st-payment"].name, "Payment, Pending");
   // No ARIA attribute carries "complete" or "upcoming", so a reader arriving
   // on step three must not have to infer it from silence.
   eq("position in the set is published", `${r["st-payment"].setPos}/${r["st-payment"].setSize}`, "3/4");
   eq("and there is a live status saying where you are", r["st-position"].name, "Step 2 of 4");
   eq("which is a status role, so moving is announced", r["st-position"].role, 20);
   eq("exactly one step is a tab stop", Array.from(c.rows()).filter((x) => x.tabStop).length, 1);
+  // ReUI renders a StepperContent per step and shows the current one. A panel
+  // that changed under a reader with no name is a region that moved on its own.
+  eq("the panel is named for the step it belongs to", r["st-panel"].name, "Address");
+  eq("and is a region", r["st-panel"].role, 27);
   eq("and it is the current one", Array.from(c.rows()).find((x) => x.tabStop).tid, "st-address");
+}
+
+console.log("\nSPECIFIED FROM ReUI'S SOURCE — its words, not prettified state names");
+{
+  const c = mk({ at: 1, complete: [0] });
+  // The state words are ReUI's data-[state=...] values. A theme written
+  // against its attribute would match nothing if these were renamed.
+  eq("completed", c.stateOf(0), "completed");
+  eq("active", c.stateOf(1), "active");
+  eq("inactive", c.stateOf(2), "inactive");
+  // And the badge text is ITS text: the mapping is not one-to-one, because
+  // `active` reads "In Progress" rather than "Active".
+  eq("the active step's badge", c.badgeAt(1), "In Progress");
+  eq("the completed step's badge", c.badgeAt(0), "Completed");
+  eq("a pending step's badge", c.badgeAt(2), "Pending");
+  eq("the eyebrow counts from one", c.eyebrowAt(0), "Step 1");
+  eq("and follows the index", c.eyebrowAt(3), "Step 4");
+}
+
+console.log("\nSPECIFIED FROM ReUI'S SOURCE — the loading state its indicators imply");
+{
+  // ReUI's Stepper takes indicators={{completed, loading}}, so a step can be
+  // WORKING — an OTP being checked — which is neither done nor waiting.
+  // Nothing else in the component could express that.
+  const c = mk({ at: 2, complete: [0, 1] });
+  c.stepAt(2).loading = true;
+  eq("a working step is loading", c.stateOf(2), "loading");
+  eq("and says so", c.badgeAt(2), "Verifying");
+  eq("its indicator is a spinner", c.indicatorAt(2), "spinner");
+  // Loading beats active: the step you are on that is checking itself is
+  // reported as checking, not as merely current.
+  eq("which outranks being the current step", c.stateOf(2) !== "active", true);
+  eq("a finished step shows a tick", c.indicatorAt(0), "check");
+  c.stepAt(3).icon = "lock";
+  eq("and an ordinary one shows its own icon", c.indicatorAt(3), "lock");
+}
+
+console.log("\nSPECIFIED FROM ReUI'S SOURCE — the separator belongs to the step BEFORE it");
+{
+  // ReUI draws one after every step but the last and greens it from
+  // `group-data-[state=completed]/step`, which is the step it hangs off — not
+  // the one it points at. Getting that backwards leaves a green line running
+  // into a pending circle.
+  const c = mk({ at: 1, complete: [0] });
+  eq("there is a separator after the first step", c.hasSeparatorAfter(0), true);
+  eq("and none after the last", c.hasSeparatorAfter(3), false);
+  eq("the one after a finished step is completed", c.separatorStateAt(0), "completed");
+  eq("and the one after an unfinished step is not", c.separatorStateAt(1), "inactive");
 }
 
 console.log("\nSPECIFIED — Home and End go where you are ALLOWED to go");

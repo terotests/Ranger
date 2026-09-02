@@ -60,6 +60,16 @@ class StepItem {
     ; disabled tab is, which IS a behaviour worth borrowing from the tablist
     ; capture even though the rest of it is not.
     def disabled:boolean false
+    ; Working: the step is being checked and is neither done nor waiting.
+    ; ReUI's `indicators.loading` is what made this a real state rather than a
+    ; flag a caller keeps beside the stepper.
+    def loading:boolean false
+    ; The glyph in the circle when the step is neither done nor working. A
+    ; NAME, not a path: the demo decides what "card" looks like, and a
+    ; controller that held SVG would be deciding a theme's business.
+    def icon:string ""
+    ; What the panel under the strip shows for this step.
+    def content:string ""
 
     Constructor () {
     }
@@ -119,18 +129,87 @@ class StepperCtl extends UiCtl {
     ; it that a caller has already satisfied is not "upcoming". So `complete`
     ; is the caller's flag and position only decides which one is current.
 
+    ; ReUI'S OWN WORDS, from the component source: its markup keys off
+    ; `data-[state=completed]`, `data-[state=active]` and
+    ; `data-[state=inactive]`. This used to say current/complete/upcoming,
+    ; which was a reasonable guess made when no source was available and is
+    ; now simply the wrong vocabulary — a theme written against ReUI's
+    ; attribute would match nothing.
+    ;
+    ; `loading` is ReUI's fourth: its Stepper takes `indicators={{completed,
+    ; loading}}`, so a step can be WORKING — an OTP being checked — which is
+    ; neither done nor waiting. Nothing else in this component could express
+    ; that, and a spinner is the one indicator a person actually waits on.
     fn stateOf:string (i:int) {
         def s:StepItem (this.stepAt(i))
         if s.disabled {
             return "disabled"
         }
+        if s.loading {
+            return "loading"
+        }
         if (i == current) {
-            return "current"
+            return "active"
         }
         if s.complete {
-            return "complete"
+            return "completed"
         }
-        return "upcoming"
+        return "inactive"
+    }
+
+    ; The badge ReUI draws beside each title. From the source: "In Progress",
+    ; "Completed", "Pending" — its own words, not a prettified state name, and
+    ; the mapping is not one-to-one (`active` reads "In Progress").
+    sfn badgeFor:string (state:string) {
+        if (state == "active") { return "In Progress" }
+        if (state == "completed") { return "Completed" }
+        if (state == "loading") { return "Verifying" }
+        if (state == "disabled") { return "Unavailable" }
+        return "Pending"
+    }
+
+    fn badgeAt:string (i:int) {
+        return (StepperCtl.badgeFor((this.stateOf(i))))
+    }
+
+    ; "Step 1", the eyebrow above each title. One-based, because a person
+    ; counting steps starts at one and ReUI's source prints `index + 1`.
+    fn eyebrowAt:string (i:int) {
+        return "Step " + (to_string (i + 1))
+    }
+
+    ; Which glyph the circle carries. A tick once done, a spinner while
+    ; working, the step's own icon otherwise — ReUI's `indicators` map, with
+    ; the icon falling through when neither applies.
+    fn indicatorAt:string (i:int) {
+        def st:string (this.stateOf(i))
+        if (st == "completed") {
+            return "check"
+        }
+        if (st == "loading") {
+            return "spinner"
+        }
+        def s:StepItem (this.stepAt(i))
+        return s.icon
+    }
+
+    ; --- the separator between two steps -------------------------------------
+    ;
+    ; ReUI draws one after every step but the last, and colours it green once
+    ; the step BEFORE it is done. So it belongs to the earlier step, which is
+    ; the half an implementation gets backwards — colouring it from the step
+    ; it points at leaves a green line running into a pending circle.
+
+    fn hasSeparatorAfter:boolean (i:int) {
+        return (i < ((array_length steps) - 1))
+    }
+
+    fn separatorStateAt:string (i:int) {
+        def s:StepItem (this.stepAt(i))
+        if s.complete {
+            return "completed"
+        }
+        return "inactive"
     }
 
     ; --- can you go there? ---------------------------------------------------
@@ -333,7 +412,9 @@ class StepperCtl extends UiCtl {
             ; a reader arriving on step three should not have to infer from
             ; silence whether it is done.
             def st:string (this.stateOf(i))
-            r.name = s.label + ", " + st
+            ; The BADGE, not the raw state word: it is what the screen says,
+            ; and "In Progress" is more use to a reader than "active".
+            r.name = s.label + ", " + (StepperCtl.badgeFor(st))
             r.state = st
             r.setPos = (i + 1)
             r.setSize = n
@@ -348,6 +429,17 @@ class StepperCtl extends UiCtl {
             push out r
             i = (i + 1)
         }
+
+        ; The panel under the strip. ReUI renders one StepperContent per step
+        ; and shows the current one; a reader needs it named by the step it
+        ; belongs to, or it is an unlabelled region that changed on its own.
+        def cur:StepItem (this.stepAt(current))
+        def panel:UiRow (new UiRow ())
+        panel.tid = tid + "-panel"
+        panel.parentTid = tid
+        panel.role = (EVGA11yRole.region())
+        panel.name = cur.label
+        push out panel
 
         ; "Step 2 of 4" as a live status, so moving is announced. Without it a
         ; reader hears a new step's name and nothing about where it sits.

@@ -174,6 +174,11 @@ SUITES=(
   # last step to the first, which is not something that can happen to a person
   # filling in a form.
   ui:stepper:check
+  # The slider's ReUI presentation layer — ticks with a skip interval, a value
+  # bubble, reference labels, and a rating whose value is a WORD. That last one
+  # is an accessibility fix and not decoration: a thumb at 3 announces "3",
+  # and the screen says "Okay".
+  ui:slider:check
   ui:semantics:check
   # What a string index MEANS, compiled to both backends and diffed. JS counts
   # UTF-16 code units and C++ counts UTF-8 bytes — an old comment in InputCtl
