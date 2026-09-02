@@ -426,6 +426,14 @@ function indexHtml(entries, warnings) {
     lines you type to it, method by method, drawing the answer as you edit.
   </div>
   <div class="note">
+    <strong>Responsive layout, live.</strong>
+    <a href="responsive/">One page, laid out on every frame</a> at the width of
+    your window. The <code>@media</code> blocks, <code>vw</code> lengths and the
+    card grid are resolved by the compiled engine in the browser, and the
+    browser is handed finished pixels &mdash; drag the window edge and watch the
+    whole pipeline run again.
+  </div>
+  <div class="note">
     <strong>Bitmap tracer, live.</strong>
     <a href="tracer/">Upload a JPEG/PNG</a>, tweak Potrace-style parameters
     (<code>turdsize</code>, <code>alphamax</code>, color posterize) and
@@ -612,6 +620,19 @@ fs.writeFileSync(path.join(OUT, "gl", "view.html"), viewerHtml(faceCss.join("\n 
     path.join(OUT, "tracer"),
   ], { cwd: ROOT, stdio: "inherit" });
   process.stdout.write("  tracer/ (live)\n");
+}
+
+// ---- live responsive page --------------------------------------------------
+// The third page that runs rather than being rendered, and the only one whose
+// LAYOUT is the thing running: the compiled engine lays the page out again at
+// whatever width the reader's window is.
+{
+  execFileSync(process.execPath, [
+    path.join(ROOT, "gallery/evg/web/responsive/build.mjs"),
+    "--out",
+    path.join(OUT, "responsive"),
+  ], { cwd: ROOT, stdio: "inherit" });
+  process.stdout.write("  responsive/ (live)\n");
 }
 
 const unique = [...new Set(allWarnings)];
