@@ -99,8 +99,19 @@ console.log("the linear gate is VISIBLE, not merely refused");
   const d = fresh();
   // Step three has not been reached. Clicking its circle must do nothing.
   const before = texts(d).join("|");
+  const wasOn = d.stepper.current;
   const r = clickOn(d, "cx-step-payment");
-  eq("clicking an unreachable step is refused", r.handled, false);
+  // THE CLICK HAS TO LAND FIRST. This used to assert `r.handled === false`,
+  // and it passed for the wrong reason: the stepper's steps were laid out on
+  // top of one another, so the centre of `cx-step-payment` was over something
+  // else entirely and `press` refused a target it did not recognise. A gate
+  // that reads "the click was refused" while the click never arrived says
+  // nothing about the linear rule at all.
+  eq("the click reaches the step it aimed at", r.hit, "cx-step-payment");
+  // And then the rule, stated as the behaviour rather than as `press`'s
+  // bookkeeping: `press` returns true for "I know this target and rebuilt",
+  // which is not the same claim as "I moved".
+  eq("the step you are on does not change", d.stepper.current, wasOn);
   eq("and nothing on the page changed", texts(d).join("|"), before);
   // It also has to LOOK unreachable — a circle that looks clickable and is not
   // is worse than one that looks disabled.

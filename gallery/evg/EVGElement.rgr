@@ -2960,6 +2960,37 @@ class EVGElement {
         ; on top of one another. Chromium gives each rail 320 — the 640 of free
         ; space split two ways — which is what the oracle beside this now
         ; asserts.
+        ; `position`, WHICH WAS ALSO NOT HERE. The field exists, the layout
+        ; branches on it — `if (kid.position == "absolute")` in half a dozen
+        ; places — and until now the ONLY way to set it was from Ranger code.
+        ; Every `position: absolute` written in a stylesheet was read, matched,
+        ; and dropped on the floor.
+        ;
+        ; What that looked like: `.cx-thumb { position: absolute }` on the
+        ; sliders. The thumb stayed in flow, so it took horizontal space beside
+        ; the filled range instead of riding over it, and the two overlapped by
+        ; exactly the thumb's overhang. `.fd-menu` in the filter bar is the same
+        ; fault with a louder symptom — a popup that pushes the rows below it
+        ; instead of covering them.
+        ;
+        ; `fixed` maps to `absolute`: EVG has one out-of-flow mode and tests for
+        ; that string by name. The difference between them is which box you are
+        ; positioned against, and nothing here models a viewport separate from
+        ; the root, so calling it absolute is honest rather than approximate.
+        ; `sticky` has no implementation at all and stays in flow, which is what
+        ; it does until it sticks.
+        if (name == "position") {
+            def pv:string (trim value)
+            if ((pv == "absolute") || (pv == "fixed")) {
+                position = "absolute"
+                return
+            }
+            if ((pv == "static") || (pv == "relative") || (pv == "sticky")) {
+                position = "relative"
+                return
+            }
+            return
+        }
         if ((name == "flex-grow") || (name == "flexGrow")) {
             def gv@(optional):double (to_double value)
             if gv {
