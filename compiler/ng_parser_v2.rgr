@@ -37,6 +37,10 @@ class RangerLispParser {
   def curr_node@(optional weak):CodeNode
   def had_error:boolean false
   def disableOperators false
+  ; ISSUES.md #76: numbers the temporaries that `recv.call(a).field = v` is
+  ; desugared into. Per parser instance, so per FILE; the temporaries are
+  ; block locals, so two files never see each other's.
+  def recv_tmp_count:int 0
 
   ; Accept LF, CRLF, and lone CR — normalize to LF before tokenization.
   ; Use split/join (linear) instead of repeated substring rebuilds (quadratic on
@@ -1314,7 +1318,7 @@ class RangerLispParser {
             ; ISSUES.md #76. `recv.call(args).field = value` scans the trailing
             ; `.field` as a vref whose NAME BEGINS WITH A DOT: the receiver in
             ; front of it was the call, which has already been folded into a
-            ; group. Nothing downstream knows what to do with that shape, so
+            ; group. Nothing downstream knew what to do with that shape, so
             ; the statement degraded to just the call and the STORE VANISHED
             ; with a clean compile — silent wrong-code generation, the same
             ; severity as #65 and by the one route #65's guard does not cover
@@ -1330,7 +1334,8 @@ class RangerLispParser {
             ;                         `((b).at(0)).rename(x)` correctly.
             ;   `((b.at(0)).name)`    next is `)` — a READ inside an
             ;                         expression, which has always worked.
-            ;   `b.at(0).name = x`    next is `=` — the broken assignment.
+            ;   `b.at(0).name = x`    next is `=` — the assignment, which
+            ;                         the block below rewrites.
             ;
             ; `==` is excluded so a comparison on a call result stays a legal
             ; read. Measured with an instrumented parser rather than reasoned
@@ -1354,16 +1359,97 @@ class RangerLispParser {
                   }
                 }
                 if isAssign76 {
-                  def err76:CodeNode (new CodeNode(( unwrap code) sp ep))
-                  def line76:int (err76.getLine())
-                  print ((err76.getFilename()) + " Line: " + line76)
-                  print "Parser error: a field of a call result can not be assigned to directly."
-                  print (err76.getLineString(line76))
-                  print "The assignment would be silently dropped. Bind the call result first:"
-                  print "    def recv:SomeType (the.call())"
-                  print "    recv.field = value"
-                  had_error = true
-                  break
+                  ; DESUGARED, not rejected. `recv.call(a).field = v` becomes
+                  ; the two statements it already had to be written as:
+                  ;
+                  ;     def __rgr_recv_1 (recv.call(a))
+                  ;     __rgr_recv_1.field = v
+                  ;
+                  ; Both halves are shapes the compiler already handles — a
+                  ; `def` with an inferred type, and a plain field store on a
+                  ; local — so nothing downstream of the parser changes. The
+                  ; receiver is the children `pTarget` has accumulated so far
+                  ; (the callee vref and its argument group); they are MOVED
+                  ; into the new `def`, and the dot-leading vref is renamed to
+                  ; hang off the temporary instead of off nothing.
+                  ;
+                  ; The `def` has to land in the enclosing BLOCK, ahead of the
+                  ; statement being parsed. It is already a child of that block
+                  ; (a statement is pushed onto the block before its own parse
+                  ; begins), so the insert point is that statement's own index
+                  ; — found by start offset, which is unique per statement,
+                  ; rather than by identity.
+                  ;
+                  ; When the shape is not one this can rewrite — no enclosing
+                  ; block, or no receiver to move — the old diagnostic stands.
+                  ; Silently dropping the store is the one outcome that is
+                  ; never acceptable.
+                  def stmt76@(optional weak):CodeNode pTarget
+                  def blk76@(optional weak):CodeNode stmt76.parent
+                  def stmtIdx76:int (0 - 1)
+                  if (!null? blk76) {
+                    if (blk76.is_block_node && (((array_length pTarget.children)) > 0)) {
+                      def k76:int (((array_length blk76.children)) - 1)
+                      while (k76 >= 0) {
+                        def cand76:CodeNode (itemAt blk76.children k76)
+                        if (cand76.sp == stmt76.sp) {
+                          stmtIdx76 = k76
+                          break
+                        }
+                        k76 = k76 - 1
+                      }
+                    }
+                  }
+                  if (stmtIdx76 >= 0) {
+                    recv_tmp_count = recv_tmp_count + 1
+                    def tmp76:string ("__rgr_recv_" + (to_string recv_tmp_count))
+
+                    def defNode76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    defNode76.expression = true
+                    defNode76.parent = blk76
+
+                    def kw76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    kw76.vref = "def"
+                    kw76.value_type = RangerNodeType.VRef
+                    kw76.parsed_type = RangerNodeType.VRef
+                    kw76.ns = (strsplit "def" ".")
+                    kw76.parent = defNode76
+                    push defNode76.children kw76
+
+                    def nm76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    nm76.vref = tmp76
+                    nm76.value_type = RangerNodeType.VRef
+                    nm76.parsed_type = RangerNodeType.VRef
+                    nm76.ns = (strsplit tmp76 ".")
+                    nm76.parent = defNode76
+                    push defNode76.children nm76
+
+                    def rcv76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    rcv76.expression = true
+                    rcv76.parent = defNode76
+                    while (((array_length pTarget.children)) > 0) {
+                      def mv76:CodeNode (array_extract pTarget.children 0)
+                      mv76.parent = rcv76
+                      push rcv76.children mv76
+                    }
+                    push defNode76.children rcv76
+
+                    insert blk76.children stmtIdx76 defNode76
+
+                    new_vref_node.vref = (tmp76 + new_vref_node.vref)
+                    new_vref_node.ns = (strsplit new_vref_node.vref ".")
+                  } {
+                    def err76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    def line76:int (err76.getLine())
+                    print ((err76.getFilename()) + " Line: " + line76)
+                    print "Parser error: a field of a call result can not be assigned to directly."
+                    print (err76.getLineString(line76))
+                    print "The assignment would be silently dropped. Bind the call result first:"
+                    print "    def recv:SomeType (the.call())"
+                    print "    recv.field = value"
+                    had_error = true
+                    break
+                  }
                 }
               }
             }

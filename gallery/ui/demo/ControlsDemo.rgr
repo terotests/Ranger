@@ -152,27 +152,22 @@ class ControlsDemo {
 
         ; ReUI's own three steps, with its icons named rather than drawn: the
         ; controller holds a NAME and the theme decides what "card" looks like.
-        ; Named intermediates, NOT `stepper.stepAt(0).icon = …` — ISSUES.md #76.
-        ; That spelling used to compile and DROP THE STORE: the emitted JS kept
-        ; the call and lost the assignment entirely, so every circle drew the
-        ; fallback glyph and the panel was empty, with a clean compile. The
-        ; gate could not catch it either, because the gate is JavaScript, where
-        ; that same line works exactly as it reads.
         ;
-        ; The parser now REJECTS it and names this repair, so the shape cannot
-        ; go silent again. This comment stays as the reason the file is written
-        ; this way, not as a warning about a live hazard.
-        def s0:StepItem (stepper.stepAt(0))
-        def s1:StepItem (stepper.stepAt(1))
-        def s2:StepItem (stepper.stepAt(2))
-        def s3:StepItem (stepper.stepAt(3))
-        s0.icon = "user"
-        s1.icon = "card"
-        s2.icon = "lock"
-        s0.content = "Name, email and how to reach you."
-        s1.content = "Card number, expiry and billing address."
-        s2.content = "The six digits we just sent you."
-        s3.content = "Check it over before it goes."
+        ; Written the way it reads. This spelling is what found ISSUES.md #76:
+        ; it used to compile and DROP THE STORE — the emitted JS kept the call
+        ; and lost the assignment entirely, so every circle drew the fallback
+        ; glyph and the panel was empty, with a clean compile. The gate could
+        ; not catch it either, because the gate is JavaScript, where the same
+        ; line works exactly as it reads. The parser now desugars it into the
+        ; temporary this block used to spell out by hand, so the file that
+        ; found the bug is also the file that exercises the fix.
+        stepper.stepAt(0).icon = "user"
+        stepper.stepAt(1).icon = "card"
+        stepper.stepAt(2).icon = "lock"
+        stepper.stepAt(0).content = "Name, email and how to reach you."
+        stepper.stepAt(1).content = "Card number, expiry and billing address."
+        stepper.stepAt(2).content = "The six digits we just sent you."
+        stepper.stepAt(3).content = "Check it over before it goes."
 
         ; --- the four sliders ------------------------------------------------
         ; Reference labels: the ends and the midpoint, with a unit a reader

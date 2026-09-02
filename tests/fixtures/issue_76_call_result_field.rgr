@@ -1,0 +1,85 @@
+; ISSUES.md #76 — `recv.call(args).field = value`.
+;
+; This spelling used to compile CLEANLY and drop the store: the call was
+; emitted, the assignment was not. The parser now desugars it into a temporary
+; plus a plain field store, so every line below has to take effect.
+;
+; The reads at the bottom are here to prove the rewrite did not swallow the
+; shapes that were already legal.
+
+class Inner {
+    def tag:string "unset"
+    Constructor () {
+    }
+}
+
+class Item {
+    def name:string "unset"
+    def n:int 0
+    def inner:Inner
+    Constructor () {
+        inner = (new Inner ())
+    }
+    fn self:Item () {
+        return this
+    }
+}
+
+class Box {
+    def items:[Item]
+    Constructor () {
+    }
+    fn add:void () {
+        def it:Item (new Item ())
+        push items it
+    }
+    fn at:Item (idx:int) {
+        return (itemAt items idx)
+    }
+    fn first:Item () {
+        return (itemAt items 0)
+    }
+}
+
+class Main {
+    Constructor () {
+    }
+    sfn say:void (b:Box) {
+        def z:Item (b.at(0))
+        def o:Item (b.at(1))
+        print ((((z.name + "|") + (to_string z.n)) + "|") + z.inner.tag)
+        print ((((o.name + "|") + (to_string o.n)) + "|") + o.inner.tag)
+    }
+    sfn main:void () {
+        def b:Box (new Box ())
+        b.add()
+        b.add()
+
+        ; the bare shape, with an argument
+        b.at(0).name = "zero"
+        b.at(1).name = "one"
+        ; a zero-argument call
+        b.first().n = 42
+        ; a chained receiver
+        b.at(1).self().n = 7
+        ; a nested field path after the call
+        b.at(0).inner.tag = "deep"
+        Main.say(b)
+
+        ; inside a nested block, and twice in the same block
+        def k:int 0
+        while (k < 2) {
+            b.at(k).n = (k + 100)
+            b.at(k).inner.tag = ("in-loop-" + (to_string k))
+            k = k + 1
+        }
+        Main.say(b)
+
+        ; reads on a call result must still be reads
+        def r:string ((b.at(0)).name)
+        print ("read|" + r)
+        if (((b.at(1)).name) == "one") {
+            print "cmp|ok"
+        }
+    }
+}

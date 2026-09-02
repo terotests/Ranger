@@ -6033,6 +6033,7 @@ class RangerLispParser  {
     this.get_op_pred = 0;     /** note: unused */
     this.had_error = false;
     this.disableOperators = false;
+    this.recv_tmp_count = 0;
     this.source_text = RangerLispParser.normalizeLineEndings(code_module.code);
     this.buff = this.source_text;
     this.code = code_module;
@@ -7156,16 +7157,66 @@ class RangerLispParser  {
                   }
                 }
                 if ( isAssign76 ) {
-                  const err76 = new CodeNode(this.code, sp, ep);
-                  const line76 = err76.getLine();
-                  console.log((err76.getFilename() + " Line: ") + line76);
-                  console.log("Parser error: a field of a call result can not be assigned to directly.");
-                  console.log(err76.getLineString(line76));
-                  console.log("The assignment would be silently dropped. Bind the call result first:");
-                  console.log("    def recv:SomeType (the.call())");
-                  console.log("    recv.field = value");
-                  this.had_error = true;
-                  break;
+                  const stmt76 = pTarget;
+                  const blk76 = stmt76.parent;
+                  let stmtIdx76 = 0 - 1;
+                  if ( (typeof(blk76) !== "undefined" && blk76 != null )  ) {
+                    if ( blk76.is_block_node && ((pTarget.children.length) > 0) ) {
+                      let k76 = (blk76.children.length) - 1;
+                      while (k76 >= 0) {
+                        const cand76 = blk76.children[k76];
+                        if ( cand76.sp == stmt76.sp ) {
+                          stmtIdx76 = k76;
+                          break;
+                        }
+                        k76 = k76 - 1;
+                      };
+                    }
+                  }
+                  if ( stmtIdx76 >= 0 ) {
+                    this.recv_tmp_count = this.recv_tmp_count + 1;
+                    const tmp76 = "__rgr_recv_" + ((this.recv_tmp_count.toString()));
+                    const defNode76 = new CodeNode(this.code, sp, ep);
+                    defNode76.expression = true;
+                    defNode76.parent = blk76;
+                    const kw76 = new CodeNode(this.code, sp, ep);
+                    kw76.vref = "def";
+                    kw76.value_type = 11;
+                    kw76.parsed_type = 11;
+                    kw76.ns = "def".split(".");
+                    kw76.parent = defNode76;
+                    defNode76.children.push(kw76);
+                    const nm76 = new CodeNode(this.code, sp, ep);
+                    nm76.vref = tmp76;
+                    nm76.value_type = 11;
+                    nm76.parsed_type = 11;
+                    nm76.ns = tmp76.split(".");
+                    nm76.parent = defNode76;
+                    defNode76.children.push(nm76);
+                    const rcv76 = new CodeNode(this.code, sp, ep);
+                    rcv76.expression = true;
+                    rcv76.parent = defNode76;
+                    while ((pTarget.children.length) > 0) {
+                      const mv76 = pTarget.children.splice(0, 1).pop();
+                      mv76.parent = rcv76;
+                      rcv76.children.push(mv76);
+                    };
+                    defNode76.children.push(rcv76);
+                    blk76.children.splice(stmtIdx76, 0, defNode76);
+                    new_vref_node.vref = tmp76 + new_vref_node.vref;
+                    new_vref_node.ns = new_vref_node.vref.split(".");
+                  } else {
+                    const err76 = new CodeNode(this.code, sp, ep);
+                    const line76 = err76.getLine();
+                    console.log((err76.getFilename() + " Line: ") + line76);
+                    console.log("Parser error: a field of a call result can not be assigned to directly.");
+                    console.log(err76.getLineString(line76));
+                    console.log("The assignment would be silently dropped. Bind the call result first:");
+                    console.log("    def recv:SomeType (the.call())");
+                    console.log("    recv.field = value");
+                    this.had_error = true;
+                    break;
+                  }
                 }
               }
             }

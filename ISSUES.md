@@ -270,15 +270,15 @@ compile; `main:void` untouched; runtime element values unchanged).
 
 ## Issue #76: Assigning to a field of a call result silently drops the assignment
 
-**Status:** Fixed — the parser now rejects it (September 2026)
+**Status:** Fixed — the parser now compiles it (September 2026)
 **Severity:** **Critical** (silent wrong-code generation; no diagnostic at all)
 **Found:** September 2026, drawing the ReUI stepper in `gallery/ui/demo/ControlsDemo.rgr`
 **Targets:** front-end, so every backend inherits it
 
 ### Description
 
-A statement of the form `recv.method(args).field = value` compiles without a
-word of complaint and does nothing. The call is emitted; the store is not.
+A statement of the form `recv.method(args).field = value` compiled without a
+word of complaint and did nothing. The call was emitted; the store was not.
 
 This is the same failure #65 documents — silent wrong-code generation with no
 diagnostic — reached by the path #65's guard does not cover. That guard rejects
@@ -291,8 +291,14 @@ them is safe:
 | spelling | result |
 |---|---|
 | `(b.at(0)).name = "x"` | **rejected** by the parser, with guidance (#65's guard) |
-| `b.at(0).name = "x"` | **compiles, does nothing** — this issue |
+| `b.at(0).name = "x"` | **compiled, did nothing** — this issue; now compiles and stores |
 | `def t:Item (b.at(0))` then `t.name = "x"` | works |
+
+The first row is unchanged by this fix and is **still rejected**, verified after
+the change: a statement that *begins* with a parenthesis is caught by #65's
+guard long before the dot-leading vref this issue is about is ever scanned.
+Nothing is lost by that — the bare spelling beside it now works, and it is the
+one people write.
 
 ### Reproduction
 
@@ -321,7 +327,7 @@ class Main {
 }
 ```
 
-### What is emitted
+### What was emitted
 
 ```js
 function __js_main() {
@@ -343,7 +349,7 @@ One line, two meanings across the boundary, and only one of them a mistake.
 
 ### What has been ruled out
 
-Four probes, each compiled and run, narrowing where the store is lost:
+Four probes, each compiled and run, narrowing where the store was lost:
 
 | probe | result |
 |---|---|
@@ -357,7 +363,7 @@ So:
 - **The parser handles the chain.** A method call on a call result parses and
   renders correctly, and the renderer already produces exactly the receiver
   syntax an assignment would need.
-- **Reading is fine.** Only writing is lost.
+- **Reading is fine.** Only writing was lost.
 - **It is not arity.** A zero-argument call fails the same way.
 - **It is lost before codegen.** Nothing of the assignment appears in the
   output at all — not a mangled store, no store.
@@ -368,15 +374,15 @@ So:
   nothing — the statement never reaches operator matching in this shape.
   (Tried and reverted; recorded so nobody spends the afternoon on it twice.)
 
-That leaves the symbol/vref scanner in `ng_parser_v2.rgr`, which appears to
-absorb the trailing `.field` into the chain it is building and then drop it
-when the statement turns out to be an assignment rather than a call.
+That left the symbol/vref scanner in `ng_parser_v2.rgr`, which absorbed the
+trailing `.field` into the chain it was building and then dropped it when the
+statement turned out to be an assignment rather than a call.
 
 ### The fix
 
 The trailing `.field` is scanned as a vref **whose name begins with a dot** —
 there is no receiver in front of it, because the receiver was the call, already
-folded into a group. Nothing downstream knows that shape, so the statement
+folded into a group. Nothing downstream knew that shape, so the statement
 collapsed to the call alone.
 
 Two other shapes reach the same point with a dot-leading vref and are both
@@ -388,35 +394,115 @@ reasoning:
 |---|---|---|
 | `b.at(0).rename(x)` | `(` | chained method CALL — folds correctly today |
 | `((b.at(0)).name)` | `)` | READ inside an expression — always worked |
-| `b.at(0).name = x` | `=` | the broken assignment |
+| `b.at(0).name = x` | `=` | the assignment, this issue |
 
-So the guard fires on a dot-leading vref followed by `=`, excluding `==` so a
-comparison on a call result stays a legal read. `ng_parser_v2.rgr`, beside the
-guard added for #65.
+At that point — a dot-leading vref followed by `=`, with `==` excluded so a
+comparison on a call result stays a legal read — the parser now **desugars the
+statement into the two it always had to be written as**:
 
-The message names the repair, because the shape has one:
-
-```
-Parser error: a field of a call result can not be assigned to directly.
-        b.first().name = "zeroarg"
-The assignment would be silently dropped. Bind the call result first:
-    def recv:SomeType (the.call())
-    recv.field = value
+```ranger
+b.at(0).name = "x"
 ```
 
-### What was NOT done, and why
+becomes, before anything downstream sees it,
 
-Making the syntax *work* — emitting the store — was tried and abandoned. The
-obvious route is the operator declaration in `Lang.rgr`,
+```ranger
+def __rgr_recv_1 (b.at(0))
+__rgr_recv_1.name = "x"
+```
+
+Both halves are shapes the compiler already handled: a `def` whose type is
+inferred from a call, and a plain field store on a local. **Nothing downstream
+of the parser changed** — no new operator overload, no codegen change, no type
+rule. That is the whole reason this route works where the `Lang.rgr` route
+ruled out above does not.
+
+The surgery is three moves at the detection point in `ng_parser_v2.rgr`:
+
+1. The children the statement node has accumulated so far *are* the receiver
+   (the callee vref and its argument group). They are moved into the new
+   `def`'s value expression.
+2. The `def` is inserted into the enclosing **block**, immediately ahead of the
+   statement being parsed. The statement is already a child of that block — a
+   statement is pushed onto its block before its own parse begins — so the
+   insert point is that statement's own index, found by start offset, which is
+   unique per statement, rather than by object identity.
+3. The dot-leading vref is renamed from `.name` to `__rgr_recv_1.name`, so it
+   hangs off the temporary instead of off nothing. Parsing then continues
+   normally and the `=` is matched by the ordinary `cmdAssign` overload.
+
+The temporaries are numbered per parser instance, so per **file**; they are
+block locals, so two files never see each other's.
+
+The old diagnostic is kept as the `else` branch, for a shape this cannot
+rewrite — no enclosing block, or no receiver to move. Silently dropping the
+store is the one outcome that must never come back.
+
+### What it emits
+
+```js
+const __rgr_recv_1 = (b).at(0);
+__rgr_recv_1.name = "zero";
+const __rgr_recv_2 = (b).at(1);
+__rgr_recv_2.name = "one";
+const __rgr_recv_3 = (b).first();
+__rgr_recv_3.n = 42;
+```
+
+### What was tried first, and does not work
+
+The obvious route is the operator declaration in `Lang.rgr`,
 `= cmdAssign:void ( target:vref expr:expression )`: a call chain is not a plain
 `vref`, so no overload can match. Adding a sibling overload with an expression
-target and rebuilding the compiler changes nothing; the statement never reaches
-operator matching in this shape. Recorded so the next person does not spend an
-afternoon on it.
+target and rebuilding the compiler changes nothing — **the statement never
+reaches operator matching in this shape**, because the dot-leading vref is
+already lost by then. Recorded so the next person does not spend an afternoon
+on it. The parser is the only place early enough to see the receiver still
+intact.
 
-That leaves it a feature rather than a fix: the language now refuses the shape
-and says what to write instead, which is what #65 chose for its own spelling.
-Nothing in the repository used the pattern, so nothing had to change.
+### Verified
+
+A probe compiled and run against the rebuilt compiler, covering the shapes that
+reach the rewrite and the ones that must not:
+
+| shape | result |
+|---|---|
+| `b.at(0).name = "zero"` | stores |
+| `b.first().n = 42` — zero-arg call | stores |
+| `b.at(k).n = (k + 100)` inside a `while` block | stores |
+| two rewrites in the same block | both store, distinct temporaries |
+| `b.at(0).self().name = "chained"` — chained receiver | stores |
+| `b.at(0).inner.tag = "deep"` — nested field path | stores |
+| `b.at(i).n = (i + 7)` inside a `for` block | stores |
+| `((b.at(1)).name) == "one"` | still a READ, unchanged |
+| `def r:string ((b.at(0)).name)` | still a READ, unchanged |
+
+The compiler bootstraps to a fixpoint on the change (stage1 == stage2 ==
+stage3), and all 79 gallery editor suites pass.
+
+The probe is kept as `tests/fixtures/issue_76_call_result_field.rgr` with
+`tests/compiler-issue-76.test.ts` over it, so it is a gate rather than a
+session. The gate reads the program's OUTPUT, not the emitted source: grepping
+for `__rgr_recv_` would pass on a rewrite that stored the wrong thing, and fail
+on a future fix that reached the same result another way.
+
+Mutation-proved against both earlier states of the compiler, by compiling and
+running the same fixture:
+
+| compiler | result |
+|---|---|
+| before any fix (`f57e27d^`) | **compiles cleanly, prints `unset\|0\|unset` four times** — every store dropped, and the comparison branch never fires |
+| the reject-only fix (`f57e27d`) | parse error, no output |
+| this fix | the eight expected lines |
+
+`vitest` is not installed in the environment this was written in, so the test
+file itself was not executed here; the fixture was compiled and run directly
+with `bin/output.js` and its output matched every assertion in the file,
+line for line.
+
+`gallery/ui/demo/ControlsDemo.rgr` — the file that found the bug — is written
+back in the natural spelling, so the fix has a live user rather than only a
+probe.
 
 ---
 
