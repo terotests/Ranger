@@ -7,7 +7,8 @@ npm run evg:inspect:demo     # the dashboard, WebGL, with the panel
 npm run pptx:html:serve      # the slide editor, SVG — add ?inspect=1
 npm run evg:inspect:test     # the gates, no browser
 npm run evg:inspect:web      # the panel, in a real browser
-npm run evg:inspect:shots    # remake the two pictures below
+npm run evg:inspect:live     # a rule on disk → the painter, end to end
+npm run evg:inspect:shots    # remake the pictures below
 ```
 
 An EVG app in a browser is one `<canvas>`. Open the browser's dev tools on it
@@ -19,6 +20,10 @@ ask it anything.
 This is the panel that answers. Add `?inspect=1` to a host that has been wired
 to it and you get the element hierarchy, the box model drawn over the real
 pixels, the computed style, and the draw commands each element emitted.
+
+Edit `gallery/ui/demo/*.css` while the demo page is open and the picture
+follows on save. That is not a reload of the page and nothing is patched — see
+[the stylesheet is an input](#the-stylesheet-is-an-input).
 
 ![the dashboard, inspected](shots/dashboard.png)
 
@@ -149,6 +154,121 @@ In the picture above, the ellipse on slide 4 is selected and the commands pane
 says it became a `RECT` and a `BORDER` at 456,288, 288×192, radius 96 — which
 is how a preset ellipse is drawn.
 
+## Which classes reach this element
+
+This cascade selects on **classes and nothing else** — an `EVGStyleRule` carries
+a class, a state, a theme and a media block, and the subset of CSS it implements
+has nothing else in a selector. That is a limitation with a useful side: the set
+of rules that can ever touch a node is exactly the set written against one of
+its classes, so the panel can list them completely rather than guessing, and
+that list is the answer to *where do I go to change this*.
+
+Two things are shown with it, and both matter before you edit anything:
+
+* **how many elements each class reaches.** `.db-card` is four cards. There is
+  no way to reach one of them without giving it a class of its own, so a panel
+  that let you edit `.db-card` without saying that would be inviting a surprise.
+* **an element with no class at all is unreachable.** `applyTo` returns
+  immediately when `className` is empty, so no rule can ever style it, and
+  whatever it looks like was set on it directly. The panel says so instead of
+  showing an empty rule list that looks like a bug.
+
+The rules themselves come out of the plan, in cascade order, winners and losers
+together:
+
+```
+  RULES, STRONGEST LAST
+  .db-card                                          4 elements
+    display          flex
+    border-radius    14px
+    background-color ▪ #ffffff
+```
+
+Nothing is scored here and no selector is re-matched. `buildPlan` calls
+`planGroup` in the four passes that **are** the precedence — plain, themed,
+stateful, themed-and-stateful — and the last write wins, so "which declaration
+won" is read off the end of the list. The panel cannot disagree with the engine
+about who won because it is not deciding, it is reading. That is gate 6.
+
+The record itself is one int per planned declaration in `EVGStyleSheet.planRules`,
+pushed beside the name and value `planGroup` already pushes. It is **per plan,
+not per element**: a 1600-row table has a handful of plans and a hundred
+thousand applications of them, and the same record made at apply time would be
+paid a hundred thousand times over.
+
+A declaration that lost to an inline value is marked separately from one that
+lost to another rule — see below.
+
+## The stylesheet is an input
+
+![the sheet, edited in the panel](shots/css.png)
+
+This is why the panel can edit at all, and why it needs no override layer.
+
+**The element tree is an app's output.** Edit it and the next rebuild throws
+the edit away — which is exactly why a DevTools style edit dies on a React
+re-render, and why editing the tree would need a table of overrides re-applied
+after every pass, an invalidation story, and a way to detect the app writing
+over you.
+
+**The stylesheet is an app's input.** `init(css)` is how every demo here starts.
+Hand back a changed one and the app re-parses and re-cascades exactly as it did
+at startup; the layout, the display list and the hit test follow because they
+always did. Nothing is intercepted, no value is held over the app's head, and
+**the text in the editor is the text that goes in the file** — there is no
+"copy as CSS" step because there is nothing to translate.
+
+Two routes into the same operation, and they cannot drift:
+
+```
+  the panel's CSS pane ─┐
+                        ├─► app.inspectSetCss(text) ─► EVGStyleSheet.reload
+  a save on disk ───────┘        ▲
+     │                           │
+     └─ serve.mjs watch ─► SSE ─┘   (npm run evg:inspect:demo)
+```
+
+`npm run evg:inspect:live` gates the whole path and checks the **colour of a
+rectangle in the display list**, not the element and not the panel: a value
+that reached the element and stopped there would be a frame still showing the
+old colour, and that is the failure worth catching.
+
+### `reload`, and the trap it exists for
+
+`EVGStyleSheet.reload(css)` is not `new EVGStyleSheet()` at the call site, and
+both reasons are silent when got wrong.
+
+`parse` **appends**. It drops the plans and adds rules; it does not remove what
+is already there. Parsing twice into one sheet leaves every rule in it twice,
+which mostly looks like it worked because the duplicates agree — until one of
+them is edited.
+
+And `generation` starts at 1, so a fresh sheet is at 2 after its first parse —
+exactly where the sheet it replaced was. `applyTo` skips an element whose
+`styleGen` already equals the generation, so **every retained element would be
+skipped and the new CSS would land on nothing.** Worse, it fails asymmetrically:
+a page that rebuilds its tree hands the cascade fresh elements with `styleGen`
+0 and works fine. It would pass in the tree-literal demos and fail in an app
+that keeps its tree — which the dashboard does, so gate 7 is run against it
+deliberately.
+
+### What CSS editing cannot reach, and why that is worth showing
+
+* **A value the app set on the element itself.** `inlineProps` is the cascade's
+  own record of what the authoring layer wrote directly, and an inline value
+  outranks every rule. The panel strikes those declarations through and marks
+  them as beaten by inline rather than by another rule — so "why did my edit do
+  nothing" is answered on the spot instead of being a mystery.
+* **`position` in a rule.** `EVGElement.setAttribute` has no branch for it, so
+  the cascade never writes the field; an element is out of flow because it has
+  offsets, an overlay flag, or a `<Layer>` tag. The panel therefore reports the
+  position the **layout used**, not the field, and gate 6 is what would catch a
+  rule that says `position: absolute` with no offsets — the engine ignores it
+  silently today.
+* **Geometry that came from data.** A PPTX slide's shapes are placed by the
+  file, not by a sheet. CSS editing serves that app's chrome; the slide is a
+  different question and the panel does not pretend otherwise.
+
 ## A tree drawn inside a larger surface
 
 The dashboard's tree *is* the page: the boxes are in the surface's own
@@ -185,6 +305,10 @@ against the first, which is the habit the painters already keep:
 | attribution lands inside | a command is inside the box of the element that emitted it — with two exceptions that are real and asserted as such: a text run may overhang by the font's side bearings, a shadow by its blur |
 | the hit test agrees | when it answers, the answer contains the point |
 | off costs nothing | a list built without attribution carries none |
+| the cascade agrees | the winning rule's value is the value on the element, over 2000 properties |
+| a reload lands | a rule added to the sheet reaches a **retained** tree, and the frame |
+| a reload does not double | applying the same text twice leaves the plan the same size |
+| the class counts are the tree's | what the panel says `.db-card` reaches is what the tree has |
 
 The hit-test gate is deliberately one-sided, and the first version of it was
 wrong in a way worth recording: it expected every node to be reachable. The
@@ -200,18 +324,31 @@ the page does answer, so it cannot pass by never being asked.
 `?inspect=1` attaches, that the tree it read has rows, and that the panes
 filled. It runs against the SVG editor because that needs no GPU.
 
+`npm run evg:inspect:live` gates the part that only exists across processes:
+the real dev server, a real save, the real page and the real WebGL painter. It
+also checks that the watch fires **once** per save — `fs.watch` reports the
+truncate and the write separately, and a sheet reloaded three times per
+keystroke would relayout three times.
+
 ## What is not built yet
 
-[`../PLAN_INSPECTOR.md`](../PLAN_INSPECTOR.md) is the whole design; this is
-phases 1 and 3 of it. Not here yet, in the order they are worth doing:
+[`../PLAN_INSPECTOR.md`](../PLAN_INSPECTOR.md) is the whole design. Built:
+the walk and the panel, attribution, the cascade view, and CSS as a live input.
+Not here yet, in the order they are worth doing:
 
-* **the cascade** — which rule set each value, and which rules lost. The panel
-  shows the computed style and marks what the authoring layer set inline
-  (`EVGElement.inlineProps`, the cascade's own record), but not the provenance.
-  That needs `planRules` in `EVGStyleSheet`, recorded in `buildPlan` where the
-  rule is still in hand — per plan, not per element.
-* **editing** — overrides keyed on the path, so a value survives the rebuild
-  that a tree-literal app does on every keystroke.
+* **an async adapter.** Every remaining direction is the same shape — the
+  answer does not come back synchronously: a DevTools extension talks over
+  `inspectedWindow.eval`, a native target over a socket, a paused page out of a
+  snapshot. The panel calls `app.tree()` and parses the result on the spot, and
+  that is the one refactor that is cheap now and expensive later.
+* **forcing a state.** `EVGPseudo.holds` reads four plain fields —
+  `isHovered`, `isFocused`, `isPressed`, `a11yDisabled` — so Chrome's `:hov`
+  toggles are directly available, and editing a `:hover` rule without being
+  able to hold the hover is working blind.
+* **editing a rule in place** rather than appending to the sheet. The
+  provenance names the rule; what is missing is writing back into its block.
+* **saving to disk from the panel**, closing the loop the other way. The dev
+  server already watches; a PUT is the other half.
 * **component debug notes** — a component saying *why*, which no channel
   carries today.
 * **the offline bundle** — one frame in a file, openable with no app running,

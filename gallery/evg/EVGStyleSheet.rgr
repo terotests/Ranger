@@ -231,6 +231,21 @@ class EVGStyleSheet {
     ; the same signature cannot move anything, however much else differs
     ; between them — which is what lets a hover skip layout entirely.
     def planLayoutSig:[string]
+    ; Which RULE asked for each planned declaration — an index into `rules`,
+    ; or -1 for a state clear's initial value. Parallel to `planNames` and
+    ; `planValues`, and the only reason the inspector can say what set a value.
+    ;
+    ; Recorded HERE, in the plan, and not at apply time. By the time a value
+    ; reaches an element the rule is long gone: `buildPlan` flattens every
+    ; matching rule into two arrays and `applyGroup` replays them. Reconstructing
+    ; the answer afterwards by re-matching selectors would be a second
+    ; implementation of the cascade, and a second implementation is a thing
+    ; that can disagree with the first.
+    ;
+    ; It costs one int per planned declaration, PER PLAN. A 1600-row table has
+    ; a handful of plans and a hundred thousand applications of them, so the
+    ; same record made at apply time would be paid a hundred thousand times.
+    def planRules:[int]
 
     ; --- what the last `applyTree` actually did -------------------------------
     ; Reset at the start of every pass. `layoutDirty` is the one that matters:
@@ -264,6 +279,8 @@ class EVGStyleSheet {
         planCount = d
         def e:[string:int]
         planIndex = e
+        def r:[int]
+        planRules = r
     }
 
     ; State the surface once; `applyTree` then honours the media blocks.
@@ -300,6 +317,150 @@ class EVGStyleSheet {
         this.dropPlans()
         def src:string (this.stripComments(css))
         this.parseBlock(src (new EVGMediaQuery()))
+    }
+
+    ; Replace the sheet's contents with a new stylesheet, in place.
+    ;
+    ; TWO REASONS THIS IS NOT `new EVGStyleSheet()` AT THE CALL SITE, and both
+    ; of them are silent when got wrong.
+    ;
+    ; `parse` APPENDS. It drops the plans and adds rules; it does not remove
+    ; the ones already there. Parsing twice into one sheet leaves every rule
+    ; in it twice, which mostly looks like it worked because the duplicates
+    ; agree with each other — until one of them is edited.
+    ;
+    ; And `generation` starts at 1 on a fresh sheet, so a fresh one is at 2
+    ; after its first parse — exactly where the sheet it replaced was.
+    ; `applyTo` skips an element whose `styleGen` already equals the
+    ; generation, so every RETAINED element would be skipped and the new CSS
+    ; would land on nothing at all. Worse, it fails asymmetrically: a page that
+    ; rebuilds its tree hands the cascade fresh elements with `styleGen` 0 and
+    ; works, so this shows up only in the apps that keep their trees.
+    ;
+    ; Reloading in place fixes both: the rules go, and the counter only ever
+    ; goes up, so every element in the tree is stale by construction.
+    fn reload:void (css:string) {
+        def r:[EVGStyleRule]
+        rules = r
+        def e:[string]
+        errors = e
+        ruleCounter = 0
+        this.parse(css)
+    }
+
+    ; --- what set this value -------------------------------------------------
+    ;
+    ; The plan for `slot` as (property, value, rule) triples, in cascade order.
+    ; The order is not sorted here and nothing is scored: `buildPlan` calls
+    ; `planGroup` in the four passes that ARE the precedence — plain, themed,
+    ; stateful, themed-and-stateful — and the last write wins. So "which
+    ; declaration won" is read off the end of the list rather than recomputed,
+    ; which is what stops a panel from disagreeing with the engine about it.
+
+    fn planLength:int (slot:int) {
+        if (slot < 0) {
+            return 0
+        }
+        if (slot >= (array_length planCount)) {
+            return 0
+        }
+        return (itemAt planCount slot)
+    }
+
+    fn planNameAt:string (slot:int i:int) {
+        def from:int (itemAt planStart slot)
+        return (itemAt planNames (from + i))
+    }
+
+    fn planValueAt:string (slot:int i:int) {
+        def from:int (itemAt planStart slot)
+        return (itemAt planValues (from + i))
+    }
+
+    ; -1 where no rule asked for it — a state clear's initial value.
+    fn planRuleAt:int (slot:int i:int) {
+        def from:int (itemAt planStart slot)
+        if ((from + i) >= (array_length planRules)) {
+            return (0 - 1)
+        }
+        return (itemAt planRules (from + i))
+    }
+
+    ; The selector as it was written, reassembled rather than stored. A rule
+    ; knows its class, its state, its theme and its media block, and the
+    ; subset of CSS this cascade implements has nothing else in a selector —
+    ; so this is the whole of it and not a summary of it.
+    fn selectorOf:string (ruleIdx:int) {
+        if (ruleIdx < 0) {
+            return "(initial)"
+        }
+        if (ruleIdx >= (array_length rules)) {
+            return "(gone)"
+        }
+        def rule:EVGStyleRule (itemAt rules ruleIdx)
+        def out:string ("." + rule.className)
+        if (rule.pseudo == 1) { out = (out + ":hover") }
+        if (rule.pseudo == 2) { out = (out + ":focus") }
+        if (rule.pseudo == 3) { out = (out + ":active") }
+        if (rule.pseudo == 4) { out = (out + ":disabled") }
+        if (rule.isThemeScoped()) {
+            out = (((out + "  [theme ") + rule.theme) + "]")
+        }
+        return out
+    }
+
+    fn ruleClassOf:string (ruleIdx:int) {
+        if (ruleIdx < 0) {
+            return ""
+        }
+        if (ruleIdx >= (array_length rules)) {
+            return ""
+        }
+        def rule:EVGStyleRule (itemAt rules ruleIdx)
+        return rule.className
+    }
+
+    ; The `@media` condition the rule was written inside, printed, or "" when
+    ; it was not inside one. It gates the rule; it does not change how strong
+    ; the rule is, and the panel says so by keeping it in its own column.
+    fn ruleMediaOf:string (ruleIdx:int) {
+        if (ruleIdx < 0) {
+            return ""
+        }
+        if (ruleIdx >= (array_length rules)) {
+            return ""
+        }
+        def rule:EVGStyleRule (itemAt rules ruleIdx)
+        def q:EVGMediaQuery rule.media
+        if (q.isEmpty()) {
+            return ""
+        }
+        if q.broken {
+            return "(unparseable — the rules inside it never apply)"
+        }
+        def out:string ""
+        if (q.minWidth >= 0.0) {
+            def v:int (to_int q.minWidth)
+            out = (((out + "min-width: ") + (to_string v)) + "px ")
+        }
+        if (q.maxWidth >= 0.0) {
+            def v2:int (to_int q.maxWidth)
+            out = (((out + "max-width: ") + (to_string v2)) + "px ")
+        }
+        if (q.minHeight >= 0.0) {
+            def v3:int (to_int q.minHeight)
+            out = (((out + "min-height: ") + (to_string v3)) + "px ")
+        }
+        if (q.maxHeight >= 0.0) {
+            def v4:int (to_int q.maxHeight)
+            out = (((out + "max-height: ") + (to_string v4)) + "px ")
+        }
+        if ((strlen q.orientation) > 0) {
+            out = ((out + "orientation: ") + q.orientation + " ")
+        }
+        if (q.pointer == 1) { out = (out + "pointer: coarse ") }
+        if (q.pointer == 2) { out = (out + "pointer: fine ") }
+        return out
     }
 
     ; One level of rules, all under the same media condition. A `@media` block
@@ -1152,6 +1313,9 @@ class EVGStyleSheet {
                         if ((strlen init) > 0) {
                             push planNames decl.name
                             push planValues init
+                            ; No rule asked for this: it is the initial value,
+                            ; put back before the state rules are consulted.
+                            push planRules (0 - 1)
                         }
                         d = (d + 1)
                     }
@@ -1186,6 +1350,7 @@ class EVGStyleSheet {
                             def decl:EVGStyleDecl (itemAt rule.decls d)
                             push planNames decl.name
                             push planValues decl.value
+                            push planRules i
                             d = (d + 1)
                         }
                     }

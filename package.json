@@ -666,6 +666,7 @@
     "evg:inspect:test": "npm run ui:demo:build --silent && node gallery/evg/inspect/inspect-check.mjs",
     "evg:inspect:web": "bash gallery/pptx/web/html/build.sh > /dev/null && node gallery/evg/inspect/browser-smoke.mjs",
     "evg:inspect:shots": "node gallery/evg/inspect/shots.mjs",
+    "evg:inspect:live": "npm run ui:demo:build --silent && node gallery/ui/demo/build.mjs && node gallery/evg/inspect/live-css-check.mjs",
     "evg:inspect:demo": "npm run ui:demo:build --silent && node gallery/ui/demo/build.mjs && node gallery/ui/web/serve.mjs",
     "ui:sortable:motion": "npm run ui:demo:build --silent && node gallery/ui/demo/sortable-motion-check.mjs",
     "ui:tree:checkbox": "npm run ui:demo:build --silent && node gallery/ui/demo/tree-checkbox-check.mjs",

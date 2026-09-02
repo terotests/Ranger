@@ -331,6 +331,9 @@ class DashboardDemo {
 
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
+    ; The sheet's source, kept so the inspector can show and edit the thing the
+    ; app was actually given rather than a reconstruction of it.
+    def cssText:string ""
     def layout@(optional):EVGLayout
     ; Whether that layout is of the tree that is there NOW. Set by every
     ; rebuild, cleared by the layout that answers it.
@@ -517,6 +520,7 @@ class DashboardDemo {
         def s (new EVGStyleSheet())
         s.parse(css)
         sheet = s
+        cssText = css
 
         this.buildSeries()
 
@@ -2194,7 +2198,48 @@ class DashboardDemo {
     fn inspectNodeJson:string (path:string) {
         def r:EVGElement (unwrap root)
         this.laidOut()
-        return (EVGInspect.nodeOf(r path))
+        def sh:EVGStyleSheet (unwrap sheet)
+        return (EVGInspect.nodeOfIn(r path sh))
+    }
+
+    ; --- the sheet as an editable input ---------------------------------------
+    ;
+    ; The element tree is this app's OUTPUT and the stylesheet is its INPUT, so
+    ; the sheet is the thing an inspector can hand back changed. Nothing is
+    ; intercepted and no value is held over the app's head: it re-parses and
+    ; re-cascades exactly as it did at `init`, and everything downstream — the
+    ; layout, the display list, the hit test — follows because it always did.
+    ;
+    ; `reload` and not a fresh `EVGStyleSheet`: a new sheet would restart the
+    ; generation counter and `applyTo` would skip every element still holding
+    ; the old one. `EVGStyleSheet.reload` says the rest.
+    fn inspectCss:string () {
+        return cssText
+    }
+
+    fn inspectSetCss:void (css:string) {
+        cssText = css
+        def sh:EVGStyleSheet (unwrap sheet)
+        sh.reload(css)
+        ; The cascade will rewrite every element — `reload` bumped the
+        ; generation, so nothing in the tree is holding what the sheet says any
+        ; more — but the LAYOUT is cached separately and does not know that.
+        layoutStale = true
+        this.displayListJson()
+    }
+
+    fn inspectStyleErrors:string () {
+        def sh:EVGStyleSheet (unwrap sheet)
+        def out:string "["
+        def i:int 0
+        while (i < (array_length sh.errors)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (EVGInspect.jsonString((itemAt sh.errors i))))
+            i = (i + 1)
+        }
+        return (out + "]")
     }
 
     ; `laidOut` and not `displayListJson`: a hit test wants the layout that is

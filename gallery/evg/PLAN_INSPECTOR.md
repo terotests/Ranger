@@ -1,17 +1,33 @@
 # EVG Inspector — devtools for a picture nobody can read
 
-**Status:** phases 1 and 3 are built — see
-[`inspect/README.md`](inspect/README.md) and `npm run evg:inspect:test`.
+**Status:** phases 1, 2 and 3 are built, and phase 4 turned out to be a
+different feature — see [`inspect/README.md`](inspect/README.md).
 The rest of this file is still design.
 **License:** AGPL-3.0-or-later (Gallery).
 
 > **What exists now.** `EVGInspect.rgr` (the walk, node paths, the box model,
-> the computed style), `inspect/evg-inspect.js` (the panel and the overlay),
-> attribution on `EVGDrawCmd` behind a flag, and two hosts wired to it: the
-> `gallery/ui` dashboard on the WebGL painter and the PPTX slide editor on the
-> SVG one. Five gates in `inspect/inspect-check.mjs`, one browser gate in
-> `inspect/browser-smoke.mjs`. The sections below still describe the design as
-> a whole; where the built thing differs, the README is what shipped.
+> the computed style, the cascade), `EVGStyleSheet.planRules` and
+> `EVGStyleSheet.reload`, `inspect/evg-inspect.js` (the panel, the overlay and
+> a CSS editor), attribution on `EVGDrawCmd` behind a flag, and two hosts wired
+> to it: the `gallery/ui` dashboard on the WebGL painter and the PPTX slide
+> editor on the SVG one. Twenty gates in `inspect/inspect-check.mjs`, one
+> browser gate in `inspect/browser-smoke.mjs`, and one end-to-end gate in
+> `inspect/live-css-check.mjs`.
+>
+> **§7 is superseded and the reason is worth keeping.** That section designs an
+> override layer — a table of (path, property, value) re-applied after every
+> cascade — because an edit written onto an element dies on the next rebuild.
+> It works, and it is unnecessary: the element tree is an app's **output**, but
+> the stylesheet is its **input**, and handing back a changed input needs no
+> interception at all. The app re-parses and re-cascades exactly as it did at
+> `init`, everything downstream follows because it always did, and the text in
+> the editor is the text that goes in the file rather than something to
+> translate. What the override layer was for — surviving a rebuild — is free,
+> because the tree is rebuilt *from* the thing that was edited.
+>
+> The pieces of §7 that survive are the ones about what an edit cannot reach:
+> a value the app writes onto the element, and structure. Both are now shown in
+> the panel rather than fought.
 
 An EVG app in a browser is one `<canvas>` element. Open the browser's dev
 tools on it and you get exactly that: one element, no children, no styles, no
@@ -690,9 +706,9 @@ Each phase is useful on its own; none of them requires the next.
 | # | What | Roughly |
 | --- | --- | --- |
 | 1 | ✅ **built** — `EVGInspect` walk, node paths, tree + box model. In-page panel, overlay, hit-to-select. Read-only, both painters. | the spine |
-| 2 | `planRules`, the cascade view, `units`. Gates 2 and 3. | the reason it is devtools and not a tree dump |
+| 2 | ✅ **built** — `planRules`, the cascade view, `units`. Gates 2 and 3. | the reason it is devtools and not a tree dump |
 | 3 | ✅ **built** (except the binary bridge) — attribution on `EVGDrawCmd`, command list per node, gates 1 and 5. | |
-| 4 | Overrides — `once` and `sticky`, copy-as-CSS. | the loop this exists to shorten |
+| 4 | ↷ **replaced** — CSS as a live input (disk → watch → SSE → the app's own cascade) instead of an override layer. See the note at the top. | the loop this exists to shorten |
 | 5 | `EVGDebug` sink and note format; adopted across `gallery/ui` controllers; note lint. | |
 | 6 | Offline bundle + `npm run evg:inspect`, CI attachment on gate failure. | the highest value per line of the six |
 | 7 | Attached transport over the preview server's `/inspect`; SDL, Android and iOS answering the same ops. | |
