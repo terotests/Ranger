@@ -12,11 +12,11 @@ import UIKit
 // Objective-C runtime. Pinning the name means the lookup does not depend on
 // what the module happens to be called.
 @objc(AppDelegate)
-public final class AppDelegate: UIResponder, UIApplicationDelegate {
+final class AppDelegate: UIResponder, UIApplicationDelegate {
 
-    public var window: UIWindow?
+    var window: UIWindow?
 
-    public func application(
+    func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
@@ -28,20 +28,20 @@ public final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-public final class DashboardViewController: UIViewController {
+final class DashboardViewController: UIViewController {
 
     private let dashboard = DashboardView()
 
-    public override func loadView() {
+    override func loadView() {
         view = dashboard
     }
 
-    public override func viewDidLoad() {
+    override func viewDidLoad() {
         super.viewDidLoad()
         dashboard.start(css: DashboardViewController.loadStylesheet())
     }
 
-    public override func viewDidAppear(_ animated: Bool) {
+    override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         // The key commands live on the view, so it has to be the responder.
         dashboard.becomeFirstResponder()

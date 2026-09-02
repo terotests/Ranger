@@ -9072,7 +9072,7 @@ class CodeFileSystem  {
       var p = parts[i];
       curr_path = (curr_path + p) + "/";
       if ( false == require("fs").existsSync( curr_path ) ) {
-        require("fs").mkdirSync( curr_path);
+        require("fs").mkdirSync( curr_path, { recursive: true });
       }
     };
   };
@@ -25542,6 +25542,50 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( nn.value_type == 15 ) {
             return true;
           }
+          if ( this.isSwiftValueCollectionName(nn.type_name) ) {
+            return true;
+          }
+          return false;
+        };
+        paramNeedsLocalCopy (arg) {
+          if ( arg.set_cnt < 1 ) {
+            return false;
+          }
+          if ( this.paramNeedsInout(arg) ) {
+            return false;
+          }
+          const nn = arg.nameNode;
+          if ( nn.hasFlag("keyword") ) {
+            return false;
+          }
+          if ( nn.value_type == 20 ) {
+            return false;
+          }
+          return true;
+        };
+        async swiftWriteMutableParamCopies (fnDesc, ctx, wr) {
+          for ( let i = 0; i < fnDesc.params.length; i++) {
+            var arg = fnDesc.params[i];
+            if ( this.paramNeedsLocalCopy(arg) ) {
+              wr.out(("var " + arg.compiledName) + " : ", false);
+              await this.writeTypeDef(arg.nameNode, ctx, wr);
+              wr.out((" = " + arg.compiledName) + "__p", true);
+            }
+          };
+        };
+        isSwiftValueCollectionName (tn) {
+          if ( tn == "buffer" ) {
+            return true;
+          }
+          if ( tn == "charbuffer" ) {
+            return true;
+          }
+          if ( tn == "int_buffer" ) {
+            return true;
+          }
+          if ( tn == "double_buffer" ) {
+            return true;
+          }
           return false;
         };
         paramNeedsInout (arg) {
@@ -26057,7 +26101,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( i > 0 ) {
               wr.out(", ", false);
             }
-            wr.out(arg.compiledName + " : ", false);
+            if ( this.paramNeedsLocalCopy(arg) ) {
+              wr.out(((arg.compiledName + " ") + arg.compiledName) + "__p : ", false);
+            } else {
+              wr.out(arg.compiledName + " : ", false);
+            }
             const nn = arg.nameNode;
             if ( nn.value_type == 20 ) {
               wr.out("  @escaping  ", false);
@@ -26079,10 +26127,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out(", ", false);
             }
             const local = localFnDesc.params[i];
+            const wantsCopy = this.paramNeedsLocalCopy(arg) || this.paramNeedsLocalCopy(local);
             if ( local.name != arg.name ) {
               wr.out(arg.compiledName + " ", false);
+            } else {
+              if ( wantsCopy ) {
+                wr.out(arg.compiledName + " ", false);
+              }
             }
-            wr.out(local.compiledName + " : ", false);
+            if ( wantsCopy ) {
+              wr.out(local.compiledName + "__p : ", false);
+            } else {
+              wr.out(local.compiledName + " : ", false);
+            }
             const nn = arg.nameNode;
             if ( nn.hasFlag("strong") ) {
               if ( nn.value_type == 20 ) {
@@ -26655,6 +26712,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.newline();
             const subCtx = constr.fnCtx;
             subCtx.is_function = true;
+            await this.swiftWriteMutableParamCopies(constr, subCtx, wr);
             await this.WalkNode(constr.fnBody, subCtx, wr);
             wr.newline();
             wr.indent(-1);
@@ -26702,6 +26760,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.newline();
             const subCtx_1 = variant_2.fnCtx;
             subCtx_1.is_function = true;
+            await this.swiftWriteMutableParamCopies(variant_2, subCtx_1, wr);
             await this.WalkNode(variant_2.fnBody, subCtx_1, wr);
             wr.newline();
             wr.indent(-1);
@@ -26792,6 +26851,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               subCtx_2.in_static_method = false;
               subCtx_2.currentMethod = variant_3;
               subCtx_2.setCurrentClass(cl);
+              await this.swiftWriteMutableParamCopies(variant_3, subCtx_2, wr);
               await this.WalkNode(variant_3.fnBody, subCtx_2, wr);
               wr.newline();
               wr.indent(-1);
@@ -26813,6 +26873,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               subCtx_3.in_method = false;
               subCtx_3.in_static_method = true;
               subCtx_3.currentMethod = variant_4;
+              await this.swiftWriteMutableParamCopies(
+                variant_4,
+                subCtx_3,
+                theEnd
+              );
               await this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
               theEnd.newline();
               theEnd.indent(-1);

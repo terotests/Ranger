@@ -20,7 +20,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-public final class CoreGraphicsEvgSurface: EvgSurface {
+final class CoreGraphicsEvgSurface: EvgSurface {
 
     private let ctx: CGContext
     /// Faces are made once and reused. This page draws 186 text runs a frame
@@ -28,25 +28,25 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
     /// difference between a frame and a stutter.
     private var fontCache: [String: CTFont] = [:]
 
-    public init(context: CGContext) {
+    init(context: CGContext) {
         self.ctx = context
     }
 
     // MARK: - state
 
-    public func save() {
+    func save() {
         ctx.saveGState()
     }
 
-    public func restore() {
+    func restore() {
         ctx.restoreGState()
     }
 
-    public func clipRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
+    func clipRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
         ctx.clip(to: CGRect(x: x, y: y, width: w, height: h))
     }
 
-    public func rotate(degrees: CGFloat, px: CGFloat, py: CGFloat) {
+    func rotate(degrees: CGFloat, px: CGFloat, py: CGFloat) {
         ctx.translateBy(x: px, y: py)
         ctx.rotate(by: degrees * .pi / 180.0)
         ctx.translateBy(x: -px, y: -py)
@@ -70,7 +70,7 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
         ctx.setShadow(offset: CGSize(width: s.dx, height: s.dy), blur: s.blur, color: s.color.cgColor)
     }
 
-    public func fillRect(
+    func fillRect(
         x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
         radius: CGFloat,
         color: EvgColor,
@@ -116,7 +116,7 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
         ctx.restoreGState()
     }
 
-    public func strokeRect(
+    func strokeRect(
         x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
         radius: CGFloat, thickness: CGFloat,
         color: EvgColor
@@ -164,7 +164,7 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
         return path
     }
 
-    public func fillPath(
+    func fillPath(
         pts: [Double], ringEnds: [Int], evenOdd: Bool,
         color: EvgColor,
         shadow: EvgShadow?
@@ -183,7 +183,7 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
         ctx.restoreGState()
     }
 
-    public func strokePath(
+    func strokePath(
         pts: [Double], ringEnds: [Int],
         thickness: CGFloat,
         color: EvgColor
@@ -208,7 +208,7 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
     /// This page reaches no images, and a surface that drew nothing for one
     /// would be indistinguishable from a surface that drew it wrong. A visible
     /// placeholder is the honest answer until an image cache is wired in.
-    public func drawImage(
+    func drawImage(
         src: String,
         x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
         radius: CGFloat,
@@ -263,7 +263,7 @@ public final class CoreGraphicsEvgSurface: EvgSurface {
         return base
     }
 
-    public func drawTextRun(
+    func drawTextRun(
         text: String,
         x: CGFloat, top: CGFloat,
         sizePx: CGFloat,

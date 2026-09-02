@@ -23,13 +23,13 @@
 import CoreGraphics
 
 /// A colour as the display list carries it: 0-255 channels and a 0-1 alpha.
-public struct EvgColor {
-    public let r: Int
-    public let g: Int
-    public let b: Int
-    public let a: Double
+struct EvgColor {
+    let r: Int
+    let g: Int
+    let b: Int
+    let a: Double
 
-    public init(r: Int, g: Int, b: Int, a: Double) {
+    init(r: Int, g: Int, b: Int, a: Double) {
         self.r = r
         self.g = g
         self.b = b
@@ -42,7 +42,7 @@ public struct EvgColor {
         return CGFloat(v) / 255.0
     }
 
-    public var cgColor: CGColor {
+    var cgColor: CGColor {
         let alpha = a < 0 ? 0 : (a > 1 ? 1 : a)
         return CGColor(
             srgbRed: EvgColor.clamp255(r),
@@ -54,18 +54,18 @@ public struct EvgColor {
 
     /// The same colour with the alpha replaced, for a shadow that carries its
     /// own.
-    public func withAlpha(_ alpha: Double) -> EvgColor {
+    func withAlpha(_ alpha: Double) -> EvgColor {
         EvgColor(r: r, g: g, b: b, a: alpha)
     }
 }
 
 /// A two-stop linear gradient. `vertical` is EVG's `gradDir == 0`.
-public struct EvgGradient {
-    public let color1: EvgColor
-    public let color2: EvgColor
-    public let vertical: Bool
+struct EvgGradient {
+    let color1: EvgColor
+    let color2: EvgColor
+    let vertical: Bool
 
-    public init(color1: EvgColor, color2: EvgColor, vertical: Bool) {
+    init(color1: EvgColor, color2: EvgColor, vertical: Bool) {
         self.color1 = color1
         self.color2 = color2
         self.vertical = vertical
@@ -73,13 +73,13 @@ public struct EvgGradient {
 }
 
 /// An outer drop shadow: offset, blur radius, colour.
-public struct EvgShadow {
-    public let dx: CGFloat
-    public let dy: CGFloat
-    public let blur: CGFloat
-    public let color: EvgColor
+struct EvgShadow {
+    let dx: CGFloat
+    let dy: CGFloat
+    let blur: CGFloat
+    let color: EvgColor
 
-    public init(dx: CGFloat, dy: CGFloat, blur: CGFloat, color: EvgColor) {
+    init(dx: CGFloat, dy: CGFloat, blur: CGFloat, color: EvgColor) {
         self.dx = dx
         self.dy = dy
         self.blur = blur
@@ -87,7 +87,7 @@ public struct EvgShadow {
     }
 }
 
-public protocol EvgSurface: AnyObject {
+protocol EvgSurface: AnyObject {
 
     /// Push the clip/transform stack. Paired with `restore`.
     func save()

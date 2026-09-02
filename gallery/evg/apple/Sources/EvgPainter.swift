@@ -18,7 +18,7 @@
 
 import CoreGraphics
 
-public enum EvgPainter {
+enum EvgPainter {
 
     private static let RECT = 0
     private static let BORDER = 1
@@ -36,7 +36,7 @@ public enum EvgPainter {
     /// which is what a host puts in a debug overlay — a frame that draws 0 of
     /// 350 commands is a bug you want to see rather than a black screen.
     @discardableResult
-    public static func paint(_ list: EVGDisplayList, into surface: EvgSurface) -> Int {
+    static func paint(_ list: EVGDisplayList, into surface: EvgSurface) -> Int {
         var drawn = 0
         // A list that pushes more clips than it pops must not leave the surface
         // with a clip nobody asked for, and one that pops more than it pushes
@@ -204,7 +204,7 @@ public enum EvgPainter {
     /// The display list writes the word, not the number — `addText` only ever
     /// says "bold" — but a stylesheet path could put a CSS weight here, so a
     /// number is read as one.
-    public static func isBold(_ weight: String) -> Bool {
+    static func isBold(_ weight: String) -> Bool {
         if weight.isEmpty { return false }
         if weight == "bold" || weight == "bolder" { return true }
         guard let n = Int(weight) else { return false }
