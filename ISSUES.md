@@ -341,6 +341,37 @@ panel came up empty, with a clean compile. The gate could not catch it either:
 the gate is JavaScript, where that same expression works exactly as it reads.
 One line, two meanings across the boundary, and only one of them a mistake.
 
+### What has been ruled out
+
+Four probes, each compiled and run, narrowing where the store is lost:
+
+| probe | result |
+|---|---|
+| `b.at(0).rename("x")` — a chained METHOD call | **works**, emits `((b).at(0)).rename("x")` |
+| `((b.at(0)).name)` — reading a field of a call result | **works** |
+| `b.solo.name = "x"` — a plain field chain | **works**, emits `b.solo.name = "x"` |
+| `b.first().name = "x"` — zero-arg call, still an assignment | **silent no-op** |
+
+So:
+
+- **The parser handles the chain.** A method call on a call result parses and
+  renders correctly, and the renderer already produces exactly the receiver
+  syntax an assignment would need.
+- **Reading is fine.** Only writing is lost.
+- **It is not arity.** A zero-argument call fails the same way.
+- **It is lost before codegen.** Nothing of the assignment appears in the
+  output at all — not a mangled store, no store.
+- **It is NOT the `=` operator overload.** `Lang.rgr` declares
+  `= cmdAssign:void ( target:vref expr:expression )`, and a chain is not a
+  plain `vref`, so that looked like the cause. Adding a sibling overload
+  `( target:expression expr:expression )` and rebuilding the compiler changes
+  nothing — the statement never reaches operator matching in this shape.
+  (Tried and reverted; recorded so nobody spends the afternoon on it twice.)
+
+That leaves the symbol/vref scanner in `ng_parser_v2.rgr`, which appears to
+absorb the trailing `.field` into the chain it is building and then drop it
+when the statement turns out to be an assignment rather than a call.
+
 ### Two ways to close it
 
 1. **Reject it**, with #65's existing message — "bind the receiver to a local
