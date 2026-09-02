@@ -948,6 +948,89 @@ console.log("--- what a reader is told about a carried row ---");
     JSON.stringify(live.map((n) => n.name)));
 }
 
+console.log("--- a second palette over the same layout ---");
+{
+  // A THEME IS A NAME. The sheet holds both palettes and `applyTree(root,
+  // theme)` picks one; nothing in the tree gains or loses a class. So what is
+  // checked here is that the page repaints and does not MOVE — and that
+  // leaving the theme puts every colour back, which only holds while every
+  // themed declaration has an unscoped counterpart to fall back to.
+  const geom = (json) =>
+    JSON.parse(json).cmds
+      .map((c) => [c.k, c.x, c.y, c.w, c.h, c.text || "", (c.pts || []).join(" ")].join(","))
+      .join("|");
+  const paint = (json) =>
+    JSON.parse(json).cmds.map((c) => (c.c || []).join(",")).join("|");
+
+  const d = fresh();
+  ok("the page starts on the sheet's unscoped rules", d.themeName() === "",
+    JSON.stringify(d.themeName()));
+  const light = d.displayListJson();
+
+  ok("asking for a different one is a change", d.setTheme("marine") === true);
+  ok("asking for the one already on is not", d.setTheme("marine") === false);
+  ok("and it says which it is on", d.themeName() === "marine", d.themeName());
+  const marine = d.displayListJson();
+
+  ok("nothing moved", geom(marine) === geom(light));
+  ok("but the colours are not the same", paint(marine) !== paint(light));
+  const bg = (json) => JSON.parse(json).cmds[0].c.join(",");
+  ok("the page itself is repainted", bg(marine) === "212,234,242,1", bg(marine));
+  // The surface effect is style like everything else, so a theme may slow the
+  // water down: 320 against the default's 220.
+  const speed = (json) => JSON.parse(json).effect.speed;
+  ok("and a theme reaches the effect too", speed(light) === 220 && speed(marine) === 320,
+    speed(light) + " -> " + speed(marine));
+
+  // THE HALF OF THE PAGE THAT WEARS NO CLASS. The chart is Vela's and the
+  // scroll indicator is two rectangles; both take their colours from
+  // `.db-ink-*` in the sheet, which is the only reason a theme can reach them.
+  ok("the chart's ink comes from the theme",
+    /#7EC8DD/.test(d.specText()) && /#0E7490/.test(d.specText()),
+    (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
+  d.setTheme("");
+  ok("and from the sheet's unscoped rules when there is no theme",
+    /#D4D4D8/.test(d.specText()) && /#3F3F46/.test(d.specText()),
+    (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
+
+  // Byte for byte, and it has to be: an element holds whatever the last plan
+  // wrote to it, so a theme that declared a property the unscoped rule does
+  // not would leave that value behind for good.
+  ok("leaving the theme puts the page back exactly", d.displayListJson() === light);
+
+  // Which is an invariant of the STYLESHEET, so it is checked there rather
+  // than inferred from one page: every `.theme-x .y` declaration needs a `.y`
+  // declaring the same property.
+  const decls = new Map();
+  const body = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim().replace(/\s+/g, " ");
+    const props = decls.get(sel) || new Set();
+    for (const decl of m[2].split(";")) {
+      const at = decl.indexOf(":");
+      if (at > 0) props.add(decl.slice(0, at).trim());
+    }
+    decls.set(sel, props);
+  }
+  const themed = [...decls.keys()].filter((sel) => sel.startsWith(".theme-"));
+  ok("the sheet has a theme in it", themed.length > 0, String(themed.length));
+  const orphans = [];
+  for (const sel of themed) {
+    const bare = sel.slice(sel.indexOf(" ") + 1);
+    for (const prop of decls.get(sel)) {
+      if (!decls.has(bare) || !decls.get(bare).has(prop)) orphans.push(sel + " { " + prop + " }");
+    }
+  }
+  ok("and every declaration in it has one to fall back to",
+    orphans.length === 0, orphans.join(", "));
+  // A theme that moved something would make the layout a function of the
+  // palette, and every measured position in this file true of one theme only.
+  const moves = themed.filter((sel) =>
+    [...decls.get(sel)].some((p) => /^(width|height|padding|margin|gap|flex|display|font-size|font-weight|border-radius|border-width)$/.test(p)));
+  ok("and none of it moves anything", moves.length === 0, moves.join(", "));
+  ok("the sheet parsed without complaint", d.inspectStyleErrors() === "[]", d.inspectStyleErrors());
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

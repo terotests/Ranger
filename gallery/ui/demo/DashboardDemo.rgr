@@ -92,6 +92,28 @@
 ; the note above `svgOpen`. A 16x16 `path` element is a box, and a box has no
 ; baseline to be low against.
 ;
+; --- TWO PALETTES, ONE LAYOUT -------------------------------------------------
+;
+; `setTheme("marine")` and the page is a harbour rather than a white sheet. A
+; theme here is a NAME, handed to `applyTree` and nothing else: the sheet holds
+; both palettes — `.theme-marine .db-card` beats `.db-card` — so not one
+; element gains or loses a class and there is no second tree to keep in step.
+;
+; The theme declares colours and nothing else. That is the rule that makes it
+; a paint-only change — the layout signatures of the two plans are identical,
+; so `EVGStyleSheet` reports the pass layout-clean and no box is measured
+; again — and it is also what makes leaving one work at all: an element holds
+; whatever the last plan wrote to it, so a themed declaration with no unscoped
+; counterpart would survive the switch home and stay there. `dashboard-check`
+; asserts that pairing over the sheet's own text.
+;
+; The two things NOT on an element are themed the same way. The chart is
+; Vela's and the scroll indicator is two rectangles, so neither can carry a
+; class — but their colours are in the sheet anyway, on `.db-ink-*` classes
+; nothing wears, and `ink` asks the sheet what one resolves to under the theme
+; that is showing. A theme that could repaint the frame and not the picture
+; inside it would not be worth having.
+;
 ; --- WHAT IS NOT HERE YET ----------------------------------------------------
 ;
 ; The reference's horizontal scroll, which it has because its sidebar takes the
@@ -346,6 +368,17 @@ class DashboardDemo {
     ; `aria-current="page"` is a claim about exactly one link.
     def navPage:string "dashboard"
 
+    ; WHICH SET OF COLOURS. One string, handed to `applyTree`, and the whole
+    ; of the theme mechanism on this side: the sheet holds the palettes and the
+    ; app holds the name of the one it is showing. "" is the sheet's unscoped
+    ; rules, which is the shadcn light theme this page was built as; "marine"
+    ; is the block at the foot of `dashboard.css`.
+    ;
+    ; A theme may only override properties the unscoped rule already declares —
+    ; see the note there — so leaving one puts the original value back without
+    ; anything having to remember what it was.
+    def theme:string ""
+
     ; The page got WIDER when the sidebar arrived, rather than the content
     ; getting narrower. 1336 = 255 sidebar + 1 hairline + 1080, so `db-main`
     ; keeps its 1032 and the chart keeps its 994 — and every measured label
@@ -484,10 +517,10 @@ class DashboardDemo {
         ; dataset, which is the shape the reference draws and the thing a
         ; single `AreaChart` component cannot express.
         s = (s + "{\"type\":\"area\",\"from\":{\"data\":\"src\"},\"encode\":{\"update\":{")
-        s = (s + "\"orient\":{\"value\":\"vertical\"},\"fill\":{\"value\":\"#d4d4d8\"},\"fillOpacity\":{\"value\":0.55},")
+        s = (((s + "\"orient\":{\"value\":\"vertical\"},\"fill\":{\"value\":\"") + (this.inkHex("db-ink-area"))) + "\"},\"fillOpacity\":{\"value\":0.55},")
         s = (s + "\"x\":{\"scale\":\"x\",\"field\":\"d\"},\"y\":{\"scale\":\"y\",\"field\":\"v\"},\"y2\":{\"scale\":\"y\",\"value\":0}}}},")
         s = (s + "{\"type\":\"line\",\"from\":{\"data\":\"src\"},\"encode\":{\"update\":{")
-        s = (s + "\"stroke\":{\"value\":\"#3f3f46\"},\"strokeWidth\":{\"value\":1.5},")
+        s = (((s + "\"stroke\":{\"value\":\"") + (this.inkHex("db-ink-line"))) + "\"},\"strokeWidth\":{\"value\":1.5},")
         s = (s + "\"x\":{\"scale\":\"x\",\"field\":\"d\"},\"y\":{\"scale\":\"y\",\"field\":\"v\"}}}}")
         s = (s + "],")
         s = (s + "\"scales\":[")
@@ -495,8 +528,8 @@ class DashboardDemo {
         s = (s + "{\"name\":\"y\",\"type\":\"linear\",\"domain\":{\"data\":\"src\",\"field\":\"v\"},\"range\":[{\"signal\":\"height\"},0],\"nice\":true,\"zero\":true}")
         s = (s + "],")
         s = (s + "\"axes\":[")
-        s = (s + "{\"scale\":\"x\",\"orient\":\"bottom\",\"grid\":false,\"tickCount\":6,\"labelColor\":\"#71717a\",\"labelFontSize\":11,\"domainColor\":\"#e4e4e7\",\"tickColor\":\"#e4e4e7\"},")
-        s = (s + "{\"scale\":\"y\",\"orient\":\"left\",\"grid\":true,\"tickCount\":4,\"labelColor\":\"#71717a\",\"labelFontSize\":11,\"domain\":false,\"ticks\":false,\"gridColor\":\"#f4f4f5\"}")
+        s = (((((((s + "{\"scale\":\"x\",\"orient\":\"bottom\",\"grid\":false,\"tickCount\":6,\"labelColor\":\"") + (this.inkHex("db-ink-label"))) + "\",\"labelFontSize\":11,\"domainColor\":\"") + (this.inkHex("db-ink-rule"))) + "\",\"tickColor\":\"") + (this.inkHex("db-ink-rule"))) + "\"},")
+        s = (((((s + "{\"scale\":\"y\",\"orient\":\"left\",\"grid\":true,\"tickCount\":4,\"labelColor\":\"") + (this.inkHex("db-ink-label"))) + "\",\"labelFontSize\":11,\"domain\":false,\"ticks\":false,\"gridColor\":\"") + (this.inkHex("db-ink-grid"))) + "\"}")
         s = (s + "]}")
         return s
     }
@@ -1668,7 +1701,7 @@ class DashboardDemo {
         ; host to get right. A no-op costing one array length when nothing is
         ; being held, which is every frame nobody is inspecting anything.
         EVGInspect.applyForced(r)
-        s.applyTree(r "")
+        s.applyTree(r theme)
         def lay (new EVGLayout())
         lay.setPageSize(pageW pageH)
         lay.layout(r)
@@ -1744,6 +1777,42 @@ class DashboardDemo {
             i = (i + 1)
         }
         return (EVGElement.createDiv())
+    }
+
+    ; --- the ink that is on no element -----------------------------------------
+    ;
+    ; What `.db-ink-line` resolves to under the theme that is showing.
+    ;
+    ; The chart is Vela's and the scroll indicator is two rectangles, so
+    ; neither is an element the sheet can write to — and both had their colours
+    ; typed into this file, which meant a theme could repaint the frame around
+    ; the biggest picture on the page and not the picture. So the colours stay
+    ; in the sheet on classes nothing wears, and this asks the sheet the
+    ; question an element would have asked: a bare element carrying the class,
+    ; styled, and read back.
+    ;
+    ; Nothing is added to the tree and nothing is measured — `applyTo` writes
+    ; the properties the rules declare, and `color` is the only one these rules
+    ; declare.
+    fn ink:EVGColor (cls:string) {
+        def s:EVGStyleSheet (unwrap sheet)
+        def probe:EVGElement (EVGElement.createDiv())
+        probe.className = cls
+        s.applyTo(probe theme)
+        if probe.color {
+            return (unwrap probe.color)
+        }
+        ; No `color` in the sheet for that class — a name that is not in the
+        ; file, in practice. Black, which is what an element with no colour
+        ; draws as, so a mistake looks like one instead of like a theme.
+        return (EVGColor.parse("#000000"))
+    }
+
+    ; The same answer as a string, because a Vega specification is JSON and
+    ; takes its colours as text.
+    fn inkHex:string (cls:string) {
+        def c:EVGColor (this.ink(cls))
+        return (c.toHexString())
     }
 
     ; --- input ----------------------------------------------------------------
@@ -2017,6 +2086,23 @@ class DashboardDemo {
     fn setPressed:void (id:string) { pressed = id }
     fn setFocus:void (id:string) { focused = id }
 
+    ; --- the theme ------------------------------------------------------------
+
+    fn themeName:string () { return theme }
+
+    ; The tree is NOT rebuilt: not one element gains or loses a class, and the
+    ; elements themselves say nothing about colour. What changes is which rules
+    ; the sheet matches on the next pass, so the only thing to invalidate is
+    ; the answer that pass produced.
+    fn setTheme:boolean (name:string) {
+        if (name == theme) {
+            return false
+        }
+        theme = name
+        layoutStale = true
+        return true
+    }
+
     ; --- the picture ----------------------------------------------------------
 
     ; The page, and then the chart on top of it at the box the layout reserved.
@@ -2097,7 +2183,7 @@ class DashboardDemo {
                 def trackX:double (((scroll.calculatedX + scroll.calculatedWidth) - 10.0))
                 def trackY:double (scroll.calculatedY + 6.0)
                 def trackH:double (scroll.calculatedHeight - 12.0)
-                dl.addRect(trackX trackY 4.0 trackH (EVGColor.parse("#f4f4f5")))
+                dl.addRect(trackX trackY 4.0 trackH (this.ink("db-ink-track")))
                 def visible:double (scroll.clientHeight())
                 def frac:double (visible / scroll.scrollHeight)
                 def thumbH:double (trackH * frac)
@@ -2106,7 +2192,7 @@ class DashboardDemo {
                 }
                 def at:double (scrollY / travel)
                 def thumbY:double (trackY + (at * (trackH - thumbH)))
-                dl.addRect(trackX thumbY 4.0 thumbH (EVGColor.parse("#d4d4d8")))
+                dl.addRect(trackX thumbY 4.0 thumbH (this.ink("db-ink-thumb")))
             }
         }
         return dl

@@ -460,6 +460,27 @@
  * true. */
 .db-chart-box { }
 
+/* --- the ink that is NOT on an element ------------------------------------
+ *
+ * The chart and the scroll indicator are painted straight into the display
+ * list — the chart because Vela draws it, the indicator because its size is
+ * not known until after the layout has run. Neither is an element, so neither
+ * can carry a class, and both used to have their colours typed into the demo.
+ *
+ * A theme that cannot reach the biggest picture on the page is not a theme, so
+ * the colours live here anyway, on classes nothing wears: the demo asks the
+ * sheet what `.db-ink-line` resolves to UNDER THE CURRENT THEME and hands the
+ * answer to Vela's specification and to `addRect`. One place for a colour,
+ * whether or not there is an element to hang it on.
+ */
+.db-ink-area  { color: #d4d4d8; }
+.db-ink-line  { color: #3f3f46; }
+.db-ink-label { color: #71717a; }
+.db-ink-rule  { color: #e4e4e7; }
+.db-ink-grid  { color: #f4f4f5; }
+.db-ink-track { color: #f4f4f5; }
+.db-ink-thumb { color: #d4d4d8; }
+
 .db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; }
 
 /* --- the data table ----------------------------------------------------------
@@ -835,3 +856,131 @@
 }
 
 .db-bar-text { color: #71717a; font-size: 11px; padding: 6px 0 0 0; }
+
+/* --- the marine theme -------------------------------------------------------
+ *
+ * A SECOND SET OF COLOURS over the same layout. Every rule below is scoped
+ * `.theme-marine`, which is the one descendant form this engine supports —
+ * `applyTree(root, theme)` takes the name and the scoped rules win over the
+ * unscoped ones, so a theme is a name the app holds and not a class it has to
+ * write onto ninety elements.
+ *
+ * Nothing here declares a width, a padding or a gap: the theme repaints and
+ * does not move anything. That is what makes switching it a paint-only pass —
+ * the plans differ, their layout signatures do not — and it is also what makes
+ * `ui:layout:check` still true of a page in either theme.
+ *
+ * And it is what makes switching BACK work at all. There is no "unset": an
+ * element holds whatever the last plan wrote to it, so a theme may only
+ * override properties the unscoped rule already declares. Every declaration
+ * below has a counterpart above; a marine-only `border-radius` would survive
+ * the switch home and stay there.
+ *
+ * Harbour navy sidebar, mist page, foam cards, teal marks.
+ */
+
+/* The surface itself, and the water on it: a slower wave — 320 against the
+ * default's 220 — because a page this colour reads as something the rings are
+ * travelling ACROSS rather than a white sheet being disturbed. */
+.theme-marine .db-page { background-color: #d4eaf2; evg-ripple-speed: 320; }
+
+.theme-marine .db-side { background-color: #0a3344; }
+.theme-marine .db-side-edge { background-color: #164556; }
+.theme-marine .db-brand:hover { background-color: #134556; }
+.theme-marine .db-brand-mark { background-color: #14b8a6; }
+.theme-marine .db-brand-mark-text { color: #f0fafc; }
+.theme-marine .db-brand-text { color: #e8f6f8; }
+.theme-marine .db-group-label { color: #7eb8c9; }
+.theme-marine .db-quick { background-color: #14b8a6; }
+.theme-marine .db-quick:hover { background-color: #0d9488; }
+.theme-marine .db-quick-icon { fill: #f0fafc; }
+.theme-marine .db-quick-text { color: #f0fafc; }
+.theme-marine .db-iconbtn { border: 1px solid #1a6a80; background-color: #0e4458; }
+.theme-marine .db-iconbtn:hover { background-color: #165566; }
+.theme-marine .db-iconbtn-icon { fill: #8ecad6; }
+.theme-marine .db-nav:hover { background-color: #134556; }
+.theme-marine .db-nav-on { background-color: #165566; }
+.theme-marine .db-nav-icon { fill: #8ecad6; }
+.theme-marine .db-nav-text { color: #c5e8f0; }
+.theme-marine .db-nav-text-on { color: #f0fafc; }
+.theme-marine .db-nav-text-dim { color: #7eb8c9; }
+.theme-marine .db-user:hover { background-color: #134556; }
+.theme-marine .db-avatar { background-color: #165566; }
+.theme-marine .db-avatar-text { color: #c5e8f0; }
+.theme-marine .db-user-name { color: #e8f6f8; }
+.theme-marine .db-user-mail { color: #7eb8c9; }
+
+.theme-marine .db-card { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-card-label { color: #4a7d8c; }
+.theme-marine .db-badge { border: 1px solid #b6d4e0; background-color: #e8f6f8; }
+.theme-marine .db-badge-text { color: #0a3344; }
+.theme-marine .db-arrow { color: #0e7490; }
+.theme-marine .db-big { color: #0a3344; }
+.theme-marine .db-trend { color: #0d9488; }
+.theme-marine .db-card-sub { color: #4a7d8c; }
+
+.theme-marine .db-chart-card { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-chart-title { color: #0a3344; }
+.theme-marine .db-chart-sub { color: #4a7d8c; }
+.theme-marine .db-segs { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-seg-on { background-color: #d4eaf2; }
+.theme-marine .db-seg-text { color: #0a3344; }
+.theme-marine .db-note { color: #4a7d8c; }
+
+/* The chart's own ink and the scroll indicator's, which is the half of the
+ * page no class is worn for — see `.db-ink-*` above. */
+.theme-marine .db-ink-area  { color: #7ec8dd; }
+.theme-marine .db-ink-line  { color: #0e7490; }
+.theme-marine .db-ink-label { color: #4a7d8c; }
+.theme-marine .db-ink-rule  { color: #b6d4e0; }
+.theme-marine .db-ink-grid  { color: #d4eaf2; }
+.theme-marine .db-ink-track { color: #d4eaf2; }
+.theme-marine .db-ink-thumb { color: #8ecad6; }
+
+.theme-marine .db-tabs { background-color: #d4eaf2; }
+.theme-marine .db-tab-on { background-color: #f7fcfe; }
+.theme-marine .db-tab-text { color: #0a3344; }
+.theme-marine .db-tab-pill { background-color: #b6d4e0; }
+.theme-marine .db-tab-pill-text { color: #0a3344; }
+.theme-marine .db-tool { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-tool-text { color: #0a3344; }
+.theme-marine .db-tool-icon { color: #0e7490; }
+.theme-marine .db-chevron { color: #4a7d8c; }
+
+.theme-marine .db-table { border: 1px solid #b6d4e0; }
+.theme-marine .db-thead { background-color: #e8f4f8; }
+.theme-marine .db-tr { border-bottom: 1px solid #d4eaf2; }
+.theme-marine .db-tr-on { background-color: #e8f4f8; }
+.theme-marine .db-cell-text { color: #2a5a6a; }
+.theme-marine .db-cell-strong { color: #0a3344; }
+.theme-marine .db-chip { border: 1px solid #b6d4e0; }
+.theme-marine .db-chip-text { color: #0e7490; }
+.theme-marine .db-status { border: 1px solid #b6d4e0; }
+.theme-marine .db-status-icon { color: #7eb8c9; }
+.theme-marine .db-status-text { color: #4a7d8c; }
+.theme-marine .db-status-icon-done { color: #0d9488; }
+.theme-marine .db-grip-icon { color: #7eb8c9; }
+.theme-marine .db-check { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-tick { color: #0a3344; }
+.theme-marine .db-more-icon { color: #4a7d8c; }
+.theme-marine .db-assign { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-assign-text { color: #7eb8c9; }
+.theme-marine .db-live { color: #4a7d8c; }
+
+.theme-marine .db-head-title { color: #0a3344; }
+.theme-marine .db-head-sub { color: #4a7d8c; }
+.theme-marine .db-panel { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-panel-title { color: #0a3344; }
+.theme-marine .db-panel-sub { color: #4a7d8c; }
+.theme-marine .db-item-mark { background-color: #d4eaf2; }
+.theme-marine .db-item-mark-text { color: #0e7490; }
+.theme-marine .db-item-name { color: #0a3344; }
+.theme-marine .db-item-sub { color: #4a7d8c; }
+.theme-marine .db-item-tag { border: 1px solid #b6d4e0; background-color: #e8f6f8; }
+.theme-marine .db-item-tag-text { color: #0e7490; }
+.theme-marine .db-tile { border: 1px solid #b6d4e0; background-color: #f7fcfe; }
+.theme-marine .db-tile-title { color: #0a3344; }
+.theme-marine .db-tile-sub { color: #4a7d8c; }
+.theme-marine .db-bar { background-color: #d4eaf2; }
+.theme-marine .db-bar-fill { background-color: #0e7490; }
+.theme-marine .db-bar-text { color: #4a7d8c; }

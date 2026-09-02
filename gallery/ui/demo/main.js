@@ -1707,6 +1707,15 @@ const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline
 const wanted = new URLSearchParams(location.search).get("demo");
 if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
 
+// The dashboard's palettes. The name on the left is what the radio says and
+// what `?theme=` takes; the name on the right is what the sheet scopes its
+// rules with, and "" is the unscoped rules — the light theme the page was
+// built as. Adding a third is a block of `.theme-<name>` rules in
+// `dashboard.css` and one line here.
+const DASH_THEMES = { default: "", marine: "marine" };
+const askedTheme = new URLSearchParams(location.search).get("theme");
+if (askedTheme && askedTheme in DASH_THEMES) dashboard.setTheme(DASH_THEMES[askedTheme]);
+
 radios(
   document.getElementById("demos"),
   "demo",
@@ -1744,6 +1753,17 @@ radios(
   () => state.open,
   (v) => {
     state.open = v;
+  },
+);
+// Colours only: the theme repaints and moves nothing, so switching it leaves
+// every measured position on the page the number it was.
+radios(
+  document.getElementById("dashthemes"),
+  "dashtheme",
+  Object.keys(DASH_THEMES),
+  () => Object.keys(DASH_THEMES).find((k) => DASH_THEMES[k] === dashboard.themeName()),
+  (v) => {
+    dashboard.setTheme(DASH_THEMES[v]);
   },
 );
 radios(
