@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run ui:ios:check` now says which of four look-alike states a Mac is
+  in, instead of a list of "not installed".** They fail identically and have
+  four different fixes: only the Command Line Tools installed (they carry no
+  platform SDK, no simulator runtime and no `devicectl`, while `xcrun` reports
+  fine, which is what makes it confusing); Xcode installed but not the SELECTED
+  developer directory, which is one `xcode-select -s` and not an hour of
+  downloading, so the report checks whether `/Applications/Xcode.app` is there
+  before telling anyone to install it; Xcode selected but its licence not
+  accepted or its first launch never finished; and the iOS platform never
+  downloaded, which Xcode 15 and later leave out of the initial install. The
+  report now also prints **what `xcrun` itself said** — `sdkPath` answers "" for
+  every one of those, which is the right shape for a build and the wrong one for
+  a diagnostic.
+
+- A device build with `--run` on a machine with no `devicectl` said "no device
+  is connected", which sent the reader to look for a cable problem they did not
+  have. It says that `devicectl` is not there.
+
 - **`npm run ui:ios:smoke` — the iOS build driver, run for real, on a machine
   that is not a Mac.** `--dry-run` checks the plan and cannot check the code
   that runs: the directories the driver makes, the plist it writes, the profile
