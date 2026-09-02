@@ -251,13 +251,16 @@
  * request described. The BEHAVIOUR of choosing a year is measured against the
  * reference (`ui:calendar:check`); this appearance is not, and does not claim
  * to be. */
+/* NO FIXED WIDTH and no right alignment: the width is written inline from
+ * the month's own measured ink (see `page`). A 96px box holding 27px of
+ * right-aligned text put "May" 69px to the right of where the caption thought
+ * it was centring. */
 .cd-monthtxt {
   color: #18181b;
   font-size: 14px;
   font-weight: bold;
   height: 20px;
-  text-align: right;
-  width: 96px;
+  text-align: center;
 }
 
 .cd-yearbtn {

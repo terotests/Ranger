@@ -300,6 +300,49 @@ console.log("reaching a year");
     Array.from(d.a11yProblems()).length === 0, Array.from(d.a11yProblems()).join(" | "));
 }
 
+// The caption is centred on the grid — the INK, not the boxes.
+//
+// Reported: "kalenterin selectori ei oo keskitetty". Every box was already
+// centred: the caption's centre was 163.0 and so was the grid's. But
+// `.cd-monthtxt` was a fixed 96px with `text-align: right`, so "May" — about
+// 27px of ink — drew at the right end of a box that began 69px earlier, and
+// what a person sees is the ink. The visible pair sat near 197 against a grid
+// centred on 163.
+//
+// So this measures the span a reader actually sees, and it measures it for a
+// long month name too: a fixed box hides the defect for whichever name
+// happens to fill it.
+console.log("the caption is centred on the grid");
+{
+  const check = (d, what) => {
+    const grid = byId(d, "cal-grid");
+    const month = byId(d, "cal-month");
+    const year = byId(d, "cal-year");
+    const gridMid = grid.calculatedX + grid.calculatedWidth / 2;
+    const inkMid = (month.calculatedX + (year.calculatedX + year.calculatedWidth)) / 2;
+    ok(`${what}: the month and year are centred on the grid`,
+      Math.abs(inkMid - gridMid) < 0.5, `${inkMid.toFixed(1)} vs ${gridMid.toFixed(1)}`);
+    // And the month's box is its own text, not a fixed slot it sits at one
+    // end of. Its width tracking the name is the whole fix.
+    return month.calculatedWidth;
+  };
+  const d = fresh();
+  const mayW = check(d, "May");
+  // September is the longest month name; the box has to grow and the pair has
+  // to stay centred.
+  d.press("cal-year");
+  d.displayListJson();
+  // Four presses of next from May reaches September.
+  d.press("cal-year");
+  for (let i = 0; i < 4; i++) { d.press("cal-next"); d.displayListJson(); }
+  const sepW = check(d, "September");
+  ok("the month box grows with the name", sepW > mayW + 10, `${mayW.toFixed(1)} -> ${sepW.toFixed(1)}`);
+  // Back to a short one, and it shrinks again.
+  for (let i = 0; i < 4; i++) { d.press("cal-prev"); d.displayListJson(); }
+  const backW = check(d, "May again");
+  ok("and shrinks again", Math.abs(backW - mayW) < 0.01, `${backW.toFixed(1)} vs ${mayW.toFixed(1)}`);
+}
+
 console.log("");
 console.log(failed ? `RESULT FAIL — passed=${passed} failed=${failed}` : `RESULT OK — passed=${passed} failed=0`);
 process.exitCode = failed ? 1 : 0;

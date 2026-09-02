@@ -46,6 +46,7 @@ Import "../../evg/EVGTransition.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTextEngine.rgr"
 
 treefactory Cal {
     child addChild
@@ -100,6 +101,8 @@ class CalendarDemo {
     def model:CalendarCtl (new CalendarCtl())
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
+    ; A measurer owning no tree, for sizing the month name to its own text.
+    def capMeasurer:EVGLayout (new EVGLayout())
     def transitions:EVGTransition (new EVGTransition())
     def layout@(optional):EVGLayout
     def hovered:string ""
@@ -208,6 +211,27 @@ class CalendarDemo {
             i = (i + 1)
         }
         return el
+    }
+
+    ; The ink width of a caption run, at the size the stylesheet draws it.
+    fn captionTextWidth:double (text:string) {
+        def eng:EVGTextEngine (capMeasurer.getTextEngine())
+        def m:EVGTextMetrics (eng.measureRun(text "system-ui" 14.0))
+        return m.width
+    }
+
+    sfn px:string (v:double) {
+        def scaled:int (to_int (v * 100.0))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = "0" + fs
+        }
+        return ((to_string whole) + "." + fs + "px")
     }
 
     fn yearBtnLabel:string () {
@@ -335,7 +359,7 @@ class CalendarDemo {
                 (NavBtn (props (id "cal-prev") (a11yLabel "Go to the Previous Month"))
                     (NavGlyph "‹"))
                 (Caption (props (id "cal-caption"))
-                    (MonthTxt (UiDate.monthName(model.viewMonth))))
+                    (MonthTxt (props (id "cal-month")) (UiDate.monthName(model.viewMonth))))
                 (NavBtn (props (id "cal-next") (a11yLabel "Go to the Next Month"))
                     (NavGlyph "›"))))
         ; The year goes INSIDE the caption, beside the month. Not after it:
@@ -343,6 +367,20 @@ class CalendarDemo {
         ; changes, and a year drawn outside it would leave the announcement
         ; saying "May" with no year in it.
         def cap:EVGElement (CalendarDemo.byId(nav "cal-caption"))
+        ; THE MONTH BOX IS AS WIDE AS THE MONTH.
+        ;
+        ; It was a fixed 96px with `text-align: right`, so "May" — about 27px
+        ; of ink — was drawn at the right end of a box that began 69px
+        ; earlier. The caption centres its content, and it was centring a box
+        ; that was mostly empty on its left: every BOX lined up on the grid's
+        ; centre at 163 while the ink people actually see sat near 197.
+        ; Reported as the selector not being centred, and it was not.
+        ;
+        ; Measured rather than guessed, the way the message demo sizes a name
+        ; in its typing marker: a month is as wide as its own name, and
+        ; September is not May.
+        def monthEl:EVGElement (CalendarDemo.byId(cap "cal-month"))
+        UiTree.inline(monthEl "width" (CalendarDemo.px((this.captionTextWidth((UiDate.monthName(model.viewMonth)))))))
         ; A named intermediate rather than `(YearTxt (to_string ...))`: a
         ; computed child in text position is read as a TAG NAME by the tree
         ; factory, and the error says `to_string is not a tag of Cal`.
