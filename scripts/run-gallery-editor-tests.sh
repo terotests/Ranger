@@ -203,6 +203,17 @@ SUITES=(
   # value. The check swallows the compiler's own output, because the loop
   # below fails a suite on the string `[FAIL]` appearing anywhere in it.
   compiler:issue76:check
+  # Does anything sit on top of anything else? Ten layout defects were
+  # reported from LOOKING at the pages while all 81 suites were green. The
+  # only containment rule that existed compared right edges, in one demo out
+  # of eighteen, and every defect reported was vertical. This is the other
+  # half over all of them, and it needs no oracle: an in-flow child ends
+  # inside its parent and two in-flow siblings do not share pixels.
+  #
+  # It runs against a recorded baseline rather than zero, because the debt is
+  # real and shipping it as one red suite would just get the suite muted.
+  # Lower a number when you fix something; the check fails if you do not.
+  ui:layout:check
 )
 
 failed=()
