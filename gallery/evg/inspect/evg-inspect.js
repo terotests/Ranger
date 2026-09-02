@@ -29,8 +29,6 @@
 //       force: (path, bits) => void,                   // optional — hold a
 //                               //            state on: 1 hover, 2 focus,
 //                               //            4 pressed, 8 disabled
-//       saveCss: (text) => void,                       // optional — write it
-//                               //            back where it came from
 //       label: "…",             // optional — what to call the app
 //     },
 //   })
@@ -150,7 +148,9 @@ const CSS = `
 .evgi-css textarea:focus { outline:none; border-color:var(--evgi-accent); }
 .evgi-css .bar { display:flex; align-items:center; gap:7px; padding:0 0 6px; }
 .evgi-css .bar .name { font-family: ui-monospace, Menlo, monospace; font-size:11.5px; }
+.evgi-css .bar .status { color:#f2b661; font-size:10.5px; }
 .evgi-css .bar .live { margin-left:auto; color:#7ee0c0; font-size:10.5px; }
+.evgi-css .bar .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:46%; }
 .evgi-css .err { color:#f87171; font-family: ui-monospace, Menlo, monospace; font-size:11px; padding:5px 0 0; }
 .evgi-cmd { font-family: ui-monospace, Menlo, monospace; font-size:11px; padding:1px 0; }
 .evgi-cmd b { color:#7ee0c0; font-weight:600; }
@@ -511,6 +511,11 @@ export function attach(opts = {}) {
 
   function renderBody() {
     renderTabs();
+    // The stylesheet pane does not depend on the selection and holds a live
+    // <textarea>, so while it is showing the body is left alone and the pane
+    // updates itself in place. Clearing here and rebuilding there is what took
+    // the caret away three times a second.
+    if (tab === "css" && cssPane && cssPane.wrap.isConnected) { renderCss(); return; }
     body.textContent = "";
     const n = selected ? byId.get(selected) : null;
     if (!n) {
@@ -710,11 +715,54 @@ export function attach(opts = {}) {
   //
   // The element tree is the app's output; the sheet is its input. So this pane
   // edits a real input and hands it back, and the app re-parses and
-  // re-cascades exactly as it did at startup. Nothing is intercepted, no value
-  // is held over the app's head, and the text in this box is the text that
-  // goes in the file — there is no "copy as CSS" step because there is nothing
-  // to translate.
+  // re-cascades exactly as it did at startup. Nothing is intercepted and no
+  // value is held over the app's head.
+  //
+  // THE FILE IS THE SOURCE. The path is on screen because that is the answer
+  // to "what do I edit"; saving the file re-cascades the page, and the box
+  // below is a scratch pad over the file for trying a value before writing it
+  // there. It deliberately does not write back — a panel that can save is a
+  // second author of the file, and one author is enough.
+  //
+  // THE BOX IS BUILT ONCE AND KEPT. The panel refreshes several times a second
+  // while it is open, and rebuilding a <textarea> on each of those takes the
+  // focus and the caret with it — you type three characters and the cursor is
+  // back at the start. So the pane is cached and re-attached; only its errors
+  // and, when nothing is being edited, its text are updated in place.
   let cssDraft = null;
+  let cssPane = null;
+
+  function cssDirty(src) { return cssDraft != null && cssDraft !== src.text; }
+
+  function syncPane(src) {
+    const { area, errs, status, note } = cssPane;
+    errs.textContent = "";
+    for (const e of src.errors || []) errs.appendChild(el("div", null, e));
+
+    const fileMoved = src.text !== cssPane.fileText;
+    cssPane.fileText = src.text;
+
+    if (!cssDirty(src)) {
+      // Nothing is being edited here, so the box shows the sheet. The caret is
+      // put back anyway: a click without a keystroke is not an edit, and
+      // losing the place you clicked is the same annoyance in miniature.
+      if (area.value !== src.text) {
+        const a0 = area.selectionStart, b0 = area.selectionEnd;
+        area.value = src.text;
+        try { area.setSelectionRange(a0, b0); } catch { /* past the new end */ }
+      }
+      cssDraft = null;
+      status.textContent = "";
+      note.hidden = true;
+    } else {
+      status.textContent = "edited — not applied";
+      // The file moved while an unapplied edit was sitting here. The edit is
+      // kept, because throwing away what someone typed is worse than telling
+      // them, and told about rather than merged.
+      note.hidden = !fileMoved;
+    }
+  }
+
   async function renderCss() {
     if (typeof app.css !== "function") {
       body.appendChild(el("div", "evgi-empty",
@@ -722,31 +770,35 @@ export function attach(opts = {}) {
         + "css() gets a live editor here; the tree stays readable either way."));
       return;
     }
-    // Awaited, so the pane is drawn into the body it belongs to and not into
-    // whichever one is showing by the time the answer lands.
     const forTab = tab;
-    const holder = el("div");
-    body.appendChild(holder);
     let src;
-    try { src = await app.css(); } catch (e) { holder.appendChild(el("div", "evgi-empty", String(e.message))); return; }
+    try { src = await app.css(); } catch (e) { body.appendChild(el("div", "evgi-empty", String(e.message))); return; }
     if (tab !== forTab) return;
-    holder.textContent = "";
+
+    if (cssPane && cssPane.name === src.name) {
+      // Already on the page: update it where it stands. Re-appending it would
+      // detach it first, and detaching a focused <textarea> blurs it — which
+      // is the cursor jump this whole arrangement exists to avoid.
+      syncPane(src);
+      if (!cssPane.wrap.isConnected) body.appendChild(cssPane.wrap);
+      return;
+    }
+
     const wrap = el("div", "evgi-css");
     const bar = el("div", "bar");
-    bar.appendChild(el("span", "name", src.name || "stylesheet"));
+    bar.appendChild(el("span", "name", src.path || src.name || "stylesheet"));
     const apply = el("button", "evgi-btn", "apply");
-    const save = el("button", "evgi-btn", "save to disk");
     const revert = el("button", "evgi-btn", "revert");
-    bar.append(apply);
-    if (typeof app.saveCss === "function") bar.append(save);
-    bar.append(revert);
+    bar.append(apply, revert);
+    const status = el("span", "status");
+    bar.appendChild(status);
     if (src.href) bar.appendChild(el("span", "live", "live from disk"));
     wrap.appendChild(bar);
 
     const area = el("textarea");
     area.spellcheck = false;
-    area.value = cssDraft != null ? cssDraft : (src.text || "");
-    area.oninput = () => { cssDraft = area.value; };
+    area.value = src.text || "";
+    area.oninput = () => { cssDraft = area.value; status.textContent = "edited — not applied"; };
     // Tab indents rather than leaving the box: this is an editor, and losing
     // your place to focus the next button is not what the key is for here.
     area.onkeydown = (ev) => {
@@ -762,44 +814,37 @@ export function attach(opts = {}) {
     wrap.appendChild(area);
 
     const errs = el("div", "err");
-    const showErrors = (list) => {
-      errs.textContent = "";
-      for (const e of list || []) errs.appendChild(el("div", null, e));
-    };
-    showErrors(src.errors);
+    for (const e of src.errors || []) errs.appendChild(el("div", null, e));
     wrap.appendChild(errs);
+
+    const note = el("div", "evgi-note", "The file changed on disk while this edit was unapplied. "
+      + "What you typed is still here; applying it will use it and not the file.");
+    note.hidden = true;
+    wrap.appendChild(note);
+
     wrap.appendChild(el("div", "evgi-note",
-      "Applying re-parses the sheet and re-cascades the tree — the same path the "
-      + "app took at startup. Saving the file on disk does the same thing by the "
-      + "other route, and the two cannot drift."));
+      "Edit the file and the page re-cascades on save — the sheet is the app's "
+      + "input, so nothing is patched. Applying from here does the same thing "
+      + "without touching the file, for trying a value before writing it there."));
 
     apply.onclick = async () => {
       if (typeof app.setCss !== "function") return;
       apply.disabled = true;
       try {
         await app.setCss(area.value);
-        await refreshTree();
-        tab = "css";
-        renderTabs();
-        renderBody();
-      } catch (e) { showErrors([String(e.message)]); apply.disabled = false; }
-    };
-    // Apply, then write it where it came from. Applying first means a sheet
-    // that will not parse is found before it is on disk, and the two together
-    // are what closes the loop the other way: the watch sees the write and
-    // every other page open on this sheet re-cascades too.
-    save.onclick = async () => {
-      save.disabled = true;
-      try {
-        await app.setCss(area.value);
-        await app.saveCss(area.value);
         cssDraft = null;
         await refreshTree();
         renderBody();
-      } catch (e) { showErrors([String(e.message)]); save.disabled = false; }
+      } catch (e) {
+        errs.textContent = "";
+        errs.appendChild(el("div", null, String(e.message)));
+      }
+      apply.disabled = false;
     };
-    revert.onclick = () => { cssDraft = null; renderBody(); };
-    holder.appendChild(wrap);
+    revert.onclick = () => { cssDraft = null; area.value = cssPane.fileText; status.textContent = ""; };
+
+    cssPane = { wrap, area, errs, status, note, name: src.name, fileText: src.text || "" };
+    body.appendChild(wrap);
   }
 
   // Which commands this element emitted. Present only when the host built the

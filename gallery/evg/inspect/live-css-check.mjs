@@ -7,8 +7,7 @@
 //   npm run evg:inspect:live
 //
 // This is the gate for the claim the whole CSS feature rests on: **the
-// stylesheet is an app's input, so handing back a changed one needs no
-// interception.** Nothing here patches an element or holds a value over the
+// stylesheet is an app's input, so a changed one needs no interception.** Nothing here patches an element or holds a value over the
 // app's head. A rule is written to `dashboard.css`, and what is checked is the
 // colour of a rectangle in the DISPLAY LIST — not the element, not the panel.
 // A value that reached the element and stopped there would be a frame that
@@ -153,41 +152,64 @@ try {
   for (let i = 0; i < 60 && back === after; i++) { await sleep(50); back = await cardFill(); }
   ok("putting the file back puts the picture back", back === before, `${after} → ${back}`);
 
-  // --- and the other direction -----------------------------------------------
+  // --- a save that changed nothing must change nothing -----------------------
   //
-  // The panel edits the app's input, so "save" means writing the text back
-  // where the input came from. This is the same loop run the other way: the
-  // page PUTs, the server writes the file, the watch sees it, and every other
-  // page open on that sheet re-cascades.
-  // NO STRING ESCAPES IN HERE. This source is a template literal, so a `\n`
-  // written in it is a real newline by the time the expression reaches the
-  // page — and a real newline inside a JavaScript string literal is a syntax
-  // error, which the protocol reports as the whole evaluation returning
-  // nothing. Joining an array of lines has no escape to get wrong.
-  const saved = await evalIn(`(async () => {
-    const i = window.__inspector;
+  // `fs.watch` fires for a touch, for a save that rewrote the same bytes, and
+  // for an editor that writes through a temporary file. A reload costs a
+  // re-parse, a full re-cascade and a relayout — most of a frame on this page
+  // — so the page compares what arrived against what the app is HOLDING and
+  // does nothing when they are the same. Against what it is holding, not
+  // against what it last fetched, so it is still right when the change came
+  // from somewhere else.
+  const reloadsBefore = logs.filter((l) => /css reloaded/.test(l)).length;
+  fs.writeFileSync(CSS, original);                       // same bytes, new mtime
+  await sleep(900);
+  const reloadsAfter = logs.filter((l) => /css reloaded/.test(l)).length;
+  ok("rewriting the same bytes does not re-cascade", reloadsAfter === reloadsBefore,
+     `${reloadsBefore} → ${reloadsAfter} reloads`);
+  ok("but the watch did fire, so the check is the page's and not the server's",
+     (serverSaid.match(/css → dashboard\.css/g) || []).length >= 2,
+     (serverSaid.match(/css → dashboard\.css/g) || []).length + " watch events");
+
+  // --- the caret stays where it was typed ------------------------------------
+  //
+  // The panel refreshes several times a second while it is open. Rebuilding
+  // the editor on each of those takes the focus and the caret with it — you
+  // type three characters and the cursor is back at the start. The pane is
+  // therefore built once and updated in place, and this is the check that says
+  // so, because it is the kind of thing that comes back silently.
+  const caret = await evalIn(`(async () => {
     document.querySelectorAll(".evgi-tab")[2].click();
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 400));
     const ta = document.querySelector(".evgi-css textarea");
     if (!ta) return "no editor";
-    const btn = [...document.querySelectorAll(".evgi-btn")].find(b => b.textContent === "save to disk");
-    if (!btn) return "no save button";
-    ta.value += ["", "/* saved from the panel by evg:inspect:live */", ".db-card { background-color: #118844; }", ""].join(String.fromCharCode(10));
-    ta.dispatchEvent(new Event("input"));
-    btn.click();
-    await new Promise(r => setTimeout(r, 600));
-    return "clicked";
+    ta.focus();
+    ta.setSelectionRange(1234, 1234);
+    const was = document.activeElement === ta;
+    // The refreshes are DRIVEN here rather than waited for. The page only
+    // repaints when something happens to it, so a quiet headless tab refreshes
+    // the panel exactly never — and a version of this check that just waited
+    // passed against the very bug it was written for.
+    for (let k = 0; k < 5; k++) {
+      await window.__inspector.refresh();
+      await new Promise(r => setTimeout(r, 60));
+    }
+    const now = document.querySelector(".evgi-css textarea");
+    return JSON.stringify({
+      focusedBefore: was,
+      sameBox: now === ta,
+      focusedAfter: document.activeElement === now,
+      caret: now ? now.selectionStart : -1,
+    });
   })()`);
-  ok("the panel offers a save", saved === "clicked", String(saved));
-
-  let onDisk = "";
-  for (let i = 0; i < 60; i++) { onDisk = fs.readFileSync(CSS, "utf8"); if (/118844/.test(onDisk)) break; await sleep(50); }
-  ok("saving from the panel wrote the file", /118844/.test(onDisk));
-  ok("and did not lose what was already in it", onDisk.startsWith(original.slice(0, 400)));
-  ok("and the picture is the saved colour", (await cardFill()) === "17,136,68,1", await cardFill());
+  const c = JSON.parse(caret || "{}");
+  ok("the editor was focused to begin with", c.focusedBefore === true, caret);
+  ok("the panel's refreshes do not replace the editor", c.sameBox === true, caret);
+  ok("nor take the focus away", c.focusedAfter === true, caret);
+  ok("and the caret is where it was left", c.caret === 1234, caret);
 
   fs.writeFileSync(CSS, original);
-  await sleep(400);
+  await sleep(300);
 
   ws.close();
 } catch (e) {

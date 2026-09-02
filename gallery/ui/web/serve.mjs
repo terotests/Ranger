@@ -71,35 +71,6 @@ try {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
 
-  // Writing a sheet back. The panel edits the app's INPUT, so "save" means
-  // putting the text where the input came from — after which the watch above
-  // picks it up and every other page open on it re-cascades too.
-  //
-  // Narrow on purpose: a .css file directly inside gallery/ui/demo, and
-  // nothing else. This server exists to serve a demo on a developer's own
-  // machine and a PUT that could reach further would be a worse thing than the
-  // convenience is worth.
-  if (req.method === "PUT") {
-    const rel = decodeURIComponent(url.pathname);
-    const okPath = /^\/gallery\/ui\/demo\/[A-Za-z0-9_.-]+\.css$/.test(rel);
-    if (!okPath) {
-      res.writeHead(403, { "content-type": "text/plain" }).end("only gallery/ui/demo/*.css");
-      return;
-    }
-    const chunks = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", () => {
-      try {
-        fs.writeFileSync(path.join(ROOT, rel), Buffer.concat(chunks));
-        console.log(`  css ← ${rel.split("/").pop()}  (saved from the inspector)`);
-        res.writeHead(204).end();
-      } catch (e) {
-        res.writeHead(500, { "content-type": "text/plain" }).end(e.message);
-      }
-    });
-    return;
-  }
-
   // The live-CSS stream. One long response per page; a page that goes away
   // takes its entry with it on "close".
   if (url.pathname === "/evg/css/events") {

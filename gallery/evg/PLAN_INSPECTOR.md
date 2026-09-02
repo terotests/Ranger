@@ -15,10 +15,16 @@ The rest of this file is still design.
 > `inspect/live-css-check.mjs`.
 >
 > Since then: the adapter is asynchronous throughout, so the transports that
-> cannot answer on the same tick are open rather than a rewrite away; states
-> can be held on (`EVGInspectForce`, keyed by path so it survives the rebuild
-> a tree-literal page does on every input); and the panel can write the sheet
-> back to disk, which the watch then sees like any other save.
+> cannot answer on the same tick are open rather than a rewrite away; and
+> states can be held on (`EVGInspectForce`, keyed by path so it survives the
+> rebuild a tree-literal page does on every input).
+>
+> **Writing the sheet back to disk was built and then taken out.** It worked,
+> and it was the wrong shape: it makes the panel a second author of a file that
+> already has one, for a convenience that an editor already provides better.
+> What is kept is the half that carries the weight — the file's path on screen,
+> the file as the source, and a scratch pad over it for trying a value before
+> writing it there.
 >
 > **§7 is superseded and the reason is worth keeping.** That section designs an
 > override layer — a table of (path, property, value) re-applied after every

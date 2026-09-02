@@ -82,9 +82,8 @@ attach({
     frame: () => app.inspectFrameJson(),
     transform: () => app.inspectTransform(),  // {x, y, k}, when the tree is
     viewport: () => [w, h],                   // drawn inside a larger surface
-    css:   () => ({ name, text, href, errors }),
+    css:   () => ({ name, path, text, href, errors }),
     setCss: (text) => app.inspectSetCss(text),
-    saveCss: (text) => fetch(href, { method: "PUT", body: text }),
     force: (path, bits) => app.inspectForce(path, bits),
   },
 });
@@ -231,25 +230,41 @@ always did. Nothing is intercepted, no value is held over the app's head, and
 **the text in the editor is the text that goes in the file** — there is no
 "copy as CSS" step because there is nothing to translate.
 
-Two routes into the same operation, and they cannot drift:
+**The file is the source.** Its path is on screen, because that is the answer
+to "what do I edit", and saving it re-cascades the page:
 
 ```
-  the panel's CSS pane ─┬─► app.inspectSetCss(text) ─► EVGStyleSheet.reload
-                        │        ▲
-  a save on disk ───────┼────────┘
-     │                  │
-     └─ serve.mjs watch ─► SSE ─► the page fetches and hands it over
-                        │
-  "save to disk" ───────┴─► PUT ─► serve.mjs writes the file
-                                    …which the watch then sees, so every other
-                                    page open on that sheet re-cascades too
+  gallery/ui/demo/dashboard.css
+     │  saved
+     ▼
+  serve.mjs watch ─► SSE ─► the page fetches it
+                              │
+                              ├─ same bytes? nothing happens
+                              │
+                              └─► app.inspectSetCss ─► EVGStyleSheet.reload
+                                                          ▲
+  the panel's CSS pane ─── apply ─────────────────────────┘
 ```
 
-The PUT is deliberately narrow — a `.css` file directly inside
-`gallery/ui/demo`, and nothing else. This server exists to serve a demo on a
-developer's own machine, and a write that could reach further would be a worse
-thing than the convenience is worth. The page that saved keeps the text it
-sent, so its own save coming back round the watch is not applied twice.
+The box in the panel is a **scratch pad over the file**, not a second copy of
+it: applying tries a value without touching the file, and the file is where the
+value goes when it is the one you wanted. The panel deliberately cannot write
+back — a panel that can save is a second author of the file, and one author is
+enough.
+
+**Nothing changed is nothing to do.** `fs.watch` fires for a touch, for a save
+that rewrote the same bytes, and for an editor that writes through a temporary
+file; a reload costs a re-parse, a full re-cascade and a relayout, which on
+this page is most of a frame. So the page compares what arrived against what
+the app is **holding** — not against what it last fetched, so it is still right
+when the change came from somewhere else — and does nothing when they match.
+
+**The editor is built once and kept.** The panel refreshes several times a
+second while it is open, and rebuilding a `<textarea>` on each of those takes
+the focus and the caret with it: you type three characters and the cursor is
+somewhere else. So the pane is cached and updated in place, and while it is
+showing, the body is not cleared at all — clearing it detaches the box, and
+detaching a focused `<textarea>` blurs it.
 
 `npm run evg:inspect:live` gates the whole path and checks the **colour of a
 rectangle in the display list**, not the element and not the panel: a value
@@ -384,11 +399,17 @@ the page does answer, so it cannot pass by never being asked.
 filled. It runs against the SVG editor because that needs no GPU.
 
 `npm run evg:inspect:live` gates the part that only exists across processes:
-the real dev server, a real save, the real page and the real WebGL painter, in
-both directions — a rule written to the file reaching the painter, and the
-panel's "save to disk" reaching the file. It also checks that the watch fires
-**once** per save: `fs.watch` reports the truncate and the write separately,
-and a sheet reloaded three times per keystroke would relayout three times.
+the real dev server, a real save, the real page and the real WebGL painter. It
+checks three things a unit test cannot see — that a rule written to the file
+reaches the painter, that rewriting the **same bytes** re-cascades nothing, and
+that the caret survives the panel's own refreshes.
+
+The caret check earned its keep by being wrong first. Written as "focus the
+box, wait, look again", it passed against the very bug it was for: the page
+only repaints when something happens to it, so a quiet headless tab refreshes
+the panel exactly never and the check waited through nothing. It drives the
+refreshes now, and with the fix taken back out it goes red on the right
+line.
 
 ## What is not built yet
 
@@ -405,6 +426,10 @@ Not here yet, in the order they are worth doing:
   `css()`/`setCss()` today. The other seventeen demos each have one, and the
   PPTX editor takes chrome CSS through `setChromeCss` — the wiring is four
   methods and a line in the demo registry.
+* **an editor worth typing in.** The box is a `<textarea>`: no highlighting, no
+  bracket matching, no line numbers, and an error list that says what is wrong
+  but not where. The file in a real editor is the better place to work, which
+  is why the path is the first thing the pane shows.
 * **the transports the async adapter now allows** — a DevTools extension over
   `inspectedWindow.eval`, a native target over a socket, a paused page
   answering out of a snapshot. The panel no longer assumes any of them answer
