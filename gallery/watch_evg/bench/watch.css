@@ -1,0 +1,302 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The stylesheet the watch benchmark lays out against.
+ *
+ * Three screens, one sheet, because a watch app is one app: a face, a list and
+ * a workout view share a palette and a type scale and would share a sheet on a
+ * device too. The geometry is a 454x454 round Wear OS panel — Galaxy Watch 6/7
+ * and Pixel Watch 3 in their largest size — at 1x, which is the coordinate
+ * space an EVG page would be written in.
+ *
+ * Class-first, one class token per selector, because that is what
+ * EVGStyleSheet matches. A variant is its own token on the same element.
+ */
+
+/* ---- the panel ---------------------------------------------------------- */
+
+.w-root {
+  display: flex;
+  flex-direction: column;
+  width: 454px;
+  height: 454px;
+  background-color: #000000;
+  color: #ffffff;
+  font-family: "Noto Sans";
+  font-size: 15px;
+}
+
+/* ---- the face ----------------------------------------------------------- */
+
+.w-face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 454px;
+  height: 454px;
+  background-color: #08090c;
+}
+
+/* The dial's text, over the ring. It fills the panel so the time lands in the
+ * middle of it, and it paints NO background of its own — a background here is
+ * an opaque 454x454 sheet laid over the sixty ticks, which is a thing that
+ * happened and took a rendered PNG to notice. */
+.w-dial {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 454px;
+  height: 454px;
+}
+
+/* One minute tick. Absolutely placed on the circle by the builder, which is
+ * how a real face does it: the ring is not a layout container. */
+.w-tick {
+  position: absolute;
+  width: 2px;
+  height: 8px;
+  background-color: #3a3f4a;
+}
+
+.w-tick-major {
+  position: absolute;
+  width: 3px;
+  height: 14px;
+  background-color: #9aa4b2;
+}
+
+.w-numeral {
+  position: absolute;
+  width: 34px;
+  height: 20px;
+  font-size: 15px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.w-time {
+  font-size: 62px;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+  line-height: 1.05;
+}
+
+.w-date {
+  font-size: 15px;
+  color: #8b95a5;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.w-seconds {
+  font-size: 15px;
+  color: #38bdf8;
+  text-align: center;
+}
+
+/* ---- complications ------------------------------------------------------ */
+
+.w-comps {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.w-comp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 56px;
+  border-radius: 14px;
+  background-color: #14161c;
+  border: 1px solid #22262f;
+  padding: 4px;
+}
+
+.w-comp-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background-color: #38bdf8;
+  margin-bottom: 3px;
+}
+
+.w-comp-icon-hot {
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background-color: #f97316;
+  margin-bottom: 3px;
+}
+
+.w-comp-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #e2e8f0;
+  text-align: center;
+}
+
+.w-comp-label {
+  font-size: 11px;
+  color: #737f8f;
+  text-align: center;
+}
+
+/* The progress arc under the complications — a real vector path, so the
+ * display list has to flatten a curve and not only push rectangles. */
+.w-arc {
+  position: absolute;
+  stroke-width: 12px;
+}
+
+/* ---- the list ----------------------------------------------------------- */
+
+.w-list {
+  display: flex;
+  flex-direction: column;
+  width: 454px;
+  height: 454px;
+  padding: 0 34px;
+  gap: 8px;
+  background-color: #000000;
+  overflow: hidden;
+}
+
+.w-list-title {
+  font-size: 15px;
+  color: #8b95a5;
+  text-align: center;
+  height: 34px;
+  margin-top: 26px;
+}
+
+/* A Wear chip: rounded, an icon, two lines of text. */
+.w-chip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 386px;
+  height: 62px;
+  border-radius: 26px;
+  background-color: #17181d;
+  padding: 0 16px;
+  gap: 12px;
+}
+
+.w-chip-on {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 386px;
+  height: 62px;
+  border-radius: 26px;
+  background-color: #1d3a52;
+  padding: 0 16px;
+  gap: 12px;
+}
+
+.w-chip-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: #38bdf8;
+}
+
+.w-chip-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+}
+
+.w-chip-title {
+  font-size: 16px;
+  color: #f1f5f9;
+}
+
+.w-chip-sub {
+  font-size: 13px;
+  color: #7b8798;
+}
+
+/* ---- the workout view --------------------------------------------------- */
+
+.w-workout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 454px;
+  height: 454px;
+  padding: 60px 40px 40px 40px;
+  gap: 10px;
+  background-color: #05070a;
+}
+
+.w-metric {
+  font-size: 78px;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+  line-height: 1.0;
+}
+
+.w-metric-unit {
+  font-size: 15px;
+  color: #7b8798;
+  text-align: center;
+}
+
+.w-tiles {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.w-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 54px;
+  border-radius: 16px;
+  background-color: #101318;
+  border: 1px solid #1c212a;
+}
+
+.w-tile-value {
+  font-size: 19px;
+  font-weight: bold;
+  color: #e2e8f0;
+  text-align: center;
+}
+
+.w-tile-label {
+  font-size: 11px;
+  color: #6b7686;
+  text-align: center;
+}
+
+.w-bar {
+  width: 300px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #1b1f27;
+  margin-top: 10px;
+}
+
+.w-bar-fill {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #22c55e;
+}

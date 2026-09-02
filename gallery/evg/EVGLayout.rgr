@@ -286,11 +286,15 @@ class EVGLayout {
                         ; This matches HTML behavior where image container fills parent
                         if (parentHeight > 0.0) {
                             height = parentHeight
-                            this.log(("  Image container using parent height: " + (to_string width) + "x" + (to_string height)))
+                            if debug {
+                                this.log(("  Image container using parent height: " + (to_string width) + "x" + (to_string height)))
+                            }
                         } {
                             ; No parent height constraint - calculate from aspect ratio
                             height = (width / dims.aspectRatio)
-                            this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> height=" + (to_string height)))
+                            if debug {
+                                this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> height=" + (to_string height)))
+                            }
                         }
                         autoHeight = false
                     }
@@ -299,11 +303,15 @@ class EVGLayout {
                         ; If parent has a fixed width, use it as the container width
                         if (parentWidth > 0.0) {
                             width = parentWidth
-                            this.log(("  Image container using parent width: " + (to_string width) + "x" + (to_string height)))
+                            if debug {
+                                this.log(("  Image container using parent width: " + (to_string width) + "x" + (to_string height)))
+                            }
                         } {
                             ; No parent width constraint - calculate from aspect ratio
                             width = (height * dims.aspectRatio)
-                            this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> width=" + (to_string width)))
+                            if debug {
+                                this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> width=" + (to_string width)))
+                            }
                         }
                     }
                     if ((element.width.isSet == false) && (element.height.isSet == false)) {
@@ -311,7 +319,9 @@ class EVGLayout {
                         if ((parentWidth > 0.0) && (parentHeight > 0.0)) {
                             width = parentWidth
                             height = parentHeight
-                            this.log(("  Image filling parent: " + (to_string width) + "x" + (to_string height)))
+                            if debug {
+                                this.log(("  Image filling parent: " + (to_string width) + "x" + (to_string height)))
+                            }
                         } {
                             ; No parent constraints - use natural size (capped at parent)
                             width = (to_double dims.width)
@@ -323,7 +333,9 @@ class EVGLayout {
                                     height = (height * scale)
                                 }
                             }
-                            this.log(("  Image natural size: " + (to_string width) + "x" + (to_string height)))
+                            if debug {
+                                this.log(("  Image natural size: " + (to_string width) + "x" + (to_string height)))
+                            }
                         }
                         autoHeight = false
                     }
@@ -508,7 +520,9 @@ class EVGLayout {
             this.applyScroll(element)
         }
         
-        this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
+        if debug {
+            this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
+        }
     }
     
     ; What a scroll container owes: how big its content is, and where the
