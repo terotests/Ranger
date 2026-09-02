@@ -809,6 +809,7 @@
     "ui:sortable:png": "npm run ui:demo:build && DEMO=sortable node gallery/ui/demo/render.mjs gallery/ui/demo/sortable.png",
     "ui:toolbar:png": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/MenubarDemo.rgr -d=./gallery/ui/bin -o=MenubarDemo.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs && DEMO=toolbar node gallery/ui/demo/render.mjs",
     "ui:demo:web": "npm run ui:web",
+    "compiler:issue76:check": "node tests/compiler-issue-76-check.mjs",
     "evg:icons:dump": "mkdir -p tmp/icons/trace && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/tools/icon_trace_dump.rgr -d=./gallery/evg/bin -o=icon_trace_dump.js -nodecli && node ./gallery/evg/bin/icon_trace_dump.js",
     "pptx:seam:test": "bash scripts/rgr-suite.sh ./gallery/pptx/tests/PptxSeamTest.rgr ./gallery/pptx/bin PptxSeamTest.js",
     "pptx:seam:scan": "node gallery/pptx/tools/seam_scan.mjs",

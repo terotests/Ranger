@@ -192,6 +192,17 @@ SUITES=(
   # platform text session — paste, undo, IME and a Backspace over a ZWJ
   # family — which cannot be shown anywhere but in a browser.
   ui:demo:page
+  # ISSUES.md #76, and it is a COMPILER check sitting in the gallery runner on
+  # purpose. `tests/compiler-issue-76.test.ts` covers the same three fixtures,
+  # but no CI job on a pull request runs the full vitest suite — `test:es6`
+  # runs compiler.test.ts alone and `test:publish` only fires on a release. An
+  # unrun test is not a gate, and `recv.call(a).field = value` is exactly the
+  # bug that fails in silence: it compiled clean and dropped the store. Two of
+  # its fixtures assert a FAILED compile, so widening the parser's lookahead
+  # later cannot quietly start storing into an unrelated statement's return
+  # value. The check swallows the compiler's own output, because the loop
+  # below fails a suite on the string `[FAIL]` appearing anywhere in it.
+  compiler:issue76:check
 )
 
 failed=()
