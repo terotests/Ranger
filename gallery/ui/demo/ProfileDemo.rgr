@@ -21,18 +21,21 @@
 ; (`InputCtl`, nine conformance specs), the switch (`SwitchCtl`) and the select
 ; (`SelectCtl`).
 ;
-; DRAWN, and said so rather than implied: the Birth Date and Dismissal Time
-; boxes are text fields with an icon beside them. The reference's are date and
-; time pickers, and segmented editing — where ArrowUp on the month changes the
-; month and not the caret — is its own contract that the plan declines until it
-; has been measured. An icon that opens nothing would be a lie about what is
-; here; an icon that says "this field holds a date" is what the reference's
-; own affordance is when the picker is closed, so it stays and the header says
-; what it is.
+; The date boxes OPEN A CALENDAR. This paragraph used to say they did not —
+; "an icon that opens nothing would be a lie about what is here" — and the
+; icon was a glyph with no behaviour behind it. It opens `CalendarCtl` now,
+; the measured one: the grid, the month navigation and the selection are the
+; controller's answers and nothing here re-decides them. The picker opens on
+; the date the field already holds and writes back in the format that field
+; already used, time included.
 ;
-; The select is a CLOSED trigger. Opening it needs the overlay layer the
-; dropdown demo has, which is real work rather than a line of CSS, so the
-; closed state is what this page draws and the open state is where it stops.
+; What is still NOT here, and is the narrower claim: segmented editing, where
+; ArrowUp on the month changes the month rather than moving the caret. That is
+; its own contract and the plan still declines it until it has been measured.
+;
+; The select OPENS. It was a closed trigger with the same "this is where it
+; stops" note; the overlay layer the dropdown demo proved is what it needed,
+; and it uses it.
 ;
 ; Not here at all: the Specialties tag input, which is genuinely new — a list
 ; of removable tokens sharing a line with a text field, whose whole character
@@ -44,7 +47,10 @@
 Import "../src/InputCtl.rgr"
 Import "../src/CheckboxCtl.rgr"
 Import "../src/SelectCtl.rgr"
+Import "../src/CalendarCtl.rgr"
+Import "../src/UiDate.rgr"
 Import "../src/UiCtl.rgr"
+Import "../src/UiTree.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -121,6 +127,25 @@ treefactory Pf {
     tag SwLabel EVGElement (props (className "pf-switch-label") (elementType 1))
     tag SwRow   EVGElement (props (className "pf-switch-row"))
 
+    ; THE DATE PICKER the icon now opens. Same arrangement as the select's
+    ; list: a sibling of the anchor carrying `isOverlay`, which is what the
+    ; overlay pass's anchor search expects.
+    tag CalBtn  EVGElement (props (className "pf-calbtn") (role "button") (a11yHasPopup "dialog"))
+    tag CalGlyph EVGElement (props (className "pf-calglyph") (elementType 1) (a11yHidden true))
+    tag CalPop  EVGElement (props (className "pf-calpop") (isOverlay true) (overlaySide "bottom") (overlayAlign "end") (role "dialog"))
+    tag CalNav  EVGElement (props (className "pf-calnav"))
+    tag CalNavB EVGElement (props (className "pf-calnavbtn") (role "button"))
+    tag CalNavG EVGElement (props (className "pf-calnavglyph") (elementType 1) (a11yHidden true))
+    tag CalCap  EVGElement (props (className "pf-calcap") (role "status") (elementType 1))
+    tag CalGrid EVGElement (props (className "pf-calgrid") (role "grid"))
+    tag CalHead EVGElement (props (className "pf-calhead"))
+    tag CalWd   EVGElement (props (className "pf-calwd") (elementType 1) (a11yHidden true))
+    tag CalWeek EVGElement (props (className "pf-calweek") (role "row"))
+    tag CalDay  EVGElement (props (className "pf-calday") (role "gridcell") (a11yFocusable true))
+    tag CalNum  EVGElement (props (className "pf-calnum") (elementType 1) (a11yHidden true))
+    tag CalNumOut EVGElement (props (className "pf-calnum pf-calnum-outside") (elementType 1) (a11yHidden true))
+    tag CalNumOn  EVGElement (props (className "pf-calnum pf-calnum-on") (elementType 1) (a11yHidden true))
+
     tag Foot    EVGElement (props (className "pf-foot"))
     tag FootTx  EVGElement (props (className "pf-foot-text") (elementType 1))
     tag FootBtn EVGElement (props (className "pf-foot-btns"))
@@ -163,6 +188,15 @@ class ProfileDemo {
     def hovered:string ""
     def pressed:string ""
     def focused:string ""
+
+    ; THE DATE PICKER. One calendar, and a note of which field opened it —
+    ; two calendars would be two places for "which month is showing" to drift.
+    ; `CalendarCtl` is the measured one: react-day-picker's grid, keyboard and
+    ; selection rules, gated by `ui:calendar:check`.
+    def cal:CalendarCtl (new CalendarCtl())
+    def calFor:string ""
+    def birthDay:int 0
+    def availDay:int 0
 
     def pageW:double 780.0
     def pageH:double 800.0
@@ -236,6 +270,20 @@ class ProfileDemo {
         available.tid = "pf-available"
         this.dress(available "Availability Date" "April 24th, 2026 - 10:30")
         available.description = rAvail.hint
+
+        ; The picker's own fixture. `today` is passed rather than read from a
+        ; clock, for the reason CalendarCtl's header gives: a control whose
+        ; output changes overnight cannot be gated.
+        ; The days the two fields open on, set beside the text they were
+        ; dressed with so the picker starts where the person is.
+        birthDay = (UiDate.toDays(1991 9 18))
+        availDay = (UiDate.toDays(2026 4 24))
+
+        cal.tid = "pf-cal"
+        cal.name = "Date"
+        cal.setMonth(2026 4)
+        cal.setToday(2026 5 14)
+        cal.build()
 
         this.addRow("pf-company" "Company" false)
         company.tid = "pf-company"
@@ -318,6 +366,107 @@ class ProfileDemo {
     ; reference puts it. `leading` decides which: the clock goes in front of a
     ; time and the calendar behind a date, and the caret has to know, because a
     ; leading icon moves where the text run starts.
+    ; A date field: the text box, and the calendar button that now OPENS one.
+    ;
+    ; The icon used to be a glyph drawn inside the box and nothing else — this
+    ; file's header said so, and said why: "an icon that opens nothing would be
+    ; a lie about what is here". It opens one now, so the lie is gone and so is
+    ; the paragraph.
+    fn dateBox:EVGElement (c:InputCtl) {
+        ; The icon stays INSIDE the box, pushed to its far end by the same
+        ; spacer a trailing icon has always used — it is only a button now.
+        ; Hanging it outside would move it, and would drop the spacer that
+        ; keeps every other trailing icon on the right edge.
+        def box:EVGElement (this.boxFor(c "" false))
+        box.addChild((tree Pf (Spacer)))
+        def btn (tree Pf
+            (CalBtn (props (id (c.tid + "-cal")) (a11yLabel ("Choose a date for " + c.name)))
+                (CalGlyph "🗓")))
+        btn.a11yExpanded = (EVGA11yTri.no())
+        box.addChild(btn)
+        ; The popup is the button's SIBLING, which is what the overlay pass's
+        ; anchor search expects — as a child it places at the anchor's own
+        ; origin and draws over it.
+        if (calFor == c.tid) {
+            btn.a11yExpanded = (EVGA11yTri.yes())
+            btn.isOverlayAnchor = true
+            box.addChild((this.calendarPop()))
+        }
+        return box
+    }
+
+    ; The calendar itself, drawn from the measured controller. Every date rule
+    ; here — which cell holds which day, how many rows, what is outside the
+    ; month — is `CalendarCtl`'s answer, not this file's.
+    fn calendarPop:EVGElement () {
+        def pop (tree Pf (CalPop (props (id "pf-calpop") (a11yLabel "Choose a date"))))
+        def nav (tree Pf
+            (CalNav
+                (CalNavB (props (id "pf-cal-prev") (a11yLabel "Go to the Previous Month"))
+                    (CalNavG "‹"))
+                (CalCap (props (id "pf-cal-caption")) (cal.monthLabel()))
+                (CalNavB (props (id "pf-cal-next") (a11yLabel "Go to the Next Month"))
+                    (CalNavG "›"))))
+        pop.addChild(nav)
+        def grid (tree Pf (CalGrid (props (id "pf-cal-grid") (a11yLabel (cal.monthLabel())))))
+        def head (tree Pf (CalHead))
+        def c:int 0
+        while (c < 7) {
+            head.addChild((tree Pf (CalWd (UiDate.dayAbbr(c)))))
+            c = (c + 1)
+        }
+        grid.addChild(head)
+        def start:int (cal.gridStart())
+        def weeks:int (cal.weekCount())
+        def r:int 0
+        while (r < weeks) {
+            def row (tree Pf (CalWeek))
+            def i:int 0
+            while (i < 7) {
+                def day:int ((start + (r * 7)) + i)
+                def cell (tree Pf
+                    (CalDay (props (id (cal.dayTid(day))) (a11yLabel (cal.dayLabel(day))))))
+                def outside:boolean (cal.isOutside(day))
+                def chosen:boolean false
+                if cal.hasSelection {
+                    if (day == cal.selectedDay) {
+                        chosen = true
+                    }
+                }
+                if outside {
+                    UiTree.addClass(cell "pf-calday-outside")
+                }
+                if chosen {
+                    UiTree.addClass(cell "pf-calday-on")
+                    cell.a11ySelected = (EVGA11yTri.yes())
+                }
+                def p:[int] ([] _:int ( 0 0 0 ))
+                UiDate.fromDays(day p)
+                def num:string (to_string (itemAt p 2))
+                ; The number carries its OWN state token. There are no
+                ; descendant selectors, so a chosen day's numeral cannot
+                ; inherit white from the dark cell around it — black on black
+                ; is what assuming it can gets you, and this file has the
+                ; comment about it in four other places.
+                if chosen {
+                    cell.addChild((tree Pf (CalNumOn num)))
+                } {
+                    if outside {
+                        cell.addChild((tree Pf (CalNumOut num)))
+                    } {
+                        cell.addChild((tree Pf (CalNum num)))
+                    }
+                }
+                row.addChild(cell)
+                i = (i + 1)
+            }
+            grid.addChild(row)
+            r = (r + 1)
+        }
+        pop.addChild(grid)
+        return pop
+    }
+
     fn boxFor:EVGElement (c:InputCtl icon:string leading:boolean) {
         def box (tree Pf (Box (props (id c.tid) (a11yLabel c.name))))
         if c.readOnly {
@@ -509,8 +658,8 @@ class ProfileDemo {
         def body (tree Pf (Body (props (id "pf"))))
         body.addChild((this.rowFor2((this.rowFor("pf-photo")) (this.photoRow()))))
         body.addChild((this.rowFor2((this.rowFor("pf-name")) (this.boxFor(fullName "" false)))))
-        body.addChild((this.rowFor2((this.rowFor("pf-birth")) (this.boxFor(birth "🗓" false)))))
-        body.addChild((this.rowFor2((this.rowFor("pf-available")) (this.boxFor(available "🗓" false)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-birth")) (this.dateBox(birth)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-available")) (this.dateBox(available)))))
         body.addChild((this.rowFor2((this.rowFor("pf-company")) (this.boxFor(company "" false)))))
         body.addChild((this.rowFor2((this.rowFor("pf-dismissal")) (this.boxFor(dismissal "◷  " true)))))
         body.addChild((this.rowFor2((this.rowFor("pf-phone")) (this.boxFor(phone "" false)))))
@@ -534,7 +683,7 @@ class ProfileDemo {
         card.addChild(foot)
 
         page.addChild(card)
-        page.addChild((tree Pf (Note "Every control's left edge is on one column. The date and time boxes are text fields with an icon — segmented editing is not built here.")))
+        page.addChild((tree Pf (Note "Every control's left edge is on one column. The calendar icon opens a date picker; segmented editing — ArrowUp on the month — is not built here.")))
         return page
     }
 
@@ -682,7 +831,163 @@ class ProfileDemo {
         return took
     }
 
+    ; The date a chosen day writes into the field, in the form the field
+    ; already holds: "Sep 18, 1991" for the birth date, and the availability
+    ; field's long form with its time kept. Written here rather than in
+    ; CalendarCtl because a FORMAT is a presentation decision and the
+    ; controller is the date one.
+    fn writeDate:void (c:InputCtl day:int) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(day p)
+        def y:int (itemAt p 0)
+        def m:int (itemAt p 1)
+        def d:int (itemAt p 2)
+        if (c.tid == "pf-available") {
+            ; The long form, and the TIME the field already carried is kept:
+            ; a date picker that silently dropped the 10:30 would be losing
+            ; data the person typed.
+            def keep:string (this.timePartOf(c.value))
+            ; "April 24th, 2026 - 10:30", which is what this field already
+            ; held. NOT `UiDate.longLabel`: that leads with the weekday, and a
+            ; picker that turned "April 24th, 2026" into "Thursday, April
+            ; 30th, 2026" would be changing the format as a side effect of
+            ; changing the date.
+            def long:string ((((UiDate.monthName(m)) + " ") + (UiDate.ordinal(d))) + ", ")
+            c.value = ((((long + (to_string y)) + " - ")) + keep)
+        } {
+            ; "Sep 18, 1991" — the form this field already held. The
+            ; abbreviation is the month name's first three letters, which is
+            ; what every English month abbreviates to; `UiDate` has no
+            ; `monthAbbr` and inventing one there would be a date rule added
+            ; to the date module for one demo's format.
+            def full:string (UiDate.monthName(m))
+            def abbr:string (substring full 0 3)
+            c.value = ((((abbr + " ") + (to_string d)) + ", ") + (to_string y))
+        }
+        this.rememberDay(c day)
+        c.caret = (strlen c.value)
+        c.selStart = c.caret
+        c.selEnd = c.caret
+    }
+
+    ; What follows the " - " in the availability field, or a default. Kept
+    ; rather than reformatted: this reads back exactly what is there.
+    fn timePartOf:string (v:string) {
+        def at:int (indexOf v " - ")
+        if (at < 0) {
+            return "10:30"
+        }
+        return (substring v (at + 3) (strlen v))
+    }
+
+    fn calendarPress:boolean (target:string) {
+        ; The buttons that OPEN it, one per date field.
+        if (target == "pf-birth-cal") {
+            this.toggleCalendar(birth)
+            return true
+        }
+        if (target == "pf-available-cal") {
+            this.toggleCalendar(available)
+            return true
+        }
+        if ((strlen calFor) == 0) {
+            return false
+        }
+        if (target == "pf-cal-prev") {
+            cal.activate("pf-cal-prev")
+            this.rebuild()
+            return true
+        }
+        if (target == "pf-cal-next") {
+            cal.activate("pf-cal-next")
+            this.rebuild()
+            return true
+        }
+        def day:int (cal.dayOfTid(target))
+        if (day >= 0) {
+            cal.pickDay(day)
+            if (calFor == "pf-birth") {
+                this.writeDate(birth day)
+            }
+            if (calFor == "pf-available") {
+                this.writeDate(available day)
+            }
+            calFor = ""
+            this.rebuild()
+            return true
+        }
+        ; A press anywhere else closes it, the way the select's list is
+        ; dismissed by a click outside.
+        calFor = ""
+        this.rebuild()
+        return false
+    }
+
+    fn toggleCalendar:void (c:InputCtl) {
+        if (calFor == c.tid) {
+            calFor = ""
+        } {
+            calFor = c.tid
+            ; Open ON the date the field already holds, so the picker starts
+            ; where the person is rather than on some default month.
+            def d:int (this.dayHeldBy(c))
+            if (d > 0) {
+                def p:[int] ([] _:int ( 0 0 0 ))
+                UiDate.fromDays(d p)
+                cal.setMonth((itemAt p 0) (itemAt p 1))
+                cal.setSelected((itemAt p 0) (itemAt p 1) (itemAt p 2))
+                cal.moveFocusTo(d)
+            }
+            cal.build()
+        }
+        this.rebuild()
+    }
+
+    ; The day each date field currently holds, as a day number.
+    ;
+    ; Kept beside the text rather than parsed back out of it. Parsing would
+    ; mean a reader of "Sep 18, 1991" and a writer of it, and the two drift —
+    ; the availability field's text is a long form with a time on the end, and
+    ; a parser that has to handle both is a second date grammar nobody
+    ; measured. The text is what a person sees; this is what the picker opens
+    ; on.
+    fn dayHeldBy:int (c:InputCtl) {
+        if (c.tid == "pf-birth") {
+            return birthDay
+        }
+        if (c.tid == "pf-available") {
+            return availDay
+        }
+        return 0
+    }
+
+    fn rememberDay:void (c:InputCtl day:int) {
+        if (c.tid == "pf-birth") {
+            birthDay = day
+        }
+        if (c.tid == "pf-available") {
+            availDay = day
+        }
+    }
+
     fn press:boolean (target:string) {
+        ; THE DATE PICKER, first: while it is open every press belongs to it,
+        ; including the one that dismisses it. Same rule the select's list is
+        ; under, and for the same reason — an overlay that let presses through
+        ; to the form behind it would edit a field the person cannot see.
+        if ((strlen calFor) > 0) {
+            if (this.calendarPress(target)) {
+                return true
+            }
+        }
+        if (target == "pf-birth-cal") {
+            this.toggleCalendar(birth)
+            return true
+        }
+        if (target == "pf-available-cal") {
+            this.toggleCalendar(available)
+            return true
+        }
         ; THE SELECT, BEFORE THE FOCUS RING. Every decision goes through the
         ; controller: this asks it what a press on that target means and draws
         ; whatever it says afterwards. Nothing here decides whether the list is

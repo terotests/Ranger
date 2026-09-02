@@ -121,8 +121,12 @@ console.log("--- the spacers, which were all zero ---");
   );
   ok("and the hint at the left", hint.el.calculatedX - foot.el.calculatedX < 26);
   // A trailing icon inside a box is the same mechanism at a smaller scale.
+  // It is a BUTTON now — it opens a date picker — but it is still the last
+  // thing in the box and still pushed there by the same spacer.
   const birth = one(d, "pf-birth");
-  const icon = birth.el.children.find((k) => (k.className || "").includes("pf-icon"));
+  const icon = birth.el.children.find((k) => (k.className || "").includes("pf-calbtn"));
+  ok("the date box has its calendar button", icon !== undefined,
+    birth.el.children.map((k) => k.className).join(" | "));
   ok(
     "and the calendar at the right edge of its box",
     (birth.el.calculatedX + birth.el.calculatedWidth) - (icon.calculatedX + icon.calculatedWidth) < 16,
@@ -369,6 +373,93 @@ console.log("--- choosing an option, by pointer ---");
   ok("and it is the chosen one", chosen[0] && chosen[0].name === "Nobody",
     JSON.stringify(chosen[0] && chosen[0].name));
   ok("no lint with it open", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
+}
+
+// The calendar icon opens a calendar.
+//
+// Reported twice — "lomakesivulla ois hyvä olla kalenteri kytkettynä" and
+// "calendar input ei oo toteutettuna". It was a deliberate gap, and this
+// file's own header said so in as many words: "an icon that opens nothing
+// would be a lie about what is here". It opens `CalendarCtl` now — the
+// measured one, gated against react-day-picker by `ui:calendar:check` — so
+// nothing here re-decides which day sits in which cell.
+console.log("--- the calendar icon opens a calendar ---");
+{
+  const d = fresh();
+  const ids = () => flat(d).map((n) => n.el.id).filter(Boolean);
+  const txt = (id) => { const n = one(d, id); return n ? n.el.textContent : "(absent)"; };
+  const press = (id) => { const took = d.press(id); d.displayListJson(); return took; };
+  const eq = (name, got, want) => ok(`${name}: ${got}`, String(got) === String(want), `want ${want}`);
+
+  eq("the birth field starts with the date it was dressed with", d.birth.value, "Sep 18, 1991");
+  ok("no picker while it is shut", !ids().includes("pf-calpop"));
+  ok("the button is on the page", ids().includes("pf-birth-cal"));
+
+  ok("pressing it is taken", press("pf-birth-cal"));
+  ok("the picker is drawn", ids().includes("pf-calpop"));
+  // ON THE FIELD'S OWN MONTH, not on a default: it opens where the person is.
+  eq("opened on the month the field holds", txt("pf-cal-caption"), "September 1991");
+  const days = ids().filter((x) => /^pf-cal-\d{4}-\d{2}-\d{2}$/.test(x));
+  ok("with a full grid of days", days.length === 35 || days.length === 42, String(days.length));
+
+  // Under the button, not over it — the popup is the anchor's sibling.
+  const pop = one(d, "pf-calpop").el;
+  const btn = one(d, "pf-birth-cal").el;
+  ok("under the button that opened it",
+    pop.calculatedY >= btn.calculatedY + btn.calculatedHeight,
+    `${pop.calculatedY} vs ${btn.calculatedY + btn.calculatedHeight}`);
+
+  // A day is reachable by the pointer, which only a drawn page can answer.
+  const cell = one(d, "pf-cal-1991-09-20").el;
+  const hit = d.hitId(cell.calculatedX + cell.calculatedWidth / 2,
+                      cell.calculatedY + cell.calculatedHeight / 2);
+  eq("a day answers at its centre", hit, "pf-cal-1991-09-20");
+
+  // The month navigation is the controller's.
+  press("pf-cal-next");
+  eq("next moves the month", txt("pf-cal-caption"), "October 1991");
+  press("pf-cal-prev");
+  eq("and prev brings it back", txt("pf-cal-caption"), "September 1991");
+
+  // Choosing writes the date back IN THE FIELD'S OWN FORMAT.
+  ok("choosing a day is taken", press("pf-cal-1991-09-20"));
+  eq("and writes it into the field", d.birth.value, "Sep 20, 1991");
+  ok("and closes the picker", !ids().includes("pf-calpop"));
+
+  // The availability field's format is a different one, and its TIME is not
+  // collateral damage: a picker that dropped the 10:30 would be losing what
+  // the person typed.
+  eq("the availability field to start", d.available.value, "April 24th, 2026 - 10:30");
+  press("pf-available-cal");
+  eq("opens on its own month", txt("pf-cal-caption"), "April 2026");
+  press("pf-cal-2026-04-30");
+  eq("writes its own long form and keeps the time",
+    d.available.value, "April 30th, 2026 - 10:30");
+
+  // Pressing the button again shuts it.
+  press("pf-birth-cal");
+  press("pf-birth-cal");
+  ok("a second press shuts it", !ids().includes("pf-calpop"));
+
+  // What a reader is told.
+  press("pf-birth-cal");
+  const tree = JSON.parse(d.a11yJson(1, ""));
+  const b = tree.nodes.find((n) => n.id === "pf-birth-cal");
+  ok("the button is named for what it opens",
+    b && b.name === "Choose a date for Birth Date", b && b.name);
+  // 2 is expanded on the EVG tri.
+  ok("and reports expanded while it is open", b && b.expanded === 2, JSON.stringify(b));
+  const dlg = tree.nodes.find((n) => n.id === "pf-calpop");
+  ok("the picker is a dialog", dlg && dlg.role === "dialog", JSON.stringify(dlg));
+  const grid = tree.nodes.find((n) => n.id === "pf-cal-grid");
+  ok("holding a grid named for its month",
+    grid && grid.role === "grid" && grid.name === "September 1991", JSON.stringify(grid));
+  const day = tree.nodes.find((n) => n.id === "pf-cal-1991-09-20");
+  ok("whose days are gridcells with spoken dates",
+    day && day.role === "gridcell" && /September 20th, 1991/.test(day.name || ""),
+    day && day.name);
+  ok("the tree lints clean with it open",
+    Array.from(d.a11yProblems()).length === 0, Array.from(d.a11yProblems()).join(" | "));
 }
 
 console.log("");
