@@ -40,20 +40,97 @@ class RangerSwift6ClassWriter {
     if (nn.value_type == RangerNodeType.CharBuffer) {
       return true
     }
+    ; A `buffer` parameter reaches here with its value_type unset and only its
+    ; NAME saying what it is, so the checks above all miss it -- which is how
+    ; `sfn put16 (b:buffer at:int v:int)` came out as a `let [UInt8]` that its
+    ; own body then assigned into. Every one of these maps to a Swift ARRAY,
+    ; which is a value type: without `inout` the callee writes into a copy and
+    ; the caller sees nothing, so this is the difference between a build error
+    ; and a silently wrong answer.
+    if (this.isSwiftValueCollectionName(nn.type_name)) {
+      return true
+    }
     return false
   }
 
+  ; A Swift function parameter is a `let`. Ranger lets a body assign to one --
+  ; `if (x < 0) { x = 0 }` is the ordinary way to clamp an argument, and every
+  ; other target takes it without comment because their parameters are mutable
+  ; bindings. Kotlin solved this by renaming the parameter and opening the body
+  ; with a `var` copy of the original name; this is the same, with Swift's
+  ; two-name parameter form so the CALL is unchanged: `func f(x x__p: Int)` is
+  ; still called `f(x: 1)`.
+  ;
+  ; Only for parameters that are not already `inout`. A collection or a buffer
+  ; that the body mutates has to write THROUGH to the caller, and a local copy
+  ; would quietly stop doing that; a scalar assigned in the body is local by
+  ; Ranger's own semantics, so a copy is exactly right.
+  fn paramNeedsLocalCopy:boolean (arg:RangerAppParamDesc) {
+    if (arg.set_cnt < 1) {
+      return false
+    }
+    if (this.paramNeedsInout(arg)) {
+      return false
+    }
+    def nn:CodeNode (unwrap arg.nameNode)
+    if (nn.hasFlag("keyword")) {
+      return false
+    }
+    if (nn.value_type == RangerNodeType.ExpressionType) {
+      return false
+    }
+    return true
+  }
+
+  fn swiftWriteMutableParamCopies:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for fnDesc.params arg:RangerAppParamDesc i {
+      if (this.paramNeedsLocalCopy(arg)) {
+        wr.out(("var " + arg.compiledName + " : ") false)
+        this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+        wr.out((" = " + arg.compiledName + "__p") true)
+      }
+    }
+  }
+
+  fn isSwiftValueCollectionName:boolean (tn:string) {
+    if (tn == "buffer") {
+      return true
+    }
+    if (tn == "charbuffer") {
+      return true
+    }
+    if (tn == "int_buffer") {
+      return true
+    }
+    if (tn == "double_buffer") {
+      return true
+    }
+    return false
+  }
+
+  ; Whether the parameter has to be `inout`. Two sources agree here:
+  ; StaticAnalyzer's needs_swift_inout, which sees the whole program and so
+  ; also catches a parameter that is only handed on to a mutating callee
+  ; (`writeLoca(out)` -> `putLoca(out)` -> `put16(out ...)`), and the local
+  ; checks below, which stand on their own for a single class compiled without
+  ; the analysis pass. @(mutates) stays as the explicit override.
   fn paramNeedsInout:boolean (arg:RangerAppParamDesc) {
     def nn:CodeNode (unwrap arg.nameNode)
     if (nn.hasFlag("mutates")) {
       return true
     }
+    if arg.needs_swift_inout {
+      return true
+    }
     if ((arg.set_cnt > 0) && (this.isSwiftValueCollection(nn))) {
       return true
     }
-    if ((arg.set_cnt > 0) && (nn.type_name == "string")) {
-      return true
-    }
+    ; A `string` parameter the body assigns to is NOT one of these. Ranger has
+    ; no operator that writes into a string in place, so `s = (s + "x")` is a
+    ; rebinding of the local name and every other target reads it that way;
+    ; `inout` would make Swift alone write the new value back to the caller,
+    ; and would demand a `var` at every call site. paramNeedsLocalCopy gives it
+    ; the same `var` copy an `int` gets.
     return false
   }
   
@@ -615,7 +692,13 @@ class RangerSwift6ClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      wr.out((arg.compiledName + " : ") false)
+      if (this.paramNeedsLocalCopy(arg)) {
+        ; `label internal : Type` -- the call site keeps the label it always
+        ; had, and the body gets a name the `var` copy can shadow.
+        wr.out((arg.compiledName + " " + arg.compiledName + "__p : ") false)
+      } {
+        wr.out((arg.compiledName + " : ") false)
+      }
       def nn (unwrap arg.nameNode)
       if(nn.value_type == RangerNodeType.ExpressionType ) {
         wr.out("  @escaping  " false)
@@ -638,10 +721,19 @@ class RangerSwift6ClassWriter {
         wr.out(", " false)
       }
       def local (itemAt localFnDesc.params i)
+      def wantsCopy:boolean ((this.paramNeedsLocalCopy(arg)) || (this.paramNeedsLocalCopy(local)))
       if( local.name != arg.name ) {
         wr.out(arg.compiledName + " " , false )
+      } {
+        if wantsCopy {
+          wr.out(arg.compiledName + " " , false )
+        }
       }
-      wr.out(local.compiledName + " : " , false)
+      if wantsCopy {
+        wr.out(local.compiledName + "__p : " , false)
+      } {
+        wr.out(local.compiledName + " : " , false)
+      }
       def nn (unwrap arg.nameNode)
       if( nn.hasFlag("strong") ) {
         if(nn.value_type == RangerNodeType.ExpressionType ) {
@@ -1254,6 +1346,7 @@ class RangerSwift6ClassWriter {
       wr.newline()
       def subCtx:RangerAppWriterContext (unwrap constr.fnCtx)
       subCtx.is_function = true
+      this.swiftWriteMutableParamCopies((unwrap constr) subCtx wr)
       this.WalkNode( (unwrap constr.fnBody) subCtx wr)
       wr.newline()
       wr.indent(-1)
@@ -1294,6 +1387,7 @@ class RangerSwift6ClassWriter {
       wr.newline()
       def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
       subCtx.is_function = true
+      this.swiftWriteMutableParamCopies(variant subCtx wr)
       this.WalkNode( (unwrap variant.fnBody) subCtx wr)
       wr.newline()
       wr.indent(-1)
@@ -1374,6 +1468,7 @@ class RangerSwift6ClassWriter {
         subCtx.in_static_method = false
         subCtx.currentMethod = variant
         subCtx.setCurrentClass( (unwrap cl) )
+        this.swiftWriteMutableParamCopies(variant subCtx wr)
         this.WalkNode( (unwrap variant.fnBody) subCtx wr)
         wr.newline()
         wr.indent(-1)
@@ -1399,6 +1494,7 @@ class RangerSwift6ClassWriter {
         subCtx.in_method = false
         subCtx.in_static_method = true
         subCtx.currentMethod = variant
+        this.swiftWriteMutableParamCopies(variant subCtx theEnd)
         this.WalkNode( (unwrap variant.fnBody) subCtx theEnd)
         theEnd.newline()
         theEnd.indent(-1)

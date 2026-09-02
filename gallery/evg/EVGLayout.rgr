@@ -1080,8 +1080,31 @@ class EVGLayout {
             ; Check if we need to wrap to next row (for row direction). Gated on
             ; flexWrap: "nowrap" keeps everything on one line (children overflow /
             ; shrink); the historical/default "wrap" auto-wraps.
+            ;
+            ; --- WHY THE COMPARISON HAS A TOLERANCE ---------------------------
+            ;
+            ; A `flex: 1` child's width was computed BY THIS LAYOUT, out of the
+            ; same `innerWidth` it is now being measured against: the flex pass
+            ; took the line, subtracted the fixed children and the gaps, and
+            ; handed back the remainder. Adding those parts back up is not
+            ; guaranteed to return the number they were subtracted from — in
+            ; binary floating point `(a - b - c) + b + c` can land one ulp
+            ; above `a` — and a bare `>` then says the row is too wide for
+            ; itself and wraps.
+            ;
+            ; That is not theoretical and it is not rare. A sidebar of 240px
+            ; beside a `flex: 1` panel, with `4vw` page padding, wrapped at 127
+            ; of the 680 window widths between 821 and 1500 — scattered, so
+            ; dragging a window edge flickered the panel below the sidebar and
+            ; back up again a pixel later. See gallery/evg/web/responsive.
+            ;
+            ; A hundredth of a pixel is far below anything a painter can draw
+            ; and far above the error being cancelled (~1e-13 at these
+            ; magnitudes), so an overflow smaller than that is arithmetic
+            ; rather than a layout that does not fit. An item that genuinely
+            ; does not fit misses the line by whole pixels and still wraps.
             if (isColumn == false) {
-                def availableWidth:double ((startX + innerWidth) - currentX)
+                def availableWidth:double (((startX + innerWidth) - currentX) + 0.01)
                 if (((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) && (parent.flexWrap != "nowrap")) {
                     ; Wrap to next row
                     this.alignRow(rowElements parent rowHeight startX innerWidth)

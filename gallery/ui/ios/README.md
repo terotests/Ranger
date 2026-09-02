@@ -45,9 +45,20 @@ npm run ui:ios:watch    # the same page on an Apple Watch    (needs a Mac)
 npm run ui:ios:device   # ...and onto the iPhone or iPad on the cable
 ```
 
-The first four need nothing but Node. The rest need Xcode or the Apple Command
-Line Tools; the simulator ones need **no Xcode project and no developer
-account** — a simulator bundle is signed ad hoc.
+The first four need nothing but Node. The rest need **Xcode** — not the Command
+Line Tools, which carry clang and git and no platform SDK, no simulator runtime
+and no `devicectl`. They need no Xcode *project* and no developer account
+though: a simulator bundle is signed ad hoc.
+
+**Start with `npm run ui:ios:check`.** A Mac can be in four states that all
+look alike from the outside, and it names which one this is: only the Command
+Line Tools installed; Xcode installed but not the selected one
+(`sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`); Xcode
+selected but its licence not accepted or its first launch never finished
+(`sudo xcodebuild -license accept`, `sudo xcodebuild -runFirstLaunch`); or the
+iOS platform never downloaded, which Xcode 15 and later leave out of the
+initial install (`xcodebuild -downloadPlatform iOS`). It prints what `xcrun`
+itself said, which is the sentence that distinguishes them.
 
 ### One command onto a test device
 

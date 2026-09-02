@@ -20,9 +20,9 @@
 
 import UIKit
 
-public final class DashboardView: UIView {
+final class DashboardView: UIView {
 
-    public let app = UiIos()
+    let app = UiIos()
 
     /// The frame, cached. `UiIos.frame()` lays the page out and runs the Vela
     /// runtime for the chart, which is the right cost for a page that changed
@@ -40,12 +40,12 @@ public final class DashboardView: UIView {
 
     // MARK: - lifecycle
 
-    public override init(frame: CGRect) {
+    override init(frame: CGRect) {
         super.init(frame: frame)
         commonInit()
     }
 
-    public required init?(coder: NSCoder) {
+    required init?(coder: NSCoder) {
         super.init(coder: coder)
         commonInit()
     }
@@ -75,7 +75,7 @@ public final class DashboardView: UIView {
     /// The stylesheet is the demo's own `dashboard.css`, copied into the bundle
     /// by the build. Not a copy of it that drifts — the file the browser page
     /// and the gates style the same tree from.
-    public func start(css: String) {
+    func start(css: String) {
         if started { return }
         app.start(w: Double(bounds.width), h: Double(bounds.height), css: css)
         applySafeArea()
@@ -83,7 +83,7 @@ public final class DashboardView: UIView {
         invalidate()
     }
 
-    public override func layoutSubviews() {
+    override func layoutSubviews() {
         super.layoutSubviews()
         guard started else { return }
         app.resize(w: Double(bounds.width), h: Double(bounds.height))
@@ -91,7 +91,7 @@ public final class DashboardView: UIView {
         invalidate()
     }
 
-    public override func safeAreaInsetsDidChange() {
+    override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
         guard started else { return }
         applySafeArea()
@@ -113,14 +113,14 @@ public final class DashboardView: UIView {
 
     /// The page changed, so the cached frame is a frame of a page that no
     /// longer exists.
-    public func invalidate() {
+    func invalidate() {
         cachedFrame = nil
         setNeedsDisplay()
     }
 
     // MARK: - drawing
 
-    public override func draw(_ rect: CGRect) {
+    override func draw(_ rect: CGRect) {
         guard started, let ctx = UIGraphicsGetCurrentContext() else { return }
 
         let list: EVGDisplayList
@@ -150,7 +150,7 @@ public final class DashboardView: UIView {
 
     // MARK: - touches
 
-    public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
         stopFling()
         guard started, let t = touches.first else { return }
@@ -160,7 +160,7 @@ public final class DashboardView: UIView {
         }
     }
 
-    public override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
         guard started else { return }
         if app.releasePress() {
@@ -168,7 +168,7 @@ public final class DashboardView: UIView {
         }
     }
 
-    public override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
         guard started else { return }
         if app.releasePress() {
@@ -274,9 +274,9 @@ public final class DashboardView: UIView {
     /// simply ignores the keyboard, which looks exactly like a page with no
     /// keyboard support — so `check_ios.rgr` asserts the names the demo answers
     /// to.
-    public override var canBecomeFirstResponder: Bool { true }
+    override var canBecomeFirstResponder: Bool { true }
 
-    public override var keyCommands: [UIKeyCommand]? {
+    override var keyCommands: [UIKeyCommand]? {
         [
             UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(onKey(_:))),
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(onKey(_:))),

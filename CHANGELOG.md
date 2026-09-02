@@ -9,6 +9,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Swift `inout` is now inferred across call chains, not just at the function
+  that does the mutating.** The previous fix looked at one function at a time:
+  a parameter got `inout` if that body assigned to it. That is not where the
+  requirement ends. `put16(b:buffer ...)` writes into `b`, so `putLoca` -- which
+  only passes its own `out` along -- has to take `out` `inout` as well, and so
+  does `writeLoca` above it. Fixing one level exposed the next, and hand
+  annotation was chasing a moving target: the shape is transitive and the fix
+  has to be too.
+
+  The Rust and C++ targets had already answered exactly this question.
+  `StaticAnalyzer` marks a mutated array, map or buffer parameter, then runs a
+  fixpoint (`propagateArgMutRef`, `analyzeClassTransitiveMutBorrow`) that
+  carries the requirement from a callee's parameter to whatever the caller
+  passed in, repeating until nothing changes. Swift now uses that pass instead
+  of a second, weaker rule of its own.
+
+  It uses a marker of its own inside it -- `needs_swift_inout` beside
+  `needs_cpp_reference` and `rust_borrow_type` -- because the two languages
+  disagree about objects: a class instance is a reference in Swift and needs no
+  `inout`, but is a value in C++ and needs `&`. The value types are the ones
+  that carry it: `[T]`, `[K:V]`, the four buffers, and `String`. Each marker
+  still propagates independently, so Rust and C++ inference is unchanged.
+
+  The static analysis pass, which ran only for `cpp` and `rust`, now runs for
+  `swift6` as well. `gallery/ui` compiled to Swift -- 46 000 lines -- holds zero
+  `let` parameters passed as `&x`, `writeLoca` included, with no `@(mutates)`
+  annotations anywhere in the source; the compiler still reproduces itself byte
+  for byte.
+
+  A reassigned `string` parameter went the other way and stopped being `inout`.
+  Ranger has no operator that writes into a string in place, so `s = (s + "x")`
+  rebinds a local name and every other target reads it that way; Swift alone
+  was writing the new value back to the caller, and demanding a `var` at every
+  call site to do it. It gets the same `var` copy an `int` gets.
+
+- **The Swift target could not compile a function that assigns to its own
+  parameter, and silently mis-compiled one that mutates a `buffer`
+  parameter.** A Swift parameter is a `let`, and Ranger lets a body assign to
+  one -- `if (x < 0) { x = 0 }` is the ordinary way to clamp an argument, and
+  every other target takes it because their parameters are mutable bindings.
+  Kotlin already solved this by renaming the parameter and opening the body
+  with a `var` copy; Swift now does the same through Swift's two-name parameter
+  form, so the CALL is unchanged: `func f(x x__p: Int)` is still `f(x: 1)`.
+
+  The second half was worse than a build failure. `paramNeedsInout` already
+  existed and already handled `[T]` and `[K:V]`, but a `buffer` parameter
+  reaches it with its `value_type` unset and only its NAME saying what it is,
+  so `sfn put16 (b:buffer at:int v:int)` came out as a `let [UInt8]` its own
+  body assigned into. Swift arrays are VALUE types: had that compiled, the
+  callee would have written into a copy and every caller would have seen
+  nothing. `buffer`, `charbuffer`, `int_buffer` and `double_buffer` are
+  recognised now and get `inout` + `&` like every other collection.
+
+  Found by compiling `gallery/ui` to Swift for the iOS port -- 46 000 lines
+  that reach the raster and TrueType stack. `swiftc` reported 24 errors across
+  seven functions; the generated file now holds zero assignments to a `let`
+  parameter, and the compiler still reproduces itself byte for byte.
+
+- **`npm run ui:ios:check` now says which of four look-alike states a Mac is
+  in, instead of a list of "not installed".** They fail identically and have
+  four different fixes: only the Command Line Tools installed (they carry no
+  platform SDK, no simulator runtime and no `devicectl`, while `xcrun` reports
+  fine, which is what makes it confusing); Xcode installed but not the SELECTED
+  developer directory, which is one `xcode-select -s` and not an hour of
+  downloading, so the report checks whether `/Applications/Xcode.app` is there
+  before telling anyone to install it; Xcode selected but its licence not
+  accepted or its first launch never finished; and the iOS platform never
+  downloaded, which Xcode 15 and later leave out of the initial install. The
+  report now also prints **what `xcrun` itself said** — `sdkPath` answers "" for
+  every one of those, which is the right shape for a build and the wrong one for
+  a diagnostic.
+
+- A device build with `--run` on a machine with no `devicectl` said "no device
+  is connected", which sent the reader to look for a cable problem they did not
+  have. It says that `devicectl` is not there.
+
 - **`npm run ui:ios:smoke` — the iOS build driver, run for real, on a machine
   that is not a Mac.** `--dry-run` checks the plan and cannot check the code
   that runs: the directories the driver makes, the plist it writes, the profile
@@ -138,6 +214,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the watch, the crown, and a ripple clock that cannot get stuck. The Swift
   hosts themselves are written but **not compiled here** — Swift for Apple
   platforms needs a Mac, and the README says so rather than implying otherwise.
+  The first `swiftc` run on a Mac found two things: `public` on host types whose
+  generated counterparts are `internal` (everything builds into one module, so
+  `public` bought nothing), and the two compiler defects above.
 
 - **EVG on a smartwatch, as a number instead of an opinion.**
   `gallery/watch_evg/bench` runs three real watch screens — a dial with sixty

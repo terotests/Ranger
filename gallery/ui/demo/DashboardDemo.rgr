@@ -114,6 +114,7 @@ Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGInspect.rgr"
 Import "../../vela/src/VlRuntime.rgr"
 Import "../../vela/src/VlCommand.rgr"
 Import "../../vela/src/VlJson.rgr"
@@ -2174,6 +2175,46 @@ class DashboardDemo {
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(r "Dashboard demo" generation focusId))
         return (t.toJson())
+    }
+
+    ; --- the inspector --------------------------------------------------------
+    ;
+    ; The fourth channel, beside displayListJson / hitId / a11yJson: what the
+    ; tree IS. `EVGInspect` walks the same laid-out tree the other three walk,
+    ; so nothing here is a second opinion about geometry.
+
+    fn inspectJson:string (gen:int) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def w:double (this.widthPx())
+        def h:double (this.heightPx())
+        return (EVGInspect.treeOf(r "Dashboard demo" gen w h))
+    }
+
+    fn inspectNodeJson:string (path:string) {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        return (EVGInspect.nodeOf(r path))
+    }
+
+    ; `laidOut` and not `displayListJson`: a hit test wants the layout that is
+    ; already there, and re-rendering the page — the Vela chart included — for
+    ; every pointer move is tens of milliseconds spent on geometry nothing will
+    ; look at. Same reason `hitIdCached` exists.
+    fn inspectHitPath:string (px:double py:double) {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        return (EVGInspect.hitOf(r px py))
+    }
+
+    ; The attributed frame. It is the element tree's commands only — the chart
+    ; is appended after the walk and belongs to no element, so it has nothing
+    ; to be attributed to and is left out rather than blamed on the box it
+    ; happens to sit in.
+    fn inspectFrameJson:string () {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        return (EVGInspect.frameOf(r))
     }
 
     fn a11yProblems:[string] () {

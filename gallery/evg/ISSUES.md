@@ -418,3 +418,105 @@ with. A baseline captured on frame 1 and a candidate settled over six frames
 are not the same experiment, and the first version of that comparison reported a
 difference my change had not caused. Compare like with like, and when a
 comparison fails, check the baseline before the change.
+
+## Issue #7: shrink-to-fit text can wrap inside the box its own width produced
+
+**Status:** Open
+**Severity:** Low (cosmetic; a label that fits is drawn on two lines)
+**Found:** September 2, 2026
+**Component:** `EVGLayout.rgr` / `EVGTextEngine.rgr`
+
+### What happens
+
+A text element with no stated width shrink-wraps: layout measures the run, adds
+the padding and border, and that sum is the box. The line breaker then works
+with the content width, which is that sum *minus* the same padding — and for
+some strings the round trip does not land back on the number it started from,
+so the breaker sees a width a fraction narrower than the text and breaks it.
+
+Reproduced in `gallery/evg/web/responsive`, whose sidebar is six labels in a
+column. Five sit on one line and `Display list` does not:
+
+```
+measure 'Display list' = 62.12453   'Text engine' = 67.93241
+item 'Display list' w=86.12453 h=47.9     <- 24px padding, two lines
+item 'Text engine'  w=91.93241 h=32.95    <- 24px padding, one line
+```
+
+Both boxes are exactly `measured + 24`. Both are therefore exactly on the
+threshold. One wraps and the other does not, which is what says this is a
+floating-point artifact of `(w + pad) - pad` and not a measurement disagreement:
+the run measurement and the sum of the per-word measurements agree to the last
+digit for both strings.
+
+### Why it is recorded rather than fixed here
+
+The fix belongs in the line breaker — a shrink-wrapped box should not be able to
+break its own content, so the comparison there wants an epsilon (or the content
+width wants to be carried alongside the box width rather than recomputed from
+it). Either is a change to how every EVG document breaks lines, and it needs
+its own measurement against the conformance oracles before it lands.
+
+### Workaround
+
+State a `min-width`, which takes the box off the threshold. The responsive
+demo's `.nav-item` does exactly that, and says so.
+
+## Issue #8: a flex row wrapped because of its own arithmetic
+
+**Status:** Resolved
+**Severity:** High (visible flicker while a window is resized)
+**Found:** September 2, 2026
+**Resolved:** September 2, 2026
+**Component:** `EVGLayout.rgr`
+
+### Resolution
+
+The row-wrap test in `EVGLayout.layoutFlexChildren` compares the child's total
+width against the space left on the line. It now allows a hundredth of a pixel
+of overflow before it wraps. `gallery/evg/EVGFlexWrapTest.rgr`
+(`npm run evg:flexwrap:test`) sweeps a 240px sidebar beside a `flex: 1` panel
+across every width from 400 to 1800 in quarter-pixel steps and asserts the two
+stay on one line — and, in the same file, that a row which genuinely does not
+fit still wraps and that `flex-wrap: nowrap` still means nowrap. Without the
+tolerance the first two of those five checks fail.
+
+`gallery/evg/web/responsive` carries the same sweep for the page the defect was
+found on.
+
+### What happened
+
+The commonest two-column layout there is:
+
+```css
+.body { display: flex; gap: 24px }   /* wrap allowed — EVG's default */
+.side { width: 240px }
+.main { flex: 1 }
+```
+
+`.main`'s width is computed **by the layout** out of the same line it is then
+measured against: the flex pass takes the inner width, subtracts the sidebar and
+the gap, and hands back the remainder. Adding those three back up is not
+guaranteed to return the number they were subtracted from — in binary floating
+point `(a - b - c) + b + c` can land one ulp above `a` — and a bare `>` then
+reads the row as too wide for itself.
+
+At a window width of 823px: `4vw` padding either side leaves an inner width of
+757.16, the sidebar is 240, the gap 24, and `.main` came out 493.15999999999997.
+The three sum to 757.1600000000001.
+
+### Why it mattered more than one pixel
+
+The failing widths are **scattered**, not a band. Of the 680 integer widths
+between 821 and 1500, 127 wrapped — 823, 826, 836, 842, 845, 848, 851, 861 …
+So dragging a window edge did not cross a threshold once; it dropped the content
+below the sidebar and pulled it back up again every few pixels, which reads as a
+flickering page rather than as a layout decision.
+
+### The general lesson
+
+Same root as issue #7, one stage further up: a number this engine **derived from
+a bound** must not then be tested against that bound with an exact comparison.
+Subtraction and addition do not cancel in floating point, so any "does what I
+just computed still fit in what I computed it from" test needs a tolerance —
+sized below what a painter can draw and above the error being cancelled.

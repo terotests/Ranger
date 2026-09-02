@@ -332,6 +332,20 @@ class IosBuild {
         ; phone that is not plugged in should be said BEFORE swiftc spends
         ; minutes on 46k lines, not after.
         def deviceUdid:string ""
+        ; devicectl ships inside Xcode.app, not with the Command Line Tools, so
+        ; a machine that has only the Tools answers "no devices" to a question
+        ; it never got to ask. Saying "plug one in" there sends someone to look
+        ; for a cable problem they do not have.
+        if o.doRun {
+            if ((tools.hasDeviceCtl()) == false) {
+                print "xcrun devicectl is not on this machine."
+                print ""
+                print "It ships inside Xcode.app and is not part of the Command Line Tools, and"
+                print "it needs Xcode 15 or later. `npm run ui:ios:check` says what this machine"
+                print "has and what to do about it."
+                return false
+            }
+        }
         def picked@(optional):AppleDeviceInfo (tools.pickDevice(o.device))
         if (!null? picked) {
             def dev:AppleDeviceInfo (unwrap picked)
@@ -344,11 +358,19 @@ class IosBuild {
                 } {
                     print "no device is connected."
                 }
-                print "Plug one in, unlock it, and trust this computer."
-                print "`xcrun devicectl list devices` shows what it can see -- a device listed as"
+                print ""
+                print "The simulator needs no cable, no Apple account and no provisioning"
+                print "profile, and it boots itself -- you do not have to open Simulator first:"
+                print ""
+                print "  npm run ui:ios:run                      an iPhone or iPad simulator"
+                print "  npm run ui:ios:run -- --device=\"iPad\"   ...a particular one"
+                print "  npm run ui:ios:watch                    an Apple Watch simulator"
+                print ""
+                print "For a real device: plug it in, unlock it, and trust this computer."
+                print "`xcrun devicectl list devices` shows what it can see -- one listed as"
                 print "\"available (paired)\" rather than \"connected\" is known and not plugged in."
                 print ""
-                print "To build without installing, leave --run off."
+                print "To build for a device without installing, leave --run off."
                 return false
             }
             ; No --run: the build is still worth doing, and a profile is

@@ -85,6 +85,27 @@ class AppleToolchain {
         return "arm64"
     }
 
+    ; The same question as `sdkPath`, with the failure kept. `sdkPath` answers
+    ; "" for anything that went wrong, which is the right shape for a build and
+    ; the wrong one for a diagnostic: an Xcode whose licence has not been
+    ; accepted, one whose platforms have not been downloaded and one that is not
+    ; there all answer "" and have three different fixes. xcrun says which on
+    ; stderr, so a report has to be able to see it.
+    fn probeSdk:ShellResult (sdk:string) {
+        def argv:[string]
+        push argv "--sdk"
+        push argv sdk
+        push argv "--show-sdk-path"
+        return (sh.capture("xcrun" argv))
+    }
+
+    fn probeSwift:ShellResult () {
+        def argv:[string]
+        push argv "swift"
+        push argv "--version"
+        return (sh.capture("xcrun" argv))
+    }
+
     ; Where the SDK lives. swiftc is given this path, not the SDK name.
     fn sdkPath:string (sdk:string) {
         if (has sdkPaths sdk) {
