@@ -3161,6 +3161,7 @@ class RangerAppParamDesc  {
     this.escapes_function = false;
     this.needs_cpp_reference = false;
     this.rust_borrow_type = 0;
+    this.needs_swift_inout = false;
     this.rust_static_str = false;
     this.rust_interior_cell = false;
     this.rust_assigned_to_weak = false;
@@ -25756,10 +25757,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( nn.hasFlag("mutates") ) {
             return true;
           }
-          if ( arg.set_cnt > 0 && this.isSwiftValueCollection(nn) ) {
+          if ( arg.needs_swift_inout ) {
             return true;
           }
-          if ( arg.set_cnt > 0 && nn.type_name == "string" ) {
+          if ( arg.set_cnt > 0 && this.isSwiftValueCollection(nn) ) {
             return true;
           }
           return false;
@@ -68977,30 +68978,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const typeNode = param.nameNode;
                                   if ( typeNode.array_type.length > 0 ) {
                                     param.needs_cpp_reference = true;
+                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated array function parameter)");
                                     }
                                   }
                                   if ( typeNode.key_type.length > 0 ) {
                                     param.needs_cpp_reference = true;
+                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated hash function parameter)");
                                     }
                                   }
                                   if ( typeNode.type_name == "int_buffer" ) {
                                     param.needs_cpp_reference = true;
+                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated int_buffer function parameter)");
                                     }
                                   }
                                   if ( typeNode.type_name == "double_buffer" ) {
                                     param.needs_cpp_reference = true;
+                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated double_buffer function parameter)");
                                     }
                                   }
                                   if ( typeNode.type_name == "buffer" ) {
                                     param.needs_cpp_reference = true;
+                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated buffer function parameter)");
                                     }
@@ -69575,9 +69581,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           propagateArgMutRef (calledParam, arg, fnCtx, changedParams) {
                             const calleeMut = calledParam.rust_borrow_type == 2;
                             const calleeCppRef = calledParam.needs_cpp_reference;
+                            const calleeSwiftInout = calledParam.needs_swift_inout;
                             if ( calleeMut == false ) {
                               if ( calleeCppRef == false ) {
-                                return;
+                                if ( calleeSwiftInout == false ) {
+                                  return;
+                                }
                               }
                             }
                             const argVarName = arg.vref;
@@ -69600,6 +69609,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( calleeCppRef ) {
                                 if ( argParam.needs_cpp_reference == false ) {
                                   argParam.needs_cpp_reference = true;
+                                  didChange = true;
+                                }
+                              }
+                              if ( calleeSwiftInout ) {
+                                if ( argParam.needs_swift_inout == false ) {
+                                  argParam.needs_swift_inout = true;
                                   didChange = true;
                                 }
                               }
@@ -72738,7 +72753,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   res.ctx = appCtx;
                                                                   return res;
                                                                 }
-                                                                if ( appCtx.targetLangName == "cpp" || appCtx.targetLangName == "rust" ) {
+                                                                if ( (appCtx.targetLangName == "cpp" || appCtx.targetLangName == "rust") || appCtx.targetLangName == "swift6" ) {
                                                                   cli.stepWithDetail(
                                                                     3,
                                                                     "Static analysis",

@@ -1166,8 +1166,12 @@ class tester {
         return res
       }
 
-      ; Run static analysis for C++ and Rust targets
-      if ((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) {
+      ; Run static analysis for C++, Rust and Swift targets. Swift needs the
+      ; same question answered as C++ does — which parameters the body mutates
+      ; in place — because Swift arrays, dictionaries, buffers and String are
+      ; value types: a mutated parameter has to be `inout` there too, and the
+      ; requirement travels up through calls exactly the same way.
+      if (((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) || (appCtx.targetLangName == "swift6")) {
         cli.stepWithDetail(3 "Static analysis" ("for " + appCtx.targetLangName))
         def staticAnalyzer:StaticAnalyzer (new StaticAnalyzer())
         staticAnalyzer.ctx = appCtx
