@@ -39,7 +39,14 @@ of it is copied; the classes here are this kit's own.
 | Clicking the selected day clears it | yes | yes | **measured** — and is the obvious wrong guess |
 | Enter and Space commit | yes | yes | **measured** |
 | Clicking an outside day selects it without moving the month | yes | yes | **measured** |
-| `mode="multiple"` / `"range"` | yes | no | **not built** |
+| `mode="multiple"` | yes | yes | **measured** — appends in CLICK order, not sorted; clicking a day again removes it |
+| `mode="range"` | yes | yes | **measured** — five click sequences replayed from the capture |
+| …a third click past a complete range | EXTENDS it | same | **measured**, and the one that is not guessable: 12..20 with 25 clicked is 12..25, not a fresh range at 25 |
+| …a click inside a complete range | shrinks `to` onto it | same | **measured** |
+| …a click before the start | moves `from` | same | **measured** |
+| …clicked backwards | comes back ordered | same | **measured** |
+| …the one day of a one-day range, clicked again | clears it | same | **measured** |
+| Switching mode | n/a — a prop | clears the selection | **specified**: a day chosen in one mode is not a range in another |
 | `required` | yes | no | **not built** |
 
 ## The keyboard

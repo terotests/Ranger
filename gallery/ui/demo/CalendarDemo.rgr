@@ -37,6 +37,7 @@
 
 Import "../src/CalendarCtl.rgr"
 Import "../src/UiDate.rgr"
+Import "../src/RadioGroupCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -93,6 +94,18 @@ treefactory Cal {
     tag Week      EVGElement (props (className "cd-week") (role "row"))
     tag Day       EVGElement (props (className "cd-day") (role "gridcell"))
     tag DayNum    EVGElement (props (className "cd-daynum") (elementType 1) (a11yHidden true))
+    ; THE MODE SWITCHER. Asked for as checkboxes; they are RADIOS, because the
+    ; three modes are mutually exclusive and a checkbox that unchecks its
+    ; neighbour is telling a reader something untrue about itself. They are
+    ; drawn as a row of small boxes with a mark on the active one, which is
+    ; the picture the request described, and `RadioGroupCtl` — measured — owns
+    ; which one is on.
+    tag Modes     EVGElement (props (className "cd-modes") (role "radiogroup") (a11yLabel "Selection mode"))
+    tag ModeOpt   EVGElement (props (className "cd-modeopt") (role "radio"))
+    tag ModeBox   EVGElement (props (className "cd-modebox"))
+    tag ModeBoxOn EVGElement (props (className "cd-modebox cd-modebox-on"))
+    tag ModeMark  EVGElement (props (className "cd-modemark") (elementType 1) (a11yHidden true))
+    tag ModeTx    EVGElement (props (className "cd-modetx") (elementType 1) (a11yHidden true))
     tag Note      EVGElement (props (className "cd-note") (elementType 1))
 }
 
@@ -103,6 +116,9 @@ class CalendarDemo {
     def sheet@(optional):EVGStyleSheet
     ; A measurer owning no tree, for sizing the month name to its own text.
     def capMeasurer:EVGLayout (new EVGLayout())
+    ; Which mode is on. The group is the measured control; the calendar is
+    ; told what it says.
+    def modes:RadioGroupCtl (new RadioGroupCtl())
     def transitions:EVGTransition (new EVGTransition())
     def layout@(optional):EVGLayout
     def hovered:string ""
@@ -132,6 +148,14 @@ class CalendarDemo {
         model.endYear = 2036
         ; Newest first, so the years near today are the ones you land on.
         model.reverseYears = true
+
+        modes.tid = "cd-modes"
+        modes.name = "Selection mode"
+        modes.addItem("single" "Single" false)
+        modes.addItem("multiple" "Multiple" false)
+        modes.addItem("range" "Range" false)
+        modes.selectValue("single")
+        modes.build()
         model.build()
 
         root = (this.page())
@@ -174,7 +198,48 @@ class CalendarDemo {
                 cls = (cls + " cd-day-selected")
             }
         }
+        ; The two other modes paint from their own state. A chosen day in
+        ; multiple mode reads the same as a selected one in single; a range
+        ; has ENDS and a band between them, which are different pictures.
+        if (model.isChosen(day)) {
+            cls = (cls + " cd-day-selected")
+        }
+        if (model.isRangeEnd(day)) {
+            cls = (cls + " cd-day-selected")
+        } {
+            if (model.isInRange(day)) {
+                cls = (cls + " cd-day-inrange")
+            }
+        }
         return cls
+    }
+
+    ; The three mode options.
+    fn modeRow:EVGElement () {
+        def row (tree Cal (Modes (props (id "cd-modes"))))
+        def i:int 0
+        def vals:[string] ([] _:string ( "single" "multiple" "range" ))
+        def names:[string] ([] _:string ( "Single" "Multiple" "Range" ))
+        while (i < 3) {
+            def v:string (itemAt vals i)
+            def on:boolean (modes.value == v)
+            ; A named intermediate: a computed child in text position is read
+            ; as a TAG NAME by the tree factory.
+            def label:string (itemAt names i)
+            def opt (tree Cal
+                (ModeOpt (props (id (modes.itemTid(v))) (a11yLabel label))))
+            if on {
+                opt.a11yChecked = (EVGA11yTri.yes())
+                opt.addChild((tree Cal (ModeBoxOn (ModeMark "✓"))))
+            } {
+                opt.a11yChecked = (EVGA11yTri.no())
+                opt.addChild((tree Cal (ModeBox)))
+            }
+            opt.addChild((tree Cal (ModeTx label)))
+            row.addChild(opt)
+            i = (i + 1)
+        }
+        return row
     }
 
     ; The day NUMBER's classes. It needs its own, because EVGStyleSheet has no
@@ -190,6 +255,15 @@ class CalendarDemo {
             if (day == model.selectedDay) {
                 cls = (cls + " cd-daynum-selected")
             }
+        }
+        ; The other two modes mark days too, and the numeral needs the token
+        ; on every path that darkens the cell under it — one missed branch is
+        ; a black numeral on a black cell.
+        if (model.isChosen(day)) {
+            cls = (cls + " cd-daynum-selected")
+        }
+        if (model.isRangeEnd(day)) {
+            cls = (cls + " cd-daynum-selected")
         }
         return cls
     }
@@ -445,6 +519,7 @@ class CalendarDemo {
         def note:string ("Arrow keys move a day, Home and End move within the week, "
             + "PageUp and PageDown move a month. Enter chooses; Enter on the "
             + "chosen day clears it.")
+        page.addChild((this.modeRow()))
         page.addChild((tree Cal (Note note)))
         return page
     }
@@ -452,6 +527,23 @@ class CalendarDemo {
     ; --- events --------------------------------------------------------------
 
     fn press:boolean (target:string) {
+        ; The mode switcher first: the group decides, and the calendar is told
+        ; what it decided. Changing mode clears the selection, which is
+        ; CalendarCtl's rule — a day chosen in one mode is not a range in
+        ; another.
+        def i:int 0
+        def vals:[string] ([] _:string ( "single" "multiple" "range" ))
+        while (i < 3) {
+            def v:string (itemAt vals i)
+            if (target == (modes.itemTid(v))) {
+                modes.selectValue(v)
+                model.setMode(v)
+                focused = target
+                this.rebuild()
+                return true
+            }
+            i = (i + 1)
+        }
         def wasOpen:boolean model.yearPanelOpen
         model.activate(target)
         ; Opening the panel parks it on the year you are on. Without this it

@@ -545,6 +545,74 @@ async function captureYearNav(open) {
 }
 
 /**
+ * The other two selection modes.
+ *
+ * `CalendarCtl` was built for `mode="single"` and the feature matrix lists
+ * multiple and range as not built. Asked for as checkboxes on the demo, which
+ * means the rules have to come from somewhere, and RANGE is the case where
+ * guessing goes wrong: nearly every re-implementation restarts the range on a
+ * third click, and this one does not.
+ */
+async function captureModes(open) {
+  const sel = (p) => p.evaluate(() => window.__sel);
+  const click = async (p, d) => {
+    await p.locator(`[data-day="${d}"] button`).click();
+    await p.waitForTimeout(120);
+  };
+  const run = async (mode, days) => {
+    const p = await open({ mode });
+    const steps = [];
+    for (const d of days) {
+      await click(p, d);
+      steps.push({ click: d, selected: await sel(p) });
+    }
+    await p.close();
+    return steps;
+  };
+
+  return {
+    multiple: {
+      steps: await run("multiple", ["2026-05-12", "2026-05-20", "2026-05-05", "2026-05-20"]),
+      $comment:
+        "Appends in CLICK order, not sorted — 12, 20, 05 stays in that " +
+        "order. Clicking a day already in the set removes it, which is the " +
+        "single mode's toggle applied per day.",
+    },
+    rangeForward: {
+      steps: await run("range", ["2026-05-12", "2026-05-20", "2026-05-05"]),
+      $comment:
+        "The FIRST click gives {from: d, to: d} — a one-day range, not a " +
+        "half-open one with `to` undefined. The second extends `to`. A click " +
+        "BEFORE the start moves `from` rather than restarting: 05 against " +
+        "12..20 gives 05..20.",
+    },
+    rangeBackward: {
+      steps: await run("range", ["2026-05-20", "2026-05-12"]),
+      $comment: "Clicked high then low, the range comes back ordered 12..20.",
+    },
+    rangeSameDay: {
+      steps: await run("range", ["2026-05-12", "2026-05-12"]),
+      $comment:
+        "Clicking the one selected day again CLEARS the whole range, the " +
+        "way single mode clears its day.",
+    },
+    rangeThirdClick: {
+      steps: await run("range", ["2026-05-12", "2026-05-20", "2026-05-25"]),
+      $comment:
+        "THE ONE THAT IS NOT GUESSABLE. A click past the end of a complete " +
+        "range EXTENDS it to 12..25. It does not start a new range at 25, " +
+        "which is what most re-implementations do.",
+    },
+    rangeInside: {
+      steps: await run("range", ["2026-05-12", "2026-05-20", "2026-05-15"]),
+      $comment:
+        "And a click INSIDE a complete range shrinks `to` onto it: " +
+        "12..20 with 15 clicked gives 12..15.",
+    },
+  };
+}
+
+/**
  * What the numbers above mean, written after reading them rather than before.
  *
  * This block is prose about the capture and is not itself measured — every
@@ -644,6 +712,7 @@ const openWith = async (opts) => {
   return p;
 };
 const yearNav = await captureYearNav(openWith);
+const modes = await captureModes(openWith);
 
 const version = createRequire(path.join(DOM_DIR, "package.json"))(
   "react-day-picker/package.json",
@@ -662,6 +731,7 @@ fs.writeFileSync(
       ...main,
       disabledFixture: disabled,
       yearNav,
+      modes,
       findings: FINDINGS,
     },
     null,
@@ -676,5 +746,7 @@ console.log("year nav: unbounded " + yearNav.dropdownUnbounded.firstYear + ".." 
   + " (" + yearNav.dropdownUnbounded.yearCount + ")"
   + ", bounded " + yearNav.bounded.years[0] + ".." + yearNav.bounded.years[yearNav.bounded.years.length - 1]
   + ", reversed starts " + yearNav.reversed.years[0]);
+console.log("modes: multiple ends " + JSON.stringify(modes.multiple.steps[3].selected)
+  + ", range third click " + JSON.stringify(modes.rangeThirdClick.steps[2].selected));
 console.log("year jump: " + yearNav.changing.before.tabbable + " -> " + yearNav.changing.afterYear.tabbable
   + " (" + yearNav.changing.before.cells + " cells -> " + yearNav.changing.afterYear.cells + ")");

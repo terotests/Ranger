@@ -25,8 +25,20 @@ const TODAY = new Date(2026, 4, 14);
 function App() {
   const [selected, setSelected] = React.useState(undefined);
   const opts = window.__CAL__ || {};
+  // `mode` changes what `selected` IS — a date, an array, or a {from,to} —
+  // and the rules for what a click does to it. None of those rules are
+  // guessable, which is why they are driven rather than assumed.
+  const mode = opts.mode || "single";
   React.useEffect(() => {
     window.__selected = selected;
+    // A readable form for the probe: a mode's selection has a different SHAPE
+    // in each mode, and the probe should not have to know which.
+    const iso = (dt) => (dt ? new Date(dt).toISOString().slice(0, 10) : null);
+    if (selected === undefined) window.__sel = null;
+    else if (Array.isArray(selected)) window.__sel = selected.map(iso);
+    else if (selected && (selected.from !== undefined || selected.to !== undefined))
+      window.__sel = { from: iso(selected.from), to: iso(selected.to) };
+    else window.__sel = iso(selected);
   }, [selected]);
   const extra = {};
   // Some questions only have answers when a day cannot be picked: what an
@@ -44,7 +56,7 @@ function App() {
   if (opts.reverseYears) extra.reverseYears = true;
   return (
     <DayPicker
-      mode="single"
+      mode={mode}
       selected={selected}
       onSelect={setSelected}
       defaultMonth={MONTH}

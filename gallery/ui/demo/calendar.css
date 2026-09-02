@@ -334,3 +334,62 @@
 }
 
 .cd-yearopttx-on { color: #ffffff; }
+
+/* --- the mode switcher ----------------------------------------------------
+ *
+ * Asked for as checkboxes. They are RADIOS: the three modes are mutually
+ * exclusive, and a checkbox that unchecks its neighbour tells a reader
+ * something untrue about itself. The picture is the one the request
+ * described — a small box with a mark on the active one. */
+.cd-modes {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 14px;
+  height: 22px;
+}
+
+.cd-modeopt {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.cd-modebox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid #d4d4d8;
+  border-radius: 4px;
+  background-color: #ffffff;
+}
+
+.cd-modebox-on {
+  border-color: #18181b;
+  background-color: #18181b;
+}
+
+.cd-modemark {
+  font-size: 10px;
+  color: #ffffff;
+  width: 13px;
+  height: 13px;
+  text-align: center;
+}
+
+.cd-modetx {
+  font-size: 12px;
+  color: #3f3f46;
+  height: 16px;
+}
+
+/* The band between a range's two ends. Paler than an end, so the ends read
+ * as the thing you chose and the middle as what that implies. */
+.cd-day-inrange {
+  background-color: #e4e4e7;
+}

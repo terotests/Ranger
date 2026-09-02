@@ -343,6 +343,89 @@ console.log("the caption is centred on the grid");
   ok("and shrinks again", Math.abs(backW - mayW) < 0.01, `${backW.toFixed(1)} vs ${mayW.toFixed(1)}`);
 }
 
+// The mode switcher.
+//
+// Asked for as checkboxes — "vois olla kiva jos ois checkboxit millä vois
+// vaihtaa kalenterin moodia". They are RADIOS in the trace: the three modes
+// are mutually exclusive, and a checkbox that unchecks its neighbour tells a
+// reader something untrue about itself. The picture is the one the request
+// described.
+//
+// What each mode DOES is measured — `ui:calendar:check` replays the clicks
+// react-day-picker was driven through, and the third-click rule is the one
+// that is not guessable. This file gates the half that only exists once
+// something is drawn.
+console.log("the selection mode can be switched");
+{
+  const d = fresh();
+  const press = (id) => { const took = d.press(id); d.displayListJson(); return took; };
+  const cls = (id) => { const e = byId(d, id); return e ? String(e.className) : "(absent)"; };
+  const marked = (id) => cls(id).split(/\s+/).includes("cd-day-selected");
+  const banded = (id) => cls(id).split(/\s+/).includes("cd-day-inrange");
+
+  for (const m of ["single", "multiple", "range"]) {
+    ok(`the ${m} option is on the page`, byId(d, "cd-modes-" + m) !== undefined);
+  }
+  ok("it starts in single", d.model.mode === "single", d.model.mode);
+
+  // Single still behaves as it always did.
+  press("cal-2026-05-12");
+  ok("single marks the day", marked("cal-2026-05-12"), cls("cal-2026-05-12"));
+
+  // Switching clears — a day chosen in one mode is not a range in another.
+  ok("switching to multiple is taken", press("cd-modes-multiple"));
+  ok("and the mode changed", d.model.mode === "multiple", d.model.mode);
+  ok("and the single selection is cleared", !marked("cal-2026-05-12"), cls("cal-2026-05-12"));
+
+  press("cal-2026-05-12");
+  press("cal-2026-05-20");
+  press("cal-2026-05-05");
+  ok("multiple keeps three", d.model.chosenCount() === 3, String(d.model.chosenCount()));
+  ok("and marks each of them",
+    marked("cal-2026-05-12") && marked("cal-2026-05-20") && marked("cal-2026-05-05"));
+  press("cal-2026-05-20");
+  ok("clicking one again removes it", d.model.chosenCount() === 2, String(d.model.chosenCount()));
+  ok("and unmarks it", !marked("cal-2026-05-20"), cls("cal-2026-05-20"));
+
+  ok("switching to range is taken", press("cd-modes-range"));
+  ok("and clears what multiple held", d.model.chosenCount() === 0, String(d.model.chosenCount()));
+  press("cal-2026-05-12");
+  press("cal-2026-05-20");
+  ok("the range's ends are marked", marked("cal-2026-05-12") && marked("cal-2026-05-20"));
+  // The BAND, which is the picture a range has and the other modes do not.
+  ok("and the days between carry the band", banded("cal-2026-05-15"), cls("cal-2026-05-15"));
+  ok("a day outside it carries neither",
+    !marked("cal-2026-05-25") && !banded("cal-2026-05-25"), cls("cal-2026-05-25"));
+
+  // The measured third-click rule, on the drawn page: it EXTENDS.
+  press("cal-2026-05-25");
+  ok("a third click extends the range rather than restarting it",
+    marked("cal-2026-05-12") && marked("cal-2026-05-25") && banded("cal-2026-05-20"),
+    `${cls("cal-2026-05-12")} | ${cls("cal-2026-05-20")} | ${cls("cal-2026-05-25")}`);
+
+  // Numerals: every path that darkens a cell has to darken its number too,
+  // or it is black on black.
+  const num = (id) => byId(d, id).children[0].className;
+  ok("a range end's numeral carries its own token",
+    String(num("cal-2026-05-12")).split(/\s+/).includes("cd-daynum-selected"),
+    num("cal-2026-05-12"));
+
+  // What a reader is told.
+  const tree = JSON.parse(d.a11yJson(1, ""));
+  const group = tree.nodes.find((n) => n.id === "cd-modes");
+  ok("the switcher is a radiogroup named for what it switches",
+    group && group.role === "radiogroup" && group.name === "Selection mode",
+    JSON.stringify(group));
+  const radios = tree.nodes.filter((n) => n.role === "radio");
+  ok("with three radios", radios.length === 3, String(radios.length));
+  // 2 is checked on the EVG tri, 1 is unchecked.
+  const on = radios.filter((n) => n.checked === 2);
+  ok("exactly one of them is checked", on.length === 1, radios.map((n) => n.name + "=" + n.checked).join(" "));
+  ok("and it is the mode the calendar is in", on[0].name === "Range", on[0].name);
+  ok("the tree lints clean in every mode",
+    Array.from(d.a11yProblems()).length === 0, Array.from(d.a11yProblems()).join(" | "));
+}
+
 console.log("");
 console.log(failed ? `RESULT FAIL — passed=${passed} failed=${failed}` : `RESULT OK — passed=${passed} failed=0`);
 process.exitCode = failed ? 1 : 0;
