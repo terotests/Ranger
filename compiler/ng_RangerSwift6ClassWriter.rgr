@@ -18,39 +18,62 @@ class RangerSwift6ClassWriter {
     return tn
   }
 
-  ; Swift value-type collections need `inout` + `&` when the callee mutates
-  ; them. Flow bumps set_cnt for `@(mutates)` operator params (push/set/…),
-  ; but the param itself rarely carries the mutates flag.
-  fn isSwiftValueCollection:boolean (nn:CodeNode) {
-    if (nn.value_type == RangerNodeType.Array) {
+  ; True when this node's type is one Swift passes BY VALUE and Ranger passes
+  ; by reference: an array, a map, one of the four buffers, or a String. That
+  ; difference is the whole reason `inout` and `var` come up at all in this
+  ; writer.
+  ;
+  ; It asks the TYPE SYSTEM, twice, because the two fields are filled in at
+  ; different times: the parser sets value_type where the syntax alone says
+  ; what the type is, and the flow phase resolves a named type into eval_type
+  ; (`p.nameNode.eval_type = (p.nameNode.typeNameAsType(ctx))`). A parameter
+  ; declared `b:buffer` arrives with value_type unset and eval_type resolved,
+  ; which is why checking only the first missed it -- `sfn put16 (b:buffer …)`
+  ; came out as a `let [UInt8]` its own body then assigned into.
+  fn isSwiftValueTypeOf:boolean (t:RangerNodeType)  {
+    if (t == RangerNodeType.Array) {
       return true
     }
-    if (nn.value_type == RangerNodeType.Hash) {
+    if (t == RangerNodeType.Hash) {
       return true
     }
-    if (nn.value_type == RangerNodeType.Buffer) {
+    if (t == RangerNodeType.Buffer) {
       return true
     }
-    if (nn.value_type == RangerNodeType.IntBuffer) {
+    if (t == RangerNodeType.IntBuffer) {
       return true
     }
-    if (nn.value_type == RangerNodeType.DoubleBuffer) {
+    if (t == RangerNodeType.DoubleBuffer) {
       return true
     }
-    if (nn.value_type == RangerNodeType.CharBuffer) {
-      return true
-    }
-    ; A `buffer` parameter reaches here with its value_type unset and only its
-    ; NAME saying what it is, so the checks above all miss it -- which is how
-    ; `sfn put16 (b:buffer at:int v:int)` came out as a `let [UInt8]` that its
-    ; own body then assigned into. Every one of these maps to a Swift ARRAY,
-    ; which is a value type: without `inout` the callee writes into a copy and
-    ; the caller sees nothing, so this is the difference between a build error
-    ; and a silently wrong answer.
-    if (this.isSwiftValueCollectionName(nn.type_name)) {
+    if (t == RangerNodeType.CharBuffer) {
       return true
     }
     return false
+  }
+
+  fn isSwiftValueCollection:boolean (nn:CodeNode) {
+    if (this.isSwiftValueTypeOf(nn.value_type)) {
+      return true
+    }
+    return (this.isSwiftValueTypeOf(nn.eval_type))
+  }
+
+  ; The collections above plus String -- Swift's other value type. A local of
+  ; one of these needs `var` storage the moment the body writes into it. A
+  ; local of a Ranger CLASS does not: Ranger classes come out as Swift classes,
+  ; so `e.kind = 0` writes through a `let` binding perfectly well, and `var`
+  ; there only earns "never mutated, consider changing to 'let'".
+  ; StaticAnalyzer's is_mutating does not draw that line, because C++ and Rust
+  ; need `&` for the object case too; this is where Swift parts company.
+  fn isSwiftValueType:boolean (nn:CodeNode) {
+    if (this.isSwiftValueCollection(nn)) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.String) {
+      return true
+    }
+    return (nn.eval_type == RangerNodeType.String)
   }
 
   ; A Swift function parameter is a `let`. Ranger lets a body assign to one --
@@ -92,46 +115,31 @@ class RangerSwift6ClassWriter {
     }
   }
 
-  fn isSwiftValueCollectionName:boolean (tn:string) {
-    if (tn == "buffer") {
-      return true
-    }
-    if (tn == "charbuffer") {
-      return true
-    }
-    if (tn == "int_buffer") {
-      return true
-    }
-    if (tn == "double_buffer") {
-      return true
-    }
-    return false
-  }
-
-  ; Whether the parameter has to be `inout`. Two sources agree here:
-  ; StaticAnalyzer's needs_swift_inout, which sees the whole program and so
-  ; also catches a parameter that is only handed on to a mutating callee
-  ; (`writeLoca(out)` -> `putLoca(out)` -> `put16(out ...)`), and the local
-  ; checks below, which stand on their own for a single class compiled without
-  ; the analysis pass. @(mutates) stays as the explicit override.
+  ; Whether the parameter has to be `inout`. ONE source answers it:
+  ; StaticAnalyzer's needs_swift_inout, which walks every body for a write to
+  ; a value-typed parameter and then carries the requirement through calls to
+  ; a fixed point -- so it also catches a parameter that only hands its own
+  ; argument on to a mutating callee (`writeLoca(out)` -> `putLoca(out)` ->
+  ; `put16(out …)`), which no local test can see. @(mutates) stays as the
+  ; explicit override for a body the analysis cannot read, such as one that
+  ; reaches a mutation through a template.
+  ;
+  ; This used to carry a second, local test as well -- `set_cnt > 0` on a
+  ; value collection. It answered a strictly smaller question than the pass
+  ; does, and gallery/ui comes out byte for byte identical without it.
+  ;
+  ; A `string` parameter the body assigns to is deliberately NOT `inout`.
+  ; Ranger has no operator that writes into a string in place, so `s = (s +
+  ; "x")` is a rebinding of the local name and every other target reads it
+  ; that way; `inout` would make Swift alone write the new value back to the
+  ; caller, and would demand a `var` at every call site. paramNeedsLocalCopy
+  ; gives it the same `var` copy an `int` gets.
   fn paramNeedsInout:boolean (arg:RangerAppParamDesc) {
     def nn:CodeNode (unwrap arg.nameNode)
     if (nn.hasFlag("mutates")) {
       return true
     }
-    if arg.needs_swift_inout {
-      return true
-    }
-    if ((arg.set_cnt > 0) && (this.isSwiftValueCollection(nn))) {
-      return true
-    }
-    ; A `string` parameter the body assigns to is NOT one of these. Ranger has
-    ; no operator that writes into a string in place, so `s = (s + "x")` is a
-    ; rebinding of the local name and every other target reads it that way;
-    ; `inout` would make Swift alone write the new value back to the caller,
-    ; and would demand a `var` at every call site. paramNeedsLocalCopy gives it
-    ; the same `var` copy an `int` gets.
-    return false
+    return arg.needs_swift_inout
   }
   
   ; S5 (PLAN_SHAPES.md): a sealable union is a native enum; construction wraps
@@ -272,8 +280,16 @@ class RangerSwift6ClassWriter {
       case "double_buffer" {
         return "[Double]"
       }
+      ; Ranger's `char` is an integer code unit -- Lang.rgr defines ==, <, >
+      ; and the rest across `char` and `int` in both directions, and
+      ; `(charAt s i)` answers an `int` that the source routinely stores in a
+      ; `char`. Every other target maps both to the same integer type, so that
+      ; mixing costs nothing. UInt8 made Swift the one target where it does not
+      ; compile: `let ch : UInt8 = Int(...)` and `let n : Int = ch` are both
+      ; hard errors there. A buffer stays [UInt8] -- buffer_set already wraps
+      ; the value -- and only the scalar changes.
       case "char" {
-        return "UInt8"
+        return "Int"
       }
       case "boolean" {
         return "Bool"
@@ -335,8 +351,10 @@ class RangerSwift6ClassWriter {
       case "double_buffer" {
         return "[Double]"
       }
+      ; see the note on `char` above: an integer code unit, as on every
+      ; other target
       case "char" {
-        return "UInt8"
+        return "Int"
       }      
       case "boolean" {
         return "Bool"
@@ -399,7 +417,7 @@ class RangerSwift6ClassWriter {
         wr.out("String" false)
       }
       case RangerNodeType.Char {
-        wr.out("UInt8" false)
+        wr.out("Int" false)
       }
       case RangerNodeType.CharBuffer {
         wr.out("[UInt8]" false)
@@ -623,8 +641,14 @@ class RangerSwift6ClassWriter {
         wr.out((("weak var " + p.compiledName) + " : ") false)
       } {
         ; Arrays, hashes and buffers are value types; subscript writes and
-        ; `.append` need `var` storage even when flow did not bump set_cnt.
-        if ((p.set_cnt > 0) || p.is_class_variable || (this.isSwiftValueCollection(nn))) {
+        ; `.append` need `var` storage even when flow did not bump set_cnt --
+        ; which is what StaticAnalyzer's is_mutating answers (it walks the body
+        ; for push, set_at, buffer_set and the rest), and needs_swift_inout
+        ; covers a local handed to an `inout` parameter as `&x`. Declaring
+        ; every collection `var` regardless was correct but noisy: Swift warns
+        ; on each one the body never writes to, and in gallery/ui that was a
+        ; hundred warnings standing between the reader and a real error.
+        if ((((p.set_cnt > 0) || p.is_class_variable) || p.needs_swift_inout) || (p.is_mutating && (this.isSwiftValueType(nn)))) {
           wr.out((("var " + p.compiledName) + " : ") false)
         } {
           wr.out((("let " + p.compiledName) + " : ") false)
@@ -810,8 +834,58 @@ class RangerSwift6ClassWriter {
     return false
   }
 
+  ; A call written as a STATEMENT whose function answers a value: Swift warns
+  ; on the dropped result ("result of call to 'f()' is unused"). Ranger has no
+  ; way to say "ignore this", and the source means it -- the call is there for
+  ; what it does, not what it answers -- so the discard is written the way
+  ; Swift asks for it.
+  fn callResultIsDiscarded:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if ((ctx.expressionLevel()) != 0) {
+      return false
+    }
+    def fnDesc@(optional) (this.resolveMethodFnDesc(node ctx))
+    if (null? fnDesc) {
+      return false
+    }
+    def mm:RangerAppFunctionDesc (unwrap fnDesc)
+    def retNode@(optional):CodeNode mm.nameNode
+    if (null? retNode) {
+      return false
+    }
+    def rn:CodeNode (unwrap retNode)
+    if (rn.value_type == RangerNodeType.NoType) {
+      return false
+    }
+    if (rn.type_name == "void") {
+      return false
+    }
+    return true
+  }
+
+  ; `def x:int (readUInt16 off)` where nothing reads x: the generic writer keeps
+  ; the call for its side effect and drops the name. On Swift that leaves a
+  ; value-returning call standing alone as a statement, which is the same
+  ; warning as above -- and the generic version cannot fix it, because it opens
+  ; with setInExpr and so hides the statement position from writeFnCall's own
+  ; `_ =`. The def always had a type, so the call always answers something.
+  fn writeSideEffectOnlyStmt:void (value:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out("_ = " false)
+    }
+    ctx.setInExpr()
+    this.WalkNode(value ctx wr)
+    ctx.unsetInExpr()
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
+    wr.newline()
+  }
+
   fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.has_call {
+      if (this.callResultIsDiscarded(node ctx)) {
+        wr.out("_ = " false)
+      }
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)

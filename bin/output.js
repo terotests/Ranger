@@ -25687,29 +25687,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return tn;
         };
-        isSwiftValueCollection (nn) {
-          if ( nn.value_type == 6 ) {
+        isSwiftValueTypeOf (t) {
+          if ( t == 6 ) {
             return true;
           }
-          if ( nn.value_type == 7 ) {
+          if ( t == 7 ) {
             return true;
           }
-          if ( nn.value_type == 16 ) {
+          if ( t == 16 ) {
             return true;
           }
-          if ( nn.value_type == 17 ) {
+          if ( t == 17 ) {
             return true;
           }
-          if ( nn.value_type == 18 ) {
+          if ( t == 18 ) {
             return true;
           }
-          if ( nn.value_type == 15 ) {
-            return true;
-          }
-          if ( this.isSwiftValueCollectionName(nn.type_name) ) {
+          if ( t == 15 ) {
             return true;
           }
           return false;
+        };
+        isSwiftValueCollection (nn) {
+          if ( this.isSwiftValueTypeOf(nn.value_type) ) {
+            return true;
+          }
+          return this.isSwiftValueTypeOf(nn.eval_type);
+        };
+        isSwiftValueType (nn) {
+          if ( this.isSwiftValueCollection(nn) ) {
+            return true;
+          }
+          if ( nn.value_type == 4 ) {
+            return true;
+          }
+          return nn.eval_type == 4;
         };
         paramNeedsLocalCopy (arg) {
           if ( arg.set_cnt < 1 ) {
@@ -25737,33 +25749,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
           };
         };
-        isSwiftValueCollectionName (tn) {
-          if ( tn == "buffer" ) {
-            return true;
-          }
-          if ( tn == "charbuffer" ) {
-            return true;
-          }
-          if ( tn == "int_buffer" ) {
-            return true;
-          }
-          if ( tn == "double_buffer" ) {
-            return true;
-          }
-          return false;
-        };
         paramNeedsInout (arg) {
           const nn = arg.nameNode;
           if ( nn.hasFlag("mutates") ) {
             return true;
           }
-          if ( arg.needs_swift_inout ) {
-            return true;
-          }
-          if ( arg.set_cnt > 0 && this.isSwiftValueCollection(nn) ) {
-            return true;
-          }
-          return false;
+          return arg.needs_swift_inout;
         };
         writeSwiftUnionEnums (ctx, wr) {
           if ( this.swift_unions_written ) {
@@ -25889,7 +25880,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             case "double_buffer" : 
               return "[Double]";
             case "char" : 
-              return "UInt8";
+              return "Int";
             case "boolean" : 
               return "Bool";
             case "double" : 
@@ -25939,7 +25930,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             case "double_buffer" : 
               return "[Double]";
             case "char" : 
-              return "UInt8";
+              return "Int";
             case "boolean" : 
               return "Bool";
             case "double" : 
@@ -25999,7 +25990,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("String", false);
               break;
             case 14 : 
-              wr.out("UInt8", false);
+              wr.out("Int", false);
               break;
             case 15 : 
               wr.out("[UInt8]", false);
@@ -26206,7 +26197,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( is_weak ) {
               wr.out(("weak var " + p.compiledName) + " : ", false);
             } else {
-              if ( (p.set_cnt > 0 || p.is_class_variable) || this.isSwiftValueCollection(nn) ) {
+              if ( ((p.set_cnt > 0 || p.is_class_variable) || p.needs_swift_inout) || p.is_mutating && this.isSwiftValueType(nn) ) {
                 wr.out(("var " + p.compiledName) + " : ", false);
               } else {
                 wr.out(("let " + p.compiledName) + " : ", false);
@@ -26373,8 +26364,45 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return false;
         };
+        callResultIsDiscarded (node, ctx) {
+          if ( ctx.expressionLevel() != 0 ) {
+            return false;
+          }
+          const fnDesc = this.resolveMethodFnDesc(node, ctx);
+          if ( typeof(fnDesc) === "undefined" ) {
+            return false;
+          }
+          const mm = fnDesc;
+          const retNode = mm.nameNode;
+          if ( typeof(retNode) === "undefined" ) {
+            return false;
+          }
+          const rn = retNode;
+          if ( rn.value_type == 0 ) {
+            return false;
+          }
+          if ( rn.type_name == "void" ) {
+            return false;
+          }
+          return true;
+        };
+        async writeSideEffectOnlyStmt (value, ctx, wr) {
+          if ( ctx.expressionLevel() == 0 ) {
+            wr.out("_ = ", false);
+          }
+          ctx.setInExpr();
+          await this.WalkNode(value, ctx, wr);
+          ctx.unsetInExpr();
+          if ( ctx.expressionLevel() == 0 ) {
+            wr.out(";", true);
+          }
+          wr.newline();
+        };
         async CreateCallExpression (node, ctx, wr) {
           if ( node.has_call ) {
+            if ( this.callResultIsDiscarded(node, ctx) ) {
+              wr.out("_ = ", false);
+            }
             const obj = node.getSecond();
             const method = node.getThird();
             const args = node.children[3];
@@ -68958,6 +68986,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return "";
                           };
+                          isValuePassedType (t) {
+                            if ( t == 6 ) {
+                              return true;
+                            }
+                            if ( t == 7 ) {
+                              return true;
+                            }
+                            if ( t == 16 ) {
+                              return true;
+                            }
+                            if ( t == 17 ) {
+                              return true;
+                            }
+                            if ( t == 18 ) {
+                              return true;
+                            }
+                            if ( t == 15 ) {
+                              return true;
+                            }
+                            return false;
+                          };
+                          isValuePassedCollection (typeNode) {
+                            if ( typeNode.array_type.length > 0 ) {
+                              return true;
+                            }
+                            if ( typeNode.key_type.length > 0 ) {
+                              return true;
+                            }
+                            if ( this.isValuePassedType(typeNode.value_type) ) {
+                              return true;
+                            }
+                            return this.isValuePassedType(typeNode.eval_type);
+                          };
                           markVarAsMutated (varName, fnCtx) {
                             if ( varName.length == 0 ) {
                               return;
@@ -68978,37 +69039,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   const typeNode = param.nameNode;
                                   if ( typeNode.array_type.length > 0 ) {
                                     param.needs_cpp_reference = true;
-                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated array function parameter)");
                                     }
                                   }
                                   if ( typeNode.key_type.length > 0 ) {
                                     param.needs_cpp_reference = true;
-                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated hash function parameter)");
                                     }
                                   }
                                   if ( typeNode.type_name == "int_buffer" ) {
                                     param.needs_cpp_reference = true;
-                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated int_buffer function parameter)");
                                     }
                                   }
                                   if ( typeNode.type_name == "double_buffer" ) {
                                     param.needs_cpp_reference = true;
-                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated double_buffer function parameter)");
                                     }
                                   }
                                   if ( typeNode.type_name == "buffer" ) {
                                     param.needs_cpp_reference = true;
-                                    param.needs_swift_inout = true;
                                     if ( this.debug ) {
                                       console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated buffer function parameter)");
+                                    }
+                                  }
+                                  if ( this.isValuePassedCollection(typeNode) ) {
+                                    param.needs_swift_inout = true;
+                                    if ( this.debug ) {
+                                      console.log(("StaticAnalysis: " + varName) + " needs Swift inout (mutated value-type parameter)");
                                     }
                                   }
                                   const v_type = typeNode.value_type;
@@ -69592,6 +69654,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             const argVarName = arg.vref;
                             if ( argVarName.length == 0 ) {
                               return;
+                            }
+                            if ( arg.hasParamDesc ) {
+                              if ( calleeSwiftInout ) {
+                                const argDesc = arg.paramDesc;
+                                if ( argDesc.needs_swift_inout == false ) {
+                                  argDesc.needs_swift_inout = true;
+                                  changedParams.push(argDesc.name);
+                                }
+                              }
                             }
                             const argParam = fnCtx.getVariableDef(argVarName);
                             if ( argParam.name.length == 0 ) {
