@@ -113,7 +113,7 @@ class AppleAppBuilder {
         if (sh.dryRun == false) {
             sdkPath = (tools.sdkPath(target.sdk))
             if ((strlen sdkPath) == 0) {
-                res.fail("the " + target.sdk + " SDK is not installed in the selected Xcode. `xcrun --sdk " + target.sdk + " --show-sdk-path` answered nothing.")
+                res.fail("the " + target.sdk + " SDK is not installed in the selected developer directory.\n`xcrun --sdk " + target.sdk + " --show-sdk-path` answered nothing.\n\nThe usual cause is that only the Command Line Tools are installed: they carry\nno platform SDK at all. Run the environment check -- for this app that is\n`npm run ui:ios:check` -- which says which it is and what to do.")
                 return res
             }
             this.say("* sdk         " + sdkPath + " (" + (tools.sdkVersion(target.sdk)) + ")")
@@ -417,27 +417,155 @@ class AppleAppBuilder {
 
     ; A one-shot readiness report. Run before a build so that "this Mac cannot
     ; build a watch app" is a sentence rather than a compiler error.
+    ; Right-pad, so the report reads as columns. There is no format operator and
+    ; a diagnostic nobody can scan is a diagnostic nobody reads.
+    fn pad:string (text:string width:int) {
+        def out:string text
+        while ((strlen out) < width) {
+            out = (out + " ")
+        }
+        return out
+    }
+
     fn checkEnvironment:[string] () {
         def out:[string]
         if ((tools.isAvailable()) == false) {
-            push out "xcrun            MISSING -- install Xcode or run xcode-select --install"
+            push out "xcrun            MISSING"
+            push out ""
+            push out "Install Xcode from the App Store, or run `xcode-select --install` for the"
+            push out "Command Line Tools -- but note that the Command Line Tools alone cannot"
+            push out "build an app: see below."
             return out
         }
-        push out ("developer dir    " + (tools.developerDir()))
-        push out ("swift            " + (tools.swiftVersion()))
+
+        def dev:string (tools.developerDir())
+        push out ("developer dir    " + dev)
+        def swiftProbe:ShellResult (tools.probeSwift())
+        if (swiftProbe.ok()) {
+            push out ("swift            " + (swiftProbe.outFirstLine()))
+        } {
+            push out "swift            xcrun could not answer -- see below"
+        }
         push out ("host arch        " + (tools.hostArch()))
+
+        ; THE thing that goes wrong, and it goes wrong silently. The Command
+        ; Line Tools are a compiler, a linker and git. Xcode.app is what carries
+        ; the iOS and watchOS SDKs, the simulator runtimes and devicectl -- so a
+        ; machine with only the Tools reports a working `xcrun` and then has
+        ; nothing to build an app with. `xcode-select -p` is the tell.
+        def toolsOnly:boolean ((indexOf dev "CommandLineTools") >= 0)
+
         def sdks:[string]
         push sdks "iphonesimulator"
         push sdks "iphoneos"
         push sdks "watchsimulator"
         push sdks "watchos"
+        def haveAnySdk:boolean false
+        ; Whatever xcrun said when it could not answer. One reason is enough --
+        ; the four SDKs fail for the same reason when they fail at all.
+        def whyNot:string ""
+        push out ""
         for sdks sdk:string i {
-            def p:string (tools.sdkPath(sdk))
-            if ((strlen p) > 0) {
-                push out (sdk + "  " + (tools.sdkVersion(sdk)) + "  " + p)
+            def label:string (this.pad(sdk 17))
+            def probe:ShellResult (tools.probeSdk(sdk))
+            def p:string (trim probe.out)
+            if (probe.ok()) {
+                if ((strlen p) > 0) {
+                    haveAnySdk = true
+                    push out (label + (this.pad((tools.sdkVersion(sdk)) 8)) + p)
+                } {
+                    push out (label + "not installed")
+                }
             } {
-                push out (sdk + "  not installed")
+                push out (label + "not installed")
+                if ((strlen whyNot) == 0) {
+                    whyNot = (probe.errText())
+                    if ((strlen whyNot) == 0) {
+                        whyNot = (probe.outText())
+                    }
+                }
             }
+        }
+
+        def sims:[AppleSimulator] (tools.listSimulators())
+        def haveCtl:boolean (tools.hasDeviceCtl())
+        push out ""
+        push out ("simulators       " + (array_length sims) + " available")
+        if haveCtl {
+            push out "devicectl        yes (a device on a cable can be installed onto)"
+        } {
+            push out "devicectl        MISSING (no install onto a real device)"
+        }
+
+        push out ""
+        if toolsOnly {
+            push out "This is the COMMAND LINE TOOLS, not Xcode."
+            push out ""
+            push out "They carry clang, swiftc for the Mac, and git. They do NOT carry the iOS or"
+            push out "watchOS SDKs, any simulator runtime, or devicectl -- so nothing here can"
+            push out "build an app for a phone, a tablet or a watch, and `xcrun` reporting fine"
+            push out "is what makes that confusing."
+            push out ""
+            ; Xcode being INSTALLED and Xcode being SELECTED are two different
+            ; things, and the second is one command. Telling someone who already
+            ; has it to spend an hour downloading it again is the wrong answer,
+            ; so the answer depends on which of the two is missing.
+            if (dir_exists "/Applications/Xcode.app") {
+                push out "Xcode IS installed at /Applications/Xcode.app -- it is simply not the one"
+                push out "selected. One command:"
+                push out ""
+                push out "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+                push out ""
+                push out "Then `npm run ui:ios:check` again."
+            } {
+                push out "  1. install Xcode from the App Store (it is large -- allow ~15 GB)"
+                push out "  2. open it once and let it finish installing components"
+                push out "  3. point the toolchain at it:"
+                push out "       sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+                push out "  4. get a simulator runtime, if step 2 did not:"
+                push out "       xcodebuild -downloadPlatform iOS"
+                push out "     (or Xcode > Settings > Platforms > iOS +)"
+                push out ""
+                push out "Then `npm run ui:ios:check` again, and `npm run ui:ios:run`."
+            }
+            return out
+        }
+        if (haveAnySdk == false) {
+            push out "Xcode is selected and no platform SDK answered."
+            if ((strlen whyNot) > 0) {
+                push out ""
+                push out "xcrun said:"
+                push out ("  " + whyNot)
+            }
+            push out ""
+            ; The three things that put a correctly selected Xcode in this
+            ; state, in the order they are worth trying. The licence is first
+            ; because it blocks every other tool with the same silence.
+            push out "In order of likelihood:"
+            push out ""
+            push out "  1. the licence has not been accepted -- this blocks every tool, quietly:"
+            push out "       sudo xcodebuild -license accept"
+            push out "  2. Xcode has never finished its first launch:"
+            push out "       sudo xcodebuild -runFirstLaunch"
+            push out "     (or open Xcode once and let it install its components)"
+            push out "  3. the platform itself was never downloaded -- Xcode 15 and later ship"
+            push out "     without the iOS platform and fetch it on demand:"
+            push out "       xcodebuild -downloadPlatform iOS"
+            push out "       xcodebuild -downloadPlatform watchOS"
+            push out "     (or Xcode > Settings > Platforms > +)"
+            push out ""
+            push out "Then `npm run ui:ios:check` again."
+            return out
+        }
+        if ((array_length sims) == 0) {
+            push out "SDKs are here but no simulator runtime is. `npm run ui:ios` builds the app;"
+            push out "`npm run ui:ios:run` needs a runtime:"
+            push out "  xcodebuild -downloadPlatform iOS      (or Xcode > Settings > Platforms)"
+            return out
+        }
+        push out "Ready: npm run ui:ios:run puts the app on a simulator."
+        if (haveCtl == false) {
+            push out "A real device needs Xcode 15 or later, for devicectl."
         }
         return out
     }

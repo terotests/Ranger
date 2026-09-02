@@ -16,16 +16,16 @@
 
 import CoreGraphics
 
-public final class RecordingSurface: EvgSurface {
+final class RecordingSurface: EvgSurface {
 
-    public private(set) var calls: [String: Int] = [:]
+    private(set) var calls: [String: Int] = [:]
     private let inner: EvgSurface?
 
-    public init(wrapping inner: EvgSurface? = nil) {
+    init(wrapping inner: EvgSurface? = nil) {
         self.inner = inner
     }
 
-    public func count(_ kind: String) -> Int {
+    func count(_ kind: String) -> Int {
         calls[kind] ?? 0
     }
 
@@ -33,31 +33,31 @@ public final class RecordingSurface: EvgSurface {
         calls[kind, default: 0] += 1
     }
 
-    public var summary: String {
+    var summary: String {
         calls.keys.sorted().map { "\($0)=\(calls[$0]!)" }.joined(separator: "  ")
     }
 
-    public func save() {
+    func save() {
         note("save")
         inner?.save()
     }
 
-    public func restore() {
+    func restore() {
         note("restore")
         inner?.restore()
     }
 
-    public func clipRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
+    func clipRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
         note("clipRect")
         inner?.clipRect(x: x, y: y, w: w, h: h)
     }
 
-    public func rotate(degrees: CGFloat, px: CGFloat, py: CGFloat) {
+    func rotate(degrees: CGFloat, px: CGFloat, py: CGFloat) {
         note("rotate")
         inner?.rotate(degrees: degrees, px: px, py: py)
     }
 
-    public func fillRect(
+    func fillRect(
         x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
         radius: CGFloat, color: EvgColor,
         gradient: EvgGradient?, shadow: EvgShadow?
@@ -69,7 +69,7 @@ public final class RecordingSurface: EvgSurface {
         inner?.fillRect(x: x, y: y, w: w, h: h, radius: radius, color: color, gradient: gradient, shadow: shadow)
     }
 
-    public func strokeRect(
+    func strokeRect(
         x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
         radius: CGFloat, thickness: CGFloat, color: EvgColor
     ) {
@@ -77,7 +77,7 @@ public final class RecordingSurface: EvgSurface {
         inner?.strokeRect(x: x, y: y, w: w, h: h, radius: radius, thickness: thickness, color: color)
     }
 
-    public func fillPath(
+    func fillPath(
         pts: [Double], ringEnds: [Int], evenOdd: Bool,
         color: EvgColor, shadow: EvgShadow?
     ) {
@@ -86,12 +86,12 @@ public final class RecordingSurface: EvgSurface {
         inner?.fillPath(pts: pts, ringEnds: ringEnds, evenOdd: evenOdd, color: color, shadow: shadow)
     }
 
-    public func strokePath(pts: [Double], ringEnds: [Int], thickness: CGFloat, color: EvgColor) {
+    func strokePath(pts: [Double], ringEnds: [Int], thickness: CGFloat, color: EvgColor) {
         note("strokePath")
         inner?.strokePath(pts: pts, ringEnds: ringEnds, thickness: thickness, color: color)
     }
 
-    public func drawImage(
+    func drawImage(
         src: String, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
         radius: CGFloat, flipH: Bool, flipV: Bool
     ) {
@@ -99,7 +99,7 @@ public final class RecordingSurface: EvgSurface {
         inner?.drawImage(src: src, x: x, y: y, w: w, h: h, radius: radius, flipH: flipH, flipV: flipV)
     }
 
-    public func drawTextRun(
+    func drawTextRun(
         text: String, x: CGFloat, top: CGFloat, sizePx: CGFloat,
         family: String, bold: Bool, italic: Bool, color: EvgColor
     ) {
