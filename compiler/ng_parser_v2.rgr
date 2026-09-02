@@ -1311,6 +1311,62 @@ class RangerLispParser {
                 pTarget = rn
               }
             }
+            ; ISSUES.md #76. `recv.call(args).field = value` scans the trailing
+            ; `.field` as a vref whose NAME BEGINS WITH A DOT: the receiver in
+            ; front of it was the call, which has already been folded into a
+            ; group. Nothing downstream knows what to do with that shape, so
+            ; the statement degraded to just the call and the STORE VANISHED
+            ; with a clean compile — silent wrong-code generation, the same
+            ; severity as #65 and by the one route #65's guard does not cover
+            ; (that guard catches a PARENTHESISED receiver; this is the bare
+            ; one).
+            ;
+            ; Two other shapes reach here with a dot-leading vref and are both
+            ; LEGAL, so the test is not "does it lead with a dot" but what
+            ; follows it:
+            ;
+            ;   `b.at(0).rename(x)`   next is `(` — a chained method CALL. The
+            ;                         existing fold handles it and it emits
+            ;                         `((b).at(0)).rename(x)` correctly.
+            ;   `((b.at(0)).name)`    next is `)` — a READ inside an
+            ;                         expression, which has always worked.
+            ;   `b.at(0).name = x`    next is `=` — the broken assignment.
+            ;
+            ; `==` is excluded so a comparison on a call result stays a legal
+            ; read. Measured with an instrumented parser rather than reasoned
+            ; about: the three shapes were run and their following character
+            ; recorded.
+            if ((strlen new_vref_node.vref) > 1) {
+              if ((charAt new_vref_node.vref 0) == ((ccode "."))) {
+                def lk76:int i
+                while ((lk76 < len) && (((charAt s lk76)) <= 32)) {
+                  lk76 = lk76 + 1
+                }
+                def isAssign76:boolean false
+                if (lk76 < len) {
+                  if (((charAt s lk76)) == ((ccode "="))) {
+                    isAssign76 = true
+                    if ((lk76 + 1) < len) {
+                      if (((charAt s (lk76 + 1))) == ((ccode "="))) {
+                        isAssign76 = false
+                      }
+                    }
+                  }
+                }
+                if isAssign76 {
+                  def err76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                  def line76:int (err76.getLine())
+                  print ((err76.getFilename()) + " Line: " + line76)
+                  print "Parser error: a field of a call result can not be assigned to directly."
+                  print (err76.getLineString(line76))
+                  print "The assignment would be silently dropped. Bind the call result first:"
+                  print "    def recv:SomeType (the.call())"
+                  print "    recv.field = value"
+                  had_error = true
+                  break
+                }
+              }
+            }
             push pTarget.children new_vref_node
             if (vref_had_type_ann) {
               new_vref_node.vref_annotation = vref_ann_node

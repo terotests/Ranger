@@ -7138,6 +7138,37 @@ class RangerLispParser  {
                 pTarget = rn;
               }
             }
+            if ( (new_vref_node.vref.length) > 1 ) {
+              if ( (new_vref_node.vref.charCodeAt(0 )) == (46) ) {
+                let lk76 = this.i;
+                while ((lk76 < this.__len) && ((s.charCodeAt(lk76 )) <= 32)) {
+                  lk76 = lk76 + 1;
+                };
+                let isAssign76 = false;
+                if ( lk76 < this.__len ) {
+                  if ( (s.charCodeAt(lk76 )) == (61) ) {
+                    isAssign76 = true;
+                    if ( (lk76 + 1) < this.__len ) {
+                      if ( (s.charCodeAt((lk76 + 1) )) == (61) ) {
+                        isAssign76 = false;
+                      }
+                    }
+                  }
+                }
+                if ( isAssign76 ) {
+                  const err76 = new CodeNode(this.code, sp, ep);
+                  const line76 = err76.getLine();
+                  console.log((err76.getFilename() + " Line: ") + line76);
+                  console.log("Parser error: a field of a call result can not be assigned to directly.");
+                  console.log(err76.getLineString(line76));
+                  console.log("The assignment would be silently dropped. Bind the call result first:");
+                  console.log("    def recv:SomeType (the.call())");
+                  console.log("    recv.field = value");
+                  this.had_error = true;
+                  break;
+                }
+              }
+            }
             pTarget.children.push(new_vref_node);
             if ( vref_had_type_ann ) {
               new_vref_node.vref_annotation = vref_ann_node;

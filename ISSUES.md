@@ -10,6 +10,7 @@
 - Issue #68: Rust `main:int` emitted `return <code>` into a `fn main()` that returns `()` — never compiled. Body now runs as a closure feeding `std::process::exit`, so the exit status survives (July 2026)
 - Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiled on every backend. Now a parse error naming the correct spelling (July 2026)
 - Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]`. The C++ writer moved off C99 compound literals to `std::vector<T>{...}` at the same time (July 2026)
+- Issue #76: `recv.call(args).field = value` compiled and SILENTLY DROPPED the assignment — the call was emitted, the store was not - Parser now rejects it with the fix in the message (September 2026)
 - Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
@@ -21,7 +22,6 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
-- Issue #76: `recv.method(args).field = value` at statement level compiles and SILENTLY DROPS the assignment — the call is emitted, the store is not. Same family and same severity as #65, through the path #65's guard does not cover: that guard catches the *parenthesised* receiver, this is the bare one (September 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
@@ -270,7 +270,7 @@ compile; `main:void` untouched; runtime element values unchanged).
 
 ## Issue #76: Assigning to a field of a call result silently drops the assignment
 
-**Status:** Open
+**Status:** Fixed — the parser now rejects it (September 2026)
 **Severity:** **Critical** (silent wrong-code generation; no diagnostic at all)
 **Found:** September 2026, drawing the ReUI stepper in `gallery/ui/demo/ControlsDemo.rgr`
 **Targets:** front-end, so every backend inherits it
@@ -372,17 +372,51 @@ That leaves the symbol/vref scanner in `ng_parser_v2.rgr`, which appears to
 absorb the trailing `.field` into the chain it is building and then drop it
 when the statement turns out to be an assignment rather than a call.
 
-### Two ways to close it
+### The fix
 
-1. **Reject it**, with #65's existing message — "bind the receiver to a local
-   first". Small, and consistent with the decision already taken for the
-   parenthesised spelling. Turns a silent miscompile into the diagnostic that
-   already exists a few lines away in `ng_parser_v2.rgr`.
-2. **Make it work** — emit the store. Nicer to write, and what a reader of the
-   line expects, but a codegen change rather than a parser one.
+The trailing `.field` is scanned as a vref **whose name begins with a dot** —
+there is no receiver in front of it, because the receiver was the call, already
+folded into a group. Nothing downstream knows that shape, so the statement
+collapsed to the call alone.
 
-Either is an improvement on silence. The second is the one that makes the
-language do what the line says.
+Two other shapes reach the same point with a dot-leading vref and are both
+legal, so the test is not "does it lead with a dot" but *what follows it*.
+Established by instrumenting the parser and running all three, rather than by
+reasoning:
+
+| source | next char | meaning |
+|---|---|---|
+| `b.at(0).rename(x)` | `(` | chained method CALL — folds correctly today |
+| `((b.at(0)).name)` | `)` | READ inside an expression — always worked |
+| `b.at(0).name = x` | `=` | the broken assignment |
+
+So the guard fires on a dot-leading vref followed by `=`, excluding `==` so a
+comparison on a call result stays a legal read. `ng_parser_v2.rgr`, beside the
+guard added for #65.
+
+The message names the repair, because the shape has one:
+
+```
+Parser error: a field of a call result can not be assigned to directly.
+        b.first().name = "zeroarg"
+The assignment would be silently dropped. Bind the call result first:
+    def recv:SomeType (the.call())
+    recv.field = value
+```
+
+### What was NOT done, and why
+
+Making the syntax *work* — emitting the store — was tried and abandoned. The
+obvious route is the operator declaration in `Lang.rgr`,
+`= cmdAssign:void ( target:vref expr:expression )`: a call chain is not a plain
+`vref`, so no overload can match. Adding a sibling overload with an expression
+target and rebuilding the compiler changes nothing; the statement never reaches
+operator matching in this shape. Recorded so the next person does not spend an
+afternoon on it.
+
+That leaves it a feature rather than a fix: the language now refuses the shape
+and says what to write instead, which is what #65 chose for its own spelling.
+Nothing in the repository used the pattern, so nothing had to change.
 
 ---
 
