@@ -129,12 +129,14 @@
 /* role=status with a live region behind it: arrowing into another month has to
  * be announced, because the grid moves under the reader without them asking. */
 .cd-caption {
-  color: #18181b;
-  font-size: 14px;
-  font-weight: bold;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 180px;
-  height: 20px;
-  text-align: center;
+  height: 24px;
 }
 
 .cd-grid {
@@ -240,3 +242,92 @@
   width: 560px;
   height: 36px;
 }
+
+/* --- reaching a year -------------------------------------------------------
+ *
+ * Reported: the calendar had previous/next month arrows and nothing else, so
+ * 2019 was forty-eight clicks away. react-day-picker's answer is a native
+ * `<select>`; a canvas kit has none, so this is the scrollable panel the
+ * request described. The BEHAVIOUR of choosing a year is measured against the
+ * reference (`ui:calendar:check`); this appearance is not, and does not claim
+ * to be. */
+.cd-monthtxt {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: bold;
+  height: 20px;
+  text-align: right;
+  width: 96px;
+}
+
+.cd-yearbtn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 22px;
+  border-radius: 6px;
+  background-color: #f4f4f5;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.cd-yearbtn:hover { background-color: #e4e4e7; }
+.cd-yearbtn:active { background-color: #d4d4d8; }
+
+.cd-yeartxt {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: bold;
+  height: 20px;
+  width: 44px;
+  text-align: center;
+}
+
+/* Bounded height with a scroller: twenty-one years is taller than the grid,
+ * and the point of the panel is to reach a year without the calendar growing
+ * a page. */
+.cd-yearpanel {
+  display: flex;
+  flex-direction: column;
+  width: 88px;
+  height: 200px;
+  /* `overflow: hidden` with a definite height IS the scroller here — the
+   * engine clamps `scrollTop` to what there is and the demo sets it. There is
+   * no `overflow-y`; `overflow` is the only one parsed. */
+  overflow: hidden;
+  position: relative;
+  padding: 4px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+
+.cd-yearopt {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 26px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 100ms ease-out;
+}
+
+.cd-yearopt:hover { background-color: #f4f4f5; }
+
+.cd-yearopt-on {
+  background-color: #18181b;
+}
+
+.cd-yearopttx {
+  color: #3f3f46;
+  font-size: 13px;
+  height: 18px;
+  width: 60px;
+  text-align: center;
+}
+
+.cd-yearopttx-on { color: #ffffff; }

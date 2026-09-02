@@ -371,6 +371,180 @@ async function captureDisabled(page) {
 }
 
 /**
+ * The year navigation, which the default capture cannot see.
+ *
+ * Reported: the calendar has no way to reach a year — only previous/next
+ * month arrows, so getting to 2019 is forty-eight clicks. The reference has
+ * one, and `captionLayout` is "label" unless you ask, so a calendar built
+ * from the default capture is missing it by construction rather than by
+ * oversight.
+ *
+ * Four questions, and none of their answers were guessable:
+ *
+ *   1. WHAT APPEARS. "dropdown" gives two selects, "dropdown-years" gives one
+ *      and leaves the month as a label. The nav arrows stay either way.
+ *   2. WHAT YEARS, with no bounds given.
+ *   3. WHAT YEARS, bounded, and which way round.
+ *   4. WHAT CHANGING ONE DOES to the month, the focus and the selection.
+ */
+const readCaption = (page) =>
+  page.evaluate(() => {
+    // The selects carry no `name`; the accessible label is the handle, which
+    // is itself the answer to "what does a reader call these".
+    const sel = (label) => document.querySelector(`select[aria-label="${label}"]`);
+    const read = (label) => {
+      const s = sel(label);
+      if (!s) return null;
+      return {
+        label,
+        value: s.value,
+        options: [...s.options].map((o) => ({ value: o.value, text: o.textContent, disabled: o.disabled })),
+      };
+    };
+    const days = [...document.querySelectorAll("[data-day]")];
+    return {
+      months: read("Choose the Month"),
+      years: read("Choose the Year"),
+      nav: [...document.querySelectorAll(".rdp-nav button")].map((b) => ({
+        label: b.getAttribute("aria-label"),
+        disabled: b.disabled,
+      })),
+      firstCell: days.length ? days[0].getAttribute("data-day") : null,
+      cells: days.length,
+      tabbable: days
+        .map((d) => d.querySelector("button"))
+        .filter((b) => b && b.tabIndex === 0)
+        .map((b) => b.closest("[data-day]").getAttribute("data-day")),
+      selected: days
+        .map((d) => d.querySelector("button"))
+        .filter((b) => b && b.getAttribute("aria-selected") === "true")
+        .map((b) => b.closest("[data-day]").getAttribute("data-day")),
+    };
+  });
+
+const yearsOf = (cap) => (cap.years ? cap.years.options.map((o) => Number(o.value)) : []);
+
+async function captureYearNav(open) {
+  const out = {};
+
+  // 1. What appears, in each layout.
+  {
+    const p = await open({ captionLayout: "dropdown" });
+    const cap = await readCaption(p);
+    const ys = yearsOf(cap);
+    out.dropdownUnbounded = {
+      hasMonthSelect: cap.months !== null,
+      hasYearSelect: cap.years !== null,
+      navKept: cap.nav.map((n) => n.label),
+      yearCount: ys.length,
+      firstYear: ys[0],
+      lastYear: ys[ys.length - 1],
+      viewYear: cap.years.value,
+      $comment:
+        "No bounds given: the list runs a hundred years BACK from the " +
+        "current year and stops there, ascending. So out of the box the " +
+        "dropdown cannot reach next year at all — the range is a decision " +
+        "the host has to make, not a default worth copying.",
+    };
+    await p.close();
+  }
+  {
+    const p = await open({ captionLayout: "dropdown-years", startMonth: "2020-01-01", endMonth: "2030-12-01" });
+    const cap = await readCaption(p);
+    out.dropdownYearsOnly = {
+      hasMonthSelect: cap.months !== null,
+      hasYearSelect: cap.years !== null,
+      $comment: '"dropdown-years" is the year alone; the month stays a label.',
+    };
+    await p.close();
+  }
+
+  // 2 and 3. The bounded list, both directions.
+  {
+    const p = await open({ captionLayout: "dropdown", startMonth: "2020-01-01", endMonth: "2030-12-01" });
+    const cap = await readCaption(p);
+    out.bounded = {
+      years: yearsOf(cap),
+      monthValues: cap.months.options.map((o) => o.value),
+      monthTexts: cap.months.options.map((o) => o.text),
+      monthValueOfMay: cap.months.value,
+      $comment:
+        "The year list is exactly the bounded years, ascending. Month " +
+        "option values are ZERO-BASED indices, not month numbers.",
+    };
+    await p.close();
+  }
+  {
+    const p = await open({ captionLayout: "dropdown", startMonth: "2020-01-01", endMonth: "2030-12-01", reverseYears: true });
+    out.reversed = { years: yearsOf(await readCaption(p)) };
+    await p.close();
+  }
+
+  // A range narrow enough that most months are out of it.
+  {
+    const p = await open({ captionLayout: "dropdown", startMonth: "2026-05-01", endMonth: "2026-07-01" });
+    const cap = await readCaption(p);
+    out.narrowBounds = {
+      years: yearsOf(cap),
+      monthsEnabled: cap.months.options.filter((o) => !o.disabled).map((o) => o.text),
+      monthsDisabled: cap.months.options.filter((o) => o.disabled).map((o) => o.text),
+      nav: cap.nav,
+      $comment:
+        "A month outside the range is DISABLED, not removed: the list is " +
+        "always twelve long, so it does not reflow as you move through the " +
+        "range. The nav arrows are not bounded by it in this version.",
+    };
+    await p.close();
+  }
+
+  // 4. What changing one does.
+  {
+    const p = await open({ captionLayout: "dropdown", startMonth: "2020-01-01", endMonth: "2030-12-01" });
+    const before = await readCaption(p);
+    await p.selectOption('select[aria-label="Choose the Year"]', "2023");
+    await p.waitForTimeout(150);
+    const afterYear = await readCaption(p);
+    await p.selectOption('select[aria-label="Choose the Month"]', "1");
+    await p.waitForTimeout(150);
+    const afterMonth = await readCaption(p);
+    out.changing = {
+      before: { year: before.years.value, month: before.months.value, cells: before.cells, tabbable: before.tabbable },
+      afterYear: { year: afterYear.years.value, month: afterYear.months.value, cells: afterYear.cells, tabbable: afterYear.tabbable },
+      afterMonth: { year: afterMonth.years.value, month: afterMonth.months.value, cells: afterMonth.cells, tabbable: afterMonth.tabbable },
+      $comment:
+        "Changing the year KEEPS the month index and vice versa. The grid " +
+        "reshapes — May 2026 is six rows and May 2023 is five — and the tab " +
+        "stop moves to the FIRST of the shown month rather than staying on " +
+        "the same day number, which is the part a re-implementation gets " +
+        "wrong: keeping the day number would land on a day that may not " +
+        "exist in the new month.",
+    };
+    await p.close();
+  }
+
+  // A selection made before the jump.
+  {
+    const p = await open({ captionLayout: "dropdown", startMonth: "2020-01-01", endMonth: "2030-12-01" });
+    await p.locator('[data-day="2026-05-20"] button').click();
+    await p.waitForTimeout(120);
+    await p.selectOption('select[aria-label="Choose the Year"]', "2024");
+    await p.waitForTimeout(150);
+    const cap = await readCaption(p);
+    out.selectionSurvives = {
+      selectedValue: await p.evaluate(() => (window.__selected ? new Date(window.__selected).toISOString().slice(0, 10) : null)),
+      markedInView: cap.selected,
+      $comment:
+        "Jumping the year does not clear the selection — it just takes it " +
+        "off screen. Nothing in the shown month is marked, and coming back " +
+        "to May 2026 finds it still there.",
+    };
+    await p.close();
+  }
+
+  return out;
+}
+
+/**
  * What the numbers above mean, written after reading them rather than before.
  *
  * This block is prose about the capture and is not itself measured — every
@@ -458,6 +632,19 @@ await page2.waitForFunction("window.__READY__ === true", null, { timeout: 20000 
 await page2.waitForTimeout(150);
 const disabled = await captureDisabled(page2);
 
+// The year navigation, each layout in its own page: `captionLayout` is read
+// at mount, so these cannot share one.
+const openWith = async (opts) => {
+  const p = await browser.newPage();
+  p.on("pageerror", (e) => console.error("PAGEERROR:", e.message));
+  await p.addInitScript(`window.__CAL__ = ${JSON.stringify(opts)};`);
+  await p.goto(url);
+  await p.waitForFunction("window.__READY__ === true", null, { timeout: 20000 });
+  await p.waitForTimeout(150);
+  return p;
+};
+const yearNav = await captureYearNav(openWith);
+
 const version = createRequire(path.join(DOM_DIR, "package.json"))(
   "react-day-picker/package.json",
 ).version;
@@ -474,6 +661,7 @@ fs.writeFileSync(
       today: "2026-05-14",
       ...main,
       disabledFixture: disabled,
+      yearNav,
       findings: FINDINGS,
     },
     null,
@@ -484,3 +672,9 @@ console.log("wrote " + path.relative(process.cwd(), file) + "  (react-day-picker
 console.log("grid: " + main.shape.weeks + " weeks, " + main.shape.leadingOutside + " leading / " + main.shape.trailingOutside + " trailing outside days");
 console.log("tab stop at rest: " + JSON.stringify(main.initialFocus.tabbable));
 console.log("middle walks: " + main.keyboardMiddle.map((w) => w.key + "->" + w.to).join("  "));
+console.log("year nav: unbounded " + yearNav.dropdownUnbounded.firstYear + ".." + yearNav.dropdownUnbounded.lastYear
+  + " (" + yearNav.dropdownUnbounded.yearCount + ")"
+  + ", bounded " + yearNav.bounded.years[0] + ".." + yearNav.bounded.years[yearNav.bounded.years.length - 1]
+  + ", reversed starts " + yearNav.reversed.years[0]);
+console.log("year jump: " + yearNav.changing.before.tabbable + " -> " + yearNav.changing.afterYear.tabbable
+  + " (" + yearNav.changing.before.cells + " cells -> " + yearNav.changing.afterYear.cells + ")");

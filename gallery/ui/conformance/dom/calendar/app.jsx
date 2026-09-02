@@ -32,6 +32,16 @@ function App() {
   // Some questions only have answers when a day cannot be picked: what an
   // arrow key does when it lands on one, and whether a click is ignored.
   if (opts.disabledBefore) extra.disabled = { before: new Date(opts.disabledBefore) };
+  // The year navigation. It EXISTS in this library and is off by default —
+  // `captionLayout` is "label" unless you ask for a dropdown — which is why a
+  // calendar built from the default capture has previous/next arrows and no
+  // way to reach a year five back. `startMonth`/`endMonth` are what bound the
+  // year list; without them the library picks a range of its own, and the
+  // point of the capture is to learn which.
+  if (opts.captionLayout) extra.captionLayout = opts.captionLayout;
+  if (opts.startMonth) extra.startMonth = new Date(opts.startMonth);
+  if (opts.endMonth) extra.endMonth = new Date(opts.endMonth);
+  if (opts.reverseYears) extra.reverseYears = true;
   return (
     <DayPicker
       mode="single"

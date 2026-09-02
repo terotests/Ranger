@@ -588,6 +588,129 @@ console.log("--- the filter bar filters, in a browser ---");
   ok("and a reader is told the count, as a status", spoken === "1 of 6 tasks", spoken);
 }
 
+console.log("--- the calendar: reaching a year ---");
+{
+  // Reported: the calendar looked right and had no way to a year — 2019 was
+  // forty-eight presses of the previous-month arrow. `ui:calendar:check`
+  // gates what a jump DOES against react-day-picker and `ui:calendar:demo`
+  // gates the drawn panel; what only a page can check is the WHEEL, because
+  // the page owns that event and hands it to the demo, and a panel taller
+  // than its box with no way to scroll it is a list with most of its years
+  // out of reach.
+  await page.click('#demos input[value="calendar"]');
+  await page.waitForTimeout(300);
+
+  const origin = await page.evaluate(() => {
+    const b = document.querySelector("#stage canvas").getBoundingClientRect();
+    return { x: b.x, y: b.y };
+  });
+  // The display list does NOT clip to a scroll container — the painter does —
+  // so a year scrolled out of the panel is still in it, at a y outside the
+  // panel's box. Reading the SET of year texts therefore says the same thing
+  // however far the panel is scrolled, which is how this block first passed
+  // its "a list appears" assertion while its wheel assertions compared two
+  // identical strings. Positions are what carry the answer.
+  //
+  // An option's number is 60 wide (`.cd-yearopttx`) and the caption's year is
+  // 44 (`.cd-yeartxt`), which is what tells the two apart.
+  const opts = () =>
+    page.evaluate(() => {
+      const l = JSON.parse(window.__lastList || '{"cmds":[]}');
+      return (l.cmds || [])
+        .filter((c) => typeof c.text === "string" && /^\d{4}$/.test(c.text) && Math.abs(c.w - 60) < 1)
+        .map((c) => ({ year: c.text, x: c.x + c.w / 2, y: c.y + c.h / 2 }));
+    });
+  const captionYear = () =>
+    page.evaluate(() => {
+      const l = JSON.parse(window.__lastList || '{"cmds":[]}');
+      const c = (l.cmds || []).find((x) => typeof x.text === "string" && /^\d{4}$/.test(x.text) && Math.abs(x.w - 44) < 1);
+      return c ? { year: c.text, x: c.x + c.w / 2, y: c.y + c.h / 2 } : null;
+    });
+  // The panel's own box, so "visible" can be asked properly.
+  const panelBox = () =>
+    page.evaluate(() => {
+      const l = JSON.parse(window.__lastList || '{"cmds":[]}');
+      const c = (l.cmds || []).find((x) => Math.abs(x.w - 88) < 1 && Math.abs(x.h - 200) < 1);
+      return c ? { top: c.y, bottom: c.y + c.h } : null;
+    });
+  const mirror = (id, what) =>
+    page.evaluate(([i, w]) => {
+      const el = document.querySelector(`[data-a11y-id="${i}"]`);
+      if (!el) return "(absent)";
+      return w === "tag" ? el.tagName : el.getAttribute(w);
+    }, [id, what]);
+
+  const cap = await captionYear();
+  ok("the caption shows a year", cap && cap.year === "2026", JSON.stringify(cap));
+  ok("no panel is drawn while it is shut", (await opts()).length === 0,
+    JSON.stringify(await opts()));
+  // The mirror renders role=button as a real <button>, which already carries
+  // the role, so the tag is the thing to look at and not a role attribute.
+  ok("the year is a button in the mirror", (await mirror("cal-year", "tag")) === "BUTTON",
+    await mirror("cal-year", "tag"));
+  ok("reported collapsed", (await mirror("cal-year", "aria-expanded")) === "false",
+    await mirror("cal-year", "aria-expanded"));
+
+  await page.mouse.click(origin.x + cap.x, origin.y + cap.y);
+  await page.waitForTimeout(200);
+  ok("pressing it expands the year", (await mirror("cal-year", "aria-expanded")) === "true",
+    await mirror("cal-year", "aria-expanded"));
+  const opened = await opts();
+  ok("a list of years appears", opened.length === 21, String(opened.length));
+  const box = await panelBox();
+  const inside = (o) => box && o.y >= box.top && o.y <= box.bottom;
+  ok("parked on the year it is on", opened.some((o) => o.year === "2026" && inside(o)),
+    JSON.stringify(opened.filter((o) => o.year === "2026")));
+  // A scroller, not a list that happens to fit: with 21 years at 26px in a
+  // 200px box, some of them have to be outside it.
+  ok("and years beyond the box are out of view", opened.some((o) => !inside(o)),
+    JSON.stringify(box));
+
+  // The wheel. This is the assertion that needs a page: `scroll(dy)` is
+  // plumbed by main.js and the offline check calls `scrollBy` directly, so a
+  // panel that scrolls in the demo and not under a real wheel would pass
+  // everything else.
+  const yOf = (list, y) => (list.find((o) => o.year === y) || {}).y;
+  const before2026 = yOf(opened, "2026");
+  await page.mouse.move(origin.x + cap.x, origin.y + cap.y + 60);
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(200);
+  const afterUp = await opts();
+  ok("the wheel scrolls the panel", yOf(afterUp, "2026") === before2026 + 120,
+    `${before2026} -> ${yOf(afterUp, "2026")}`);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(200);
+  ok("and back", yOf(await opts(), "2026") === before2026,
+    `${yOf(await opts(), "2026")} vs ${before2026}`);
+
+  // Down far enough to bring an older year into the box, then choose the one
+  // that is actually visible. Clicking a year drawn outside the panel is
+  // clicking through it, which is what made this look broken the first time.
+  await page.mouse.wheel(0, 160);
+  await page.waitForTimeout(200);
+  const scrolled = await opts();
+  const box2 = await panelBox();
+  const visible = scrolled.filter((o) => o.y >= box2.top + 14 && o.y <= box2.bottom - 14);
+  const pick = visible.find((o) => Number(o.year) < 2026);
+  ok("an older year is now inside the panel", !!pick,
+    JSON.stringify(visible.map((o) => o.year)));
+  await page.mouse.click(origin.x + pick.x, origin.y + pick.y);
+  await page.waitForTimeout(250);
+  const nowCap = await captionYear();
+  ok("choosing it moves the calendar", nowCap && nowCap.year === pick.year,
+    `${JSON.stringify(nowCap)} want ${pick.year}`);
+  ok("and the panel closed behind it", (await opts()).length === 0,
+    String((await opts()).length));
+  ok("collapsed again in the mirror", (await mirror("cal-year", "aria-expanded")) === "false",
+    await mirror("cal-year", "aria-expanded"));
+  // The month is kept, which is the reference's rule and is measured in
+  // `ui:calendar:check`; this is it surviving the trip through the page.
+  const texts = await page.evaluate(() =>
+    JSON.parse(window.__lastList || '{"cmds":[]}').cmds
+      .filter((c) => typeof c.text === "string").map((c) => c.text));
+  ok("keeping the month it was on", texts.includes("May"), texts.slice(0, 8).join("/"));
+}
+
 console.log("--- the controls demo, and the modifier the page nearly dropped ---");
 {
   // The large step lives on SHIFT and is the least guessable thing the number

@@ -56,3 +56,25 @@ distinction is the point of the table.
 `npm run ui:layout:check` prints a count per demo. The baseline it starts from
 is recorded in `layout-baseline.json` beside it, so a change that improves one
 demo and breaks another cannot read as progress.
+
+## Progress
+
+Layout faults, by `npm run ui:layout:check`: **51 → 45 → 41 → 25**.
+
+| defect | state |
+|---|---|
+| Controls page layout | fixed — `.cx-page` had a fixed `height`, `.cx-strip` a fixed height and wrapping |
+| Sliders | fixed — the controller had the pointer and the keyboard since it was measured; the demo called none of it, and the page threw the x away. `ui:controls:demo` 90 → 128, `ui:demo:page` +11, mutation-proved |
+| Event calendar Day/Week/Month | fixed against `@schedule-x/calendar` 4.7.0, whose runtime `setView` throws — so the oracle app takes `?view=` and loads fresh per view. `ui:eventcal:demo` 29 → 47 |
+| Select dropdown | fixed — opens, keyboard-navigable, dismissed by a click outside. `ui:profile:check` 42 → 66 |
+| Password eye | fixed — `position: absolute` was silently unparsed, which is also most of what made the sliders and the controls page look wrong |
+| Calendar year navigation | fixed — measured against `captionLayout="dropdown"`; the scrollable panel is specified, and says so. `CALENDAR_MATRIX.md` is the requested feature matrix |
+| Filters demo | 1 layout fault left (`fd-menu`) |
+| Message composer | outstanding — specified, no library reference |
+| Form page calendar | outstanding |
+| Time selector | outstanding — benchmark is the browser's own `<input type="time">` |
+
+Two engine defects were found on the way and are the reason several of the
+reports had one cause: **`flex-grow` and `position` were both parsed by
+nobody**. Each now has an oracle (`evg:flexgrow:check`, six Chromium-measured
+cases) or a gate that would have caught it.

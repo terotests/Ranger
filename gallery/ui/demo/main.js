@@ -692,6 +692,11 @@ const DEMOS = {
     hit: (x, y) => calendar.hitId(x, y),
     a11y: (gen, focus) => calendar.a11yJson(gen, focus),
     press: (id) => calendar.press(id),
+    // The year panel is a real scroller: twenty-one years is taller than the
+    // grid, and reaching one without the calendar growing a page is the whole
+    // point of it. Returns false while the panel is shut, which the page reads
+    // as "not mine" and scrolls itself instead.
+    scroll: (dy) => calendar.scrollBy(dy),
     hover: (id) => {
       if (id === lastCalendarHover) return false;
       lastCalendarHover = id;
